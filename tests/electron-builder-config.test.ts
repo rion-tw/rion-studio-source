@@ -47,9 +47,13 @@ describe("electron-builder release configuration", () => {
         {
           from: "build/native/win32-x64/rion-core.node",
           to: "native/rion-core.node"
+        },
+        {
+          from: "build/native/win32-x64/rion-webview2.node",
+          to: "native/rion-webview2.node"
         }
       ],
-      signExts: ["rion-core.node"]
+      signExts: ["rion-core.node", "rion-webview2.node"]
     });
     expect(config.nsis).toMatchObject({
       oneClick: false,

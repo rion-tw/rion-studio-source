@@ -28,12 +28,13 @@ use crate::{
     macro_runtime::MacroRuntime,
     model::{
         AppCoreOptions, BrowserActionResult, BrowserOperationRequest, BrowserRuntimeCommand,
-        CdnResolutionRecord, ChromeProfileImportProgressRecord, ChromeProfileImportedSessionRecord,
-        CompatibilityCheckOutcome, CompatibilityRunPhase, CompatibilityVersionRecord, CoreCommand,
-        CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEvent,
-        DiagnosticExportResultRecord, ElectronDiagnosticsSnapshotRecord,
-        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, ExternalChromeDiagnosticsRecord,
+        BrowserSessionSource, CdnResolutionRecord, ChromeProfileImportProgressRecord,
+        ChromeProfileImportedSessionRecord, CompatibilityCheckOutcome, CompatibilityRunPhase,
+        CompatibilityVersionRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+        CoreEffectResult, CoreEffectTarget, CoreEvent, DiagnosticExportResultRecord,
+        ElectronDiagnosticsSnapshotRecord, EmbeddedBrowserEngine, EmbeddedLaunchResultRecord,
+        EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
+        EmbeddedTabEffectRecord, ExternalChromeDiagnosticsRecord,
         ExternalGraphicsDiagnosticsRecord, ExternalPrepareSessionResultRecord,
         ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
         GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord, LogCaptureRecord,
@@ -380,6 +381,33 @@ impl AppCore {
                   "state": runtime.state.metadata()?
                 }))
             }),
+            CoreCommand::SystemWebViewProbe => {
+                let probe = rion_platform::probe_system_webview(self.platform);
+                serde_json::to_value(crate::model::SystemWebViewProbeRecord {
+                    platform: match probe.platform {
+                        rion_platform::Platform::Macos => "macos",
+                        rion_platform::Platform::Windows => "windows",
+                    }
+                    .to_owned(),
+                    engine: match probe.platform {
+                        rion_platform::Platform::Macos => {
+                            crate::model::ResolvedBrowserEngine::Wkwebview
+                        }
+                        rion_platform::Platform::Windows => {
+                            crate::model::ResolvedBrowserEngine::Webview2
+                        }
+                    },
+                    available: probe.available,
+                    runtime_version: probe.runtime_version,
+                    public_api_available: probe.public_api_available,
+                    automation_spi_available: probe.automation_spi_available,
+                    audio_mute_available: probe.audio_mute_available,
+                    trusted_input_verified: probe.trusted_input_verified,
+                    background_input_verified: probe.background_input_verified,
+                    reason_codes: probe.reason_codes,
+                })
+                .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::StateSnapshot => self.with_runtime(|runtime| runtime.state.snapshot()),
             CoreCommand::GamesList => self.read_state_collection("games"),
             CoreCommand::GameGet { id } => {
@@ -627,6 +655,22 @@ impl AppCore {
                 self.replace_scalar_state("gameBrowserSettings", settings.clone())?;
                 serde_json::to_value(settings)
                     .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::EngineCompatibilityCacheGet { key } => serde_json::to_value(
+                self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_get(key))?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EngineCompatibilityCachePut { record } => serde_json::to_value(
+                self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_put(record))?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EngineCompatibilityCacheDeleteGame { game_id } => {
+                let deleted = self.with_runtime(|runtime| {
+                    runtime
+                        .state
+                        .engine_compatibility_cache_delete_game(game_id)
+                })?;
+                Ok(json!({ "deletedCount": deleted }))
             }
             CoreCommand::MacroSettingsGet => {
                 serde_json::to_value(self.read_scalar_state::<MacroSettingsRecord>(
@@ -1316,6 +1360,9 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::RoleBrowserDataClear { .. }
+            | CoreCommand::RoleSessionMigrationPreview { .. }
+            | CoreCommand::RoleSessionMigrationApply { .. }
+            | CoreCommand::RoleSessionMigrationRollback { .. }
             | CoreCommand::ChromeProfileApply { .. }
             | CoreCommand::CompatibilityRun { .. }
             | CoreCommand::CdnResolveSession { .. }
@@ -1338,6 +1385,26 @@ impl AppCore {
         match command {
             CoreCommand::RoleBrowserDataClear { role_id } => {
                 self.clear_role_browser_data(role_id).await
+            }
+            CoreCommand::RoleSessionMigrationPreview {
+                role_id,
+                target_engine,
+            } => serde_json::to_value(
+                self.preview_role_session_migration(role_id, target_engine)
+                    .await?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::RoleSessionMigrationApply {
+                role_id,
+                target_engine,
+            } => serde_json::to_value(
+                self.apply_role_session_migration(role_id, target_engine)
+                    .await?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::RoleSessionMigrationRollback { role_id } => {
+                serde_json::to_value(self.rollback_role_session_migration(role_id).await?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::GameDelete { id } => {
                 let core = Arc::clone(self);
@@ -1563,7 +1630,7 @@ impl AppCore {
                         .collect()
                     }
                 };
-                serde_json::to_value(statuses)
+                serde_json::to_value(self.decorate_browser_statuses(statuses)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserWorkspaceLaunch {
@@ -1575,6 +1642,7 @@ impl AppCore {
                     "gameBrowserSettings",
                     "game browser settings are missing",
                 )?;
+                self.ensure_workspace_engine_preference(&workspace, &settings)?;
                 let mode = crate::external_runtime::resolve_launch_mode(
                     &workspace.browser_launch_mode,
                     &settings.launch_mode,
@@ -1627,7 +1695,7 @@ impl AppCore {
                         .collect()
                     }
                 };
-                serde_json::to_value(statuses)
+                serde_json::to_value(self.decorate_browser_statuses(statuses)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRoleStop { role_id } => {
@@ -2148,7 +2216,7 @@ impl AppCore {
                     browser_user_data_dir,
                     session_source: role
                         .browser_session_source
-                        .unwrap_or_else(|| "embedded".to_owned()),
+                        .unwrap_or(BrowserSessionSource::Managed),
                 },
                 Duration::from_secs(30),
             )
@@ -2200,6 +2268,343 @@ impl AppCore {
         };
         match (commit, completion) {
             (Ok(role), Ok(())) => Ok(role),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    async fn preview_role_session_migration(
+        &self,
+        role_id: String,
+        target_engine: crate::model::EmbeddedBrowserEngine,
+    ) -> CoreResult<crate::model::RoleSessionMigrationPreviewRecord> {
+        self.recover_pending_role_session_migrations(&role_id)
+            .await?;
+        let role = self.external_role(&role_id)?;
+        let source_engine = role.browser_engine_pin.unwrap_or(match target_engine {
+            crate::model::EmbeddedBrowserEngine::System => {
+                crate::model::EmbeddedBrowserEngine::Electron
+            }
+            crate::model::EmbeddedBrowserEngine::Electron => {
+                crate::model::EmbeddedBrowserEngine::System
+            }
+        });
+        if source_engine == target_engine {
+            return Err(CoreError::Domain {
+                code: "ROLE_SESSION_MIGRATION_ENGINE_UNCHANGED",
+                message: "The role already uses the selected browser engine.".to_owned(),
+            });
+        }
+        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role_id)?;
+        let inspection = self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::RoleSessionMigrationInspect {
+                    role_id: role_id.clone(),
+                    source_engine,
+                    target_engine,
+                    session_source: role
+                        .browser_session_source
+                        .unwrap_or(BrowserSessionSource::Managed),
+                    paths,
+                },
+                Duration::from_secs(30),
+            )
+            .await
+            .and_then(|result| {
+                effect_value::<crate::model::RoleSessionMigrationInspectionRecord>(&result)
+            })?;
+        let mut warnings = Vec::new();
+        if inspection.source_cookie_count == 0 {
+            warnings.push("source-cookie-store-empty".to_owned());
+        }
+        if inspection.target_cookie_count > 0 {
+            warnings.push("target-cookie-store-not-empty".to_owned());
+        }
+        if role.browser_session_source == Some(BrowserSessionSource::ChromeProfile) {
+            warnings.push("chrome-profile-cookie-only".to_owned());
+        }
+        Ok(crate::model::RoleSessionMigrationPreviewRecord {
+            role_id,
+            source_engine,
+            target_engine,
+            source_cookie_count: inspection.source_cookie_count,
+            target_cookie_count: inspection.target_cookie_count,
+            can_apply: inspection.target_cookie_count == 0,
+            warnings,
+        })
+    }
+
+    async fn recover_pending_role_session_migrations(&self, role_id: &str) -> CoreResult<()> {
+        let journals = self.with_runtime(|runtime| runtime.state.operation_journals())?;
+        for journal in journals.into_iter().filter(|journal| {
+            journal.kind == "role_session_migration_v1"
+                && journal.payload.get("roleId").and_then(Value::as_str) == Some(role_id)
+        }) {
+            let source_engine = journal
+                .payload
+                .get("sourceEngine")
+                .cloned()
+                .ok_or_else(|| {
+                    CoreError::Migration(
+                        "role session migration source engine is missing".to_owned(),
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value::<EmbeddedBrowserEngine>(value)
+                        .map_err(|error| CoreError::Migration(error.to_string()))
+                })?;
+            let target_engine = journal
+                .payload
+                .get("targetEngine")
+                .cloned()
+                .ok_or_else(|| {
+                    CoreError::Migration(
+                        "role session migration target engine is missing".to_owned(),
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value::<EmbeddedBrowserEngine>(value)
+                        .map_err(|error| CoreError::Migration(error.to_string()))
+                })?;
+            let role = self.external_role(role_id)?;
+            self.request_core_effect(
+                role_id,
+                CoreEffectAction::RoleSessionMigrationRollback {
+                    role_id: role_id.to_owned(),
+                    source_engine,
+                    target_engine,
+                    session_source: role
+                        .browser_session_source
+                        .unwrap_or(BrowserSessionSource::Managed),
+                    paths: crate::role_browser_data::ensure(&self.user_data_dir, role_id)?,
+                },
+                Duration::from_secs(30),
+            )
+            .await?;
+            self.with_runtime(|runtime| runtime.state.delete_operation_journal(journal.id))?;
+        }
+        Ok(())
+    }
+
+    async fn apply_role_session_migration(
+        self: &Arc<Self>,
+        role_id: String,
+        target_engine: crate::model::EmbeddedBrowserEngine,
+    ) -> CoreResult<crate::model::RoleSessionMigrationResultRecord> {
+        let preview = self
+            .preview_role_session_migration(role_id.clone(), target_engine)
+            .await?;
+        if !preview.can_apply {
+            return Err(CoreError::Domain {
+                code: "ROLE_SESSION_MIGRATION_TARGET_NOT_EMPTY",
+                message: "The target browser session already contains cookies. Clear it or roll back the previous migration first.".to_owned(),
+            });
+        }
+        self.stop_role_runtime(&role_id).await?;
+        self.macro_runtime.stop_role(&role_id)?;
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: vec![role_id.clone()],
+                kind: "recoverableMutation".to_owned(),
+            })
+            .await?;
+        let operation_id = format!("role-session-migration-{}", uuid::Uuid::new_v4());
+        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role_id)?;
+        let role = self.external_role(&role_id)?;
+        let session_source = role
+            .browser_session_source
+            .unwrap_or(BrowserSessionSource::Managed);
+        let journal = OperationJournalRecord {
+            id: operation_id.clone(),
+            kind: "role_session_migration_v1".to_owned(),
+            phase: "prepared".to_owned(),
+            payload: json!({
+                "roleId": role_id,
+                "sourceEngine": preview.source_engine,
+                "targetEngine": target_engine
+            }),
+        };
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal))?;
+
+        let applied = self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::RoleSessionMigrationApply {
+                    role_id: role_id.clone(),
+                    source_engine: preview.source_engine,
+                    target_engine,
+                    session_source,
+                    launch_url: role.launch_url,
+                    paths: paths.clone(),
+                },
+                Duration::from_secs(60),
+            )
+            .await
+            .and_then(|result| {
+                effect_value::<crate::model::RoleSessionMigrationApplyRecord>(&result)
+            });
+        let applied = match applied {
+            Ok(applied) if applied.auth_verified => applied,
+            Ok(_) => {
+                let error = CoreError::Domain {
+                    code: "ROLE_SESSION_MIGRATION_AUTH_NOT_VERIFIED",
+                    message: "The target browser engine did not preserve the signed-in session."
+                        .to_owned(),
+                };
+                let _ = self
+                    .request_core_effect(
+                        &role_id,
+                        CoreEffectAction::RoleSessionMigrationRollback {
+                            role_id: role_id.clone(),
+                            source_engine: preview.source_engine,
+                            target_engine,
+                            session_source,
+                            paths: paths.clone(),
+                        },
+                        Duration::from_secs(30),
+                    )
+                    .await;
+                let _ = self.with_runtime(|runtime| {
+                    runtime.state.delete_operation_journal(operation_id.clone())
+                });
+                let _ = self.browser_operations.abort(&lease.id);
+                return Err(error);
+            }
+            Err(error) => {
+                let _ = self
+                    .request_core_effect(
+                        &role_id,
+                        CoreEffectAction::RoleSessionMigrationRollback {
+                            role_id: role_id.clone(),
+                            source_engine: preview.source_engine,
+                            target_engine,
+                            session_source,
+                            paths: paths.clone(),
+                        },
+                        Duration::from_secs(30),
+                    )
+                    .await;
+                let _ = self.with_runtime(|runtime| {
+                    runtime.state.delete_operation_journal(operation_id.clone())
+                });
+                let _ = self.browser_operations.abort(&lease.id);
+                return Err(error);
+            }
+        };
+        let completed_at = chrono::Utc::now().to_rfc3339();
+        let checkpoint = crate::model::RoleSessionMigrationCheckpointRecord {
+            role_id: role_id.clone(),
+            source_engine: preview.source_engine,
+            target_engine,
+            completed_at: completed_at.clone(),
+        };
+        let commit = (|| {
+            self.mutate_state(StateMutation::RoleCommitSessionMigration {
+                id: role_id.clone(),
+                engine: target_engine,
+                checkpoint,
+                operation_id: operation_id.clone(),
+            })?;
+            Ok::<_, CoreError>(crate::model::RoleSessionMigrationResultRecord {
+                role_id: role_id.clone(),
+                source_engine: preview.source_engine,
+                target_engine,
+                cookies_migrated: applied.cookies_migrated,
+                auth_verified: true,
+                completed_at,
+            })
+        })();
+        let committed = match commit {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = self
+                    .request_core_effect(
+                        &role_id,
+                        CoreEffectAction::RoleSessionMigrationRollback {
+                            role_id: role_id.clone(),
+                            source_engine: preview.source_engine,
+                            target_engine,
+                            session_source,
+                            paths,
+                        },
+                        Duration::from_secs(30),
+                    )
+                    .await;
+                let _ = self.with_runtime(|runtime| {
+                    runtime.state.delete_operation_journal(operation_id.clone())
+                });
+                let _ = self.browser_operations.abort(&lease.id);
+                return Err(error);
+            }
+        };
+        match self.browser_operations.complete(&lease.id) {
+            Ok(()) => Ok(committed),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn rollback_role_session_migration(
+        self: &Arc<Self>,
+        role_id: String,
+    ) -> CoreResult<crate::model::RoleSessionMigrationRollbackRecord> {
+        let checkpoint = self
+            .with_runtime(|runtime| {
+                runtime
+                    .state
+                    .role_session_migration_checkpoint_get(role_id.clone())
+            })?
+            .ok_or_else(|| CoreError::Domain {
+                code: "ROLE_SESSION_MIGRATION_ROLLBACK_UNAVAILABLE",
+                message: "No completed browser session migration can be rolled back.".to_owned(),
+            })?;
+        self.stop_role_runtime(&role_id).await?;
+        self.macro_runtime.stop_role(&role_id)?;
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: vec![role_id.clone()],
+                kind: "recoverableMutation".to_owned(),
+            })
+            .await?;
+        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role_id)?;
+        let role = self.external_role(&role_id)?;
+        let effect = self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::RoleSessionMigrationRollback {
+                    role_id: role_id.clone(),
+                    source_engine: checkpoint.source_engine,
+                    target_engine: checkpoint.target_engine,
+                    session_source: role
+                        .browser_session_source
+                        .unwrap_or(BrowserSessionSource::Managed),
+                    paths,
+                },
+                Duration::from_secs(30),
+            )
+            .await;
+        if let Err(error) = effect {
+            let _ = self.browser_operations.abort(&lease.id);
+            return Err(error);
+        }
+        let commit = (|| {
+            self.mutate_state(StateMutation::RoleRollbackSessionMigration {
+                id: role_id.clone(),
+                engine: checkpoint.source_engine,
+            })?;
+            Ok::<_, CoreError>(crate::model::RoleSessionMigrationRollbackRecord {
+                role_id,
+                restored_engine: checkpoint.source_engine,
+                target_store_cleared: true,
+                rolled_back_at: chrono::Utc::now().to_rfc3339(),
+            })
+        })();
+        let completion = if commit.is_ok() {
+            self.browser_operations.complete(&lease.id)
+        } else {
+            self.browser_operations.abort(&lease.id)
+        };
+        match (commit, completion) {
+            (Ok(result), Ok(())) => Ok(result),
             (Err(error), _) | (Ok(_), Err(error)) => Err(error),
         }
     }
@@ -4073,7 +4478,7 @@ impl AppCore {
                 &sessions.snapshot(),
             )
         };
-        Ok(statuses)
+        self.decorate_browser_statuses(statuses)
     }
 
     fn macro_active_role_ids(&self) -> CoreResult<Vec<String>> {
@@ -4103,18 +4508,189 @@ impl AppCore {
     pub fn browser_workspace_statuses(
         &self,
     ) -> CoreResult<Vec<crate::model::BrowserWorkspaceStatusRecord>> {
-        let browser = self
-            .browser_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-        let sessions = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
-        Ok(crate::external_runtime::workspace_statuses(
-            &sessions.snapshot(),
-            browser.snapshot().workspaces.into_iter(),
-        ))
+        let (snapshot, external) = {
+            let browser = self
+                .browser_runtime
+                .lock()
+                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+            let sessions = self
+                .external_sessions
+                .lock()
+                .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
+            (browser.snapshot(), sessions.snapshot())
+        };
+        let role_statuses = self.decorate_browser_statuses(
+            crate::external_runtime::role_statuses(snapshot.roles.clone().into_iter(), &external),
+        )?;
+        let status_by_role = role_statuses
+            .into_iter()
+            .map(|status| (status.role_id.clone(), status))
+            .collect::<std::collections::HashMap<_, _>>();
+        let role_ids_by_workspace = snapshot
+            .workspaces
+            .iter()
+            .map(|workspace| (workspace.workspace_id.clone(), workspace.role_ids.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut statuses =
+            crate::external_runtime::workspace_statuses(&external, snapshot.workspaces.into_iter());
+        for status in &mut statuses {
+            let role_statuses = role_ids_by_workspace
+                .get(&status.workspace_id)
+                .into_iter()
+                .flatten()
+                .filter_map(|role_id| status_by_role.get(role_id))
+                .collect::<Vec<_>>();
+            let Some(first) = role_statuses.first() else {
+                continue;
+            };
+            status.preferred_engine = role_statuses
+                .iter()
+                .all(|candidate| candidate.preferred_engine == first.preferred_engine)
+                .then_some(first.preferred_engine)
+                .flatten();
+            status.resolved_engine = role_statuses
+                .iter()
+                .all(|candidate| candidate.resolved_engine == first.resolved_engine)
+                .then_some(first.resolved_engine)
+                .flatten();
+            status.host_kind = role_statuses
+                .iter()
+                .all(|candidate| candidate.host_kind == first.host_kind)
+                .then_some(first.host_kind)
+                .flatten();
+            status.fallback_reason = role_statuses
+                .iter()
+                .find_map(|candidate| candidate.fallback_reason);
+            status.capability_snapshot = role_statuses
+                .iter()
+                .all(|candidate| candidate.capability_snapshot == first.capability_snapshot)
+                .then(|| first.capability_snapshot.clone())
+                .flatten();
+        }
+        Ok(statuses)
+    }
+
+    fn decorate_browser_statuses(
+        &self,
+        mut statuses: Vec<crate::model::BrowserRoleStatusRecord>,
+    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        if statuses.is_empty() {
+            return Ok(statuses);
+        }
+        let roles = self
+            .read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .map(|role| (role.id.clone(), role))
+            .collect::<std::collections::HashMap<_, _>>();
+        let games = self
+            .read_typed_state_collection::<StateGameRecord>("games")?
+            .into_iter()
+            .map(|game| (game.id.clone(), game))
+            .collect::<std::collections::HashMap<_, _>>();
+        let workspaces =
+            self.read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?;
+        let workspace_by_role = workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.slots.iter().filter_map(move |slot| {
+                    slot.role_id
+                        .as_ref()
+                        .map(|role_id| (role_id.clone(), workspace))
+                })
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        for status in &mut statuses {
+            let Some(role) = roles.get(&status.role_id) else {
+                continue;
+            };
+            let Some(game) = games.get(&role.game_id) else {
+                continue;
+            };
+            let workspace = workspace_by_role.get(&status.role_id).copied();
+            let mode = crate::external_runtime::resolve_launch_mode(
+                workspace
+                    .map(|workspace| workspace.browser_launch_mode.as_str())
+                    .unwrap_or(game.browser_launch_mode.as_str()),
+                &settings.launch_mode,
+            );
+            let resolution = crate::engine_resolution::resolve_browser_engine(
+                crate::engine_resolution::BrowserEngineResolutionInput {
+                    launch_mode: if status.runtime_mode == "external" {
+                        "external"
+                    } else {
+                        "embedded"
+                    },
+                    global_engine: settings.browser_engine.unwrap_or_default(),
+                    game_engine: game.browser_engine.unwrap_or_default(),
+                    workspace_engine: workspace
+                        .and_then(|workspace| workspace.browser_engine)
+                        .unwrap_or_default(),
+                    role_engine_pin: role.browser_engine_pin,
+                    browser_session_source: role.browser_session_source,
+                    platform: self.platform,
+                    // Phase 1 is the forward-compatible Electron release. Phase 2 replaces
+                    // this constant with the native adapter capability probe.
+                    system_available: false,
+                    electron_available: true,
+                    system_failure_reason: None,
+                },
+            );
+            status.preferred_engine = Some(resolution.preferred_engine);
+            status.resolved_engine = Some(if status.runtime_mode == "external" {
+                crate::model::ResolvedBrowserEngine::ExternalChrome
+            } else {
+                resolution.resolved_engine
+            });
+            status.host_kind = Some(if status.runtime_mode == "external" {
+                crate::model::BrowserHostKind::External
+            } else {
+                resolution.host_kind
+            });
+            status.fallback_reason = if status.runtime_mode == "external" && mode == "external" {
+                None
+            } else {
+                resolution.fallback_reason
+            };
+        }
+        Ok(statuses)
+    }
+
+    fn ensure_workspace_engine_preference(
+        &self,
+        workspace: &StateLaunchWorkspaceRecord,
+        settings: &GameBrowserSettingsRecord,
+    ) -> CoreResult<()> {
+        let roles = self
+            .read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .map(|role| (role.id.clone(), role))
+            .collect::<std::collections::HashMap<_, _>>();
+        let games = self
+            .read_typed_state_collection::<StateGameRecord>("games")?
+            .into_iter()
+            .map(|game| (game.id.clone(), game))
+            .collect::<std::collections::HashMap<_, _>>();
+        let preference = crate::engine_resolution::resolve_workspace_preference(
+            settings.browser_engine.unwrap_or_default(),
+            workspace.browser_engine.unwrap_or_default(),
+            workspace.slots.iter().filter_map(|slot| {
+                let role = roles.get(slot.role_id.as_ref()?)?;
+                games
+                    .get(&role.game_id)
+                    .map(|game| game.browser_engine.unwrap_or_default())
+            }),
+        );
+        if preference.requires_override {
+            return Err(CoreError::Domain {
+                code: "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED",
+                message: "The workspace contains games with different browser engine preferences. Choose System or Electron for this workspace before launching.".to_owned(),
+            });
+        }
+        Ok(())
     }
 
     pub fn invoke_browser_runtime(
@@ -4242,6 +4818,22 @@ impl AppCore {
             "gameBrowserSettings",
             "game browser settings are missing",
         )?;
+        let game = self.external_game(&role.game_id)?;
+        let resolved_engine = crate::engine_resolution::resolve_browser_engine(
+            crate::engine_resolution::BrowserEngineResolutionInput {
+                launch_mode: "embedded",
+                global_engine: settings.browser_engine.unwrap_or_default(),
+                game_engine: game.browser_engine.unwrap_or_default(),
+                workspace_engine: crate::model::BrowserEngineOverride::Inherit,
+                role_engine_pin: role.browser_engine_pin,
+                browser_session_source: role.browser_session_source,
+                platform: self.platform,
+                system_available: false,
+                electron_available: true,
+                system_failure_reason: None,
+            },
+        )
+        .resolved_engine;
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             source_id: role.id.clone(),
@@ -4252,6 +4844,7 @@ impl AppCore {
             target,
             roles: vec![EmbeddedRoleViewEffectRecord {
                 role: role.clone(),
+                resolved_engine,
                 rect: full_window_rect(),
                 zoom_factor,
                 zoom_mode: "fixed".to_owned(),
@@ -4409,14 +5002,36 @@ impl AppCore {
             "gameBrowserSettings",
             "game browser settings are missing",
         )?;
+        let available_games = self
+            .read_typed_state_collection::<StateGameRecord>("games")?
+            .into_iter()
+            .map(|game| (game.id.clone(), game))
+            .collect::<std::collections::HashMap<_, _>>();
         let effect_roles = workspace
             .slots
             .iter()
             .filter_map(|slot| {
                 let role_id = slot.role_id.as_ref()?;
                 let role = roles.iter().find(|role| &role.id == role_id)?.clone();
+                let game = available_games.get(&role.game_id)?;
+                let resolved_engine = crate::engine_resolution::resolve_browser_engine(
+                    crate::engine_resolution::BrowserEngineResolutionInput {
+                        launch_mode: "embedded",
+                        global_engine: settings.browser_engine.unwrap_or_default(),
+                        game_engine: game.browser_engine.unwrap_or_default(),
+                        workspace_engine: workspace.browser_engine.unwrap_or_default(),
+                        role_engine_pin: role.browser_engine_pin,
+                        browser_session_source: role.browser_session_source,
+                        platform: self.platform,
+                        system_available: false,
+                        electron_available: true,
+                        system_failure_reason: None,
+                    },
+                )
+                .resolved_engine;
                 Some(EmbeddedRoleViewEffectRecord {
                     role,
+                    resolved_engine,
                     rect: slot.rect.clone(),
                     zoom_factor: slot
                         .browser_zoom_percent
@@ -5602,6 +6217,11 @@ fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserR
         automation_state: None,
         overlay_state: None,
         page_health: None,
+        preferred_engine: Some(crate::model::EmbeddedBrowserEngine::Electron),
+        resolved_engine: Some(crate::model::ResolvedBrowserEngine::Electron),
+        host_kind: Some(crate::model::BrowserHostKind::Electron),
+        fallback_reason: None,
+        capability_snapshot: None,
     }
 }
 
@@ -5627,6 +6247,11 @@ fn external_status(session: &ExternalSessionRecord) -> crate::model::BrowserRole
             }
         }),
         page_health: session.page_health.clone(),
+        preferred_engine: None,
+        resolved_engine: Some(crate::model::ResolvedBrowserEngine::ExternalChrome),
+        host_kind: Some(crate::model::BrowserHostKind::External),
+        fallback_reason: None,
+        capability_snapshot: None,
     }
 }
 
@@ -5987,6 +6612,10 @@ fn recover_operation_journals(
                     )));
                 }
             },
+            // Cookie payloads never enter the journal. Preserve an unfinished
+            // marker so the next migration preview/apply can clear the target
+            // store through the platform effect bridge before trying again.
+            "role_session_migration_v1" => continue,
             kind => {
                 return Err(CoreError::Migration(format!(
                     "unsupported operation journal kind: {kind}"
@@ -6050,6 +6679,11 @@ fn embedded_launch_effects(
         .iter()
         .map(|role| (role.role.id.clone(), role.zoom_factor))
         .collect::<std::collections::HashMap<_, _>>();
+    let resolved_engines = tab
+        .roles
+        .iter()
+        .map(|role| (role.role.id.clone(), role.resolved_engine))
+        .collect::<std::collections::HashMap<_, _>>();
     let mut steps = vec![
         effect_step(
             tab_id,
@@ -6089,6 +6723,10 @@ fn embedded_launch_effects(
                 .iter()
                 .map(|role| EmbeddedRoleLoadEffectRecord {
                     role_id: role.id.clone(),
+                    resolved_engine: resolved_engines
+                        .get(&role.id)
+                        .copied()
+                        .unwrap_or(crate::model::ResolvedBrowserEngine::Electron),
                     url: role.launch_url.clone(),
                     zoom_factor: zoom_factors.get(&role.id).copied().unwrap_or(1.0),
                 })
@@ -6405,6 +7043,9 @@ mod tests {
             CoreEffectAction::ChromeProfileApplySession { .. } => "chromeProfileApplySession",
             CoreEffectAction::ChromeProfileClearSession { .. } => "chromeProfileClearSession",
             CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
+            CoreEffectAction::RoleSessionMigrationInspect { .. } => "roleSessionMigrationInspect",
+            CoreEffectAction::RoleSessionMigrationApply { .. } => "roleSessionMigrationApply",
+            CoreEffectAction::RoleSessionMigrationRollback { .. } => "roleSessionMigrationRollback",
             CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
             CoreEffectAction::CompatibilityProbeGraphics { .. } => "compatibilityProbeGraphics",
             CoreEffectAction::CdnProbeGoogle { .. } => "cdnProbeGoogle",
@@ -6426,6 +7067,23 @@ mod tests {
             ),
             CoreEffectAction::CdnProbeGoogle { .. } => {
                 Some(json!({ "available": false }).to_string())
+            }
+            CoreEffectAction::RoleSessionMigrationInspect { .. } => Some(
+                json!({
+                    "sourceCookieCount": 2,
+                    "targetCookieCount": 0
+                })
+                .to_string(),
+            ),
+            CoreEffectAction::RoleSessionMigrationApply { .. } => Some(
+                json!({
+                    "cookiesMigrated": 2,
+                    "authVerified": true
+                })
+                .to_string(),
+            ),
+            CoreEffectAction::RoleSessionMigrationRollback { .. } => {
+                Some(json!({ "targetStoreCleared": true }).to_string())
             }
             _ => None,
         };
@@ -6690,7 +7348,11 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-            assert_eq!(role.browser_session_source.as_deref(), Some("embedded"));
+            assert_eq!(
+                role.browser_session_source
+                    .map(BrowserSessionSource::as_str),
+                Some("managed")
+            );
             assert!(first_browser.is_dir());
             let value = serde_json::to_value(role).unwrap();
             assert!(value.get("windowWidth").is_none());
@@ -6990,7 +7652,11 @@ mod tests {
 
         crate::v1_case!("portable-profile-d7ae496f0b91", {
             let role: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
-            assert_eq!(role.browser_session_source.as_deref(), Some("embedded"));
+            assert_eq!(
+                role.browser_session_source
+                    .map(BrowserSessionSource::as_str),
+                Some("managed")
+            );
             assert!(browser.is_dir());
             assert!(!browser.join("session").exists());
             assert!(actions.iter().any(|action| matches!(
@@ -6999,7 +7665,7 @@ mod tests {
                     role_id: effect_role_id,
                     session_source,
                     ..
-                } if effect_role_id == &role_id && session_source == "embedded"
+                } if effect_role_id == &role_id && session_source == &BrowserSessionSource::Managed
             )));
             assert!(
                 core.with_runtime(|runtime| runtime.state.operation_journals())
@@ -7070,7 +7736,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            role.browser_session_source.as_deref(),
+            role.browser_session_source
+                .map(BrowserSessionSource::as_str),
             Some("chrome-profile")
         );
         assert!(
@@ -7086,6 +7753,214 @@ mod tests {
             })
             .unwrap();
         core.browser_operations.complete(&lease.id).unwrap();
+        core.shutdown();
+    }
+
+    #[test]
+    fn role_session_migration_previews_commits_and_rolls_back_without_touching_source_store() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+
+        let (preview, preview_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::RoleSessionMigrationPreview {
+                role_id: role_id.clone(),
+                target_engine: crate::model::EmbeddedBrowserEngine::System,
+            },
+            None,
+        );
+        let preview: crate::model::RoleSessionMigrationPreviewRecord =
+            serde_json::from_value(preview.unwrap()).unwrap();
+        assert_eq!(preview.source_engine, EmbeddedBrowserEngine::Electron);
+        assert_eq!(preview.target_engine, EmbeddedBrowserEngine::System);
+        assert_eq!(preview.source_cookie_count, 2);
+        assert_eq!(preview.target_cookie_count, 0);
+        assert!(preview.can_apply);
+        assert!(
+            preview_actions.iter().all(|action| matches!(
+                action,
+                CoreEffectAction::RoleSessionMigrationInspect { .. }
+            ))
+        );
+
+        let (applied, apply_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::RoleSessionMigrationApply {
+                role_id: role_id.clone(),
+                target_engine: EmbeddedBrowserEngine::System,
+            },
+            None,
+        );
+        let applied: crate::model::RoleSessionMigrationResultRecord =
+            serde_json::from_value(applied.unwrap()).unwrap();
+        assert_eq!(applied.cookies_migrated, 2);
+        assert!(applied.auth_verified);
+        assert!(apply_actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::RoleSessionMigrationApply {
+                source_engine: EmbeddedBrowserEngine::Electron,
+                target_engine: EmbeddedBrowserEngine::System,
+                ..
+            }
+        )));
+        assert!(!apply_actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::RoleSessionMigrationRollback { .. }
+        )));
+        let migrated_role: StateRoleRecord = serde_json::from_value(
+            core.invoke(CoreCommand::RoleGet {
+                id: role_id.clone(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            migrated_role.browser_engine_pin,
+            Some(EmbeddedBrowserEngine::System)
+        );
+        assert!(
+            core.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .role_session_migration_checkpoint_get(role_id.clone())
+            })
+            .unwrap()
+            .is_some()
+        );
+
+        let (rolled_back, rollback_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::RoleSessionMigrationRollback {
+                role_id: role_id.clone(),
+            },
+            None,
+        );
+        let rolled_back: crate::model::RoleSessionMigrationRollbackRecord =
+            serde_json::from_value(rolled_back.unwrap()).unwrap();
+        assert_eq!(rolled_back.restored_engine, EmbeddedBrowserEngine::Electron);
+        assert!(rolled_back.target_store_cleared);
+        assert!(rollback_actions.iter().all(|action| matches!(
+            action,
+            CoreEffectAction::RoleSessionMigrationRollback {
+                source_engine: EmbeddedBrowserEngine::Electron,
+                target_engine: EmbeddedBrowserEngine::System,
+                ..
+            }
+        )));
+        let restored_role: StateRoleRecord = serde_json::from_value(
+            core.invoke(CoreCommand::RoleGet {
+                id: role_id.clone(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            restored_role.browser_engine_pin,
+            Some(EmbeddedBrowserEngine::Electron)
+        );
+        assert!(
+            core.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .role_session_migration_checkpoint_get(role_id.clone())
+            })
+            .unwrap()
+            .is_none()
+        );
+        core.shutdown();
+    }
+
+    #[test]
+    fn role_session_migration_auth_failure_clears_target_and_preserves_engine() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let (result, actions, _) = drive_async_command_with(
+            Arc::clone(&core),
+            CoreCommand::RoleSessionMigrationApply {
+                role_id: role_id.clone(),
+                target_engine: EmbeddedBrowserEngine::System,
+            },
+            |effect| {
+                let is_apply = matches!(
+                    effect.action,
+                    CoreEffectAction::RoleSessionMigrationApply { .. }
+                );
+                let mut result = effect_result(effect, None);
+                if is_apply {
+                    result.value_json =
+                        Some(json!({"cookiesMigrated":2,"authVerified":false}).to_string());
+                }
+                result
+            },
+        );
+
+        assert_eq!(
+            result.unwrap_err().code(),
+            "ROLE_SESSION_MIGRATION_AUTH_NOT_VERIFIED"
+        );
+        assert!(actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::RoleSessionMigrationRollback { .. }
+        )));
+        let role: StateRoleRecord = serde_json::from_value(
+            core.invoke(CoreCommand::RoleGet {
+                id: role_id.clone(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(role.browser_engine_pin, None);
+        assert!(
+            core.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .role_session_migration_checkpoint_get(role_id.clone())
+            })
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            core.with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .is_empty()
+        );
+        core.shutdown();
+    }
+
+    #[test]
+    fn role_session_migration_refuses_a_nonempty_target_store_before_copying() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let (result, actions, _) = drive_async_command_with(
+            Arc::clone(&core),
+            CoreCommand::RoleSessionMigrationApply {
+                role_id,
+                target_engine: EmbeddedBrowserEngine::System,
+            },
+            |effect| {
+                let is_inspection = matches!(
+                    effect.action,
+                    CoreEffectAction::RoleSessionMigrationInspect { .. }
+                );
+                let mut result = effect_result(effect, None);
+                if is_inspection {
+                    result.value_json =
+                        Some(json!({"sourceCookieCount":2,"targetCookieCount":1}).to_string());
+                }
+                result
+            },
+        );
+
+        assert_eq!(
+            result.unwrap_err().code(),
+            "ROLE_SESSION_MIGRATION_TARGET_NOT_EMPTY"
+        );
+        assert!(
+            actions.iter().all(|action| matches!(
+                action,
+                CoreEffectAction::RoleSessionMigrationInspect { .. }
+            ))
+        );
         core.shutdown();
     }
 
@@ -7182,7 +8057,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            role.browser_session_source.as_deref(),
+            role.browser_session_source
+                .map(BrowserSessionSource::as_str),
             Some("chrome-profile")
         );
         assert!(
@@ -7885,11 +8761,17 @@ mod tests {
         assert!(launch.is_ok());
         assert!(matches!(
             launch_actions.first(),
-            Some(CoreEffectAction::EmbeddedCreateTab { .. })
+            Some(CoreEffectAction::EmbeddedCreateTab { tab })
+                if tab.roles.iter().all(|role| {
+                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Electron
+                })
         ));
         assert!(launch_actions.iter().any(|action| matches!(
             action,
-            CoreEffectAction::EmbeddedLoadRoles { roles } if roles.len() == 1
+            CoreEffectAction::EmbeddedLoadRoles { roles }
+                if roles.len() == 1
+                    && roles[0].resolved_engine
+                        == crate::model::ResolvedBrowserEngine::Electron
         )));
         assert!(launch_actions.iter().any(|action| matches!(
             action,
@@ -8413,6 +9295,104 @@ mod tests {
             )));
             core.shutdown();
         }
+    }
+
+    #[test]
+    fn phase_one_status_reports_system_preference_and_electron_fallback() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let (result, _, _) = drive_async_command(
+            Arc::clone(&core),
+            command(json!({
+                "type": "browserRoleLaunch",
+                "roleId": role_id,
+                "target": {
+                    "displayId": 1,
+                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+                }
+            })),
+            None,
+        );
+        let statuses =
+            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(result.unwrap())
+                .unwrap();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(
+            statuses[0].preferred_engine,
+            Some(crate::model::EmbeddedBrowserEngine::System)
+        );
+        assert_eq!(
+            statuses[0].resolved_engine,
+            Some(crate::model::ResolvedBrowserEngine::Electron)
+        );
+        assert_eq!(
+            statuses[0].host_kind,
+            Some(crate::model::BrowserHostKind::Electron)
+        );
+        assert_eq!(
+            statuses[0].fallback_reason,
+            Some(crate::model::EngineFallbackReason::RuntimeCreationFailed)
+        );
+        core.shutdown();
+    }
+
+    #[tokio::test]
+    async fn mixed_workspace_engine_preferences_require_a_persisted_override() {
+        let (_directory, core) = core();
+        let create_game = |name: &str, browser_engine: &str| {
+            core.invoke(command(json!({
+                "type": "gameCreate",
+                "input": {
+                    "name": name,
+                    "defaultLaunchUrl": format!("https://example.com/{name}"),
+                    "browserEngine": browser_engine
+                }
+            })))
+            .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let system_game_id = create_game("System game", "system");
+        let electron_game_id = create_game("Electron game", "electron");
+        let system_role_id = create_role(&core, &system_game_id, 1);
+        let electron_role_id = create_role(&core, &electron_game_id, 2);
+        let workspace_id = core
+            .invoke(command(json!({
+                "type": "workspaceCreate",
+                "input": {
+                    "name": "Mixed engines",
+                    "template": "two_columns",
+                    "browserEngine": "inherit",
+                    "slots": [
+                        {
+                            "roleId": system_role_id,
+                            "rect": {"x": 0, "y": 0, "width": 0.5, "height": 1}
+                        },
+                        {
+                            "roleId": electron_role_id,
+                            "rect": {"x": 0.5, "y": 0, "width": 0.5, "height": 1}
+                        }
+                    ]
+                }
+            })))
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let error = core
+            .invoke_async(command(json!({
+                "type": "browserWorkspaceLaunch",
+                "workspaceId": workspace_id,
+                "target": {
+                    "displayId": 1,
+                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+                }
+            })))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED");
+        core.shutdown();
     }
 
     #[test]

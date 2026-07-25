@@ -10,8 +10,8 @@ import type {
 import { resolveWorkspaceDisplayTarget } from "../../shared/workspaceDisplays";
 import {
   BrowserWorkspaceDisplayOccupiedError,
-  type ElectronBrowserRuntime
 } from "../browser/ElectronBrowserRuntime";
+import type { RuntimeHostPort } from "../browser/ports/RuntimeHostPort";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
 import type { RoleStore } from "../roles/RoleStore";
@@ -19,7 +19,7 @@ import type { LaunchWorkspaceStore } from "./LaunchWorkspaceStore";
 
 interface WorkspaceLaunchCoordinatorOptions {
   browserManager: Pick<
-    ElectronBrowserRuntime,
+    RuntimeHostPort,
     "launchWorkspace" | "listWorkspaceDisplayReservations"
   >;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings">;

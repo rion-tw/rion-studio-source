@@ -5,6 +5,7 @@ import type {
   BrowserGraphicsSettings,
   BrowserCdnCompatibilityMode,
   BrowserCdnCompatibilitySettings,
+  EmbeddedBrowserEngine,
   BrowserLaunchMode,
   BrowserNetworkSettings,
   BrowserProxySettings,
@@ -86,6 +87,7 @@ export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings 
 };
 
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
+  browserEngine: "system",
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
   launchMode: "auto",
@@ -101,6 +103,7 @@ export function normalizeGameBrowserSettings(
   const input = isRecord(value) ? value : {};
 
   return {
+    browserEngine: normalizeEmbeddedBrowserEngine(input.browserEngine, fallback.browserEngine),
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
     graphics: normalizeBrowserGraphicsSettings(input.graphics, fallback.graphics),
     launchMode: normalizeBrowserLaunchMode(input.launchMode, fallback.launchMode),
@@ -340,6 +343,13 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 
 function normalizeBrowserLaunchMode(value: unknown, fallback: BrowserLaunchMode): BrowserLaunchMode {
   return value === "auto" || value === "embedded" || value === "external" ? value : fallback;
+}
+
+function normalizeEmbeddedBrowserEngine(
+  value: unknown,
+  fallback: EmbeddedBrowserEngine | undefined
+): EmbeddedBrowserEngine {
+  return value === "system" || value === "electron" ? value : (fallback ?? "system");
 }
 
 function normalizeBrowserProxySettingsMode(

@@ -249,7 +249,8 @@ fn normalize_games(values: Vec<Value>, now: &str) -> CoreResult<Vec<Value>> {
             games.push(json!({
                 "id": builtin.id, "source": "builtin", "builtinKey": builtin.key,
                 "name": builtin.name, "defaultLaunchUrl": normalize_url(builtin.launch_url.to_owned())?,
-                "browserLaunchMode": "inherit", "createdAt": now, "updatedAt": now
+                "browserLaunchMode": "inherit", "browserEngine": "inherit",
+                "createdAt": now, "updatedAt": now
             }));
         }
     }
@@ -334,6 +335,7 @@ fn normalize_game(value: &Value, now: &str) -> CoreResult<Value> {
         "browserLaunchMode".to_owned(),
         json!(launch_mode(source.get("browserLaunchMode"))?),
     );
+    output.insert("browserEngine".to_owned(), json!("inherit"));
     output.insert(
         "createdAt".to_owned(),
         json!(timestamp(source.get("createdAt"), now)),
@@ -392,7 +394,7 @@ fn normalize_roles(
                 .and_then(|url| url.host_str().map(str::to_owned))
                 .unwrap_or_else(|| "Imported Game".to_owned());
             let name = unique_name(&host, &mut game_names);
-            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "browserLaunchMode": "inherit", "createdAt": now, "updatedAt": now }));
+            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "browserLaunchMode": "inherit", "browserEngine": "inherit", "createdAt": now, "updatedAt": now }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());
             id
@@ -449,10 +451,11 @@ fn normalize_role(value: &Value, now: &str) -> CoreResult<Value> {
             {
                 "chrome-profile"
             } else {
-                "embedded"
+                "managed"
             }
         ),
     );
+    output.insert("browserEnginePin".to_owned(), json!("electron"));
     copy_optional_string(source, &mut output, "coverImageDataUrl");
     if output.contains_key("coverImageDataUrl")
         && let Some(color) = optional_string(source.get("coverImageDominantColor"))
@@ -569,6 +572,7 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
         "browserLaunchMode".to_owned(),
         json!(launch_mode(source.get("browserLaunchMode"))?),
     );
+    output.insert("browserEngine".to_owned(), json!("electron"));
     output.insert(
         "browserZoomMode".to_owned(),
         json!(
@@ -1045,6 +1049,7 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
         "fonts": { "families": families, "mode": font_mode },
         "graphics": graphics,
         "launchMode": launch,
+        "browserEngine": "system",
         "macroBadgePosition": {
             "horizontalAlign": horizontal_align,
             "horizontalMarginPx": horizontal_margin_px,
@@ -2358,7 +2363,7 @@ mod tests {
                 "2026-07-24T00:00:00.000Z",
             )
             .unwrap();
-            assert_eq!(role["browserSessionSource"], "embedded");
+            assert_eq!(role["browserSessionSource"], "managed");
             assert!(role.get("preferredBrowserLaunchMode").is_none());
         });
 

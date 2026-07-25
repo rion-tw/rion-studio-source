@@ -14,6 +14,246 @@ pub struct AppCoreOptions {
     pub performance_telemetry_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum EmbeddedBrowserEngine {
+    #[default]
+    System,
+    Electron,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserSessionSource {
+    Managed,
+    ChromeProfile,
+}
+
+impl<'de> Deserialize<'de> for BrowserSessionSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match String::deserialize(deserializer)?.as_str() {
+            "managed" | "embedded" => Ok(Self::Managed),
+            "chrome-profile" => Ok(Self::ChromeProfile),
+            value => Err(serde::de::Error::custom(format!(
+                "invalid browser session source: {value}"
+            ))),
+        }
+    }
+}
+
+impl BrowserSessionSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Managed => "managed",
+            Self::ChromeProfile => "chrome-profile",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserEngineOverride {
+    #[default]
+    Inherit,
+    System,
+    Electron,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum ResolvedBrowserEngine {
+    Webview2,
+    Wkwebview,
+    Electron,
+    ExternalChrome,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserHostKind {
+    System,
+    Electron,
+    External,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum EngineCapabilityStatus {
+    Supported,
+    Degraded,
+    Unsupported,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum EngineFallbackReason {
+    LegacyRolePin,
+    ChromeProfileSession,
+    MacCdnRewriteUnsupported,
+    WebkitSpiUnavailable,
+    CachedCompatibilityFailure,
+    RuntimeCreationFailed,
+    RuntimeCrashed,
+    AuthVerificationFailed,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EngineCapabilitySnapshotRecord {
+    pub navigation: EngineCapabilityStatus,
+    pub persistent_session: EngineCapabilityStatus,
+    pub trusted_input: EngineCapabilityStatus,
+    pub background_input: EngineCapabilityStatus,
+    pub frame_evaluation: EngineCapabilityStatus,
+    pub cdn_rewrite: EngineCapabilityStatus,
+    pub proxy: EngineCapabilityStatus,
+    pub popup: EngineCapabilityStatus,
+    pub audio_mute: EngineCapabilityStatus,
+    pub custom_fonts: EngineCapabilityStatus,
+    pub graphics_tuning: EngineCapabilityStatus,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserEngineResolutionRecord {
+    pub preferred_engine: EmbeddedBrowserEngine,
+    pub resolved_engine: ResolvedBrowserEngine,
+    pub host_kind: BrowserHostKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fallback_reason: Option<EngineFallbackReason>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EngineCompatibilityCacheKeyRecord {
+    pub app_version: String,
+    pub adapter_version: String,
+    pub platform: String,
+    pub os_build: String,
+    pub webview_version: String,
+    pub engine: ResolvedBrowserEngine,
+    pub game_id: String,
+    pub game_updated_at: String,
+    pub settings_fingerprint: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EngineCompatibilityCacheRecord {
+    pub key: EngineCompatibilityCacheKeyRecord,
+    pub compatible: bool,
+    pub capability_snapshot: EngineCapabilitySnapshotRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fallback_reason: Option<EngineFallbackReason>,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct SystemWebViewProbeRecord {
+    pub platform: String,
+    pub engine: ResolvedBrowserEngine,
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_version: Option<String>,
+    pub public_api_available: bool,
+    pub automation_spi_available: bool,
+    pub audio_mute_available: bool,
+    pub trusted_input_verified: bool,
+    pub background_input_verified: bool,
+    pub reason_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleSessionMigrationPreviewRecord {
+    pub role_id: String,
+    pub source_engine: EmbeddedBrowserEngine,
+    pub target_engine: EmbeddedBrowserEngine,
+    pub source_cookie_count: u32,
+    pub target_cookie_count: u32,
+    pub can_apply: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleSessionMigrationResultRecord {
+    pub role_id: String,
+    pub source_engine: EmbeddedBrowserEngine,
+    pub target_engine: EmbeddedBrowserEngine,
+    pub cookies_migrated: u32,
+    pub auth_verified: bool,
+    pub completed_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleSessionMigrationRollbackRecord {
+    pub role_id: String,
+    pub restored_engine: EmbeddedBrowserEngine,
+    pub target_store_cleared: bool,
+    pub rolled_back_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleSessionMigrationInspectionRecord {
+    pub source_cookie_count: u32,
+    pub target_cookie_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleSessionMigrationApplyRecord {
+    pub cookies_migrated: u32,
+    pub auth_verified: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleSessionMigrationCheckpointRecord {
+    pub role_id: String,
+    pub source_engine: EmbeddedBrowserEngine,
+    pub target_engine: EmbeddedBrowserEngine,
+    pub completed_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceEnginePreferenceRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preferred_engine: Option<EmbeddedBrowserEngine>,
+    pub requires_override: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(
     tag = "type",
@@ -23,6 +263,7 @@ pub struct AppCoreOptions {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreCommand {
     Health,
+    SystemWebViewProbe,
     StateSnapshot,
     GamesList,
     GameGet {
@@ -69,6 +310,22 @@ pub enum CoreCommand {
         #[ts(rename = "roleId")]
         role_id: String,
     },
+    RoleSessionMigrationPreview {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "targetEngine")]
+        target_engine: EmbeddedBrowserEngine,
+    },
+    RoleSessionMigrationApply {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "targetEngine")]
+        target_engine: EmbeddedBrowserEngine,
+    },
+    RoleSessionMigrationRollback {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
     RoleBrowserDirectoryEnsure {
         id: String,
     },
@@ -80,7 +337,7 @@ pub enum CoreCommand {
     },
     RoleSetBrowserSessionSource {
         id: String,
-        #[ts(type = "\"embedded\" | \"chrome-profile\"")]
+        #[ts(type = "\"managed\" | \"chrome-profile\"")]
         source: String,
     },
     RoleAssignGameIds {
@@ -185,6 +442,16 @@ pub enum CoreCommand {
     GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
+    },
+    EngineCompatibilityCacheGet {
+        key: EngineCompatibilityCacheKeyRecord,
+    },
+    EngineCompatibilityCachePut {
+        record: EngineCompatibilityCacheRecord,
+    },
+    EngineCompatibilityCacheDeleteGame {
+        #[ts(rename = "gameId")]
+        game_id: String,
     },
     MacroSettingsGet,
     MacroSettingsReplace {
@@ -578,6 +845,9 @@ impl CoreCommand {
                 | Self::RoleDelete { .. }
                 | Self::RolesDelete { .. }
                 | Self::RoleBrowserDataClear { .. }
+                | Self::RoleSessionMigrationPreview { .. }
+                | Self::RoleSessionMigrationApply { .. }
+                | Self::RoleSessionMigrationRollback { .. }
                 | Self::WorkspaceCreate { .. }
                 | Self::WorkspaceUpdate { .. }
                 | Self::WorkspaceDelete { .. }
@@ -683,6 +953,9 @@ pub struct PortableGameRecord {
     pub default_launch_url: String,
     #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
     pub browser_launch_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -699,6 +972,8 @@ pub struct PortableRoleRecord {
     pub name: String,
     pub launch_url: String,
     pub notes: String,
+    #[serde(default)]
+    pub browser_engine_pin: Option<EmbeddedBrowserEngine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_data_url: Option<String>,
@@ -719,6 +994,9 @@ pub struct PortableLaunchWorkspaceRecord {
     pub template: String,
     #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
     pub browser_launch_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
     #[ts(type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
@@ -995,6 +1273,9 @@ pub struct GameCreateRequest {
         type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
     )]
     pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1019,6 +1300,9 @@ pub struct GameUpdateRequest {
         type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
     )]
     pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1070,6 +1354,11 @@ pub struct RoleUpdateRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RolePathsRecord {
     pub browser_user_data_dir: String,
+    pub electron_browser_user_data_dir: String,
+    pub system_browser_data_dir: String,
+    pub webview2_user_data_dir: String,
+    pub webkit_data_store_key: String,
+    pub webkit_data_store_identifier: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1108,6 +1397,9 @@ pub struct WorkspaceCreateRequest {
     )]
     pub browser_launch_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1140,6 +1432,9 @@ pub struct WorkspaceUpdateRequest {
         type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
     )]
     pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: Option<String>,
@@ -1217,6 +1512,9 @@ pub struct GameCreateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1242,6 +1540,9 @@ pub struct GameUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1331,6 +1632,9 @@ pub struct WorkspaceCreateInputRecord {
     pub browser_launch_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub browser_zoom_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -1356,6 +1660,9 @@ pub struct WorkspaceUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_zoom_mode: Option<String>,
@@ -1557,6 +1864,9 @@ pub struct StateGameRecord {
     pub default_launch_url: String,
     #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
     pub browser_launch_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1571,8 +1881,11 @@ pub struct StateRoleRecord {
     pub launch_url: String,
     pub notes: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"embedded\" | \"chrome-profile\"")]
-    pub browser_session_source: Option<String>,
+    #[ts(optional)]
+    pub browser_session_source: Option<BrowserSessionSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine_pin: Option<EmbeddedBrowserEngine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "string")]
     pub cover_image_data_url: Option<String>,
@@ -1595,6 +1908,9 @@ pub struct StateLaunchWorkspaceRecord {
     pub template: String,
     #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
     pub browser_launch_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<BrowserEngineOverride>,
     #[ts(type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
@@ -2446,6 +2762,9 @@ pub struct GameBrowserSettingsRecord {
     pub graphics: BrowserGraphicsSettingsRecord,
     #[ts(type = "\"auto\" | \"embedded\" | \"external\"")]
     pub launch_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_engine: Option<EmbeddedBrowserEngine>,
     pub macro_badge_position: MacroBadgePositionRecord,
     pub network: BrowserNetworkSettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
@@ -3255,8 +3574,29 @@ pub enum CoreEffectAction {
     RoleBrowserDataClearSession {
         role_id: String,
         browser_user_data_dir: String,
-        #[ts(type = "\"embedded\" | \"chrome-profile\"")]
-        session_source: String,
+        session_source: BrowserSessionSource,
+    },
+    RoleSessionMigrationInspect {
+        role_id: String,
+        source_engine: EmbeddedBrowserEngine,
+        target_engine: EmbeddedBrowserEngine,
+        session_source: BrowserSessionSource,
+        paths: RolePathsRecord,
+    },
+    RoleSessionMigrationApply {
+        role_id: String,
+        source_engine: EmbeddedBrowserEngine,
+        target_engine: EmbeddedBrowserEngine,
+        session_source: BrowserSessionSource,
+        launch_url: String,
+        paths: RolePathsRecord,
+    },
+    RoleSessionMigrationRollback {
+        role_id: String,
+        source_engine: EmbeddedBrowserEngine,
+        target_engine: EmbeddedBrowserEngine,
+        session_source: BrowserSessionSource,
+        paths: RolePathsRecord,
     },
     CompatibilityCreateWindow {
         plan: CompatibilityCheckPlanRecord,
@@ -3418,6 +3758,7 @@ pub struct EmbeddedLaunchTargetRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedRoleViewEffectRecord {
     pub role: StateRoleRecord,
+    pub resolved_engine: ResolvedBrowserEngine,
     pub rect: StateNormalizedRectRecord,
     pub zoom_factor: f64,
     #[ts(type = "\"adaptive\" | \"fixed\"")]
@@ -3429,6 +3770,7 @@ pub struct EmbeddedRoleViewEffectRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedRoleLoadEffectRecord {
     pub role_id: String,
+    pub resolved_engine: ResolvedBrowserEngine,
     pub url: String,
     pub zoom_factor: f64,
 }
@@ -3487,6 +3829,21 @@ pub struct BrowserRoleStatusRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
     pub page_health: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preferred_engine: Option<EmbeddedBrowserEngine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resolved_engine: Option<ResolvedBrowserEngine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub host_kind: Option<BrowserHostKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fallback_reason: Option<EngineFallbackReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub capability_snapshot: Option<EngineCapabilitySnapshotRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3496,6 +3853,21 @@ pub struct BrowserWorkspaceStatusRecord {
     pub workspace_id: String,
     #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
     pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preferred_engine: Option<EmbeddedBrowserEngine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resolved_engine: Option<ResolvedBrowserEngine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub host_kind: Option<BrowserHostKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fallback_reason: Option<EngineFallbackReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub capability_snapshot: Option<EngineCapabilitySnapshotRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

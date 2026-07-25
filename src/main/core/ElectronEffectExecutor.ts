@@ -387,7 +387,10 @@ export type ProfileCoreEffectAction = Extract<
     type:
       | "chromeProfileApplySession"
       | "chromeProfileClearSession"
-      | "roleBrowserDataClearSession";
+      | "roleBrowserDataClearSession"
+      | "roleSessionMigrationInspect"
+      | "roleSessionMigrationApply"
+      | "roleSessionMigrationRollback";
   }
 >;
 
@@ -434,7 +437,9 @@ function isOverlayEffectAction(
 function isProfileEffectAction(
   action: CoreEffectRequest["action"]
 ): action is ProfileCoreEffectAction {
-  return action.type.startsWith("chromeProfile") || action.type === "roleBrowserDataClearSession";
+  return action.type.startsWith("chromeProfile") ||
+    action.type === "roleBrowserDataClearSession" ||
+    action.type.startsWith("roleSessionMigration");
 }
 
 function isCompatibilityEffectAction(

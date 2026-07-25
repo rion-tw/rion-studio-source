@@ -732,6 +732,11 @@ mod tests {
             automation_state: Some("ready".to_owned()),
             overlay_state: Some("ready".to_owned()),
             page_health: page_health.map(str::to_owned),
+            preferred_engine: None,
+            resolved_engine: Some(crate::model::ResolvedBrowserEngine::ExternalChrome),
+            host_kind: Some(crate::model::BrowserHostKind::External),
+            fallback_reason: None,
+            capability_snapshot: None,
         }
     }
 }

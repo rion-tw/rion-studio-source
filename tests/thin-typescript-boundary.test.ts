@@ -19,7 +19,10 @@ const prohibitedNodeModules = new Set([
 ]);
 const allowedNodeIoImports = new Set([
   // This adapter locates the AppKit addon it owns; it does not perform domain I/O.
-  "src/main/browser/MacRuntimeTabsController.ts:node:fs"
+  "src/main/browser/MacRuntimeTabsController.ts:node:fs",
+  // Native surface loaders only locate their packaged N-API addon.
+  "src/main/browser/MacSystemWebViewSurface.ts:node:fs",
+  "src/main/browser/WindowsWebView2Surface.ts:node:fs"
 ]);
 const allowedMapProperties = new Set([
   "src/main/core/ElectronEffectExecutor.ts:ElectronHandleRegistry.handles",
@@ -33,6 +36,9 @@ const allowedMapProperties = new Set([
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.roleHandles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.tabHandles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.workspaceTabHandleIds",
+  // OS child-view handles only; Rust remains authoritative for runtime/domain state.
+  "src/main/browser/SystemWebViewRuntimePool.ts:SystemWebViewRuntimePool.handles",
+  "src/main/browser/SystemWebViewRuntimePool.ts:SystemWebViewRuntimePool.unsubscribe",
   "src/main/browser/EmbeddedRuntimeDiagnostics.ts:EmbeddedRuntimeDiagnostics.records",
   "src/main/games/GameCompatibilityManager.ts:GameCompatibilityManager.windows",
   "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.contentRoleIds",

@@ -9,8 +9,9 @@ use crate::{
     error::{CoreError, CoreResult},
     model::StateCollection,
     model::{
-        BrowserCdnCompatibilityRecord, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
-        BrowserNetworkSettingsRecord, BrowserProxySettingsRecord, GameBrowserSettingsRecord,
+        BrowserCdnCompatibilityRecord, BrowserEngineOverride, BrowserFontSettingsRecord,
+        BrowserGraphicsSettingsRecord, BrowserNetworkSettingsRecord, BrowserProxySettingsRecord,
+        BrowserSessionSource, EmbeddedBrowserEngine, GameBrowserSettingsRecord,
         GameCreateInputRecord, GameUpdateInputRecord, LegalAcceptanceRecord,
         MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord,
         MacroStepDefinition, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
@@ -36,6 +37,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
         },
         graphics: BrowserGraphicsSettingsRecord::recommended_default(),
         launch_mode: "auto".to_owned(),
+        browser_engine: Some(EmbeddedBrowserEngine::System),
         macro_badge_position: MacroBadgePositionRecord {
             horizontal_align: "center".to_owned(),
             horizontal_margin_px: 8,
@@ -215,6 +217,7 @@ pub fn create_game(
         )?,
         default_launch_url: normalize_http_url(&input.default_launch_url, "GAME_URL_INVALID")?,
         browser_launch_mode: normalize_game_launch_mode(input.browser_launch_mode.as_deref())?,
+        browser_engine: Some(input.browser_engine.unwrap_or_default()),
         created_at: now.clone(),
         updated_at: now,
     };
@@ -285,6 +288,7 @@ pub fn update_game(
             .map(|value| normalize_game_launch_mode(Some(value)))
             .transpose()?
             .unwrap_or_else(|| current.browser_launch_mode.clone()),
+        browser_engine: input.browser_engine.or(current.browser_engine),
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
@@ -314,6 +318,7 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         cover_image_data_url: None,
         default_launch_url: default_launch_url.to_owned(),
         browser_launch_mode: "inherit".to_owned(),
+        browser_engine: Some(BrowserEngineOverride::Inherit),
         created_at: game.created_at.clone(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -369,7 +374,8 @@ pub fn create_role(
             "ROLE_LAUNCH_URL_INVALID",
         )?,
         notes: input.notes.unwrap_or_default().trim().to_owned(),
-        browser_session_source: Some("embedded".to_owned()),
+        browser_session_source: Some(BrowserSessionSource::Managed),
+        browser_engine_pin: None,
         cover_image_dominant_color: if cover.is_some() {
             normalize_color(input.cover_image_dominant_color)?
         } else {
@@ -482,17 +488,36 @@ pub fn set_role_browser_session_source(
     id: &str,
     source: &str,
 ) -> CoreResult<StateRoleRecord> {
-    if !matches!(source, "embedded" | "chrome-profile") {
-        return Err(domain(
-            "ROLE_SESSION_SOURCE_INVALID",
-            "Role browser session source is invalid.",
-        ));
-    }
+    let source = match source {
+        "managed" | "embedded" => BrowserSessionSource::Managed,
+        "chrome-profile" => BrowserSessionSource::ChromeProfile,
+        _ => {
+            return Err(domain(
+                "ROLE_SESSION_SOURCE_INVALID",
+                "Role browser session source is invalid.",
+            ));
+        }
+    };
     let role = roles
         .iter_mut()
         .find(|role| role.id == id)
         .ok_or_else(|| domain("ROLE_NOT_FOUND", "Role not found."))?;
-    role.browser_session_source = Some(source.to_owned());
+    role.browser_session_source = Some(source);
+    role.updated_at = chrono::Utc::now().to_rfc3339();
+    Ok(role.clone())
+}
+
+pub fn set_role_browser_engine_pin(
+    roles: &mut [StateRoleRecord],
+    id: &str,
+    engine: EmbeddedBrowserEngine,
+) -> CoreResult<StateRoleRecord> {
+    let role = roles
+        .iter_mut()
+        .find(|role| role.id == id)
+        .ok_or_else(|| domain("ROLE_NOT_FOUND", "Role not found."))?;
+    role.browser_engine_pin = Some(engine);
+    role.browser_session_source = Some(BrowserSessionSource::Managed);
     role.updated_at = chrono::Utc::now().to_rfc3339();
     Ok(role.clone())
 }
@@ -544,6 +569,7 @@ pub fn create_workspace(
         name,
         template: template.clone(),
         browser_launch_mode: normalize_workspace_launch_mode(input.browser_launch_mode.as_deref())?,
+        browser_engine: Some(input.browser_engine.unwrap_or_default()),
         browser_zoom_mode: normalize_workspace_zoom_mode(input.browser_zoom_mode.as_deref())?,
         browser_zoom_percent: normalize_workspace_zoom_percent(
             input.browser_zoom_percent,
@@ -615,6 +641,7 @@ pub fn update_workspace(
             .map(|mode| normalize_workspace_launch_mode(Some(mode)))
             .transpose()?
             .unwrap_or_else(|| current.browser_launch_mode.clone()),
+        browser_engine: input.browser_engine.or(current.browser_engine),
         browser_zoom_mode: input
             .browser_zoom_mode
             .as_deref()
@@ -1900,6 +1927,9 @@ struct GameRecord {
     name: String,
     default_launch_url: String,
     browser_launch_mode: String,
+    #[serde(default)]
+    #[serde(rename = "browserEngine")]
+    _browser_engine: Option<BrowserEngineOverride>,
     created_at: String,
     updated_at: String,
 }
@@ -1995,6 +2025,9 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
 pub fn normalize_game_browser_settings(
     mut settings: GameBrowserSettingsRecord,
 ) -> GameBrowserSettingsRecord {
+    if settings.browser_engine.is_none() {
+        settings.browser_engine = Some(EmbeddedBrowserEngine::System);
+    }
     if !matches!(settings.fonts.mode.as_str(), "default" | "custom") {
         settings.fonts.mode = "default".to_owned();
     }
@@ -2156,7 +2189,11 @@ struct RoleRecord {
     launch_url: String,
     notes: String,
     #[serde(default)]
-    browser_session_source: Option<String>,
+    #[serde(rename = "browserSessionSource")]
+    _browser_session_source: Option<BrowserSessionSource>,
+    #[serde(default)]
+    #[serde(rename = "browserEnginePin")]
+    _browser_engine_pin: Option<EmbeddedBrowserEngine>,
     created_at: String,
     updated_at: String,
 }
@@ -2168,6 +2205,9 @@ struct WorkspaceRecord {
     name: String,
     template: String,
     browser_launch_mode: String,
+    #[serde(default)]
+    #[serde(rename = "browserEngine")]
+    _browser_engine: Option<BrowserEngineOverride>,
     browser_zoom_mode: String,
     browser_zoom_percent: f64,
     slots: Vec<WorkspaceSlot>,
@@ -2298,13 +2338,6 @@ fn validate_role(role: RoleRecord) -> CoreResult<()> {
         ));
     }
     http_url(&role.launch_url, "role launch URL")?;
-    if let Some(source) = role.browser_session_source {
-        one_of(
-            &source,
-            &["embedded", "chrome-profile"],
-            "role browser session source",
-        )?;
-    }
     timestamps(&role.created_at, &role.updated_at, "role")
 }
 
@@ -2832,6 +2865,7 @@ mod tests {
                 icon_image_data_url: None,
                 cover_image_data_url: None,
                 browser_launch_mode: None,
+                browser_engine: None,
             };
             let mut games = Vec::new();
             let result = create_game(&mut games, input);
@@ -4085,6 +4119,7 @@ mod tests {
                     icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
                     browser_launch_mode: None,
+                    browser_engine: None,
                 },
             )
             .unwrap();
@@ -4097,6 +4132,7 @@ mod tests {
                         icon_image_data_url: None,
                         cover_image_data_url: None,
                         browser_launch_mode: None,
+                        browser_engine: None,
                     }
                 )
                 .unwrap_err()
@@ -4112,6 +4148,7 @@ mod tests {
                         icon_image_data_url: None,
                         cover_image_data_url: None,
                         browser_launch_mode: None,
+                        browser_engine: None,
                     }
                 )
                 .is_err()
@@ -4125,6 +4162,7 @@ mod tests {
                         icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
                         cover_image_data_url: None,
                         browser_launch_mode: None,
+                        browser_engine: None,
                     }
                 )
                 .is_err()

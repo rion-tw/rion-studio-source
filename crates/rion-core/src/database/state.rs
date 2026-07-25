@@ -26,16 +26,17 @@ use crate::domain::{
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
-    GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord, LogLevel,
-    MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings,
-    MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
-    RoleUpdateInputRecord, RuntimeWindowPreferencesRecord, StateCollection,
-    StateCompatibilityObservationsRecord, StateCompatibilityReportRecord, StateGameRecord,
-    StateLaunchWorkspaceRecord, StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord,
-    WorkspaceDisplayInfoRecord, WorkspaceUpdateInputRecord,
+    EngineCompatibilityCacheKeyRecord, EngineCompatibilityCacheRecord, GameBrowserSettingsRecord,
+    GameCreateInputRecord, GameUpdateInputRecord, LogLevel, MacroBadgePositionRecord,
+    MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord,
+    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
+    RoleSessionMigrationCheckpointRecord, RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
+    StateCollection, StateCompatibilityObservationsRecord, StateCompatibilityReportRecord,
+    StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateRoleRecord,
+    WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 5;
+pub(crate) const SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -65,6 +66,19 @@ enum Request {
     OperationJournals(Sender<CoreResult<Vec<OperationJournalRecord>>>),
     OperationJournalPut(OperationJournalRecord, Sender<CoreResult<()>>),
     OperationJournalDelete(String, Sender<CoreResult<()>>),
+    EngineCompatibilityCacheGet(
+        EngineCompatibilityCacheKeyRecord,
+        Sender<CoreResult<Option<EngineCompatibilityCacheRecord>>>,
+    ),
+    EngineCompatibilityCachePut(
+        EngineCompatibilityCacheRecord,
+        Sender<CoreResult<EngineCompatibilityCacheRecord>>,
+    ),
+    EngineCompatibilityCacheDeleteGame(String, Sender<CoreResult<u32>>),
+    RoleSessionMigrationCheckpointGet(
+        String,
+        Sender<CoreResult<Option<RoleSessionMigrationCheckpointRecord>>>,
+    ),
     Shutdown(Sender<()>),
 }
 
@@ -106,6 +120,16 @@ pub(crate) enum StateMutation {
     RoleBrowserDataReset {
         id: String,
         operation_id: String,
+    },
+    RoleCommitSessionMigration {
+        id: String,
+        engine: crate::model::EmbeddedBrowserEngine,
+        checkpoint: RoleSessionMigrationCheckpointRecord,
+        operation_id: String,
+    },
+    RoleRollbackSessionMigration {
+        id: String,
+        engine: crate::model::EmbeddedBrowserEngine,
     },
     RoleAssignGameIds(Vec<RoleGameAssignmentRecord>),
     ProfileRolesPatch {
@@ -175,6 +199,8 @@ impl StateMutation {
             | Self::RoleReorder { .. }
             | Self::RoleSetBrowserSessionSource { .. }
             | Self::RoleBrowserDataReset { .. }
+            | Self::RoleCommitSessionMigration { .. }
+            | Self::RoleRollbackSessionMigration { .. }
             | Self::RoleAssignGameIds(_)
             | Self::ProfileRolesPatch { .. } => vec![Roles],
             Self::RoleDelete { .. } | Self::RolesDelete { .. } => {
@@ -317,6 +343,42 @@ impl StateDatabaseWorker {
         })
     }
 
+    pub(crate) fn engine_compatibility_cache_get(
+        &self,
+        key: EngineCompatibilityCacheKeyRecord,
+    ) -> CoreResult<Option<EngineCompatibilityCacheRecord>> {
+        request(&self.sender, |response| {
+            Request::EngineCompatibilityCacheGet(key, response)
+        })
+    }
+
+    pub(crate) fn engine_compatibility_cache_put(
+        &self,
+        record: EngineCompatibilityCacheRecord,
+    ) -> CoreResult<EngineCompatibilityCacheRecord> {
+        request(&self.sender, |response| {
+            Request::EngineCompatibilityCachePut(record, response)
+        })
+    }
+
+    pub(crate) fn engine_compatibility_cache_delete_game(
+        &self,
+        game_id: String,
+    ) -> CoreResult<u32> {
+        request(&self.sender, |response| {
+            Request::EngineCompatibilityCacheDeleteGame(game_id, response)
+        })
+    }
+
+    pub(crate) fn role_session_migration_checkpoint_get(
+        &self,
+        role_id: String,
+    ) -> CoreResult<Option<RoleSessionMigrationCheckpointRecord>> {
+        request(&self.sender, |response| {
+            Request::RoleSessionMigrationCheckpointGet(role_id, response)
+        })
+    }
+
     pub fn metadata(&self) -> CoreResult<Value> {
         request(&self.sender, Request::Metadata)
     }
@@ -442,6 +504,24 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             }
             Request::OperationJournalDelete(id, response) => {
                 let _ = response.send(delete_operation_journal(&connection, &id));
+            }
+            Request::EngineCompatibilityCacheGet(key, response) => {
+                let _ = response.send(read_engine_compatibility_cache(&connection, &key));
+            }
+            Request::EngineCompatibilityCachePut(record, response) => {
+                let _ = response.send(put_engine_compatibility_cache(&connection, record));
+            }
+            Request::EngineCompatibilityCacheDeleteGame(game_id, response) => {
+                let _ = response.send(delete_engine_compatibility_cache_for_game(
+                    &connection,
+                    &game_id,
+                ));
+            }
+            Request::RoleSessionMigrationCheckpointGet(role_id, response) => {
+                let _ = response.send(read_role_session_migration_checkpoint(
+                    &connection,
+                    &role_id,
+                ));
             }
             Request::Shutdown(response) => {
                 let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -640,6 +720,33 @@ fn apply_domain_mutation(
             let ordinal = roles.iter().position(|item| item.id == id).unwrap();
             upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
             set_operation_journal_phase(&transaction, &operation_id, "committed")?;
+            serde_json::to_value(role)
+        }
+        StateMutation::RoleCommitSessionMigration {
+            id,
+            engine,
+            checkpoint,
+            operation_id,
+        } => {
+            if checkpoint.role_id != id || checkpoint.target_engine != engine {
+                return Err(CoreError::InvalidInput(
+                    "Role session migration commit does not match its checkpoint.".to_owned(),
+                ));
+            }
+            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+            let role = crate::domain::set_role_browser_engine_pin(&mut roles, &id, engine)?;
+            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
+            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
+            put_role_session_migration_checkpoint(&transaction, checkpoint)?;
+            delete_operation_journal(&transaction, &operation_id)?;
+            serde_json::to_value(role)
+        }
+        StateMutation::RoleRollbackSessionMigration { id, engine } => {
+            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+            let role = crate::domain::set_role_browser_engine_pin(&mut roles, &id, engine)?;
+            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
+            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
+            delete_role_session_migration_checkpoint(&transaction, &id)?;
             serde_json::to_value(role)
         }
         StateMutation::RoleAssignGameIds(assignments) => {
@@ -1043,6 +1150,180 @@ fn delete_operation_journal(connection: &Connection, id: &str) -> CoreResult<()>
     Ok(())
 }
 
+fn read_engine_compatibility_cache(
+    connection: &Connection,
+    key: &EngineCompatibilityCacheKeyRecord,
+) -> CoreResult<Option<EngineCompatibilityCacheRecord>> {
+    let cache_key = engine_compatibility_cache_id(key)?;
+    let payload = connection
+        .query_row(
+            "SELECT payload_json FROM engine_compatibility_cache WHERE cache_key=?1",
+            params![cache_key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    payload
+        .map(|payload| {
+            serde_json::from_str::<EngineCompatibilityCacheRecord>(&payload)
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))
+        })
+        .transpose()
+}
+
+fn put_engine_compatibility_cache(
+    connection: &Connection,
+    record: EngineCompatibilityCacheRecord,
+) -> CoreResult<EngineCompatibilityCacheRecord> {
+    validate_engine_compatibility_cache_key(&record.key)?;
+    let cache_key = engine_compatibility_cache_id(&record.key)?;
+    let engine = serde_json::to_value(record.key.engine)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .ok_or_else(|| CoreError::Internal("browser engine serialization failed".to_owned()))?;
+    let payload = serde_json::to_string(&record)
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    connection
+        .execute(
+            "DELETE FROM engine_compatibility_cache
+             WHERE game_id=?1 AND engine=?2 AND cache_key<>?3",
+            params![record.key.game_id, engine, cache_key],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    connection
+        .execute(
+            "INSERT INTO engine_compatibility_cache(
+               cache_key, game_id, engine, payload_json, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(cache_key) DO UPDATE SET
+               game_id=excluded.game_id,
+               engine=excluded.engine,
+               payload_json=excluded.payload_json,
+               updated_at=excluded.updated_at",
+            params![
+                cache_key,
+                record.key.game_id,
+                engine,
+                payload,
+                chrono::Utc::now().to_rfc3339()
+            ],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    Ok(record)
+}
+
+fn delete_engine_compatibility_cache_for_game(
+    connection: &Connection,
+    game_id: &str,
+) -> CoreResult<u32> {
+    if game_id.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "Game id is required for compatibility cache deletion.".to_owned(),
+        ));
+    }
+    let changed = connection
+        .execute(
+            "DELETE FROM engine_compatibility_cache WHERE game_id=?1",
+            params![game_id],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    Ok(u32::try_from(changed).unwrap_or(u32::MAX))
+}
+
+fn read_role_session_migration_checkpoint(
+    connection: &Connection,
+    role_id: &str,
+) -> CoreResult<Option<RoleSessionMigrationCheckpointRecord>> {
+    if role_id.trim().is_empty() {
+        return Err(CoreError::InvalidInput(
+            "Role id is required for session migration.".to_owned(),
+        ));
+    }
+    connection
+        .query_row(
+            "SELECT payload_json FROM role_session_migrations WHERE role_id=?1",
+            params![role_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+        .map(|payload| {
+            serde_json::from_str(&payload)
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))
+        })
+        .transpose()
+}
+
+fn put_role_session_migration_checkpoint(
+    connection: &Connection,
+    record: RoleSessionMigrationCheckpointRecord,
+) -> CoreResult<RoleSessionMigrationCheckpointRecord> {
+    if record.role_id.trim().is_empty()
+        || chrono::DateTime::parse_from_rfc3339(&record.completed_at).is_err()
+        || record.source_engine == record.target_engine
+    {
+        return Err(CoreError::InvalidInput(
+            "Role session migration checkpoint is invalid.".to_owned(),
+        ));
+    }
+    let payload =
+        serde_json::to_string(&record).map_err(|error| CoreError::Internal(error.to_string()))?;
+    connection
+        .execute(
+            "INSERT INTO role_session_migrations(role_id, payload_json, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(role_id) DO UPDATE SET
+               payload_json=excluded.payload_json,
+               updated_at=excluded.updated_at",
+            params![record.role_id, payload, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    Ok(record)
+}
+
+fn delete_role_session_migration_checkpoint(
+    connection: &Connection,
+    role_id: &str,
+) -> CoreResult<bool> {
+    let changed = connection
+        .execute(
+            "DELETE FROM role_session_migrations WHERE role_id=?1",
+            params![role_id],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    Ok(changed > 0)
+}
+
+fn engine_compatibility_cache_id(key: &EngineCompatibilityCacheKeyRecord) -> CoreResult<String> {
+    validate_engine_compatibility_cache_key(key)?;
+    let encoded =
+        serde_json::to_vec(key).map_err(|error| CoreError::Internal(error.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
+
+fn validate_engine_compatibility_cache_key(
+    key: &EngineCompatibilityCacheKeyRecord,
+) -> CoreResult<()> {
+    if [
+        &key.app_version,
+        &key.adapter_version,
+        &key.platform,
+        &key.os_build,
+        &key.webview_version,
+        &key.game_id,
+        &key.game_updated_at,
+        &key.settings_fingerprint,
+    ]
+    .into_iter()
+    .any(|value| value.trim().is_empty() || value.len() > 512)
+    {
+        return Err(CoreError::InvalidInput(
+            "Browser engine compatibility cache key is invalid.".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn set_operation_journal_phase(connection: &Connection, id: &str, phase: &str) -> CoreResult<()> {
     let changed = connection
         .execute(
@@ -1317,6 +1598,20 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
               ordinal INTEGER NOT NULL,
               payload_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS engine_compatibility_cache (
+              cache_key TEXT PRIMARY KEY,
+              game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+              engine TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS engine_compatibility_cache_game_idx
+              ON engine_compatibility_cache(game_id, engine);
+            CREATE TABLE IF NOT EXISTS role_session_migrations (
+              role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
+              payload_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
             ",
         )
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -1397,7 +1692,143 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 6 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        migrate_browser_engine_contracts(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (6, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    if newest_version < 7 {
+        connection
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS engine_compatibility_cache (
+                   cache_key TEXT PRIMARY KEY,
+                   game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                   engine TEXT NOT NULL,
+                   payload_json TEXT NOT NULL,
+                   updated_at TEXT NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS engine_compatibility_cache_game_idx
+                   ON engine_compatibility_cache(game_id, engine);
+                 INSERT INTO schema_migrations(version, applied_at)
+                 VALUES (7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 COMMIT;",
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    if newest_version < 8 {
+        connection
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS role_session_migrations (
+                   role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
+                   payload_json TEXT NOT NULL,
+                   updated_at TEXT NOT NULL
+                 );
+                 INSERT INTO schema_migrations(version, applied_at)
+                 VALUES (8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 COMMIT;",
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn migrate_browser_engine_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
+    rewrite_entity_payloads(transaction, "games", |object| {
+        object
+            .entry("browserEngine".to_owned())
+            .or_insert_with(|| json!("inherit"));
+    })?;
+    rewrite_entity_payloads(transaction, "roles", |object| {
+        object
+            .entry("browserEnginePin".to_owned())
+            .or_insert_with(|| json!("electron"));
+        let session_source = object.get("browserSessionSource").and_then(Value::as_str);
+        if !matches!(session_source, Some("chrome-profile")) {
+            object.insert("browserSessionSource".to_owned(), json!("managed"));
+        }
+    })?;
+    rewrite_entity_payloads(transaction, "workspaces", |object| {
+        object
+            .entry("browserEngine".to_owned())
+            .or_insert_with(|| json!("electron"));
+    })?;
+
+    let payload = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if let Some(payload) = payload {
+        let mut value = parse_payload(&payload)?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
+        })?;
+        object
+            .entry("browserEngine".to_owned())
+            .or_insert_with(|| json!("system"));
+        transaction
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                params![serialize_payload(&value)?],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn rewrite_entity_payloads(
+    transaction: &Transaction<'_>,
+    table: &str,
+    mut rewrite: impl FnMut(&mut Map<String, Value>),
+) -> CoreResult<()> {
+    if !matches!(table, "games" | "roles" | "workspaces") {
+        return Err(CoreError::Internal(
+            "invalid browser engine migration table".to_owned(),
+        ));
+    }
+    let rows = {
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT id, payload_json FROM {table} ORDER BY ordinal"
+            ))
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+    };
+    for (id, payload) in rows {
+        let mut value = parse_payload(&payload)?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            CoreError::StateDatabase(format!("{table} payload must be an object"))
+        })?;
+        rewrite(object);
+        transaction
+            .execute(
+                &format!("UPDATE {table} SET payload_json=?1 WHERE id=?2"),
+                params![serialize_payload(&value)?, id],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -2834,6 +3265,7 @@ mod tests {
                 icon_image_data_url: None,
                 cover_image_data_url: None,
                 browser_launch_mode: None,
+                browser_engine: None,
             }),
         )
         .unwrap();
@@ -3386,6 +3818,188 @@ mod tests {
         let snapshot = read_snapshot(&connection).unwrap();
         assert_eq!(snapshot["compatibilityReports"], json!([]));
         assert_eq!(snapshot["gameBrowserSettings"]["launchMode"], "auto");
+    }
+
+    #[test]
+    fn schema_six_pins_existing_entities_to_electron_and_renames_managed_sessions() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        replace_snapshot(
+            &mut connection,
+            &json!({
+                "games":[{
+                    "id":"g1","source":"custom","name":"Game",
+                    "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
+                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+                }],
+                "roles":[{
+                    "id":"r1","gameId":"g1","name":"Role",
+                    "launchUrl":"https://example.test/play","notes":"",
+                    "browserSessionSource":"embedded",
+                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+                }],
+                "launchWorkspaces":[{
+                    "id":"w1","name":"Workspace","template":"single",
+                    "browserLaunchMode":"inherit","browserZoomMode":"fixed",
+                    "browserZoomPercent":100,
+                    "slots":[{"id":"slot-1","roleId":"r1","rect":{"x":0,"y":0,"width":1,"height":1}}],
+                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+                }],
+                "macros":[],
+                "compatibilityReports":[],
+                "gameBrowserSettings":{
+                    "fonts":{"mode":"default","families":{}},
+                    "graphics": crate::model::BrowserGraphicsSettingsRecord::recommended_default(),
+                    "launchMode":"auto",
+                    "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
+                    "network":{"cdnCompatibility":{"mode":"auto"},"proxy":{"mode":"system","server":""}},
+                    "workspace":{"background":"material","gap":4}
+                }
+            }),
+        )
+        .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version>=6", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let snapshot = read_snapshot(&connection).unwrap();
+        assert_eq!(snapshot["games"][0]["browserEngine"], "inherit");
+        assert_eq!(snapshot["roles"][0]["browserSessionSource"], "managed");
+        assert_eq!(snapshot["roles"][0]["browserEnginePin"], "electron");
+        assert_eq!(snapshot["launchWorkspaces"][0]["browserEngine"], "electron");
+        assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn schema_seven_caches_engine_compatibility_by_full_version_key() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        replace_snapshot(
+            &mut connection,
+            &json!({"games":[{"id":"g1","name":"Game"}]}),
+        )
+        .unwrap();
+        let key = EngineCompatibilityCacheKeyRecord {
+            app_version: "2.2.0".to_owned(),
+            adapter_version: "webview2-1".to_owned(),
+            platform: "windows".to_owned(),
+            os_build: "10.0.26100".to_owned(),
+            webview_version: "140.0.0.0".to_owned(),
+            engine: crate::model::ResolvedBrowserEngine::Webview2,
+            game_id: "g1".to_owned(),
+            game_updated_at: "2026-07-25T00:00:00Z".to_owned(),
+            settings_fingerprint: "settings-v1".to_owned(),
+        };
+        let record = EngineCompatibilityCacheRecord {
+            key: key.clone(),
+            compatible: false,
+            capability_snapshot: crate::model::EngineCapabilitySnapshotRecord {
+                navigation: crate::model::EngineCapabilityStatus::Supported,
+                persistent_session: crate::model::EngineCapabilityStatus::Supported,
+                trusted_input: crate::model::EngineCapabilityStatus::Unsupported,
+                background_input: crate::model::EngineCapabilityStatus::Unsupported,
+                frame_evaluation: crate::model::EngineCapabilityStatus::Supported,
+                cdn_rewrite: crate::model::EngineCapabilityStatus::Supported,
+                proxy: crate::model::EngineCapabilityStatus::Supported,
+                popup: crate::model::EngineCapabilityStatus::Supported,
+                audio_mute: crate::model::EngineCapabilityStatus::Supported,
+                custom_fonts: crate::model::EngineCapabilityStatus::Degraded,
+                graphics_tuning: crate::model::EngineCapabilityStatus::Degraded,
+            },
+            fallback_reason: Some(crate::model::EngineFallbackReason::CachedCompatibilityFailure),
+            checked_at: "2026-07-25T01:00:00Z".to_owned(),
+        };
+        put_engine_compatibility_cache(&connection, record.clone()).unwrap();
+        assert_eq!(
+            read_engine_compatibility_cache(&connection, &key).unwrap(),
+            Some(record)
+        );
+
+        let mut changed_key = key.clone();
+        changed_key.adapter_version = "webview2-2".to_owned();
+        assert!(
+            read_engine_compatibility_cache(&connection, &changed_key)
+                .unwrap()
+                .is_none()
+        );
+        let mut replacement = read_engine_compatibility_cache(&connection, &key)
+            .unwrap()
+            .unwrap();
+        replacement.key = changed_key.clone();
+        replacement.compatible = true;
+        replacement.fallback_reason = None;
+        put_engine_compatibility_cache(&connection, replacement.clone()).unwrap();
+        assert!(
+            read_engine_compatibility_cache(&connection, &key)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            read_engine_compatibility_cache(&connection, &changed_key).unwrap(),
+            Some(replacement)
+        );
+
+        connection
+            .execute("DELETE FROM games WHERE id='g1'", [])
+            .unwrap();
+        assert!(
+            read_engine_compatibility_cache(&connection, &changed_key)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn schema_eight_stores_only_non_sensitive_session_migration_checkpoints() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        replace_snapshot(
+            &mut connection,
+            &json!({
+                "games":[{"id":"g1","name":"Game"}],
+                "roles":[{"id":"r1","gameId":"g1","name":"Role","launchUrl":"https://example.test"}]
+            }),
+        )
+        .unwrap();
+        let checkpoint = RoleSessionMigrationCheckpointRecord {
+            role_id: "r1".to_owned(),
+            source_engine: crate::model::EmbeddedBrowserEngine::Electron,
+            target_engine: crate::model::EmbeddedBrowserEngine::System,
+            completed_at: "2026-07-25T02:00:00Z".to_owned(),
+        };
+
+        assert_eq!(
+            put_role_session_migration_checkpoint(&connection, checkpoint.clone()).unwrap(),
+            checkpoint
+        );
+        assert_eq!(
+            read_role_session_migration_checkpoint(&connection, "r1").unwrap(),
+            Some(checkpoint)
+        );
+        let payload: String = connection
+            .query_row(
+                "SELECT payload_json FROM role_session_migrations WHERE role_id='r1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!payload.to_ascii_lowercase().contains("cookie"));
+        assert!(delete_role_session_migration_checkpoint(&connection, "r1").unwrap());
+        assert!(
+            read_role_session_migration_checkpoint(&connection, "r1")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

@@ -45,7 +45,11 @@ import type {
   RestoreSavedGameWindowsInput,
   Role,
   RolePaths,
+  RoleSessionMigrationPreview,
+  RoleSessionMigrationResult,
+  RoleSessionMigrationRollback,
   RoleStatus,
+  EmbeddedBrowserEngine,
   RuntimeWindowPreferences,
   SystemFontFamily,
   UpdateLaunchWorkspaceInput,
@@ -93,6 +97,15 @@ export interface RionStudioApi {
   deleteRole: (id: string) => Promise<void>;
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   clearRoleBrowserData: (id: string) => Promise<Role>;
+  previewRoleSessionMigration: (
+    id: string,
+    targetEngine: EmbeddedBrowserEngine
+  ) => Promise<RoleSessionMigrationPreview>;
+  applyRoleSessionMigration: (
+    id: string,
+    targetEngine: EmbeddedBrowserEngine
+  ) => Promise<RoleSessionMigrationResult>;
+  rollbackRoleSessionMigration: (id: string) => Promise<RoleSessionMigrationRollback>;
   getRolePaths: (id: string) => Promise<RolePaths>;
   launchRole: (id: string) => Promise<RoleStatus | null>;
   captureExternalRoleDiagnostics: (id: string) => Promise<void>;

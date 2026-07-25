@@ -5,8 +5,8 @@
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
-    "dev": "pnpm run build:rust && pnpm run build:native:macos && electron-vite dev",
-    "dev:release": "pnpm run build:rust:release && pnpm run build:native:macos && electron-vite dev",
+    "dev": "pnpm run build:rust && pnpm run build:native:macos && pnpm run build:native:windows && electron-vite dev",
+    "dev:release": "pnpm run build:rust:release && pnpm run build:native:macos && pnpm run build:native:windows && electron-vite dev",
     "build": "pnpm run typecheck && electron-vite build",
     "build:rust": "node scripts/buildRustCore.mjs",
     "build:rust:release": "node scripts/buildRustCore.mjs --release",
@@ -26,8 +26,11 @@
     "build:native:macos": "node scripts/buildMacRuntimeTabs.mjs",
     "verify:native:macos": "node scripts/verifyMacRuntimeTabs.mjs",
     "test:native:macos": "node scripts/verifyMacRuntimeTabs.mjs --tests",
-    "package": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && electron-builder --config electron-builder.config.mjs --dir",
-    "dist": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && electron-builder --config electron-builder.config.mjs",
+    "build:native:windows": "node scripts/buildWindowsWebView2.mjs",
+    "verify:native:windows": "node scripts/verifyWindowsWebView2.mjs",
+    "test:native:windows": "node scripts/verifyWindowsWebView2.mjs",
+    "package": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && pnpm run build:native:windows && pnpm run verify:native:windows && electron-builder --config electron-builder.config.mjs --dir",
+    "dist": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && pnpm run build:native:windows && pnpm run verify:native:windows && electron-builder --config electron-builder.config.mjs",
     "release": "semantic-release"
   },
   "keywords": [

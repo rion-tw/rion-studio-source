@@ -11,10 +11,11 @@
 #include <vector>
 
 #import "RionRuntimeTabsController.h"
+#import "RionSystemWebViewSurface.h"
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 6;
+constexpr int32_t kProtocolVersion = 7;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
@@ -22,8 +23,16 @@ struct ControllerRecord {
   napi_ref content_layout_callback = nullptr;
 };
 
+struct SystemSurfaceRecord {
+  __strong RionSystemWebViewSurface *surface = nil;
+  napi_ref callback = nullptr;
+};
+
 std::unordered_map<int64_t, std::unique_ptr<ControllerRecord>> controllers;
+std::unordered_map<int64_t, std::unique_ptr<SystemSurfaceRecord>>
+    system_surfaces;
 int64_t next_controller_id = 1;
+int64_t next_system_surface_id = 1;
 napi_env addon_env = nullptr;
 
 void Throw(napi_env env, const char *message) {
@@ -53,6 +62,17 @@ ControllerRecord *GetController(napi_env env, napi_value value) {
   auto iterator = controllers.find(controller_id);
   if (iterator == controllers.end()) {
     Throw(env, "The macOS runtime tabs controller no longer exists.");
+    return nullptr;
+  }
+  return iterator->second.get();
+}
+
+SystemSurfaceRecord *GetSystemSurface(napi_env env, napi_value value) {
+  int64_t surface_id = 0;
+  if (!GetInt64(env, value, &surface_id)) return nullptr;
+  auto iterator = system_surfaces.find(surface_id);
+  if (iterator == system_surfaces.end()) {
+    Throw(env, "The macOS system WebView surface no longer exists.");
     return nullptr;
   }
   return iterator->second.get();
@@ -178,6 +198,38 @@ void EmitContentLayout(int64_t controller_id,
   napi_close_handle_scope(addon_env, scope);
 }
 
+void EmitSystemSurfaceEvent(int64_t surface_id,
+                            NSDictionary<NSString *, id> *event) {
+  auto iterator = system_surfaces.find(surface_id);
+  if (iterator == system_surfaces.end() || !addon_env) return;
+  napi_handle_scope scope;
+  if (napi_open_handle_scope(addon_env, &scope) != napi_ok) return;
+  napi_value callback;
+  napi_value global;
+  if (napi_get_reference_value(addon_env, iterator->second->callback,
+                               &callback) == napi_ok &&
+      napi_get_global(addon_env, &global) == napi_ok) {
+    napi_value argument = NSDictionaryValue(addon_env, event);
+    napi_value ignored;
+    napi_call_function(addon_env, global, callback, 1, &argument, &ignored);
+  }
+  napi_close_handle_scope(addon_env, scope);
+}
+
+NSView *GetNativeView(napi_env env, napi_value value) {
+  void *buffer_data = nullptr;
+  size_t buffer_length = 0;
+  if (!Check(env, napi_get_buffer_info(env, value, &buffer_data, &buffer_length),
+             "Expected Electron's native NSView handle.") ||
+      buffer_length < sizeof(uintptr_t)) {
+    Throw(env, "Electron returned an invalid native NSView handle.");
+    return nil;
+  }
+  uintptr_t pointer = 0;
+  std::memcpy(&pointer, buffer_data, sizeof(pointer));
+  return (__bridge NSView *)(reinterpret_cast<void *>(pointer));
+}
+
 RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
   RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
   int32_t display_id = 0;
@@ -263,14 +315,6 @@ napi_value CreateController(napi_env env, napi_callback_info info) {
     Throw(env, "createController requires a window handle and two callbacks.");
     return nullptr;
   }
-  void *buffer_data = nullptr;
-  size_t buffer_length = 0;
-  if (!Check(env, napi_get_buffer_info(env, args[0], &buffer_data, &buffer_length),
-             "Expected Electron's native NSView handle.") ||
-      buffer_length < sizeof(uintptr_t)) {
-    Throw(env, "Electron returned an invalid native NSView handle.");
-    return nullptr;
-  }
   napi_valuetype callback_type;
   napi_typeof(env, args[1], &callback_type);
   if (callback_type != napi_function) {
@@ -284,9 +328,8 @@ napi_value CreateController(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
-  uintptr_t pointer = 0;
-  std::memcpy(&pointer, buffer_data, sizeof(pointer));
-  NSView *native_view = (__bridge NSView *)(reinterpret_cast<void *>(pointer));
+  NSView *native_view = GetNativeView(env, args[0]);
+  if (!native_view) return nullptr;
   NSWindow *window = native_view.window;
   if (!window) {
     Throw(env, "The Electron NSView is not attached to an NSWindow.");
@@ -325,6 +368,268 @@ napi_value CreateController(napi_env env, napi_callback_info info) {
   napi_value result;
   napi_create_int64(env, controller_id, &result);
   return result;
+}
+
+napi_value CreateSystemWebView(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value args[3];
+  if (!Check(env, napi_get_cb_info(env, info, &argc, args, nullptr, nullptr),
+             "Unable to read system WebView arguments.") ||
+      argc != 3) {
+    Throw(env,
+          "createSystemWebView requires a window handle, options, and callback.");
+    return nullptr;
+  }
+  NSView *parent_view = GetNativeView(env, args[0]);
+  if (!parent_view || !parent_view.window) {
+    Throw(env, "The Electron NSView is not attached to an NSWindow.");
+    return nullptr;
+  }
+  napi_valuetype callback_type;
+  napi_typeof(env, args[2], &callback_type);
+  if (callback_type != napi_function) {
+    Throw(env, "The system WebView event callback must be a function.");
+    return nullptr;
+  }
+  NSString *data_store_identifier = GetNSString(
+      env, GetNamed(env, args[1], "dataStoreIdentifier"),
+      "A valid WKWebsiteDataStore identifier is required.");
+  if (![[NSUUID alloc] initWithUUIDString:data_store_identifier]) {
+    Throw(env, "The WKWebsiteDataStore identifier must be a UUID.");
+    return nullptr;
+  }
+
+  int64_t surface_id = next_system_surface_id++;
+  auto record = std::make_unique<SystemSurfaceRecord>();
+  if (!Check(env, napi_create_reference(env, args[2], 1, &record->callback),
+             "Unable to retain the system WebView callback.")) {
+    return nullptr;
+  }
+  record->surface = [[RionSystemWebViewSurface alloc]
+          initWithParentView:parent_view
+      dataStoreIdentifier:data_store_identifier
+             eventHandler:^(NSDictionary<NSString *, id> *event) {
+    EmitSystemSurfaceEvent(surface_id, event);
+  }];
+  if (!record->surface) {
+    napi_delete_reference(env, record->callback);
+    Throw(env,
+          "Unable to create WKWebView. Rion Studio requires macOS 14 or newer.");
+    return nullptr;
+  }
+  system_surfaces.emplace(surface_id, std::move(record));
+  napi_value result;
+  napi_create_int64(env, surface_id, &result);
+  return result;
+}
+
+napi_value DestroySystemWebView(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 1) {
+    Throw(env, "destroySystemWebView requires an identifier.");
+    return nullptr;
+  }
+  int64_t surface_id = 0;
+  if (!GetInt64(env, args[0], &surface_id)) return nullptr;
+  auto iterator = system_surfaces.find(surface_id);
+  if (iterator == system_surfaces.end()) return Undefined(env);
+  [iterator->second->surface destroy];
+  napi_delete_reference(env, iterator->second->callback);
+  system_surfaces.erase(iterator);
+  return Undefined(env);
+}
+
+napi_value LoadSystemWebViewURL(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env, "loadSystemWebViewURL requires an identifier and URL.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  [record->surface
+      loadURL:GetNSString(env, args[1], "The system WebView URL is invalid.")];
+  return Undefined(env);
+}
+
+napi_value EvaluateSystemWebView(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value args[3];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 3) {
+    Throw(env,
+          "evaluateSystemWebView requires an identifier, request ID, and source.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  NSString *request_id =
+      GetNSString(env, args[1], "The evaluation request ID is invalid.");
+  NSString *source =
+      GetNSString(env, args[2], "The evaluation source is invalid.");
+  [record->surface evaluateJavaScript:source requestID:request_id];
+  return Undefined(env);
+}
+
+napi_value ClearSystemWebViewData(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env,
+          "clearSystemWebViewData requires an identifier and request ID.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  [record->surface
+      clearWebsiteDataForRequest:GetNSString(
+                                     env, args[1],
+                                     "The website-data request ID is invalid.")];
+  return Undefined(env);
+}
+
+napi_value GetSystemWebViewCookies(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env,
+          "getSystemWebViewCookies requires an identifier and request ID.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  [record->surface
+      getCookiesForRequest:GetNSString(
+                               env, args[1],
+                               "The cookie-read request ID is invalid.")];
+  return Undefined(env);
+}
+
+napi_value SetSystemWebViewCookies(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value args[3];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 3) {
+    Throw(env,
+          "setSystemWebViewCookies requires an identifier, request ID, and cookie JSON.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  NSString *request_id =
+      GetNSString(env, args[1], "The cookie-write request ID is invalid.");
+  NSString *cookies =
+      GetNSString(env, args[2], "The cookie migration JSON is invalid.");
+  [record->surface setCookiesFromJSON:cookies requestID:request_id];
+  return Undefined(env);
+}
+
+napi_value SetSystemWebViewBounds(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env, "setSystemWebViewBounds requires an identifier and bounds.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  double x = 0;
+  double y = 0;
+  double width = 0;
+  double height = 0;
+  bool valid =
+      napi_get_value_double(env, GetNamed(env, args[1], "x"), &x) == napi_ok &&
+      napi_get_value_double(env, GetNamed(env, args[1], "y"), &y) == napi_ok &&
+      napi_get_value_double(env, GetNamed(env, args[1], "width"), &width) ==
+          napi_ok &&
+      napi_get_value_double(env, GetNamed(env, args[1], "height"), &height) ==
+          napi_ok;
+  if (!valid || width < 0 || height < 0) {
+    Throw(env, "The system WebView bounds are invalid.");
+    return nullptr;
+  }
+  [record->surface setFrameFromTopLeftRect:NSMakeRect(x, y, width, height)];
+  return Undefined(env);
+}
+
+napi_value SetSystemWebViewVisible(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env, "setSystemWebViewVisible requires an identifier and boolean.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  bool visible = false;
+  if (!Check(env, napi_get_value_bool(env, args[1], &visible),
+             "The system WebView visibility must be a boolean.")) {
+    return nullptr;
+  }
+  [record->surface setVisible:visible];
+  return Undefined(env);
+}
+
+napi_value SetSystemWebViewZoom(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env, "setSystemWebViewZoom requires an identifier and factor.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  double zoom = 0;
+  if (!Check(env, napi_get_value_double(env, args[1], &zoom),
+             "The system WebView zoom factor is invalid.")) {
+    return nullptr;
+  }
+  [record->surface setPageZoom:zoom];
+  return Undefined(env);
+}
+
+napi_value SetSystemWebViewAudioMuted(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 2) {
+    Throw(env,
+          "setSystemWebViewAudioMuted requires an identifier and boolean.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  bool muted = false;
+  if (!Check(env, napi_get_value_bool(env, args[1], &muted),
+             "The system WebView mute state must be a boolean.")) {
+    return nullptr;
+  }
+  napi_value result;
+  napi_get_boolean(env, [record->surface setAudioMuted:muted], &result);
+  return result;
+}
+
+napi_value FocusSystemWebView(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 1) {
+    Throw(env, "focusSystemWebView requires an identifier.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  [record->surface focus];
+  return Undefined(env);
 }
 
 napi_value UpdateController(napi_env env, napi_callback_info info) {
@@ -443,6 +748,13 @@ void Cleanup(void *data) {
     }
   }
   controllers.clear();
+  for (auto &entry : system_surfaces) {
+    [entry.second->surface destroy];
+    if (entry.second->callback) {
+      napi_delete_reference(addon_env, entry.second->callback);
+    }
+  }
+  system_surfaces.clear();
   addon_env = nullptr;
 }
 
@@ -462,6 +774,30 @@ napi_value Initialize(napi_env env, napi_value exports) {
       {"setRevealLocked", nullptr, SetRevealLocked, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"destroyController", nullptr, DestroyController, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"createSystemWebView", nullptr, CreateSystemWebView, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"destroySystemWebView", nullptr, DestroySystemWebView, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"loadSystemWebViewURL", nullptr, LoadSystemWebViewURL, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"evaluateSystemWebView", nullptr, EvaluateSystemWebView, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"clearSystemWebViewData", nullptr, ClearSystemWebViewData, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"getSystemWebViewCookies", nullptr, GetSystemWebViewCookies, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"setSystemWebViewCookies", nullptr, SetSystemWebViewCookies, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"setSystemWebViewBounds", nullptr, SetSystemWebViewBounds, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"setSystemWebViewVisible", nullptr, SetSystemWebViewVisible, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"setSystemWebViewZoom", nullptr, SetSystemWebViewZoom, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"setSystemWebViewAudioMuted", nullptr, SetSystemWebViewAudioMuted,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"focusSystemWebView", nullptr, FocusSystemWebView, nullptr, nullptr,
        nullptr, napi_default, nullptr}};
   napi_define_properties(env, exports, std::size(properties), properties);
   napi_value protocol;

@@ -56,6 +56,12 @@ const api: RionStudioApi = {
   deleteRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesDelete, id),
   deleteRoles: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesDeleteMany, input),
   clearRoleBrowserData: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesClearBrowserData, id),
+  previewRoleSessionMigration: (id, targetEngine) =>
+    ipcRenderer.invoke(IPC_CHANNELS.rolesSessionMigrationPreview, id, targetEngine),
+  applyRoleSessionMigration: (id, targetEngine) =>
+    ipcRenderer.invoke(IPC_CHANNELS.rolesSessionMigrationApply, id, targetEngine),
+  rollbackRoleSessionMigration: (id) =>
+    ipcRenderer.invoke(IPC_CHANNELS.rolesSessionMigrationRollback, id),
   getRolePaths: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesPaths, id),
   launchRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesLaunch, id),
   captureExternalRoleDiagnostics: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesCaptureExternalDiagnostics, id),

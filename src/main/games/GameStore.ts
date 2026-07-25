@@ -52,7 +52,8 @@ export class GameStore {
           : {}),
         ...(input.browserLaunchMode === undefined
           ? {}
-          : { browserLaunchMode: input.browserLaunchMode })
+          : { browserLaunchMode: input.browserLaunchMode }),
+        ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine })
       }
     });
   }
@@ -76,7 +77,8 @@ export class GameStore {
         setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
         ...(input.browserLaunchMode === undefined
           ? {}
-          : { browserLaunchMode: input.browserLaunchMode })
+          : { browserLaunchMode: input.browserLaunchMode }),
+        ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine })
       }
     });
   }

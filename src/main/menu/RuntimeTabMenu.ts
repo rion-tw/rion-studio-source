@@ -1,7 +1,7 @@
 import { Menu, type BaseWindow, type MenuItemConstructorOptions } from "electron";
 
 import type { AppLanguage, PendingWorkspaceLaunchRequest, WorkspaceDisplayInfo } from "../../shared/types";
-import type { ElectronBrowserRuntime } from "../browser/ElectronBrowserRuntime";
+import type { RuntimeHostPort } from "../browser/ports/RuntimeHostPort";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import type { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
@@ -62,7 +62,7 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
 
 interface RuntimeTabMenuOptions {
   browserManager: Pick<
-    ElectronBrowserRuntime,
+    RuntimeHostPort,
     "acquireRuntimeToolbarRevealLock" | "launch" | "listEmbeddedRuntimeState" |
       "hideRuntimeTab" | "moveRuntimeTab" | "setRuntimeTabAudioMuted" |
       "showRuntimeTab" | "stopRuntimeTab"

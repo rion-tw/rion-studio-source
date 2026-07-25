@@ -213,6 +213,10 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm run build:native:macos && pnpm run test:native:macos
 
+      - name: Build and test Windows WebView2 adapter
+        if: runner.os == 'Windows'
+        run: pnpm run build:native:windows && pnpm run test:native:windows
+
       - name: Build unpacked application
         run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.package_args }} --publish never
         env:

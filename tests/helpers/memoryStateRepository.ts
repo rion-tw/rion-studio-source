@@ -233,7 +233,7 @@ export class MemoryStateRepository {
       name: input.name.trim(),
       launchUrl: new URL(input.launchUrl ?? "https://universe.flyff.com/play").toString(),
       notes: input.notes?.trim() ?? "",
-      browserSessionSource: "embedded",
+      browserSessionSource: "managed",
       ...(typeof input.coverImageDataUrl === "string" && input.coverImageDataUrl
         ? { coverImageDataUrl: input.coverImageDataUrl }
         : {}),

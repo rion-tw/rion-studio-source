@@ -32,6 +32,16 @@ import {
   ElectronHandleRegistry
 } from "./core/ElectronEffectExecutor";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
+import {
+  getMacSystemWebViewSessionStore,
+  loadMacSystemWebViewSurfaceFactory
+} from "./browser/MacSystemWebViewSurface";
+import {
+  getWindowsWebView2SessionStore,
+  loadWindowsWebView2SurfaceFactory,
+  type WindowsWebView2SurfacePort
+} from "./browser/WindowsWebView2Surface";
+import type { WebSurfacePort } from "./browser/ports/WebSurfacePort";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import {
   ElectronBrowserRuntime,
@@ -195,6 +205,15 @@ function getMacRuntimeTabsAddonPath(): string {
     : join(
         __dirname,
         `../../build/native/darwin-${process.arch}/rion-runtime-tabs.node`
+      );
+}
+
+function getWindowsWebView2AddonPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "native/rion-webview2.node")
+    : join(
+        __dirname,
+        `../../build/native/win32-${process.arch}/rion-webview2.node`
       );
 }
 
@@ -546,6 +565,80 @@ async function initializeApplication(): Promise<void> {
   const macRuntimeTabsControllerFactory = process.platform === "darwin"
     ? loadMacRuntimeTabsControllerFactory(getMacRuntimeTabsAddonPath())
     : undefined;
+  const macSystemWebViewSurfaceFactory = process.platform === "darwin"
+    ? loadMacSystemWebViewSurfaceFactory(getMacRuntimeTabsAddonPath())
+    : undefined;
+  const windowsWebView2SurfaceFactory = process.platform === "win32"
+    ? loadWindowsWebView2SurfaceFactory(getWindowsWebView2AddonPath())
+    : undefined;
+  const macSystemSessionSurfaces = new Map<string, {
+    surface: WebSurfacePort;
+    window: BaseWindow;
+  }>();
+  const getMacSystemSessionSurface = (
+    roleId: string,
+    dataStoreIdentifier: string
+  ) => {
+    const existing = macSystemSessionSurfaces.get(roleId);
+    if (existing && !existing.window.isDestroyed()) return existing;
+    if (!macSystemWebViewSurfaceFactory) {
+      throw Object.assign(
+        new Error("The macOS System WebView adapter is unavailable."),
+        { code: "SYSTEM_SESSION_STORE_UNAVAILABLE" }
+      );
+    }
+    const window = new BaseWindow({
+      height: 1,
+      show: false,
+      skipTaskbar: true,
+      width: 1
+    });
+    const surface = macSystemWebViewSurfaceFactory(window, {
+      dataStoreIdentifier
+    });
+    const entry = { surface, window };
+    macSystemSessionSurfaces.set(roleId, entry);
+    return entry;
+  };
+  const windowsSystemSessionSurfaces = new Map<string, {
+    surface: WindowsWebView2SurfacePort;
+    window: BaseWindow;
+  }>();
+  const getWindowsSystemSessionSurface = (
+    roleId: string,
+    userDataFolder: string
+  ) => {
+    const existing = windowsSystemSessionSurfaces.get(roleId);
+    if (existing && !existing.window.isDestroyed()) return existing;
+    if (!windowsWebView2SurfaceFactory) {
+      throw Object.assign(
+        new Error("The Windows WebView2 adapter is unavailable."),
+        { code: "SYSTEM_SESSION_STORE_UNAVAILABLE" }
+      );
+    }
+    const window = new BaseWindow({
+      height: 1,
+      show: false,
+      skipTaskbar: true,
+      width: 1
+    });
+    const surface = windowsWebView2SurfaceFactory(window, { userDataFolder });
+    const entry = { surface, window };
+    windowsSystemSessionSurfaces.set(roleId, entry);
+    return entry;
+  };
+  app.once("will-quit", () => {
+    for (const { surface, window } of macSystemSessionSurfaces.values()) {
+      void surface.destroy();
+      if (!window.isDestroyed()) window.close();
+    }
+    macSystemSessionSurfaces.clear();
+    for (const { surface, window } of windowsSystemSessionSurfaces.values()) {
+      void surface.destroy();
+      if (!window.isDestroyed()) window.close();
+    }
+    windowsSystemSessionSurfaces.clear();
+  });
   embeddedRuntimeDiagnostics?.stop();
   embeddedRuntimeDiagnostics = new EmbeddedRuntimeDiagnostics(logService);
   powerMonitor.on("suspend", () => {
@@ -684,7 +777,68 @@ async function initializeApplication(): Promise<void> {
     getEmbeddedSession: (roleId) =>
       electronSession.fromPartition(createRoleSessionPartition(roleId)),
     getImportedSession: (browserUserDataDir) =>
-      electronSession.fromPath(join(browserUserDataDir, "Default"))
+      electronSession.fromPath(join(browserUserDataDir, "Default")),
+    getSystemSessionStore: (roleId, paths) => {
+      if (process.platform === "darwin") {
+        return getMacSystemWebViewSessionStore(
+          getMacSystemSessionSurface(
+            roleId,
+            paths.webkitDataStoreIdentifier
+          ).surface
+        );
+      }
+      if (process.platform === "win32") {
+        return getWindowsWebView2SessionStore(
+          getWindowsSystemSessionSurface(
+            roleId,
+            paths.webview2UserDataDir
+          ).surface
+        );
+      }
+      throw Object.assign(
+        new Error("The System WebView cookie adapter is unavailable on this platform."),
+        { code: "SYSTEM_SESSION_STORE_UNAVAILABLE" }
+      );
+    },
+    verifyEngineSession: async (roleId, engine, launchUrl, paths) => {
+      if (engine === "system") {
+        const surface = process.platform === "darwin"
+          ? getMacSystemSessionSurface(
+              roleId,
+              paths.webkitDataStoreIdentifier
+            ).surface
+          : process.platform === "win32"
+            ? getWindowsSystemSessionSurface(
+                roleId,
+                paths.webview2UserDataDir
+              ).surface
+            : undefined;
+        if (!surface) return false;
+        await surface.loadUrl(launchUrl);
+        return await surface.evaluate<boolean>(
+          "document.readyState === 'interactive' || document.readyState === 'complete'"
+        );
+      }
+      const verifier = new BrowserWindow({
+        height: 1,
+        show: false,
+        skipTaskbar: true,
+        webPreferences: {
+          backgroundThrottling: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          partition: createRoleSessionPartition(roleId),
+          sandbox: true
+        },
+        width: 1
+      });
+      try {
+        await verifier.loadURL(launchUrl);
+        return true;
+      } finally {
+        verifier.destroy();
+      }
+    }
   });
   const effectExecutor = new ElectronEffectExecutor(
     electronEffectHandles,
@@ -741,8 +895,7 @@ async function initializeApplication(): Promise<void> {
         }
       },
       executeProfileEffect: async ({ action }) => {
-        await electronProfileEffectAdapter.execute(action);
-        return undefined;
+        return await electronProfileEffectAdapter.execute(action);
       },
       onResult: (effect, result) => {
         if (result.ok) return;

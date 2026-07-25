@@ -141,18 +141,24 @@ impl BrowserRuntime {
                 exclusive_display,
                 role_ids,
             } => {
-                if self
+                let is_resuming = self
                     .workspaces
                     .get(&workspace_id)
-                    .is_some_and(|workspace| workspace.runtime != "pending")
-                {
-                    return Err(domain(
-                        "WORKSPACE_ALREADY_RUNNING",
-                        "Launch workspace is already running.",
-                    ));
+                    .is_some_and(|workspace| workspace.runtime != "pending");
+                if is_resuming {
+                    let existing = self.workspaces.get(&workspace_id).unwrap().role_ids.clone();
+                    let new_role_ids: Vec<_> = role_ids
+                        .iter()
+                        .filter(|id| !existing.contains(id))
+                        .cloned()
+                        .collect();
+                    if !new_role_ids.is_empty() {
+                        self.ensure_roles_available(&new_role_ids, Some(&workspace_id))?;
+                    }
+                } else {
+                    self.ensure_workspace_roles_match(&workspace_id, &role_ids)?;
+                    self.ensure_roles_available(&role_ids, Some(&workspace_id))?;
                 }
-                self.ensure_workspace_roles_match(&workspace_id, &role_ids)?;
-                self.ensure_roles_available(&role_ids, Some(&workspace_id))?;
                 if exclusive_display
                     && display_id.is_some_and(|candidate| {
                         self.workspaces.values().any(|workspace| {
@@ -167,24 +173,33 @@ impl BrowserRuntime {
                         "Launch workspace target display is already occupied.",
                     ));
                 }
-                let workspace = self
-                    .workspaces
-                    .entry(workspace_id.clone())
-                    .or_insert_with(|| BrowserRuntimeWorkspaceRecord {
-                        workspace_id,
-                        name: name.clone(),
-                        runtime: "external".to_owned(),
-                        display_id,
-                        exclusive_display,
-                        tab_id: None,
-                        role_ids: role_ids.clone(),
-                        state: "launching".to_owned(),
-                    });
-                workspace.name = name;
-                workspace.runtime = "external".to_owned();
-                workspace.display_id = display_id;
-                workspace.exclusive_display = exclusive_display;
-                workspace.role_ids = role_ids;
+                if is_resuming {
+                    let workspace = self.workspaces.get_mut(&workspace_id).unwrap();
+                    for id in &role_ids {
+                        if !workspace.role_ids.contains(id) {
+                            workspace.role_ids.push(id.clone());
+                        }
+                    }
+                } else {
+                    let workspace = self
+                        .workspaces
+                        .entry(workspace_id.clone())
+                        .or_insert_with(|| BrowserRuntimeWorkspaceRecord {
+                            workspace_id,
+                            name: name.clone(),
+                            runtime: "external".to_owned(),
+                            display_id,
+                            exclusive_display,
+                            tab_id: None,
+                            role_ids: role_ids.clone(),
+                            state: "launching".to_owned(),
+                        });
+                    workspace.name = name;
+                    workspace.runtime = "external".to_owned();
+                    workspace.display_id = display_id;
+                    workspace.exclusive_display = exclusive_display;
+                    workspace.role_ids = role_ids;
+                }
             }
             BrowserRuntimeCommand::RemoveTab { tab_id } => self.remove_tab(&tab_id),
             BrowserRuntimeCommand::ActivateTab { tab_id } => self.activate_tab(&tab_id)?,

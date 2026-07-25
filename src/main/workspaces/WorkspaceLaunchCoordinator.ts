@@ -20,7 +20,7 @@ import type { LaunchWorkspaceStore } from "./LaunchWorkspaceStore";
 interface WorkspaceLaunchCoordinatorOptions {
   browserManager: Pick<
     ElectronBrowserRuntime,
-    "launchWorkspace" | "listWorkspaceDisplayReservations"
+    "launchWorkspace" | "listWorkspaceDisplayReservations" | "listStatuses" | "stopWorkspace"
   >;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings">;
   gameCompatibilityManager?: Pick<GameCompatibilityManager, "recordObservation">;
@@ -70,8 +70,28 @@ export class WorkspaceLaunchCoordinator {
       throw new Error("Launch workspace has no roles.");
     }
 
+    // Filter to only stopped roles (skip already-running ones for resume)
+    const runningRoleIds = new Set(
+      this.options.browserManager.listStatuses().map((status) => status.roleId)
+    );
+    const filteredSlots = launchSlots.filter(
+      (slot) => !runningRoleIds.has(slot.roleId ?? "")
+    );
+    if (filteredSlots.length === 0) {
+      return {
+        kind: "launched",
+        displayId: 0,
+        statuses: []
+      };
+    }
+    const launchRoleIds = filteredSlots
+      .map((slot) => slot.roleId)
+      .filter((id): id is string => id !== null && id !== undefined);
+    // Use only filtered slots for the launch
+    const launchSlotsFiltered = filteredSlots;
+
     const launchItems = await Promise.all(
-      launchSlots.map(async (slot) => ({
+      launchSlotsFiltered.map(async (slot) => ({
         slot,
         role: await this.options.roleStore.getRole(slot.roleId ?? "")
       }))
@@ -102,7 +122,7 @@ export class WorkspaceLaunchCoordinator {
             ? {}
             : { browserZoomPercent: slot.browserZoomPercent })
         })),
-        { displayId: targetDisplay.id, workArea: targetDisplay.workArea }
+        { displayId: targetDisplay.id, workArea: targetDisplay.workArea, roleIds: launchRoleIds.length > 0 ? launchRoleIds : undefined }
       );
       await Promise.all(statuses.map((status) => {
         const role = launchItems.find((item) => item.role.id === status.roleId)?.role;

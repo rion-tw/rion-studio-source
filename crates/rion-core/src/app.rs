@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     fs,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
@@ -1551,6 +1551,7 @@ impl AppCore {
             CoreCommand::BrowserWorkspaceLaunch {
                 workspace_id,
                 target,
+                role_ids,
             } => {
                 let workspace = self.external_workspace(&workspace_id)?;
                 let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
@@ -1563,7 +1564,7 @@ impl AppCore {
                 );
                 let statuses = match mode {
                     "external" => {
-                        self.launch_external_workspace(workspace, target, None, settings)
+                        self.launch_external_workspace(workspace, target, None, settings, role_ids.clone())
                             .await?
                     }
                     "auto" => {
@@ -1590,6 +1591,7 @@ impl AppCore {
                                         crate::external_runtime::EXTERNAL_COMPAT_NOTICE.to_owned(),
                                     ),
                                     settings,
+                                    role_ids.clone(),
                                 )
                                 .await?
                             }
@@ -2863,12 +2865,16 @@ impl AppCore {
         settings: GameBrowserSettingsRecord,
     ) -> CoreResult<crate::model::BrowserRoleStatusRecord> {
         if let Some(existing) = self.external_session(&role.id)? {
-            self.invoke_external_session(ExternalSessionCommand::UpdateRole { role })?;
-            let _ = self.external_automation.focus(&existing.role.id).await;
-            return self
-                .external_session(&existing.role.id)?
-                .map(|session| external_status(&session))
-                .ok_or_else(|| CoreError::Internal("external session disappeared".to_owned()));
+            let registered = self.external_automation.role_ids()?.contains(&role.id);
+            if registered && existing.automation_available {
+                self.invoke_external_session(ExternalSessionCommand::UpdateRole { role })?;
+                let _ = self.external_automation.focus(&existing.role.id).await;
+                return self
+                    .external_session(&existing.role.id)?
+                    .map(|session| external_status(&session))
+                    .ok_or_else(|| CoreError::Internal("external session disappeared".to_owned()));
+            }
+            self.stop_external_session(&role.id, false).await?;
         }
 
         let role_id = role.id.clone();
@@ -2902,17 +2908,22 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         notice: Option<String>,
         settings: GameBrowserSettingsRecord,
+        role_ids: Option<Vec<String>>,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
         let available_roles = self
             .read_typed_state_collection::<StateRoleRecord>("roles")?
             .into_iter()
             .map(|role| (role.id.clone(), role))
             .collect::<std::collections::HashMap<_, _>>();
+        let filter_ids = role_ids.clone();
         let slots = workspace
             .slots
             .iter()
             .filter_map(|slot| {
                 let role_id = slot.role_id.as_ref()?;
+                if let Some(ref ids) = filter_ids {
+                    if !ids.contains(role_id) { return None; }
+                }
                 Some((slot, available_roles.get(role_id).cloned()))
             })
             .collect::<Vec<_>>();
@@ -3494,6 +3505,7 @@ impl AppCore {
                     .external_health()
                     .and_then(|health| health.remove(role_id.to_owned()));
                 let _ = self.macro_runtime.stop_role(role_id);
+                let _ = self.external_automation.unregister(role_id);
                 self.emit_browser_statuses();
             }
             crate::external_chrome::CdpEvent::Reconnected => {

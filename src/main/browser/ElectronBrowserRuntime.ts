@@ -81,6 +81,7 @@ export interface BrowserWorkspaceLaunchItem {
 export interface BrowserWorkspaceLaunchTarget {
   displayId: number;
   workArea: PixelBounds;
+  roleIds?: string[];
 }
 
 export type BrowserWorkspaceRuntimeState = "launching" | "running" | "stopping";
@@ -1106,6 +1107,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       const statuses = await this.options.browserRuntimeState.invoke({
         type: "browserWorkspaceLaunch",
         workspaceId: workspace.id,
+        roleIds: target?.roleIds,
         target: {
           displayId: resolvedTarget.displayId,
           workArea: resolvedTarget.workArea

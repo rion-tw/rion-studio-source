@@ -84,6 +84,7 @@ function renderGameSettings(
             (async (preferences) => preferences)
           }
           onOpenUpdateDownload={async () => undefined}
+          onSetAutoUpdateEnabled={async () => undefined}
           onPreviewPortableImport={async () => null}
           onRestartApplication={async () => undefined}
           onThemeModeChange={() => undefined}

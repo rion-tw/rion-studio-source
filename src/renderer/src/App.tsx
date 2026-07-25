@@ -812,6 +812,7 @@ export function App(): JSX.Element {
                   updateVersion={updates.appVersion}
                   isUpdateBusy={updates.isBusy}
                   onCheckForUpdates={updates.checkForUpdates}
+                  onSetAutoUpdateEnabled={updates.setAutoUpdateEnabled}
                   onError={data.setError}
                   onExportPortableData={exportPortableData}
                   onGameBrowserSettingsChange={updateGameBrowserSettings}

@@ -29,6 +29,21 @@ describe("AppUpdateManager", () => {
     expect(updater.checkForUpdates).not.toHaveBeenCalled();
   });
 
+  it("stores the auto update preference in memory", () => {
+    const updater = new FakeUpdater();
+    const manager = new AppUpdateManager({
+      currentVersion: "0.1.0",
+      isPackaged: true,
+      platform: "win32",
+      updater: updater as never
+    });
+
+    expect(manager.getStatus().autoUpdateEnabled).toBe(true);
+    expect(manager.setAutoUpdateEnabled(false).autoUpdateEnabled).toBe(false);
+    expect(manager.getStatus().autoUpdateEnabled).toBe(false);
+    expect(manager.setAutoUpdateEnabled(true).autoUpdateEnabled).toBe(true);
+  });
+
   it("tracks available, download progress, and downloaded states", async () => {
     const updater = new FakeUpdater();
     updater.checkForUpdates.mockImplementation(async () => {

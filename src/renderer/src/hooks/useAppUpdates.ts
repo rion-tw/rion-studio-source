@@ -12,6 +12,7 @@ interface UseAppUpdatesResult {
   isBusy: boolean;
   status: AppUpdateStatus | null;
   checkForUpdates: () => Promise<void>;
+  setAutoUpdateEnabled: (enabled: boolean) => Promise<void>;
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
 }
@@ -61,6 +62,18 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
     }
   }, [enabled, onError]);
 
+  const setAutoUpdateEnabled = useCallback(async (autoUpdateEnabled: boolean) => {
+    if (!enabled) {
+      return;
+    }
+
+    try {
+      setStatus(await window.rionStudio.setAutoUpdateEnabled(autoUpdateEnabled));
+    } catch (error) {
+      onError(error);
+    }
+  }, [enabled, onError]);
+
   const installDownloadedUpdate = useCallback(async () => {
     if (!enabled) {
       return;
@@ -92,6 +105,7 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
     isBusy,
     status,
     checkForUpdates,
+    setAutoUpdateEnabled,
     openUpdateDownload,
     installDownloadedUpdate
   };

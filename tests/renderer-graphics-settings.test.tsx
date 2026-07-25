@@ -13,6 +13,7 @@ import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
 import type {
   GameBrowserSettings,
   GraphicsDiagnostics,
+  RoleStatus,
   RuntimeWindowPreferences
 } from "../src/shared/types";
 
@@ -55,6 +56,7 @@ function renderGameSettings(
   gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS,
   options: {
     initialEntry?: string;
+    roleStatuses?: RoleStatus[];
     onRuntimeWindowPreferencesChange?: (
       preferences: RuntimeWindowPreferences
     ) => Promise<RuntimeWindowPreferences>;
@@ -66,6 +68,7 @@ function renderGameSettings(
         <SettingsView
           gameBrowserSettings={gameBrowserSettings}
           hasRunningRoles={false}
+          roleStatuses={options.roleStatuses}
           language="en"
           macroSettings={DEFAULT_MACRO_SETTINGS}
           onApplyPortableImport={async () => { throw new Error("not used"); }}
@@ -143,6 +146,49 @@ describe("flattened graphics settings", () => {
     ).toBeTruthy();
     expect(await screen.findByRole("combobox", { name: "Graphics API backend" })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Graphics acceleration" })).toBeNull();
+  });
+
+  it("shows the resolved engine capability matrix without masking degraded behavior", () => {
+    renderGameSettings(
+      async (settings) => settings,
+      "darwin",
+      DEFAULT_GAME_BROWSER_SETTINGS,
+      {
+        roleStatuses: [{
+          roleId: "role-1",
+          state: "running",
+          runtimeMode: "embedded",
+          preferredEngine: "system",
+          resolvedEngine: "wkwebview",
+          hostKind: "system",
+          capabilitySnapshot: {
+            navigation: "supported",
+            persistentSession: "supported",
+            trustedInput: "unsupported",
+            backgroundInput: "unsupported",
+            frameEvaluation: "degraded",
+            cdnRewrite: "unsupported",
+            proxy: "supported",
+            popup: "unsupported",
+            audioMute: "supported",
+            customFonts: "degraded",
+            graphicsTuning: "disabled",
+            downloads: "supported",
+            fileUpload: "supported",
+            permissions: "degraded",
+            dialogs: "supported",
+            certificateHandling: "supported"
+          }
+        }]
+      }
+    );
+
+    expect(screen.getByText("Active engine capabilities")).toBeTruthy();
+    expect(screen.getByText("Resolved engine")).toBeTruthy();
+    expect(screen.getByText("WKWebView")).toBeTruthy();
+    expect(screen.getAllByText("Fallback").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Partial").length).toBeGreaterThan(0);
+    expect(screen.getByText("Disabled")).toBeTruthy();
   });
 
   it("saves one flattened field without opening a restart confirmation", async () => {

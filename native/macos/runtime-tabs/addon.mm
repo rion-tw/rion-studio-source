@@ -15,7 +15,7 @@
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 7;
+constexpr int32_t kProtocolVersion = 10;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
@@ -394,6 +394,9 @@ napi_value CreateSystemWebView(napi_env env, napi_callback_info info) {
   NSString *data_store_identifier = GetNSString(
       env, GetNamed(env, args[1], "dataStoreIdentifier"),
       "A valid WKWebsiteDataStore identifier is required.");
+  NSString *proxy_server =
+      GetNSString(env, GetNamed(env, args[1], "proxyServer"),
+                  "The System WebView proxy server is invalid.");
   if (![[NSUUID alloc] initWithUUIDString:data_store_identifier]) {
     Throw(env, "The WKWebsiteDataStore identifier must be a UUID.");
     return nullptr;
@@ -408,6 +411,7 @@ napi_value CreateSystemWebView(napi_env env, napi_callback_info info) {
   record->surface = [[RionSystemWebViewSurface alloc]
           initWithParentView:parent_view
       dataStoreIdentifier:data_store_identifier
+              proxyServer:proxy_server
              eventHandler:^(NSDictionary<NSString *, id> *event) {
     EmitSystemSurfaceEvent(surface_id, event);
   }];
@@ -472,6 +476,26 @@ napi_value EvaluateSystemWebView(napi_env env, napi_callback_info info) {
   NSString *source =
       GetNSString(env, args[2], "The evaluation source is invalid.");
   [record->surface evaluateJavaScript:source requestID:request_id];
+  return Undefined(env);
+}
+
+napi_value AddSystemWebViewDocumentStartScript(napi_env env,
+                                               napi_callback_info info) {
+  size_t argc = 3;
+  napi_value args[3];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 3) {
+    Throw(env,
+          "addSystemWebViewDocumentStartScript requires an identifier, request ID, and source.");
+    return nullptr;
+  }
+  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
+  if (!record) return nullptr;
+  NSString *request_id =
+      GetNSString(env, args[1], "The document-start request ID is invalid.");
+  NSString *source =
+      GetNSString(env, args[2], "The document-start source is invalid.");
+  [record->surface addDocumentStartScript:source requestID:request_id];
   return Undefined(env);
 }
 
@@ -783,6 +807,9 @@ napi_value Initialize(napi_env env, napi_value exports) {
        nullptr, napi_default, nullptr},
       {"evaluateSystemWebView", nullptr, EvaluateSystemWebView, nullptr, nullptr,
        nullptr, napi_default, nullptr},
+      {"addSystemWebViewDocumentStartScript", nullptr,
+       AddSystemWebViewDocumentStartScript, nullptr, nullptr, nullptr,
+       napi_default, nullptr},
       {"clearSystemWebViewData", nullptr, ClearSystemWebViewData, nullptr,
        nullptr, nullptr, napi_default, nullptr},
       {"getSystemWebViewCookies", nullptr, GetSystemWebViewCookies, nullptr,

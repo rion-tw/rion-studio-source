@@ -135,6 +135,9 @@ export function createBrowserRuntimeState() {
       const statuses = this.listBrowserStatuses();
       listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
     },
+    publishBrowserStatuses(statuses: BrowserRoleStatusRecord[]): void {
+      listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
+    },
     evaluateExternalChrome<T>(): Promise<T> {
       return Promise.reject(new Error("External Chrome is not configured in this test harness."));
     },

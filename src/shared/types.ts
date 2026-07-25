@@ -170,6 +170,8 @@ export interface RoleStatus {
   hostKind?: BrowserHostKind;
   fallbackReason?: EngineFallbackReason;
   capabilitySnapshot?: EngineCapabilitySnapshot;
+  /** Continuity of the authenticated browser session after an engine fallback. */
+  sessionContinuity?: "verified" | "needs-login";
 }
 
 export type EmbeddedRuntimeTabType = "role" | "workspace";

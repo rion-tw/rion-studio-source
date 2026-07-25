@@ -72,7 +72,11 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
     });
   }
 
-  runCheck(gameId: string): Promise<GameCompatibilityReport> {
+  async runCheck(gameId: string): Promise<GameCompatibilityReport> {
+    await this.options.core.invoke({
+      type: "engineCompatibilityCacheDeleteGame",
+      gameId
+    });
     return this.options.core.invoke({
       type: "compatibilityRun",
       gameId,

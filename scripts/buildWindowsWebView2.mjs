@@ -12,6 +12,13 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const nativeDirectory = join(repositoryRoot, "native", "windows", "webview2");
 const sdkDirectory = join(repositoryRoot, "build", "webview2-sdk", sdkVersion);
 const sdkHeader = join(sdkDirectory, "build", "native", "include", "WebView2.h");
+const sdkOptionsHeader = join(
+  sdkDirectory,
+  "build",
+  "native",
+  "include",
+  "WebView2EnvironmentOptions.h"
+);
 const sdkArchive = join(repositoryRoot, "build", "webview2-sdk", `webview2-${sdkVersion}.zip`);
 const builtAddon = join(nativeDirectory, "build", "Release", "rion-webview2.node");
 
@@ -48,7 +55,7 @@ async function run(command, args, env = process.env) {
 }
 
 async function prepareSdk() {
-  if (await exists(sdkHeader)) return;
+  if (await exists(sdkHeader) && await exists(sdkOptionsHeader)) return;
   await mkdir(join(repositoryRoot, "build", "webview2-sdk"), { recursive: true });
   if (!await exists(sdkArchive)) {
     const response = await fetch(
@@ -76,8 +83,15 @@ async function prepareSdk() {
     sdkDirectory,
     "-Force"
   ]);
-  if (!await exists(sdkHeader)) {
-    throw new Error(`WebView2 SDK header was not extracted to ${sdkHeader}.`);
+  if (!await exists(sdkHeader) || !await exists(sdkOptionsHeader)) {
+    throw new Error(
+      `WebView2 SDK headers were not extracted to ${join(
+        sdkDirectory,
+        "build",
+        "native",
+        "include"
+      )}.`
+    );
   }
 }
 

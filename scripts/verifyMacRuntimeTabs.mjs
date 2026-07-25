@@ -88,12 +88,13 @@ async function main() {
 
   await assertFile(hostAddonPath, "host macOS runtime tabs addon");
   const addon = require(hostAddonPath);
-  if (addon.protocolVersion !== 7) {
+  if (addon.protocolVersion !== 10) {
     throw new Error(
       `Unexpected macOS runtime tabs protocol: ${String(addon.protocolVersion)}.`
     );
   }
   for (const method of [
+    "addSystemWebViewDocumentStartScript",
     "createController",
     "createSystemWebView",
     "clearSystemWebViewData",
@@ -120,7 +121,7 @@ async function main() {
   }
 
   if (options.shouldRunTests) await runTests();
-  console.log(`Verified macOS runtime tabs protocol 7: ${options.addonPath}`);
+  console.log(`Verified macOS runtime tabs protocol 10: ${options.addonPath}`);
 }
 
 main().catch((error) => {

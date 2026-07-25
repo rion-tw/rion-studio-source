@@ -6,7 +6,10 @@ import { App } from "./App";
 import { AppRouteError } from "./components/AppRouteError";
 import { AppWindowStateSync } from "./components/AppWindowStateSync";
 import { ConfirmationProvider } from "./components/ConfirmationDialog";
+import { installTauriBridgeIfNeeded } from "./tauri/installTauriBridge";
 import "./styles.css";
+
+await installTauriBridgeIfNeeded();
 
 function detectPlatform(): "linux" | "mac" | "windows" {
   const platform = navigator.platform.toLowerCase();

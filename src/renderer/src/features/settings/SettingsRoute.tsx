@@ -3,6 +3,7 @@ import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
 import { Checkbox } from "../../components/ui/checkbox";
 import { useConfirmation } from "../../components/confirmation";
 import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
@@ -20,6 +21,10 @@ import {
 } from "../../app/constants";
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type TranslationKey, type Translator } from "../../i18n";
+import {
+  getBrowserEngineStatusTitle,
+  getResolvedBrowserEngineLabel
+} from "../../app/browserEnginePresentation";
 import {
   DEFAULT_BROWSER_FONT_SETTINGS,
   browserFontFamilyRoles,
@@ -42,6 +47,7 @@ import type {
   BrowserWindowsGraphicsBackend,
   BrowserLaunchMode,
   EmbeddedBrowserEngine,
+  EngineCapabilitySnapshot,
   GameBrowserSettings,
   Game,
   GraphicsDiagnostics,
@@ -58,11 +64,13 @@ import type {
   PortableImportWarning,
   PortableMacroConflictResolution,
   RuntimeWindowPreferences,
+  RoleStatus,
   SystemFontFamily,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
   WorkspaceGapSize
 } from "../../../../shared/types";
+import type { EngineCapabilityStatus } from "../../../../shared/generated";
 import {
   applyGraphicsSettingsUpdate,
   getGraphicsRestartState
@@ -93,6 +101,7 @@ interface SettingsViewProps {
   gameBrowserSettings: GameBrowserSettings;
   games?: Game[];
   hasRunningRoles: boolean;
+  roleStatuses?: RoleStatus[];
   language: Language;
   macroSettings: MacroSettings;
   runtimeWindowPreferences: RuntimeWindowPreferences;
@@ -162,6 +171,7 @@ function SettingsViewBase({
   gameBrowserSettings,
   games = [],
   hasRunningRoles,
+  roleStatuses = [],
   language,
   macroSettings,
   runtimeWindowPreferences,
@@ -585,6 +595,7 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+              <BrowserEngineCapabilityMatrix roleStatuses={roleStatuses} t={t} />
               <SettingsRow
                 title={t("settings.browserLaunchMode")}
                 description={t("settings.browserLaunchModeDescription")}
@@ -1049,6 +1060,99 @@ function SettingsViewBase({
       ) : null}
 
     </PageFrame>
+  );
+}
+
+const engineCapabilityLabelKeys: Record<
+  keyof EngineCapabilitySnapshot,
+  TranslationKey
+> = {
+  navigation: "browserEngine.capability.navigation",
+  persistentSession: "browserEngine.capability.persistentSession",
+  trustedInput: "browserEngine.capability.trustedInput",
+  backgroundInput: "browserEngine.capability.backgroundInput",
+  frameEvaluation: "browserEngine.capability.frameEvaluation",
+  cdnRewrite: "browserEngine.capability.cdnRewrite",
+  proxy: "browserEngine.capability.proxy",
+  popup: "browserEngine.capability.popup",
+  audioMute: "browserEngine.capability.audioMute",
+  customFonts: "browserEngine.capability.customFonts",
+  graphicsTuning: "browserEngine.capability.graphicsTuning",
+  downloads: "browserEngine.capability.downloads",
+  fileUpload: "browserEngine.capability.fileUpload",
+  permissions: "browserEngine.capability.permissions",
+  dialogs: "browserEngine.capability.dialogs",
+  certificateHandling: "browserEngine.capability.certificateHandling"
+};
+
+const engineCapabilityStatusLabelKeys: Record<
+  EngineCapabilityStatus,
+  TranslationKey
+> = {
+  supported: "browserEngine.capabilityStatus.supported",
+  degraded: "browserEngine.capabilityStatus.degraded",
+  unsupported: "browserEngine.capabilityStatus.unsupported",
+  disabled: "browserEngine.capabilityStatus.disabled"
+};
+
+function BrowserEngineCapabilityMatrix({
+  roleStatuses,
+  t
+}: {
+  roleStatuses: RoleStatus[];
+  t: Translator;
+}): JSX.Element {
+  const status = [...roleStatuses].reverse().find((candidate) =>
+    candidate.capabilitySnapshot && candidate.resolvedEngine
+  );
+  const snapshot = status?.capabilitySnapshot;
+  return (
+    <div className="glass-divider border-b px-4 py-4 last:border-b-0">
+      <div className="mb-3">
+        <p className="text-sm font-semibold">{t("browserEngine.capabilityMatrix")}</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {status?.resolvedEngine
+            ? getBrowserEngineStatusTitle(status, t)
+            : t("browserEngine.capabilityMatrixEmpty")}
+        </p>
+      </div>
+      {snapshot && status?.resolvedEngine ? (
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {(Object.keys(engineCapabilityLabelKeys) as Array<
+            keyof EngineCapabilitySnapshot
+          >).map((capability) => {
+            const value = snapshot[capability];
+            return (
+              <div
+                key={capability}
+                className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2"
+              >
+                <span className="min-w-0 text-xs font-medium">
+                  {t(engineCapabilityLabelKeys[capability])}
+                </span>
+                <Badge
+                  variant={
+                    value === "supported"
+                      ? "success"
+                      : value === "degraded"
+                        ? "warning"
+                        : "outline"
+                  }
+                >
+                  {t(engineCapabilityStatusLabelKeys[value])}
+                </Badge>
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+            <span className="text-xs font-medium">{t("browserEngine.actualEngine")}</span>
+            <Badge variant="outline">
+              {getResolvedBrowserEngineLabel(status.resolvedEngine, t)}
+            </Badge>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

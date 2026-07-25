@@ -13,14 +13,19 @@ import type {
   SystemSessionStorePort
 } from "./ElectronProfileEffectAdapter";
 
-const NATIVE_PROTOCOL_VERSION = 7;
+const NATIVE_PROTOCOL_VERSION = 10;
 const OPERATION_TIMEOUT_MS = 30_000;
 
 export interface MacSystemWebViewNativeAddon {
+  addSystemWebViewDocumentStartScript(
+    surfaceId: number,
+    requestId: string,
+    source: string
+  ): void;
   clearSystemWebViewData(surfaceId: number, requestId: string): void;
   createSystemWebView(
     windowHandle: Buffer,
-    options: { dataStoreIdentifier: string },
+    options: { dataStoreIdentifier: string; proxyServer: string },
     callback: (event: unknown) => void
   ): number;
   destroySystemWebView(surfaceId: number): void;
@@ -38,6 +43,7 @@ export interface MacSystemWebViewNativeAddon {
 
 export interface MacSystemWebViewCreateOptions {
   dataStoreIdentifier: string;
+  proxyServer?: string;
 }
 
 export type MacSystemWebViewSurfaceFactory = (
@@ -55,12 +61,19 @@ interface PendingOperation {
 
 type NativeSurfaceEvent =
   | { type: "audioChanged"; audible: boolean }
+  | { type: "bridgeMessage"; messageJson: string }
   | { type: "crashed"; reason?: string }
+  | { type: "documentStartScriptAdded"; requestId: string; error?: string }
+  | { type: "downloadCompleted"; path?: string }
+  | { type: "downloadFailed"; reason?: string }
+  | { type: "downloadStarted"; filename?: string }
   | { type: "cookiesRead"; requestId: string; cookiesJson: string }
   | { type: "cookiesWritten"; requestId: string; count?: number; error?: string }
   | { type: "evaluationCompleted"; requestId: string; valueJson?: string; error?: string }
   | { type: "navigationCompleted"; url: string }
   | { type: "navigationFailed"; url: string; errorCode?: string }
+  | { type: "popupClosed"; url?: string }
+  | { type: "popupCreated"; url: string }
   | { type: "popupRequested"; url: string }
   | { type: "websiteDataCleared"; requestId: string };
 
@@ -135,6 +148,9 @@ export function createMacSystemWebViewSurfaceFactory(
       const event = parseNativeSurfaceEvent(value);
       if (!event || destroyed) return;
       switch (event.type) {
+        case "documentStartScriptAdded":
+          settle(event.requestId, event.error, undefined);
+          return;
         case "cookiesRead": {
           try {
             const cookies = JSON.parse(event.cookiesJson) as unknown;
@@ -182,13 +198,26 @@ export function createMacSystemWebViewSurfaceFactory(
 
     const surfaceId = addon.createSystemWebView(
       window.getNativeWindowHandle(),
-      options,
+      {
+        dataStoreIdentifier: options.dataStoreIdentifier,
+        proxyServer: options.proxyServer ?? ""
+      },
       handleEvent
     );
     const surface: WebSurfacePort = {
+      addDocumentStartScript: (source) => invoke<void>((requestId) => {
+        addon.addSystemWebViewDocumentStartScript(surfaceId, requestId, source);
+      }),
       clearStorage: () => invoke<void>((requestId) => {
         addon.clearSystemWebViewData(surfaceId, requestId);
       }),
+      configureRequestRewrites: async (rules) => {
+        if (rules.length === 0) return;
+        throw surfaceError(
+          "SYSTEM_WEBVIEW_CDN_UNSUPPORTED",
+          "WKWebView cannot apply Rion Studio's complete CDN rewrite plan."
+        );
+      },
       destroy: async () => {
         if (destroyed) return;
         destroyed = true;
@@ -214,6 +243,9 @@ export function createMacSystemWebViewSurfaceFactory(
       focus: async () => {
         addon.focusSystemWebView(surfaceId);
       },
+      getCookies: () => invoke<BrowserCookieTransferRecord[]>((requestId) => {
+        addon.getSystemWebViewCookies(surfaceId, requestId);
+      }),
       loadUrl: (url: string) => {
         if (destroyed) {
           return Promise.reject(surfaceError(
@@ -250,6 +282,9 @@ export function createMacSystemWebViewSurfaceFactory(
       setBounds: async (bounds) => {
         addon.setSystemWebViewBounds(surfaceId, bounds);
       },
+      setCookies: (cookies) => invoke<number>((requestId) => {
+        addon.setSystemWebViewCookies(surfaceId, requestId, JSON.stringify(cookies));
+      }),
       setVisible: async (visible) => {
         addon.setSystemWebViewVisible(surfaceId, visible);
       },
@@ -261,12 +296,8 @@ export function createMacSystemWebViewSurfaceFactory(
       clearCookies: () => invoke<void>((requestId) => {
         addon.clearSystemWebViewData(surfaceId, requestId);
       }),
-      getCookies: () => invoke<BrowserCookieTransferRecord[]>((requestId) => {
-        addon.getSystemWebViewCookies(surfaceId, requestId);
-      }),
-      setCookies: (cookies) => invoke<number>((requestId) => {
-        addon.setSystemWebViewCookies(surfaceId, requestId, JSON.stringify(cookies));
-      })
+      getCookies: surface.getCookies,
+      setCookies: surface.setCookies
     });
     return surface;
   };
@@ -316,6 +347,29 @@ function parseNativeSurfaceEvent(value: unknown): NativeSurfaceEvent | undefined
       return typeof event.reason === "string"
         ? { type: "crashed", reason: event.reason }
         : { type: "crashed" };
+    case "documentStartScriptAdded":
+      return typeof event.requestId === "string"
+        ? {
+            type: "documentStartScriptAdded",
+            requestId: event.requestId,
+            ...(typeof event.error === "string" ? { error: event.error } : {})
+          }
+        : undefined;
+    case "downloadStarted":
+      return {
+        type: "downloadStarted",
+        ...(typeof event.filename === "string" ? { filename: event.filename } : {})
+      };
+    case "downloadCompleted":
+      return {
+        type: "downloadCompleted",
+        ...(typeof event.path === "string" ? { path: event.path } : {})
+      };
+    case "downloadFailed":
+      return {
+        type: "downloadFailed",
+        ...(typeof event.reason === "string" ? { reason: event.reason } : {})
+      };
     case "cookiesRead":
       return typeof event.requestId === "string" && typeof event.cookiesJson === "string"
         ? {
@@ -342,6 +396,10 @@ function parseNativeSurfaceEvent(value: unknown): NativeSurfaceEvent | undefined
             ...(typeof event.error === "string" ? { error: event.error } : {})
           }
         : undefined;
+    case "bridgeMessage":
+      return typeof event.messageJson === "string"
+        ? { type: "bridgeMessage", messageJson: event.messageJson }
+        : undefined;
     case "navigationCompleted":
       return typeof event.url === "string"
         ? { type: "navigationCompleted", url: event.url }
@@ -358,6 +416,15 @@ function parseNativeSurfaceEvent(value: unknown): NativeSurfaceEvent | undefined
       return typeof event.url === "string"
         ? { type: "popupRequested", url: event.url }
         : undefined;
+    case "popupCreated":
+      return typeof event.url === "string"
+        ? { type: "popupCreated", url: event.url }
+        : undefined;
+    case "popupClosed":
+      return {
+        type: "popupClosed",
+        ...(typeof event.url === "string" ? { url: event.url } : {})
+      };
     case "websiteDataCleared":
       return typeof event.requestId === "string"
         ? { type: "websiteDataCleared", requestId: event.requestId }

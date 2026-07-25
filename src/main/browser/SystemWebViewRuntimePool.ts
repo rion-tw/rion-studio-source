@@ -1,6 +1,10 @@
 import type { BaseWindow } from "electron";
 
-import type { ResolvedBrowserEngine, RolePathsRecord } from "../../shared/generated";
+import type {
+  CdnRule,
+  ResolvedBrowserEngine,
+  RolePathsRecord
+} from "../../shared/generated";
 import type { PixelBounds } from "../../shared/types";
 import type { MacSystemWebViewSurfaceFactory } from "./MacSystemWebViewSurface";
 import type {
@@ -19,6 +23,12 @@ export interface NativeRoleSurfaceHandle {
   roleId: string;
   surface: WebSurfacePort;
   target?: AutomationTargetPort;
+}
+
+export interface NativeRoleSurfaceConfiguration {
+  cdnRewriteRules?: readonly CdnRule[];
+  documentStartScript?: string;
+  proxyServer?: string;
 }
 
 export interface SystemWebViewRuntimePoolOptions {
@@ -76,7 +86,8 @@ export class SystemWebViewRuntimePool {
   create(
     roleId: string,
     hostWindow: BaseWindow,
-    paths: RolePathsRecord
+    paths: RolePathsRecord,
+    configuration: NativeRoleSurfaceConfiguration = {}
   ): NativeRoleSurfaceHandle {
     if (this.handles.has(roleId)) {
       throw poolError(
@@ -85,6 +96,9 @@ export class SystemWebViewRuntimePool {
       );
     }
     let handle: NativeRoleSurfaceHandle;
+    const proxyConfiguration = configuration.proxyServer
+      ? { proxyServer: configuration.proxyServer }
+      : {};
     if (this.options.platform === "darwin") {
       const factory = this.options.createMacSurface;
       if (!factory) {
@@ -98,7 +112,8 @@ export class SystemWebViewRuntimePool {
         hostWindow,
         roleId,
         surface: factory(hostWindow, {
-          dataStoreIdentifier: paths.webkitDataStoreIdentifier
+          dataStoreIdentifier: paths.webkitDataStoreIdentifier,
+          ...proxyConfiguration
         })
       };
     } else if (this.options.platform === "win32") {
@@ -110,7 +125,8 @@ export class SystemWebViewRuntimePool {
         );
       }
       const surface = factory(hostWindow, {
-        userDataFolder: paths.webview2UserDataDir
+        userDataFolder: paths.webview2UserDataDir,
+        ...proxyConfiguration
       });
       handle = {
         engine: "webview2",

@@ -11,7 +11,8 @@ typedef void (^RionSystemWebViewEventHandler)(
 /// The Node addon owns one instance per role. No WKWebView or AppKit object
 /// crosses the native boundary.
 @interface RionSystemWebViewSurface
-    : NSObject <WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate>
+    : NSObject <WKDownloadDelegate, WKNavigationDelegate,
+                WKScriptMessageHandler, WKUIDelegate>
 
 @property(nonatomic, copy, readonly) NSString *dataStoreIdentifier;
 @property(nonatomic, readonly, getter=isDestroyed) BOOL destroyed;
@@ -20,7 +21,10 @@ typedef void (^RionSystemWebViewEventHandler)(
 - (nullable instancetype)
     initWithParentView:(NSView *)parentView
     dataStoreIdentifier:(NSString *)dataStoreIdentifier
+            proxyServer:(NSString *)proxyServer
            eventHandler:(RionSystemWebViewEventHandler)eventHandler;
+- (void)addDocumentStartScript:(NSString *)source
+                     requestID:(NSString *)requestID;
 - (void)clearWebsiteDataForRequest:(NSString *)requestID;
 - (void)destroy;
 - (void)evaluateJavaScript:(NSString *)source requestID:(NSString *)requestID;

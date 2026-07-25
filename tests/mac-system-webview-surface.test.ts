@@ -9,6 +9,7 @@ import {
 function nativeAddon() {
   let callback: ((event: unknown) => void) | undefined;
   const addon: MacSystemWebViewNativeAddon = {
+    addSystemWebViewDocumentStartScript: vi.fn(),
     clearSystemWebViewData: vi.fn(),
     createSystemWebView: vi.fn((_handle, _options, listener) => {
       callback = listener;
@@ -19,7 +20,7 @@ function nativeAddon() {
     focusSystemWebView: vi.fn(),
     getSystemWebViewCookies: vi.fn(),
     loadSystemWebViewURL: vi.fn(),
-    protocolVersion: 7,
+    protocolVersion: 10,
     setSystemWebViewAudioMuted: vi.fn(() => true),
     setSystemWebViewBounds: vi.fn(),
     setSystemWebViewCookies: vi.fn(),
@@ -39,6 +40,15 @@ describe("MacSystemWebViewSurface", () => {
     );
     const lifecycle = vi.fn();
     surface.onLifecycleEvent(lifecycle);
+
+    const documentStart = surface.addDocumentStartScript("window.__rionStart = true;");
+    const documentStartRequest =
+      vi.mocked(native.addon.addSystemWebViewDocumentStartScript).mock.calls[0]?.[1];
+    native.emit({
+      type: "documentStartScriptAdded",
+      requestId: documentStartRequest
+    });
+    await documentStart;
 
     const navigation = surface.loadUrl("https://example.test/game");
     native.emit({ type: "navigationCompleted", url: "https://example.test/game" });
@@ -81,7 +91,8 @@ describe("MacSystemWebViewSurface", () => {
     });
     await expect(writingCookies).resolves.toBe(1);
     native.emit({ type: "audioChanged", audible: true });
-    native.emit({ type: "popupRequested", url: "https://example.test/popup" });
+    native.emit({ type: "popupCreated", url: "https://example.test/popup" });
+    native.emit({ type: "popupClosed", url: "https://example.test/popup" });
 
     await surface.setBounds({ x: 1, y: 2, width: 300, height: 200 });
     await surface.setVisible(true);
@@ -91,8 +102,16 @@ describe("MacSystemWebViewSurface", () => {
 
     expect(native.addon.createSystemWebView).toHaveBeenCalledWith(
       handle,
-      { dataStoreIdentifier: "0c0d1969-d51b-8576-8d79-0c64291ca837" },
+      {
+        dataStoreIdentifier: "0c0d1969-d51b-8576-8d79-0c64291ca837",
+        proxyServer: ""
+      },
       expect.any(Function)
+    );
+    expect(native.addon.addSystemWebViewDocumentStartScript).toHaveBeenCalledWith(
+      41,
+      documentStartRequest,
+      "window.__rionStart = true;"
     );
     expect(lifecycle).toHaveBeenCalledWith({
       type: "navigationCompleted",
@@ -100,7 +119,11 @@ describe("MacSystemWebViewSurface", () => {
     });
     expect(lifecycle).toHaveBeenCalledWith({ type: "audioChanged", audible: true });
     expect(lifecycle).toHaveBeenCalledWith({
-      type: "popupRequested",
+      type: "popupCreated",
+      url: "https://example.test/popup"
+    });
+    expect(lifecycle).toHaveBeenCalledWith({
+      type: "popupClosed",
       url: "https://example.test/popup"
     });
     expect(native.addon.setSystemWebViewBounds).toHaveBeenCalledWith(
@@ -134,11 +157,19 @@ describe("MacSystemWebViewSurface", () => {
     await expect(evaluation).rejects.toMatchObject({
       code: "SYSTEM_WEBVIEW_OPERATION_FAILED"
     });
+    await expect(surface.configureRequestRewrites([{
+      id: "fixture",
+      regexFilter: "^https://example\\.test/(.*)$",
+      regexSubstitution: "https://cdn.example/\\1",
+      sourceHost: "example.test"
+    }])).rejects.toMatchObject({
+      code: "SYSTEM_WEBVIEW_CDN_UNSUPPORTED"
+    });
   });
 
   it("rejects an incompatible native protocol", () => {
     expect(() => createMacSystemWebViewSurfaceFactory({
-      protocolVersion: 6
-    } as never)).toThrow("expected 7");
+      protocolVersion: 8
+    } as never)).toThrow("expected 9");
   });
 });

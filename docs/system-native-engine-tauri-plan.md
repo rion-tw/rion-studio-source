@@ -20,23 +20,38 @@
 - [x] Windows/macOS 打包資源、native build/verify scripts 與雙平台 CI/release job 已接線。
 - [x] Resolved engine 已寫入 Rust 產生的 create/load effects；Electron adapter 對非 Electron effect 會 fail closed，不會靜默冒充 System。
 - [x] System native surface pool 已完成角色 ownership、平台資料路徑、presentation/load/destroy 與 lifecycle forwarding，並以 macOS/Windows table tests 覆蓋。
-- [x] 本 checkpoint 的 TypeScript typecheck、ESLint、796 個 Vitest 與 203 個 binding tests 通過；Rust workspace 504/505 通過，唯一失敗仍是 sandbox 禁止既有 loopback reconnect test。macOS native addon protocol 7 已在本機重建並通過 smoke tests；Windows native build 留給 `windows-latest`。
-- [ ] Phase 2 當前 checkpoint：將 `ElectronBrowserRuntime` 的 role session 改為 Electron/native surface union，完成 shell capability registration、workspace layout、popup、overlay、跨視窗 recreate 與 crash fallback。
-- [ ] Phase 2：System runtime host pool、雙引擎視窗分組、完整 fallback/capability UI。
-- [ ] Phase 3：Tauri 2 Preview、跨殼 lock、Electron helper、updater 與簽章封裝。
+- [x] Electron shell 會把實際載入的 native adapter capability snapshot 註冊進 Rust；core 以工作區為單位解析單一引擎，並以同一結果產生 effect 與 runtime status。
+- [x] `ElectronBrowserRuntime` 已改為 Electron/native surface union；兩者共用 create/load/bounds/visible/zoom/focus/audio/destroy/telemetry 語義，跨 display 會明確 recreate 原生 surface。
+- [x] native create/config/load/overlay/focus 失敗與 native process crash 均由 Rust 產生整個 tab 的 Electron fallback plan，不在 TypeScript adapter 靜默換殼；目前 URL、layout、zoom、mute 會帶入替換 session。
+- [x] WebView2/WKWebView 已加入原生 overlay message bridge；popup 意圖會保留原始 URL，並在原生 popup parity 完成前明確將整個 tab fallback Electron。
+- [x] 同一 display 的 runtime host 已依 `(displayId, engineFamily)` 分組；System 與 Electron 分頁不再共用實體宿主。
+- [x] 完整版本鍵的 compatibility cache 已接入 System preflight、成功／建立失敗／crash 寫入與手動重測清除；相同版本組合不會反覆嘗試已知失敗的原生 executor。
+- [x] 設定頁已顯示目前 resolved engine 的逐項 capability matrix，保留 supported／partial／fallback／disabled 差異，不會以總體「可用」掩蓋功能缺口。
+- [x] Tauri 2 Preview crate 已直接 link `rion-core`、重用 React renderer 與 `window.rionStudio` typed transport；已完成最小權限 capability、macOS 14 deployment target、實際 monitor 列舉與基本角色／工作區 core commands。
+- [x] Electron Stable 與 Tauri Preview 已在開啟 SQLite 前共用 OS 級 lock、online backup 與 authenticated loopback activation forwarding；另一個殼啟動時會喚醒既有殼後退出。
+- [x] Tauri Preview 已能直接建立 WebView2／WKWebView 系統 surface，套用角色隔離 store、layout、navigation、zoom、focus、visibility 與 mute，並把 native lifecycle 結果回送 Rust core；未實作的硬需求會由 capability preflight 或明確 effect error 阻止假成功。
+- [x] System runtime crash fallback 已在銷毀 native surface 前讀取 cookies，於 Electron navigation 前寫入 shadow session，並回報逐角色 mirror/auth 結果；失敗時 Electron 仍可見但 core 狀態明確為 `auth-verification-failed` 與 `needs-login`。
+- [x] System custom proxy 已由 WebView2 environment arguments 與 macOS 14 `WKWebsiteDataStore.proxyConfigurations` 在首次 navigation 前套用；跨螢幕 surface 重建會重新解析設定。macOS 不支援的 SOCKS4 會明確建立失敗並 fallback。
+- [x] System custom fonts 已經由跨平台 document-start port 接線：WebView2 `AddScriptToExecuteOnDocumentCreated`、WKWebView `WKUserScript`；使用 constructed stylesheet／style fallback，能力如實標示 degraded。
+- [x] Windows System CDN 已把 Rust 解析出的八條規則接到 `WebResourceRequested` 原生攔截；macOS 在 active rewrite plan 下維持明確 Electron fallback，不使用不等價的 content blocker 假實作。
+- [x] fallback notification、compatibility cache／capability matrix／session continuity 已納入 UI 狀態與診斷匯出；診斷不包含 cookie value 或自訂 proxy URL。
+- [x] 原生 popup 已使用同一 profile/data store 建立並納入 bounds、focus、mute、audio、close 與 crash lifecycle；建立失敗才由 Rust 將整個 tab fallback Electron。
+- [x] 原生下載、檔案上傳、憑證與 JS dialog 已接入平台 UI；未定義的網站權限採預設拒絕，並在 capability matrix 如實標為 degraded。
+- [x] 最新聚焦驗證：TypeScript typecheck、能力矩陣／相容性／Tauri bridge Vitest、Tauri Rust tests 與 debug macOS `.app` build 通過；完整套件計數會在本輪 release gate 重跑後更新。macOS native addon protocol 10 需在本輪重建並跑 smoke tests；Windows native protocol 6 build 留給 `windows-latest`。
+- [x] Phase 2：原生 popup、proxy/CDN、字型、下載/上傳、權限/憑證/JS dialog 已完成支援、明確降級或 capability-accurate Electron fallback。
+- [ ] Phase 3：補齊 Tauri shell adapters、無 domain state 的 Electron helper、updater 與簽章封裝；Preview 基礎殼、共用 core、System runtime、跨殼 lock／backup／activation 已完成。
 - [ ] Phase 4：雙平台實機 parity、效能、安裝／更新／回復與發佈 gate。
 
-目前 Electron 仍是唯一實際 embedded executor；System 是新資料的預設偏好，但狀態會明確回報 Electron fallback。兩個平台的原生 surface 與資料遷移層已存在，下一個不可分割的切換點是「launch effect 帶 resolved engine + runtime session union + 真實 capability registration」。在這三者一起完成前，`system_available` 維持 false，避免狀態宣稱 System、實際卻使用 Electron。
+Electron Stable 與 Tauri Preview 現在都可以實際執行 System surface，且 System 是新資料的預設偏好。Rust 仍是唯一的引擎解析與 fallback 權威；任何 capability 缺口都會在 effect/status 中可見，不會把 Electron 或未完成的 Tauri executor 偽裝成完整 System。
 
 ### 可續作 checkpoint
 
 若實作中斷，從下列順序繼續；不得跳過狀態真實性 gate：
 
-1. 在 Rust core 新增由 shell 註冊的 native adapter capability snapshot；不要只以 OS API probe 推論 addon 一定可載入。
-2. `EmbeddedRoleViewEffectRecord`／load effect 攜帶 resolved engine；workspace 在建立 tab 前固定為單一 engine。
-3. 將 runtime role handle 抽成 Electron/native union；兩者共用 bounds、visible、zoom、focus、audio、destroy 與 automation 語義。
-4. native create/load 失敗時由 core 明確重跑 Electron plan，並寫入 fallback reason；不得在 TypeScript adapter 靜默替換。
-5. 通過 role、workspace、restore、macro、popup、crash、session migration 的平台表測試後，才把 System executor 設為 available。
+1. 在 Windows CI 編譯並驗證 WebView2 protocol 6 proxy/CDN/document-start/popup/download/permission 路徑。
+2. 補齊 Tauri tray／Quick Menu／dialog／updater／External Chrome shell adapters。
+3. 建立無 domain state 的 Electron helper，完成 Tauri 的 Electron fallback 路徑、sidecar 封裝與 crash recovery。
+4. 完成 macOS 14+ 與 Windows 10/11 原生實機 parity/performance matrix。
 
 ## 1. 目標與已鎖定決策
 

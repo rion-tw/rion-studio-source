@@ -123,6 +123,11 @@ pub struct EngineCapabilitySnapshotRecord {
     pub audio_mute: EngineCapabilityStatus,
     pub custom_fonts: EngineCapabilityStatus,
     pub graphics_tuning: EngineCapabilityStatus,
+    pub downloads: EngineCapabilityStatus,
+    pub file_upload: EngineCapabilityStatus,
+    pub permissions: EngineCapabilityStatus,
+    pub dialogs: EngineCapabilityStatus,
+    pub certificate_handling: EngineCapabilityStatus,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -181,6 +186,20 @@ pub struct SystemWebViewProbeRecord {
     pub trusted_input_verified: bool,
     pub background_input_verified: bool,
     pub reason_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct SystemWebViewRuntimeRegistrationRecord {
+    pub platform: String,
+    pub engine: ResolvedBrowserEngine,
+    pub adapter_version: String,
+    pub available: bool,
+    pub capability_snapshot: EngineCapabilitySnapshotRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_reason: Option<EngineFallbackReason>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -264,6 +283,9 @@ pub struct WorkspaceEnginePreferenceRecord {
 pub enum CoreCommand {
     Health,
     SystemWebViewProbe,
+    SystemWebViewRuntimeRegister {
+        registration: SystemWebViewRuntimeRegistrationRecord,
+    },
     StateSnapshot,
     GamesList,
     GameGet {
@@ -758,6 +780,13 @@ pub enum CoreCommand {
     EmbeddedWorkspaceStop {
         #[ts(rename = "workspaceId")]
         workspace_id: String,
+    },
+    EmbeddedSystemSurfaceFailed {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        reason: Option<String>,
     },
     EmbeddedWindowsShow {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3638,6 +3667,10 @@ pub enum CoreEffectAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         zoom_factor: Option<f64>,
     },
+    EmbeddedFallbackTabToElectron {
+        tab_id: String,
+        role_ids: Vec<String>,
+    },
     EmbeddedDestroyRole {
         role_id: String,
     },
@@ -3844,6 +3877,9 @@ pub struct BrowserRoleStatusRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub capability_snapshot: Option<EngineCapabilitySnapshotRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"verified\" | \"needs-login\"")]
+    pub session_continuity: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

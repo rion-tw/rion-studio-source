@@ -30,6 +30,10 @@ describe("GameCompatibilityManager", () => {
 
     await expect(manager.runCheck("game-1")).resolves.toEqual(report);
 
+    expect(invoke).toHaveBeenCalledWith({
+      type: "engineCompatibilityCacheDeleteGame",
+      gameId: "game-1"
+    });
     expect(invoke).toHaveBeenLastCalledWith({
       type: "compatibilityRun",
       gameId: "game-1",

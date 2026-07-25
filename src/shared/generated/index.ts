@@ -182,6 +182,7 @@ export type { StateWorkspaceDisplayTargetRecord } from "./StateWorkspaceDisplayT
 export type { StateWorkspaceSlotRecord } from "./StateWorkspaceSlotRecord";
 export type { SystemFontFamilyRecord } from "./SystemFontFamilyRecord";
 export type { SystemWebViewProbeRecord } from "./SystemWebViewProbeRecord";
+export type { SystemWebViewRuntimeRegistrationRecord } from "./SystemWebViewRuntimeRegistrationRecord";
 export type { TelemetryMetric } from "./TelemetryMetric";
 export type { TelemetrySampleRecord } from "./TelemetrySampleRecord";
 export type { LatencySummaryRecord } from "./LatencySummaryRecord";

@@ -1,5 +1,14 @@
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { lazy, Suspense, type JSX, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  type JSX,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import appIconUrl from "./assets/app-icon.png";
@@ -12,6 +21,7 @@ import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { WorkspaceDisplayPickerDialog } from "./features/workspaces/WorkspaceDisplayPickerDialog";
 import { ChromeProfileImportFlow } from "./features/chrome-profile-import/ChromeProfileImportFlow";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
+import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
 import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
@@ -70,6 +80,7 @@ export function App(): JSX.Element {
       restoreGameWindowsOnStartup: true
     });
   const [notice, setNotice] = useState<string | null>(null);
+  const notifiedEngineFallbacks = useRef(new Map<string, string>());
   const [busyExternalRoleIds, setBusyExternalRoleIds] = useState<ReadonlySet<string>>(() => new Set());
   const [isChromeProfileImportOpen, setIsChromeProfileImportOpen] = useState(false);
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
@@ -370,6 +381,31 @@ export function App(): JSX.Element {
     const timeoutId = window.setTimeout(() => setNotice(null), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timeoutId);
   }, [data.error, initialLoadState, notice]);
+
+  useEffect(() => {
+    if (initialLoadState !== "ready") return;
+    const fallback = [...data.statuses].reverse().find((status) => {
+      if (
+        status.preferredEngine !== "system" ||
+        status.resolvedEngine !== "electron" ||
+        !status.fallbackReason
+      ) {
+        return false;
+      }
+      const key = `${status.fallbackReason}:${status.sessionContinuity ?? ""}`;
+      if (notifiedEngineFallbacks.current.get(status.roleId) === key) return false;
+      notifiedEngineFallbacks.current.set(status.roleId, key);
+      return true;
+    });
+    for (const roleId of notifiedEngineFallbacks.current.keys()) {
+      if (!data.statuses.some((status) => status.roleId === roleId)) {
+        notifiedEngineFallbacks.current.delete(roleId);
+      }
+    }
+    if (fallback) {
+      setNotice(getBrowserEngineStatusTitle(fallback, preferences.t));
+    }
+  }, [data.statuses, initialLoadState, preferences.t]);
 
   useEffect(() => {
     if (!hasBridge || initialLoadState !== "ready") {
@@ -799,6 +835,7 @@ export function App(): JSX.Element {
                   hasRunningRoles={data.statuses.some(
                     (status) => status.state === "launching" || status.state === "running"
                   )}
+                  roleStatuses={data.statuses}
                   language={preferences.language}
                   macroSettings={macroSettings}
                   runtimeWindowPreferences={runtimeWindowPreferences}

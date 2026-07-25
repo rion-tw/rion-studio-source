@@ -737,6 +737,7 @@ mod tests {
             host_kind: Some(crate::model::BrowserHostKind::External),
             fallback_reason: None,
             capability_snapshot: None,
+            session_continuity: None,
         }
     }
 }

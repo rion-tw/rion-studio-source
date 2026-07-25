@@ -97,6 +97,7 @@ export const IPC_CHANNELS = {
   updatesCheck: "updates:check",
   updatesOpenDownload: "updates:open-download",
   updatesInstall: "updates:install",
+  updatesSetAutoUpdateEnabled: "updates:set-auto-update-enabled",
   updatesStatusChanged: "updates:status-changed",
   preferencesSetOverlayLanguage: "preferences:set-overlay-language"
 } as const;

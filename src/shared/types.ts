@@ -496,6 +496,7 @@ export interface AppUpdateStatus {
   currentVersion: string;
   installMode: AppUpdateInstallMode;
   isPackaged: boolean;
+  autoUpdateEnabled: boolean;
   state: AppUpdateState;
   availableVersion?: string;
   downloadProgress?: number;

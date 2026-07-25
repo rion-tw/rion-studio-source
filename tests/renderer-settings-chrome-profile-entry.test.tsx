@@ -49,6 +49,7 @@ describe("Chrome profile import settings entry", () => {
             onExportPortableData={async () => null}
             onGameBrowserSettingsChange={async (settings) => settings}
             onInstallDownloadedUpdate={async () => undefined}
+            onSetAutoUpdateEnabled={async () => undefined}
             onLanguageChange={() => undefined}
             onLoadGraphicsDiagnostics={async () => {
               throw new Error("not used");

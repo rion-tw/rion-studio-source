@@ -96,6 +96,7 @@ import {
   isRuntimeTabAction,
   type RuntimeTabAction
 } from "../shared/runtimeTabs";
+import { AppUpdatePreferencesStore } from "./updates/AppUpdatePreferencesStore";
 import type {
   MacroPageRequest,
   PendingWorkspaceLaunchRequest,
@@ -501,6 +502,8 @@ async function initializeApplication(): Promise<void> {
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, coreClient);
   const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir, coreClient);
   let runtimeWindowPreferences = await runtimeWindowPreferencesStore.getPreferences();
+  const appUpdatePreferencesStore = new AppUpdatePreferencesStore(userDataDir);
+  const autoUpdateEnabled = await appUpdatePreferencesStore.getAutoUpdateEnabled();
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
@@ -522,6 +525,7 @@ async function initializeApplication(): Promise<void> {
   const systemFontService = new RustSystemFontService(coreClient);
   const updateManager = new AppUpdateManager({
     currentVersion: app.getVersion(),
+    autoUpdateEnabled,
     isPackaged: app.isPackaged,
     manualUpdateRepository:
       process.env.RION_STUDIO_RELEASE_REPOSITORY ?? DEFAULT_UPDATE_REPOSITORY,
@@ -536,6 +540,10 @@ async function initializeApplication(): Promise<void> {
   });
   let updateCheckStarted = false;
   const startUpdateCheck = (): void => {
+    if (!updateManager.getStatus().autoUpdateEnabled) {
+      return;
+    }
+
     if (updateCheckStarted) {
       return;
     }
@@ -1118,6 +1126,7 @@ async function initializeApplication(): Promise<void> {
       }
       return macroOverlay.handleEmbeddedRequest(webContents, activeRoleId, request);
     },
+    onUpdateAutoUpdateEnabledChange: (enabled) => appUpdatePreferencesStore.setAutoUpdateEnabled(enabled),
     onOverlayLanguageChanged: (language) => {
       void macroOverlay.setLanguage(language);
       runtimeManager.setRuntimeTabsLanguage(language);

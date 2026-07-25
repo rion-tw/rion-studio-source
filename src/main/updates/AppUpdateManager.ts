@@ -56,8 +56,7 @@ export class AppUpdateManager extends EventEmitter {
       state: isPackaged ? "idle" : "unsupported"
     };
 
-    this.updater.autoDownload = this.installMode === "automatic";
-    this.updater.autoInstallOnAppQuit = this.installMode === "automatic";
+    this.updateAutoUpdateBehavior();
     this.registerUpdaterEvents();
   }
 
@@ -67,8 +66,14 @@ export class AppUpdateManager extends EventEmitter {
 
   setAutoUpdateEnabled(enabled: boolean): AppUpdateStatus {
     this.autoUpdateEnabled = enabled === true;
+    this.updateAutoUpdateBehavior();
     this.setStatus({ autoUpdateEnabled: this.autoUpdateEnabled });
     return this.getStatus();
+  }
+
+  private updateAutoUpdateBehavior(): void {
+    this.updater.autoDownload = this.installMode === "automatic" && this.autoUpdateEnabled;
+    this.updater.autoInstallOnAppQuit = this.installMode === "automatic" && this.autoUpdateEnabled;
   }
 
   async checkForUpdates(): Promise<AppUpdateStatus> {

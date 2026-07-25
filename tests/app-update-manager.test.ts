@@ -38,10 +38,16 @@ describe("AppUpdateManager", () => {
       updater: updater as never
     });
 
+    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoInstallOnAppQuit).toBe(true);
     expect(manager.getStatus().autoUpdateEnabled).toBe(true);
     expect(manager.setAutoUpdateEnabled(false).autoUpdateEnabled).toBe(false);
+    expect(updater.autoDownload).toBe(false);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
     expect(manager.getStatus().autoUpdateEnabled).toBe(false);
     expect(manager.setAutoUpdateEnabled(true).autoUpdateEnabled).toBe(true);
+    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoInstallOnAppQuit).toBe(true);
   });
 
   it("tracks available, download progress, and downloaded states", async () => {

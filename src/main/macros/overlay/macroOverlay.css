@@ -7,7 +7,7 @@
 .action-menu-item{align-items:center;background:transparent;border:0;border-radius:5px;color:rgba(255,255,255,.92);cursor:pointer;display:flex;font-size:10px;font-weight:600;gap:7px;line-height:1.2;min-height:29px;padding:6px 8px;text-align:left;width:100%;}
 .action-menu-item:hover,.action-menu-item:focus-visible{background:rgba(255,255,255,.1);outline:none;}
 .coordinate-icon{display:block;fill:none;flex:0 0 auto;height:14px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7;width:14px;}
-.coordinate-picker{background:rgba(0,0,0,.025);cursor:crosshair;inset:0;pointer-events:auto;position:fixed;touch-action:none;z-index:2147483647;}
+.coordinate-picker{background:rgba(0,0,0,.2);cursor:crosshair;inset:0;pointer-events:auto;position:fixed;touch-action:none;z-index:2147483647;}
 .coordinate-anchor-layer{inset:0;pointer-events:none;position:absolute;}
 .coordinate-anchor-marker{height:22px;left:0;pointer-events:none;position:absolute;top:0;transform:translate(-50%,-50%);width:22px;}
 .coordinate-anchor-marker::before,.coordinate-anchor-marker::after{content:"";pointer-events:none;position:absolute;}

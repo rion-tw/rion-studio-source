@@ -1,4 +1,4 @@
-﻿use std::{
+use std::{
     fs,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
@@ -3496,6 +3496,13 @@ impl AppCore {
         }
         match event {
             crate::external_chrome::CdpEvent::Disconnected { message: _ } => {
+                // Guard against stale disconnect: the old Chrome session's event loop
+                // may still process a queued Disconnected event after a new session
+                // has already been created for the same role. Only process disconnect
+                // if the session that generated this event is still the active one.
+                if !self.external_automation.is_active_session(role_id, session) {
+                    return;
+                }
                 let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
                     role_id: role_id.to_owned(),
                     available: false,
@@ -3509,6 +3516,9 @@ impl AppCore {
                 self.emit_browser_statuses();
             }
             crate::external_chrome::CdpEvent::Reconnected => {
+                if !self.external_automation.is_active_session(role_id, session) {
+                    return;
+                }
                 self.set_external_overlay_state(role_id, false, "reconnect", None);
                 let _ = self.external_automation.reset_execution_contexts(role_id);
                 let current = self.external_session(role_id).ok().flatten();

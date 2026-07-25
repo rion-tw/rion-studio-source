@@ -80,6 +80,18 @@ impl ExternalAutomationRuntime {
         Ok(())
     }
 
+    pub fn is_active_session(
+        &self,
+        role_id: &str,
+        session: &Arc<ExternalChromeCdpSession>,
+    ) -> bool {
+        self.targets
+            .read()
+            .ok()
+            .and_then(|targets| targets.get(role_id).map(|t| Arc::ptr_eq(&t.cdp, session)))
+            .unwrap_or(false)
+    }
+
     pub fn unregister(&self, role_id: &str) -> CoreResult<()> {
         if let Some(target) = self
             .targets

@@ -13,6 +13,7 @@
         "MACOSX_DEPLOYMENT_TARGET": "14.0",
         "OTHER_LDFLAGS": [
           "-framework AppKit",
+          "-framework Network",
           "-framework WebKit"
         ]
       }
@@ -31,6 +32,7 @@
         "MACOSX_DEPLOYMENT_TARGET": "14.0",
         "OTHER_LDFLAGS": [
           "-framework AppKit",
+          "-framework Network",
           "-framework WebKit"
         ]
       }

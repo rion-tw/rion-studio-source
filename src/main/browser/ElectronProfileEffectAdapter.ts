@@ -183,11 +183,13 @@ export class ElectronProfileEffectAdapter {
     const session = source && sessionSource === "chrome-profile"
       ? this.options.getImportedSession(paths.electronBrowserUserDataDir)
       : this.options.getEmbeddedSession(roleId);
-    return electronCookieStore(session);
+    return createElectronSessionStore(session);
   }
 }
 
-function electronCookieStore(session: ProfileSession): SystemSessionStorePort {
+export function createElectronSessionStore(
+  session: ProfileSession
+): SystemSessionStorePort {
   return {
     clearCookies: async () => {
       await session.clearStorageData({ storages: ["cookies"] });
@@ -221,8 +223,7 @@ function electronCookieStore(session: ProfileSession): SystemSessionStorePort {
     setCookies: async (cookies) => {
       let migrated = 0;
       for (const cookie of cookies) {
-        await setCookieUnlessRejected(session, cookie);
-        migrated += 1;
+        if (await setCookieUnlessRejected(session, cookie)) migrated += 1;
       }
       session.flushStorageData();
       return migrated;
@@ -241,11 +242,13 @@ function parseCookies(value: string): Electron.CookiesSetDetails[] {
 async function setCookieUnlessRejected(
   session: ProfileSession,
   cookie: Electron.CookiesSetDetails
-): Promise<void> {
+): Promise<boolean> {
   try {
     await session.cookies.set(cookie);
+    return true;
   } catch (error) {
     if (!isDisallowedCookieCharacterError(error)) throw error;
+    return false;
   }
 }
 

@@ -1,0 +1,407 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+import type { RionStudioApi } from "../../../shared/api";
+import {
+  toMacroCreateInput,
+  toMacroUpdateInput,
+  toWorkspaceCreateInput,
+  toWorkspaceUpdateInput
+} from "../../../shared/domainInputs";
+import type {
+  CoreCommand,
+  CoreCommandResult,
+  CoreEvent
+} from "../../../shared/generated";
+import { CURRENT_LEGAL_DOCUMENT_VERSIONS } from "../../../shared/legal";
+import type {
+  CreateGameInput,
+  CreateRoleInput,
+  MacroRunStatus,
+  RendererLogEvent,
+  UpdateGameInput,
+  UpdateRoleInput
+} from "../../../shared/types";
+
+type Listener = (...payload: never[]) => void;
+
+function gameCreateInput(input: CreateGameInput): Extract<
+  CoreCommand,
+  { type: "gameCreate" }
+>["input"] {
+  return {
+    name: input.name,
+    defaultLaunchUrl: input.defaultLaunchUrl,
+    ...(typeof input.iconImageDataUrl === "string"
+      ? { iconImageDataUrl: input.iconImageDataUrl }
+      : {}),
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    ...(input.browserLaunchMode === undefined
+      ? {}
+      : { browserLaunchMode: input.browserLaunchMode }),
+    ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine })
+  };
+}
+
+function gameUpdateInput(input: UpdateGameInput): Extract<
+  CoreCommand,
+  { type: "gameUpdate" }
+>["input"] {
+  return {
+    ...(input.name === undefined ? {} : { name: input.name }),
+    ...(input.defaultLaunchUrl === undefined
+      ? {}
+      : { defaultLaunchUrl: input.defaultLaunchUrl }),
+    ...(typeof input.iconImageDataUrl === "string"
+      ? { iconImageDataUrl: input.iconImageDataUrl }
+      : {}),
+    setIconImageDataUrl: input.iconImageDataUrl !== undefined,
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
+    ...(input.browserLaunchMode === undefined
+      ? {}
+      : { browserLaunchMode: input.browserLaunchMode }),
+    ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine })
+  };
+}
+
+function roleCreateInput(input: CreateRoleInput): Extract<
+  CoreCommand,
+  { type: "roleCreate" }
+>["input"] {
+  return {
+    gameId: input.gameId,
+    name: input.name,
+    ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
+    ...(input.notes === undefined ? {} : { notes: input.notes }),
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    ...(typeof input.coverImageDominantColor === "string"
+      ? { coverImageDominantColor: input.coverImageDominantColor }
+      : {})
+  };
+}
+
+function roleUpdateInput(input: UpdateRoleInput): Extract<
+  CoreCommand,
+  { type: "roleUpdate" }
+>["input"] {
+  return {
+    ...(input.gameId === undefined ? {} : { gameId: input.gameId }),
+    ...(input.name === undefined ? {} : { name: input.name }),
+    ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
+    ...(input.notes === undefined ? {} : { notes: input.notes }),
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
+    ...(typeof input.coverImageDominantColor === "string"
+      ? { coverImageDominantColor: input.coverImageDominantColor }
+      : {}),
+    setCoverImageDominantColor: input.coverImageDominantColor !== undefined
+  };
+}
+
+function rendererLogRecord(event: RendererLogEvent): Extract<
+  CoreCommand,
+  { type: "logsCapture" }
+>["entries"][number] {
+  return {
+    level: "error",
+    source: "renderer",
+    event: event.event,
+    message: event.message,
+    ...(event.stack
+      ? {
+          error: {
+            message: event.message,
+            name: event.event,
+            stack: event.stack
+          }
+        }
+      : {})
+  };
+}
+
+async function invokeCore<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+  return invoke<CoreCommandResult<C>>("rion_core_invoke", { command });
+}
+
+async function invokeShell<T>(operation: string, args: unknown[] = []): Promise<T> {
+  return invoke<T>("rion_shell_invoke", { operation, args });
+}
+
+function isTauriRuntime(): boolean {
+  return Reflect.has(window, "__TAURI_INTERNALS__");
+}
+
+export async function installTauriBridgeIfNeeded(): Promise<void> {
+  if (window.rionStudio || !isTauriRuntime()) return;
+
+  const listeners = new Map<string, Set<Listener>>();
+  const emit = (event: string, ...payload: unknown[]): void => {
+    listeners.get(event)?.forEach((listener) => listener(...payload as never[]));
+  };
+  const on = (event: string, callback: Listener): (() => void) => {
+    const selected = listeners.get(event) ?? new Set<Listener>();
+    selected.add(callback);
+    listeners.set(event, selected);
+    return () => {
+      selected.delete(callback);
+      if (selected.size === 0) listeners.delete(event);
+    };
+  };
+
+  const refreshCollections = async (collections: string[]): Promise<void> => {
+    const jobs: Promise<void>[] = [];
+    if (collections.includes("games")) {
+      jobs.push(invokeCore({ type: "gamesList" }).then((games) => emit("games", games)));
+    }
+    if (collections.includes("launchWorkspaces")) {
+      jobs.push(invokeCore({ type: "workspacesList" })
+        .then((workspaces) => emit("workspaces", workspaces)));
+    }
+    if (collections.includes("macros")) {
+      jobs.push(invokeCore({ type: "macrosList" }).then((macros) => emit("macros", macros)));
+    }
+    if (collections.includes("compatibilityReports")) {
+      jobs.push(Promise.all([
+        invokeCore({ type: "stateSnapshot" }),
+        invokeCore({ type: "compatibilityStatuses" })
+      ]).then(([snapshot, statuses]) => {
+        emit("compatibility", snapshot.compatibilityReports, statuses);
+      }));
+    }
+    await Promise.all(jobs);
+  };
+
+  const unlistenCoreEvents = await listen<CoreEvent[]>("rion://core-events", ({ payload }) => {
+    for (const event of payload) {
+      switch (event.type) {
+        case "stateChanged":
+          void refreshCollections(event.changedCollections);
+          break;
+        case "browserStatuses":
+          emit("roleStatuses", event.statuses);
+          void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
+            "embeddedRuntimeState"
+          ).then((runtimeState) => emit("runtimeState", runtimeState));
+          break;
+        case "macroStatuses":
+          emit("macroStatuses", event.statuses);
+          break;
+        case "compatibilityStatuses":
+          void refreshCollections(["compatibilityReports"]);
+          break;
+        case "chromeProfileImportProgress":
+          emit("chromeProfileProgress", event.progress);
+          break;
+        case "logEntriesCaptured":
+          event.entries.forEach((entry) => emit("logEntry", entry));
+          break;
+        case "coreEffects":
+          // The Rust Tauri executor consumes effect events before renderer delivery.
+          break;
+      }
+    }
+  });
+  const unlistenRuntimeState = await listen<
+    Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>
+  >("rion://helper-runtime-state", ({ payload }) => emit("runtimeState", payload));
+  const unlistenMacroPage = await listen<Parameters<
+    Parameters<RionStudioApi["onMacroPageRequested"]>[0]
+  >[0]>("rion://helper-macro-page-request", ({ payload }) =>
+    emit("macroPageRequest", payload));
+  const unlistenWorkspaceLaunch = await listen<Parameters<
+    Parameters<RionStudioApi["onWorkspaceLaunchRequested"]>[0]
+  >[0]>("rion://helper-workspace-launch-request", ({ payload }) =>
+    emit("workspaceLaunchRequest", payload));
+  const unlistenWindowState = await listen<
+    Awaited<ReturnType<RionStudioApi["getCurrentWindowState"]>>
+  >("rion://window-state", ({ payload }) => emit("windowState", payload));
+  const unlistenDisplays = await listen<
+    Awaited<ReturnType<RionStudioApi["listWorkspaceDisplays"]>>
+  >("rion://workspace-displays", ({ payload }) => emit("workspaceDisplays", payload));
+  window.addEventListener("pagehide", () => {
+    unlistenCoreEvents();
+    unlistenRuntimeState();
+    unlistenMacroPage();
+    unlistenWorkspaceLaunch();
+    unlistenWindowState();
+    unlistenDisplays();
+  }, { once: true });
+
+  const api: RionStudioApi = {
+    notifyAppReady: (state) => invokeShell("rendererReady", [state]),
+    getAppSnapshot: () => invokeShell("appSnapshot"),
+    getCurrentWindowState: () => invokeShell("currentWindowState"),
+    getLegalAcceptanceStatus: () => invokeCore({
+      type: "legalAcceptanceStatus",
+      versions: CURRENT_LEGAL_DOCUMENT_VERSIONS
+    }),
+    acceptLegalDocuments: (input) => invokeCore({
+      type: "legalAcceptanceAccept",
+      versions: CURRENT_LEGAL_DOCUMENT_VERSIONS,
+      input
+    }),
+    quitApplication: () => invokeShell("quitApplication"),
+    requestCurrentWindowClose: () => void invokeShell("requestCurrentWindowClose"),
+    restartApplication: () => invokeShell("restartApplication"),
+    getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),
+    showEmbeddedRuntimeWindows: (displayId) =>
+      invokeShell("showEmbeddedRuntimeWindows", [displayId]),
+    showEmbeddedRuntimeTab: (tabId) => invokeShell("showEmbeddedRuntimeTab", [tabId]),
+    moveEmbeddedRuntimeTab: (tabId, displayId) =>
+      invokeShell("moveEmbeddedRuntimeTab", [tabId, displayId]),
+    restoreSavedGameWindows: (input) => invokeShell("restoreSavedGameWindows", [input]),
+    discardSavedGameWindows: (input) => invokeShell("discardSavedGameWindows", [input]),
+    stopEmbeddedRuntimeWindow: (displayId) =>
+      invokeShell("stopEmbeddedRuntimeWindow", [displayId]),
+    getRuntimeWindowPreferences: () => invokeCore({ type: "runtimeWindowPreferencesGet" }),
+    updateRuntimeWindowPreferences: (preferences) =>
+      invokeCore({ type: "runtimeWindowPreferencesReplace", preferences }),
+    listGames: () => invokeCore({ type: "gamesList" }),
+    createGame: (input) => invokeCore({ type: "gameCreate", input: gameCreateInput(input) }),
+    updateGame: (id, input) =>
+      invokeCore({ type: "gameUpdate", id, input: gameUpdateInput(input) }),
+    resetBuiltinGame: (id) => invokeCore({ type: "gameResetBuiltin", id }),
+    deleteGame: (id) => invokeCore({ type: "gameDelete", id }).then(() => undefined),
+    deleteGames: (input) => invokeCore({ type: "gamesDelete", ids: input.ids }),
+    listGameCompatibilityReports: () =>
+      invokeCore({ type: "stateSnapshot" }).then((snapshot) => snapshot.compatibilityReports),
+    runGameCompatibilityCheck: (id) => invokeShell("runGameCompatibilityCheck", [id]),
+    cancelGameCompatibilityCheck: (id) =>
+      invokeCore({ type: "compatibilityCancel", gameId: id }).then(() => undefined),
+    listRoles: () => invokeCore({ type: "rolesList" }),
+    createRole: (input) => invokeCore({ type: "roleCreate", input: roleCreateInput(input) }),
+    updateRole: (id, input) =>
+      invokeCore({ type: "roleUpdate", id, input: roleUpdateInput(input) }),
+    reorderRoles: (input) =>
+      invokeCore({ type: "roleReorder", orderedIds: input.orderedIds }),
+    deleteRole: (id) => invokeCore({ type: "roleDelete", id }).then(() => undefined),
+    deleteRoles: (input) => invokeCore({ type: "rolesDelete", ids: input.ids }),
+    clearRoleBrowserData: (id) => invokeCore({ type: "roleBrowserDataClear", roleId: id }),
+    previewRoleSessionMigration: (id, targetEngine) => invokeCore({
+      type: "roleSessionMigrationPreview",
+      roleId: id,
+      targetEngine
+    }),
+    applyRoleSessionMigration: (id, targetEngine) => invokeCore({
+      type: "roleSessionMigrationApply",
+      roleId: id,
+      targetEngine
+    }),
+    rollbackRoleSessionMigration: (id) =>
+      invokeCore({ type: "roleSessionMigrationRollback", roleId: id }),
+    getRolePaths: (id) => invokeCore({ type: "rolePathsResolve", id }),
+    launchRole: (id) => invokeShell("launchRole", [id]),
+    captureExternalRoleDiagnostics: (id) =>
+      invokeShell("captureExternalRoleDiagnostics", [id]),
+    recoverExternalRole: (id) => invokeCore({ type: "browserExternalRecover", roleId: id }),
+    stopRole: (id) => invokeCore({ type: "browserRoleStop", roleId: id }).then(() => undefined),
+    listRoleStatuses: () => invokeCore({ type: "browserStatuses" }),
+    listLaunchWorkspaces: () => invokeCore({ type: "workspacesList" }),
+    createLaunchWorkspace: (input) =>
+      invokeCore({ type: "workspaceCreate", input: toWorkspaceCreateInput(input) }),
+    updateLaunchWorkspace: (id, input) => invokeCore({
+      type: "workspaceUpdate",
+      id,
+      input: toWorkspaceUpdateInput(input)
+    }),
+    reorderLaunchWorkspaces: (input) =>
+      invokeCore({ type: "workspaceReorder", orderedIds: input.orderedIds }),
+    deleteLaunchWorkspace: (id) =>
+      invokeCore({ type: "workspaceDelete", id }).then(() => undefined),
+    deleteLaunchWorkspaces: (input) =>
+      invokeCore({ type: "workspacesDelete", ids: input.ids }),
+    listWorkspaceDisplays: () => invokeShell("workspaceDisplays"),
+    launchWorkspace: (id, input) => invokeShell("launchWorkspace", [id, input]),
+    stopLaunchWorkspace: (id) =>
+      invokeCore({ type: "browserWorkspaceStop", workspaceId: id }).then(() => undefined),
+    consumePendingWorkspaceLaunchRequest: () =>
+      invokeShell("consumePendingWorkspaceLaunchRequest"),
+    listMacros: () => invokeCore({ type: "macrosList" }),
+    createMacro: (input) =>
+      invokeCore({ type: "macroCreate", input: toMacroCreateInput(input) }),
+    updateMacro: (id, input) => invokeCore({
+      type: "macroUpdate",
+      id,
+      input: toMacroUpdateInput(input)
+    }),
+    deleteMacro: (id) => invokeCore({ type: "macroDelete", id }).then(() => undefined),
+    deleteMacros: (input) => invokeCore({ type: "macrosDelete", ids: input.ids }),
+    startMacro: (macroId) => invokeShell("startMacro", [macroId]),
+    stopMacro: (macroId) => invokeCore({ type: "macroStop", macroId }).then(() => undefined),
+    listMacroStatuses: () =>
+      invokeCore({ type: "macroStatuses" }).then((statuses) => statuses as MacroRunStatus[]),
+    getMacroSettings: () => invokeCore({ type: "macroSettingsGet" }),
+    updateMacroSettings: (settings) =>
+      invokeCore({ type: "macroSettingsReplace", settings }),
+    exportPortableData: (input) => invokeShell("exportPortableData", [input]),
+    previewPortableImport: () => invokeShell("previewPortableImport"),
+    applyPortableImport: (input) => invokeCore({
+      type: "portableApply",
+      importId: input.importId,
+      selection: input.selection,
+      resolutions: input.resolutions ?? []
+    }),
+    discardPortableImport: (importId) =>
+      invokeCore({ type: "portableDiscard", importId }).then(() => undefined),
+    previewChromeProfileImport: () => invokeShell("previewChromeProfileImport"),
+    closeChromeForImport: () =>
+      invokeCore({ type: "systemChromeClose" }).then(() => undefined),
+    applyChromeProfileImport: (input) => invokeShell("applyChromeProfileImport", [input]),
+    discardChromeProfileImport: (importId) =>
+      invokeCore({ type: "chromeProfileDiscard", importId }).then(() => undefined),
+    getGameBrowserSettings: () => invokeCore({ type: "gameBrowserSettingsGet" }),
+    updateGameBrowserSettings: (settings) =>
+      invokeCore({ type: "gameBrowserSettingsReplace", settings }),
+    getGraphicsDiagnostics: () => invokeShell("getGraphicsDiagnostics"),
+    getLogStatus: () => invokeCore({ type: "logsStatus" }),
+    queryLogs: (query) => invokeCore({ type: "logsQuery", query: query ?? {} }),
+    setLogLevel: (level) =>
+      invokeCore({ type: "logsSetLevel", level }).then(() => invokeCore({ type: "logsStatus" })),
+    clearLogs: () =>
+      invokeCore({ type: "logsClear" }).then(() => invokeCore({ type: "logsStatus" })),
+    revealLogs: () => invokeShell("revealLogs"),
+    exportDiagnostics: () => invokeShell("exportDiagnostics"),
+    reportRendererLog: (event) =>
+      void invokeCore({ type: "logsCapture", entries: [rendererLogRecord(event)] }),
+    listSystemFonts: () => invokeCore({ type: "systemFontsList" }),
+    consumePendingMacroPageRequest: () => invokeShell("consumePendingMacroPageRequest"),
+    setOverlayLanguage: (language) =>
+      invokeCore({ type: "overlayLanguageSet", language }).then(() => undefined),
+    getAppVersion: () => invokeShell("appVersion"),
+    getUpdateStatus: () => invokeShell("updateStatus"),
+    checkForUpdates: () => invokeShell("checkForUpdates"),
+    openUpdateDownload: () => invokeShell("openUpdateDownload"),
+    installDownloadedUpdate: () => invokeShell("installDownloadedUpdate"),
+    onChromeProfileImportProgress: (callback) =>
+      on("chromeProfileProgress", callback as Listener),
+    onRoleStatusChanged: (callback) => on("roleStatuses", callback as Listener),
+    onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
+    onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
+    onGamesChanged: (callback) => on("games", callback as Listener),
+    onWorkspacesChanged: (callback) => on("workspaces", callback as Listener),
+    onGameCompatibilityChanged: (callback) => on("compatibility", callback as Listener),
+    onWorkspaceDisplaysChanged: (callback) => on("workspaceDisplays", callback as Listener),
+    onWorkspaceLaunchRequested: (callback) => on("workspaceLaunchRequest", callback as Listener),
+    onMacroStatusChanged: (callback) => on("macroStatuses", callback as Listener),
+    onMacrosChanged: (callback) => on("macros", callback as Listener),
+    onMacroPageRequested: (callback) => on("macroPageRequest", callback as Listener),
+    onUpdateStatusChanged: (callback) => on("updateStatus", callback as Listener),
+    onLogEntryAdded: (callback) => on("logEntry", callback as Listener)
+  };
+
+  Object.defineProperty(window, "rionStudio", {
+    configurable: false,
+    enumerable: true,
+    value: api,
+    writable: false
+  });
+}

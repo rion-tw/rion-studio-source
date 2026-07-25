@@ -16,10 +16,13 @@ const paths: RolePathsRecord = {
 function surface() {
   let listener: ((event: { type: "crashed"; reason?: string }) => void) | undefined;
   const value: WebSurfacePort = {
+    addDocumentStartScript: vi.fn(async () => undefined),
     clearStorage: vi.fn(async () => undefined),
+    configureRequestRewrites: vi.fn(async () => undefined),
     destroy: vi.fn(async () => undefined),
     evaluate: async <T>(_source: string) => undefined as T,
     focus: vi.fn(async () => undefined),
+    getCookies: vi.fn(async () => []),
     loadUrl: vi.fn(async () => undefined),
     onLifecycleEvent: vi.fn((next) => {
       listener = next as typeof listener;
@@ -27,6 +30,7 @@ function surface() {
     }),
     setAudioMuted: vi.fn(async () => undefined),
     setBounds: vi.fn(async () => undefined),
+    setCookies: vi.fn(async (cookies) => cookies.length),
     setVisible: vi.fn(async () => undefined),
     setZoomFactor: vi.fn(async () => undefined)
   };
@@ -88,6 +92,32 @@ describe("SystemWebViewRuntimePool", () => {
     );
     await pool.destroy("role-1");
     expect(native.value.destroy).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["darwin", "socks5://127.0.0.1:7890"],
+    ["win32", "http://127.0.0.1:7890"]
+  ] as const)("passes a normalized custom proxy into the %s surface before creation", (
+    platform,
+    proxyServer
+  ) => {
+    const native = surface();
+    const createMacSurface = vi.fn(() => native.value);
+    const createWindowsSurface = vi.fn(() => native.value as never);
+    const pool = new SystemWebViewRuntimePool({
+      createMacSurface,
+      createWindowsSurface,
+      platform
+    });
+    const hostWindow = {} as never;
+
+    pool.create("role-1", hostWindow, paths, { proxyServer });
+
+    const factory = platform === "darwin" ? createMacSurface : createWindowsSurface;
+    expect(factory).toHaveBeenCalledWith(
+      hostWindow,
+      expect.objectContaining({ proxyServer })
+    );
   });
 
   it("fails closed for missing adapters and duplicate role ownership", async () => {

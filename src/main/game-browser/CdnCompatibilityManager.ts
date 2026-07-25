@@ -62,6 +62,10 @@ export class CdnCompatibilityManager {
     return (await this.resolve(session)).enabled;
   }
 
+  async resolvePlanForSession(session: Session): Promise<CdnResolutionRecord> {
+    return this.resolve(session);
+  }
+
   async executeEffect(effect: CdnCoreEffect): Promise<CoreJsonValue> {
     const session = requireFetchSession(this.options.handles.require(effect.target.handleId));
     const createDeadlineSignal =

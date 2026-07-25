@@ -461,6 +461,7 @@ int main() {
         [[RionSystemWebViewSurface alloc]
               initWithParentView:window.contentView
           dataStoreIdentifier:@"0C0D1969-D51B-8576-8D79-0C64291CA837"
+                  proxyServer:@""
                  eventHandler:^(NSDictionary<NSString *, id> *event) {
       (void)event;
       systemSurfaceEventCount += 1;
@@ -480,10 +481,32 @@ int main() {
     [systemSurface setVisible:YES];
     Assert(!systemSurface.webView.hidden,
            "WKWebView visibility must be applied.");
+    NSUInteger initialUserScriptCount =
+        systemSurface.webView.configuration.userContentController
+            .userScripts.count;
+    [systemSurface
+        addDocumentStartScript:@"window.__rionDocumentStartProbe = true;"
+                     requestID:@"document-start-probe"];
+    Assert(systemSurface.webView.configuration.userContentController
+                   .userScripts.count == initialUserScriptCount + 1 &&
+               systemSurfaceEventCount == 1,
+           "WKWebView must register and acknowledge a document-start script before navigation.");
     (void)[systemSurface setAudioMuted:YES];
+    RionSystemWebViewSurface *proxySurface =
+        [[RionSystemWebViewSurface alloc]
+              initWithParentView:window.contentView
+          dataStoreIdentifier:@"1C0D1969-D51B-8576-8D79-0C64291CA837"
+                  proxyServer:@"socks5://127.0.0.1:7890"
+                 eventHandler:^(__unused NSDictionary<NSString *, id> *event) {
+    }];
+    Assert(proxySurface != nil &&
+               proxySurface.webView.configuration.websiteDataStore
+                       .proxyConfigurations.count == 1,
+           "macOS 14+ must apply a custom proxy before the first navigation.");
+    [proxySurface destroy];
     [systemSurface destroy];
     Assert(systemSurface.destroyed && systemSurface.webView == nil &&
-               systemSurfaceEventCount == 0,
+               systemSurfaceEventCount == 1,
            "Destroying a WKWebView surface must detach all native state.");
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Expected a standard close button before attaching runtime tabs.");

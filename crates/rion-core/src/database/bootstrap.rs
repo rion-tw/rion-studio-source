@@ -1,10 +1,11 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use chrono::Utc;
-use rusqlite::Connection;
+use rusqlite::{Connection, backup::Backup};
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
@@ -132,6 +133,82 @@ pub fn bootstrap_databases(user_data_dir: &Path) -> CoreResult<DatabasePaths> {
         logs: log_path,
         migration_backup: backup,
     })
+}
+
+pub fn create_online_startup_backup(
+    user_data_dir: &Path,
+    label: &str,
+    app_version: &str,
+) -> CoreResult<Option<PathBuf>> {
+    if label.is_empty()
+        || !label
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(CoreError::InvalidInput(
+            "startup backup label contains unsupported characters".to_owned(),
+        ));
+    }
+    let sources = [
+        (
+            STATE_DATABASE_FILENAME,
+            user_data_dir.join(STATE_DATABASE_FILENAME),
+        ),
+        (
+            LOG_DATABASE_FILENAME,
+            user_data_dir.join(LOG_DATABASE_FILENAME),
+        ),
+    ];
+    if sources.iter().all(|(_, source)| !source.is_file()) {
+        return Ok(None);
+    }
+    let name = format!(
+        "{}-{}-{}",
+        Utc::now().format("%Y%m%dT%H%M%SZ"),
+        label,
+        Uuid::new_v4()
+    );
+    let backup_dir = user_data_dir.join("shell-migration-backups").join(name);
+    fs::create_dir_all(&backup_dir)
+        .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
+    let result: CoreResult<()> = (|| {
+        let mut copied = Vec::new();
+        for (filename, source_path) in &sources {
+            if !source_path.is_file() {
+                continue;
+            }
+            let source = Connection::open(source_path)
+                .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
+            let destination_path = backup_dir.join(filename);
+            let mut destination = Connection::open(&destination_path)
+                .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
+            Backup::new(&source, &mut destination)
+                .and_then(|backup| backup.run_to_completion(64, Duration::from_millis(10), None))
+                .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
+            validate_database(&destination, filename)?;
+            drop(destination);
+            set_read_only(&destination_path)?;
+            copied.push((*filename).to_owned());
+        }
+        let manifest = serde_json::to_vec_pretty(&serde_json::json!({
+            "schemaVersion": 1,
+            "createdAt": Utc::now().to_rfc3339(),
+            "label": label,
+            "appVersion": app_version,
+            "files": copied
+        }))
+        .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
+        fs::write(backup_dir.join("manifest.json"), manifest)
+            .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
+        set_read_only(&backup_dir.join("manifest.json"))?;
+        set_read_only(&backup_dir)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = fs::remove_dir_all(&backup_dir);
+        return Err(error);
+    }
+    Ok(Some(backup_dir))
 }
 
 fn validate_import_metadata(connection: &Connection) -> CoreResult<()> {

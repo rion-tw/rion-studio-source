@@ -5,19 +5,23 @@ import type { WindowsWebView2SurfacePort } from "../src/main/browser/WindowsWebV
 
 function surface(): WindowsWebView2SurfacePort {
   return {
+    addDocumentStartScript: vi.fn(),
     callDevToolsProtocolMethod: vi.fn(async (method: string) =>
       method === "Page.getLayoutMetrics"
         ? { cssVisualViewport: { clientHeight: 600, clientWidth: 800 } }
         : {}
     ),
     clearStorage: vi.fn(),
+    configureRequestRewrites: vi.fn(),
     destroy: vi.fn(),
     evaluate: vi.fn().mockResolvedValue("canvas"),
     focus: vi.fn(),
+    getCookies: vi.fn(),
     loadUrl: vi.fn(),
     onLifecycleEvent: vi.fn(() => () => undefined),
     setAudioMuted: vi.fn(),
     setBounds: vi.fn(),
+    setCookies: vi.fn(),
     setVisible: vi.fn(),
     setZoomFactor: vi.fn()
   } as WindowsWebView2SurfacePort;

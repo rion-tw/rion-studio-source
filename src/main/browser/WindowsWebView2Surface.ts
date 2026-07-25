@@ -13,20 +13,34 @@ import type {
   WebSurfacePort
 } from "./ports/WebSurfacePort";
 
-const NATIVE_PROTOCOL_VERSION = 1;
+const NATIVE_PROTOCOL_VERSION = 6;
 const OPERATION_TIMEOUT_MS = 30_000;
 
 export interface WindowsWebView2NativeAddon {
+  addWebView2DocumentStartScript(
+    surfaceId: number,
+    requestId: string,
+    source: string
+  ): void;
   callWebView2DevToolsMethod(
     surfaceId: number,
     requestId: string,
     method: string,
     parametersJson: string
   ): void;
+  configureWebView2RequestRewrites(
+    surfaceId: number,
+    requestId: string,
+    rules: readonly {
+      regexFilter: string;
+      regexSubstitution: string;
+      sourceHost: string;
+    }[]
+  ): void;
   clearWebView2Data(surfaceId: number, requestId: string): void;
   createWebView2Surface(
     windowHandle: Buffer,
-    options: { userDataFolder: string },
+    options: { proxyServer: string; userDataFolder: string },
     callback: (event: unknown) => void
   ): number;
   destroyWebView2Surface(surfaceId: number): void;
@@ -55,19 +69,27 @@ export interface WindowsWebView2SurfacePort extends WebSurfacePort {
 
 export type WindowsWebView2SurfaceFactory = (
   window: BaseWindow,
-  options: { userDataFolder: string }
+  options: { proxyServer?: string; userDataFolder: string }
 ) => WindowsWebView2SurfacePort;
 
 type NativeSurfaceEvent =
   | { type: "audioChanged"; audible: boolean }
+  | { type: "bridgeMessage"; messageJson: string }
   | { type: "crashed"; reason?: string }
   | { type: "cookiesRead"; requestId: string; cookiesJson: string; error?: string }
   | { type: "cookiesWritten"; requestId: string; count?: number; error?: string }
   | { type: "devToolsCompleted"; requestId: string; valueJson?: string; error?: string }
+  | { type: "documentStartScriptAdded"; requestId: string; error?: string }
+  | { type: "downloadCompleted"; path?: string }
+  | { type: "downloadFailed"; reason?: string }
+  | { type: "downloadStarted"; filename?: string }
   | { type: "evaluationCompleted"; requestId: string; valueJson?: string; error?: string }
   | { type: "navigationCompleted"; url: string }
   | { type: "navigationFailed"; url: string; errorCode?: string }
+  | { type: "popupClosed"; url?: string }
+  | { type: "popupCreated"; url: string }
   | { type: "popupRequested"; url: string }
+  | { type: "requestRewritesConfigured"; requestId: string; error?: string }
   | { type: "websiteDataCleared"; requestId: string; error?: string };
 
 interface PendingOperation {
@@ -144,6 +166,12 @@ export function createWindowsWebView2SurfaceFactory(
       const event = parseNativeSurfaceEvent(value);
       if (!event || destroyed) return;
       switch (event.type) {
+        case "documentStartScriptAdded":
+          settle(event.requestId, event.error, undefined);
+          return;
+        case "requestRewritesConfigured":
+          settle(event.requestId, event.error, undefined);
+          return;
         case "cookiesRead":
           if (event.error) {
             settle(event.requestId, event.error, undefined);
@@ -195,10 +223,16 @@ export function createWindowsWebView2SurfaceFactory(
 
     const surfaceId = addon.createWebView2Surface(
       window.getNativeWindowHandle(),
-      options,
+      {
+        proxyServer: options.proxyServer ?? "",
+        userDataFolder: options.userDataFolder
+      },
       handleEvent
     );
     const surface: WindowsWebView2SurfacePort = {
+      addDocumentStartScript: (source) => invoke<void>((requestId) => {
+        addon.addWebView2DocumentStartScript(surfaceId, requestId, source);
+      }),
       callDevToolsProtocolMethod: <T>(
         method: string,
         parameters: Record<string, unknown> = {}
@@ -212,6 +246,20 @@ export function createWindowsWebView2SurfaceFactory(
       }),
       clearStorage: () => invoke<void>((requestId) => {
         addon.clearWebView2Data(surfaceId, requestId);
+      }),
+      configureRequestRewrites: (rules) => invoke<void>((requestId) => {
+        addon.configureWebView2RequestRewrites(
+          surfaceId,
+          requestId,
+          rules.map((rule) => ({
+            regexFilter: rule.regexFilter,
+            regexSubstitution: rule.regexSubstitution.replace(
+              /\\([0-9]+)/g,
+              (_match, index: string) => `$${index}`
+            ),
+            sourceHost: rule.sourceHost
+          }))
+        );
       }),
       destroy: async () => {
         if (destroyed) return;
@@ -236,6 +284,9 @@ export function createWindowsWebView2SurfaceFactory(
       focus: async () => {
         addon.focusWebView2(surfaceId);
       },
+      getCookies: () => invoke<BrowserCookieTransferRecord[]>((requestId) => {
+        addon.getWebView2Cookies(surfaceId, requestId);
+      }),
       loadUrl: (url) => {
         if (destroyed) {
           return Promise.reject(
@@ -270,6 +321,9 @@ export function createWindowsWebView2SurfaceFactory(
       setBounds: async (bounds) => {
         addon.setWebView2Bounds(surfaceId, bounds);
       },
+      setCookies: (cookies) => invoke<number>((requestId) => {
+        addon.setWebView2Cookies(surfaceId, requestId, cookies);
+      }),
       setVisible: async (visible) => {
         addon.setWebView2Visible(surfaceId, visible);
       },
@@ -281,12 +335,8 @@ export function createWindowsWebView2SurfaceFactory(
       clearCookies: () => invoke<void>((requestId) => {
         addon.clearWebView2Data(surfaceId, requestId);
       }),
-      getCookies: () => invoke<BrowserCookieTransferRecord[]>((requestId) => {
-        addon.getWebView2Cookies(surfaceId, requestId);
-      }),
-      setCookies: (cookies) => invoke<number>((requestId) => {
-        addon.setWebView2Cookies(surfaceId, requestId, cookies);
-      })
+      getCookies: surface.getCookies,
+      setCookies: surface.setCookies
     });
     return surface;
   };

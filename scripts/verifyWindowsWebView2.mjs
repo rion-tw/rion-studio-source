@@ -22,12 +22,14 @@ async function main() {
   }
   await access(addonPath, constants.F_OK);
   const addon = require(addonPath);
-  if (addon.protocolVersion !== 1) {
+  if (addon.protocolVersion !== 6) {
     throw new Error(`Unexpected Windows WebView2 protocol: ${String(addon.protocolVersion)}.`);
   }
   for (const method of [
+    "addWebView2DocumentStartScript",
     "callWebView2DevToolsMethod",
     "clearWebView2Data",
+    "configureWebView2RequestRewrites",
     "createWebView2Surface",
     "destroyWebView2Surface",
     "evaluateWebView2",
@@ -44,7 +46,7 @@ async function main() {
       throw new Error(`Windows WebView2 addon is missing ${method}().`);
     }
   }
-  console.log(`Verified Windows WebView2 protocol 1: ${addonPath}`);
+  console.log(`Verified Windows WebView2 protocol 6: ${addonPath}`);
 }
 
 main().catch((error) => {

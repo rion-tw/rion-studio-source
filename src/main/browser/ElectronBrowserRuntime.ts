@@ -20,6 +20,7 @@ import type {
   CoreJsonValue,
   LayoutRoleInput,
   ResolvedBrowserEngine,
+  RolePathsRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -56,6 +57,16 @@ import {
 } from "../../shared/workspaceResize";
 import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnostics";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
+import {
+  createElectronSessionStore,
+  type BrowserCookieTransferRecord
+} from "./ElectronProfileEffectAdapter";
+import type {
+  NativeRoleSurfaceHandle,
+  NativeRoleSurfaceConfiguration,
+  SystemWebViewRuntimePool
+} from "./SystemWebViewRuntimePool";
+import { MACRO_OVERLAY_SCRIPT } from "../macros/MacroOverlayInjector";
 import type { AppCoreClient, EmbeddedKeyRuntimeClient } from "../core/nativeCore";
 import type {
   MacRuntimeTabsContentLayout,
@@ -126,6 +137,10 @@ export interface ElectronBrowserRuntimeOptions {
   runtimeTabsPageUrl?: string;
   runtimeTabsPreloadPath?: string;
   getRoleSession?: (role: Role) => Session | undefined | Promise<Session | undefined>;
+  getRolePaths?: (roleId: string) => Promise<RolePathsRecord>;
+  getNativeSessionConfiguration?: (
+    role: Role
+  ) => MaybePromise<NativeRoleSurfaceConfiguration>;
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getLaunchWorkArea: () => PixelBounds;
   getDefaultLaunchTarget?: () => BrowserWorkspaceLaunchTarget;
@@ -160,6 +175,7 @@ export interface ElectronBrowserRuntimeOptions {
   recordRendererRafLatency?: (durationMs: number) => void;
   recordRuntimePublish?: (count?: number) => void;
   recordTabActivationLatency?: (durationMs: number) => void;
+  systemRuntimePool?: SystemWebViewRuntimePool;
 }
 
 export class BrowserGameLoadError extends Error {
@@ -211,6 +227,7 @@ interface GameHostWindow {
   audioMuted: boolean;
   closing: boolean;
   dividers: GameDivider[];
+  engineFamily: EmbeddedEngineFamily;
   gameIconDataUrl?: string;
   id: string;
   displayHostId: string;
@@ -239,6 +256,7 @@ interface EmbeddedDisplayHost {
   chromeWebContents?: WebContents;
   closing: boolean;
   displayId: number;
+  engineFamily: EmbeddedEngineFamily;
   pendingWindowAction?: "close" | "hide";
   id: string;
   macNativeContentLayout?: RuntimeContentLayout;
@@ -255,6 +273,18 @@ interface EmbeddedDisplayHost {
 }
 
 type DividerAxis = "horizontal" | "vertical";
+type EmbeddedEngineFamily = "electron" | "system";
+
+function embeddedEngineFamily(engine: ResolvedBrowserEngine): EmbeddedEngineFamily {
+  return engine === "webview2" || engine === "wkwebview" ? "system" : "electron";
+}
+
+function embeddedDisplayHostKey(
+  displayId: number,
+  engineFamily: EmbeddedEngineFamily
+): string {
+  return `${displayId}:${engineFamily}`;
+}
 
 interface GameDivider {
   afterRoleIds: string[];
@@ -288,20 +318,49 @@ export type GameDividerPointerPayload =
 
 export const GAME_DIVIDER_POINTER_CHANNEL = "game-divider:pointer";
 
-interface BrowserSession {
+interface BrowserSessionBase {
   abortController: AbortController;
+  audible: boolean;
+  currentUrl?: string;
+  fallbackInProgress?: boolean;
   gameInputContextActive: boolean;
   hostId: string;
-  popupViews: Set<WebContentsView>;
   rect: NormalizedRect;
   role: Role;
   resolvedEngine: ResolvedBrowserEngine;
-  target: BrowserAutomationTarget;
-  view: WebContentsView;
-  webContents: WebContents;
+  target?: BrowserAutomationTarget;
   zoomFactor: number;
   zoomMode: WorkspaceBrowserZoomMode;
   zoomPersistenceTimer?: ReturnType<typeof setTimeout>;
+}
+
+interface ElectronBrowserSession extends BrowserSessionBase {
+  kind: "electron";
+  popupViews: Set<WebContentsView>;
+  target: BrowserAutomationTarget;
+  view: WebContentsView;
+  webContents: WebContents;
+}
+
+interface NativeBrowserSession extends BrowserSessionBase {
+  kind: "native";
+  lifecycleUnsubscribe: () => void;
+  nativeHandle: NativeRoleSurfaceHandle;
+  pendingPopupUrls: string[];
+}
+
+type BrowserSession = ElectronBrowserSession | NativeBrowserSession;
+
+interface EmbeddedFallbackRoleContinuity {
+  [key: string]: CoreJsonValue;
+  authVerified: boolean;
+  cookiesMirrored: number;
+  roleId: string;
+}
+
+interface EmbeddedFallbackResult {
+  [key: string]: CoreJsonValue;
+  roles: EmbeddedFallbackRoleContinuity[];
 }
 
 interface NativeZoomShortcutInput {
@@ -326,6 +385,7 @@ type EmbeddedCoreEffectAction = Extract<
       | "embeddedCreateTab"
       | "embeddedDestroyRole"
       | "embeddedDestroyTab"
+      | "embeddedFallbackTabToElectron"
       | "embeddedFocusRole"
       | "embeddedInstallOverlays"
       | "embeddedLoadRoles";
@@ -338,6 +398,48 @@ const RUNTIME_TAB_CHROME_HEIGHT = 40;
 const RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT = 2;
 const RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT = 30;
 const RUNTIME_TAB_MAC_MENU_BAR_MAX_HEIGHT = 64;
+const NATIVE_OVERLAY_BRIDGE_MAX_MESSAGE_BYTES = 64 * 1024;
+const NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE = `(() => {
+  const version = "rion-native-overlay-1";
+  if (globalThis.__rionStudioNativeOverlayBridge?.version === version) return;
+  const pending = new Map();
+  let nextRequestId = 1;
+  const post = (message) => {
+    if (globalThis.chrome?.webview?.postMessage) {
+      globalThis.chrome.webview.postMessage(message);
+      return;
+    }
+    const handler = globalThis.webkit?.messageHandlers?.rionSystemSurface;
+    if (handler?.postMessage) {
+      handler.postMessage(message);
+      return;
+    }
+    throw new Error("Rion Studio native message bridge is unavailable.");
+  };
+  globalThis.__rionStudioNativeOverlayBridge = { pending, version };
+  globalThis.__rionStudioNativeOverlayResolve = (requestId, ok, valueJson) => {
+    const operation = pending.get(requestId);
+    if (!operation) return;
+    pending.delete(requestId);
+    let value;
+    try { value = JSON.parse(valueJson); } catch { value = valueJson; }
+    if (ok) operation.resolve(value);
+    else operation.reject(new Error(typeof value === "string" ? value : "Native overlay request failed."));
+  };
+  Object.defineProperty(globalThis, "rionStudioMacroOverlay", {
+    configurable: true,
+    value: (payload) => new Promise((resolve, reject) => {
+      const requestId = "overlay-" + nextRequestId++;
+      pending.set(requestId, { reject, resolve });
+      try {
+        post({ type: "overlayRequest", requestId, payload });
+      } catch (error) {
+        pending.delete(requestId);
+        reject(error);
+      }
+    })
+  });
+})();`;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 
@@ -447,13 +549,16 @@ export class ElectronBrowserRuntime
   extends EventEmitter<ElectronBrowserRuntimeEvents>
   implements RuntimeHostPort {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
+  /** The currently active physical host for each logical display. */
   private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
+  /** All physical hosts, keyed by `(displayId, engineFamily)`. */
+  private readonly engineDisplayHosts = new Map<string, EmbeddedDisplayHost>();
   private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
   private readonly tabHandles = new Map<string, GameHostWindow>();
   private readonly roleHandles = new Map<string, BrowserSession>();
   private readonly workspaceTabHandleIds = new Map<string, string>();
   private readonly hostLayoutStates = new Map<string, HostLayoutState>();
-  private readonly lastRuntimeChromeStateByDisplay = new Map<number, string>();
+  private readonly lastRuntimeChromeStateByHost = new Map<string, string>();
   private readonly preferredWindowIdsByDisplay: Record<number, string> = {};
   private readonly restoringDisplayIds = new Set<number>();
   private lastEmittedRuntimeState = "";
@@ -528,12 +633,37 @@ export class ElectronBrowserRuntime
     this.macroOverlayInstaller = installer;
   }
 
+  refreshNativeMacroOverlays(roleIds?: string | string[]): void {
+    const selectedRoleIds = roleIds === undefined
+      ? undefined
+      : new Set(Array.isArray(roleIds) ? roleIds : [roleIds]);
+    this.roleHandles.forEach((session, roleId) => {
+      if (session.kind !== "native" || selectedRoleIds && !selectedRoleIds.has(roleId)) {
+        return;
+      }
+      void session.nativeHandle.surface.evaluate(
+        "void globalThis.__rionStudioMacroOverlay?.refresh?.()"
+      ).catch((error) => {
+        console.warn("Failed to refresh a System WebView macro overlay.", error);
+      });
+    });
+  }
+
   async executeEmbeddedEffect(
     action: EmbeddedCoreEffectAction
   ): Promise<CoreJsonValue | undefined> {
     switch (action.type) {
       case "embeddedCreateTab": {
         const tab = action.tab;
+        const engineFamilies = new Set(
+          tab.roles.map((role) => embeddedEngineFamily(role.resolvedEngine))
+        );
+        if (engineFamilies.size !== 1) {
+          throw effectError(
+            "EMBEDDED_TAB_ENGINE_MISMATCH",
+            "Every role in an embedded tab must use the same engine family."
+          );
+        }
         const host = this.createHost(
           tab.name,
           tab.workspaceId,
@@ -543,7 +673,8 @@ export class ElectronBrowserRuntime
           tab.sourceId,
           undefined,
           tab.workspaceTemplate as WorkspaceLayoutTemplate | undefined,
-          tab.tabId
+          tab.tabId,
+          engineFamilies.values().next().value ?? "electron"
         );
         for (const [index, role] of tab.roles.entries()) {
           await this.createSession(
@@ -607,7 +738,12 @@ export class ElectronBrowserRuntime
           }
           this.assertSessionActive(session);
           try {
-            await session.webContents.loadURL(role.url);
+            if (session.kind === "electron") {
+              await session.webContents.loadURL(role.url);
+            } else {
+              await session.nativeHandle.surface.loadUrl(role.url);
+            }
+            session.currentUrl = role.url;
           } catch {
             this.assertSessionActive(session);
             throw new BrowserGameLoadError();
@@ -625,7 +761,11 @@ export class ElectronBrowserRuntime
       case "embeddedInstallOverlays": {
         await waitForAllEffects(action.roleIds.map(async (roleId) => {
           const session = this.requireEmbeddedSession(roleId);
-          await this.installMacroOverlay(session.role, session.webContents);
+          if (session.kind === "electron") {
+            await this.installMacroOverlay(session.role, session.webContents);
+          } else {
+            await this.installNativeMacroOverlay(session);
+          }
           this.assertSessionActive(session);
         }));
         return undefined;
@@ -636,9 +776,15 @@ export class ElectronBrowserRuntime
           await this.applyZoom(session, action.zoomFactor);
           this.assertSessionActive(session);
         }
-        await session.target.focus();
+        if (session.target) {
+          await session.target.focus();
+        } else if (session.kind === "native") {
+          await session.nativeHandle.surface.focus();
+        }
         return undefined;
       }
+      case "embeddedFallbackTabToElectron":
+        return this.fallbackTabToElectron(action.tabId, action.roleIds);
       case "embeddedDestroyRole":
         await this.destroyRoleHandles(action.roleId);
         return undefined;
@@ -651,26 +797,43 @@ export class ElectronBrowserRuntime
   private syncRuntimeProjection(snapshot: BrowserRuntimeSnapshot): void {
     this.runtimeSnapshot = snapshot;
     const displays = new Map(snapshot.displays.map((display) => [display.displayId, display]));
-    this.displayHosts.forEach((handle, displayId) => {
-      const display = displays.get(displayId);
-      handle.activeTabId = display?.activeTabId;
-      handle.tabIds = display ? [...display.tabIds] : [];
+    this.engineDisplayHosts.forEach((handle) => {
+      handle.activeTabId = undefined;
+      handle.tabIds = [];
     });
     snapshot.tabs.forEach((tab) => {
       const handle = this.tabHandles.get(tab.id);
-      const display = this.displayHosts.get(tab.displayId);
       if (!handle) return;
       handle.hidden = tab.hidden;
-      if (display) {
-        handle.displayHostId = display.id;
-        handle.window = display.window;
+      const displayHost = this.engineDisplayHosts.get(
+        embeddedDisplayHostKey(tab.displayId, handle.engineFamily)
+      );
+      if (!displayHost) return;
+      handle.displayHostId = displayHost.id;
+      handle.window = displayHost.window;
+      if (!displayHost.tabIds.includes(tab.id)) displayHost.tabIds.push(tab.id);
+    });
+    displays.forEach((display, displayId) => {
+      const activeTab = display.activeTabId
+        ? this.tabHandles.get(display.activeTabId)
+        : undefined;
+      const activeHost = activeTab ? this.getDisplayHost(activeTab) : undefined;
+      if (activeHost) {
+        activeHost.activeTabId = display.activeTabId;
+        this.displayHosts.set(displayId, activeHost);
+      }
+    });
+    this.displayHosts.forEach((_handle, displayId) => {
+      const display = displays.get(displayId);
+      if (!display) {
+        this.displayHosts.delete(displayId);
       }
     });
   }
 
   private requireEmbeddedSession(roleId: string): BrowserSession {
     const session = this.roleHandles.get(roleId);
-    if (!session || session.webContents.isDestroyed()) {
+    if (!session || isSessionDestroyed(session)) {
       throw effectError(
         "EMBEDDED_ROLE_HANDLE_NOT_FOUND",
         `The embedded role handle was not found: ${roleId}`
@@ -694,10 +857,11 @@ export class ElectronBrowserRuntime
       const tab = this.tabHandles.get(runtimeTab.id);
       if (!tab) continue;
       const source = this.getDisplayHost(tab);
-      const destination = this.displayHosts.get(runtimeTab.displayId) ??
-        (target?.displayId === runtimeTab.displayId
-          ? this.getOrCreateDisplayHost(target)
-          : undefined);
+      const destination = this.engineDisplayHosts.get(
+        embeddedDisplayHostKey(runtimeTab.displayId, tab.engineFamily)
+      ) ?? (target?.displayId === runtimeTab.displayId
+        ? this.getOrCreateDisplayHost(target, tab.engineFamily)
+        : undefined);
       if (!destination) {
         throw effectError(
           "EMBEDDED_DISPLAY_HANDLE_NOT_FOUND",
@@ -707,6 +871,7 @@ export class ElectronBrowserRuntime
       if (source && source !== destination) {
         const sourceWasFullscreen = this.isDisplayHostFullscreen(source);
         const destinationWasFullscreen = this.isDisplayHostFullscreen(destination);
+        await this.recreateNativeTabSurfaces(tab, destination.window);
         this.detachTabViews(tab, source);
         tab.window = destination.window;
         tab.displayHostId = destination.id;
@@ -720,17 +885,18 @@ export class ElectronBrowserRuntime
 
     this.syncRuntimeProjection(snapshot);
     const displaysFocusedByShow = new Set<number>();
-    this.displayHosts.forEach((displayHost, displayId) => {
-      const runtimeDisplay = runtimeDisplays.get(displayId);
-      if (this.restoringDisplayIds.has(displayId)) {
+    this.engineDisplayHosts.forEach((displayHost) => {
+      const runtimeDisplay = runtimeDisplays.get(displayHost.displayId);
+      const activeDisplayHost = this.displayHosts.get(displayHost.displayId);
+      if (this.restoringDisplayIds.has(displayHost.displayId)) {
         this.hideDisplayHost(displayHost);
-      } else if (!runtimeDisplay?.activeTabId) {
+      } else if (!runtimeDisplay?.activeTabId || activeDisplayHost !== displayHost) {
         this.hideDisplayHost(displayHost);
-      } else if (revealDisplayIds.includes(displayId)) {
+      } else if (revealDisplayIds.includes(displayHost.displayId)) {
         if (!isWindowVisible(displayHost.window) || displayHost.window.isMinimized()) {
-          displaysFocusedByShow.add(displayId);
+          displaysFocusedByShow.add(displayHost.displayId);
           this.showDisplayHost(displayHost);
-        } else if (focusWindowDisplayIds.includes(displayId)) {
+        } else if (focusWindowDisplayIds.includes(displayHost.displayId)) {
           displayHost.window.focus();
         }
       }
@@ -739,9 +905,7 @@ export class ElectronBrowserRuntime
     touchedDisplays.forEach((displayHost) => {
       this.layoutDisplayHost(displayHost);
       this.sendRuntimeChromeState(displayHost);
-      if (!runtimeDisplays.has(displayHost.displayId)) {
-        this.destroyDisplayHostIfEmpty(displayHost);
-      }
+      this.destroyDisplayHostIfEmpty(displayHost);
     });
     this.reconcileRuntimeTabs();
     if (focusTabId) {
@@ -817,18 +981,26 @@ export class ElectronBrowserRuntime
     this.getRuntimeTabWebContents(tab).forEach((webContents) => {
       if (!webContents.isDestroyed()) webContents.setAudioMuted(muted);
     });
+    tab.roleIds.forEach((roleId) => {
+      const session = this.roleHandles.get(roleId);
+      if (session?.kind === "native") {
+        void session.nativeHandle.surface.setAudioMuted(muted).catch((error) => {
+          console.warn("Failed to update System WebView audio mute.", error);
+        });
+      }
+    });
     this.emitChange();
   }
 
   setRuntimeTabsLanguage(language: AppLanguage): void {
     this.runtimeTabsLanguage = language;
-    this.displayHosts.forEach((host) => this.sendRuntimeChromeState(host));
+    this.engineDisplayHosts.forEach((host) => this.sendRuntimeChromeState(host));
   }
 
   setAlwaysShowToolbarInFullScreen(value: boolean): void {
     if (this.alwaysShowToolbarInFullScreen === value) return;
     this.alwaysShowToolbarInFullScreen = value;
-    this.displayHosts.forEach((host) => {
+    this.engineDisplayHosts.forEach((host) => {
       if (host.macNativeTabs) {
         host.macNativeContentLayout = undefined;
         host.macNativeTabs.setFullscreenPolicy(value ? "always" : "autoHide");
@@ -916,7 +1088,8 @@ export class ElectronBrowserRuntime
   }
 
   toggleRuntimeWindowFullscreenForWindow(windowId: number): boolean {
-    const displayHost = [...this.displayHosts.values()].find((host) => host.window.id === windowId);
+    const displayHost = [...this.engineDisplayHosts.values()]
+      .find((host) => host.window.id === windowId);
     if (!displayHost) return false;
     this.toggleRuntimeWindowFullscreen(displayHost);
     return true;
@@ -953,7 +1126,7 @@ export class ElectronBrowserRuntime
   }
 
   prepareRestoredWindow(displayId: number, windowId: string): void {
-    if (!this.displayHosts.has(displayId)) {
+    if (![...this.engineDisplayHosts.values()].some((host) => host.displayId === displayId)) {
       this.preferredWindowIdsByDisplay[displayId] = windowId;
     }
     this.restoringDisplayIds.add(displayId);
@@ -1061,15 +1234,16 @@ export class ElectronBrowserRuntime
   }
 
   handleDisplayMetricsChanged(displayId: number, workArea: PixelBounds): void {
-    const host = this.displayHosts.get(displayId);
-    if (!host || host.window.isDestroyed()) return;
-    this.refreshMacSystemMenuBarHeight(host, workArea);
-    if (!this.isMacRuntimeFullscreen(host)) {
-      host.window.setBounds(clampBoundsToWorkArea(getWindowBounds(host.window), workArea));
-    }
-    host.systemMenuBarTemporarilyRevealed = false;
-    this.layoutDisplayHost(host);
-    this.syncRuntimeToolbarCursorMonitor(host);
+    this.engineDisplayHosts.forEach((host) => {
+      if (host.displayId !== displayId || host.window.isDestroyed()) return;
+      this.refreshMacSystemMenuBarHeight(host, workArea);
+      if (!this.isMacRuntimeFullscreen(host)) {
+        host.window.setBounds(clampBoundsToWorkArea(getWindowBounds(host.window), workArea));
+      }
+      host.systemMenuBarTemporarilyRevealed = false;
+      this.layoutDisplayHost(host);
+      this.syncRuntimeToolbarCursorMonitor(host);
+    });
   }
 
   listWorkspaceDisplayReservations(): Array<{ workspaceId: string; workspaceName: string; displayId: number }> {
@@ -1091,14 +1265,17 @@ export class ElectronBrowserRuntime
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
     return [...this.roleHandles.entries()].find(([, session]) =>
-      session.webContents.id === webContentsId ||
-      [...session.popupViews].some((view) => view.webContents?.id === webContentsId)
+      session.kind === "electron" && (
+        session.webContents.id === webContentsId ||
+        [...session.popupViews].some((view) => view.webContents?.id === webContentsId)
+      )
     )?.[0];
   }
 
   setGameInputContext(webContentsId: number, active: boolean): void {
     const session = [...this.roleHandles.values()].find(
-      (candidate) => candidate.webContents.id === webContentsId
+      (candidate): candidate is ElectronBrowserSession =>
+        candidate.kind === "electron" && candidate.webContents.id === webContentsId
     );
     if (!session || session.webContents.isDestroyed()) return;
 
@@ -1111,7 +1288,12 @@ export class ElectronBrowserRuntime
   getAutomationSession(roleId: string): BrowserAutomationSession | undefined {
     const session = this.roleHandles.get(roleId);
 
-    if (!session || !this.isEmbeddedRoleRunning(roleId) || session.webContents.isDestroyed()) {
+    if (
+      !session ||
+      !session.target ||
+      !this.isEmbeddedRoleRunning(roleId) ||
+      isSessionDestroyed(session)
+    ) {
       return undefined;
     }
 
@@ -1124,7 +1306,7 @@ export class ElectronBrowserRuntime
 
   getEmbeddedAutomationSession(roleId: string): BrowserAutomationSession | undefined {
     const session = this.roleHandles.get(roleId);
-    return session && this.isEmbeddedRoleRunning(roleId) && !session.webContents.isDestroyed()
+    return session?.target && this.isEmbeddedRoleRunning(roleId) && !isSessionDestroyed(session)
       ? { role: session.role, target: session.target }
       : undefined;
   }
@@ -1219,9 +1401,15 @@ export class ElectronBrowserRuntime
   private async collectRendererRafTelemetry(roleIds: string[]): Promise<void> {
     const samples = await Promise.all(roleIds.map(async (roleId) => {
       const session = this.roleHandles.get(roleId);
-      if (!session || session.webContents.isDestroyed()) return undefined;
-      const snapshot = await session.webContents.executeJavaScript(
-        "globalThis.__rionPerformanceSnapshot?.()"
+      if (!session || isSessionDestroyed(session)) return undefined;
+      const snapshot = await (
+        session.kind === "electron"
+          ? session.webContents.executeJavaScript(
+              "globalThis.__rionPerformanceSnapshot?.()"
+            )
+          : session.nativeHandle.surface.evaluate(
+              "globalThis.__rionPerformanceSnapshot?.()"
+            )
       ).catch(() => undefined) as { raf?: { p95Ms?: unknown } } | undefined;
       return typeof snapshot?.raf?.p95Ms === "number"
         ? snapshot.raf.p95Ms
@@ -1331,7 +1519,8 @@ export class ElectronBrowserRuntime
     sourceId = workspaceId ?? title,
     gameIconDataUrl?: string,
     workspaceTemplate?: WorkspaceLayoutTemplate,
-    runtimeTabId?: string
+    runtimeTabId?: string,
+    engineFamily: EmbeddedEngineFamily = "electron"
   ): GameHostWindow {
     const target = displayId === undefined
       ? this.getDefaultLaunchTarget()
@@ -1343,12 +1532,18 @@ export class ElectronBrowserRuntime
         "Rust must create the embedded runtime tab before Electron handles."
       );
     }
-    const displayHost = this.getOrCreateDisplayHost(target);
+    const displayHost = this.getOrCreateDisplayHost(target, engineFamily);
+    const previousActiveHost = this.displayHosts.get(target.displayId);
+    if (previousActiveHost && previousActiveHost !== displayHost) {
+      this.hideDisplayHost(previousActiveHost);
+    }
+    this.displayHosts.set(target.displayId, displayHost);
     const host: GameHostWindow = {
       audioMuted: false,
       closing: false,
       displayHostId: displayHost.id,
       dividers: [],
+      engineFamily,
       ...(gameIconDataUrl ? { gameIconDataUrl } : {}),
       hidden: true,
       htmlFullscreenWebContentsIds: new Set(),
@@ -1375,8 +1570,12 @@ export class ElectronBrowserRuntime
     return host;
   }
 
-  private getOrCreateDisplayHost(target: BrowserWorkspaceLaunchTarget): EmbeddedDisplayHost {
-    const existing = this.displayHosts.get(target.displayId);
+  private getOrCreateDisplayHost(
+    target: BrowserWorkspaceLaunchTarget,
+    engineFamily: EmbeddedEngineFamily
+  ): EmbeddedDisplayHost {
+    const hostKey = embeddedDisplayHostKey(target.displayId, engineFamily);
+    const existing = this.engineDisplayHosts.get(hostKey);
     if (existing && !existing.window.isDestroyed()) return existing;
 
     const platform = this.options.platform ?? process.platform;
@@ -1484,7 +1683,11 @@ export class ElectronBrowserRuntime
     const displayHost: EmbeddedDisplayHost = {
       closing: false,
       displayId: target.displayId,
-      id: this.preferredWindowIdsByDisplay[target.displayId] ?? randomUUID(),
+      engineFamily,
+      id: this.engineDisplayHosts.size === 0 || ![...this.engineDisplayHosts.values()]
+        .some((host) => host.displayId === target.displayId)
+        ? this.preferredWindowIdsByDisplay[target.displayId] ?? randomUUID()
+        : randomUUID(),
       ...(initialMacNativeContentLayout
         ? { macNativeContentLayout: initialMacNativeContentLayout }
         : {}),
@@ -1497,7 +1700,10 @@ export class ElectronBrowserRuntime
       window,
       windowFullscreen: false
     };
-    this.displayHosts.set(target.displayId, displayHost);
+    this.engineDisplayHosts.set(hostKey, displayHost);
+    if (!this.displayHosts.has(target.displayId)) {
+      this.displayHosts.set(target.displayId, displayHost);
+    }
     if (!macNativeTabs) this.refreshMacSystemMenuBarHeight(displayHost);
     window.on("enter-full-screen", () => this.completeWindowFullscreenTransition(displayHost, true));
     window.on("leave-full-screen", () => this.completeWindowFullscreenTransition(displayHost, false));
@@ -1566,8 +1772,12 @@ export class ElectronBrowserRuntime
       if (displayHost.chromeWebContents) {
         this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
       }
+      this.engineDisplayHosts.delete(hostKey);
       if (this.displayHosts.get(displayHost.displayId) === displayHost) {
-        this.displayHosts.delete(displayHost.displayId);
+        const replacement = [...this.engineDisplayHosts.values()]
+          .find((host) => host.displayId === displayHost.displayId && !host.closing);
+        if (replacement) this.displayHosts.set(displayHost.displayId, replacement);
+        else this.displayHosts.delete(displayHost.displayId);
       }
       if (this.lastFocusedWindowId === displayHost.id) {
         this.lastFocusedWindowId = undefined;
@@ -1591,7 +1801,9 @@ export class ElectronBrowserRuntime
   }
 
   private getDisplayHost(tab: GameHostWindow): EmbeddedDisplayHost | undefined {
-    return [...this.displayHosts.values()].find((host) => host.id === tab.displayHostId);
+    return [...this.engineDisplayHosts.values()].find(
+      (candidate) => candidate.id === tab.displayHostId
+    );
   }
 
   private getTabContentBounds(tab: GameHostWindow): PixelBounds {
@@ -1645,7 +1857,7 @@ export class ElectronBrowserRuntime
     if (displayHost.window.isDestroyed()) return;
     tab.roleIds.forEach((roleId) => {
       const session = this.roleHandles.get(roleId);
-      if (!session) return;
+      if (!session || session.kind !== "electron") return;
       displayHost.window.contentView.removeChildView(session.view);
       session.popupViews.forEach((view) => displayHost.window.contentView.removeChildView(view));
     });
@@ -1656,12 +1868,68 @@ export class ElectronBrowserRuntime
     if (displayHost.window.isDestroyed()) return;
     tab.roleIds.forEach((roleId) => {
       const session = this.roleHandles.get(roleId);
-      if (!session) return;
+      if (!session || session.kind !== "electron") return;
       displayHost.window.contentView.addChildView(session.view);
       session.popupViews.forEach((view) => displayHost.window.contentView.addChildView(view));
     });
     tab.dividers.forEach((divider) => displayHost.window.contentView.addChildView(divider.view));
     this.bringRuntimeChromeToFront(displayHost);
+  }
+
+  private async recreateNativeTabSurfaces(
+    tab: GameHostWindow,
+    destinationWindow: BaseWindow
+  ): Promise<void> {
+    const pool = this.options.systemRuntimePool;
+    const getRolePaths = this.options.getRolePaths;
+    const sessions = [...tab.roleIds]
+      .map((roleId) => this.roleHandles.get(roleId))
+      .filter((session): session is NativeBrowserSession =>
+        session?.kind === "native" &&
+        session.nativeHandle.hostWindow !== destinationWindow
+      );
+    if (sessions.length === 0) return;
+    if (!pool || !getRolePaths) {
+      throw effectError(
+        "SYSTEM_SURFACE_RECREATE_UNAVAILABLE",
+        "The native surface pool cannot recreate a role on another window."
+      );
+    }
+    for (const session of sessions) {
+      session.lifecycleUnsubscribe();
+      await pool.destroy(session.role.id);
+      const configuration =
+        await this.options.getNativeSessionConfiguration?.(session.role);
+      const handle = pool.create(
+        session.role.id,
+        destinationWindow,
+        await getRolePaths(session.role.id),
+        configuration
+      );
+      if (handle.engine !== session.resolvedEngine) {
+        await pool.destroy(session.role.id);
+        throw effectError(
+          "SYSTEM_RUNTIME_ENGINE_MISMATCH",
+          `The recreated surface uses ${handle.engine}; ${session.resolvedEngine} was requested.`
+        );
+      }
+      session.nativeHandle = handle;
+      session.target = handle.target;
+      session.lifecycleUnsubscribe = this.subscribeNativeSessionLifecycle(session);
+      if (configuration?.documentStartScript) {
+        await handle.surface.addDocumentStartScript(configuration.documentStartScript);
+      }
+      await handle.surface.addDocumentStartScript(
+        `${NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE}\n${MACRO_OVERLAY_SCRIPT}`
+      );
+      if (configuration?.cdnRewriteRules?.length) {
+        await handle.surface.configureRequestRewrites(configuration.cdnRewriteRules);
+      }
+      await handle.surface.setVisible(false);
+      await handle.surface.setZoomFactor(session.zoomFactor);
+      if (tab.audioMuted) await handle.surface.setAudioMuted(true);
+      await handle.surface.loadUrl(session.currentUrl ?? session.role.launchUrl);
+    }
   }
 
   private destroyDisplayHostIfEmpty(displayHost: EmbeddedDisplayHost): void {
@@ -1675,11 +1943,21 @@ export class ElectronBrowserRuntime
 
   private finalizeDisplayHostDestroy(displayHost: EmbeddedDisplayHost): void {
     displayHost.pendingWindowAction = undefined;
-    this.displayHosts.delete(displayHost.displayId);
+    this.engineDisplayHosts.delete(
+      embeddedDisplayHostKey(displayHost.displayId, displayHost.engineFamily)
+    );
+    if (this.displayHosts.get(displayHost.displayId) === displayHost) {
+      const replacement = [...this.engineDisplayHosts.values()]
+        .find((host) => host.displayId === displayHost.displayId && !host.closing);
+      if (replacement) this.displayHosts.set(displayHost.displayId, replacement);
+      else this.displayHosts.delete(displayHost.displayId);
+    }
     if (this.lastFocusedWindowId === displayHost.id) {
       this.lastFocusedWindowId = undefined;
     }
-    this.lastRuntimeChromeStateByDisplay.delete(displayHost.displayId);
+    this.lastRuntimeChromeStateByHost.delete(
+      embeddedDisplayHostKey(displayHost.displayId, displayHost.engineFamily)
+    );
     this.clearMacNativeContentLayoutUpdate(displayHost);
     displayHost.macNativeTabs?.destroy();
     displayHost.macNativeTabs = undefined;
@@ -1718,11 +1996,16 @@ export class ElectronBrowserRuntime
     const serializedState = JSON.stringify(state);
     if (
       !force &&
-      this.lastRuntimeChromeStateByDisplay.get(displayHost.displayId) === serializedState
+      this.lastRuntimeChromeStateByHost.get(
+        embeddedDisplayHostKey(displayHost.displayId, displayHost.engineFamily)
+      ) === serializedState
     ) {
       return;
     }
-    this.lastRuntimeChromeStateByDisplay.set(displayHost.displayId, serializedState);
+    this.lastRuntimeChromeStateByHost.set(
+      embeddedDisplayHostKey(displayHost.displayId, displayHost.engineFamily),
+      serializedState
+    );
     this.options.recordRuntimePublish?.();
     if (displayHost.macNativeTabs) {
       try {
@@ -1940,7 +2223,9 @@ export class ElectronBrowserRuntime
     layout: MacRuntimeTabsContentLayout
   ): void {
     if (!layout.valid) return;
-    const displayHost = this.displayHosts.get(displayId);
+    const displayHost = [...this.engineDisplayHosts.values()].find(
+      (host) => host.displayId === displayId && host.window === window
+    );
     if (
       !displayHost ||
       displayHost.closing ||
@@ -1988,7 +2273,9 @@ export class ElectronBrowserRuntime
       if (
         displayHost.closing ||
         displayHost.window.isDestroyed() ||
-        this.displayHosts.get(displayHost.displayId) !== displayHost
+        this.engineDisplayHosts.get(
+          embeddedDisplayHostKey(displayHost.displayId, displayHost.engineFamily)
+        ) !== displayHost
       ) return;
       this.layoutDisplayHost(displayHost);
     });
@@ -2139,8 +2426,10 @@ export class ElectronBrowserRuntime
   private getRuntimeTabWebContents(host: GameHostWindow): WebContents[] {
     return [...host.roleIds].flatMap((roleId) => {
       const session = this.roleHandles.get(roleId);
-      return session ? [session.webContents, ...[...session.popupViews].flatMap((view) =>
-        view.webContents ? [view.webContents] : [])] : [];
+      return session?.kind === "electron"
+        ? [session.webContents, ...[...session.popupViews].flatMap((view) =>
+            view.webContents ? [view.webContents] : [])]
+        : [];
     });
   }
 
@@ -2148,13 +2437,15 @@ export class ElectronBrowserRuntime
     return {
       audible: this.getRuntimeTabWebContents(host).some((webContents) =>
         !webContents.isDestroyed() && webContents.isCurrentlyAudible()
+      ) || [...host.roleIds].some((roleId) =>
+        this.roleHandles.get(roleId)?.audible === true
       ),
       audioMuted: host.audioMuted
     };
   }
 
   private reconcileRuntimeTabs(): void {
-    this.displayHosts.forEach((host) => {
+    this.engineDisplayHosts.forEach((host) => {
       this.layoutDisplayHost(host);
       this.sendRuntimeChromeState(host);
     });
@@ -2169,10 +2460,20 @@ export class ElectronBrowserRuntime
     zoomMode: WorkspaceBrowserZoomMode = "fixed",
     resolvedEngine: "electron" | "external-chrome" | "webview2" | "wkwebview" = "electron"
   ): Promise<BrowserSession> {
+    if (resolvedEngine === "webview2" || resolvedEngine === "wkwebview") {
+      return this.createNativeSession(
+        role,
+        host,
+        rect,
+        zoomFactor,
+        zoomMode,
+        resolvedEngine
+      );
+    }
     if (resolvedEngine !== "electron") {
       throw effectError(
-        "SYSTEM_RUNTIME_NOT_REGISTERED",
-        `The ${resolvedEngine} launch effect reached the Electron-only session adapter.`
+        "EMBEDDED_ENGINE_UNSUPPORTED",
+        `The embedded runtime cannot create a ${resolvedEngine} role surface.`
       );
     }
     const initialZoomFactor = zoomFactor;
@@ -2193,10 +2494,12 @@ export class ElectronBrowserRuntime
       }
     });
     const webContents = view.webContents;
-    const session: BrowserSession = {
+    const session: ElectronBrowserSession = {
       abortController: new AbortController(),
+      audible: false,
       gameInputContextActive: false,
       hostId: host.id,
+      kind: "electron",
       popupViews: new Set(),
       rect,
       role,
@@ -2254,6 +2557,146 @@ export class ElectronBrowserRuntime
     return session;
   }
 
+  private async createNativeSession(
+    role: Role,
+    host: GameHostWindow,
+    rect: NormalizedRect,
+    zoomFactor: number,
+    zoomMode: WorkspaceBrowserZoomMode,
+    resolvedEngine: Extract<ResolvedBrowserEngine, "webview2" | "wkwebview">
+  ): Promise<NativeBrowserSession> {
+    const pool = this.options.systemRuntimePool;
+    const getRolePaths = this.options.getRolePaths;
+    if (!pool || !getRolePaths) {
+      throw effectError(
+        "SYSTEM_RUNTIME_NOT_REGISTERED",
+        "The System WebView runtime pool is unavailable."
+      );
+    }
+    const configuration = await this.options.getNativeSessionConfiguration?.(role);
+    const handle = pool.create(
+      role.id,
+      host.window,
+      await getRolePaths(role.id),
+      configuration
+    );
+    if (handle.engine !== resolvedEngine) {
+      await pool.destroy(role.id);
+      throw effectError(
+        "SYSTEM_RUNTIME_ENGINE_MISMATCH",
+        `The native adapter created ${handle.engine}; ${resolvedEngine} was requested.`
+      );
+    }
+    const session: NativeBrowserSession = {
+      abortController: new AbortController(),
+      audible: false,
+      gameInputContextActive: false,
+      hostId: host.id,
+      kind: "native",
+      lifecycleUnsubscribe: () => undefined,
+      nativeHandle: handle,
+      pendingPopupUrls: [],
+      rect,
+      resolvedEngine,
+      role,
+      target: handle.target,
+      zoomFactor,
+      zoomMode
+    };
+    session.lifecycleUnsubscribe = this.subscribeNativeSessionLifecycle(session);
+    this.roleHandles.set(role.id, session);
+    host.roleIds.add(role.id);
+    if (configuration?.documentStartScript) {
+      await handle.surface.addDocumentStartScript(configuration.documentStartScript);
+    }
+    await handle.surface.addDocumentStartScript(
+      `${NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE}\n${MACRO_OVERLAY_SCRIPT}`
+    );
+    if (configuration?.cdnRewriteRules?.length) {
+      await handle.surface.configureRequestRewrites(configuration.cdnRewriteRules);
+    }
+    await handle.surface.setVisible(false);
+    if (host.audioMuted) await handle.surface.setAudioMuted(true);
+    return session;
+  }
+
+  private subscribeNativeSessionLifecycle(
+    session: NativeBrowserSession
+  ): () => void {
+    return session.nativeHandle.surface.onLifecycleEvent((event) => {
+      if (event.type === "audioChanged") {
+        session.audible = event.audible;
+        if (this.roleHandles.get(session.role.id) === session) this.emitChange();
+        return;
+      }
+      if (event.type === "navigationCompleted") {
+        session.currentUrl = event.url;
+        if (this.roleHandles.get(session.role.id) === session) {
+          void this.installNativeMacroOverlay(session).catch((error) => {
+            console.warn("Failed to reinstall a System WebView macro overlay.", error);
+          });
+        }
+        return;
+      }
+      if (event.type === "bridgeMessage") {
+        if (this.roleHandles.get(session.role.id) === session) {
+          void this.handleNativeBridgeMessage(session, event.messageJson);
+        }
+        return;
+      }
+      if (
+        (event.type === "popupCreated" || event.type === "popupClosed") &&
+        this.roleHandles.get(session.role.id) === session
+      ) {
+        this.emitChange();
+        return;
+      }
+      if (
+        event.type === "popupRequested" &&
+        this.roleHandles.get(session.role.id) === session &&
+        !session.fallbackInProgress &&
+        isAllowedNativePopupUrl(event.url)
+      ) {
+        session.pendingPopupUrls.push(event.url);
+        session.fallbackInProgress = true;
+        void this.options.browserRuntimeState.invoke({
+          type: "embeddedSystemSurfaceFailed",
+          roleId: session.role.id,
+          reason: "popup-unsupported"
+        }).catch(async (error) => {
+          console.error("Failed to fall back a System WebView popup to Electron.", error);
+          await this.options.browserRuntimeState.invoke({
+            type: "embeddedRoleStop",
+            roleId: session.role.id
+          }).catch((stopError) => {
+            console.error("Failed to stop a System WebView popup fallback.", stopError);
+          });
+        });
+        return;
+      }
+      if (
+        event.type === "crashed" &&
+        this.roleHandles.get(session.role.id) === session &&
+        !session.fallbackInProgress
+      ) {
+        session.fallbackInProgress = true;
+        void this.options.browserRuntimeState.invoke({
+          type: "embeddedSystemSurfaceFailed",
+          roleId: session.role.id,
+          ...(event.reason ? { reason: event.reason } : {})
+        }).catch(async (error) => {
+          console.error("Failed to fall back a crashed System WebView role.", error);
+          await this.options.browserRuntimeState.invoke({
+            type: "embeddedRoleStop",
+            roleId: session.role.id
+          }).catch((stopError) => {
+            console.error("Failed to stop a crashed System WebView role.", stopError);
+          });
+        });
+      }
+    });
+  }
+
   private async applyBrowserFonts(role: Role): Promise<void> {
     if (!this.options.applyBrowserFonts) {
       return;
@@ -2307,7 +2750,7 @@ export class ElectronBrowserRuntime
     const host = this.tabHandles.get(session.hostId);
     if (this.roleHandles.get(session.role.id) !== session ||
       !host || host.closing || host.window.isDestroyed() ||
-      session.abortController.signal.aborted || session.webContents.isDestroyed()) {
+      session.abortController.signal.aborted || isSessionDestroyed(session)) {
       throw new BrowserLaunchCancelledError();
     }
   }
@@ -2323,6 +2766,9 @@ export class ElectronBrowserRuntime
   }
 
   private async applyBrowserProxy(session: BrowserSession): Promise<void> {
+    if (session.kind === "native") {
+      return;
+    }
     if (!this.options.applyBrowserProxy) {
       return;
     }
@@ -2335,6 +2781,9 @@ export class ElectronBrowserRuntime
   }
 
   private async applyCdnCompatibility(session: BrowserSession): Promise<void> {
+    if (session.kind === "native") {
+      return;
+    }
     if (!this.options.applyCdnCompatibility) {
       return;
     }
@@ -2351,7 +2800,10 @@ export class ElectronBrowserRuntime
   }
 
 
-  private configureWindowOpenHandler(session: BrowserSession, webContents: WebContents): void {
+  private configureWindowOpenHandler(
+    session: ElectronBrowserSession,
+    webContents: WebContents
+  ): void {
     webContents.setWindowOpenHandler(() => ({
       action: "allow",
       createWindow: (windowOptions) => this.createPopupView(session, windowOptions).webContents
@@ -2360,7 +2812,7 @@ export class ElectronBrowserRuntime
 
   private configureCloseShortcut(
     host: GameHostWindow,
-    session: BrowserSession,
+    session: ElectronBrowserSession,
     webContents: WebContents
   ): void {
     const displayHost = this.getDisplayHost(host);
@@ -2378,7 +2830,7 @@ export class ElectronBrowserRuntime
   private configureRuntimeWindowAccelerators(
     displayHost: EmbeddedDisplayHost,
     webContents: WebContents,
-    session?: BrowserSession
+    session?: ElectronBrowserSession
   ): void {
     webContents.on("before-input-event", (event, input) => {
       const tabSwitchDirection = classifyRuntimeTabSwitchShortcut(input);
@@ -2415,12 +2867,15 @@ export class ElectronBrowserRuntime
     });
   }
 
-  private isProtectedGameInputActive(session: BrowserSession, webContents: WebContents): boolean {
+  private isProtectedGameInputActive(
+    session: ElectronBrowserSession,
+    webContents: WebContents
+  ): boolean {
     return session.gameInputContextActive && session.webContents === webContents;
   }
 
   private createPopupView(
-    session: BrowserSession,
+    session: ElectronBrowserSession,
     windowOptions: BrowserWindowConstructorOptions
   ): WebContentsView {
     const host = this.tabHandles.get(session.hostId);
@@ -2506,7 +2961,7 @@ export class ElectronBrowserRuntime
       }),
       windowVisible: isWindowVisible(displayHost.window)
     });
-    const applyLayout = (resolvedLayout: WorkspaceLayoutOutput): void => {
+    const applyLayout = async (resolvedLayout: WorkspaceLayoutOutput): Promise<void> => {
       if (
         generation !== state.generation ||
         this.tabHandles.get(host.id) !== host ||
@@ -2515,14 +2970,22 @@ export class ElectronBrowserRuntime
         return;
       }
       const visible = resolvedLayout.visible;
+      const nativePresentation: Promise<void>[] = [];
       host.roleIds.forEach((roleId) => {
         const session = this.roleHandles.get(roleId);
         if (!session) return;
-        session.view.setVisible(visible);
-        session.popupViews.forEach((popupView) => popupView.setVisible(visible));
+        if (session.kind === "electron") {
+          session.view.setVisible(visible);
+          session.popupViews.forEach((popupView) => popupView.setVisible(visible));
+        } else {
+          nativePresentation.push(session.nativeHandle.surface.setVisible(visible));
+        }
       });
       host.dividers.forEach((divider) => divider.view.setVisible(visible));
-      if (!visible) return;
+      if (!visible) {
+        await Promise.all(nativePresentation);
+        return;
+      }
 
       const boundsByRole = new Map(
         resolvedLayout.roles.map((role) => [role.roleId, role.bounds])
@@ -2531,17 +2994,25 @@ export class ElectronBrowserRuntime
         const session = this.roleHandles.get(roleId);
         const bounds = boundsByRole.get(roleId);
         if (!session || !bounds) return;
-        session.view.setBounds(bounds);
-        session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
-        void this.applyAdaptiveZoom(session, bounds.width);
+        if (session.kind === "electron") {
+          session.view.setBounds(bounds);
+          session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
+          void this.applyAdaptiveZoom(session, bounds.width);
+        } else {
+          nativePresentation.push(
+            session.nativeHandle.surface.setBounds(bounds),
+            this.applyAdaptiveZoom(session, bounds.width)
+          );
+        }
       });
       resolvedLayout.dividers.forEach(({ bounds, index }) => {
         host.dividers[index]?.view.setBounds(bounds);
       });
+      await Promise.all(nativePresentation);
     };
     if (isPromiseLike(pendingLayout)) {
       const operation = pendingLayout
-        .then((resolvedLayout) => applyLayout(resolvedLayout))
+        .then(applyLayout)
         .then(async () => {
           if (
             !state.trailing ||
@@ -2560,8 +3031,7 @@ export class ElectronBrowserRuntime
       state.inFlight = operation;
       return operation;
     }
-    applyLayout(pendingLayout);
-    return Promise.resolve();
+    return applyLayout(pendingLayout);
   }
 
   private shouldLayoutHost(host: GameHostWindow): boolean {
@@ -2625,7 +3095,11 @@ export class ElectronBrowserRuntime
   ): void {
     roleIds.forEach((roleId) => {
       const session = this.roleHandles.get(roleId);
-      if (!session || session.webContents.isDestroyed()) {
+      if (
+        !session ||
+        session.kind !== "electron" ||
+        session.webContents.isDestroyed()
+      ) {
         return;
       }
 
@@ -2637,7 +3111,7 @@ export class ElectronBrowserRuntime
   }
 
   private async applyZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
-    this.setSessionZoomFactor(session, zoomFactor);
+    await this.setSessionZoomFactor(session, zoomFactor);
   }
 
   private applyAdaptiveZoom(session: BrowserSession, viewportWidth: number): Promise<void> {
@@ -2646,16 +3120,24 @@ export class ElectronBrowserRuntime
     }
     const currentPercent = Math.round(session.zoomFactor * 100) as WorkspaceBrowserZoomPercent;
     const pendingPercent = this.options.adaptiveZoomResolver(viewportWidth, currentPercent);
-    const applyPercent = (nextPercent: WorkspaceBrowserZoomPercent): void => {
-      if (nextPercent !== currentPercent) this.setSessionZoomFactor(session, nextPercent / 100);
+    const applyPercent = async (nextPercent: WorkspaceBrowserZoomPercent): Promise<void> => {
+      if (nextPercent !== currentPercent) {
+        await this.setSessionZoomFactor(session, nextPercent / 100);
+      }
     };
     if (isPromiseLike(pendingPercent)) return pendingPercent.then(applyPercent);
-    applyPercent(pendingPercent);
-    return Promise.resolve();
+    return applyPercent(pendingPercent);
   }
 
-  private setSessionZoomFactor(session: BrowserSession, zoomFactor: number): void {
+  private async setSessionZoomFactor(
+    session: BrowserSession,
+    zoomFactor: number
+  ): Promise<void> {
     session.zoomFactor = zoomFactor;
+    if (session.kind === "native") {
+      await session.nativeHandle.surface.setZoomFactor(zoomFactor);
+      return;
+    }
     if (!session.webContents.isDestroyed()) {
       session.webContents.setZoomFactor(zoomFactor);
     }
@@ -2666,7 +3148,10 @@ export class ElectronBrowserRuntime
     });
   }
 
-  private configureZoomPersistence(session: BrowserSession, webContents: WebContents): void {
+  private configureZoomPersistence(
+    session: ElectronBrowserSession,
+    webContents: WebContents
+  ): void {
     webContents.on("did-finish-load", () => {
       if (webContents.isDestroyed()) {
         return;
@@ -2682,7 +3167,7 @@ export class ElectronBrowserRuntime
 
   private configureNativeZoomShortcuts(
     host: GameHostWindow,
-    session: BrowserSession,
+    session: ElectronBrowserSession,
     webContents: WebContents
   ): void {
     webContents.on("before-input-event", (_event, input) => {
@@ -2718,7 +3203,7 @@ export class ElectronBrowserRuntime
         console.warn("Failed to execute native browser zoom for the game role.", error);
       }
 
-      setImmediate(() => {
+      setImmediate(async () => {
         if (!webContents.isDestroyed()) {
           webContents.setIgnoreMenuShortcuts(this.isProtectedGameInputActive(session, webContents));
         }
@@ -2744,7 +3229,7 @@ export class ElectronBrowserRuntime
             return;
           }
           if (!isExpectedNativeZoomResult(zoomAction, previousPercent, browserZoomPercent)) {
-            this.setSessionZoomFactor(session, session.zoomFactor);
+            await this.setSessionZoomFactor(session, session.zoomFactor);
             console.warn("Native browser zoom did not change the targeted game role as expected.", {
               browserZoomPercent,
               previousPercent,
@@ -2755,7 +3240,7 @@ export class ElectronBrowserRuntime
           }
 
           session.zoomMode = "fixed";
-          this.setSessionZoomFactor(session, browserZoomPercent / 100);
+          await this.setSessionZoomFactor(session, browserZoomPercent / 100);
           this.scheduleWorkspaceRoleZoomPersistence(host, session, browserZoomPercent);
         } catch (error) {
           console.warn("Failed to synchronize native browser zoom.", error);
@@ -2818,12 +3303,21 @@ export class ElectronBrowserRuntime
     const rememberedView = activeHost.lastFocusedView;
     const fallbackViews = [...activeHost.roleIds].flatMap((roleId) => {
       const session = this.roleHandles.get(roleId);
-      return session ? [...session.popupViews].reverse().concat(session.view) : [];
+      return session?.kind === "electron"
+        ? [...session.popupViews].reverse().concat(session.view)
+        : [];
     });
     const targetView = [rememberedView, ...fallbackViews].find(
       (view): view is WebContentsView => Boolean(view && !view.webContents.isDestroyed())
     );
     if (!targetView) {
+      const nativeSession = [...activeHost.roleIds]
+        .map((roleId) => this.roleHandles.get(roleId))
+        .find((session): session is NativeBrowserSession => session?.kind === "native");
+      if (nativeSession) {
+        void (nativeSession.target?.focus() ??
+          nativeSession.nativeHandle.surface.focus()).catch(() => undefined);
+      }
       return;
     }
 
@@ -2840,6 +3334,262 @@ export class ElectronBrowserRuntime
     } catch (error) {
       console.warn("Failed to install Rion Studio macro overlay.", error);
     }
+  }
+
+  private async installNativeMacroOverlay(
+    session: NativeBrowserSession
+  ): Promise<void> {
+    await session.nativeHandle.surface.evaluate(
+      NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE
+    );
+    await session.nativeHandle.surface.evaluate(MACRO_OVERLAY_SCRIPT);
+    const documentBridgeReady = await session.nativeHandle.surface.evaluate<boolean>(
+      "typeof globalThis.rionStudioMacroOverlay === 'function' && " +
+      "typeof globalThis.__rionStudioMacroOverlay === 'object'"
+    );
+    if (!documentBridgeReady) {
+      throw effectError(
+        "SYSTEM_OVERLAY_BRIDGE_UNAVAILABLE",
+        "The System WebView document bridge is unavailable."
+      );
+    }
+  }
+
+  private async handleNativeBridgeMessage(
+    session: NativeBrowserSession,
+    messageJson: string
+  ): Promise<void> {
+    if (Buffer.byteLength(messageJson, "utf8") > NATIVE_OVERLAY_BRIDGE_MAX_MESSAGE_BYTES) {
+      return;
+    }
+    let message: {
+      payload?: unknown;
+      requestId?: unknown;
+      type?: unknown;
+    };
+    try {
+      message = JSON.parse(messageJson) as typeof message;
+    } catch {
+      return;
+    }
+    if (
+      message.type !== "overlayRequest" ||
+      typeof message.requestId !== "string" ||
+      message.requestId.length === 0 ||
+      message.requestId.length > 128
+    ) {
+      return;
+    }
+    if (
+      message.payload &&
+      typeof message.payload === "object" &&
+      (message.payload as { type?: unknown }).type === "game-input-context"
+    ) {
+      session.gameInputContextActive =
+        (message.payload as { active?: unknown }).active === true &&
+        this.isEmbeddedRoleRunning(session.role.id);
+    }
+    try {
+      const result = await this.options.browserRuntimeState.invoke({
+        type: "overlayRequest",
+        roleId: session.role.id,
+        requestJson: JSON.stringify(message.payload),
+        ...(this.runtimeTabsLanguage === "en"
+          ? {}
+          : { language: this.runtimeTabsLanguage })
+      });
+      await this.resolveNativeOverlayRequest(session, message.requestId, true, result);
+    } catch (error) {
+      await this.resolveNativeOverlayRequest(
+        session,
+        message.requestId,
+        false,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
+  private async resolveNativeOverlayRequest(
+    session: NativeBrowserSession,
+    requestId: string,
+    ok: boolean,
+    value: unknown
+  ): Promise<void> {
+    if (this.roleHandles.get(session.role.id) !== session) return;
+    const valueJson = JSON.stringify(value) ?? "null";
+    await session.nativeHandle.surface.evaluate(
+      `globalThis.__rionStudioNativeOverlayResolve?.(` +
+      `${JSON.stringify(requestId)},${ok ? "true" : "false"},${JSON.stringify(valueJson)})`
+    );
+  }
+
+  private async fallbackTabToElectron(
+    tabId: string,
+    roleIds: string[]
+  ): Promise<EmbeddedFallbackResult> {
+    const host = this.tabHandles.get(tabId);
+    if (!host || host.closing) {
+      throw effectError(
+        "EMBEDDED_TAB_HANDLE_NOT_FOUND",
+        `The embedded tab handle was not found: ${tabId}`
+      );
+    }
+    const replacements = await Promise.all(roleIds.map(async (roleId) => {
+      const session = this.requireEmbeddedSession(roleId);
+      let sourceCookies: BrowserCookieTransferRecord[] = [];
+      let sourceCookiesRead = session.kind === "electron";
+      if (session.kind === "native") {
+        try {
+          sourceCookies = await session.nativeHandle.surface.getCookies();
+          sourceCookiesRead = true;
+        } catch (error) {
+          console.warn(
+            `Failed to read System WebView cookies before falling back role ${roleId}.`,
+            error
+          );
+        }
+      }
+      return {
+        currentUrl: session.currentUrl ?? session.role.launchUrl,
+        popupUrls: session.kind === "native" ? [...session.pendingPopupUrls] : [],
+        rect: session.rect,
+        role: session.role,
+        sourceCookies,
+        sourceCookiesRead,
+        zoomFactor: session.zoomFactor,
+        zoomMode: session.zoomMode,
+        session
+      };
+    }));
+    if (replacements.every(({ session }) => session.kind === "electron")) {
+      return {
+        roles: replacements.map(({ role }) => ({
+          authVerified: true,
+          cookiesMirrored: 0,
+          roleId: role.id
+        }))
+      };
+    }
+    const createdRoleIds: string[] = [];
+    const continuity: EmbeddedFallbackRoleContinuity[] = [];
+    try {
+      for (const replacement of replacements) {
+        if (replacement.session.kind === "electron") continue;
+        await this.destroySession(replacement.role.id, replacement.session);
+      }
+      await this.moveTabToEngineHost(host, "electron");
+      for (const replacement of replacements) {
+        if (replacement.session.kind === "electron") continue;
+        const session = await this.createSession(
+          replacement.role,
+          host,
+          replacement.rect,
+          replacement.zoomFactor,
+          replacement.zoomMode,
+          "electron"
+        );
+        createdRoleIds.push(replacement.role.id);
+        await this.applyBrowserProxy(session);
+        this.assertSessionActive(session);
+        await this.applyCdnCompatibility(session);
+        this.assertSessionActive(session);
+        if (session.kind !== "electron") {
+          throw effectError(
+            "EMBEDDED_ENGINE_EFFECT_MISMATCH",
+            `Role ${replacement.role.id} did not fall back to Electron.`
+          );
+        }
+        let cookiesMirrored = 0;
+        let cookieMirrorVerified = replacement.sourceCookiesRead;
+        try {
+          cookiesMirrored = await createElectronSessionStore(
+            session.webContents.session
+          ).setCookies(replacement.sourceCookies);
+          cookieMirrorVerified =
+            cookieMirrorVerified &&
+            cookiesMirrored === replacement.sourceCookies.length;
+        } catch (error) {
+          cookieMirrorVerified = false;
+          console.warn(
+            `Failed to mirror System WebView cookies into Electron for role ` +
+            `${replacement.role.id}.`,
+            error
+          );
+        }
+        await session.webContents.loadURL(replacement.currentUrl);
+        session.currentUrl = replacement.currentUrl;
+        await this.installMacroOverlay(session.role, session.webContents);
+        const documentReady = await session.webContents.executeJavaScript(
+          "document.readyState === 'interactive' || document.readyState === 'complete'"
+        ).then((value) => value === true, () => false);
+        continuity.push({
+          authVerified: cookieMirrorVerified && documentReady,
+          cookiesMirrored,
+          roleId: replacement.role.id
+        });
+        for (const popupUrl of replacement.popupUrls) {
+          const popup = this.createPopupView(session, {});
+          await popup.webContents.loadURL(popupUrl);
+          await this.installMacroOverlay(session.role, popup.webContents);
+        }
+      }
+      await this.layoutHost(host);
+      const first = roleIds
+        .map((roleId) => this.roleHandles.get(roleId))
+        .find((session): session is ElectronBrowserSession => session?.kind === "electron");
+      await first?.target.focus();
+      this.emitChange();
+      return { roles: continuity };
+    } catch (error) {
+      await Promise.all(createdRoleIds.map(async (roleId) => {
+        const session = this.roleHandles.get(roleId);
+        if (session) await this.destroySession(roleId, session);
+      }));
+      throw error;
+    }
+  }
+
+  private async moveTabToEngineHost(
+    tab: GameHostWindow,
+    engineFamily: EmbeddedEngineFamily
+  ): Promise<void> {
+    if (tab.engineFamily === engineFamily) return;
+    const runtimeTab = this.runtimeSnapshot.tabs.find((candidate) => candidate.id === tab.id);
+    const target = runtimeTab
+      ? this.getLaunchTargetForDisplay(runtimeTab.displayId)
+      : undefined;
+    if (!runtimeTab || !target) {
+      throw effectError(
+        "EMBEDDED_DISPLAY_HANDLE_NOT_FOUND",
+        `The embedded display target was not found for tab ${tab.id}.`
+      );
+    }
+    const source = this.getDisplayHost(tab);
+    const destination = this.getOrCreateDisplayHost(target, engineFamily);
+    if (source === destination) {
+      tab.engineFamily = engineFamily;
+      return;
+    }
+    const sourceWasVisible = source
+      ? !source.window.isDestroyed() && isWindowVisible(source.window)
+      : false;
+    if (source) {
+      this.detachTabViews(tab, source);
+      source.tabIds = source.tabIds.filter((tabId) => tabId !== tab.id);
+      if (source.activeTabId === tab.id) source.activeTabId = undefined;
+    }
+    tab.engineFamily = engineFamily;
+    tab.window = destination.window;
+    tab.displayHostId = destination.id;
+    if (!destination.tabIds.includes(tab.id)) destination.tabIds.push(tab.id);
+    destination.activeTabId = runtimeTab.hidden ? undefined : tab.id;
+    this.attachTabViews(tab, destination);
+    if (!runtimeTab.hidden) {
+      this.displayHosts.set(runtimeTab.displayId, destination);
+      if (source && source !== destination) this.hideDisplayHost(source);
+      if (sourceWasVisible) this.showDisplayHost(destination);
+    }
+    if (source) this.destroyDisplayHostIfEmpty(source);
   }
 
   private async destroyTabHandles(hostId: string): Promise<void> {
@@ -2881,6 +3631,12 @@ export class ElectronBrowserRuntime
     }
     this.roleHandles.delete(roleId);
     host?.roleIds.delete(roleId);
+    if (session.kind === "native") {
+      session.lifecycleUnsubscribe();
+      await this.options.systemRuntimePool?.destroy(roleId);
+      this.emitChange();
+      return;
+    }
     await session.target.dispose().catch(() => undefined);
     if (host && !host.window.isDestroyed()) {
       host.window.contentView.removeChildView(session.view);
@@ -2963,7 +3719,7 @@ export class ElectronBrowserRuntime
       published += 1;
     }
     if (published > 0) this.options.recordRuntimePublish?.(published);
-    this.displayHosts.forEach((host) => this.sendRuntimeChromeState(host));
+    this.engineDisplayHosts.forEach((host) => this.sendRuntimeChromeState(host));
   }
 
   private toStatus(roleId: string): RoleStatus {
@@ -3092,6 +3848,21 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
 
 function isPromiseLike<T>(value: MaybePromise<T>): value is Promise<T> {
   return typeof (value as Promise<T>)?.then === "function";
+}
+
+function isSessionDestroyed(session: BrowserSession): boolean {
+  return session.abortController.signal.aborted ||
+    (session.kind === "electron" && session.webContents.isDestroyed());
+}
+
+function isAllowedNativePopupUrl(value: string): boolean {
+  if (value === "about:blank") return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function yieldToElectronMainLoop(): Promise<void> {

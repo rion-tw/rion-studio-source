@@ -12,7 +12,10 @@ export default defineConfig({
         include: ["electron"]
       },
       rollupOptions: {
-        input: resolve(__dirname, "src/main/index.ts")
+        input: {
+          index: resolve(__dirname, "src/main/index.ts"),
+          "runtime-helper": resolve(__dirname, "src/main/helper/ElectronRuntimeHelper.ts")
+        }
       }
     }
   },

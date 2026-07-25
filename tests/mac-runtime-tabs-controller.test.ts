@@ -123,7 +123,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 8
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 7,
+      protocolVersion: 10,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -201,7 +201,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 1
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 7,
+      protocolVersion: 10,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()

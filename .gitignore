@@ -10,6 +10,7 @@ coverage/
 pnpm-debug.log*
 *.tsbuildinfo
 /target/
+/src-tauri/gen/
 /performance-results/
 
 # Generated native helper artifacts

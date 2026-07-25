@@ -223,6 +223,7 @@ pub(crate) fn role_statuses(
             host_kind: Some(BrowserHostKind::Electron),
             fallback_reason: None,
             capability_snapshot: None,
+            session_continuity: None,
         })
         .chain(external.iter().map(|session| BrowserRoleStatusRecord {
             role_id: session.role.id.clone(),
@@ -250,6 +251,7 @@ pub(crate) fn role_statuses(
             host_kind: Some(BrowserHostKind::External),
             fallback_reason: None,
             capability_snapshot: None,
+            session_continuity: None,
         }))
         .collect::<Vec<_>>();
     statuses.sort_by(|left, right| left.role_id.cmp(&right.role_id));

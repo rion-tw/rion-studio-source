@@ -13,12 +13,20 @@ import {
   isExpectedNativeZoomResult,
   normalizedRectToPixelBounds
 } from "../src/main/browser/ElectronBrowserRuntime";
+import { SystemWebViewRuntimePool } from "../src/main/browser/SystemWebViewRuntimePool";
+import type {
+  WebSurfaceLifecycleEvent,
+  WebSurfacePort
+} from "../src/main/browser/ports/WebSurfacePort";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
   BrowserRuntimeSnapshot,
+  BrowserRoleStatusRecord,
   CoreCommand,
   CoreEffectAction,
   LayoutRoleInput,
+  ResolvedBrowserEngine,
+  RolePathsRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -613,6 +621,524 @@ describe("ElectronBrowserRuntime game host windows", () => {
           });
         }
       );
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "owns, presents, moves, mutes, and destroys a %s native role surface",
+    async (platform, resolvedEngine) => {
+      const nativeSurfaces: ReturnType<typeof createMockSystemSurface>[] = [];
+      const createSurface = () => {
+        const surface = createMockSystemSurface();
+        nativeSurfaces.push(surface);
+        return surface.value;
+      };
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => createSurface(),
+        createWindowsSurface: () => createSurface(),
+        platform
+      });
+      const getRolePaths = vi.fn(async (roleId: string) => createRolePaths(roleId));
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        getRolePaths,
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool,
+        workspaceDisplays: runtimeDisplays
+      });
+
+      await harness.manager.launch(role);
+
+      expect(harness.views).toHaveLength(0);
+      expect(nativeSurfaces).toHaveLength(1);
+      expect(getRolePaths).toHaveBeenCalledWith(role.id);
+      expect(nativeSurfaces[0].value.loadUrl).toHaveBeenCalledWith(role.launchUrl);
+      expect(nativeSurfaces[0].value.setBounds).toHaveBeenLastCalledWith({
+        x: 0,
+        y: 0,
+        width: 1200,
+        height: 776
+      });
+      expect(nativeSurfaces[0].value.setVisible).toHaveBeenLastCalledWith(true);
+      expect(nativeSurfaces[0].value.setZoomFactor).toHaveBeenLastCalledWith(1);
+      expect(nativeSurfaces[0].value.focus).toHaveBeenCalledOnce();
+
+      const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+      nativeSurfaces[0].emit({ type: "audioChanged", audible: true });
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: true,
+        audioMuted: false
+      });
+      harness.manager.setRuntimeTabAudioMuted(tabId, true);
+      await vi.waitFor(() => {
+        expect(nativeSurfaces[0].value.setAudioMuted).toHaveBeenLastCalledWith(true);
+      });
+
+      await harness.manager.moveRuntimeTab(tabId, 22);
+
+      expect(nativeSurfaces).toHaveLength(2);
+      expect(nativeSurfaces[0].value.destroy).toHaveBeenCalledOnce();
+      expect(nativeSurfaces[1].value.loadUrl).toHaveBeenCalledWith(role.launchUrl);
+      expect(nativeSurfaces[1].value.setBounds).toHaveBeenLastCalledWith({
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1040
+      });
+      expect(nativeSurfaces[1].value.setAudioMuted).toHaveBeenCalledWith(true);
+
+      await harness.manager.stop(role.id);
+
+      expect(nativeSurfaces[1].value.destroy).toHaveBeenCalledOnce();
+      expect(pool.get(role.id)).toBeUndefined();
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "passes the resolved custom proxy into each recreated %s native surface",
+    async (platform, resolvedEngine) => {
+      const proxyServer = "socks5://127.0.0.1:1080";
+      const nativeSurfaces: ReturnType<typeof createMockSystemSurface>[] = [];
+      const createMacSurface = vi.fn(() => {
+        const surface = createMockSystemSurface();
+        nativeSurfaces.push(surface);
+        return surface.value;
+      });
+      const createWindowsSurface = vi.fn(() => {
+        const surface = createMockSystemSurface();
+        nativeSurfaces.push(surface);
+        return surface.value as never;
+      });
+      const getNativeSessionConfiguration = vi.fn(async () => ({ proxyServer }));
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface,
+        createWindowsSurface,
+        platform
+      });
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        getNativeSessionConfiguration,
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool,
+        workspaceDisplays: runtimeDisplays
+      });
+
+      await harness.manager.launch(role);
+      const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+      await harness.manager.moveRuntimeTab(tabId, 22);
+
+      expect(getNativeSessionConfiguration).toHaveBeenCalledTimes(2);
+      expect(getNativeSessionConfiguration).toHaveBeenNthCalledWith(1, role);
+      expect(getNativeSessionConfiguration).toHaveBeenNthCalledWith(2, role);
+      const factory = platform === "darwin" ? createMacSurface : createWindowsSurface;
+      expect(factory).toHaveBeenCalledTimes(2);
+      expect(factory).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.objectContaining({ proxyServer })
+      );
+      expect(factory).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ proxyServer })
+      );
+
+      await harness.manager.stop(role.id);
+    }
+  );
+
+  it("configures all resolved CDN rewrites before each WebView2 navigation", async () => {
+    const cdnRewriteRules = [{
+      id: "jquery",
+      regexFilter: "^https://code\\.jquery\\.com/(.*)$",
+      regexSubstitution: "https://cdn.example/\\1",
+      sourceHost: "code.jquery.com"
+    }];
+    const nativeSurfaces: ReturnType<typeof createMockSystemSurface>[] = [];
+    const createSurface = () => {
+      const surface = createMockSystemSurface();
+      nativeSurfaces.push(surface);
+      return surface.value;
+    };
+    const pool = new SystemWebViewRuntimePool({
+      createWindowsSurface: () => createSurface() as never,
+      platform: "win32"
+    });
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getNativeSessionConfiguration: async () => ({ cdnRewriteRules }),
+      getRolePaths: async (roleId) => createRolePaths(roleId),
+      platform: "win32",
+      resolvedEngine: "webview2",
+      systemRuntimePool: pool,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await harness.manager.launch(role);
+    const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+    await harness.manager.moveRuntimeTab(tabId, 22);
+
+    expect(nativeSurfaces).toHaveLength(2);
+    for (const native of nativeSurfaces) {
+      expect(native.value.configureRequestRewrites)
+        .toHaveBeenCalledWith(cdnRewriteRules);
+      expect(
+        vi.mocked(native.value.configureRequestRewrites).mock.invocationCallOrder[0]
+      ).toBeLessThan(vi.mocked(native.value.loadUrl).mock.invocationCallOrder[0]);
+    }
+
+    await harness.manager.stop(role.id);
+  });
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "registers %s custom-font script before every native navigation",
+    async (platform, resolvedEngine) => {
+      const documentStartScript = "window.__rionFontsReady = true;";
+      const nativeSurfaces: ReturnType<typeof createMockSystemSurface>[] = [];
+      const createSurface = () => {
+        const surface = createMockSystemSurface();
+        nativeSurfaces.push(surface);
+        return surface.value;
+      };
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => createSurface(),
+        createWindowsSurface: () => createSurface() as never,
+        platform
+      });
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        getNativeSessionConfiguration: async () => ({ documentStartScript }),
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool,
+        workspaceDisplays: runtimeDisplays
+      });
+
+      await harness.manager.launch(role);
+      const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+      await harness.manager.moveRuntimeTab(tabId, 22);
+
+      expect(nativeSurfaces).toHaveLength(2);
+      for (const native of nativeSurfaces) {
+        expect(native.value.addDocumentStartScript)
+          .toHaveBeenCalledWith(documentStartScript);
+        expect(
+          vi.mocked(native.value.addDocumentStartScript).mock.invocationCallOrder[0]
+        ).toBeLessThan(vi.mocked(native.value.loadUrl).mock.invocationCallOrder[0]);
+      }
+
+      await harness.manager.stop(role.id);
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "groups %s System and Electron tabs into separate physical hosts on one display",
+    async (platform, systemEngine) => {
+      const native = createMockSystemSurface();
+      const electronRole: Role = {
+        ...role,
+        id: "role-electron-host",
+        name: "Electron host role"
+      };
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => native.value,
+        createWindowsSurface: () => native.value,
+        platform
+      });
+      const target = { displayId: 11, workArea: runtimeDisplays[0].workArea };
+      const harness = createHarness({
+        defaultLaunchTarget: target,
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine: (candidate) =>
+          candidate.id === electronRole.id ? "electron" : systemEngine,
+        systemRuntimePool: pool,
+        workspaceDisplays: runtimeDisplays
+      });
+
+      await harness.manager.launch(role);
+      const systemTabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+      await harness.manager.launch(electronRole);
+
+      expect(harness.hosts).toHaveLength(2);
+      expect(harness.views).toHaveLength(1);
+      expect(native.value.loadUrl).toHaveBeenCalledWith(role.launchUrl);
+      expect(harness.hosts[0].hide).toHaveBeenCalled();
+      expect(harness.hosts[1].show).toHaveBeenCalled();
+      expect(harness.manager.listEmbeddedRuntimeState().windows).toHaveLength(1);
+
+      await harness.manager.showRuntimeTab(systemTabId);
+
+      expect(harness.hosts[1].hide).toHaveBeenCalled();
+      expect(harness.hosts[0].show).toHaveBeenCalled();
+      expect(native.value.setVisible).toHaveBeenLastCalledWith(true);
+      expect(harness.manager.listEmbeddedRuntimeState().windows).toEqual([
+        expect.objectContaining({
+          activeTabId: systemTabId,
+          displayId: 11,
+          id: expect.any(String),
+          tabCount: 2
+        })
+      ]);
+
+      await harness.manager.stop(role.id);
+      await harness.manager.stop(electronRole.id);
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "replaces an entire crashed %s native tab with Electron through the core effect",
+    async (platform, resolvedEngine) => {
+      const native = createMockSystemSurface();
+      vi.mocked(native.value.getCookies).mockResolvedValue([{
+        domain: ".example.com",
+        httpOnly: true,
+        name: "session",
+        path: "/",
+        sameSite: "lax",
+        secure: true,
+        url: "https://example.com/",
+        value: "runtime-cookie"
+      }]);
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => native.value,
+        createWindowsSurface: () => native.value,
+        platform
+      });
+      const harness = createHarness({
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool
+      });
+
+      await harness.manager.launch(role);
+      native.emit({ type: "navigationCompleted", url: "https://example.com/redirected" });
+      native.emit({ type: "crashed", reason: "web-content-process-terminated" });
+
+      await vi.waitFor(() => {
+        expect(harness.views).toHaveLength(1);
+      });
+      expect(harness.hosts).toHaveLength(2);
+      expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+      expect(harness.hosts[1].contentView.addChildView)
+        .toHaveBeenCalledWith(harness.views[0].view);
+      expect(native.value.destroy).toHaveBeenCalledOnce();
+      expect(harness.views[0].webContents.session.cookies.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "session",
+          value: "runtime-cookie"
+        })
+      );
+      expect(
+        harness.views[0].webContents.session.cookies.set.mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]
+      );
+      expect(harness.views[0].webContents.loadURL)
+        .toHaveBeenCalledWith("https://example.com/redirected");
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({
+          fallbackReason: "runtime-crashed",
+          sessionContinuity: "verified"
+        })
+      ]);
+      expect(harness.manager.getEmbeddedAutomationSession(role.id)).toBeDefined();
+      expect(pool.get(role.id)).toBeUndefined();
+
+      await harness.manager.stop(role.id);
+      expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "keeps the %s Electron fallback visible but marks needs-login when cookie mirroring fails",
+    async (platform, resolvedEngine) => {
+      const native = createMockSystemSurface();
+      vi.mocked(native.value.getCookies).mockRejectedValue(
+        new Error("native cookie store unavailable")
+      );
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => native.value,
+        createWindowsSurface: () => native.value,
+        platform
+      });
+      const harness = createHarness({
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool
+      });
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      await harness.manager.launch(role);
+      native.emit({ type: "crashed", reason: "web-content-process-terminated" });
+
+      await vi.waitFor(() => {
+        expect(harness.manager.listStatuses()).toEqual([
+          expect.objectContaining({
+            fallbackReason: "auth-verification-failed",
+            resolvedEngine: "electron",
+            sessionContinuity: "needs-login"
+          })
+        ]);
+      });
+      expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+      warning.mockRestore();
+      await harness.manager.stop(role.id);
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "installs and serves the %s native macro overlay message bridge",
+    async (platform, resolvedEngine) => {
+      const native = createMockSystemSurface();
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => native.value,
+        createWindowsSurface: () => native.value,
+        platform
+      });
+      const harness = createHarness({
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool
+      });
+      const invoke = vi.spyOn(harness.browserRuntimeState, "invoke");
+
+      await harness.manager.launch(role);
+
+      expect(native.value.evaluate).toHaveBeenCalledWith(
+        expect.stringContaining("__rionStudioNativeOverlayBridge")
+      );
+      expect(native.value.evaluate).toHaveBeenCalledWith(
+        expect.stringContaining("__rionStudioMacroOverlay")
+      );
+      native.emit({
+        type: "bridgeMessage",
+        messageJson: JSON.stringify({
+          type: "overlayRequest",
+          requestId: "overlay-7",
+          payload: { type: "list" }
+        })
+      });
+
+      await vi.waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(expect.objectContaining({
+          type: "overlayRequest",
+          roleId: role.id,
+          requestJson: JSON.stringify({ type: "list" })
+        }));
+        expect(native.value.evaluate).toHaveBeenCalledWith(
+          expect.stringContaining("\"overlay-7\",true")
+        );
+      });
+      await harness.manager.stop(role.id);
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "preserves a %s popup intent while visibly falling the tab back to Electron",
+    async (platform, resolvedEngine) => {
+      const native = createMockSystemSurface();
+      const pool = new SystemWebViewRuntimePool({
+        createMacSurface: () => native.value,
+        createWindowsSurface: () => native.value,
+        platform
+      });
+      const harness = createHarness({
+        getRolePaths: async (roleId) => createRolePaths(roleId),
+        platform,
+        resolvedEngine,
+        systemRuntimePool: pool
+      });
+
+      await harness.manager.launch(role);
+      native.emit({
+        type: "popupRequested",
+        url: "https://accounts.example.com/oauth"
+      });
+
+      await vi.waitFor(() => {
+        expect(harness.views).toHaveLength(2);
+      });
+      expect(native.value.destroy).toHaveBeenCalledOnce();
+      expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+      expect(harness.views[1].webContents.loadURL)
+        .toHaveBeenCalledWith("https://accounts.example.com/oauth");
+      expect(harness.manager.getEmbeddedAutomationSession(role.id)).toBeDefined();
+
+      await harness.manager.stop(role.id);
+      expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
+      expect(harness.views[1].webContents.close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "keeps a successfully created %s popup in the native session",
+    async (platform, resolvedEngine) => {
+    const native = createMockSystemSurface();
+    const pool = new SystemWebViewRuntimePool({
+      createMacSurface: () => native.value,
+      createWindowsSurface: () => native.value as never,
+      platform
+    });
+    const harness = createHarness({
+      getRolePaths: async (roleId) => createRolePaths(roleId),
+      platform,
+      resolvedEngine,
+      systemRuntimePool: pool
+    });
+
+    await harness.manager.launch(role);
+    native.emit({
+      type: "popupCreated",
+      url: "https://accounts.example.com/oauth"
+    });
+
+    await Promise.resolve();
+    expect(native.value.destroy).not.toHaveBeenCalled();
+    expect(harness.views).toHaveLength(0);
+    expect(harness.manager.listStatuses()).toEqual([
+      expect.objectContaining({ roleId: role.id, state: "running" })
+    ]);
+
+    native.emit({
+      type: "popupClosed",
+      url: "https://accounts.example.com/oauth"
+    });
+    await harness.manager.stop(role.id);
     }
   );
 
@@ -4798,6 +5324,54 @@ function resizeTestWorkspaceDivider(
   return { changed, position, roleIds: [...beforeRoleIds, ...afterRoleIds], roles };
 }
 
+function createRolePaths(roleId: string): RolePathsRecord {
+  return {
+    browserUserDataDir: `/roles/${roleId}/browser`,
+    electronBrowserUserDataDir: `/roles/${roleId}/browser/electron`,
+    systemBrowserDataDir: `/roles/${roleId}/browser/system`,
+    webkitDataStoreIdentifier: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    webkitDataStoreKey: `rion.role.${roleId}`,
+    webview2UserDataDir: `C:\\roles\\${roleId}\\browser\\webview2`
+  };
+}
+
+function createMockSystemSurface() {
+  const listeners = new Set<(event: WebSurfaceLifecycleEvent) => void>();
+  const callDevToolsProtocolMethod = vi.fn(async () => undefined);
+  const evaluate = vi.fn(async () => true);
+  const value: WebSurfacePort & {
+    callDevToolsProtocolMethod: <T = unknown>(
+      method: string,
+      parameters?: Record<string, unknown>
+    ) => Promise<T>;
+  } = {
+    addDocumentStartScript: vi.fn(async () => undefined),
+    callDevToolsProtocolMethod: callDevToolsProtocolMethod as never,
+    clearStorage: vi.fn(async () => undefined),
+    configureRequestRewrites: vi.fn(async () => undefined),
+    destroy: vi.fn(async () => undefined),
+    evaluate: evaluate as never,
+    focus: vi.fn(async () => undefined),
+    getCookies: vi.fn(async () => []),
+    loadUrl: vi.fn(async () => undefined),
+    onLifecycleEvent: vi.fn((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+    setAudioMuted: vi.fn(async () => undefined),
+    setBounds: vi.fn(async () => undefined),
+    setCookies: vi.fn(async (cookies) => cookies.length),
+    setVisible: vi.fn(async () => undefined),
+    setZoomFactor: vi.fn(async () => undefined)
+  };
+  return {
+    emit: (event: WebSurfaceLifecycleEvent) => {
+      listeners.forEach((listener) => listener(event));
+    },
+    value
+  };
+}
+
 function createHarness(options: {
   applyCdnCompatibility?: AnyMock;
   applyBrowserFonts?: AnyMock;
@@ -4816,6 +5390,12 @@ function createHarness(options: {
   persistWorkspaceRoleZoom?: ElectronBrowserRuntimeOptions["persistWorkspaceRoleZoom"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
+  resolvedEngine?:
+    | Extract<ResolvedBrowserEngine, "electron" | "webview2" | "wkwebview">
+    | ((role: Role) => Extract<ResolvedBrowserEngine, "electron" | "webview2" | "wkwebview">);
+  systemRuntimePool?: SystemWebViewRuntimePool;
+  getRolePaths?: (roleId: string) => Promise<RolePathsRecord>;
+  getNativeSessionConfiguration?: ElectronBrowserRuntimeOptions["getNativeSessionConfiguration"];
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   workspaceLayoutResolver?: ElectronBrowserRuntimeOptions["workspaceLayoutResolver"];
@@ -4926,6 +5506,10 @@ function createHarness(options: {
     ...(options.getRuntimeTabGameIcon
       ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
       : {}),
+    ...(options.getRolePaths ? { getRolePaths: options.getRolePaths } : {}),
+    ...(options.getNativeSessionConfiguration
+      ? { getNativeSessionConfiguration: options.getNativeSessionConfiguration }
+      : {}),
     ...(options.getWorkspaceAppearanceSettings
       ? { getWorkspaceAppearanceSettings: options.getWorkspaceAppearanceSettings }
       : {}),
@@ -4948,6 +5532,7 @@ function createHarness(options: {
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }
       : {}),
+    ...(options.systemRuntimePool ? { systemRuntimePool: options.systemRuntimePool } : {}),
     workspaceDividerResolver: resolveTestWorkspaceDividers,
     workspaceDividerResizeResolver: resizeTestWorkspaceDivider,
     workspaceLayoutResolver: options.workspaceLayoutResolver ?? resolveTestWorkspaceLayout
@@ -4964,6 +5549,12 @@ function createHarness(options: {
     manager.executeEmbeddedEffect(
       action as Parameters<ElectronBrowserRuntime["executeEmbeddedEffect"]>[0]
     );
+  const resolvedEngineFor = (
+    role: Role
+  ): Extract<ResolvedBrowserEngine, "electron" | "webview2" | "wkwebview"> =>
+    typeof options.resolvedEngine === "function"
+      ? options.resolvedEngine(role)
+      : options.resolvedEngine ?? "electron";
   const applyRuntime = async (
     snapshot: BrowserRuntimeSnapshot,
     target?: { displayId: number; workArea: PixelBounds },
@@ -5019,6 +5610,18 @@ function createHarness(options: {
       command = { type: "embeddedWorkspaceStop", workspaceId: command.workspaceId };
     }
     switch (command.type) {
+      case "overlayRequest":
+        return {
+          detached: false,
+          language: "en",
+          macroBadgePosition: {
+            horizontalAlign: "center",
+            horizontalMarginPx: 8,
+            topPx: 128
+          },
+          macros: [],
+          statuses: []
+        };
       case "embeddedRoleLaunch": {
         const seededRole = seededRoles.get(command.roleId);
         if (!seededRole) throw new Error(`Role not found: ${command.roleId}`);
@@ -5081,7 +5684,7 @@ function createHarness(options: {
               target: command.target,
               roles: [{
                 role: seededRole,
-                resolvedEngine: "electron",
+                resolvedEngine: resolvedEngineFor(seededRole),
                 rect: { x: 0, y: 0, width: 1, height: 1 },
                 zoomFactor: command.zoomFactor ?? 1,
                 zoomMode: "fixed"
@@ -5103,7 +5706,7 @@ function createHarness(options: {
             type: "embeddedLoadRoles",
             roles: [{
               roleId: seededRole.id,
-              resolvedEngine: "electron",
+              resolvedEngine: resolvedEngineFor(seededRole),
               url: seededRole.launchUrl,
               zoomFactor: command.zoomFactor ?? 1
             }]
@@ -5200,7 +5803,7 @@ function createHarness(options: {
               target: command.target,
               roles: seeded.items.map((item) => ({
                 role: item.role,
-                resolvedEngine: "electron",
+                resolvedEngine: resolvedEngineFor(item.role),
                 rect: item.rect,
                 zoomFactor: (
                   item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
@@ -5226,7 +5829,7 @@ function createHarness(options: {
             type: "embeddedLoadRoles",
             roles: seeded.items.map((item) => ({
               roleId: item.role.id,
-              resolvedEngine: "electron",
+              resolvedEngine: resolvedEngineFor(item.role),
               url: item.role.launchUrl,
               zoomFactor: (
                 item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
@@ -5306,6 +5909,42 @@ function createHarness(options: {
           browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot
         );
         return { stopped: true };
+      }
+      case "embeddedSystemSurfaceFailed": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const runtimeRole = snapshot.roles.find(({ roleId }) => roleId === command.roleId);
+        const tab = runtimeRole?.tabId
+          ? snapshot.tabs.find(({ id }) => id === runtimeRole.tabId)
+          : undefined;
+        if (!tab) throw new Error(`Runtime tab not found for ${command.roleId}`);
+        const fallback = await executeEmbedded({
+          type: "embeddedFallbackTabToElectron",
+          tabId: tab.id,
+          roleIds: tab.roleIds
+        }) as {
+          roles?: Array<{
+            authVerified?: boolean;
+            roleId?: string;
+          }>;
+        };
+        const statuses: BrowserRoleStatusRecord[] = tab.roleIds.map((roleId) => ({
+          roleId,
+          runtimeMode: "embedded",
+          state: "running" as const,
+          preferredEngine: "system",
+          resolvedEngine: "electron",
+          hostKind: "electron",
+          fallbackReason: fallback.roles?.find((role) => role.roleId === roleId)
+            ?.authVerified === false
+            ? "auth-verification-failed"
+            : "runtime-crashed",
+          sessionContinuity: fallback.roles?.find((role) => role.roleId === roleId)
+            ?.authVerified === false
+            ? "needs-login"
+            : "verified"
+        }));
+        browserRuntimeState.publishBrowserStatuses(statuses);
+        return statuses;
       }
       case "embeddedWorkspaceStop": {
         const snapshot = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
@@ -5563,7 +6202,7 @@ function createMockView(
     close: vi.fn(() => {
       destroyed = true;
     }),
-    executeJavaScript: vi.fn(async () => ""),
+    executeJavaScript: vi.fn(async () => true),
     focus: vi.fn(),
     getOSProcessId: vi.fn(() => processId),
     getURL: vi.fn(() => currentUrl),
@@ -5583,7 +6222,14 @@ function createMockView(
     mainFrame: { framesInSubtree: [] },
     send: vi.fn(),
     sendInputEvent: vi.fn(),
-    session: { cookies: { get: vi.fn().mockResolvedValue([]) }, setProxy: vi.fn().mockResolvedValue(undefined) },
+    session: {
+      cookies: {
+        get: vi.fn().mockResolvedValue([]),
+        set: vi.fn().mockResolvedValue(undefined)
+      },
+      flushStorageData: vi.fn(),
+      setProxy: vi.fn().mockResolvedValue(undefined)
+    },
     setWindowOpenHandler: vi.fn(),
     setIgnoreMenuShortcuts: vi.fn(),
     setAudioMuted: vi.fn((muted: boolean) => {

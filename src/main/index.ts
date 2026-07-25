@@ -41,6 +41,9 @@ import {
   loadWindowsWebView2SurfaceFactory,
   type WindowsWebView2SurfacePort
 } from "./browser/WindowsWebView2Surface";
+import { createNativeBrowserFontDocumentStartScript } from "./browser/NativeBrowserDocumentStart";
+import { SystemWebViewRuntimePool } from "./browser/SystemWebViewRuntimePool";
+import { WebView2AutomationTarget } from "./browser/WebView2AutomationTarget";
 import type { WebSurfacePort } from "./browser/ports/WebSurfacePort";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import {
@@ -97,6 +100,11 @@ import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { bindAppWindowStateBroadcast } from "./window/appWindowState";
 import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferencesStore";
 import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecycle";
+import {
+  createCrossShellActivationServer,
+  forwardActivationToRunningShell,
+  type CrossShellActivationServer
+} from "./shell/CrossShellActivation";
 import { resolveTestUserDataPath } from "./testing/testUserData";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
@@ -154,6 +162,7 @@ let startupPromise: Promise<void> | null = null;
 let isApplicationQuitting = false;
 let quitCleanupPromise: Promise<void> | null = null;
 let appCoreClient: AppCoreClient | null = null;
+let crossShellActivationServer: CrossShellActivationServer | null = null;
 let electronBrowserActionAdapter: ElectronBrowserActionAdapter | null = null;
 let electronEffectExecutor: ElectronEffectExecutor | null = null;
 let electronEffectUnsubscribe: (() => void) | null = null;
@@ -499,6 +508,19 @@ async function initializeApplication(): Promise<void> {
     platform: process.platform,
     arch: process.arch
   });
+  try {
+    crossShellActivationServer ??= await createCrossShellActivationServer(
+      userDataDir,
+      showMainWindow
+    );
+  } catch (error) {
+    logService.error(
+      "main",
+      "cross_shell_activation_server_failed",
+      "Cross-shell activation could not be enabled.",
+      error
+    );
+  }
   coreClient.subscribe((events) => {
     if (events.some((event) => event.type === "ready")) {
       logService.info("main", "rust_core_ready", "Rust application core is ready.", {
@@ -529,6 +551,10 @@ async function initializeApplication(): Promise<void> {
     handles: electronEffectHandles,
     recordPlan: () => coreClient.recordCdnPlan()
   });
+  const systemCdnProbeSession = electronSession.fromPartition(
+    "rion-system-cdn-probe",
+    { cache: false }
+  );
   const gameCompatibilityManager = new GameCompatibilityManager({
     applyCdnCompatibility: async (session) => {
       await cdnCompatibilityManager.applyToSession(session);
@@ -571,6 +597,71 @@ async function initializeApplication(): Promise<void> {
   const windowsWebView2SurfaceFactory = process.platform === "win32"
     ? loadWindowsWebView2SurfaceFactory(getWindowsWebView2AddonPath())
     : undefined;
+  const systemRuntimePool = new SystemWebViewRuntimePool({
+    ...(macSystemWebViewSurfaceFactory
+      ? { createMacSurface: macSystemWebViewSurfaceFactory }
+      : {}),
+    ...(windowsWebView2SurfaceFactory
+      ? {
+          createWindowsSurface: windowsWebView2SurfaceFactory,
+          createWindowsAutomationTarget: (
+            roleId: string,
+            surface: WindowsWebView2SurfacePort
+          ) => new WebView2AutomationTarget(surface, coreClient, roleId)
+        }
+      : {}),
+    onLifecycleEvent: (roleId, engine, event) => {
+      if (event.type === "crashed" || event.type === "navigationFailed") {
+        logService.warn(
+          "browser",
+          event.type,
+          "System WebView lifecycle failure.",
+          { engine, event, roleId }
+        );
+      }
+    },
+    platform: process.platform
+  });
+  const systemRuntimeCapability = systemRuntimePool.capability();
+  const systemRuntimeIsWindows = systemRuntimeCapability.engine === "webview2";
+  await coreClient.invoke({
+    type: "systemWebViewRuntimeRegister",
+    registration: {
+      adapterVersion: systemRuntimeIsWindows ? "webview2-napi-6" : "wkwebview-napi-10",
+      available: systemRuntimeCapability.available,
+      capabilitySnapshot: {
+        navigation: systemRuntimeCapability.available ? "supported" : "disabled",
+        persistentSession: systemRuntimeCapability.available ? "supported" : "disabled",
+        trustedInput: systemRuntimeIsWindows && systemRuntimeCapability.available
+          ? "supported"
+          : "unsupported",
+        backgroundInput: systemRuntimeIsWindows && systemRuntimeCapability.available
+          ? "supported"
+          : "unsupported",
+        frameEvaluation: systemRuntimeIsWindows && systemRuntimeCapability.available
+          ? "supported"
+          : systemRuntimeCapability.available ? "degraded" : "disabled",
+        cdnRewrite: systemRuntimeIsWindows && systemRuntimeCapability.available
+          ? "supported"
+          : systemRuntimeCapability.available ? "unsupported" : "disabled",
+        proxy: systemRuntimeCapability.available ? "degraded" : "disabled",
+        popup: systemRuntimeCapability.available ? "supported" : "disabled",
+        audioMute: systemRuntimeCapability.available ? "supported" : "disabled",
+        customFonts: systemRuntimeCapability.available ? "degraded" : "disabled",
+        graphicsTuning: systemRuntimeCapability.available ? "degraded" : "disabled",
+        downloads: systemRuntimeCapability.available ? "supported" : "disabled",
+        fileUpload: systemRuntimeCapability.available ? "supported" : "disabled",
+        permissions: systemRuntimeCapability.available ? "degraded" : "disabled",
+        dialogs: systemRuntimeCapability.available ? "supported" : "disabled",
+        certificateHandling: systemRuntimeCapability.available ? "supported" : "disabled"
+      },
+      engine: systemRuntimeCapability.engine,
+      ...(systemRuntimeCapability.available
+        ? {}
+        : { failureReason: "runtime-creation-failed" as const }),
+      platform: process.platform === "darwin" ? "macos" : "windows"
+    }
+  });
   const macSystemSessionSurfaces = new Map<string, {
     surface: WebSurfacePort;
     window: BaseWindow;
@@ -628,6 +719,7 @@ async function initializeApplication(): Promise<void> {
     return entry;
   };
   app.once("will-quit", () => {
+    void systemRuntimePool.destroyAll();
     for (const { surface, window } of macSystemSessionSurfaces.values()) {
       void surface.destroy();
       if (!window.isDestroyed()) window.close();
@@ -708,6 +800,30 @@ async function initializeApplication(): Promise<void> {
           "Default"
         ))
       : undefined,
+    getRolePaths: (roleId) => roleStore.getRolePaths(roleId),
+    getNativeSessionConfiguration: async () => {
+      const settings = await gameBrowserSettingsStore.getSettings();
+      const documentStartScript =
+        createNativeBrowserFontDocumentStartScript(settings.fonts);
+      await browserProxyApplier.applyToSession(systemCdnProbeSession);
+      const cdnPlan =
+        await cdnCompatibilityManager.resolvePlanForSession(systemCdnProbeSession);
+      if (cdnPlan.enabled && process.platform === "darwin") {
+        throw Object.assign(
+          new Error(
+            "WKWebView cannot apply the complete active CDN compatibility plan."
+          ),
+          { code: "MAC_CDN_REWRITE_UNSUPPORTED" }
+        );
+      }
+      return {
+        ...(cdnPlan.enabled ? { cdnRewriteRules: cdnPlan.rewriteRules } : {}),
+        ...(documentStartScript ? { documentStartScript } : {}),
+        ...(settings.network.proxy.mode === "custom"
+          ? { proxyServer: settings.network.proxy.server }
+          : {})
+      };
+    },
     getRuntimeTabGameIcon: async (role) => {
       const game = await gameStore.getGame(role.gameId);
       return createRuntimeGameIconDataUrl(
@@ -741,7 +857,8 @@ async function initializeApplication(): Promise<void> {
     handleRuntimeTabAction: (runtimeWindow, displayId, action) => {
       dispatchRuntimeTabAction(runtimeWindow, displayId, action);
     },
-    prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
+    prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency,
+    systemRuntimePool
   });
   browserManager = runtimeManager;
   const sessionManager = new RuntimeSessionManager({
@@ -1107,9 +1224,9 @@ async function initializeApplication(): Promise<void> {
   coreClient.subscribe((events) => {
     for (const event of events) {
       if (event.type === "overlayChanged") {
-        macroOverlay.refreshInstalledOverlays(
-          event.roleIds.length === 0 ? undefined : event.roleIds
-        );
+        const roleIds = event.roleIds.length === 0 ? undefined : event.roleIds;
+        macroOverlay.refreshInstalledOverlays(roleIds);
+        runtimeManager.refreshNativeMacroOverlays(roleIds);
       } else if (event.type === "externalOverlayStateChanged") {
         const context = {
           errorCode: event.errorCode,
@@ -1447,6 +1564,16 @@ async function startApplication(): Promise<void> {
         await initializeApplication();
         appInitialized = true;
       } catch (error) {
+        if (isCoreErrorCode(error, "APP_INSTANCE_LOCKED")) {
+          const forwarded = await forwardRunningShellWithStartupRetry(
+            app.getPath("userData")
+          );
+          if (forwarded) {
+            if (!loadingWindow.isDestroyed()) loadingWindow.destroy();
+            app.exit(0);
+            return;
+          }
+        }
         initializationFailed = true;
         startupFailureMessage = formatStartupFailure(error);
         throw error;
@@ -1481,6 +1608,22 @@ function formatStartupFailure(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : "The application could not finish starting. Please quit and try again.";
+}
+
+function isCoreErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error &&
+    "code" in error &&
+    (error as Error & { code?: unknown }).code === code;
+}
+
+async function forwardRunningShellWithStartupRetry(
+  userDataDir: string
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (await forwardActivationToRunningShell(userDataDir)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+  }
+  return false;
 }
 
 function isGameInputContextRequest(
@@ -1661,6 +1804,7 @@ app.on("before-quit", (event) => {
     const effectExecutor = electronEffectExecutor;
     const unsubscribeEffects = electronEffectUnsubscribe;
     const macroOverlay = macroOverlayInjector;
+    const activationServer = crossShellActivationServer;
 
     try {
       await saveRuntimeSessionThenStopAll({
@@ -1687,6 +1831,16 @@ app.on("before-quit", (event) => {
       embeddedRuntimeDiagnostics?.stop();
       embeddedRuntimeDiagnostics = null;
       logService.info("main", "app_quitting", "Application is quitting.");
+      try {
+        await activationServer?.close();
+      } catch (error) {
+        logService.error(
+          "main",
+          "cross_shell_activation_shutdown_failed",
+          "Cross-shell activation did not shut down cleanly.",
+          error
+        );
+      }
       try {
         await Promise.race([
           coreClient?.shutdown() ?? Promise.resolve(),
@@ -1726,6 +1880,9 @@ app.on("before-quit", (event) => {
       if (electronBrowserActionAdapter === actionAdapter) electronBrowserActionAdapter = null;
       if (macroOverlayInjector === macroOverlay) macroOverlayInjector = null;
       if (appCoreClient === coreClient) appCoreClient = null;
+      if (crossShellActivationServer === activationServer) {
+        crossShellActivationServer = null;
+      }
       if (runtimeSessionManager) runtimeSessionManager = null;
       attemptRuntimeSessionAutoRestore = null;
       app.quit();

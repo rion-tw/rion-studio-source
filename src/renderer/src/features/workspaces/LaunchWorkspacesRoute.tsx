@@ -7,6 +7,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Search,
   Square,
   Trash2,
@@ -323,10 +324,16 @@ function WorkspaceCard({
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
   const runningCount = workspace.slots.filter((slot) => slot.roleId && statusByRole.has(slot.roleId)).length;
   const isRunning = runningCount > 0;
+  const allRunning = runningCount > 0 && runningCount === assignedCount;
+  const partiallyRunning = runningCount > 0 && !allRunning;
   const isBusy = busyWorkspaceIds.has(workspace.id);
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
   const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);
-  const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
+  const primaryActionLabel = allRunning
+    ? t("workspaces.stop")
+    : partiallyRunning
+      ? t("workspaces.resume")
+      : t("workspaces.launch");
   const zoomLabel = workspace.browserZoomMode === "adaptive"
     ? t("workspaces.browserZoomAdaptive")
     : `${workspace.browserZoomPercent}%`;
@@ -353,6 +360,7 @@ function WorkspaceCard({
           gameNameById={gameNameById}
           roleById={roleById}
           slots={workspace.slots}
+          statusByRole={statusByRole}
           t={t}
           template={workspace.template}
         />
@@ -371,12 +379,14 @@ function WorkspaceCard({
             title={primaryActionLabel}
             type="button"
             variant="secondary"
-            onClick={isRunning ? onStop : onLaunch}
+            onClick={allRunning ? onStop : onLaunch}
           >
             {isBusy ? (
               <Loader2 className="spin" size={30} />
-            ) : isRunning ? (
+            ) : allRunning ? (
               <Square size={30} fill="currentColor" />
+            ) : partiallyRunning ? (
+              <RefreshCw size={30} />
             ) : (
               <Play className="ml-0.5" size={34} fill="currentColor" />
             )}
@@ -389,10 +399,12 @@ function WorkspaceCard({
           canReorder={canReorder}
           isDragging={isDragging}
           isBusy={isBusy}
+          isRunning={isRunning}
           t={t}
           onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
+          onStop={onStop}
           onDragEnd={onDragEnd}
           onDragStart={onDragStart}
         />
@@ -442,6 +454,7 @@ interface WorkspaceLayoutPreviewProps {
   gameNameById: Map<string, string>;
   roleById: Map<string, Role>;
   slots: LaunchWorkspaceSlot[];
+  statusByRole: Map<string, RoleStatus>;
   t: Translator;
   template: WorkspaceLayoutTemplate;
 }
@@ -451,6 +464,7 @@ function WorkspaceLayoutPreview({
   gameNameById,
   roleById,
   slots,
+  statusByRole,
   t,
   template
 }: WorkspaceLayoutPreviewProps): JSX.Element {
@@ -471,6 +485,7 @@ function WorkspaceLayoutPreview({
       <WorkspaceLayoutPreviewSlot
         key={slot.id}
         index={index}
+        isRunning={slot.roleId ? statusByRole.has(slot.roleId) : false}
         launchGameName={role ? gameNameById.get(role.gameId) : undefined}
         role={role}
         t={t}
@@ -651,6 +666,7 @@ function WorkspaceLayoutPreview({
 
 interface WorkspaceLayoutPreviewSlotProps {
   index: number;
+  isRunning?: boolean;
   launchGameName?: string;
   role: Role | undefined;
   t: Translator;
@@ -658,6 +674,7 @@ interface WorkspaceLayoutPreviewSlotProps {
 
 function WorkspaceLayoutPreviewSlot({
   index,
+  isRunning,
   launchGameName,
   role,
   t
@@ -682,6 +699,12 @@ function WorkspaceLayoutPreviewSlot({
           className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
           style={backgroundStyle}
           aria-hidden="true"
+        />
+      ) : null}
+      {isRunning ? (
+        <span
+          className="absolute right-1.5 top-1.5 size-2 rounded-full bg-green-500 ring-1 ring-white/20"
+          aria-label={t("workspaces.roleRunning")}
         />
       ) : null}
       <div className="workspace-slot-caption workspace-slot-caption--compact">
@@ -716,9 +739,11 @@ interface WorkspaceActionMenuProps {
   canReorder: boolean;
   isDragging: boolean;
   isBusy: boolean;
+  isRunning: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onStop: () => void;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   t: Translator;
@@ -728,11 +753,13 @@ function WorkspaceActionMenu({
   canReorder,
   isBusy,
   isDragging,
+  isRunning,
   onCopy,
   onDelete,
   onDragEnd,
   onDragStart,
   onEdit,
+  onStop,
   t
 }: WorkspaceActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
@@ -839,6 +866,20 @@ function WorkspaceActionMenu({
             <Copy size={14} />
             <span>{t("workspaces.copy")}</span>
           </button>
+          {isRunning ? (
+            <button
+              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setIsOpen(false);
+                onStop();
+              }}
+            >
+              <Square size={14} />
+              <span>{t("workspaces.stop")}</span>
+            </button>
+          ) : null}
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             type="button"

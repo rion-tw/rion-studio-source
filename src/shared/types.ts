@@ -299,6 +299,7 @@ export interface WorkspaceDisplayLaunchOption extends WorkspaceDisplayInfo {
 
 export interface WorkspaceLaunchInput {
   displayId?: number;
+  roleIds?: string[];
 }
 
 export type WorkspaceLaunchResult =

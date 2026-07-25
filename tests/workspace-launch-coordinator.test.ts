@@ -51,6 +51,8 @@ describe("WorkspaceLaunchCoordinator launch tracing", () => {
     const coordinator = new WorkspaceLaunchCoordinator({
       browserManager: {
         launchWorkspace,
+        listStatuses: () => [],
+        stopWorkspace: vi.fn().mockResolvedValue(undefined),
         listWorkspaceDisplayReservations: () => []
       },
       getWorkspaceDisplays: () => [display],

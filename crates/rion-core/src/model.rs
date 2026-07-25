@@ -538,6 +538,9 @@ pub enum CoreCommand {
         #[ts(rename = "workspaceId")]
         workspace_id: String,
         target: EmbeddedLaunchTargetRecord,
+        #[ts(rename = "roleIds")]
+        #[ts(optional)]
+        role_ids: Option<Vec<String>>,
     },
     BrowserRoleStop {
         #[ts(rename = "roleId")]

@@ -402,10 +402,11 @@ export function classifyNativeZoomShortcut(
 export function classifyRuntimeTabSwitchShortcut(
   input: NativeZoomShortcutInput
 ): RuntimeTabSwitchDirection | undefined {
+  const isKeyDown = input.type === "keyDown" || input.type === "rawKeyDown";
   if (
-    input.type !== "keyDown" ||
+    !isKeyDown ||
     input.isComposing ||
-    input.code !== "Tab" ||
+    (input.code !== "Tab" && input.key !== "Tab") ||
     !input.control ||
     input.alt ||
     input.meta

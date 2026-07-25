@@ -1704,6 +1704,194 @@ describe("ElectronBrowserRuntime game host windows", () => {
     }
   );
 
+  it.each(["darwin", "win32"] as const)(
+    "queues rapid Ctrl+Tab runtime shortcuts with auto-repeat on %s",
+    async (platform) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        tabSwitchCommandDelayMs: 15,
+        useTabbedHostWindow: true,
+        workspaceDisplays: runtimeDisplays
+      });
+      const secondRole = createRole("role-2", "Alt");
+      const thirdRole = createRole("role-3", "Third");
+
+      await harness.manager.launch(role);
+      await harness.manager.launch(secondRole);
+      await harness.manager.launch(thirdRole);
+      const tabActivateAdjacentCalls = vi.spyOn(harness.browserRuntimeState, "invoke");
+      const [firstTab, secondTab, thirdTab] = harness.manager.listEmbeddedRuntimeState().tabs;
+      const tabs = [firstTab, secondTab, thirdTab];
+      const initialActiveIndex = tabs.findIndex((tab) => tab.active);
+      const windowFocusCalls = harness.hosts[0].focus.mock.calls.length;
+      const firstViewFocusCalls = harness.views[0].webContents.focus.mock.calls.length;
+      const secondViewFocusCalls = harness.views[1].webContents.focus.mock.calls.length;
+      const thirdViewFocusCalls = harness.views[2].webContents.focus.mock.calls.length;
+      const nextEvents = [
+        { isAutoRepeat: false, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() }
+      ];
+      const inputEvent = (event: { isAutoRepeat: boolean }) => ({
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        isAutoRepeat: event.isAutoRepeat,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown" as const
+      });
+
+      harness.views.forEach((view) => harness.manager.setGameInputContext(view.webContents.id, true));
+      [
+        harness.views[2],
+        harness.views[0],
+        harness.views[1],
+        harness.views[2],
+        harness.views[0],
+        harness.views[1]
+      ].forEach((view, index) => {
+        view.webContents.emit("before-input-event", nextEvents[index], inputEvent(nextEvents[index]));
+      });
+
+      const finalTab = tabs[(initialActiveIndex + nextEvents.length) % tabs.length];
+      await vi.waitFor(() => expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ active: true, id: finalTab.id })
+      ])));
+      const finalViewIndex = tabs.findIndex((tab) => tab.id === finalTab.id);
+      const finalViewFocusCalls = [firstViewFocusCalls, secondViewFocusCalls, thirdViewFocusCalls];
+      finalViewFocusCalls.forEach((baselineCalls, index) => {
+        const expectedCalls = index === finalViewIndex ? baselineCalls + 1 : baselineCalls;
+        expect(harness.views[index].webContents.focus).toHaveBeenCalledTimes(expectedCalls);
+      });
+      const tabSwitchCalls = tabActivateAdjacentCalls.mock.calls.filter(
+        ([command]) => command.type === "embeddedTabActivateAdjacent"
+      );
+      nextEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
+      expect(tabSwitchCalls).toHaveLength(nextEvents.length);
+      expect(tabSwitchCalls.map(([command]) => command.direction)).toEqual(Array(nextEvents.length).fill("next"));
+      expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "handles two rapid Ctrl+Tab keystrokes in strict A->B->C sequence on %s",
+    async (platform) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        tabSwitchCommandDelayMs: 15,
+        useTabbedHostWindow: true,
+        workspaceDisplays: runtimeDisplays
+      });
+      const secondRole = createRole("role-2", "Alt");
+      const thirdRole = createRole("role-3", "Third");
+
+      await harness.manager.launch(role);
+      await harness.manager.launch(secondRole);
+      await harness.manager.launch(thirdRole);
+      const invoke = vi.spyOn(harness.browserRuntimeState, "invoke");
+      const tabs = harness.manager.listEmbeddedRuntimeState().tabs;
+      const initialActiveIndex = tabs.findIndex((tab) => tab.active);
+      const createEvent = (isAutoRepeat: boolean) => ({
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        isAutoRepeat,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown" as const
+      });
+
+      harness.views.forEach((view) => harness.manager.setGameInputContext(view.webContents.id, true));
+      harness.views[0].webContents.emit("before-input-event", { preventDefault: vi.fn() }, createEvent(false));
+      harness.views[1].webContents.emit("before-input-event", { preventDefault: vi.fn() }, createEvent(false));
+
+      const finalTab = tabs[(initialActiveIndex + 2) % tabs.length];
+      await vi.waitFor(() => expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ active: true, id: finalTab.id })
+      ])));
+
+      const switchCalls = invoke.mock.calls.filter(
+        ([command]) => command.type === "embeddedTabActivateAdjacent"
+      );
+      expect(switchCalls).toHaveLength(2);
+      expect(switchCalls.map(([command]) => command.direction)).toEqual(["next", "next"]);
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "aborts queued runtime tab switches when a runtime host display is destroyed on %s",
+    async (platform) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        tabSwitchCommandDelayMs: 15,
+        useTabbedHostWindow: true,
+        workspaceDisplays: runtimeDisplays
+      });
+      const secondRole = createRole("role-2", "Alt");
+      const thirdRole = createRole("role-3", "Third");
+
+      await harness.manager.launch(role);
+      await harness.manager.launch(secondRole);
+      await harness.manager.launch(thirdRole);
+      const invoke = vi.spyOn(harness.browserRuntimeState, "invoke");
+      const nextEvents = [
+        { isAutoRepeat: false, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() },
+        { isAutoRepeat: true, preventDefault: vi.fn() }
+      ];
+      const inputEvent = (event: { isAutoRepeat: boolean }) => ({
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        isAutoRepeat: event.isAutoRepeat,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown" as const
+      });
+
+      harness.views.forEach((view) => harness.manager.setGameInputContext(view.webContents.id, true));
+      [
+        harness.views[0],
+        harness.views[1],
+        harness.views[2],
+        harness.views[0]
+      ].forEach((view, index) => {
+        view.webContents.emit("before-input-event", nextEvents[index], inputEvent(nextEvents[index]));
+      });
+
+      const tabSwitchQueues = (
+        harness.manager as unknown as { runtimeTabSwitchQueues: Map<number, unknown> }
+      ).runtimeTabSwitchQueues;
+      await vi.waitFor(() => expect(tabSwitchQueues.has(11)).toBe(true));
+      harness.hosts[0].emit("closed");
+      expect(tabSwitchQueues.has(11)).toBe(false);
+
+      const invokeCountAtDestroy = invoke.mock.calls.filter(
+        ([command]) => command.type === "embeddedTabActivateAdjacent"
+      ).length;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const invokeCountAfterDestroy = invoke.mock.calls.filter(
+        ([command]) => command.type === "embeddedTabActivateAdjacent"
+      ).length;
+      expect(invokeCountAfterDestroy).toBe(invokeCountAtDestroy);
+      nextEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
+    }
+  );
+
   it("overlays macOS fullscreen chrome without relaying out or reloading the game", async () => {
     vi.useFakeTimers();
     const harness = createHarness({
@@ -4819,6 +5007,7 @@ function createHarness(options: {
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   workspaceLayoutResolver?: ElectronBrowserRuntimeOptions["workspaceLayoutResolver"];
+  tabSwitchCommandDelayMs?: number;
   useTabbedHostWindow?: boolean;
   useMacNativeChrome?: boolean;
 } = {}) {
@@ -5017,6 +5206,9 @@ function createHarness(options: {
       command = { type: "embeddedRoleStop", roleId: command.roleId };
     } else if (command.type === "browserWorkspaceStop") {
       command = { type: "embeddedWorkspaceStop", workspaceId: command.workspaceId };
+    }
+    if (command.type === "embeddedTabActivateAdjacent" && options.tabSwitchCommandDelayMs) {
+      await new Promise((resolve) => setTimeout(resolve, options.tabSwitchCommandDelayMs));
     }
     switch (command.type) {
       case "embeddedRoleLaunch": {
@@ -5560,6 +5752,7 @@ function createMockView(
       destroyed = true;
     }),
     executeJavaScript: vi.fn(async () => ""),
+    isFocused: vi.fn(() => false),
     focus: vi.fn(),
     getOSProcessId: vi.fn(() => processId),
     getURL: vi.fn(() => currentUrl),

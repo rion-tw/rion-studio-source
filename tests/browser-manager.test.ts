@@ -2907,6 +2907,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     };
 
     expect(classifyRuntimeTabSwitchShortcut(input)).toBe(expected);
+    expect(classifyRuntimeTabSwitchShortcut({ ...input, type: "rawKeyDown" })).toBe(expected);
     expect(classifyRuntimeTabSwitchShortcut({ ...input, alt: true })).toBeUndefined();
     expect(classifyRuntimeTabSwitchShortcut({ ...input, control: false })).toBeUndefined();
     expect(classifyRuntimeTabSwitchShortcut({ ...input, meta: true })).toBeUndefined();

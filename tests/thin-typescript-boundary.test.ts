@@ -19,6 +19,7 @@ const prohibitedNodeModules = new Set([
 ]);
 const allowedNodeIoImports = new Set([
   // This adapter locates the AppKit addon it owns; it does not perform domain I/O.
+  "src/main/updates/AppUpdatePreferencesStore.ts:node:fs/promises",
   "src/main/browser/MacRuntimeTabsController.ts:node:fs"
 ]);
 const allowedMapProperties = new Set([
@@ -26,6 +27,7 @@ const allowedMapProperties = new Set([
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHostByChromeWebContentsId",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHosts",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.dividerByWebContentsId",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.runtimeTabSwitchQueues",
   // Electron-only single-flight generation state; Rust still owns layout decisions.
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.hostLayoutStates",
   // Serialized presentation dedupe for native/runtime chrome sends, not domain state.

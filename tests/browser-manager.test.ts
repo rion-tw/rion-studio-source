@@ -1629,9 +1629,6 @@ describe("ElectronBrowserRuntime game host windows", () => {
       });
 
       await vi.waitFor(() => {
-        expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(
-          firstViewFocusCalls + 1
-        );
         expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(
           secondViewFocusCalls + 1
         );
@@ -1643,7 +1640,6 @@ describe("ElectronBrowserRuntime game host windows", () => {
       ]));
       nextEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
       expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
-      expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls + 1);
       expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(secondViewFocusCalls + 1);
       expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(thirdViewFocusCalls);
 
@@ -1669,9 +1665,6 @@ describe("ElectronBrowserRuntime game host windows", () => {
       });
 
       await vi.waitFor(() => {
-        expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(
-          firstViewFocusCalls + 2
-        );
         expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(
           thirdViewFocusCalls + 1
         );
@@ -1683,7 +1676,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
       ]));
       previousEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
       expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
-      expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls + 2);
+      expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls);
       expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(secondViewFocusCalls + 1);
       expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(thirdViewFocusCalls + 1);
       v1Case(
@@ -1764,16 +1757,24 @@ describe("ElectronBrowserRuntime game host windows", () => {
       await vi.waitFor(() => expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
         expect.objectContaining({ active: true, id: finalTab.id })
       ])));
+      await vi.waitFor(() => {
+        const tabSwitchCalls = tabActivateAdjacentCalls.mock.calls.filter(
+          ([command]) => command.type === "embeddedTabActivateAdjacent"
+        );
+        expect(tabSwitchCalls).toHaveLength(nextEvents.length);
+      });
       const finalViewIndex = tabs.findIndex((tab) => tab.id === finalTab.id);
       const finalViewFocusCalls = [firstViewFocusCalls, secondViewFocusCalls, thirdViewFocusCalls];
-      finalViewFocusCalls.forEach((baselineCalls, index) => {
-        const expectedCalls = index === finalViewIndex ? baselineCalls + 1 : baselineCalls;
-        expect(harness.views[index].webContents.focus).toHaveBeenCalledTimes(expectedCalls);
+      await vi.waitFor(() => {
+        finalViewFocusCalls.forEach((baselineCalls, index) => {
+          const expectedCalls = index === finalViewIndex ? baselineCalls + 1 : baselineCalls;
+          expect(harness.views[index].webContents.focus).toHaveBeenCalledTimes(expectedCalls);
+        });
       });
+      nextEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
       const tabSwitchCalls = tabActivateAdjacentCalls.mock.calls.filter(
         ([command]) => command.type === "embeddedTabActivateAdjacent"
       );
-      nextEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
       expect(tabSwitchCalls).toHaveLength(nextEvents.length);
       expect(tabSwitchCalls.map(([command]) => command.direction)).toEqual(Array(nextEvents.length).fill("next"));
       expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);

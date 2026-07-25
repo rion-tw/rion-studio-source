@@ -19,6 +19,7 @@ import type {
   CoreEffectAction,
   CoreJsonValue,
   LayoutRoleInput,
+  ResolvedBrowserEngine,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -61,6 +62,20 @@ import type {
   MacRuntimeTabsController,
   MacRuntimeTabsControllerFactory
 } from "./MacRuntimeTabsController";
+import type {
+  RuntimeHostLaunchTarget as BrowserWorkspaceLaunchTarget,
+  RuntimeHostPort,
+  RuntimeHostRestoreTabInput as EmbeddedRestoreTabInput,
+  RuntimeHostWorkspaceItem as BrowserWorkspaceLaunchItem,
+  RuntimeHostWorkspaceStatus as BrowserWorkspaceRuntimeStatus
+} from "./ports/RuntimeHostPort";
+
+export type {
+  RuntimeHostLaunchTarget as BrowserWorkspaceLaunchTarget,
+  RuntimeHostRestoreTabInput as EmbeddedRestoreTabInput,
+  RuntimeHostWorkspaceItem as BrowserWorkspaceLaunchItem,
+  RuntimeHostWorkspaceStatus as BrowserWorkspaceRuntimeStatus
+} from "./ports/RuntimeHostPort";
 
 export interface ElectronBrowserRuntimeEvents {
   change: [RoleStatus[]];
@@ -72,30 +87,7 @@ export interface BrowserLaunchOptions {
   target?: BrowserWorkspaceLaunchTarget;
 }
 
-export interface BrowserWorkspaceLaunchItem {
-  browserZoomPercent?: WorkspaceSlotBrowserZoomPercent;
-  rect: NormalizedRect;
-  role: Role;
-}
-
-export interface BrowserWorkspaceLaunchTarget {
-  displayId: number;
-  workArea: PixelBounds;
-}
-
-export interface EmbeddedRestoreTabInput {
-  type: "role" | "workspace";
-  sourceId: string;
-  hidden: boolean;
-  audioMuted: boolean;
-}
-
-export type BrowserWorkspaceRuntimeState = "launching" | "running" | "stopping";
-
-export interface BrowserWorkspaceRuntimeStatus {
-  workspaceId: string;
-  state: BrowserWorkspaceRuntimeState;
-}
+export type BrowserWorkspaceRuntimeState = BrowserWorkspaceRuntimeStatus["state"];
 
 export interface BrowserAutomationSession {
   role: Role;
@@ -303,6 +295,7 @@ interface BrowserSession {
   popupViews: Set<WebContentsView>;
   rect: NormalizedRect;
   role: Role;
+  resolvedEngine: ResolvedBrowserEngine;
   target: BrowserAutomationTarget;
   view: WebContentsView;
   webContents: WebContents;
@@ -450,7 +443,9 @@ function getWorkspaceWindowMaterialOptions(
   return { backgroundColor: "#000000" };
 }
 
-export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeEvents> {
+export class ElectronBrowserRuntime
+  extends EventEmitter<ElectronBrowserRuntimeEvents>
+  implements RuntimeHostPort {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
   private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
@@ -556,7 +551,8 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
             host,
             role.rect,
             role.zoomFactor,
-            role.zoomMode
+            role.zoomMode,
+            role.resolvedEngine
           );
           if ((index + 1) % 2 === 0 && index + 1 < tab.roles.length) {
             await yieldToElectronMainLoop();
@@ -598,6 +594,13 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       case "embeddedLoadRoles": {
         await waitForAllEffects(action.roles.map(async (role) => {
           const session = this.requireEmbeddedSession(role.roleId);
+          if (session.resolvedEngine !== role.resolvedEngine) {
+            throw effectError(
+              "EMBEDDED_ENGINE_EFFECT_MISMATCH",
+              `Role ${role.roleId} was created for ${session.resolvedEngine}, ` +
+              `but its load effect requires ${role.resolvedEngine}.`
+            );
+          }
           this.assertSessionActive(session);
           if (session.zoomMode !== "adaptive") {
             await this.applyZoom(session, role.zoomFactor);
@@ -2163,8 +2166,15 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     host: GameHostWindow,
     rect: NormalizedRect,
     zoomFactor: number,
-    zoomMode: WorkspaceBrowserZoomMode = "fixed"
+    zoomMode: WorkspaceBrowserZoomMode = "fixed",
+    resolvedEngine: "electron" | "external-chrome" | "webview2" | "wkwebview" = "electron"
   ): Promise<BrowserSession> {
+    if (resolvedEngine !== "electron") {
+      throw effectError(
+        "SYSTEM_RUNTIME_NOT_REGISTERED",
+        `The ${resolvedEngine} launch effect reached the Electron-only session adapter.`
+      );
+    }
     const initialZoomFactor = zoomFactor;
     const partition = createRoleSessionPartition(role.id);
     await this.applyBrowserFonts(role);
@@ -2190,6 +2200,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       popupViews: new Set(),
       rect,
       role,
+      resolvedEngine,
       target: new ElectronAutomationTarget(
         view,
         webContents,

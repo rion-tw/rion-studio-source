@@ -1,5 +1,10 @@
 import type { Session } from "electron";
 
+import type {
+  CoreJsonValue,
+  EmbeddedBrowserEngine,
+  RolePathsRecord
+} from "../../shared/generated";
 import type { ProfileCoreEffectAction } from "../core/ElectronEffectExecutor";
 
 const ROLE_STORAGE_DATA_TYPES: NonNullable<Parameters<Session["clearData"]>[0]>["dataTypes"] = [
@@ -20,6 +25,34 @@ type ProfileSession = Pick<
 export interface ElectronProfileEffectAdapterOptions {
   getEmbeddedSession: (roleId: string) => ProfileSession;
   getImportedSession: (browserUserDataDir: string) => ProfileSession;
+  getSystemSessionStore?: (
+    roleId: string,
+    paths: RolePathsRecord
+  ) => Promise<SystemSessionStorePort> | SystemSessionStorePort;
+  verifyEngineSession?: (
+    roleId: string,
+    engine: EmbeddedBrowserEngine,
+    launchUrl: string,
+    paths: RolePathsRecord
+  ) => Promise<boolean>;
+}
+
+export interface BrowserCookieTransferRecord {
+  domain?: string;
+  expirationDate?: number;
+  httpOnly?: boolean;
+  name: string;
+  path?: string;
+  sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";
+  secure?: boolean;
+  url: string;
+  value: string;
+}
+
+export interface SystemSessionStorePort {
+  clearCookies(): Promise<void>;
+  getCookies(): Promise<BrowserCookieTransferRecord[]>;
+  setCookies(cookies: readonly BrowserCookieTransferRecord[]): Promise<number>;
 }
 
 /**
@@ -29,7 +62,7 @@ export interface ElectronProfileEffectAdapterOptions {
 export class ElectronProfileEffectAdapter {
   constructor(private readonly options: ElectronProfileEffectAdapterOptions) {}
 
-  async execute(action: ProfileCoreEffectAction): Promise<void> {
+  async execute(action: ProfileCoreEffectAction): Promise<CoreJsonValue | undefined> {
     switch (action.type) {
       case "chromeProfileApplySession": {
         const target = this.options.getImportedSession(action.browserUserDataDir);
@@ -38,19 +71,163 @@ export class ElectronProfileEffectAdapter {
           await setCookieUnlessRejected(target, cookie);
         }
         target.flushStorageData();
-        return;
+        return undefined;
       }
       case "chromeProfileClearSession":
         await clearSession(this.options.getImportedSession(action.browserUserDataDir));
-        return;
+        return undefined;
       case "roleBrowserDataClearSession": {
         const target = action.sessionSource === "chrome-profile"
           ? this.options.getImportedSession(action.browserUserDataDir)
           : this.options.getEmbeddedSession(action.roleId);
         await clearSession(target);
+        return undefined;
+      }
+      case "roleSessionMigrationInspect": {
+        const [source, target] = await Promise.all([
+          this.getMigrationStore(
+            action.roleId,
+            action.sourceEngine,
+            action.sessionSource,
+            action.paths,
+            true
+          ),
+          this.getMigrationStore(
+            action.roleId,
+            action.targetEngine,
+            action.sessionSource,
+            action.paths,
+            false
+          )
+        ]);
+        const [sourceCookies, targetCookies] = await Promise.all([
+          source.getCookies(),
+          target.getCookies()
+        ]);
+        return {
+          sourceCookieCount: sourceCookies.length,
+          targetCookieCount: targetCookies.length
+        };
+      }
+      case "roleSessionMigrationApply": {
+        const source = await this.getMigrationStore(
+          action.roleId,
+          action.sourceEngine,
+          action.sessionSource,
+          action.paths,
+          true
+        );
+        const target = await this.getMigrationStore(
+          action.roleId,
+          action.targetEngine,
+          action.sessionSource,
+          action.paths,
+          false
+        );
+        const [sourceCookies, targetCookies] = await Promise.all([
+          source.getCookies(),
+          target.getCookies()
+        ]);
+        if (targetCookies.length > 0) {
+          throw effectError(
+            "ROLE_SESSION_MIGRATION_TARGET_NOT_EMPTY",
+            "The target browser cookie store is not empty."
+          );
+        }
+        try {
+          const cookiesMigrated = await target.setCookies(sourceCookies);
+          const authVerified = await this.options.verifyEngineSession?.(
+            action.roleId,
+            action.targetEngine,
+            action.launchUrl,
+            action.paths
+          ) ?? false;
+          if (!authVerified) await target.clearCookies();
+          return { authVerified, cookiesMigrated };
+        } catch (error) {
+          await target.clearCookies().catch(() => undefined);
+          throw error;
+        }
+      }
+      case "roleSessionMigrationRollback": {
+        const target = await this.getMigrationStore(
+          action.roleId,
+          action.targetEngine,
+          action.sessionSource,
+          action.paths,
+          false
+        );
+        await target.clearCookies();
+        return { targetStoreCleared: true };
       }
     }
   }
+
+  private async getMigrationStore(
+    roleId: string,
+    engine: EmbeddedBrowserEngine,
+    sessionSource: "managed" | "chrome-profile",
+    paths: RolePathsRecord,
+    source: boolean
+  ): Promise<SystemSessionStorePort> {
+    if (engine === "system") {
+      const store = await this.options.getSystemSessionStore?.(roleId, paths);
+      if (!store) {
+        throw effectError(
+          "SYSTEM_SESSION_STORE_UNAVAILABLE",
+          "The System browser cookie store adapter is unavailable."
+        );
+      }
+      return store;
+    }
+    const session = source && sessionSource === "chrome-profile"
+      ? this.options.getImportedSession(paths.electronBrowserUserDataDir)
+      : this.options.getEmbeddedSession(roleId);
+    return electronCookieStore(session);
+  }
+}
+
+function electronCookieStore(session: ProfileSession): SystemSessionStorePort {
+  return {
+    clearCookies: async () => {
+      await session.clearStorageData({ storages: ["cookies"] });
+      session.flushStorageData();
+    },
+    getCookies: async () => {
+      const cookies = await session.cookies.get({});
+      return cookies.map((cookie) => {
+        const domain = cookie.domain?.replace(/^\./u, "");
+        if (!domain) {
+          throw effectError(
+            "ROLE_SESSION_MIGRATION_COOKIE_INVALID",
+            `Cookie ${cookie.name} does not have a transferable domain.`
+          );
+        }
+        return {
+          domain: cookie.domain,
+          ...(cookie.expirationDate === undefined
+            ? {}
+            : { expirationDate: cookie.expirationDate }),
+          httpOnly: cookie.httpOnly,
+          name: cookie.name,
+          path: cookie.path,
+          sameSite: cookie.sameSite,
+          secure: cookie.secure,
+          url: `${cookie.secure ? "https" : "http"}://${domain}${cookie.path || "/"}`,
+          value: cookie.value
+        };
+      });
+    },
+    setCookies: async (cookies) => {
+      let migrated = 0;
+      for (const cookie of cookies) {
+        await setCookieUnlessRejected(session, cookie);
+        migrated += 1;
+      }
+      session.flushStorageData();
+      return migrated;
+    }
+  };
 }
 
 function parseCookies(value: string): Electron.CookiesSetDetails[] {

@@ -4,7 +4,11 @@ import type {
   ReorderItemsInput,
   Role,
   RoleBrowserSessionSource,
+  EmbeddedBrowserEngine,
   RolePaths,
+  RoleSessionMigrationPreview,
+  RoleSessionMigrationResult,
+  RoleSessionMigrationRollback,
   UpdateRoleInput
 } from "../../shared/types";
 import type { AppCoreClient } from "../core/nativeCore";
@@ -86,6 +90,32 @@ export class RoleStore {
     return this.core.invoke({ type: "roleSetBrowserSessionSource", id, source });
   }
 
+  previewSessionMigration(
+    id: string,
+    targetEngine: EmbeddedBrowserEngine
+  ): Promise<RoleSessionMigrationPreview> {
+    return this.core.invoke({
+      type: "roleSessionMigrationPreview",
+      roleId: id,
+      targetEngine
+    });
+  }
+
+  applySessionMigration(
+    id: string,
+    targetEngine: EmbeddedBrowserEngine
+  ): Promise<RoleSessionMigrationResult> {
+    return this.core.invoke({
+      type: "roleSessionMigrationApply",
+      roleId: id,
+      targetEngine
+    });
+  }
+
+  rollbackSessionMigration(id: string): Promise<RoleSessionMigrationRollback> {
+    return this.core.invoke({ type: "roleSessionMigrationRollback", roleId: id });
+  }
+
   assignGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]> {
     return this.core.invoke({
       type: "roleAssignGameIds",
@@ -97,9 +127,13 @@ export class RoleStore {
     return this.core.invoke({ type: "rolePathsResolve", id });
   }
 
+  ensureBrowserPaths(id: string): Promise<RolePaths> {
+    return this.core.invoke({ type: "roleBrowserDirectoryEnsure", id });
+  }
+
   async ensureBrowserUserDataDir(id: string): Promise<string> {
-    const paths = await this.core.invoke({ type: "roleBrowserDirectoryEnsure", id });
-    return paths.browserUserDataDir;
+    const paths = await this.ensureBrowserPaths(id);
+    return paths.electronBrowserUserDataDir ?? paths.browserUserDataDir;
   }
 
   async resetBrowserUserDataDir(id: string): Promise<string> {

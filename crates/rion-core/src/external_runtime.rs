@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use crate::model::{
-    BrowserGraphicsSettingsRecord, BrowserRoleStatusRecord, BrowserWorkspaceStatusRecord,
-    ExternalChromeDiagnosticsRecord, ExternalSessionRecord, StateNormalizedRectRecord,
+    BrowserGraphicsSettingsRecord, BrowserHostKind, BrowserRoleStatusRecord,
+    BrowserWorkspaceStatusRecord, EmbeddedBrowserEngine, ExternalChromeDiagnosticsRecord,
+    ExternalSessionRecord, ResolvedBrowserEngine, StateNormalizedRectRecord,
     StatePixelBoundsRecord,
 };
 
@@ -217,6 +218,11 @@ pub(crate) fn role_statuses(
             automation_state: None,
             overlay_state: None,
             page_health: None,
+            preferred_engine: Some(EmbeddedBrowserEngine::Electron),
+            resolved_engine: Some(ResolvedBrowserEngine::Electron),
+            host_kind: Some(BrowserHostKind::Electron),
+            fallback_reason: None,
+            capability_snapshot: None,
         })
         .chain(external.iter().map(|session| BrowserRoleStatusRecord {
             role_id: session.role.id.clone(),
@@ -239,6 +245,11 @@ pub(crate) fn role_statuses(
                 }
             }),
             page_health: session.page_health.clone(),
+            preferred_engine: None,
+            resolved_engine: Some(ResolvedBrowserEngine::ExternalChrome),
+            host_kind: Some(BrowserHostKind::External),
+            fallback_reason: None,
+            capability_snapshot: None,
         }))
         .collect::<Vec<_>>();
     statuses.sort_by(|left, right| left.role_id.cmp(&right.role_id));
@@ -271,6 +282,11 @@ pub(crate) fn workspace_statuses(
         .map(|(workspace_id, state)| BrowserWorkspaceStatusRecord {
             workspace_id,
             state,
+            preferred_engine: None,
+            resolved_engine: None,
+            host_kind: None,
+            fallback_reason: None,
+            capability_snapshot: None,
         })
         .collect::<Vec<_>>();
     statuses.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));

@@ -25,9 +25,9 @@ import type { GameStore } from "../games/GameStore";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import type {
-  BrowserWorkspaceLaunchTarget,
-  ElectronBrowserRuntime
-} from "./ElectronBrowserRuntime";
+  RuntimeHostLaunchTarget as BrowserWorkspaceLaunchTarget,
+  RuntimeHostPort
+} from "./ports/RuntimeHostPort";
 
 const SAVE_DEBOUNCE_MS = 300;
 const PERMANENT_RESTORE_ERROR_CODES = new Set([
@@ -39,7 +39,7 @@ const PERMANENT_RESTORE_ERROR_CODES = new Set([
 ]);
 
 interface RuntimeSessionManagerOptions {
-  browserManager: ElectronBrowserRuntime;
+  browserManager: RuntimeHostPort;
   canRestoreSavedWindows: () => Promise<boolean>;
   core: Pick<AppCoreClient, "invoke">;
   gameBrowserSettingsStore: Pick<GameBrowserSettingsStore, "getSettings">;

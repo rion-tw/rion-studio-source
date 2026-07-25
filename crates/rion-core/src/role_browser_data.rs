@@ -9,23 +9,50 @@ use crate::{
     error::{CoreError, CoreResult},
     model::RolePathsRecord,
 };
+use sha2::{Digest, Sha256};
 
 const REMOVE_RETRIES: usize = 8;
 const REMOVE_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord> {
     validate_role_id(role_id)?;
+    let browser_user_data_dir = browser_directory(user_data_dir, role_id);
     Ok(RolePathsRecord {
-        browser_user_data_dir: browser_directory(user_data_dir, role_id)
+        browser_user_data_dir: browser_user_data_dir.to_string_lossy().into_owned(),
+        electron_browser_user_data_dir: browser_user_data_dir.to_string_lossy().into_owned(),
+        system_browser_data_dir: browser_user_data_dir
+            .join("system")
             .to_string_lossy()
             .into_owned(),
+        webview2_user_data_dir: browser_user_data_dir
+            .join("webview2")
+            .to_string_lossy()
+            .into_owned(),
+        webkit_data_store_key: format!("role:{role_id}:wkwebview"),
+        webkit_data_store_identifier: webkit_data_store_identifier(role_id),
     })
+}
+
+fn webkit_data_store_identifier(role_id: &str) -> String {
+    let digest = Sha256::digest(format!("rion-studio:wkwebsite-data-store:{role_id}"));
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    // RFC 9562 UUIDv8 is reserved for application-defined deterministic UUIDs.
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes).to_string()
 }
 
 pub fn ensure(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord> {
     let paths = paths(user_data_dir, role_id)?;
     fs::create_dir_all(&paths.browser_user_data_dir)
         .map_err(|error| io_error(Path::new(&paths.browser_user_data_dir), error))?;
+    for directory in [
+        &paths.system_browser_data_dir,
+        &paths.webview2_user_data_dir,
+    ] {
+        fs::create_dir_all(directory).map_err(|error| io_error(Path::new(directory), error))?;
+    }
     Ok(paths)
 }
 
@@ -33,8 +60,7 @@ pub fn reset(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord>
     let paths = paths(user_data_dir, role_id)?;
     let directory = Path::new(&paths.browser_user_data_dir);
     remove_with_retry(directory)?;
-    fs::create_dir_all(directory).map_err(|error| io_error(directory, error))?;
-    Ok(paths)
+    ensure(user_data_dir, role_id)
 }
 
 pub fn remove(user_data_dir: &Path, role_id: &str) -> CoreResult<()> {
@@ -160,11 +186,40 @@ mod tests {
         let directory = tempdir().unwrap();
         let paths = ensure(directory.path(), "role-1").unwrap();
         let browser = Path::new(&paths.browser_user_data_dir);
+        let system = Path::new(&paths.system_browser_data_dir);
+        let webview2 = Path::new(&paths.webview2_user_data_dir);
+        assert_eq!(
+            paths.electron_browser_user_data_dir,
+            paths.browser_user_data_dir
+        );
+        assert_eq!(paths.webkit_data_store_key, "role:role-1:wkwebview");
+        assert_eq!(
+            paths.webkit_data_store_identifier,
+            webkit_data_store_identifier("role-1")
+        );
+        assert_eq!(
+            paths.webkit_data_store_identifier,
+            super::paths(directory.path(), "role-1")
+                .unwrap()
+                .webkit_data_store_identifier
+        );
+        assert_ne!(
+            paths.webkit_data_store_identifier,
+            webkit_data_store_identifier("role-2")
+        );
+        assert!(system.is_dir());
+        assert!(webview2.is_dir());
         fs::write(browser.join("session"), b"state").unwrap();
+        fs::write(system.join("locator.json"), b"{}").unwrap();
+        fs::write(webview2.join("cookie-store"), b"state").unwrap();
 
-        reset(directory.path(), "role-1").unwrap();
+        let reset_paths = reset(directory.path(), "role-1").unwrap();
         assert!(browser.is_dir());
         assert!(!browser.join("session").exists());
+        assert!(Path::new(&reset_paths.system_browser_data_dir).is_dir());
+        assert!(Path::new(&reset_paths.webview2_user_data_dir).is_dir());
+        assert!(!system.join("locator.json").exists());
+        assert!(!webview2.join("cookie-store").exists());
 
         remove(directory.path(), "role-1").unwrap();
         assert!(!directory.path().join("roles/role-1").exists());

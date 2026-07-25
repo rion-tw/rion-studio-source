@@ -19,6 +19,10 @@ import { Button } from "../../components/ui/button";
 import { IconTile, PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
+import {
+  getBrowserEngineStatusTitle,
+  getResolvedBrowserEngineLabel
+} from "../../app/browserEnginePresentation";
 import type { SidebarFilter } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -622,7 +626,12 @@ function RoleLaunchRow({
         </span>
       </div>
       <Badge className="h-[18px] justify-self-end px-1.5 text-[10px]" variant={getRoleBadgeVariant(item)}>
-        {getRoleStatusLabel(item, t)}
+        <span title={status ? getBrowserEngineStatusTitle(status, t) : undefined}>
+          {getRoleStatusLabel(item, t)}
+          {status?.resolvedEngine
+            ? ` · ${getResolvedBrowserEngineLabel(status.resolvedEngine, t)}`
+            : ""}
+        </span>
       </Badge>
       {isExternalCompatibilitySession ? (
         <Button

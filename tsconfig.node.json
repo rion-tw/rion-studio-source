@@ -10,6 +10,7 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/renderer/src/app/constants.ts",
+    "src/renderer/src/app/browserEnginePresentation.ts",
     "src/renderer/src/app/copyName.ts",
     "src/renderer/src/app/editorFormState.ts",
     "src/renderer/src/app/editorNavigation.ts",

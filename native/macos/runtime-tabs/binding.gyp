@@ -4,14 +4,16 @@
       "target_name": "rion-runtime-tabs",
       "sources": [
         "addon.mm",
-        "RionRuntimeTabsController.mm"
+        "RionRuntimeTabsController.mm",
+        "RionSystemWebViewSurface.mm"
       ],
       "xcode_settings": {
         "CLANG_CXX_LANGUAGE_STANDARD": "c++20",
         "CLANG_ENABLE_OBJC_ARC": "YES",
-        "MACOSX_DEPLOYMENT_TARGET": "12.0",
+        "MACOSX_DEPLOYMENT_TARGET": "14.0",
         "OTHER_LDFLAGS": [
-          "-framework AppKit"
+          "-framework AppKit",
+          "-framework WebKit"
         ]
       }
     },
@@ -20,14 +22,16 @@
       "type": "executable",
       "sources": [
         "RionRuntimeTabsController.mm",
+        "RionSystemWebViewSurface.mm",
         "RionRuntimeTabsControllerTests.mm"
       ],
       "xcode_settings": {
         "CLANG_CXX_LANGUAGE_STANDARD": "c++20",
         "CLANG_ENABLE_OBJC_ARC": "YES",
-        "MACOSX_DEPLOYMENT_TARGET": "12.0",
+        "MACOSX_DEPLOYMENT_TARGET": "14.0",
         "OTHER_LDFLAGS": [
-          "-framework AppKit"
+          "-framework AppKit",
+          "-framework WebKit"
         ]
       }
     }

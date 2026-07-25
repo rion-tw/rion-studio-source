@@ -41,6 +41,7 @@ import type {
   BrowserMacosGraphicsBackend,
   BrowserWindowsGraphicsBackend,
   BrowserLaunchMode,
+  EmbeddedBrowserEngine,
   GameBrowserSettings,
   Game,
   GraphicsDiagnostics,
@@ -559,6 +560,31 @@ function SettingsViewBase({
         {activeSection === "game" ? (
           <>
             <SettingsSection title={t("settings.gameGroupBrowser")}>
+              <SettingsRow
+                title={t("settings.browserEngine")}
+                description={t("settings.browserEngineDescription")}
+                control={
+                  <Select
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).browserEngine ?? "system"}
+                    onValueChange={(value) =>
+                      void onGameBrowserSettingsChange(
+                        normalizeGameBrowserSettings({
+                          ...gameBrowserSettings,
+                          browserEngine: value as EmbeddedBrowserEngine
+                        })
+                      ).catch(onError)
+                    }
+                  >
+                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.browserEngine")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="system">{t("settings.browserEngineSystem")}</SelectItem>
+                      <SelectItem value="electron">{t("settings.browserEngineElectron")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                }
+              />
               <SettingsRow
                 title={t("settings.browserLaunchMode")}
                 description={t("settings.browserLaunchModeDescription")}

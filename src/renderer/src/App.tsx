@@ -696,6 +696,9 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     onClearBrowserData={(role) => void roleWorkflow.handleClearBrowserData(role)}
+                    onBrowserSessionMigration={(role) =>
+                      void roleWorkflow.handleBrowserSessionMigration(role)
+                    }
                     onClearQuery={() => roleWorkflow.setQuery("")}
                     onCaptureExternalDiagnostics={handleCaptureExternalDiagnostics}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}

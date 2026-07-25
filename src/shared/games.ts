@@ -36,6 +36,7 @@ export const BUILTIN_GAME_DEFINITIONS: readonly BuiltinGameDefinition[] = [
 export function createBuiltinGame(definition: BuiltinGameDefinition, timestamp: string): Game {
   return {
     ...definition,
+    browserEngine: "inherit",
     source: "builtin",
     createdAt: timestamp,
     updatedAt: timestamp

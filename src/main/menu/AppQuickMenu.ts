@@ -4,7 +4,7 @@ import type {
   PendingWorkspaceLaunchRequest,
   WorkspaceDisplayInfo
 } from "../../shared/types";
-import type { ElectronBrowserRuntime } from "../browser/ElectronBrowserRuntime";
+import type { RuntimeHostPort } from "../browser/ports/RuntimeHostPort";
 import type { RuntimeSessionManager } from "../browser/RuntimeSessionManager";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -13,7 +13,7 @@ import { buildAppQuickMenuTemplate } from "./AppQuickMenuTemplate";
 
 interface AppQuickMenuOptions {
   browserManager: Pick<
-    ElectronBrowserRuntime,
+    RuntimeHostPort,
     "launch" | "listEmbeddedRuntimeState" | "listStatuses" | "listWorkspaceRuntimeStatuses" |
       "showEmbeddedRuntimeWindows" | "stopAll" | "stopWorkspace"
   >;

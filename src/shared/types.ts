@@ -1,9 +1,12 @@
 import type {
+  BrowserEngineOverride as RustBrowserEngineOverride,
+  BrowserHostKind as RustBrowserHostKind,
   BrowserCdnCompatibilityRecord,
   BrowserFontSettingsRecord,
   BrowserGraphicsSettingsRecord,
   BrowserNetworkSettingsRecord,
   BrowserProxySettingsRecord,
+  BrowserSessionSource as RustBrowserSessionSource,
   ChromeProfileEntryRecord,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
@@ -13,6 +16,9 @@ import type {
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
   DiagnosticExportResultRecord,
+  EmbeddedBrowserEngine as RustEmbeddedBrowserEngine,
+  EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
+  EngineFallbackReason as RustEngineFallbackReason,
   ExternalGraphicsDiagnosticsRecord,
   GameCreateRequest,
   GameBrowserSettingsRecord,
@@ -71,8 +77,12 @@ import type {
   WorkspaceAppearanceSettingsRecord,
   RoleCreateRequest,
   RolePathsRecord,
+  RoleSessionMigrationPreviewRecord,
+  RoleSessionMigrationResultRecord,
+  RoleSessionMigrationRollbackRecord,
   RoleUpdateRequest,
   RuntimeWindowPreferencesRecord,
+  ResolvedBrowserEngine as RustResolvedBrowserEngine,
   WorkspaceCreateRequest,
   WorkspaceUpdateRequest
 } from "./generated";
@@ -115,7 +125,7 @@ export type UpdateGameInput = GameUpdateRequest;
 export type Role = StateRoleRecord;
 
 /** Selects the browser storage backend; this is not an authentication state. */
-export type RoleBrowserSessionSource = "embedded" | "chrome-profile";
+export type RoleBrowserSessionSource = RustBrowserSessionSource;
 
 export type CreateRoleInput = RoleCreateRequest;
 
@@ -155,6 +165,11 @@ export interface RoleStatus {
   overlayState?: "ready" | "unavailable";
   /** Health reported by the external Chrome page diagnostics bridge. */
   pageHealth?: "healthy" | "unresponsive";
+  preferredEngine?: EmbeddedBrowserEngine;
+  resolvedEngine?: ResolvedBrowserEngine;
+  hostKind?: BrowserHostKind;
+  fallbackReason?: EngineFallbackReason;
+  capabilitySnapshot?: EngineCapabilitySnapshot;
 }
 
 export type EmbeddedRuntimeTabType = "role" | "workspace";
@@ -279,6 +294,9 @@ export interface MacroRunStatus {
 }
 
 export type RolePaths = RolePathsRecord;
+export type RoleSessionMigrationPreview = RoleSessionMigrationPreviewRecord;
+export type RoleSessionMigrationResult = RoleSessionMigrationResultRecord;
+export type RoleSessionMigrationRollback = RoleSessionMigrationRollbackRecord;
 
 export type NormalizedRect = StateNormalizedRectRecord;
 
@@ -367,6 +385,12 @@ export type BrowserWindowsGraphicsBackend = BrowserGraphicsSettingsRecord["backe
 export type BrowserLaunchMode = "auto" | "embedded" | "external";
 export type BrowserRuntimeMode = "embedded" | "external";
 export type InheritableBrowserLaunchMode = BrowserLaunchMode | "inherit";
+export type EmbeddedBrowserEngine = RustEmbeddedBrowserEngine;
+export type BrowserEngineOverride = RustBrowserEngineOverride;
+export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
+export type BrowserHostKind = RustBrowserHostKind;
+export type EngineFallbackReason = RustEngineFallbackReason;
+export type EngineCapabilitySnapshot = RustEngineCapabilitySnapshotRecord;
 export type BrowserProxySettingsMode = "system" | "custom";
 export type BrowserCdnCompatibilityMode = "off" | "auto" | "on";
 export type WorkspaceBackgroundStyle = "material" | "black";

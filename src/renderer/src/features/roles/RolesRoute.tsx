@@ -13,7 +13,8 @@ import {
   Square,
   Trash2,
   Upload,
-  RotateCcw
+  RotateCcw,
+  ArrowRightLeft
 } from "lucide-react";
 import {
   type DragEvent,
@@ -38,6 +39,10 @@ import {
 } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { getGameIconUrl } from "../../app/gamePresentation";
+import {
+  getBrowserEngineStatusTitle,
+  getResolvedBrowserEngineLabel
+} from "../../app/browserEnginePresentation";
 import { moveItemById } from "../../app/reorderItems";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { type Language, type TranslationKey, type Translator } from "../../i18n";
@@ -72,6 +77,7 @@ interface RolesViewProps {
   t: Translator;
   onClearQuery: () => void;
   onCaptureExternalDiagnostics?: (roleId: string) => void;
+  onBrowserSessionMigration?: (role: Role) => void;
   onClearBrowserData: (role: Role) => void;
   onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
@@ -102,6 +108,7 @@ function RolesView({
   t,
   onClearQuery,
   onCaptureExternalDiagnostics = () => undefined,
+  onBrowserSessionMigration = () => undefined,
   onClearBrowserData,
   onCopy,
   onDelete,
@@ -291,6 +298,7 @@ function RolesView({
                 selectionRef={selection.registerItem(role.id)}
                 t={t}
                 onCopy={() => onCopy(role)}
+                onBrowserSessionMigration={() => onBrowserSessionMigration(role)}
                 onClearBrowserData={() => onClearBrowserData(role)}
                 onCaptureExternalDiagnostics={() => onCaptureExternalDiagnostics(role.id)}
                 onDelete={() => onDelete(role)}
@@ -344,6 +352,7 @@ interface RoleCardProps {
   isDropTarget: boolean;
   isSelected: boolean;
   onCopy: () => void;
+  onBrowserSessionMigration: () => void;
   onClearBrowserData: () => void;
   onCaptureExternalDiagnostics: () => void;
   onDelete: () => void;
@@ -370,6 +379,7 @@ function RoleCard({
   isDropTarget,
   isSelected,
   onCopy,
+  onBrowserSessionMigration,
   onClearBrowserData,
   onCaptureExternalDiagnostics,
   onDelete,
@@ -428,8 +438,16 @@ function RoleCard({
           isDragging={isDragging}
           isBusy={isBusy}
           isOnCover
+          roleSessionMigrationLabel={
+            role.browserEnginePin === "electron"
+              ? t("role.migrateToSystem")
+              : role.browserEnginePin === "system"
+                ? t("role.rollbackToElectron")
+                : undefined
+          }
           t={t}
           onCopy={onCopy}
+          onBrowserSessionMigration={onBrowserSessionMigration}
           onClearBrowserData={onClearBrowserData}
           onDelete={onDelete}
           onEdit={onEdit}
@@ -522,7 +540,24 @@ function RoleCard({
                 />
               ) : null}
               <div className="grid min-w-0 gap-1">
-                <CardTitle className="role-cover-title min-w-0 truncate text-white">{role.name}</CardTitle>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <CardTitle className="role-cover-title min-w-0 flex-1 truncate text-white">
+                    {role.name}
+                  </CardTitle>
+                  {status?.resolvedEngine ? (
+                    <span
+                      className="shrink-0 rounded-full border border-white/25 bg-black/25 px-1.5 py-0.5 text-[9px] font-semibold text-white/85 backdrop-blur-sm"
+                      title={getBrowserEngineStatusTitle(status, t)}
+                    >
+                      {getResolvedBrowserEngineLabel(status.resolvedEngine, t)}
+                    </span>
+                  ) : null}
+                  {role.browserEnginePin === "electron" ? (
+                    <span className="shrink-0 rounded-full border border-white/25 bg-black/25 px-1.5 py-0.5 text-[9px] font-semibold text-white/85 backdrop-blur-sm">
+                      {t("role.legacyElectron")}
+                    </span>
+                  ) : null}
+                </div>
                 <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
                   {game?.name ?? role.launchUrl}
                 </p>
@@ -541,7 +576,9 @@ interface RoleActionMenuProps {
   isBusy: boolean;
   isDragging: boolean;
   isOnCover?: boolean;
+  roleSessionMigrationLabel?: string;
   onCopy: () => void;
+  onBrowserSessionMigration: () => void;
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -555,7 +592,9 @@ function RoleActionMenu({
   isBusy,
   isDragging,
   isOnCover = false,
+  roleSessionMigrationLabel,
   onCopy,
+  onBrowserSessionMigration,
   onClearBrowserData,
   onDelete,
   onEdit,
@@ -613,6 +652,11 @@ function RoleActionMenu({
   function handleClearBrowserData(): void {
     setIsOpen(false);
     onClearBrowserData();
+  }
+
+  function handleBrowserSessionMigration(): void {
+    setIsOpen(false);
+    onBrowserSessionMigration();
   }
 
   function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
@@ -683,6 +727,18 @@ function RoleActionMenu({
             <span>{t("role.copy")}</span>
           </button>
           <div className="my-1 border-t border-border/60" role="separator" />
+          {roleSessionMigrationLabel ? (
+            <button
+              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              type="button"
+              role="menuitem"
+              onClick={handleBrowserSessionMigration}
+              disabled={isBusy}
+            >
+              <ArrowRightLeft size={14} />
+              <span>{roleSessionMigrationLabel}</span>
+            </button>
+          ) : null}
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             type="button"

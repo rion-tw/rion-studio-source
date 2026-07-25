@@ -61,7 +61,7 @@ const role: Role = {
   name: "Main",
   launchUrl: "https://example.com/play",
   notes: "",
-  browserSessionSource: "embedded",
+  browserSessionSource: "managed",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
@@ -5081,6 +5081,7 @@ function createHarness(options: {
               target: command.target,
               roles: [{
                 role: seededRole,
+                resolvedEngine: "electron",
                 rect: { x: 0, y: 0, width: 1, height: 1 },
                 zoomFactor: command.zoomFactor ?? 1,
                 zoomMode: "fixed"
@@ -5102,6 +5103,7 @@ function createHarness(options: {
             type: "embeddedLoadRoles",
             roles: [{
               roleId: seededRole.id,
+              resolvedEngine: "electron",
               url: seededRole.launchUrl,
               zoomFactor: command.zoomFactor ?? 1
             }]
@@ -5198,6 +5200,7 @@ function createHarness(options: {
               target: command.target,
               roles: seeded.items.map((item) => ({
                 role: item.role,
+                resolvedEngine: "electron",
                 rect: item.rect,
                 zoomFactor: (
                   item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
@@ -5223,6 +5226,7 @@ function createHarness(options: {
             type: "embeddedLoadRoles",
             roles: seeded.items.map((item) => ({
               roleId: item.role.id,
+              resolvedEngine: "electron",
               url: item.role.launchUrl,
               zoomFactor: (
                 item.browserZoomPercent ?? seeded.workspace.browserZoomPercent

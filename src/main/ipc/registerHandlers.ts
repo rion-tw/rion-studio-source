@@ -24,6 +24,7 @@ import type {
   PortableImportInput,
   ReorderItemsInput,
   DiscardSavedGameWindowsInput,
+  EmbeddedBrowserEngine,
   RestoreSavedGameWindowsInput,
   Role,
   RoleStatus,
@@ -665,6 +666,30 @@ export function registerIpcHandlers(
       const role = await options.clearRoleBrowserData(id);
       options.onRolesChanged?.();
       return role;
+    })
+  );
+
+  handle(
+    IPC_CHANNELS.rolesSessionMigrationPreview,
+    (_event, id: string, targetEngine: EmbeddedBrowserEngine) =>
+      roleStore.previewSessionMigration(id, targetEngine)
+  );
+
+  handle(
+    IPC_CHANNELS.rolesSessionMigrationApply,
+    (_event, id: string, targetEngine: EmbeddedBrowserEngine) =>
+      runDataMutation(options, async () => {
+        const result = await roleStore.applySessionMigration(id, targetEngine);
+        options.onRolesChanged?.();
+        return result;
+      })
+  );
+
+  handle(IPC_CHANNELS.rolesSessionMigrationRollback, (_event, id: string) =>
+    runDataMutation(options, async () => {
+      const result = await roleStore.rollbackSessionMigration(id);
+      options.onRolesChanged?.();
+      return result;
     })
   );
 

@@ -14,6 +14,7 @@ import type { CoreStateSnapshotRecord } from "./CoreStateSnapshotRecord";
 import type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecord";
 import type { EmbeddedKeyTransitionRecord } from "./EmbeddedKeyTransitionRecord";
 import type { EmbeddedLaunchResultRecord } from "./EmbeddedLaunchResultRecord";
+import type { EngineCompatibilityCacheRecord } from "./EngineCompatibilityCacheRecord";
 import type { ExternalChromeDiagnosticsRecord } from "./ExternalChromeDiagnosticsRecord";
 import type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
 import type { GraphicsDiagnosticsRecord } from "./GraphicsDiagnosticsRecord";
@@ -30,6 +31,9 @@ import type { PortableExportResultRecord } from "./PortableExportResultRecord";
 import type { PortableImportPreviewRecord } from "./PortableImportPreviewRecord";
 import type { PortableImportResultRecord } from "./PortableImportResultRecord";
 import type { RolePathsRecord } from "./RolePathsRecord";
+import type { RoleSessionMigrationPreviewRecord } from "./RoleSessionMigrationPreviewRecord";
+import type { RoleSessionMigrationResultRecord } from "./RoleSessionMigrationResultRecord";
+import type { RoleSessionMigrationRollbackRecord } from "./RoleSessionMigrationRollbackRecord";
 import type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesRecord";
 import type { RuntimeRestoreSessionRecord } from "./RuntimeRestoreSessionRecord";
 import type { StateCompatibilityReportRecord } from "./StateCompatibilityReportRecord";
@@ -38,6 +42,7 @@ import type { StateLaunchWorkspaceRecord } from "./StateLaunchWorkspaceRecord";
 import type { StateMacroRecord } from "./StateMacroRecord";
 import type { StateRoleRecord } from "./StateRoleRecord";
 import type { SystemFontFamilyRecord } from "./SystemFontFamilyRecord";
+import type { SystemWebViewProbeRecord } from "./SystemWebViewProbeRecord";
 import type { WindowsGraphicsEventCollectionRecord } from "./WindowsGraphicsEventCollectionRecord";
 
 import type { WorkspaceDividerDescriptor } from "./WorkspaceDividerDescriptor";
@@ -48,7 +53,8 @@ export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] |
 
 type DefaultCoreCommandResultMap = { [K in CoreCommand["type"]]: CoreJsonValue };
 
-export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "stateSnapshot" | "gamesList" | "gameGet" | "gameCreate" | "gameUpdate" | "gameResetBuiltin" | "gamesDelete" | "rolesList" | "roleGet" | "roleCreate" | "roleUpdate" | "roleReorder" | "roleBrowserDataClear" | "roleBrowserDirectoryEnsure" | "roleBrowserDirectoryReset" | "rolePathsResolve" | "roleSetBrowserSessionSource" | "roleAssignGameIds" | "rolesDelete" | "workspacesList" | "workspaceGet" | "workspaceCreate" | "workspaceUpdate" | "workspaceReorder" | "workspaceSetRoleBrowserZoom" | "workspaceReconcileDisplays" | "workspacesDelete" | "macrosList" | "macroGet" | "macroCreate" | "macroUpdate" | "macrosDelete" | "compatibilityStatuses" | "compatibilityReportsCurrent" | "compatibilityRun" | "gameBrowserSettingsGet" | "gameBrowserSettingsReplace" | "macroSettingsGet" | "macroSettingsReplace" | "runtimeWindowPreferencesGet" | "runtimeWindowPreferencesReplace" | "runtimeRestoreSessionGet" | "runtimeRestoreSessionReplace" | "legalAcceptanceStatus" | "legalAcceptanceAccept" | "systemFontsList" | "portableExport" | "portableExportTo" | "portablePreview" | "portablePreviewFile" | "portableApply" | "chromeProfileDefaultPath" | "chromeProfilePreview" | "chromeProfilePrepare" | "chromeProfileApply" | "externalProcessLaunch" | "macroStart" | "macroPress" | "macroStatuses" | "layoutResolve" | "layoutNormalizeRects" | "layoutCreateDividers" | "layoutResizeDivider" | "layoutAdaptiveZoom" | "embeddedKeyPrepare" | "embeddedKeysReassert" | "embeddedKeysHeld" | "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "browserRuntimeSnapshot" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "cdnResolveSession" | "graphicsDiagnosticsAssemble" | "logsQuery" | "logsStatus" | "diagnosticsExport" | "telemetrySnapshot" | "overlayRequest" | "windowsGraphicsEventsCollect"> & {
+export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebViewProbe" | "stateSnapshot" | "gamesList" | "gameGet" | "gameCreate" | "gameUpdate" | "gameResetBuiltin" | "gamesDelete" | "rolesList" | "roleGet" | "roleCreate" | "roleUpdate" | "roleReorder" | "roleBrowserDataClear" | "roleSessionMigrationPreview" | "roleSessionMigrationApply" | "roleSessionMigrationRollback" | "roleBrowserDirectoryEnsure" | "roleBrowserDirectoryReset" | "rolePathsResolve" | "roleSetBrowserSessionSource" | "roleAssignGameIds" | "rolesDelete" | "workspacesList" | "workspaceGet" | "workspaceCreate" | "workspaceUpdate" | "workspaceReorder" | "workspaceSetRoleBrowserZoom" | "workspaceReconcileDisplays" | "workspacesDelete" | "macrosList" | "macroGet" | "macroCreate" | "macroUpdate" | "macrosDelete" | "compatibilityStatuses" | "compatibilityReportsCurrent" | "compatibilityRun" | "gameBrowserSettingsGet" | "gameBrowserSettingsReplace" | "engineCompatibilityCacheGet" | "engineCompatibilityCachePut" | "engineCompatibilityCacheDeleteGame" | "macroSettingsGet" | "macroSettingsReplace" | "runtimeWindowPreferencesGet" | "runtimeWindowPreferencesReplace" | "runtimeRestoreSessionGet" | "runtimeRestoreSessionReplace" | "legalAcceptanceStatus" | "legalAcceptanceAccept" | "systemFontsList" | "portableExport" | "portableExportTo" | "portablePreview" | "portablePreviewFile" | "portableApply" | "chromeProfileDefaultPath" | "chromeProfilePreview" | "chromeProfilePrepare" | "chromeProfileApply" | "externalProcessLaunch" | "macroStart" | "macroPress" | "macroStatuses" | "layoutResolve" | "layoutNormalizeRects" | "layoutCreateDividers" | "layoutResizeDivider" | "layoutAdaptiveZoom" | "embeddedKeyPrepare" | "embeddedKeysReassert" | "embeddedKeysHeld" | "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "browserRuntimeSnapshot" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "cdnResolveSession" | "graphicsDiagnosticsAssemble" | "logsQuery" | "logsStatus" | "diagnosticsExport" | "telemetrySnapshot" | "overlayRequest" | "windowsGraphicsEventsCollect"> & {
+  systemWebViewProbe: SystemWebViewProbeRecord;
   stateSnapshot: CoreStateSnapshotRecord;
   gamesList: StateGameRecord[];
   gameGet: StateGameRecord;
@@ -62,6 +68,9 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "stateSnaps
   roleUpdate: StateRoleRecord;
   roleReorder: StateRoleRecord[];
   roleBrowserDataClear: StateRoleRecord;
+  roleSessionMigrationPreview: RoleSessionMigrationPreviewRecord;
+  roleSessionMigrationApply: RoleSessionMigrationResultRecord;
+  roleSessionMigrationRollback: RoleSessionMigrationRollbackRecord;
   roleBrowserDirectoryEnsure: RolePathsRecord;
   roleBrowserDirectoryReset: RolePathsRecord;
   rolePathsResolve: RolePathsRecord;
@@ -86,6 +95,9 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "stateSnaps
   compatibilityRun: StateCompatibilityReportRecord;
   gameBrowserSettingsGet: GameBrowserSettingsRecord;
   gameBrowserSettingsReplace: GameBrowserSettingsRecord;
+  engineCompatibilityCacheGet: EngineCompatibilityCacheRecord | null;
+  engineCompatibilityCachePut: EngineCompatibilityCacheRecord;
+  engineCompatibilityCacheDeleteGame: { deletedCount: number };
   macroSettingsGet: MacroSettingsRecord;
   macroSettingsReplace: MacroSettingsRecord;
   runtimeWindowPreferencesGet: RuntimeWindowPreferencesRecord;

@@ -4,7 +4,7 @@ import type {
 } from "../../shared/generated";
 import type { MacroClickAnchor, MacroKeyModifier } from "../../shared/types";
 import type { MacroKeyInput } from "../../shared/macroKeys";
-import type { BrowserAutomationTarget } from "../browser/ElectronAutomationTarget";
+import type { AutomationTargetPort } from "../browser/ports/AutomationTargetPort";
 import type { BrowserCoreEffectAction } from "./ElectronEffectExecutor";
 
 export interface ElectronBrowserActionAdapterOptions {
@@ -15,7 +15,7 @@ export interface ElectronBrowserActionAdapterOptions {
     params: Record<string, unknown>
   ) => Promise<unknown>;
   executeSession?: (roleId: string, operation: string, payload: unknown) => Promise<unknown>;
-  getTarget: (roleId: string) => BrowserAutomationTarget | undefined;
+  getTarget: (roleId: string) => AutomationTargetPort | undefined;
   now?: () => number;
   recordMacroScheduleToDispatchLatency?: (durationMs: number) => void;
 }
@@ -57,7 +57,7 @@ export class ElectronBrowserActionAdapter {
 
   private async executeAction(
     roleId: string,
-    target: BrowserAutomationTarget,
+    target: AutomationTargetPort,
     action: BrowserAction
   ): Promise<unknown> {
     switch (action.type) {

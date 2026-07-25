@@ -6,6 +6,7 @@
 #include <iostream>
 
 #import "RionRuntimeTabsController.h"
+#import "RionSystemWebViewSurface.h"
 
 @interface RionRuntimeTabsController (RionRuntimeTabsTests)
 
@@ -455,6 +456,35 @@ int main() {
                             NSWindowStyleMaskResizable
                     backing:NSBackingStoreBuffered
                       defer:NO];
+    __block NSUInteger systemSurfaceEventCount = 0;
+    RionSystemWebViewSurface *systemSurface =
+        [[RionSystemWebViewSurface alloc]
+              initWithParentView:window.contentView
+          dataStoreIdentifier:@"0C0D1969-D51B-8576-8D79-0C64291CA837"
+                 eventHandler:^(NSDictionary<NSString *, id> *event) {
+      (void)event;
+      systemSurfaceEventCount += 1;
+    }];
+    Assert(systemSurface != nil && systemSurface.webView != nil,
+           "macOS 14+ must create a real WKWebView system surface.");
+    Assert([systemSurface.dataStoreIdentifier
+               isEqual:@"0C0D1969-D51B-8576-8D79-0C64291CA837"],
+           "The WKWebView surface must preserve the role data-store identifier.");
+    [systemSurface setFrameFromTopLeftRect:NSMakeRect(10, 20, 300, 200)];
+    Assert(systemSurface.webView.frame.size.width == 300 &&
+               systemSurface.webView.frame.size.height == 200,
+           "WKWebView bounds must follow the engine-neutral top-left contract.");
+    [systemSurface setPageZoom:1.25];
+    Assert(systemSurface.webView.pageZoom == 1.25,
+           "WKWebView page zoom must be applied.");
+    [systemSurface setVisible:YES];
+    Assert(!systemSurface.webView.hidden,
+           "WKWebView visibility must be applied.");
+    (void)[systemSurface setAudioMuted:YES];
+    [systemSurface destroy];
+    Assert(systemSurface.destroyed && systemSurface.webView == nil &&
+               systemSurfaceEventCount == 0,
+           "Destroying a WKWebView surface must detach all native state.");
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Expected a standard close button before attaching runtime tabs.");
     NSWindowToolbarStyle previousToolbarStyle = window.toolbarStyle;

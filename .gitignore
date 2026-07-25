@@ -14,7 +14,9 @@ pnpm-debug.log*
 
 # Generated native helper artifacts
 /build/native/
+/build/webview2-sdk/
 /native/macos/runtime-tabs/build/
+/native/windows/webview2/build/
 
 # CI compiler and packaging caches
 /.ccache/

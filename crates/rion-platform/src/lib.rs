@@ -28,6 +28,8 @@ mod system;
 pub use system::{
     SystemHostDiagnostics, collect_system_host_diagnostics, request_graceful_chrome_quit,
 };
+mod system_webview;
+pub use system_webview::{SystemWebViewProbe, probe_system_webview};
 mod windows_events;
 pub use windows_events::query_windows_display_driver_events;
 

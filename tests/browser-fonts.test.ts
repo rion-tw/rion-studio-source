@@ -42,6 +42,7 @@ describe("browser font settings normalization", () => {
         }
       })
     ).toEqual({
+      browserEngine: "system",
       fonts: {
         families: {
           fixed: "Courier New",
@@ -67,6 +68,16 @@ describe("browser font settings normalization", () => {
       normalizeGameBrowserSettings({ launchMode: "turbo" }, { ...DEFAULT_GAME_BROWSER_SETTINGS, launchMode: "embedded" })
         .launchMode
     ).toBe("embedded");
+  });
+
+  it("normalizes the default browser engine and preserves an explicit Electron choice", () => {
+    expect(normalizeGameBrowserSettings({}).browserEngine).toBe("system");
+    expect(normalizeGameBrowserSettings({ browserEngine: "electron" }).browserEngine).toBe(
+      "electron"
+    );
+    expect(normalizeGameBrowserSettings({ browserEngine: "webkit" }).browserEngine).toBe(
+      "system"
+    );
   });
 
   it("normalizes macro badge position options and falls back for invalid values", () => {

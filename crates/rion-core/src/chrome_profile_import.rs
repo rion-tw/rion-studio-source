@@ -12,10 +12,10 @@ use uuid::Uuid;
 use crate::{
     error::{CoreError, CoreResult},
     model::{
-        ChromeProfileEntryRecord, ChromeProfileImportCommitRecord,
+        BrowserSessionSource, ChromeProfileEntryRecord, ChromeProfileImportCommitRecord,
         ChromeProfileImportPrepareRecord, ChromeProfileImportPreviewRecord,
-        ChromeProfileImportWarningRecord, ChromeProfileImportedSessionRecord, StateGameRecord,
-        StateRoleRecord,
+        ChromeProfileImportWarningRecord, ChromeProfileImportedSessionRecord,
+        EmbeddedBrowserEngine, StateGameRecord, StateRoleRecord,
     },
 };
 
@@ -257,7 +257,8 @@ impl ChromeProfileImportRuntime {
                     name: role_name,
                     launch_url: game.default_launch_url.clone(),
                     notes: "Imported from a local Chrome profile.".to_owned(),
-                    browser_session_source: Some("chrome-profile".to_owned()),
+                    browser_session_source: Some(BrowserSessionSource::ChromeProfile),
+                    browser_engine_pin: Some(EmbeddedBrowserEngine::Electron),
                     cover_image_data_url: existing
                         .and_then(|role| role.cover_image_data_url.clone()),
                     cover_image_dominant_color: existing
@@ -882,7 +883,7 @@ mod tests {
             assert!(committed.roles.iter().any(|role| {
                 role.game_id == "g1"
                     && role.name == "Aron"
-                    && role.browser_session_source.as_deref() == Some("chrome-profile")
+                    && role.browser_session_source == Some(BrowserSessionSource::ChromeProfile)
             }));
             assert!(
                 committed
@@ -926,8 +927,10 @@ mod tests {
             assert_eq!(rollback_roles[0].id, original.id);
             assert_eq!(rollback_roles[0].notes, "Original");
             assert_eq!(
-                rollback_roles[0].browser_session_source.as_deref(),
-                Some("embedded")
+                rollback_roles[0]
+                    .browser_session_source
+                    .map(BrowserSessionSource::as_str),
+                Some("managed")
             );
             assert_eq!(fs::read(browser.join("original.txt")).unwrap(), b"keep");
         });

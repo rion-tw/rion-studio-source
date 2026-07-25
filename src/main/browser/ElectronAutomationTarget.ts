@@ -22,47 +22,15 @@ import {
   type ElectronDebuggerSession
 } from "./ElectronDebuggerSession";
 import type { EmbeddedKeyRuntimeClient } from "../core/nativeCore";
+import type {
+  AutomationInputDispatchOptions,
+  AutomationTargetPort
+} from "./ports/AutomationTargetPort";
 
-export interface BrowserAutomationTarget {
-  dispose: () => Promise<void>;
-  dispatchClick: (
-    xPercent: number,
-    yPercent: number,
-    options?: BrowserInputDispatchOptions
-  ) => Promise<void>;
-  dispatchClickPixels?: (
-    xPx: number,
-    yPx: number,
-    options?: BrowserInputDispatchOptions
-  ) => Promise<void>;
-  dispatchClickAnchored?: (
-    anchor: MacroClickAnchor | undefined,
-    unit: MacroClickUnit,
-    x: number,
-    y: number,
-    options?: BrowserInputDispatchOptions
-  ) => Promise<void>;
-  dispatchKey: (input: MacroKeyInput | string, options?: BrowserInputDispatchOptions) => Promise<void>;
-  holdKey: (
-    input: MacroKeyInput | string,
-    ownerId: string,
-    options?: BrowserInputDispatchOptions
-  ) => Promise<void>;
-  releaseKey: (input: MacroKeyInput | string, ownerId: string) => Promise<void>;
-  ensureInputFocus: () => Promise<boolean>;
-  evaluate: <T = unknown>(source: string) => Promise<T>;
-  focus: () => Promise<void>;
-}
+export type BrowserAutomationTarget = AutomationTargetPort;
+export type BrowserInputDispatchOptions = AutomationInputDispatchOptions;
 
-export interface BrowserInputDispatchOptions {
-  holdMs?: number;
-  onClick?: () => void;
-  postDelayMs?: number;
-  signal?: AbortSignal;
-  waitForDelay?: (ms: number, signal?: AbortSignal) => Promise<void>;
-}
-
-export class ElectronAutomationTarget implements BrowserAutomationTarget {
+export class ElectronAutomationTarget implements AutomationTargetPort {
   private readonly debuggerSession: ElectronDebuggerSession;
   private readonly lifecycleAbortController = new AbortController();
   private readonly removeDebuggerDetachListener: () => void;

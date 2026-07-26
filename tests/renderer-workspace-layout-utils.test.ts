@@ -18,8 +18,6 @@ import {
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   getWorkspaceVerticalResizeHandles,
-  readRoleDragId,
-  readWorkspaceSlotDragIndex,
   swapWorkspaceSlotRoles
 } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
 import {
@@ -225,27 +223,6 @@ describe("renderer workspace layout helpers", () => {
       { ...slot("slot-1"), roleId: undefined },
       slot("slot-2", "p1")
     ]);
-  });
-
-  it("does not misread a dragged role as slot zero", () => {
-    const event = dragEvent({
-      "application/x-rion-role": "role-1",
-      "text/plain": "role:role-1"
-    });
-
-    expect(readWorkspaceSlotDragIndex(event)).toBeUndefined();
-    expect(readRoleDragId(event)).toBe("role-1");
-  });
-
-  it("reads a dragged workspace slot index", () => {
-    expect(
-      readWorkspaceSlotDragIndex(
-        dragEvent({
-          "application/x-rion-workspace-slot": "2",
-          "text/plain": "slot:2"
-        })
-      )
-    ).toBe(2);
   });
 
   it("reads and applies custom split positions", () => {
@@ -635,14 +612,4 @@ function role(overrides: Partial<Role> = {}): Role {
     updatedAt: "2026-07-14T00:00:00.000Z",
     ...overrides
   };
-}
-
-function dragEvent(
-  values: Record<string, string>
-): Parameters<typeof readWorkspaceSlotDragIndex>[0] {
-  return {
-    dataTransfer: {
-      getData: (type: string) => values[type] ?? ""
-    }
-  } as Parameters<typeof readWorkspaceSlotDragIndex>[0];
 }

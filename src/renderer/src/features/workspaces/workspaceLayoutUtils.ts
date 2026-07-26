@@ -1,4 +1,4 @@
-import type { CSSProperties, DragEvent as ReactDragEvent } from "react";
+import type { CSSProperties } from "react";
 
 import type { Translator } from "../../i18n";
 import type { WorkspaceFormState } from "../../app/types";
@@ -574,34 +574,4 @@ export function getWorkspaceResizeAffectedSlotIndexes(
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-export function readWorkspaceSlotDragIndex(event: ReactDragEvent): number | undefined {
-  const customValue = event.dataTransfer.getData("application/x-rion-workspace-slot");
-  const plainValue = event.dataTransfer.getData("text/plain");
-  const rawValue = customValue || (plainValue.startsWith("slot:") ? plainValue.slice("slot:".length) : "");
-
-  if (!rawValue.trim()) {
-    return undefined;
-  }
-
-  const index = Number(rawValue);
-
-  return Number.isInteger(index) && index >= 0 ? index : undefined;
-}
-
-export function readRoleDragId(event: ReactDragEvent): string | undefined {
-  const customValue = event.dataTransfer.getData("application/x-rion-role").trim();
-
-  if (customValue) {
-    return customValue;
-  }
-
-  const plainValue = event.dataTransfer.getData("text/plain").trim();
-
-  if (plainValue.startsWith("role:")) {
-    return plainValue.slice("role:".length).trim() || undefined;
-  }
-
-  return undefined;
 }

@@ -14,10 +14,10 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
-  type DragEvent,
   type JSX,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
   type RefCallback,
   useEffect,
   useMemo,
@@ -53,6 +53,7 @@ import { getWorkspaceTargetDisplayPresentation } from "./workspaceDisplayUtils";
 import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
+import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceIds: ReadonlySet<string>;
@@ -99,8 +100,6 @@ function LaunchWorkspacesView({
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
-  const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
-  const [dropTargetWorkspaceId, setDropTargetWorkspaceId] = useState<string | null>(null);
   const pageRef = useRef<HTMLElement | null>(null);
   const filteredWorkspaces = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -125,44 +124,19 @@ function LaunchWorkspacesView({
     scrollContainerRef: pageRef
   });
   const canReorder = query.trim() === "" && !isReordering && !selection.hasSelection && workspaces.length > 1;
-
-  function clearDragState(): void {
-    setDraggedWorkspaceId(null);
-    setDropTargetWorkspaceId(null);
-  }
-
-  function handleDragStart(event: DragEvent<HTMLButtonElement>, workspaceId: string): void {
-    if (!canReorder) {
-      event.preventDefault();
-      return;
-    }
-
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-rion-workspace-order", workspaceId);
-    setDraggedWorkspaceId(workspaceId);
-    setDropTargetWorkspaceId(null);
-  }
-
-  function handleDragOver(event: DragEvent<HTMLElement>, workspaceId: string): void {
-    if (!draggedWorkspaceId || draggedWorkspaceId === workspaceId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDropTargetWorkspaceId(workspaceId);
-  }
-
-  function handleDrop(event: DragEvent<HTMLElement>, workspaceId: string): void {
-    event.preventDefault();
-
-    if (draggedWorkspaceId && draggedWorkspaceId !== workspaceId) {
-      const nextWorkspaces = moveItemById(workspaces, draggedWorkspaceId, workspaceId);
+  const workspaceDrag = usePointerDrag<string>({
+    disabled: !canReorder,
+    getScrollContainer: () => pageRef.current,
+    getTargetId: (clientX, clientY) =>
+      getPointerDragTargetId(clientX, clientY, "data-workspace-reorder-id"),
+    onDrop: (sourceWorkspaceId, targetWorkspaceId) => {
+      if (sourceWorkspaceId === targetWorkspaceId) {
+        return;
+      }
+      const nextWorkspaces = moveItemById(workspaces, sourceWorkspaceId, targetWorkspaceId);
       onReorderWorkspaces(nextWorkspaces.map((workspace) => workspace.id));
     }
-
-    clearDragState();
-  }
+  });
 
   async function handleDeleteSelected(): Promise<void> {
     const selectedWorkspaces = filteredWorkspaces.filter((workspace) => selection.selectedIds.has(workspace.id));
@@ -241,8 +215,8 @@ function LaunchWorkspacesView({
               key={workspace.id}
               busyWorkspaceIds={busyWorkspaceIds}
               canReorder={canReorder}
-              isDragging={draggedWorkspaceId === workspace.id}
-              isDropTarget={dropTargetWorkspaceId === workspace.id}
+              isDragging={workspaceDrag.activePayload === workspace.id}
+              isDropTarget={workspaceDrag.targetId === workspace.id && workspaceDrag.activePayload !== workspace.id}
               isSelected={selection.isSelected(workspace.id)}
               gameNameById={gameNameById}
               roleById={roleById}
@@ -255,10 +229,7 @@ function LaunchWorkspacesView({
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
               onLaunch={() => onLaunchWorkspace(workspace)}
-              onDragEnd={clearDragState}
-              onDragOver={(event) => handleDragOver(event, workspace.id)}
-              onDragStart={(event) => handleDragStart(event, workspace.id)}
-              onDrop={(event) => handleDrop(event, workspace.id)}
+              onReorderPointerDown={(event) => workspaceDrag.start(event, workspace.id)}
               onStop={() => onStopWorkspace(workspace)}
               onSelectionClick={(event) => selection.handleItemClick(event, workspace.id)}
             />
@@ -281,10 +252,7 @@ interface WorkspaceCardProps {
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onDragEnd: () => void;
-  onDragOver: (event: DragEvent<HTMLElement>) => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
-  onDrop: (event: DragEvent<HTMLElement>) => void;
+  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onLaunch: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -306,10 +274,7 @@ function WorkspaceCard({
   onCopy,
   onDelete,
   onEdit,
-  onDragEnd,
-  onDragOver,
-  onDragStart,
-  onDrop,
+  onReorderPointerDown,
   onLaunch,
   onStop,
   onSelectionClick,
@@ -342,9 +307,8 @@ function WorkspaceCard({
         isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
       data-selection-id={workspace.id}
+      data-workspace-reorder-id={workspace.id}
       onClickCapture={onSelectionClick}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
     >
       <SelectionCardOverlay isSelected={isSelected} />
       <div className="relative overflow-hidden rounded-t-lg">
@@ -393,8 +357,7 @@ function WorkspaceCard({
           onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
-          onDragEnd={onDragEnd}
-          onDragStart={onDragStart}
+          onReorderPointerDown={onReorderPointerDown}
         />
       </div>
 
@@ -719,8 +682,7 @@ interface WorkspaceActionMenuProps {
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onDragEnd: () => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   t: Translator;
 }
 
@@ -730,14 +692,18 @@ function WorkspaceActionMenu({
   isDragging,
   onCopy,
   onDelete,
-  onDragEnd,
-  onDragStart,
+  onReorderPointerDown,
   onEdit,
   t
 }: WorkspaceActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const didDragRef = useRef(false);
+
+  useEffect(() => {
+    if (isDragging) {
+      setIsOpen(false);
+    }
+  }, [isDragging]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -767,24 +733,11 @@ function WorkspaceActionMenu({
     };
   }, [isOpen]);
 
-  function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
-    didDragRef.current = true;
-    setIsOpen(false);
-    onDragStart(event);
-  }
-
-  function handleButtonDragEnd(): void {
-    onDragEnd();
-    window.setTimeout(() => {
-      didDragRef.current = false;
-    }, 0);
-  }
-
   return (
     <div ref={menuRef} className="relative shrink-0">
       <Button
         className={cn(
-          "h-7 w-7",
+          "h-7 w-7 touch-none",
           canReorder && "cursor-grab active:cursor-grabbing",
           isDragging && "cursor-grabbing"
         )}
@@ -795,14 +748,8 @@ function WorkspaceActionMenu({
         aria-label={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        draggable={canReorder}
-        onClick={() => {
-          if (!didDragRef.current) {
-            setIsOpen((current) => !current);
-          }
-        }}
-        onDragEnd={handleButtonDragEnd}
-        onDragStart={handleButtonDragStart}
+        onClick={() => setIsOpen((current) => !current)}
+        onPointerDown={canReorder ? onReorderPointerDown : undefined}
       >
         <MoreHorizontal size={14} />
       </Button>

@@ -41,6 +41,12 @@
     cursor: crosshair;
     user-select: none;
   }
+
+  body.pointer-drag-active,
+  body.pointer-drag-active * {
+    cursor: grabbing !important;
+    user-select: none;
+  }
   :root,
   :root[data-theme="light"] {
     --control-hit-size: 30px;

@@ -12,10 +12,10 @@ import {
   Trash2
 } from "lucide-react";
 import {
-  type DragEvent,
   type JSX,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
   type RefCallback,
   useEffect,
   useRef,
@@ -47,6 +47,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import type { AppStats, SidebarFilter } from "../../app/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { useListSelection } from "../../hooks/useListSelection";
+import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 
 const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
   all: "roles.filter.all",
@@ -108,8 +109,6 @@ function RolesView({
   onReorder,
   onStop
 }: RolesViewProps): JSX.Element {
-  const [draggedRoleId, setDraggedRoleId] = useState<string | null>(null);
-  const [dropTargetRoleId, setDropTargetRoleId] = useState<string | null>(null);
   const [gameFilterId, setGameFilterId] = useState("all");
   const pageRef = useRef<HTMLElement | null>(null);
   const visibleRoles = gameFilterId === "all" ? filteredRoles : filteredRoles.filter((role) => role.gameId === gameFilterId);
@@ -119,49 +118,24 @@ function RolesView({
   });
   const gameById = new Map(games.map((game) => [game.id, game]));
   const canReorder = activeFilter === "all" && gameFilterId === "all" && query.trim() === "" && !isReordering && !selection.hasSelection && roles.length > 1;
+  const roleDrag = usePointerDrag<string>({
+    disabled: !canReorder,
+    getScrollContainer: () => pageRef.current,
+    getTargetId: (clientX, clientY) =>
+      getPointerDragTargetId(clientX, clientY, "data-role-reorder-id"),
+    onDrop: (sourceRoleId, targetRoleId) => {
+      if (sourceRoleId === targetRoleId) {
+        return;
+      }
+      const nextRoles = moveItemById(roles, sourceRoleId, targetRoleId);
+      onReorder(nextRoles.map((role) => role.id));
+    }
+  });
   const filterCounts: Record<SidebarFilter, number> = {
     all: roleStats.total,
     running: roleStats.running,
     stopped: roleStats.stopped,
   };
-
-  function clearDragState(): void {
-    setDraggedRoleId(null);
-    setDropTargetRoleId(null);
-  }
-
-  function handleDragStart(event: DragEvent<HTMLButtonElement>, roleId: string): void {
-    if (!canReorder) {
-      event.preventDefault();
-      return;
-    }
-
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-rion-role-order", roleId);
-    setDraggedRoleId(roleId);
-    setDropTargetRoleId(null);
-  }
-
-  function handleDragOver(event: DragEvent<HTMLElement>, roleId: string): void {
-    if (!draggedRoleId || draggedRoleId === roleId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDropTargetRoleId(roleId);
-  }
-
-  function handleDrop(event: DragEvent<HTMLElement>, roleId: string): void {
-    event.preventDefault();
-
-    if (draggedRoleId && draggedRoleId !== roleId) {
-      const nextRoles = moveItemById(roles, draggedRoleId, roleId);
-      onReorder(nextRoles.map((role) => role.id));
-    }
-
-    clearDragState();
-  }
 
   async function handleDeleteSelected(): Promise<void> {
     const selectedRoles = visibleRoles.filter((role) => selection.selectedIds.has(role.id));
@@ -263,8 +237,8 @@ function RolesView({
                 role={role}
                 status={status}
                 canReorder={canReorder}
-                isDragging={draggedRoleId === role.id}
-                isDropTarget={dropTargetRoleId === role.id}
+                isDragging={roleDrag.activePayload === role.id}
+                isDropTarget={roleDrag.targetId === role.id && roleDrag.activePayload !== role.id}
                 isBusy={isBusy}
                 isSelected={selection.isSelected(role.id)}
                 selectionRef={selection.registerItem(role.id)}
@@ -274,10 +248,7 @@ function RolesView({
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
-                onDragEnd={clearDragState}
-                onDragOver={(event) => handleDragOver(event, role.id)}
-                onDragStart={(event) => handleDragStart(event, role.id)}
-                onDrop={(event) => handleDrop(event, role.id)}
+                onReorderPointerDown={(event) => roleDrag.start(event, role.id)}
                 onStop={() => onStop(role.id)}
                 onSelectionClick={(event) => selection.handleItemClick(event, role.id)}
               />
@@ -324,10 +295,7 @@ interface RoleCardProps {
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onDragEnd: () => void;
-  onDragOver: (event: DragEvent<HTMLElement>) => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
-  onDrop: (event: DragEvent<HTMLElement>) => void;
+  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onLaunch: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -348,10 +316,7 @@ function RoleCard({
   onClearBrowserData,
   onDelete,
   onEdit,
-  onDragEnd,
-  onDragOver,
-  onDragStart,
-  onDrop,
+  onReorderPointerDown,
   onLaunch,
   onStop,
   onSelectionClick,
@@ -381,10 +346,9 @@ function RoleCard({
         isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
       data-selection-id={role.id}
+      data-role-reorder-id={role.id}
       style={cardStyle}
       onClickCapture={onSelectionClick}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
     >
       <div
         className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
@@ -404,8 +368,7 @@ function RoleCard({
           onClearBrowserData={onClearBrowserData}
           onDelete={onDelete}
           onEdit={onEdit}
-          onDragEnd={onDragEnd}
-          onDragStart={onDragStart}
+          onReorderPointerDown={onReorderPointerDown}
         />
       </div>
 
@@ -491,8 +454,7 @@ interface RoleActionMenuProps {
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onDragEnd: () => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   t: Translator;
 }
 
@@ -505,13 +467,17 @@ function RoleActionMenu({
   onClearBrowserData,
   onDelete,
   onEdit,
-  onDragEnd,
-  onDragStart,
+  onReorderPointerDown,
   t
 }: RoleActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const didDragRef = useRef(false);
+
+  useEffect(() => {
+    if (isDragging) {
+      setIsOpen(false);
+    }
+  }, [isDragging]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -561,24 +527,11 @@ function RoleActionMenu({
     onClearBrowserData();
   }
 
-  function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
-    didDragRef.current = true;
-    setIsOpen(false);
-    onDragStart(event);
-  }
-
-  function handleButtonDragEnd(): void {
-    onDragEnd();
-    window.setTimeout(() => {
-      didDragRef.current = false;
-    }, 0);
-  }
-
   return (
     <div ref={menuRef} className="relative shrink-0">
       <Button
         className={cn(
-          "h-7 w-7",
+          "h-7 w-7 touch-none",
           canReorder && "cursor-grab active:cursor-grabbing",
           isDragging && "cursor-grabbing",
           isOnCover && "role-cover-menu-control text-white hover:text-white"
@@ -590,14 +543,8 @@ function RoleActionMenu({
         aria-label={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        draggable={canReorder}
-        onClick={() => {
-          if (!didDragRef.current) {
-            setIsOpen((current) => !current);
-          }
-        }}
-        onDragEnd={handleButtonDragEnd}
-        onDragStart={handleButtonDragStart}
+        onClick={() => setIsOpen((current) => !current)}
+        onPointerDown={canReorder ? onReorderPointerDown : undefined}
       >
         <MoreHorizontal size={14} />
       </Button>

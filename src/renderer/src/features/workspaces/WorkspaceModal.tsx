@@ -1,6 +1,5 @@
 import { Check, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
 import {
-  type DragEvent as ReactDragEvent,
   type FormEvent,
   type JSX,
   type PointerEvent as ReactPointerEvent,
@@ -19,6 +18,7 @@ import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
+import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
@@ -58,8 +58,6 @@ import {
   getWorkspaceSplits,
   getWorkspaceVerticalResizeHandles,
   mergeWorkspaceRoleZoomOverrides,
-  readRoleDragId,
-  readWorkspaceSlotDragIndex,
   rectToPreviewStyle,
   swapWorkspaceSlotRoles,
   type WorkspaceSplitAxis
@@ -218,6 +216,10 @@ interface WorkspaceActiveResize {
   splitIndex: number;
 }
 
+type WorkspacePointerDragPayload =
+  | { type: "role"; roleId: string }
+  | { type: "slot"; slotIndex: number };
+
 function WorkspaceLayoutFormEditor({
   form,
   games,
@@ -230,9 +232,7 @@ function WorkspaceLayoutFormEditor({
 }: WorkspaceLayoutFormEditorProps): JSX.Element {
   const [activeResize, setActiveResize] = useState<WorkspaceActiveResize | null>(null);
   const [dragSlots, setDragSlots] = useState<LaunchWorkspaceSlot[] | null>(null);
-  const [dropTargetSlotIndex, setDropTargetSlotIndex] = useState<number | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
-  const dragPayloadRef = useRef<{ roleId?: string; slotIndex?: number } | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const resizeAbortRef = useRef<AbortController | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
@@ -249,6 +249,27 @@ function WorkspaceLayoutFormEditor({
     : resolvedTargetDisplay
       ? String(resolvedTargetDisplay.id)
       : UNAVAILABLE_DISPLAY_SELECT_VALUE;
+  const workspaceDrag = usePointerDrag<WorkspacePointerDragPayload>({
+    disabled: isSaving,
+    getScrollContainer: (_payload, clientX, clientY) =>
+      document.elementFromPoint?.(clientX, clientY)
+        ?.closest<HTMLElement>("[data-workspace-role-scroll]")
+      ?? document.querySelector<HTMLElement>("#app-editor-form"),
+    getTargetId: (clientX, clientY) =>
+      getPointerDragTargetId(clientX, clientY, "data-workspace-slot-index"),
+    onDrop: (payload, targetId) => {
+      const targetSlotIndex = Number(targetId);
+      if (!Number.isInteger(targetSlotIndex) || targetSlotIndex < 0 || targetSlotIndex >= slots.length) {
+        return;
+      }
+      setSelectedSlotIndex(targetSlotIndex);
+      if (payload.type === "slot") {
+        updateSlots(swapWorkspaceSlotRoles(slots, payload.slotIndex, targetSlotIndex));
+      } else {
+        updateSlots(assignRoleToWorkspaceSlot(slots, targetSlotIndex, payload.roleId));
+      }
+    }
+  });
 
   useEffect(() => {
     resizeAbortRef.current?.abort();
@@ -287,44 +308,6 @@ function WorkspaceLayoutFormEditor({
 
   function handleClearSelectedSlot(): void {
     updateSlots(assignRoleToWorkspaceSlot(slots, selectedSlotIndex, undefined));
-  }
-
-  function handleSlotDragStart(event: ReactDragEvent, slotIndex: number): void {
-    dragPayloadRef.current = { slotIndex };
-    event.dataTransfer.setData("application/x-rion-workspace-slot", String(slotIndex));
-    event.dataTransfer.setData("text/plain", `slot:${slotIndex}`);
-    event.dataTransfer.effectAllowed = "move";
-  }
-
-  function handleRoleDragStart(event: ReactDragEvent, roleId: string): void {
-    dragPayloadRef.current = { roleId };
-    event.dataTransfer.setData("application/x-rion-role", roleId);
-    event.dataTransfer.setData("text/plain", `role:${roleId}`);
-    event.dataTransfer.effectAllowed = "copyMove";
-  }
-
-  function handleSlotDrop(event: ReactDragEvent, slotIndex: number): void {
-    event.preventDefault();
-    event.stopPropagation();
-    setSelectedSlotIndex(slotIndex);
-    setDropTargetSlotIndex(null);
-    const sourceSlotIndex = readWorkspaceSlotDragIndex(event) ?? dragPayloadRef.current?.slotIndex;
-    const roleId = readRoleDragId(event) ?? dragPayloadRef.current?.roleId;
-    dragPayloadRef.current = null;
-
-    if (sourceSlotIndex !== undefined) {
-      updateSlots(swapWorkspaceSlotRoles(slots, sourceSlotIndex, slotIndex));
-      return;
-    }
-
-    if (roleId) {
-      updateSlots(assignRoleToWorkspaceSlot(slots, slotIndex, roleId));
-    }
-  }
-
-  function handleDragEnd(): void {
-    dragPayloadRef.current = null;
-    setDropTargetSlotIndex(null);
   }
 
   function startResize(
@@ -597,7 +580,10 @@ function WorkspaceLayoutFormEditor({
                 <WorkspaceSlotDropZone
                   key={slot.id}
                   index={index}
-                  isDropTarget={index === dropTargetSlotIndex}
+                  isDragging={workspaceDrag.activePayload?.type === "slot" && workspaceDrag.activePayload.slotIndex === index}
+                  isDropTarget={workspaceDrag.targetId === String(index) && !(
+                    workspaceDrag.activePayload?.type === "slot" && workspaceDrag.activePayload.slotIndex === index
+                  )}
                   isSelected={index === selectedSlotIndex}
                   isSaving={isSaving}
                   launchGameName={role ? gameNameById.get(role.gameId) : undefined}
@@ -610,15 +596,7 @@ function WorkspaceLayoutFormEditor({
                   }
                   t={t}
                   onClick={() => setSelectedSlotIndex(index)}
-                  onDragEnd={handleDragEnd}
-                  onDragEnter={() => setDropTargetSlotIndex(index)}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = dragPayloadRef.current?.slotIndex === undefined ? "copy" : "move";
-                    setDropTargetSlotIndex(index);
-                  }}
-                  onDrop={(event) => handleSlotDrop(event, index)}
-                  onSlotDragStart={(event) => handleSlotDragStart(event, index)}
+                  onSlotPointerDown={(event) => workspaceDrag.start(event, { type: "slot", slotIndex: index })}
                 />
               );
             })}
@@ -677,16 +655,17 @@ function WorkspaceLayoutFormEditor({
                       key={role.id}
                       data-workspace-role-id={role.id}
                       className={cn(
-                        "glass-control flex h-[52px] min-w-0 items-center gap-2 rounded-lg p-2 text-left transition-colors",
+                        "glass-control flex h-[52px] min-w-0 touch-none items-center gap-2 rounded-lg p-2 text-left transition-[background-color,opacity]",
                         isSelectedSlotRole && "border-primary/45 bg-primary/12 text-foreground",
-                        isAssigned && !isSelectedSlotRole && "border-primary/25 bg-primary/6"
+                        isAssigned && !isSelectedSlotRole && "border-primary/25 bg-primary/6",
+                        workspaceDrag.activePayload?.type === "role" && workspaceDrag.activePayload.roleId === role.id
+                          ? "cursor-grabbing opacity-50"
+                          : "cursor-grab"
                       )}
                       type="button"
-                      draggable={!isSaving}
                       disabled={isSaving}
                       onClick={() => handleRoleSelect(role.id)}
-                      onDragEnd={handleDragEnd}
-                      onDragStart={(event) => handleRoleDragStart(event, role.id)}
+                      onPointerDown={(event) => workspaceDrag.start(event, { type: "role", roleId: role.id })}
                     >
                       <div
                         className="size-8 shrink-0 rounded-md bg-cover bg-center ring-1 ring-inset ring-border/60"
@@ -754,16 +733,13 @@ function WorkspaceHelpSection({ children, title }: { children: ReactNode; title:
 
 interface WorkspaceSlotDropZoneProps {
   index: number;
+  isDragging: boolean;
   isDropTarget: boolean;
   isSelected: boolean;
   isSaving: boolean;
   launchGameName?: string;
   onClick: () => void;
-  onDragEnd: () => void;
-  onDragEnter: () => void;
-  onDragOver: (event: ReactDragEvent) => void;
-  onDrop: (event: ReactDragEvent) => void;
-  onSlotDragStart: (event: ReactDragEvent) => void;
+  onSlotPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   role?: Role;
   rect: NormalizedRect;
   resizeIndicator?: string;
@@ -772,16 +748,13 @@ interface WorkspaceSlotDropZoneProps {
 
 function WorkspaceSlotDropZone({
   index,
+  isDragging,
   isDropTarget,
   isSelected,
   isSaving,
   launchGameName,
   onClick,
-  onDragEnd,
-  onDragEnter,
-  onDragOver,
-  onDrop,
-  onSlotDragStart,
+  onSlotPointerDown,
   role,
   rect,
   resizeIndicator,
@@ -799,12 +772,6 @@ function WorkspaceSlotDropZone({
     <div
       className="absolute"
       style={rectToPreviewStyle(rect)}
-      onDragEnter={(event) => {
-        event.preventDefault();
-        onDragEnter();
-      }}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
     >
       <button
         className={cn(
@@ -813,7 +780,8 @@ function WorkspaceSlotDropZone({
             ? "border-border/70 bg-card/72 shadow-sm"
             : "border-border/40 bg-card/50 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/60",
           isSelected && cn("border-primary/60 shadow-none", role && "bg-primary/[0.035]"),
-          isDropTarget && cn("border-primary/75 shadow-none", role && "bg-primary/10")
+          isDropTarget && cn("border-primary/75 shadow-none", role && "bg-primary/10"),
+          isDragging && "opacity-50"
         )}
         type="button"
         aria-pressed={isSelected}
@@ -841,12 +809,10 @@ function WorkspaceSlotDropZone({
         {role ? (
           <span
             data-workspace-slot-drag-handle
-            className="glass-popover absolute right-2.5 top-2.5 z-20 grid size-7 cursor-grab place-items-center rounded-md text-muted-foreground opacity-0 shadow-sm transition-[opacity,color,transform] hover:text-foreground active:cursor-grabbing active:scale-95 group-hover/slot:opacity-100"
-            draggable={!isSaving}
-            onDragEnd={onDragEnd}
-            onDragStart={(event) => {
+            className="glass-popover absolute right-2.5 top-2.5 z-20 grid size-7 touch-none cursor-grab place-items-center rounded-md text-muted-foreground opacity-0 shadow-sm transition-[opacity,color,transform] hover:text-foreground active:cursor-grabbing active:scale-95 group-hover/slot:opacity-100"
+            onPointerDown={(event) => {
               event.stopPropagation();
-              onSlotDragStart(event);
+              onSlotPointerDown(event);
             }}
           >
             <GripVertical size={14} />

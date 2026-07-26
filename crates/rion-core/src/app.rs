@@ -295,10 +295,8 @@ impl AppCore {
                     available: probe.available,
                     runtime_version: probe.runtime_version,
                     public_api_available: probe.public_api_available,
-                    automation_spi_available: probe.automation_spi_available,
+                    macro_input_available: probe.macro_input_available,
                     audio_mute_available: probe.audio_mute_available,
-                    trusted_input_verified: probe.trusted_input_verified,
-                    background_input_verified: probe.background_input_verified,
                     reason_codes: probe.reason_codes,
                 })
                 .map_err(|error| CoreError::Internal(error.to_string()))
@@ -2589,11 +2587,7 @@ impl AppCore {
         {
             return Ok((
                 false,
-                Some(if self.platform == rion_platform::Platform::Macos {
-                    crate::model::SystemWebViewIssueReason::WebkitSpiUnavailable
-                } else {
-                    crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
-                }),
+                Some(crate::model::SystemWebViewIssueReason::MacroInputUnavailable),
             ));
         }
         let cache_key = self.engine_compatibility_cache_key(game, settings, runtime)?;
@@ -6316,10 +6310,19 @@ mod tests {
         }
     }
     #[test]
-    fn registered_system_runtime_drives_new_roles_and_status_capabilities() {
+    fn registered_system_runtime_with_macro_input_launches_macro_assigned_roles() {
         let (_directory, core) = core();
         install_test_system_runtime(&core, supported_system_capabilities());
         let role_id = create_role(&core, &first_game_id(&core), 1);
+        core.invoke(command(json!({
+            "type": "macroCreate",
+            "input": {
+                "name": "Supported macro input",
+                "roleIds": [role_id.clone()],
+                "steps": [{"type": "key", "code": "Digit1", "action": "tap"}]
+            }
+        })))
+        .unwrap();
         let (result, actions) = drive_command(
             Arc::clone(&core),
             command(json!({
@@ -6366,10 +6369,11 @@ mod tests {
     }
 
     #[test]
-    fn macro_launch_fails_closed_before_surface_creation_when_trusted_input_is_unverified() {
+    fn macro_launch_fails_closed_before_surface_creation_when_macro_input_is_unavailable() {
         let (_directory, core) = core();
         let mut capabilities = supported_system_capabilities();
-        capabilities.trusted_input = crate::model::EngineCapabilityStatus::Degraded;
+        capabilities.trusted_input = crate::model::EngineCapabilityStatus::Disabled;
+        capabilities.background_input = crate::model::EngineCapabilityStatus::Disabled;
         install_test_system_runtime(&core, capabilities);
         let role_id = create_role(&core, &first_game_id(&core), 1);
         core.invoke(command(json!({

@@ -15,12 +15,8 @@ if (platform !== "darwin" && platform !== "win32") {
   throw new Error("Local Tauri packages are supported only on macOS and Windows.");
 }
 
-const untrustedEnvironment = { ...baseEnvironment };
-delete untrustedEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
-delete untrustedEnvironment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;
-
-await run(command("pnpm"), ["run", "verify:system-only"], untrustedEnvironment);
-await run(command("pnpm"), ["run", "test:native:system-input"], untrustedEnvironment);
+await run(command("pnpm"), ["run", "verify:system-only"], baseEnvironment);
+await run(command("pnpm"), ["run", "test:native:system-input"], baseEnvironment);
 
 const debugExecutable = platform === "win32"
   ? "target/debug/rion-tauri.exe"
@@ -29,7 +25,7 @@ for (const script of ["test:native:runtime-restore", "test:native:file-operation
   await run(
     command("pnpm"),
     ["run", script, "--", "--executable", debugExecutable],
-    untrustedEnvironment
+    baseEnvironment
   );
 }
 
@@ -46,10 +42,6 @@ if (platform === "darwin") {
   ]) {
     delete buildEnvironment[name];
   }
-  buildEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR =
-    (await capture("sw_vers", ["-productVersion"])).split(".")[0];
-} else {
-  buildEnvironment.RION_STUDIO_WINDOWS_INPUT_ATTESTED = "1";
 }
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "rion-tauri-package-"));
@@ -82,8 +74,7 @@ await run(command("pnpm"), [
   "test:native:system-input",
   "--",
   "--executable",
-  packagedExecutable,
-  "--require-compiled-attestation"
+  packagedExecutable
 ], buildEnvironment);
 for (const script of ["test:native:runtime-restore", "test:native:file-operations"]) {
   await run(command("pnpm"), [
@@ -99,23 +90,6 @@ function forwardedArguments() {
   const args = process.argv.slice(2);
   if (args[0] === "--") args.shift();
   return args;
-}
-
-async function capture(executable, args) {
-  return await new Promise((resolveCapture, reject) => {
-    let output = "";
-    const child = spawn(executable, args, {
-      cwd: repositoryRoot,
-      windowsHide: true
-    });
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (signal) reject(new Error(`${executable} was terminated by ${signal}.`));
-      else if (code === 0) resolveCapture(output.trim());
-      else reject(new Error(`${executable} exited with code ${code ?? "unknown"}.`));
-    });
-  });
 }
 
 function command(name) {

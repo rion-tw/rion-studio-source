@@ -8,12 +8,6 @@
 #include <stdint.h>
 #include <unistd.h>
 
-uint64_t rion_wk_operating_system_major_version(void) {
-  @autoreleasepool {
-    return (uint64_t)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
-  }
-}
-
 bool rion_wk_window_content_layout_metrics(void *rawWindow, double *width,
                                            double *height,
                                            double *topInset) {

@@ -10,10 +10,8 @@ pub struct SystemWebViewProbe {
     pub available: bool,
     pub runtime_version: Option<String>,
     pub public_api_available: bool,
-    pub automation_spi_available: bool,
+    pub macro_input_available: bool,
     pub audio_mute_available: bool,
-    pub trusted_input_verified: bool,
-    pub background_input_verified: bool,
     pub reason_codes: Vec<String>,
 }
 
@@ -21,10 +19,8 @@ pub struct SystemWebViewProbe {
 struct RawSystemWebViewProbe {
     runtime_version: Option<String>,
     public_api_available: bool,
-    automation_spi_available: bool,
+    macro_input_available: bool,
     audio_mute_available: bool,
-    trusted_input_verified: bool,
-    background_input_verified: bool,
     reason_codes: Vec<String>,
 }
 
@@ -39,12 +35,8 @@ fn classify_probe(platform: Platform, mut raw: RawSystemWebViewProbe) -> SystemW
     if !raw.public_api_available {
         raw.reason_codes.push("public-api-unavailable".to_owned());
     }
-    if !raw.trusted_input_verified {
-        raw.reason_codes.push("trusted-input-unverified".to_owned());
-    }
-    if !raw.background_input_verified {
-        raw.reason_codes
-            .push("background-input-unverified".to_owned());
+    if !raw.macro_input_available {
+        raw.reason_codes.push("macro-input-unavailable".to_owned());
     }
     if !raw.audio_mute_available {
         raw.reason_codes.push("audio-mute-unavailable".to_owned());
@@ -63,12 +55,18 @@ fn classify_probe(platform: Platform, mut raw: RawSystemWebViewProbe) -> SystemW
         available: raw.public_api_available,
         runtime_version: raw.runtime_version,
         public_api_available: raw.public_api_available,
-        automation_spi_available: raw.automation_spi_available,
+        macro_input_available: raw.macro_input_available,
         audio_mute_available: raw.audio_mute_available,
-        trusted_input_verified: raw.trusted_input_verified,
-        background_input_verified: raw.background_input_verified,
         reason_codes: raw.reason_codes,
     }
+}
+
+fn macos_macro_input_available(runtime_version: Option<&str>, public_api_available: bool) -> bool {
+    public_api_available
+        && runtime_version
+            .and_then(|version| version.split('.').next())
+            .and_then(|major| major.parse::<u64>().ok())
+            .is_some_and(|major| major >= 14)
 }
 
 #[cfg(target_os = "macos")]
@@ -113,27 +111,18 @@ fn probe_macos() -> RawSystemWebViewProbe {
 
     let webview = class("WKWebView");
     let data_store = class("WKWebsiteDataStore");
-    let automation = class("_WKAutomationSession");
-    let automation_spi_available = [
-        "initWithConfiguration:",
-        "terminate",
-        "markEventAsSynthesizedForAutomation:",
-    ]
-    .into_iter()
-    .all(|selector| has_instance_selector(automation, selector));
+    let runtime_version = sysinfo::System::os_version();
+    let public_api_available = !webview.is_null() && !data_store.is_null();
     let audio_mute_available = has_instance_selector(webview, "_setPageMuted:");
     RawSystemWebViewProbe {
-        runtime_version: sysinfo::System::os_version(),
-        public_api_available: !webview.is_null() && !data_store.is_null(),
-        automation_spi_available,
+        macro_input_available: macos_macro_input_available(
+            runtime_version.as_deref(),
+            public_api_available,
+        ),
+        runtime_version,
+        public_api_available,
         audio_mute_available,
-        // Presence is not parity. Native harness evidence promotes these flags.
-        trusted_input_verified: false,
-        background_input_verified: false,
-        reason_codes: (!automation_spi_available)
-            .then(|| "webkit-automation-spi-unavailable".to_owned())
-            .into_iter()
-            .collect(),
+        reason_codes: Vec::new(),
     }
 }
 
@@ -216,12 +205,8 @@ fn probe_windows() -> RawSystemWebViewProbe {
     let runtime_available = runtime_version.is_some();
     RawSystemWebViewProbe {
         public_api_available: runtime_available,
+        macro_input_available: runtime_available,
         runtime_version,
-        // WebView2 CDP exists, but trusted/background macro parity is promoted only
-        // by the packaged native harness.
-        trusted_input_verified: false,
-        background_input_verified: false,
-        automation_spi_available: false,
         audio_mute_available: runtime_available,
         reason_codes: (!runtime_available)
             .then(|| "webview2-runtime-unavailable".to_owned())
@@ -253,10 +238,8 @@ mod tests {
                 RawSystemWebViewProbe {
                     runtime_version: Some("fixture".to_owned()),
                     public_api_available: true,
-                    automation_spi_available: platform == Platform::Macos,
+                    macro_input_available: true,
                     audio_mute_available: true,
-                    trusted_input_verified: true,
-                    background_input_verified: true,
                     reason_codes: Vec::new(),
                 },
             );
@@ -268,11 +251,10 @@ mod tests {
     }
 
     #[test]
-    fn never_promotes_unverified_input_or_missing_public_apis() {
+    fn reports_public_api_macro_input_and_audio_gaps_independently() {
         let probe = classify_probe(
             Platform::Macos,
             RawSystemWebViewProbe {
-                automation_spi_available: true,
                 audio_mute_available: false,
                 ..RawSystemWebViewProbe::default()
             },
@@ -286,12 +268,7 @@ mod tests {
         assert!(
             probe
                 .reason_codes
-                .contains(&"trusted-input-unverified".to_owned())
-        );
-        assert!(
-            probe
-                .reason_codes
-                .contains(&"background-input-unverified".to_owned())
+                .contains(&"macro-input-unavailable".to_owned())
         );
         assert!(
             probe
@@ -301,15 +278,32 @@ mod tests {
     }
 
     #[test]
+    fn classifies_macos_macro_input_from_the_supported_os_floor_and_public_apis() {
+        for (version, public_api_available, expected) in [
+            (Some("13.6"), true, false),
+            (Some("14.0"), true, true),
+            (Some("15.4.1"), true, true),
+            (Some("14.0"), false, false),
+            (Some("invalid"), true, false),
+            (None, true, false),
+        ] {
+            assert_eq!(
+                macos_macro_input_available(version, public_api_available),
+                expected,
+                "version={version:?}, public_api_available={public_api_available}"
+            );
+        }
+    }
+
+    #[test]
     fn classifies_windows_webview2_available_missing_and_damaged_scenarios() {
         let available = classify_probe(
             Platform::Windows,
             RawSystemWebViewProbe {
                 runtime_version: Some("fixture".to_owned()),
                 public_api_available: true,
+                macro_input_available: true,
                 audio_mute_available: true,
-                trusted_input_verified: true,
-                background_input_verified: true,
                 ..RawSystemWebViewProbe::default()
             },
         );

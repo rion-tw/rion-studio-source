@@ -504,6 +504,7 @@
   "browserEngine.actualTitle": "当前使用 {engine} 运行。",
   "browserEngine.issueTitle": "{resolved} 报告运行问题：{reason}。",
   "browserEngine.issueReason.webkitSpiUnavailable": "所需的 WebKit 自动化能力不可用",
+  "browserEngine.issueReason.macroInputUnavailable": "此操作系统或 WebView runtime 无法使用宏输入",
   "browserEngine.issueReason.cachedCompatibilityFailure": "先前的兼容性检查失败",
   "browserEngine.issueReason.runtimeCreationFailed": "此版本尚未启用 System runtime，或 runtime 无法启动",
   "browserEngine.issueReason.runtimeCrashed": "System runtime 已异常终止",

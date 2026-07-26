@@ -623,7 +623,7 @@ impl SystemRuntimeExecutor {
         };
         let probe = rion_platform::probe_system_webview(platform);
         let available = probe.available && probe.audio_mute_available;
-        let trusted_input_attested = trusted_input_attested();
+        let macro_input_available = available && probe.macro_input_available;
         SystemWebViewRuntimeRegistrationRecord {
             platform: if cfg!(target_os = "macos") {
                 "macos".to_owned()
@@ -635,21 +635,13 @@ impl SystemRuntimeExecutor {
             } else {
                 ResolvedBrowserEngine::Webview2
             },
-            adapter_version: format!(
-                "tauri-wry-{}{}",
-                env!("CARGO_PKG_VERSION"),
-                if trusted_input_attested {
-                    "+trusted-input-attested"
-                } else {
-                    ""
-                }
-            ),
+            adapter_version: format!("tauri-wry-{}", env!("CARGO_PKG_VERSION")),
             available,
             capability_snapshot: EngineCapabilitySnapshotRecord {
                 navigation: supported_if(available),
                 persistent_session: supported_if(available),
-                trusted_input: trusted_input_status(available, trusted_input_attested),
-                background_input: trusted_input_status(available, trusted_input_attested),
+                trusted_input: supported_if(macro_input_available),
+                background_input: supported_if(macro_input_available),
                 frame_evaluation: if available {
                     EngineCapabilityStatus::Degraded
                 } else {
@@ -4113,7 +4105,7 @@ fn run_trusted_input_attestation(
     }
 
     attest_key(webview, "rawKeyDown", "KeyA", &[], false)?;
-    let held = attestation_snapshot(webview)?;
+    let held = wait_for_attestation_state(webview, 1, 0, 1)?;
     require_attestation_field(&held, "keyDown", json!(1))?;
     require_attestation_field(&held, "keyUp", json!(0))?;
     require_attestation_field(&held, "heldCount", json!(1))?;
@@ -4128,7 +4120,7 @@ fn run_trusted_input_attestation(
     std::thread::sleep(Duration::from_millis(2));
     dispatch_mouse_effect(webview, ClickPoint { x: 32, y: 32 }, "left", false)?;
     std::thread::sleep(Duration::from_millis(2));
-    let behavior = attestation_snapshot(webview)?;
+    let behavior = wait_for_attestation_state(webview, 4, 3, 0)?;
     require_attestation_field(&behavior, "allTrusted", json!(true))?;
     require_attestation_field(&behavior, "backgroundOnly", json!(true))?;
     require_attestation_field(&behavior, "documentFocused", json!(false))?;
@@ -4160,7 +4152,7 @@ fn run_trusted_input_attestation(
         attest_key(webview, "rawKeyDown", "KeyA", &["KeyA"], false)?;
         attest_key(webview, "keyUp", "KeyA", &[], false)?;
     }
-    let stress = attestation_snapshot(webview)?;
+    let stress = wait_for_attestation_state(webview, CYCLES, CYCLES, 0)?;
     require_attestation_field(&stress, "allTrusted", json!(true))?;
     require_attestation_field(&stress, "backgroundOnly", json!(true))?;
     require_attestation_field(&stress, "documentFocused", json!(false))?;
@@ -4523,7 +4515,7 @@ fn verify_surface_recovery_attestation(
         .map_err(RuntimeError::tauri)?;
     attest_key(&recovered, "rawKeyDown", "KeyA", &["KeyA"], false)?;
     attest_key(&recovered, "keyUp", "KeyA", &[], false)?;
-    let input = attestation_snapshot(&recovered)?;
+    let input = wait_for_attestation_state(&recovered, 1, 1, 0)?;
     for (field, expected) in [
         ("allTrusted", json!(true)),
         ("backgroundOnly", json!(true)),
@@ -4637,13 +4629,7 @@ fn verify_popup_download_attestation(
     std::thread::sleep(Duration::from_millis(2));
     dispatch_mouse_effect(&parent, ClickPoint { x: 80, y: 140 }, "left", false)?;
     let destination = tracker.wait()?;
-    let downloaded = fs::read(&destination).map_err(RuntimeError::io)?;
-    if downloaded != DOWNLOAD_ATTESTATION_BODY {
-        return Err(input_attestation_error(format!(
-            "The System WebView download content was invalid at {}.",
-            destination.display()
-        )));
-    }
+    wait_for_download_attestation_content(&destination)?;
     Ok(Some(json!({
         "downloadCompleted": true,
         "downloadContentVerified": true,
@@ -4655,6 +4641,31 @@ fn verify_popup_download_attestation(
         "uploadContentVerified": true,
         "uploadSelectionMechanism": upload_selection.mechanism
     })))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn wait_for_download_attestation_content(destination: &Path) -> RuntimeResult<()> {
+    let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+    loop {
+        let downloaded = fs::read(destination);
+        if downloaded
+            .as_deref()
+            .is_ok_and(|bytes| bytes == DOWNLOAD_ATTESTATION_BODY)
+        {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let detail = match downloaded {
+                Ok(bytes) => format!("received {} bytes", bytes.len()),
+                Err(error) => error.to_string(),
+            };
+            return Err(input_attestation_error(format!(
+                "The System WebView download content was invalid at {} ({detail}).",
+                destination.display()
+            )));
+        }
+        std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -5060,7 +5071,7 @@ fn verify_attestation_tab(
         }
         attest_key(webview, "rawKeyDown", "KeyA", &["KeyA"], false)?;
         attest_key(webview, "keyUp", "KeyA", &[], false)?;
-        let snapshot = attestation_snapshot(webview)?;
+        let snapshot = wait_for_attestation_state(webview, 1, 1, 0)?;
         for (field, expected) in [
             ("allTrusted", json!(true)),
             ("backgroundOnly", json!(true)),
@@ -5230,8 +5241,8 @@ fn attest_key(
             suppress_shortcut: false,
         },
     )?;
-    // Pace the bounded native probe so its synthetic events cannot resemble a
-    // stuck key or overwhelm the focused System WebView during dev startup.
+    // Pace the bounded native parity probe so its synthetic events cannot resemble
+    // a stuck key or overwhelm the focused System WebView.
     std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
     Ok(())
 }
@@ -5239,6 +5250,31 @@ fn attest_key(
 #[cfg(any(windows, target_os = "macos"))]
 fn attestation_snapshot(webview: &Webview) -> RuntimeResult<Value> {
     evaluate_attestation_value(webview, "__rionInputAttestation.snapshot()")
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn wait_for_attestation_state(
+    webview: &Webview,
+    expected_key_down: u64,
+    expected_key_up: u64,
+    expected_held_count: u64,
+) -> RuntimeResult<Value> {
+    let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+    loop {
+        let snapshot = attestation_snapshot(webview)?;
+        let matches = snapshot.get("keyDown").and_then(Value::as_u64) == Some(expected_key_down)
+            && snapshot.get("keyUp").and_then(Value::as_u64) == Some(expected_key_up)
+            && snapshot.get("heldCount").and_then(Value::as_u64) == Some(expected_held_count);
+        if matches {
+            return Ok(snapshot);
+        }
+        if Instant::now() >= deadline {
+            return Err(input_attestation_error(format!(
+                "System WebView input delivery did not converge to keyDown={expected_key_down}, keyUp={expected_key_up}, heldCount={expected_held_count}; snapshot: {snapshot}."
+            )));
+        }
+        std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -5646,36 +5682,6 @@ fn supported_if(available: bool) -> EngineCapabilityStatus {
     } else {
         EngineCapabilityStatus::Disabled
     }
-}
-
-fn trusted_input_status(available: bool, attested: bool) -> EngineCapabilityStatus {
-    if !available {
-        EngineCapabilityStatus::Disabled
-    } else if attested {
-        EngineCapabilityStatus::Supported
-    } else {
-        EngineCapabilityStatus::Degraded
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn trusted_input_attested() -> bool {
-    unsafe extern "C" {
-        fn rion_wk_operating_system_major_version() -> u64;
-    }
-    option_env!("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR")
-        .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|major| major == unsafe { rion_wk_operating_system_major_version() })
-}
-
-#[cfg(windows)]
-fn trusted_input_attested() -> bool {
-    option_env!("RION_STUDIO_WINDOWS_INPUT_ATTESTED") == Some("1")
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-fn trusted_input_attested() -> bool {
-    false
 }
 
 fn degraded_if(available: bool) -> EngineCapabilityStatus {
@@ -6871,30 +6877,9 @@ mod tests {
             (1 << 18) | (1 << 19) | (1 << 20)
         );
         assert_eq!(
-            trusted_input_status(true, false),
-            EngineCapabilityStatus::Degraded
-        );
-        assert_eq!(
-            trusted_input_status(true, true),
-            EngineCapabilityStatus::Supported
-        );
-        assert_eq!(
-            trusted_input_status(false, true),
-            EngineCapabilityStatus::Disabled
-        );
-        assert_eq!(
             resolve_modifier_codes(&["primary".to_owned(), "ctrl".to_owned()], true).unwrap(),
             vec!["MetaLeft", "ControlLeft"]
         );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_input_attestation_is_bound_to_the_running_os_major() {
-        match option_env!("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR") {
-            Some(_) => assert!(trusted_input_attested()),
-            None => assert!(!trusted_input_attested()),
-        }
     }
 
     #[test]

@@ -14,7 +14,7 @@
 ```bash
 pnpm install
 pnpm run dev
-pnpm run dev:degraded # UI-only; native trusted input remains unavailable
+pnpm run dev:renderer # Optional renderer-only UI development
 pnpm run typecheck
 pnpm run test
 pnpm run lint

@@ -1,8 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_ENDPOINT");
-    println!("cargo:rerun-if-env-changed=RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
-    println!("cargo:rerun-if-env-changed=RION_STUDIO_WINDOWS_INPUT_ATTESTED");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         let runtime_output = std::process::Command::new("xcrun")
             .args(["clang", "--print-runtime-dir"])

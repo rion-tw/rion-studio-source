@@ -90,6 +90,7 @@ pub enum EngineCapabilityStatus {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum SystemWebViewIssueReason {
     WebkitSpiUnavailable,
+    MacroInputUnavailable,
     CachedCompatibilityFailure,
     RuntimeCreationFailed,
     RuntimeCrashed,
@@ -166,10 +167,8 @@ pub struct SystemWebViewProbeRecord {
     #[ts(optional)]
     pub runtime_version: Option<String>,
     pub public_api_available: bool,
-    pub automation_spi_available: bool,
+    pub macro_input_available: bool,
     pub audio_mute_available: bool,
-    pub trusted_input_verified: bool,
-    pub background_input_verified: bool,
     pub reason_codes: Vec<String>,
 }
 

@@ -10,6 +10,13 @@ export default defineConfig({
   build: {
     emptyOutDir: true,
     outDir: "../../out/renderer",
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "src/renderer/index.html"),
+        runtimeDivider: resolve(__dirname, "src/renderer/runtime-divider.html"),
+        runtimeTabs: resolve(__dirname, "src/renderer/runtime-tabs.html")
+      }
+    },
     sourcemap: false
   },
   resolve: {

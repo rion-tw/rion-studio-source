@@ -21,7 +21,7 @@ export function AppSidebar({ gameCount, hasUpdateBadge, macroCount, roleCount, t
   const navigate = useNavigate();
 
   return (
-    <aside className="app-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
+    <aside data-tauri-drag-region className="app-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
       <div className="pb-5">
         <button
           aria-label={t("app.home")}

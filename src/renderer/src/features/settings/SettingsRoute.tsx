@@ -29,7 +29,6 @@ import {
   DEFAULT_BROWSER_FONT_SETTINGS,
   browserFontFamilyRoles,
   normalizeBrowserGraphicsSettings,
-  normalizeBrowserProxyServer,
   normalizeGameBrowserSettings,
   workspaceGapSizes
 } from "../../../../shared/browserFonts";
@@ -803,15 +802,6 @@ function SettingsViewBase({
               />
             </SettingsSection>
 
-            <SettingsSection title={t("settings.gameGroupNetwork")}>
-              <BrowserProxySettingsRow
-                hasRunningRoles={hasRunningRoles}
-                settings={gameBrowserSettings}
-                t={t}
-                onError={onError}
-                onSave={onGameBrowserSettingsChange}
-              />
-            </SettingsSection>
           </>
         ) : null}
 
@@ -997,7 +987,6 @@ const engineCapabilityLabelKeys: Record<
   trustedInput: "browserEngine.capability.trustedInput",
   backgroundInput: "browserEngine.capability.backgroundInput",
   frameEvaluation: "browserEngine.capability.frameEvaluation",
-  proxy: "browserEngine.capability.proxy",
   popup: "browserEngine.capability.popup",
   audioMute: "browserEngine.capability.audioMute",
   customFonts: "browserEngine.capability.customFonts",
@@ -1246,96 +1235,6 @@ function BrowserFontsSettingsRows({
         </div>
       ) : null}
     </>
-  );
-}
-
-interface BrowserProxySettingsRowProps {
-  hasRunningRoles: boolean;
-  settings: GameBrowserSettings;
-  t: Translator;
-  onError: (error: unknown) => void;
-  onSave: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
-}
-
-function BrowserProxySettingsRow({
-  hasRunningRoles,
-  settings,
-  t,
-  onError,
-  onSave
-}: BrowserProxySettingsRowProps): JSX.Element {
-  const normalizedSettings = normalizeGameBrowserSettings(settings);
-  const [draft, setDraft] = useState(normalizedSettings.network.proxy.server);
-  const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const normalizedServer = normalizeBrowserProxyServer(draft);
-  const isEmpty = draft.trim() === "";
-  const isValid = isEmpty || Boolean(normalizedServer);
-  const currentServer = normalizedSettings.network.proxy.server;
-  const isDirty = (isEmpty ? "" : normalizedServer) !== currentServer;
-
-  useEffect(() => {
-    setDraft(normalizeGameBrowserSettings(settings).network.proxy.server);
-  }, [settings]);
-
-  async function saveProxySettings(): Promise<void> {
-    if (!isDirty || !isValid || isSaving) {
-      return;
-    }
-
-    setIsSaving(true);
-    setMessage(null);
-
-    try {
-      const savedSettings = await onSave(
-        normalizeGameBrowserSettings({
-          ...normalizedSettings,
-          network: {
-            ...normalizedSettings.network,
-            proxy: isEmpty
-              ? { mode: "system", server: "" }
-              : {
-                  mode: "custom",
-                  server: normalizedServer
-                }
-          }
-        })
-      );
-      setDraft(savedSettings.network.proxy.server);
-      setMessage(hasRunningRoles ? t("settings.browserProxyRestartNotice") : t("settings.browserProxySaved"));
-    } catch (error) {
-      onError(error);
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <SettingsRow
-      title={t("settings.browserProxy")}
-      description={`${
-        message ??
-        (!isValid ? t("settings.browserProxyInvalid") : formatBrowserProxySettingsSummary(normalizedSettings, t))
-      } ${t("settings.browserProxyPrivacy")}`}
-      control={
-        <Input
-          className="sm:w-[420px]"
-          disabled={isSaving}
-          placeholder={t("settings.browserProxyServerPlaceholder")}
-          value={draft}
-          onBlur={() => void saveProxySettings()}
-          onChange={(event) => {
-            setMessage(null);
-            setDraft(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      }
-    />
   );
 }
 
@@ -1865,15 +1764,6 @@ function formatBrowserFontSettingsSummary(settings: GameBrowserSettings, t: Tran
   return selectedFamilies.length > 0
     ? selectedFamilies.join(" / ")
     : t("settings.browserFontsCustomEmpty");
-}
-
-function formatBrowserProxySettingsSummary(settings: GameBrowserSettings, t: Translator): string {
-  const proxy = normalizeGameBrowserSettings(settings).network.proxy;
-  if (proxy.mode !== "custom") {
-    return t("settings.browserProxySystem");
-  }
-
-  return `${t("settings.browserProxyCustom")}: ${proxy.server}`;
 }
 
 function getBrowserFontOptions(

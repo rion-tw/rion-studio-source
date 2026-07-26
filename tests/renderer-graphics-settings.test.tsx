@@ -172,7 +172,6 @@ describe("flattened graphics settings", () => {
             trustedInput: "unsupported",
             backgroundInput: "unsupported",
             frameEvaluation: "degraded",
-            proxy: "supported",
             popup: "unsupported",
             audioMute: "supported",
             customFonts: "degraded",

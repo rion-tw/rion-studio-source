@@ -10,6 +10,7 @@
     "frontendDist": "../out/renderer"
   },
   "app": {
+    "macOSPrivateApi": true,
     "security": {
       "csp": "default-src 'self' customprotocol: asset:; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
     },
@@ -17,11 +18,11 @@
       {
         "label": "main",
         "title": "Rion Studio",
-        "width": 1200,
-        "height": 800,
+        "width": 1440,
+        "height": 900,
         "minWidth": 960,
         "minHeight": 640,
-        "visible": true,
+        "visible": false,
         "center": true
       }
     ]

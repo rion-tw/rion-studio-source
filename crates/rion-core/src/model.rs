@@ -104,7 +104,6 @@ pub struct EngineCapabilitySnapshotRecord {
     pub trusted_input: EngineCapabilityStatus,
     pub background_input: EngineCapabilityStatus,
     pub frame_evaluation: EngineCapabilityStatus,
-    pub proxy: EngineCapabilityStatus,
     pub popup: EngineCapabilityStatus,
     pub audio_mute: EngineCapabilityStatus,
     pub custom_fonts: EngineCapabilityStatus,
@@ -2327,7 +2326,6 @@ pub struct GameBrowserSettingsRecord {
     #[ts(optional)]
     pub browser_engine: Option<EmbeddedBrowserEngine>,
     pub macro_badge_position: MacroBadgePositionRecord,
-    pub network: BrowserNetworkSettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
 }
 
@@ -2495,22 +2493,6 @@ pub struct MacroBadgePositionRecord {
     pub horizontal_align: String,
     pub horizontal_margin_px: u32,
     pub top_px: u32,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserNetworkSettingsRecord {
-    pub proxy: BrowserProxySettingsRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserProxySettingsRecord {
-    #[ts(type = "\"system\" | \"custom\"")]
-    pub mode: String,
-    pub server: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

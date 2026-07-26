@@ -24,7 +24,7 @@ Rion Studio 会在你的设备保存隔离浏览器配置文件，其中可能�
 
 ## 6. 网络功能
 
-更新检查会连接 GitHub Releases；自定义代理可处理浏览流量。这些服务不受 Rion Studio project 控制，也不保证可用性、隐私、完整性或区域访问。
+更新检查会连接 GitHub Releases；系统 WebView 沿用操作系统的网络设置。这些服务和设置不受 Rion Studio project 控制，也不保证可用性、隐私、完整性或区域访问。
 
 ## 7. 可用性与变更
 

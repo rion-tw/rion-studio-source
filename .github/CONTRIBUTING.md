@@ -24,7 +24,17 @@ pnpm run package
 
 ### Runtime Data
 
-The Rust core stores role metadata under the Tauri application data directory.
+The Rust core stores metadata in `rion-studio.sqlite3` below the canonical
+`Rion Studio` application-data directory (`~/Library/Application Support/Rion Studio`
+on macOS and `%APPDATA%\\Rion Studio` on Windows).
+
+Before AppCore starts, the first Tauri launch checks for the legacy sibling
+directory named `rion-studio`. When it contains persistent data and no completed
+migration marker exists, Rion Studio makes a verified staging copy, retains any
+unpublished Tauri test directory as a timestamped backup, and atomically installs
+the staged copy. The legacy source is never deleted automatically. Do not move,
+rename, or clean either data directory while this migration is in progress.
+
 Each role owns an isolated browser directory at:
 
 ```text
@@ -70,6 +80,11 @@ window additionally publishes `latest.yml` and `latest-mac.yml` for legacy
 installations. Keep `Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`, and
 `Rion.Studio-win.exe` stable because updater manifests and README links depend on
 them. Manifests are uploaded only after the signed immutable assets verify.
+
+The Tauri parity ledger at `docs/tauri-parity-ledger.json` classifies every test
+removed with the legacy shell. `pnpm run verify:system-only` validates both the
+negative architecture boundary and this ledger; a deleted behavior test may not
+remain unclassified or point to missing replacement evidence.
 
 ### Windows Multi-Display Release Check
 

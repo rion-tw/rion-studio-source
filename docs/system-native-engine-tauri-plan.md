@@ -11,6 +11,45 @@ The product has no alternate browser engine, external-browser fallback, general
 remote-debugging endpoint, or separately packaged runtime helper. Capability gaps
 fail closed and are reported through the shared contracts.
 
+## Stable data root and one-time migration
+
+The stable data root is named `Rion Studio` under the platform application-data
+directory. It contains `rion-studio.sqlite3`, logs, settings, legal acceptance,
+role images, and the isolated `roles/{roleId}/browser` stores. The role-derived
+WKWebsiteDataStore identifiers and the WebView2 browser-directory layout remain
+stable, so moving the containing root does not create fresh login sessions.
+
+Before AppCore opens SQLite or any role WebView, the shell checks the legacy
+sibling directory named `rion-studio`. If no valid completion marker exists, it:
+
+1. acquires the migration lock and both application instance locks;
+2. uses SQLite online backup for databases and hash-verifies other persistent files;
+3. validates database integrity, foreign keys, schema/count summaries, and role directories;
+4. renames an existing unpublished `Rion Studio` test directory to a timestamped backup; and
+5. atomically installs the verified staging directory and records its source fingerprint.
+
+The old `rion-studio` directory is retained as a recovery source. A journal makes
+interrupted installation recoverable, and the completion marker prevents a later
+launch from overwriting newer Tauri data. Release builds reject arbitrary
+`RION_STUDIO_USER_DATA_DIR` overrides; isolated overrides are limited to debug and
+native-attestation runs.
+
+## Shell behavior parity
+
+The main window starts hidden at 1440×900 (minimum 960×640) and is shown only after
+the renderer bridge reports ready. macOS uses an overlay title bar, an 18×18 traffic
+light position, transparency and AppKit vibrancy; Windows retains native window
+controls. Startup failures render a bundled local error surface instead of leaving
+a white window or exiting silently.
+
+Runtime tabs are Tauri-owned. macOS receives bounded state/actions through an
+AppKit controller attached to Tauri's `NSWindow`; Windows uses a local-only chrome
+WebView with scoped commands. Both preserve live per-tab System WebViews while
+activating, reordering, hiding, moving between displays and transferring
+fullscreen state. Tab menus, audio state, shortcuts, fullscreen toolbar behavior,
+workspace dividers, the application menu and the quick menu use Rust/Tauri state
+and never expose these capabilities to remote pages.
+
 ## Native release gates
 
 Every signed macOS and Windows candidate must pass the native trusted-input,
@@ -53,4 +92,6 @@ input unavailable.
 
 `pnpm run verify:system-only` is the negative architecture gate. It rejects retired
 source roots, build configs, direct package dependencies, and runtime tokens outside
-the explicit migration allowlist.
+the explicit migration allowlist. It also validates the 57-entry parity ledger at
+`docs/tauri-parity-ledger.json`; every legacy-shell test must identify either a
+retired behavior, an existing Rust/Tauri equivalent, or a concrete replacement test.

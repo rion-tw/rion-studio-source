@@ -133,7 +133,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.macroUnassignedWorkflow",
   "Launch workspace has no roles.": "error.workspaceEmpty",
   "Unable to start the hidden Rion Studio browser helper.": "error.hiddenBrowserHelperUnavailable",
-  "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.":
+  "Unable to load the game page. Check the operating-system network settings or game accelerator mode.":
     "error.gamePageLoadFailed",
 };
 

@@ -2596,15 +2596,6 @@ impl AppCore {
                 }),
             ));
         }
-        if settings.network.proxy.mode == "custom"
-            && !settings.network.proxy.server.trim().is_empty()
-            && !system_capability_available(runtime.capability_snapshot.proxy)
-        {
-            return Ok((
-                false,
-                Some(crate::model::SystemWebViewIssueReason::RuntimeCreationFailed),
-            ));
-        }
         let cache_key = self.engine_compatibility_cache_key(game, settings, runtime)?;
         if self
             .with_runtime(|runtime| runtime.state.engine_compatibility_cache_get(cache_key))?
@@ -2628,7 +2619,6 @@ impl AppCore {
             "defaultLaunchUrl": &game.default_launch_url,
             "browserEngine": game.browser_engine,
             "fonts": &settings.fonts,
-            "network": &settings.network,
             "workspace": &settings.workspace
         }))
         .map_err(|error| CoreError::Internal(error.to_string()))?;
@@ -4075,9 +4065,6 @@ impl AppCore {
                 "compatibilityCache": engine_compatibility_cache,
                 "requirements": {
                     "defaultEngine": browser_settings.browser_engine,
-                    "proxyMode": browser_settings.network.proxy.mode,
-                    "customProxyConfigured": browser_settings.network.proxy.mode == "custom"
-                        && !browser_settings.network.proxy.server.is_empty(),
                 },
             },
             "windowsGraphicsEvents": windows_graphics_events,
@@ -4523,7 +4510,6 @@ fn unavailable_system_webview_runtime(
             trusted_input: EngineCapabilityStatus::Disabled,
             background_input: EngineCapabilityStatus::Disabled,
             frame_evaluation: EngineCapabilityStatus::Disabled,
-            proxy: EngineCapabilityStatus::Disabled,
             popup: EngineCapabilityStatus::Disabled,
             audio_mute: EngineCapabilityStatus::Disabled,
             custom_fonts: EngineCapabilityStatus::Disabled,
@@ -4779,7 +4765,6 @@ mod tests {
             trusted_input: Supported,
             background_input: Supported,
             frame_evaluation: Supported,
-            proxy: Supported,
             popup: Supported,
             audio_mute: Supported,
             custom_fonts: Degraded,

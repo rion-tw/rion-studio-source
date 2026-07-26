@@ -1,20 +1,28 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
-use rion_core::{AppCore, CoreCommand, EmbeddedLaunchTargetRecord, StatePixelBoundsRecord};
+use rion_core::{
+    AppCore, BrowserRuntimeSnapshot, CoreCommand, EmbeddedLaunchTargetRecord,
+    StatePixelBoundsRecord,
+};
 use tauri::{
     AppHandle, Emitter, Manager,
-    menu::{Menu, MenuBuilder, SubmenuBuilder},
+    menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
 };
 
 const TRAY_ID: &str = "rion-quick-menu";
 const ROLE_PREFIX: &str = "launch-role:";
 const WORKSPACE_PREFIX: &str = "launch-workspace:";
-const STOP_ROLE_PREFIX: &str = "stop-role:";
 const STOP_WORKSPACE_PREFIX: &str = "stop-workspace:";
+const SHOW_DISPLAY_PREFIX: &str = "show-display:";
+const RESTORE_WINDOW_PREFIX: &str = "restore-window:";
 
-pub fn create(app: &AppHandle, core: Arc<AppCore>) -> Result<TrayIcon, String> {
-    let menu = menu(app, &core)?;
+pub fn create(
+    app: &AppHandle,
+    core: Arc<AppCore>,
+    runtime: Arc<crate::SystemRuntimeExecutor>,
+) -> Result<TrayIcon, String> {
+    let menu = menu(app, &core, &runtime, "en")?;
     let event_core = Arc::clone(&core);
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -41,15 +49,26 @@ pub fn create(app: &AppHandle, core: Arc<AppCore>) -> Result<TrayIcon, String> {
     builder.build(app).map_err(|error| error.to_string())
 }
 
-pub fn refresh(app: &AppHandle, core: &AppCore) -> Result<(), String> {
+pub fn refresh(
+    app: &AppHandle,
+    core: &AppCore,
+    runtime: &crate::SystemRuntimeExecutor,
+    language: &str,
+) -> Result<(), String> {
     let tray = app
         .tray_by_id(TRAY_ID)
         .ok_or_else(|| "Rion Studio Quick Menu is unavailable.".to_owned())?;
-    tray.set_menu(Some(menu(app, core)?))
+    tray.set_menu(Some(menu(app, core, runtime, language)?))
         .map_err(|error| error.to_string())
 }
 
-fn menu(app: &AppHandle, core: &AppCore) -> Result<Menu<tauri::Wry>, String> {
+fn menu(
+    app: &AppHandle,
+    core: &AppCore,
+    runtime: &crate::SystemRuntimeExecutor,
+    language: &str,
+) -> Result<Menu<tauri::Wry>, String> {
+    let labels = labels(language);
     let roles = core
         .invoke(CoreCommand::RolesList)
         .map_err(|error| error.to_string())?;
@@ -63,73 +82,157 @@ fn menu(app: &AppHandle, core: &AppCore) -> Result<Menu<tauri::Wry>, String> {
         .invoke(CoreCommand::BrowserWorkspaceStatuses)
         .map_err(|error| error.to_string())?;
     let legal_accepted = legal_is_accepted(core);
-    let saved_window_count = saved_window_count(core);
+    let runtime_projection = core
+        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .ok()
+        .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())
+        .map(|snapshot| runtime.projection(&snapshot))
+        .unwrap_or_else(|| serde_json::json!({ "windows": [], "savedWindows": [] }));
     let role_state = |id: &str| status_state(&role_statuses, "roleId", id);
     let workspace_state = |id: &str| status_state(&workspace_statuses, "workspaceId", id);
-    let mut role_menu = SubmenuBuilder::new(app, "Roles");
+    let mut role_menu = SubmenuBuilder::new(app, labels.roles);
     let role_values = roles.as_array().cloned().unwrap_or_default();
+    let role_ids = role_values
+        .iter()
+        .filter_map(|role| role["id"].as_str().map(str::to_owned))
+        .collect::<HashSet<_>>();
     if role_values.is_empty() {
-        role_menu = role_menu.text("no-roles", "No Roles");
+        role_menu = role_menu.text("no-roles", labels.no_roles);
     } else {
         for role in role_values {
             if let (Some(id), Some(name)) = (role["id"].as_str(), role["name"].as_str()) {
                 let state = role_state(id);
-                let (prefix, marker) = if state == Some("running") {
-                    (STOP_ROLE_PREFIX, "✓ ")
-                } else if state.is_some() {
-                    (ROLE_PREFIX, "… ")
+                let busy = matches!(state, Some("launching" | "stopping"));
+                let marker = if state == Some("running") {
+                    "✓ "
+                } else if busy {
+                    "… "
                 } else {
-                    (ROLE_PREFIX, "")
+                    ""
                 };
-                role_menu = role_menu.text(format!("{prefix}{id}"), format!("{marker}{name}"));
+                let item = MenuItemBuilder::with_id(
+                    format!("{ROLE_PREFIX}{id}"),
+                    format!("{marker}{name}"),
+                )
+                .enabled(legal_accepted && !busy)
+                .build(app)
+                .map_err(|error| error.to_string())?;
+                role_menu = role_menu.item(&item);
             }
         }
     }
-    let mut workspace_menu = SubmenuBuilder::new(app, "Workspaces");
+    let mut workspace_menu = SubmenuBuilder::new(app, labels.workspaces);
     let workspace_values = workspaces.as_array().cloned().unwrap_or_default();
     if workspace_values.is_empty() {
-        workspace_menu = workspace_menu.text("no-workspaces", "No Workspaces");
+        workspace_menu = workspace_menu.text("no-workspaces", labels.no_workspaces);
     } else {
         for workspace in workspace_values {
             if let (Some(id), Some(name)) = (workspace["id"].as_str(), workspace["name"].as_str()) {
                 let state = workspace_state(id);
-                let (prefix, marker) = if state == Some("running") {
+                let assigned_role_ids = workspace["slots"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|slot| slot["roleId"].as_str())
+                    .collect::<Vec<_>>();
+                let missing_role = assigned_role_ids
+                    .iter()
+                    .any(|role_id| !role_ids.contains(*role_id));
+                let busy = matches!(state, Some("launching" | "stopping"));
+                let running = state == Some("running");
+                let (prefix, marker) = if running {
                     (STOP_WORKSPACE_PREFIX, "✓ ")
-                } else if state.is_some() {
+                } else if busy {
                     (WORKSPACE_PREFIX, "… ")
                 } else {
                     (WORKSPACE_PREFIX, "")
                 };
-                workspace_menu =
-                    workspace_menu.text(format!("{prefix}{id}"), format!("{marker}{name}"));
+                let item =
+                    MenuItemBuilder::with_id(format!("{prefix}{id}"), format!("{marker}{name}"))
+                        .enabled(
+                            legal_accepted
+                                && (running
+                                    || (!busy && !assigned_role_ids.is_empty() && !missing_role)),
+                        )
+                        .build(app)
+                        .map_err(|error| error.to_string())?;
+                workspace_menu = workspace_menu.item(&item);
             }
         }
     }
     let role_menu = role_menu.build().map_err(|error| error.to_string())?;
     let workspace_menu = workspace_menu.build().map_err(|error| error.to_string())?;
-    let mut menu = MenuBuilder::new(app).text("open-app", "Open Rion Studio");
+    let mut menu = MenuBuilder::new(app).text("open-app", labels.open);
     if !legal_accepted {
-        menu = menu.text("review-terms", "Review terms before launching");
+        menu = menu.text("review-terms", labels.review_terms);
     }
-    if saved_window_count > 0 {
-        menu = menu.text(
-            "restore-windows",
-            format!("Restore Saved Game Windows ({saved_window_count})"),
-        );
+    let windows = runtime_projection["windows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let saved_windows = runtime_projection["savedWindows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let has_game_windows = !windows.is_empty() || !saved_windows.is_empty();
+    if has_game_windows {
+        let header = MenuItemBuilder::new(labels.game_windows)
+            .enabled(false)
+            .build(app)
+            .map_err(|error| error.to_string())?;
+        menu = menu.item(&header);
+        for window in windows {
+            let Some(display_id) = window["displayId"].as_i64() else {
+                continue;
+            };
+            let count = window["tabCount"].as_u64().unwrap_or(0);
+            let visibility = if window["visible"].as_bool().unwrap_or(false) {
+                labels.visible
+            } else {
+                labels.hidden
+            };
+            menu = menu.text(
+                format!("{SHOW_DISPLAY_PREFIX}{display_id}"),
+                format!(
+                    "{} · {count} {} · {visibility}",
+                    display_label(app, display_id),
+                    labels.tabs
+                ),
+            );
+        }
+        for window in saved_windows {
+            let (Some(id), Some(display_label)) =
+                (window["id"].as_str(), window["displayLabel"].as_str())
+            else {
+                continue;
+            };
+            let count = window["tabCount"].as_u64().unwrap_or(0);
+            let item = MenuItemBuilder::with_id(
+                format!("{RESTORE_WINDOW_PREFIX}{id}"),
+                format!(
+                    "{display_label} · {count} {} · {}",
+                    labels.tabs, labels.saved
+                ),
+            )
+            .enabled(legal_accepted && window["state"].as_str() != Some("restoring"))
+            .build(app)
+            .map_err(|error| error.to_string())?;
+            menu = menu.item(&item);
+        }
+        menu = menu.separator();
     }
-    menu = menu
-        .text("show-games", "Show Game Windows")
-        .separator()
-        .item(&role_menu)
-        .item(&workspace_menu);
+    menu = menu.item(&role_menu).item(&workspace_menu);
+    if has_game_windows {
+        menu = menu.separator().text("show-games", labels.show_all);
+    }
     if role_statuses
         .as_array()
         .is_some_and(|items| !items.is_empty())
     {
-        menu = menu.separator().text("stop-all", "Stop All Running Roles");
+        menu = menu.separator().text("stop-all", labels.stop_all);
     }
     menu.separator()
-        .text("quit-app", "Quit Rion Studio")
+        .text("quit-app", labels.quit)
         .build()
         .map_err(|error| error.to_string())
 }
@@ -140,6 +243,36 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
         "restore-windows" => {
             show_main_window(app);
             let _ = app.emit("rion://quick-menu-restore", ());
+        }
+        _ if id.starts_with(SHOW_DISPLAY_PREFIX) => {
+            let display_id = id
+                .trim_start_matches(SHOW_DISPLAY_PREFIX)
+                .parse::<i64>()
+                .ok();
+            let core = Arc::clone(core);
+            tauri::async_runtime::spawn(async move {
+                let _ = core
+                    .invoke_async(CoreCommand::EmbeddedWindowsShow { display_id })
+                    .await;
+            });
+        }
+        _ if id.starts_with(RESTORE_WINDOW_PREFIX) => {
+            let window_id = id.trim_start_matches(RESTORE_WINDOW_PREFIX).to_owned();
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let Some(state) = app.try_state::<crate::CoreState>() else {
+                    return;
+                };
+                let Some(window) = app.get_webview_window("main") else {
+                    return;
+                };
+                let _ = crate::restore_saved_game_windows(
+                    &state,
+                    &window,
+                    &[serde_json::json!({ "scope": "window", "windowId": window_id })],
+                )
+                .await;
+            });
         }
         "show-games" => {
             let core = Arc::clone(core);
@@ -168,9 +301,6 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 }
             });
         }
-        _ if id.starts_with(STOP_ROLE_PREFIX) => {
-            stop_role(core, id.trim_start_matches(STOP_ROLE_PREFIX));
-        }
         _ if id.starts_with(STOP_WORKSPACE_PREFIX) => {
             stop_workspace(core, id.trim_start_matches(STOP_WORKSPACE_PREFIX));
         }
@@ -179,9 +309,6 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 show_main_window(app);
                 return;
             }
-            let Some(target) = launch_target(app) else {
-                return;
-            };
             let source_id = id
                 .strip_prefix(ROLE_PREFIX)
                 .or_else(|| id.strip_prefix(WORKSPACE_PREFIX))
@@ -191,6 +318,51 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 return;
             }
             let workspace = id.starts_with(WORKSPACE_PREFIX);
+            let workspace_record = workspace
+                .then(|| {
+                    core.invoke(CoreCommand::WorkspacesList)
+                        .ok()
+                        .and_then(|value| value.as_array().cloned())
+                        .and_then(|items| {
+                            items
+                                .into_iter()
+                                .find(|item| item["id"].as_str() == Some(&source_id))
+                        })
+                })
+                .flatten();
+            let requested_display_id = workspace_record
+                .as_ref()
+                .and_then(|item| item["targetDisplay"]["id"].as_i64());
+            let Some(target) = launch_target(app, requested_display_id) else {
+                if workspace {
+                    let workspace_name = workspace_record
+                        .as_ref()
+                        .and_then(|item| item["name"].as_str())
+                        .unwrap_or(&source_id)
+                        .to_owned();
+                    let displays = app
+                        .get_webview_window("main")
+                        .and_then(|window| super::workspace_displays(&window).ok())
+                        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+                    let request = serde_json::json!({
+                        "workspaceId": source_id,
+                        "workspaceName": workspace_name,
+                        "result": {
+                            "kind": "display_selection_required",
+                            "reason": "target_unavailable",
+                            "displays": displays
+                        }
+                    });
+                    if let Some(state) = app.try_state::<crate::CoreState>()
+                        && let Ok(mut pending) = state.pending_workspace_launch_request.lock()
+                    {
+                        *pending = Some(request.clone());
+                    }
+                    show_main_window(app);
+                    let _ = app.emit("rion://workspace-launch-request", request);
+                }
+                return;
+            };
             let core = Arc::clone(core);
             tauri::async_runtime::spawn(async move {
                 let command = if workspace {
@@ -219,32 +391,12 @@ fn legal_is_accepted(core: &AppCore) -> bool {
         .unwrap_or(false)
 }
 
-fn saved_window_count(core: &AppCore) -> usize {
-    core.invoke(CoreCommand::RuntimeRestoreSessionGet)
-        .ok()
-        .and_then(|value| value["windows"].as_array().map(Vec::len))
-        .unwrap_or(0)
-}
-
 fn status_state<'a>(statuses: &'a serde_json::Value, key: &str, id: &str) -> Option<&'a str> {
     statuses.as_array()?.iter().find_map(|status| {
         (status[key].as_str() == Some(id))
             .then(|| status["state"].as_str())
             .flatten()
     })
-}
-
-fn stop_role(core: &Arc<AppCore>, role_id: &str) {
-    if role_id.is_empty() {
-        return;
-    }
-    let core = Arc::clone(core);
-    let role_id = role_id.to_owned();
-    tauri::async_runtime::spawn(async move {
-        let _ = core
-            .invoke_async(CoreCommand::BrowserRoleStop { role_id })
-            .await;
-    });
 }
 
 fn stop_workspace(core: &Arc<AppCore>, workspace_id: &str) {
@@ -268,13 +420,24 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn launch_target(app: &AppHandle) -> Option<EmbeddedLaunchTargetRecord> {
+fn launch_target(
+    app: &AppHandle,
+    requested_display_id: Option<i64>,
+) -> Option<EmbeddedLaunchTargetRecord> {
     let window = app.get_webview_window("main")?;
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten())?;
+    let monitor = if let Some(display_id) = requested_display_id {
+        window
+            .available_monitors()
+            .ok()?
+            .into_iter()
+            .find(|monitor| super::monitor_id(monitor) == display_id)
+    } else {
+        window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten())
+    }?;
     let scale = monitor.scale_factor();
     let work_area = monitor.work_area();
     Some(EmbeddedLaunchTargetRecord {
@@ -286,6 +449,106 @@ fn launch_target(app: &AppHandle) -> Option<EmbeddedLaunchTargetRecord> {
             height: (work_area.size.height as f64 / scale).round() as i32,
         },
     })
+}
+
+fn display_label(app: &AppHandle, display_id: i64) -> String {
+    app.available_monitors()
+        .ok()
+        .and_then(|monitors| {
+            monitors.into_iter().find_map(|monitor| {
+                (super::monitor_id(&monitor) == display_id)
+                    .then(|| monitor.name().cloned())
+                    .flatten()
+            })
+        })
+        .unwrap_or_else(|| format!("Display {display_id}"))
+}
+
+#[derive(Clone, Copy)]
+struct Labels {
+    game_windows: &'static str,
+    hidden: &'static str,
+    no_roles: &'static str,
+    no_workspaces: &'static str,
+    open: &'static str,
+    quit: &'static str,
+    review_terms: &'static str,
+    roles: &'static str,
+    saved: &'static str,
+    show_all: &'static str,
+    stop_all: &'static str,
+    tabs: &'static str,
+    visible: &'static str,
+    workspaces: &'static str,
+}
+
+fn labels(language: &str) -> Labels {
+    match language {
+        "zh-TW" => Labels {
+            game_windows: "遊戲視窗",
+            hidden: "已隱藏",
+            no_roles: "沒有角色",
+            no_workspaces: "沒有工作區",
+            open: "開啟 Rion Studio",
+            quit: "結束 Rion Studio",
+            review_terms: "啟動前請先檢閱條款",
+            roles: "角色",
+            saved: "已儲存",
+            show_all: "顯示所有遊戲視窗",
+            stop_all: "停止所有執行中的角色",
+            tabs: "個分頁",
+            visible: "顯示中",
+            workspaces: "工作區",
+        },
+        "zh-CN" => Labels {
+            game_windows: "游戏窗口",
+            hidden: "已隐藏",
+            no_roles: "没有角色",
+            no_workspaces: "没有工作区",
+            open: "打开 Rion Studio",
+            quit: "退出 Rion Studio",
+            review_terms: "启动前请先查看条款",
+            roles: "角色",
+            saved: "已保存",
+            show_all: "显示所有游戏窗口",
+            stop_all: "停止所有运行中的角色",
+            tabs: "个标签页",
+            visible: "显示中",
+            workspaces: "工作区",
+        },
+        "ja" => Labels {
+            game_windows: "ゲームウインドウ",
+            hidden: "非表示",
+            no_roles: "ロールなし",
+            no_workspaces: "ワークスペースなし",
+            open: "Rion Studio を開く",
+            quit: "Rion Studio を終了",
+            review_terms: "起動前に利用規約を確認",
+            roles: "ロール",
+            saved: "保存済み",
+            show_all: "すべてのゲームウインドウを表示",
+            stop_all: "実行中のロールをすべて停止",
+            tabs: "タブ",
+            visible: "表示中",
+            workspaces: "ワークスペース",
+        },
+        _ => Labels {
+            game_windows: "Game Windows",
+            hidden: "Hidden",
+            no_roles: "No Roles",
+            no_workspaces: "No Workspaces",
+            open: "Open Rion Studio",
+            quit: "Quit Rion Studio",
+            review_terms: "Review terms before launching",
+            roles: "Roles",
+            saved: "Saved",
+            show_all: "Show All Game Windows",
+            stop_all: "Stop All Running Roles",
+            tabs: "tabs",
+            visible: "Visible",
+            workspaces: "Workspaces",
+        },
+    }
 }
 
 #[cfg(test)]

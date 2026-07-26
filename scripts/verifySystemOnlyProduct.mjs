@@ -29,7 +29,6 @@ const removedPaths = [
   "src/shared/internalIpc.ts",
   "src/shared/ipc.ts",
   "src/shared/embeddedRuntimeDiagnostics.ts",
-  "src/shared/runtimeTabs.ts",
   "build/tauri-helper-dev/package.json",
   "crates/rion-core/assets/cdn_compatibility_rules.json",
   "crates/rion-core/src/cdn.rs",
@@ -51,6 +50,7 @@ const sourceRoots = [
   "crates/rion-platform/src",
   "scripts",
   "src-tauri",
+  "src/renderer/native-chrome",
   "src/renderer/src",
   "src/shared"
 ];
@@ -67,6 +67,12 @@ const forbiddenTokens = [
   "ExternalChrome",
   "ExternalSessionRecord",
   "RION_STUDIO_CHROME_PATH",
+  "BrowserNetworkSettingsRecord",
+  "BrowserProxySettingsRecord",
+  "--proxy-server",
+  "proxyConfigurations",
+  "proxy_url",
+  "rion-runtime-audio://",
   "build:tauri:renderer",
   "dev:tauri",
   "remote-debugging-port"
@@ -80,10 +86,19 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])],
   ["electron", new Set([
+    "crates/rion-core/src/data_root_migration.rs",
     "crates/rion-core/src/database/state.rs",
     "crates/rion-core/src/model.rs",
     "crates/rion-core/src/portable.rs",
     "src-tauri/windows/installer-hooks.nsh"
+  ])],
+  ["custom proxy", new Set([
+    "crates/rion-core/src/database/legacy.rs",
+    "crates/rion-core/src/database/state.rs"
+  ])],
+  ['"proxy"', new Set([
+    "crates/rion-core/src/database/legacy.rs",
+    "crates/rion-core/src/database/state.rs"
   ])]
 ]);
 
@@ -103,7 +118,7 @@ for (const root of sourceRoots) {
       if (source.includes(token)) failures.push(`${repositoryPath} contains ${token}`);
     }
     for (const [token, allowlist] of migrationOnlyTokens) {
-      if (source.toLowerCase().includes(token) && !allowlist.has(repositoryPath)) {
+      if (source.toLowerCase().includes(token.toLowerCase()) && !allowlist.has(repositoryPath)) {
         failures.push(`${repositoryPath} contains migration-only token ${token}`);
       }
     }
@@ -111,6 +126,12 @@ for (const root of sourceRoots) {
 }
 
 const packageJson = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8"));
+if (
+  packageJson.scripts?.["verify:system-only"] !==
+  "node scripts/verifySystemOnlyProduct.mjs && node scripts/verifyTauriParityLedger.mjs"
+) {
+  failures.push("verify:system-only must include verifyTauriParityLedger.mjs");
+}
 const directPackages = {
   ...packageJson.dependencies,
   ...packageJson.devDependencies

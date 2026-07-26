@@ -11,12 +11,16 @@ describe("system-only product gate", () => {
       readFile("scripts/verifySystemOnlyProduct.mjs", "utf8")
     ]);
 
-    expect(packageJson).toContain('"verify:system-only": "node scripts/verifySystemOnlyProduct.mjs"');
+    expect(packageJson).toContain(
+      '"verify:system-only": "node scripts/verifySystemOnlyProduct.mjs && node scripts/verifyTauriParityLedger.mjs"'
+    );
     expect(ci).toContain("pnpm run verify:system-only");
     expect(candidate).toContain("pnpm run verify:system-only");
     expect(gate).toContain("CdnCompatibilityManager");
     expect(gate).toContain("ExternalChrome");
     expect(gate).toContain("ChromeProfileImport");
+    expect(gate).toContain("proxy_url");
+    expect(gate).toContain("verifyTauriParityLedger.mjs");
     expect(gate).toContain("CoreEffectAction still exposes");
   });
 });

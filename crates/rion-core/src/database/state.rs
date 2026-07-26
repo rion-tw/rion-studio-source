@@ -2934,9 +2934,6 @@ mod tests {
                 "macroBadgePosition":{
                     "horizontalAlign":"center","horizontalMarginPx":8,"topPx":128
                 },
-                "network":{
-                    "proxy":{"mode":"system","server":""}
-                },
                 "workspace":{"background":"material","gap":4}
             }))
             .unwrap();
@@ -3745,7 +3742,6 @@ mod tests {
                 trusted_input: crate::model::EngineCapabilityStatus::Unsupported,
                 background_input: crate::model::EngineCapabilityStatus::Unsupported,
                 frame_evaluation: crate::model::EngineCapabilityStatus::Supported,
-                proxy: crate::model::EngineCapabilityStatus::Supported,
                 popup: crate::model::EngineCapabilityStatus::Supported,
                 audio_mute: crate::model::EngineCapabilityStatus::Supported,
                 custom_fonts: crate::model::EngineCapabilityStatus::Degraded,

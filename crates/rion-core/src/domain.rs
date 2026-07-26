@@ -10,15 +10,15 @@ use crate::{
     model::StateCollection,
     model::{
         BrowserEngineOverride, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
-        BrowserNetworkSettingsRecord, BrowserProxySettingsRecord, EmbeddedBrowserEngine,
-        GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-        LegalAcceptanceRecord, MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat,
-        MacroSettingsRecord, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
-        MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
-        RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord,
-        StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
-        StateRoleRecord, StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
+        EmbeddedBrowserEngine, GameBrowserSettingsRecord, GameCreateInputRecord,
+        GameUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
+        MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
+        MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord, RoleCreateInputRecord,
+        RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeRestoreSessionRecord,
+        RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord,
+        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
+        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
         WorkspaceSlotInputRecord, WorkspaceUpdateInputRecord,
     },
@@ -40,12 +40,6 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             horizontal_align: "center".to_owned(),
             horizontal_margin_px: 8,
             top_px: 128,
-        },
-        network: BrowserNetworkSettingsRecord {
-            proxy: BrowserProxySettingsRecord {
-                mode: "system".to_owned(),
-                server: String::new(),
-            },
         },
         workspace: WorkspaceAppearanceSettingsRecord {
             background: "material".to_owned(),
@@ -1903,22 +1897,6 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
         ));
     }
     one_of(
-        &settings.network.proxy.mode,
-        &["system", "custom"],
-        "browser proxy mode",
-    )?;
-    if settings.network.proxy.mode == "custom" {
-        let proxy = Url::parse(&settings.network.proxy.server)
-            .map_err(|_| CoreError::InvalidInput("browser proxy is invalid".to_owned()))?;
-        if !matches!(proxy.scheme(), "http" | "https" | "socks4" | "socks5")
-            || proxy.host_str().is_none()
-        {
-            return Err(CoreError::InvalidInput(
-                "browser proxy is invalid".to_owned(),
-            ));
-        }
-    }
-    one_of(
         &settings.workspace.background,
         &["material", "black"],
         "workspace background",
@@ -1993,33 +1971,6 @@ pub fn normalize_game_browser_settings(
         || !settings.macro_badge_position.top_px.is_multiple_of(8)
     {
         settings.macro_badge_position.top_px = 128;
-    }
-    settings.network.proxy.server = settings.network.proxy.server.trim().to_owned();
-    let normalized_proxy = (settings.network.proxy.mode == "custom")
-        .then(|| Url::parse(&settings.network.proxy.server).ok())
-        .flatten()
-        .filter(|url| {
-            matches!(url.scheme(), "http" | "https" | "socks4" | "socks5")
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && (url.path().is_empty() || url.path() == "/")
-                && url.query().is_none()
-                && url.fragment().is_none()
-        })
-        .map(|url| {
-            let mut value = format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default());
-            if let Some(port) = url.port() {
-                value.push_str(&format!(":{port}"));
-            }
-            value
-        });
-    if let Some(server) = normalized_proxy {
-        settings.network.proxy.mode = "custom".to_owned();
-        settings.network.proxy.server = server;
-    } else {
-        settings.network.proxy.mode = "system".to_owned();
-        settings.network.proxy.server.clear();
     }
     if !matches!(settings.workspace.background.as_str(), "material" | "black") {
         settings.workspace.background = "material".to_owned();
@@ -2610,14 +2561,12 @@ mod tests {
             "graphics":{"mode":"high_performance"},
             "launchMode":"external",
             "macroBadgePosition":{"horizontalAlign":"right","horizontalMarginPx":80,"topPx":280},
-            "network":{"proxy":{"mode":"custom","server":" socks5://127.0.0.1:7890/ "}},
             "workspace":{"background":"black","gap":12}
         }))
         .unwrap();
         let settings = normalize_game_browser_settings(settings);
         assert_eq!(settings.fonts.families["fixed"], "Courier New");
         assert!(!settings.fonts.families.contains_key("bad"));
-        assert_eq!(settings.network.proxy.server, "socks5://127.0.0.1:7890");
         assert!(settings.graphics.prefer_high_performance_gpu);
         assert!(settings.graphics.gpu_blocklist_enabled);
         assert!(!settings.graphics.unsafe_web_gpu_enabled);
@@ -2631,15 +2580,6 @@ mod tests {
         assert_eq!(invalid_graphics.graphics.backend.windows, "automatic");
         assert!(!invalid_graphics.graphics.vsync_enabled);
         validate_game_browser_settings(&invalid_graphics).unwrap();
-
-        let mut invalid_proxy = settings.clone();
-        invalid_proxy.network.proxy.mode = "custom".to_owned();
-        invalid_proxy.network.proxy.server = "ftp://127.0.0.1:7890".to_owned();
-        let invalid_proxy = normalize_game_browser_settings(invalid_proxy);
-        crate::v1_case!("browser-workspace-3d56093ad88c", {
-            assert_eq!(invalid_proxy.network.proxy.mode, "system");
-            assert!(invalid_proxy.network.proxy.server.is_empty());
-        });
 
         crate::v1_case!("state-migration-40f54d27f418", {
             let macros = normalize_macro_settings(MacroSettingsRecord {

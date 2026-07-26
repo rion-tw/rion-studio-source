@@ -20,7 +20,7 @@ Rion Studio 不會刻意要求你提供密碼，也不另建密碼資料庫。�
 
 - 目標網站及身分驗證服務會收到一般瀏覽器請求，並依其自身政策處理資料。
 - 封裝版本會向 GitHub Releases 檢查更新；GitHub 可能取得 IP 位址、App 版本、平台資訊及一般請求中繼資料。
-- 你指定的自訂 Proxy 可接收及處理經其轉送的流量；Rion Studio 不驗證也不控制你選擇的 Proxy。
+- 系統 WebView 沿用作業系統的網路設定；Rion Studio 不會加入或保存 App 專用的網路路由。
 
 ## 5. 可攜式匯出與匯入
 
@@ -34,7 +34,7 @@ Rion Studio 不會刻意要求你提供密碼，也不另建密碼資料庫。�
 
 ## 7. 安全與限制
 
-Rion Studio 使用隔離角色目錄、受 capability 限制的 Tauri IPC 橋接，以及作業系統提供的 WKWebView 或 WebView2 runtime，但任何桌面軟體均無法保證絕對安全。請保護作業系統帳號、磁碟、備份、匯出檔、Proxy 及實體裝置，且不要把角色目錄提供給不應使用該登入工作階段的人。
+Rion Studio 使用隔離角色目錄、受 capability 限制的 Tauri IPC 橋接，以及作業系統提供的 WKWebView 或 WebView2 runtime，但任何桌面軟體均無法保證絕對安全。請保護作業系統帳號、磁碟、備份、匯出檔、網路設定及實體裝置，且不要把角色目錄提供給不應使用該登入工作階段的人。
 
 ## 8. 未成年人與變更
 

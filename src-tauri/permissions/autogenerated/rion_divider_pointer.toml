@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-divider-pointer"
+description = "Enables the rion_divider_pointer command without any pre-configured scope."
+commands.allow = ["rion_divider_pointer"]
+
+[[permission]]
+identifier = "deny-rion-divider-pointer"
+description = "Denies the rion_divider_pointer command without any pre-configured scope."
+commands.deny = ["rion_divider_pointer"]

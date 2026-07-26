@@ -10,8 +10,6 @@ export type { BrowserFontSettingsRecord } from "./BrowserFontSettingsRecord";
 export type { BrowserGraphicsBackendSettingsRecord } from "./BrowserGraphicsBackendSettingsRecord";
 export type { BrowserGraphicsSettingsRecord } from "./BrowserGraphicsSettingsRecord";
 export type { BrowserHostKind } from "./BrowserHostKind";
-export type { BrowserNetworkSettingsRecord } from "./BrowserNetworkSettingsRecord";
-export type { BrowserProxySettingsRecord } from "./BrowserProxySettingsRecord";
 export type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 export type { BrowserRuntimeCommand } from "./BrowserRuntimeCommand";
 export type { BrowserRuntimeDisplayRecord } from "./BrowserRuntimeDisplayRecord";

@@ -874,28 +874,12 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
         .filter(|value| matches!(*value, "automatic" | "high_performance" | "experimental"))
         .unwrap_or("automatic");
     let graphics = BrowserGraphicsSettingsRecord::from_legacy_mode(graphics_mode);
-    let network = source.get("network").and_then(Value::as_object);
-    let proxy_input = network
-        .and_then(|value| value.get("proxy"))
-        .and_then(Value::as_object);
-    let proxy_mode = proxy_input
-        .and_then(|value| value.get("mode"))
-        .and_then(Value::as_str);
-    let proxy_server = proxy_input
-        .and_then(|value| value.get("server"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| value.len() <= 200)
-        .unwrap_or("");
-    let proxy = if proxy_mode == Some("custom")
-        && Url::parse(proxy_server)
-            .ok()
-            .is_some_and(|url| matches!(url.scheme(), "http" | "https" | "socks4" | "socks5"))
-    {
-        json!({ "mode": "custom", "server": proxy_server })
-    } else {
-        json!({ "mode": "system", "server": "" })
-    };
+    // Legacy custom proxy fields are intentionally accepted here but omitted
+    // from the normalized Tauri settings. System WebViews inherit OS networking.
+    let _legacy_proxy = source
+        .get("network")
+        .and_then(Value::as_object)
+        .and_then(|network| network.get("proxy"));
     let workspace = source.get("workspace").and_then(Value::as_object);
     let background = workspace
         .and_then(|value| value.get("background"))
@@ -932,7 +916,6 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
             "horizontalMarginPx": horizontal_margin_px,
             "topPx": top_px
         },
-        "network": { "proxy": proxy },
         "workspace": { "background": background, "gap": gap }
     })
 }

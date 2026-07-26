@@ -97,7 +97,6 @@ function validateReport(value, requireCompiledAttestation) {
   const registration = value.report?.registration;
   const roleParity = value.report?.roleParity;
   const popupDownload = roleParity?.popupDownload;
-  const proxy = roleParity?.proxy;
   const recovery = roleParity?.recovery;
   const stress = value.report?.stress;
   if (
@@ -140,12 +139,6 @@ function validateReport(value, requireCompiledAttestation) {
     )) ||
     (expectedPlatform === "windows" &&
       popupDownload?.uploadSelectionMechanism !== "webview2-dom-set-file-input-files") ||
-    proxy?.configurationApplied !== true ||
-    (expectedPlatform === "windows" && (
-      proxy?.navigationCompleted !== true ||
-      proxy?.requestObserved !== true ||
-      proxy?.transportVerified !== true
-    )) ||
     recovery?.nativeHandleReplaced !== true ||
     recovery?.oldHandleReleased !== true ||
     recovery?.processTerminationObserved !== true ||

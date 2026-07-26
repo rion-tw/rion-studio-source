@@ -21,7 +21,7 @@ chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tauri = { workspace = true, features = ["macos-proxy", "unstable", "tray-icon"] }
+tauri = { workspace = true, features = ["macos-private-api", "unstable", "tray-icon"] }
 uuid.workspace = true
 url.workspace = true
 tauri-plugin-updater = "2"

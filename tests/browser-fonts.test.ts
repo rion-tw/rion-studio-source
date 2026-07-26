@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_BROWSER_NETWORK_SETTINGS,
   DEFAULT_GAME_BROWSER_SETTINGS,
   LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
   DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
   normalizeBrowserFontFamily,
-  normalizeBrowserProxyServer,
   normalizeGameBrowserSettings,
   workspaceGapSizes
 } from "../src/shared/browserFonts";
@@ -55,7 +53,6 @@ describe("browser font settings normalization", () => {
       },
       graphics: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
-      network: DEFAULT_BROWSER_NETWORK_SETTINGS,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
   });
@@ -161,23 +158,18 @@ describe("browser font settings normalization", () => {
     });
   });
 
-  it("normalizes browser proxy settings", () => {
-    expect(
-      normalizeGameBrowserSettings({
-        network: {
-          proxy: {
-            mode: "custom",
-            server: " socks5://127.0.0.1:7890/ "
-          }
+  it("accepts and ignores retired legacy custom proxy fields", () => {
+    const normalized = normalizeGameBrowserSettings({
+      network: {
+        proxy: {
+          mode: "custom",
+          server: "socks5://127.0.0.1:7890"
         }
-      }).network.proxy
-    ).toEqual({ mode: "custom", server: "socks5://127.0.0.1:7890" });
+      }
+    });
 
-    expect(normalizeBrowserProxyServer("http://localhost:7890")).toBe("http://localhost:7890");
-    expect(normalizeBrowserProxyServer("ftp://127.0.0.1:7890", "http://127.0.0.1:7890")).toBe(
-      "http://127.0.0.1:7890"
-    );
-    expect(normalizeBrowserProxyServer("http://127.0.0.1:7890/path")).toBe("");
+    expect(normalized).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
+    expect("network" in normalized).toBe(false);
   });
 
   it("defaults workspace appearance and validates backgrounds and fixed gap sizes", () => {

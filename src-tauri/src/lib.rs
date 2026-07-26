@@ -49,6 +49,11 @@ const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     match action {
         CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
+        CoreEffectAction::LegacySessionRestore { .. } => "legacySessionRestore",
+        CoreEffectAction::ChromeProfileImportSnapshot { .. } => "chromeProfileImportSnapshot",
+        CoreEffectAction::ChromeProfileImportApply { .. } => "chromeProfileImportApply",
+        CoreEffectAction::ChromeProfileImportRollback { .. } => "chromeProfileImportRollback",
+        CoreEffectAction::ChromeProfileImportCommit { .. } => "chromeProfileImportCommit",
         CoreEffectAction::CompatibilityCreateWindow { .. } => "compatibilityCreateWindow",
         CoreEffectAction::CompatibilityConfigureSession { .. } => "compatibilityConfigureSession",
         CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
@@ -769,6 +774,7 @@ async fn rion_shell_invoke(
         }
         "exportPortableData" => export_portable_data(&state, &args).await,
         "previewPortableImport" => preview_portable_import(&state).await,
+        "previewChromeProfileImport" => preview_chrome_profile_import(&state).await,
         "getGraphicsDiagnostics" => graphics_diagnostics(&app, &state).await,
         "revealLogs" => reveal_logs(&state).await,
         "exportDiagnostics" => export_diagnostics(&app, &window, &state).await,
@@ -889,6 +895,34 @@ async fn preview_portable_import(state: &CoreState) -> Result<Value, CoreErrorPa
     invoke_core_sync(
         state,
         json!({ "type": "portablePreviewFile", "path": path.to_string_lossy() }),
+    )
+}
+
+async fn preview_chrome_profile_import(state: &CoreState) -> Result<Value, CoreErrorPayload> {
+    let default_path = invoke_core_sync(state, json!({ "type": "chromeProfileDefaultPath" }))?
+        .as_str()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            shell_error(
+                "CHROME_PROFILE_PATH_UNAVAILABLE",
+                "The default Chrome User Data folder is unavailable.",
+            )
+        })?;
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        native_shell::pick_directory("Choose Chrome User Data", &default_path)
+    })
+    .await
+    .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error.to_string()))?
+    .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error))?;
+    let Some(path) = selected else {
+        return Ok(Value::Null);
+    };
+    invoke_core_sync(
+        state,
+        json!({
+            "type": "chromeProfilePreview",
+            "sourceUserDataDir": path.to_string_lossy()
+        }),
     )
 }
 
@@ -2075,6 +2109,7 @@ pub fn run() {
                     }
                 })?;
             let renderer_ready = Arc::new(AtomicBool::new(false));
+            let recovery_core = Arc::clone(&core);
             app.manage(CoreState {
                 _activation: activation,
                 _quick_menu: quick_menu,
@@ -2085,6 +2120,11 @@ pub fn run() {
                 renderer_ready: Arc::clone(&renderer_ready),
                 runtime,
                 updates,
+            });
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = recovery_core.recover_pending_chrome_profile_imports().await {
+                    eprintln!("Chrome profile import recovery failed: {error}");
+                }
             });
             if let Some(state) = app.try_state::<CoreState>() {
                 application_menu::install(app.handle(), &state.core, "en")?;

@@ -22,4 +22,6 @@ pub(crate) const LEGACY_STATE_FILES: &[&str] = &[
 pub use bootstrap::{DatabasePaths, bootstrap_databases, create_online_startup_backup};
 pub use logs::LogDatabaseWorker;
 pub use state::StateDatabaseWorker;
-pub(crate) use state::{OperationJournalRecord, SCHEMA_VERSION, StateMutation};
+pub(crate) use state::{
+    LegacySessionRestoreState, OperationJournalRecord, SCHEMA_VERSION, StateMutation,
+};

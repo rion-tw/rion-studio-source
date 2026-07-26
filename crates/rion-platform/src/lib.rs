@@ -20,10 +20,24 @@ pub(crate) use v1_case;
 
 mod filesystem;
 pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
+mod chrome_profile;
+pub use chrome_profile::{
+    ChromeProfileEntry, chrome_profile_source_fingerprint, chrome_user_data_in_use,
+    default_chrome_user_data_directory, discover_chrome_profiles, stage_chrome_profile,
+};
+mod chrome_cookie;
+pub use chrome_cookie::{
+    CookieDecryptor, decrypt_chrome_cookie, decrypt_legacy_rion_cookie, decrypt_mac_cookie_payload,
+    decrypt_windows_aes_gcm_payload,
+};
+mod protected_data;
+pub use protected_data::{protect_session_transfer, unprotect_session_transfer};
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
 mod system;
-pub use system::{SystemHostDiagnostics, collect_system_host_diagnostics};
+pub use system::{
+    SystemHostDiagnostics, collect_system_host_diagnostics, request_graceful_chrome_quit,
+};
 mod system_webview;
 pub use system_webview::{SystemWebViewProbe, probe_system_webview};
 mod windows_events;

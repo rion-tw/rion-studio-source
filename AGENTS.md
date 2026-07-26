@@ -70,8 +70,13 @@ Avoid adding renderer-only shortcuts around this bridge.
 - Preserve the existing post-launch auth verification before considering a browser
   session running.
 - System WebView launches must not expose a general remote-debugging endpoint.
-  CDN rewriting, external browser launch, and browser-profile import are retired
-  and must not return as compatibility paths.
+  CDN rewriting, external browser launch, Chrome-profile-as-runtime, and full
+  profile copying are retired and must not return as compatibility paths.
+- A user-consented Chrome Profile import may perform a bounded, one-time transfer
+  of launch-URL cookies and the exact launch origin's LocalStorage through the
+  dedicated encrypted staging and native System WebView effects. It must never
+  become a role session source, startup fallback, generic cookie/session effect,
+  or external Chrome runtime.
 
 ## Renderer And UI Rules
 
@@ -79,7 +84,8 @@ Avoid adding renderer-only shortcuts around this bridge.
 - Reuse local UI primitives from `src/renderer/src/components/ui` and patterns from
   `src/renderer/src/components/ui/patterns.tsx`.
 - Use `lucide-react` icons when adding icon buttons or navigation actions.
-- Add user-facing text through `src/renderer/src/i18n.ts` for both `en` and `zh-TW`.
+- Add user-facing text through `src/renderer/src/i18n.ts` for `en`, `zh-TW`,
+  `zh-CN`, and `ja`.
 - Keep layout stable across the app minimum window size of 960x640.
 
 ## Useful Commands

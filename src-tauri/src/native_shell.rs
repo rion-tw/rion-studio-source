@@ -14,6 +14,13 @@ pub fn pick_file(title: &str, extension: &str) -> Result<Option<PathBuf>, String
     })
 }
 
+pub fn pick_directory(title: &str, default_path: &Path) -> Result<Option<PathBuf>, String> {
+    run_dialog(DialogRequest::Directory {
+        title,
+        default_path,
+    })
+}
+
 pub fn save_file(
     title: &str,
     default_name: &str,
@@ -97,6 +104,10 @@ pub fn copy_text(value: &str) -> Result<(), String> {
 }
 
 enum DialogRequest<'a> {
+    Directory {
+        title: &'a str,
+        default_path: &'a Path,
+    },
     OpenFile {
         title: &'a str,
         extension: &'a str,
@@ -117,6 +128,23 @@ fn run_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, String> {
 
 fn run_macos_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, String> {
     let (title, script, default_value) = match request {
+        DialogRequest::Directory {
+            title,
+            default_path,
+        } => (
+            title,
+            concat!(
+                "set promptText to system attribute \"RION_STUDIO_DIALOG_TITLE\"\n",
+                "set defaultPath to system attribute \"RION_STUDIO_DIALOG_DEFAULT\"\n",
+                "try\n",
+                "  set chosenPath to choose folder with prompt promptText default location (POSIX file defaultPath)\n",
+                "  return POSIX path of chosenPath\n",
+                "on error number -128\n",
+                "  return \"\"\n",
+                "end try"
+            ),
+            default_path.to_string_lossy().into_owned(),
+        ),
         DialogRequest::OpenFile { title, extension } => (
             title,
             concat!(
@@ -160,6 +188,21 @@ fn run_macos_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, Strin
 
 fn run_windows_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, String> {
     let (title, script, default_value) = match request {
+        DialogRequest::Directory {
+            title,
+            default_path,
+        } => (
+            title,
+            concat!(
+                "Add-Type -AssemblyName System.Windows.Forms;",
+                "$d=New-Object System.Windows.Forms.FolderBrowserDialog;",
+                "$d.Description=$env:RION_STUDIO_DIALOG_TITLE;",
+                "$d.SelectedPath=$env:RION_STUDIO_DIALOG_DEFAULT;",
+                "if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)",
+                "{[Console]::Out.Write($d.SelectedPath)}"
+            ),
+            default_path.to_string_lossy().into_owned(),
+        ),
         DialogRequest::OpenFile { title, extension } => (
             title,
             concat!(

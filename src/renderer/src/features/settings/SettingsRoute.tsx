@@ -46,6 +46,7 @@ import type {
   EmbeddedBrowserEngine,
   EngineCapabilitySnapshot,
   GameBrowserSettings,
+  Game,
   GraphicsDiagnostics,
   MacroBadgeHorizontalAlign,
   MacroBadgePositionSettings,
@@ -61,6 +62,7 @@ import type {
   PortableMacroConflictResolution,
   RuntimeWindowPreferences,
   RoleStatus,
+  Role,
   SystemFontFamily,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
@@ -73,6 +75,7 @@ import {
 } from "./graphicsRestart";
 import { MacroSettingsSection } from "./MacroSettingsSection";
 import { DiagnosticsSettingsSection } from "./DiagnosticsSettingsSection";
+import { ChromeProfileImportFlow } from "./ChromeProfileImportFlow";
 import {
   clearPortableDataSelection,
   createDefaultPortableDataSelection,
@@ -94,9 +97,11 @@ interface PortableDataCounts {
 }
 
 interface SettingsViewProps {
+  games?: Game[];
   gameBrowserSettings: GameBrowserSettings;
   hasRunningRoles: boolean;
   roleStatuses?: RoleStatus[];
+  roles?: Role[];
   language: Language;
   macroSettings: MacroSettings;
   runtimeWindowPreferences: RuntimeWindowPreferences;
@@ -163,9 +168,11 @@ const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = 
 
 function SettingsViewBase({
   activeSection,
+  games = [],
   gameBrowserSettings,
   hasRunningRoles,
   roleStatuses = [],
+  roles = [],
   language,
   macroSettings,
   runtimeWindowPreferences,
@@ -816,6 +823,11 @@ function SettingsViewBase({
 
         {activeSection === "data" ? (
           <SettingsSection>
+            <SettingsRow
+              title={t("settings.chromeImport")}
+              description={t("settings.chromeImportEntryDescription")}
+              control={<ChromeProfileImportFlow games={games} roles={roles} t={t} onError={onError} />}
+            />
             <SettingsRow
               title={t("settings.portableExport")}
               description={t("settings.portableExportDescription")}

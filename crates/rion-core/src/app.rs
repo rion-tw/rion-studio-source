@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     database::{
-        DatabasePaths, LogDatabaseWorker, OperationJournalRecord, SCHEMA_VERSION,
-        StateDatabaseWorker, StateMutation, bootstrap_databases,
+        DatabasePaths, LegacySessionRestoreState, LogDatabaseWorker, OperationJournalRecord,
+        SCHEMA_VERSION, StateDatabaseWorker, StateMutation, bootstrap_databases,
     },
     domain::{
         default_runtime_restore_session, normalize_game_browser_settings, normalize_macro_settings,
@@ -27,12 +27,14 @@ use crate::{
     macro_runtime::MacroRuntime,
     model::{
         AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BrowserActionResult,
-        BrowserOperationRequest, BrowserRuntimeCommand, CompatibilityCheckOutcome,
-        CompatibilityRunPhase, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
-        CoreEffectResult, CoreEffectTarget, CoreEvent, DiagnosticExportResultRecord,
-        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
-        GraphicsDiagnosticsRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
+        BrowserOperationRequest, BrowserRuntimeCommand, ChromeProfileImportItemResultRecord,
+        ChromeProfileImportProgressRecord, ChromeProfileImportResolutionRecord,
+        ChromeProfileImportResultRecord, CompatibilityCheckOutcome, CompatibilityRunPhase,
+        CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult,
+        CoreEffectTarget, CoreEvent, DiagnosticExportResultRecord, EmbeddedLaunchResultRecord,
+        EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
+        EmbeddedTabEffectRecord, GameBrowserSettingsRecord, GraphicsDiagnosticsRecord,
+        LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
         MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
         MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
         OperationCancelResultRecord, RuntimeRestoreSessionRecord, RuntimeVersionRecord,
@@ -97,11 +99,55 @@ struct Runtime {
     telemetry: crate::telemetry::TelemetryWorker,
 }
 
+struct BrowserOperationGuard<'a> {
+    coordinator: &'a crate::browser_operations::BrowserOperationCoordinator,
+    lease_id: String,
+    finished: bool,
+}
+
+struct ChromeImportRollbackContext {
+    operation_id: String,
+    transaction_id: String,
+    role_id: String,
+    launch_url: String,
+    webview2_user_data_dir: String,
+    webkit_data_store_identifier: String,
+    staging: PathBuf,
+}
+
+impl<'a> BrowserOperationGuard<'a> {
+    fn new(
+        coordinator: &'a crate::browser_operations::BrowserOperationCoordinator,
+        lease_id: String,
+    ) -> Self {
+        Self {
+            coordinator,
+            lease_id,
+            finished: false,
+        }
+    }
+
+    fn complete(mut self) -> CoreResult<()> {
+        self.coordinator.complete(&self.lease_id)?;
+        self.finished = true;
+        Ok(())
+    }
+}
+
+impl Drop for BrowserOperationGuard<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.coordinator.abort(&self.lease_id);
+        }
+    }
+}
+
 pub struct AppCore {
     app_version: String,
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
+    chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     compatibility_runtime: Mutex<crate::compatibility_runtime::CompatibilityRuntime>,
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
@@ -147,6 +193,7 @@ impl AppCore {
         let platform = rion_platform::Platform::parse(&options.platform)
             .map_err(|error| CoreError::Platform(error.to_string()))?;
         let instance_lock = acquire_instance_lock(&user_data_dir)?;
+        crate::chrome_profile_import::cleanup_abandoned_snapshot_root(&user_data_dir)?;
         if let Some(backup_label) = backup_label {
             crate::database::create_online_startup_backup(
                 &user_data_dir,
@@ -220,6 +267,9 @@ impl AppCore {
             browser_action_effects,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
             browser_runtime,
+            chrome_profile_import: Mutex::new(
+                crate::chrome_profile_import::ChromeProfileImportRuntime::default(),
+            ),
             compatibility_runtime: Mutex::new(
                 crate::compatibility_runtime::CompatibilityRuntime::default(),
             ),
@@ -393,6 +443,38 @@ impl AppCore {
             }
             CoreCommand::RoleAssignGameIds { assignments } => {
                 self.mutate_state(StateMutation::RoleAssignGameIds(assignments))
+            }
+            CoreCommand::ChromeProfileDefaultPath => Ok(
+                rion_platform::default_chrome_user_data_directory(self.platform)
+                    .map(|path| Value::String(path.to_string_lossy().into_owned()))
+                    .unwrap_or(Value::Null),
+            ),
+            CoreCommand::ChromeProfilePreview {
+                source_user_data_dir,
+            } => {
+                let preview = self
+                    .chrome_profile_import
+                    .lock()
+                    .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+                    .preview(&source_user_data_dir)?;
+                serde_json::to_value(preview)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::ChromeProfileRefresh { import_id } => {
+                let preview = self
+                    .chrome_profile_import
+                    .lock()
+                    .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+                    .refresh(&import_id)?;
+                serde_json::to_value(preview)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::ChromeProfileDiscard { import_id } => {
+                self.chrome_profile_import
+                    .lock()
+                    .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+                    .discard(&import_id);
+                Ok(json!({ "discarded": true }))
             }
             CoreCommand::WorkspacesList => self.read_state_collection("launchWorkspaces"),
             CoreCommand::WorkspaceGet { id } => self.read_state_record(
@@ -1090,6 +1172,8 @@ impl AppCore {
                 Ok(json!({ "suspended": suspended }))
             }
             CoreCommand::RoleBrowserDataClear { .. }
+            | CoreCommand::ChromeProfileRequestQuit { .. }
+            | CoreCommand::ChromeProfileApply { .. }
             | CoreCommand::CompatibilityRun { .. }
             | CoreCommand::GraphicsDiagnosticsAssemble { .. }
             | CoreCommand::DiagnosticsExport { .. }
@@ -1107,6 +1191,42 @@ impl AppCore {
         match command {
             CoreCommand::RoleBrowserDataClear { role_id } => {
                 self.clear_role_browser_data(role_id).await
+            }
+            CoreCommand::ChromeProfileRequestQuit { import_id } => {
+                let pending = self
+                    .chrome_profile_import
+                    .lock()
+                    .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+                    .get(&import_id)?;
+                let platform = self.platform;
+                tokio::task::spawn_blocking(move || {
+                    rion_platform::request_graceful_chrome_quit(platform)
+                        .map_err(|error| CoreError::Platform(error.to_string()))
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while rion_platform::chrome_user_data_in_use(&pending.source_user_data_dir)
+                    && std::time::Instant::now() < deadline
+                {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                let preview = self
+                    .chrome_profile_import
+                    .lock()
+                    .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+                    .refresh(&import_id)?;
+                serde_json::to_value(preview)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::ChromeProfileApply {
+                import_id,
+                game_id,
+                consent_accepted,
+                resolutions,
+            } => {
+                self.apply_chrome_profile_import(import_id, game_id, consent_accepted, resolutions)
+                    .await
             }
             CoreCommand::GameDelete { id } => {
                 let core = Arc::clone(self);
@@ -1243,6 +1363,7 @@ impl AppCore {
                 target,
                 zoom_factor,
             } => {
+                self.restore_legacy_session_if_needed(&role_id).await?;
                 let core = Arc::clone(self);
                 let statuses = tokio::task::spawn_blocking(move || {
                     core.launch_embedded_role(&role_id, target, zoom_factor.unwrap_or(1.0))
@@ -1260,6 +1381,13 @@ impl AppCore {
                 target,
             } => {
                 let workspace = self.state_workspace(&workspace_id)?;
+                for role_id in workspace
+                    .slots
+                    .iter()
+                    .filter_map(|slot| slot.role_id.as_deref())
+                {
+                    self.restore_legacy_session_if_needed(role_id).await?;
+                }
                 let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
                     "gameBrowserSettings",
                     "game browser settings are missing",
@@ -1298,6 +1426,876 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))?
             }
         }
+    }
+
+    async fn apply_chrome_profile_import(
+        self: &Arc<Self>,
+        import_id: String,
+        game_id: String,
+        consent_accepted: bool,
+        resolutions: Vec<ChromeProfileImportResolutionRecord>,
+    ) -> CoreResult<Value> {
+        if !consent_accepted {
+            return Err(CoreError::Domain {
+                code: "CONSENT_REQUIRED",
+                message: "Consent is required before importing Chrome profile data.".to_owned(),
+            });
+        }
+        let pending = self
+            .chrome_profile_import
+            .lock()
+            .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+            .get(&import_id)?;
+        if rion_platform::chrome_user_data_in_use(&pending.source_user_data_dir) {
+            return Err(CoreError::Domain {
+                code: "CHROME_RUNNING",
+                message: "Chrome is still using the selected profile.".to_owned(),
+            });
+        }
+        if resolutions.is_empty() {
+            return Err(CoreError::Domain {
+                code: "PROFILE_SELECTION_EMPTY",
+                message: "Select at least one Chrome profile to import.".to_owned(),
+            });
+        }
+        let game = self.state_game(&game_id)?;
+        let profiles = pending
+            .profiles
+            .iter()
+            .map(|profile| (profile.id.as_str(), profile.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut seen_profiles = std::collections::HashSet::new();
+        let mut seen_targets = std::collections::HashSet::new();
+        for resolution in &resolutions {
+            if !seen_profiles.insert(resolution.profile_id().to_owned())
+                || !profiles.contains_key(resolution.profile_id())
+            {
+                return Err(CoreError::Domain {
+                    code: "PROFILE_SELECTION_INVALID",
+                    message: "Chrome profile selection is invalid.".to_owned(),
+                });
+            }
+            if let ChromeProfileImportResolutionRecord::Replace { target_role_id, .. } = resolution
+                && !seen_targets.insert(target_role_id.clone())
+            {
+                return Err(CoreError::Domain {
+                    code: "ROLE_TARGET_CONFLICT",
+                    message: "Multiple Chrome profiles cannot replace the same role.".to_owned(),
+                });
+            }
+        }
+        let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
+        let mut used_names = roles
+            .iter()
+            .filter(|role| role.game_id == game.id)
+            .map(|role| role.name.to_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+        let mut final_names = std::collections::HashSet::new();
+        for resolution in &resolutions {
+            let profile = profiles
+                .get(resolution.profile_id())
+                .expect("validated Chrome profile");
+            let base_name = crate::chrome_profile_import::normalized_profile_name(
+                &profile.name,
+                &profile.directory_name,
+            );
+            let final_name = match resolution {
+                ChromeProfileImportResolutionRecord::Create { .. } => {
+                    if used_names.contains(&base_name.to_lowercase()) {
+                        return Err(CoreError::Domain {
+                            code: "ROLE_CONFLICT_RESOLUTION_REQUIRED",
+                            message: "Choose how to handle each matching role.".to_owned(),
+                        });
+                    }
+                    base_name
+                }
+                ChromeProfileImportResolutionRecord::Copy { .. } => {
+                    crate::chrome_profile_import::copy_role_name(&base_name, &used_names)
+                }
+                ChromeProfileImportResolutionRecord::Replace { target_role_id, .. } => roles
+                    .iter()
+                    .find(|role| role.id == *target_role_id && role.game_id == game.id)
+                    .map(|role| role.name.clone())
+                    .ok_or_else(|| CoreError::Domain {
+                        code: "ROLE_TARGET_INVALID",
+                        message: "The role selected for replacement is invalid.".to_owned(),
+                    })?,
+            };
+            let normalized = final_name.to_lowercase();
+            if !final_names.insert(normalized.clone()) {
+                return Err(CoreError::Domain {
+                    code: "FINAL_ROLE_NAME_CONFLICT",
+                    message: "Multiple Chrome profiles cannot produce the same role name."
+                        .to_owned(),
+                });
+            }
+            used_names.insert(normalized);
+        }
+
+        self.chrome_profile_import
+            .lock()
+            .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+            .begin(&import_id)?;
+
+        let total = resolutions.len() as u32;
+        let mut items = Vec::with_capacity(resolutions.len());
+        for (index, resolution) in resolutions.into_iter().enumerate() {
+            if self.chrome_import_cancel_requested(&import_id)? {
+                break;
+            }
+            let profile = profiles
+                .get(resolution.profile_id())
+                .expect("validated Chrome profile")
+                .clone();
+            let source_fingerprint = pending
+                .source_fingerprints
+                .get(&profile.id)
+                .expect("validated Chrome profile fingerprint")
+                .clone();
+            self.emit_chrome_import_progress(
+                &import_id,
+                Some(&profile.id),
+                "copying",
+                index as u32,
+                total,
+            );
+            let outcome = self
+                .apply_one_chrome_profile(
+                    &import_id,
+                    &pending.source_user_data_dir,
+                    &game,
+                    profile.clone(),
+                    &source_fingerprint,
+                    resolution,
+                )
+                .await;
+            let cancelled = outcome
+                .as_ref()
+                .is_err_and(|error| error.code() == "IMPORT_CANCELLED");
+            let item = match outcome {
+                Ok(item) => item,
+                Err(error) => ChromeProfileImportItemResultRecord {
+                    profile_id: profile.id.clone(),
+                    role_id: None,
+                    role_name: crate::chrome_profile_import::normalized_profile_name(
+                        &profile.name,
+                        &profile.directory_name,
+                    ),
+                    status: if cancelled { "cancelled" } else { "failed" }.to_owned(),
+                    cookie_count: 0,
+                    local_storage_count: 0,
+                    warnings: Vec::new(),
+                    error_code: Some(error.code().to_owned()),
+                },
+            };
+            items.push(item);
+            self.emit_chrome_import_progress(
+                &import_id,
+                Some(&profile.id),
+                "complete",
+                (index + 1) as u32,
+                total,
+            );
+            if cancelled || self.chrome_import_cancel_requested(&import_id)? {
+                break;
+            }
+        }
+        self.chrome_profile_import
+            .lock()
+            .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+            .finish(&import_id);
+        serde_json::to_value(ChromeProfileImportResultRecord { import_id, items })
+            .map_err(|error| CoreError::Internal(error.to_string()))
+    }
+
+    pub async fn recover_pending_chrome_profile_imports(self: &Arc<Self>) -> CoreResult<Value> {
+        let journals = self.with_runtime(|runtime| runtime.state.operation_journals())?;
+        let mut recovered = 0_u32;
+        let mut pending = 0_u32;
+        for journal in journals
+            .into_iter()
+            .filter(|journal| journal.kind == "chrome_profile_import_v2")
+        {
+            let Some(role_id) = journal.payload.get("roleId").and_then(Value::as_str) else {
+                pending += 1;
+                continue;
+            };
+            let Some(transaction_id) = journal.payload.get("transactionId").and_then(Value::as_str)
+            else {
+                pending += 1;
+                continue;
+            };
+            let transfer_directory = match crate::chrome_profile_import::session_transfer_directory(
+                &self.user_data_dir,
+                transaction_id,
+            ) {
+                Ok(path) => path,
+                Err(_) => {
+                    pending += 1;
+                    continue;
+                }
+            };
+            let committed = transfer_directory.join("committed").is_file();
+            if !committed && transfer_directory.join("backup.enc").is_file() {
+                let Some(launch_url) = journal.payload.get("launchUrl").and_then(Value::as_str)
+                else {
+                    pending += 1;
+                    continue;
+                };
+                let paths = self.resolve_role_paths(role_id)?;
+                if self
+                    .request_core_effect(
+                        role_id,
+                        CoreEffectAction::ChromeProfileImportRollback {
+                            transaction_id: transaction_id.to_owned(),
+                            role_id: role_id.to_owned(),
+                            launch_url: launch_url.to_owned(),
+                            webview2_user_data_dir: paths.webview2_user_data_dir,
+                            webkit_data_store_identifier: paths.webkit_data_store_identifier,
+                        },
+                        Duration::from_secs(30),
+                    )
+                    .await
+                    .is_err()
+                {
+                    pending += 1;
+                    continue;
+                }
+            }
+            if !committed
+                && journal
+                    .payload
+                    .get("createdRole")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                && self
+                    .read_typed_state_collection::<StateRoleRecord>("roles")?
+                    .iter()
+                    .any(|role| role.id == role_id)
+                && self.delete_role_saga(role_id).is_err()
+            {
+                pending += 1;
+                continue;
+            }
+            self.with_runtime(|runtime| {
+                runtime.state.delete_operation_journal(journal.id.clone())
+            })?;
+            if transfer_directory.exists() {
+                let _ = fs::remove_dir_all(&transfer_directory);
+            }
+            recovered += 1;
+        }
+        self.cleanup_orphaned_session_transfer_directories()?;
+        Ok(json!({ "recovered": recovered, "pending": pending }))
+    }
+
+    fn cleanup_orphaned_session_transfer_directories(&self) -> CoreResult<()> {
+        let active = self
+            .with_runtime(|runtime| runtime.state.operation_journals())?
+            .into_iter()
+            .filter(|journal| journal.kind == "chrome_profile_import_v2")
+            .filter_map(|journal| {
+                journal
+                    .payload
+                    .get("transactionId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let root = self.user_data_dir.join(".session-transfers");
+        let metadata = match fs::symlink_metadata(&root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(CoreError::Platform(error.to_string())),
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(CoreError::Platform(
+                "Session-transfer root must be a real directory.".to_owned(),
+            ));
+        }
+        for entry in fs::read_dir(&root).map_err(|error| CoreError::Platform(error.to_string()))? {
+            let entry = entry.map_err(|error| CoreError::Platform(error.to_string()))?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if uuid::Uuid::parse_str(&name).is_err() || active.contains(&name) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(entry.path())
+                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            if metadata.file_type().is_symlink() || metadata.is_file() {
+                fs::remove_file(entry.path())
+                    .map_err(|error| CoreError::Platform(error.to_string()))?;
+            } else if metadata.is_dir() {
+                fs::remove_dir_all(entry.path())
+                    .map_err(|error| CoreError::Platform(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn chrome_import_cancel_requested(&self, import_id: &str) -> CoreResult<bool> {
+        Ok(self
+            .chrome_profile_import
+            .lock()
+            .map_err(|_| CoreError::Internal("Chrome import lock poisoned".to_owned()))?
+            .is_cancel_requested(import_id))
+    }
+
+    fn ensure_role_session_recovery_complete(&self, role_id: &str) -> CoreResult<()> {
+        let pending = self
+            .with_runtime(|runtime| runtime.state.operation_journals())?
+            .into_iter()
+            .any(|journal| {
+                journal.kind == "chrome_profile_import_v2"
+                    && journal.payload.get("roleId").and_then(Value::as_str) == Some(role_id)
+            });
+        if pending {
+            Err(CoreError::Domain {
+                code: "ROLE_SESSION_RECOVERY_REQUIRED",
+                message: "This role is waiting for browser session recovery before it can launch."
+                    .to_owned(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn restore_legacy_session_if_needed(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
+        let current = self
+            .with_runtime(|runtime| runtime.state.legacy_session_restore_get(role_id.to_owned()))?;
+        if current
+            .as_ref()
+            .is_some_and(|record| record.status != "pending")
+        {
+            return Ok(());
+        }
+        self.with_runtime(|runtime| {
+            runtime
+                .state
+                .legacy_session_restore_put(LegacySessionRestoreState {
+                    role_id: role_id.to_owned(),
+                    status: "pending".to_owned(),
+                    source_fingerprint: current
+                        .as_ref()
+                        .and_then(|record| record.source_fingerprint.clone()),
+                    cookie_count: 0,
+                })
+        })?;
+        let role = self
+            .read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .find(|role| role.id == role_id)
+            .ok_or_else(|| CoreError::Domain {
+                code: "ROLE_NOT_FOUND",
+                message: "Role not found.".to_owned(),
+            })?;
+        let candidates = crate::session_import::legacy_profile_candidates(self.platform, role_id);
+        let platform = self.platform;
+        let launch_url = role.launch_url.clone();
+        let parsed = tokio::task::spawn_blocking(move || {
+            for candidate in candidates {
+                if !candidate.is_dir() {
+                    continue;
+                }
+                if let Ok(parsed) = crate::session_import::read_session_transfer(
+                    &candidate,
+                    platform,
+                    &launch_url,
+                    false,
+                    crate::session_import::SessionTransferSource::LegacyRion,
+                ) && !parsed.payload.cookies.is_empty()
+                {
+                    return Some(parsed);
+                }
+            }
+            None
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let Some(parsed) = parsed else {
+            self.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .legacy_session_restore_put(LegacySessionRestoreState {
+                        role_id: role_id.to_owned(),
+                        status: "unavailable".to_owned(),
+                        source_fingerprint: None,
+                        cookie_count: 0,
+                    })
+            })?;
+            self.emit(vec![CoreEvent::LegacySessionsRestored {
+                records: vec![LegacySessionRestoreRecord {
+                    role_id: role_id.to_owned(),
+                    status: "unavailable".to_owned(),
+                    source_fingerprint: None,
+                    cookie_count: 0,
+                    warnings: vec!["LEGACY_SESSION_UNAVAILABLE".to_owned()],
+                }],
+            }]);
+            return Ok(());
+        };
+        let transaction_id = uuid::Uuid::new_v4().to_string();
+        let staging = crate::chrome_profile_import::session_transfer_directory(
+            &self.user_data_dir,
+            &transaction_id,
+        )?;
+        let payload_for_staging = parsed.payload.clone();
+        let staging_for_write = staging.clone();
+        let staging_result = tokio::task::spawn_blocking(move || {
+            let serialized = serde_json::to_vec(&payload_for_staging)
+                .map_err(|error| CoreError::Internal(error.to_string()))?;
+            let protected = rion_platform::protect_session_transfer(platform, &serialized)
+                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            crate::chrome_profile_import::persist_encrypted_staging(&staging_for_write, &protected)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        if staging_result.is_err() {
+            let source_fingerprint = parsed.source_fingerprint.clone();
+            let mut warnings = parsed.warnings.clone();
+            warnings.push("LEGACY_SESSION_STAGING_FAILED".to_owned());
+            self.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .legacy_session_restore_put(LegacySessionRestoreState {
+                        role_id: role_id.to_owned(),
+                        status: "unavailable".to_owned(),
+                        source_fingerprint: Some(source_fingerprint.clone()),
+                        cookie_count: 0,
+                    })
+            })?;
+            let _ = fs::remove_dir_all(staging);
+            self.emit(vec![CoreEvent::LegacySessionsRestored {
+                records: vec![LegacySessionRestoreRecord {
+                    role_id: role_id.to_owned(),
+                    status: "unavailable".to_owned(),
+                    source_fingerprint: Some(source_fingerprint),
+                    cookie_count: 0,
+                    warnings,
+                }],
+            }]);
+            return Ok(());
+        }
+        let paths = self.resolve_role_paths(role_id)?;
+        let effect = self
+            .request_core_effect(
+                role_id,
+                CoreEffectAction::LegacySessionRestore {
+                    transaction_id,
+                    role_id: role_id.to_owned(),
+                    launch_url: role.launch_url,
+                    webview2_user_data_dir: paths.webview2_user_data_dir,
+                    webkit_data_store_identifier: paths.webkit_data_store_identifier,
+                },
+                Duration::from_secs(30),
+            )
+            .await;
+        let mut warnings = parsed.warnings.clone();
+        let (status, cookie_count) = match effect {
+            Ok(effect) => {
+                let inserted = effect
+                    .value_json
+                    .as_deref()
+                    .and_then(|value| serde_json::from_str::<Value>(value).ok())
+                    .and_then(|value| value.get("insertedCookieCount").and_then(Value::as_u64))
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(parsed.payload.cookies.len() as u32);
+                if inserted == 0 {
+                    ("preservedExisting", 0)
+                } else {
+                    ("restored", inserted)
+                }
+            }
+            Err(_) => {
+                warnings.push("LEGACY_SESSION_APPLY_FAILED".to_owned());
+                ("unavailable", 0)
+            }
+        };
+        let _ = fs::remove_dir_all(&staging);
+        let source_fingerprint = parsed.source_fingerprint.clone();
+        self.with_runtime(|runtime| {
+            runtime
+                .state
+                .legacy_session_restore_put(LegacySessionRestoreState {
+                    role_id: role_id.to_owned(),
+                    status: status.to_owned(),
+                    source_fingerprint: Some(source_fingerprint.clone()),
+                    cookie_count,
+                })
+        })?;
+        self.emit(vec![CoreEvent::LegacySessionsRestored {
+            records: vec![LegacySessionRestoreRecord {
+                role_id: role_id.to_owned(),
+                status: status.to_owned(),
+                source_fingerprint: Some(source_fingerprint),
+                cookie_count,
+                warnings,
+            }],
+        }]);
+        Ok(())
+    }
+
+    async fn apply_one_chrome_profile(
+        self: &Arc<Self>,
+        import_id: &str,
+        source_user_data_dir: &std::path::Path,
+        game: &StateGameRecord,
+        profile: crate::model::ChromeProfileEntryRecord,
+        expected_source_fingerprint: &str,
+        resolution: ChromeProfileImportResolutionRecord,
+    ) -> CoreResult<ChromeProfileImportItemResultRecord> {
+        if rion_platform::chrome_user_data_in_use(source_user_data_dir) {
+            return Err(CoreError::Domain {
+                code: "CHROME_RUNNING",
+                message: "Chrome started using the selected profile before it could be imported."
+                    .to_owned(),
+            });
+        }
+        let current_fingerprint = rion_platform::chrome_profile_source_fingerprint(
+            source_user_data_dir,
+            &profile.directory_name,
+        )
+        .map_err(|error| CoreError::Platform(error.to_string()))?;
+        if current_fingerprint != expected_source_fingerprint {
+            return Err(CoreError::Domain {
+                code: "SOURCE_CHANGED",
+                message:
+                    "Chrome profile data changed after preview. Preview it again before importing."
+                        .to_owned(),
+            });
+        }
+        let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
+        let base_name = crate::chrome_profile_import::normalized_profile_name(
+            &profile.name,
+            &profile.directory_name,
+        );
+        let identity_match = roles
+            .iter()
+            .find(|role| role.game_id == game.id && role.name.eq_ignore_ascii_case(&base_name));
+        let (role_name, existing_role, replace_existing) = match &resolution {
+            ChromeProfileImportResolutionRecord::Create { .. } => {
+                if identity_match.is_some() {
+                    return Err(CoreError::Domain {
+                        code: "ROLE_CONFLICT_RESOLUTION_REQUIRED",
+                        message: "Choose how to handle the matching role.".to_owned(),
+                    });
+                }
+                (base_name.clone(), None, false)
+            }
+            ChromeProfileImportResolutionRecord::Copy { .. } => {
+                let used = roles
+                    .iter()
+                    .filter(|role| role.game_id == game.id)
+                    .map(|role| role.name.to_lowercase())
+                    .collect::<std::collections::HashSet<_>>();
+                (
+                    crate::chrome_profile_import::copy_role_name(&base_name, &used),
+                    None,
+                    false,
+                )
+            }
+            ChromeProfileImportResolutionRecord::Replace { target_role_id, .. } => {
+                let role = roles
+                    .iter()
+                    .find(|role| role.id == *target_role_id && role.game_id == game.id)
+                    .cloned()
+                    .ok_or_else(|| CoreError::Domain {
+                        code: "ROLE_TARGET_INVALID",
+                        message: "The role selected for replacement is invalid.".to_owned(),
+                    })?;
+                if self
+                    .browser_statuses()?
+                    .iter()
+                    .any(|status| status.role_id == role.id)
+                {
+                    return Err(CoreError::Domain {
+                        code: "ROLE_BROWSER_DATA_IN_USE",
+                        message: "Stop the role before replacing its session.".to_owned(),
+                    });
+                }
+                (role.name.clone(), Some(role), true)
+            }
+        };
+        let launch_url = existing_role
+            .as_ref()
+            .map(|role| role.launch_url.clone())
+            .unwrap_or_else(|| game.default_launch_url.clone());
+        let creates_role = existing_role.is_none();
+        let role_id = existing_role
+            .as_ref()
+            .map(|role| role.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: vec![role_id.clone()],
+                kind: "recoverableMutation".to_owned(),
+            })
+            .await?;
+        let operation_guard = BrowserOperationGuard::new(&self.browser_operations, lease.id);
+        let transaction_id = uuid::Uuid::new_v4().to_string();
+        let staging = crate::chrome_profile_import::session_transfer_directory(
+            &self.user_data_dir,
+            &transaction_id,
+        )?;
+        let source = source_user_data_dir.to_path_buf();
+        let profile_directory = profile.directory_name.clone();
+        let expected_source_fingerprint = expected_source_fingerprint.to_owned();
+        let snapshot_root =
+            crate::chrome_profile_import::create_private_snapshot_root(&self.user_data_dir)?;
+        let encrypted_staging = staging.clone();
+        self.emit_chrome_import_progress(import_id, Some(&profile.id), "copying", 0, 1);
+        let platform = self.platform;
+        let launch_for_parse = launch_url.clone();
+        let parsed = tokio::task::spawn_blocking(move || {
+            let snapshot = tempfile::Builder::new()
+                .prefix("chrome-profile-")
+                .tempdir_in(&snapshot_root)
+                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            rion_platform::stage_chrome_profile(&source, &profile_directory, snapshot.path())
+                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            let current_fingerprint =
+                rion_platform::chrome_profile_source_fingerprint(&source, &profile_directory)
+                    .map_err(|error| CoreError::Platform(error.to_string()))?;
+            if current_fingerprint != expected_source_fingerprint {
+                return Err(CoreError::Domain {
+                    code: "SOURCE_CHANGED",
+                    message: "Chrome profile data changed while it was being copied.".to_owned(),
+                });
+            }
+            let parsed = crate::session_import::read_session_transfer(
+                snapshot.path(),
+                platform,
+                &launch_for_parse,
+                true,
+                crate::session_import::SessionTransferSource::Chrome,
+            )?;
+            let serialized = serde_json::to_vec(&parsed.payload)
+                .map_err(|error| CoreError::Internal(error.to_string()))?;
+            let protected = rion_platform::protect_session_transfer(platform, &serialized)
+                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            crate::chrome_profile_import::persist_encrypted_staging(
+                &encrypted_staging,
+                &protected,
+            )?;
+            Ok::<_, CoreError>(parsed)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))??;
+        if self.chrome_import_cancel_requested(import_id)? {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(chrome_import_cancelled());
+        }
+        if parsed.payload.cookies.is_empty() && parsed.payload.local_storage.is_empty() {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(CoreError::Domain {
+                code: "PROFILE_SESSION_EMPTY",
+                message: "No transferable session data was found for this game.".to_owned(),
+            });
+        }
+
+        let operation_id = format!("chrome-profile-import-{transaction_id}");
+        let mut journal = OperationJournalRecord {
+            id: operation_id.clone(),
+            kind: "chrome_profile_import_v2".to_owned(),
+            phase: "prepared".to_owned(),
+            payload: json!({
+                "importId": import_id,
+                "profileId": profile.id,
+                "roleId": role_id,
+                "createdRole": creates_role,
+                "transactionId": transaction_id,
+                "launchUrl": launch_url,
+                "sourceFingerprint": parsed.source_fingerprint,
+            }),
+        };
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        let paths = self.resolve_role_paths(&role_id)?;
+        let rollback = ChromeImportRollbackContext {
+            operation_id: operation_id.clone(),
+            transaction_id: transaction_id.clone(),
+            role_id: role_id.clone(),
+            launch_url: launch_url.clone(),
+            webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
+            webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+            staging: staging.clone(),
+        };
+        self.emit_chrome_import_progress(import_id, Some(&profile.id), "backingUp", 0, 1);
+        if let Err(error) = self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::ChromeProfileImportSnapshot {
+                    transaction_id: transaction_id.clone(),
+                    role_id: role_id.clone(),
+                    launch_url: launch_url.clone(),
+                    webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+                    replace_existing,
+                },
+                Duration::from_secs(30),
+            )
+            .await
+        {
+            let _ = self.with_runtime(|runtime| {
+                runtime.state.delete_operation_journal(operation_id.clone())
+            });
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        journal.phase = "snapshotted".to_owned();
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        if self.chrome_import_cancel_requested(import_id)? {
+            self.rollback_chrome_profile_import_item(&rollback, None)
+                .await?;
+            return Err(chrome_import_cancelled());
+        }
+        journal.phase = "applying".to_owned();
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        self.emit_chrome_import_progress(import_id, Some(&profile.id), "applying", 0, 1);
+        let effect = self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::ChromeProfileImportApply {
+                    transaction_id: transaction_id.clone(),
+                    role_id: role_id.clone(),
+                    launch_url: launch_url.clone(),
+                    webview2_user_data_dir: paths.webview2_user_data_dir,
+                    webkit_data_store_identifier: paths.webkit_data_store_identifier,
+                    replace_existing,
+                },
+                Duration::from_secs(45),
+            )
+            .await;
+        if let Err(error) = effect {
+            self.rollback_chrome_profile_import_item(&rollback, None)
+                .await?;
+            return Err(error);
+        }
+        journal.phase = "verified".to_owned();
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        if self.chrome_import_cancel_requested(import_id)? {
+            self.rollback_chrome_profile_import_item(&rollback, None)
+                .await?;
+            return Err(chrome_import_cancelled());
+        }
+
+        let created_role_id = if creates_role {
+            let created = self.mutate_state(StateMutation::RoleCreateWithId {
+                id: role_id.clone(),
+                input: crate::model::RoleCreateInputRecord {
+                    game_id: game.id.clone(),
+                    name: role_name.clone(),
+                    launch_url: Some(launch_url.clone()),
+                    notes: Some("Imported from a local Chrome profile.".to_owned()),
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            });
+            match created {
+                Ok(_) => Some(role_id.clone()),
+                Err(error) => {
+                    self.rollback_chrome_profile_import_item(&rollback, None)
+                        .await?;
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        journal.phase = "metadataCommitted".to_owned();
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        if self.chrome_import_cancel_requested(import_id)? {
+            self.rollback_chrome_profile_import_item(&rollback, created_role_id.as_deref())
+                .await?;
+            return Err(chrome_import_cancelled());
+        }
+        journal.phase = "committing".to_owned();
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal))?;
+        if let Err(error) = self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::ChromeProfileImportCommit {
+                    transaction_id: transaction_id.clone(),
+                },
+                Duration::from_secs(10),
+            )
+            .await
+        {
+            self.rollback_chrome_profile_import_item(&rollback, created_role_id.as_deref())
+                .await?;
+            return Err(error);
+        }
+        self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
+        let _ = fs::remove_dir_all(&staging);
+        operation_guard.complete()?;
+        Ok(ChromeProfileImportItemResultRecord {
+            profile_id: profile.id,
+            role_id: Some(role_id),
+            role_name,
+            status: "imported".to_owned(),
+            cookie_count: parsed.payload.cookies.len() as u32,
+            local_storage_count: parsed.payload.local_storage.len() as u32,
+            warnings: parsed.warnings,
+            error_code: None,
+        })
+    }
+
+    async fn rollback_chrome_profile_import_item(
+        self: &Arc<Self>,
+        context: &ChromeImportRollbackContext,
+        created_role_id: Option<&str>,
+    ) -> CoreResult<()> {
+        if self
+            .request_core_effect(
+                &context.role_id,
+                CoreEffectAction::ChromeProfileImportRollback {
+                    transaction_id: context.transaction_id.clone(),
+                    role_id: context.role_id.clone(),
+                    launch_url: context.launch_url.clone(),
+                    webview2_user_data_dir: context.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: context.webkit_data_store_identifier.clone(),
+                },
+                Duration::from_secs(30),
+            )
+            .await
+            .is_err()
+        {
+            return Err(CoreError::Domain {
+                code: "SESSION_IMPORT_ROLLBACK_PENDING",
+                message:
+                    "The prior browser session is waiting for recovery before this role can launch."
+                        .to_owned(),
+            });
+        }
+        if let Some(created_role_id) = created_role_id {
+            self.delete_role_saga(created_role_id)?;
+        }
+        self.with_runtime(|runtime| {
+            runtime
+                .state
+                .delete_operation_journal(context.operation_id.clone())
+        })?;
+        let _ = fs::remove_dir_all(&context.staging);
+        Ok(())
+    }
+
+    fn emit_chrome_import_progress(
+        &self,
+        import_id: &str,
+        profile_id: Option<&str>,
+        phase: &str,
+        completed: u32,
+        total: u32,
+    ) {
+        self.emit(vec![CoreEvent::ChromeProfileImportProgress {
+            progress: ChromeProfileImportProgressRecord {
+                import_id: import_id.to_owned(),
+                profile_id: profile_id.map(str::to_owned),
+                phase: phase.to_owned(),
+                completed,
+                total,
+            },
+        }]);
     }
 
     async fn stop_role_runtime(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
@@ -1772,6 +2770,16 @@ impl AppCore {
                         return Err(error);
                     }
                 };
+                core.with_runtime(|runtime| {
+                    runtime
+                        .state
+                        .legacy_session_restore_put(LegacySessionRestoreState {
+                            role_id: role_id.clone(),
+                            status: "disabledAfterClear".to_owned(),
+                            source_fingerprint: None,
+                            cookie_count: 0,
+                        })
+                })?;
                 if crate::role_browser_data::discard_quarantine(&core.user_data_dir, &operation_id)
                     .is_ok()
                 {
@@ -2728,6 +3736,7 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         zoom_factor: f64,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        self.ensure_role_session_recovery_complete(role_id)?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
             role_ids: vec![role_id.to_owned()],
@@ -2924,6 +3933,13 @@ impl AppCore {
                 "Launch workspace not found.",
             )?)
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        for role_id in workspace
+            .slots
+            .iter()
+            .filter_map(|slot| slot.role_id.as_deref())
+        {
+            self.ensure_role_session_recovery_complete(role_id)?;
+        }
         let role_ids = workspace
             .slots
             .iter()
@@ -4307,6 +5323,13 @@ fn compatibility_load_error(error: CoreError) -> CoreError {
     }
 }
 
+fn chrome_import_cancelled() -> CoreError {
+    CoreError::Domain {
+        code: "IMPORT_CANCELLED",
+        message: "Chrome profile import was cancelled.".to_owned(),
+    }
+}
+
 fn recover_operation_journals(
     state: &StateDatabaseWorker,
     user_data_dir: &std::path::Path,
@@ -4371,6 +5394,10 @@ fn recover_operation_journals(
             // marker so the next migration preview/apply can clear the target
             // store through the platform effect bridge before trying again.
             "role_session_migration_v1" => continue,
+            // System WebView registration is required before this encrypted
+            // backup can be rolled back. Keep both the journal and role intact;
+            // the Tauri startup recovery pass handles it immediately afterward.
+            "chrome_profile_import_v2" => continue,
             kind => {
                 return Err(CoreError::Migration(format!(
                     "unsupported operation journal kind: {kind}"
@@ -5435,6 +6462,15 @@ mod tests {
                     .unwrap()
                     .is_empty()
             );
+            assert_eq!(
+                core.with_runtime(|runtime| {
+                    runtime.state.legacy_session_restore_get(role_id.clone())
+                })
+                .unwrap()
+                .unwrap()
+                .status,
+                "disabledAfterClear"
+            );
         });
         core.shutdown();
     }
@@ -5490,6 +6526,13 @@ mod tests {
             core.with_runtime(|runtime| runtime.state.operation_journals())
                 .unwrap()
                 .is_empty()
+        );
+        assert!(
+            core.with_runtime(|runtime| {
+                runtime.state.legacy_session_restore_get(role_id.clone())
+            })
+            .unwrap()
+            .is_none()
         );
         let lease = core
             .browser_operations
@@ -6580,5 +7623,69 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, CoreEvent::Ready { .. }))
         );
+    }
+
+    #[test]
+    fn session_transfer_cleanup_preserves_only_journaled_transactions() {
+        let (directory, core) = core();
+        let active = uuid::Uuid::new_v4().to_string();
+        let orphan = uuid::Uuid::new_v4().to_string();
+        let root = directory.path().join(".session-transfers");
+        fs::create_dir_all(root.join(&active)).unwrap();
+        fs::create_dir_all(root.join(&orphan)).unwrap();
+        fs::write(root.join(&active).join("backup.enc"), b"active").unwrap();
+        fs::write(root.join(&orphan).join("backup.enc"), b"orphan").unwrap();
+        core.with_runtime(|runtime| {
+            runtime.state.put_operation_journal(OperationJournalRecord {
+                id: "chrome-import-active".to_owned(),
+                kind: "chrome_profile_import_v2".to_owned(),
+                phase: "applying".to_owned(),
+                payload: json!({ "transactionId": active.clone() }),
+            })
+        })
+        .unwrap();
+
+        core.cleanup_orphaned_session_transfer_directories()
+            .unwrap();
+        assert!(root.join(&active).is_dir());
+        assert!(!root.join(&orphan).exists());
+    }
+
+    #[test]
+    fn every_chrome_import_journal_phase_blocks_role_launch_until_recovery() {
+        let (_directory, core) = core();
+        for phase in [
+            "prepared",
+            "snapshotted",
+            "applying",
+            "verified",
+            "metadataCommitted",
+            "committing",
+        ] {
+            core.with_runtime(|runtime| {
+                runtime.state.put_operation_journal(OperationJournalRecord {
+                    id: format!("chrome-import-{phase}"),
+                    kind: "chrome_profile_import_v2".to_owned(),
+                    phase: phase.to_owned(),
+                    payload: json!({
+                        "roleId": "role-1",
+                        "transactionId": uuid::Uuid::new_v4().to_string()
+                    }),
+                })
+            })
+            .unwrap();
+            assert_eq!(
+                core.ensure_role_session_recovery_complete("role-1")
+                    .unwrap_err()
+                    .code(),
+                "ROLE_SESSION_RECOVERY_REQUIRED"
+            );
+            core.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .delete_operation_journal(format!("chrome-import-{phase}"))
+            })
+            .unwrap();
+        }
     }
 }

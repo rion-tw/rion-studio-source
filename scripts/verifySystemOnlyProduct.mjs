@@ -34,7 +34,6 @@ const removedPaths = [
   "crates/rion-core/src/cdn.rs",
   "crates/rion-core/src/cdn_detection.rs",
   "crates/rion-core/src/chrome_cookies.rs",
-  "crates/rion-core/src/chrome_profile_import.rs",
   "crates/rion-core/src/external_automation.rs",
   "crates/rion-core/src/external_chrome.rs",
   "crates/rion-core/src/external_runtime.rs",
@@ -62,7 +61,6 @@ const forbiddenTokens = [
   "BrowserCdnCompatibility",
   "CdnCompatibilityManager",
   "CdnResolutionRecord",
-  "ChromeProfileImport",
   "configureWebView2RequestRewrites",
   "ExternalChrome",
   "ExternalSessionRecord",
@@ -85,20 +83,18 @@ const migrationOnlyTokens = new Map([
   ["cdnCompatibility", new Set([
     "crates/rion-core/src/database/state.rs"
   ])],
-  ["chrome-profile", new Set([
-    "crates/rion-core/src/database/legacy.rs",
-    "crates/rion-core/src/database/state.rs"
-  ])],
   ["electron", new Set([
     "crates/rion-core/src/data_root_migration.rs",
     "crates/rion-core/src/database/state.rs",
     "crates/rion-core/src/model.rs",
     "crates/rion-core/src/portable.rs",
+    "scripts/verifyTauriParityLedger.mjs",
     "src-tauri/windows/installer-hooks.nsh"
   ])],
   ["custom proxy", new Set([
     "crates/rion-core/src/database/legacy.rs",
-    "crates/rion-core/src/database/state.rs"
+    "crates/rion-core/src/database/state.rs",
+    "scripts/verifyTauriParityLedger.mjs"
   ])],
   ['"proxy"', new Set([
     "crates/rion-core/src/database/legacy.rs",
@@ -196,6 +192,17 @@ const coreEffects = await readFile(
   join(repositoryRoot, "src/shared/generated/CoreEffectAction.ts"),
   "utf8"
 );
+for (const transferEffect of [
+  "LegacySessionRestore",
+  "ChromeProfileImportSnapshot",
+  "ChromeProfileImportApply",
+  "ChromeProfileImportRollback",
+  "ChromeProfileImportCommit"
+]) {
+  if (!coreEffects.includes(`"type": "${transferEffect.charAt(0).toLowerCase()}${transferEffect.slice(1)}"`)) {
+    failures.push(`CoreEffectAction is missing bounded one-time transfer effect ${transferEffect}.`);
+  }
+}
 for (const removedEffect of [
   "createWindow",
   "createView",
@@ -208,11 +215,29 @@ for (const removedEffect of [
     failures.push(`CoreEffectAction still exposes ${removedEffect}.`);
   }
 }
+for (const forbiddenRuntimeEffect of [
+  "chromeProfileLaunch",
+  "chromeProfileSessionSource",
+  "externalBrowserLaunch",
+  "profileAsRuntime"
+]) {
+  if (coreEffects.includes(`"type": "${forbiddenRuntimeEffect}"`)) {
+    failures.push(`CoreEffectAction exposes forbidden browser runtime effect ${forbiddenRuntimeEffect}.`);
+  }
+}
+
+const transferSource = await readFile(
+  join(repositoryRoot, "crates/rion-core/src/chrome_profile_import.rs"),
+  "utf8"
+);
+if (!transferSource.includes(".session-transfers") || !transferSource.includes("session-transfer.enc")) {
+  failures.push("ChromeProfileImport must remain a bounded encrypted one-time transfer.");
+}
 
 if (failures.length > 0) {
   throw new Error(`System-only product gate failed:\n- ${failures.join("\n- ")}`);
 }
-console.log("Verified Tauri-only system WebView boundary: no Electron, CDN, External Chrome, or Chrome Profile runtime remains.");
+console.log("Verified Tauri-only System WebView boundary: one-time ChromeProfileImport transfer is bounded and no Electron, CDN, External Chrome, or profile runtime fallback remains.");
 
 async function exists(path) {
   try {

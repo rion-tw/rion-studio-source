@@ -7,8 +7,10 @@ roles. It manages isolated browser sessions for multiple roles and can launch
 groups of roles into saved window layouts called launch workspaces. Roles open
 their game URL directly; the app does not own or track authentication state.
 The product browser runtime is the operating system WebView: WebView2 on Windows
-and WKWebView on macOS 14+. CDN rewriting, external Chrome, and Chrome profile
-import are retired capabilities and must not be reintroduced as fallbacks.
+and WKWebView on macOS 14+. CDN rewriting, external Chrome, and Chrome profiles as
+a browser runtime are retired capabilities and must not be reintroduced as
+fallbacks. A user-consented, one-time Chrome transfer is supported only for
+launch-URL cookies and the selected game's exact launch-origin LocalStorage.
 
 The product is a Tauri 2 + React desktop app with a Rust production core. Tauri is
 the only desktop shell. Legacy runtime values remain readable only during the
@@ -74,7 +76,10 @@ read or write production metadata files.
 Each role uses an isolated persistent system-WebView store: a WebView2 user-data
 directory on Windows or a persistent WKWebsiteDataStore on macOS. Role and
 workspace launches always navigate directly to the role's launch URL; there is no
-external Chrome launch path or Chrome profile import path.
+external Chrome launch path or Chrome profile runtime path. The data-management
+import wizard copies only the approved Chrome source files into private staging,
+decrypts and filters the bounded session payload in native/core code, applies it
+through a hidden same-store System WebView, verifies it, and removes staging.
 
 Important runtime pieces:
 
@@ -85,11 +90,19 @@ Important runtime pieces:
 - System WebView sessions do not expose general remote debugging endpoints.
 - Capability gaps are reported explicitly; they do not trigger another runtime fallback.
 - `pnpm run verify:system-only` is a mandatory CI and signed-candidate negative
-  gate. It prevents removed CDN, External Chrome, Chrome Profile, helper, engine,
-  and retired object-effect contracts from returning outside legacy migrations.
-- `CoreEffectAction` contains only current product effects. Do not reintroduce
-  shell window/view attachment, cookie/session, or generic debugger effects;
-  browser automation belongs in the typed `BrowserAction` union.
+  gate. It prevents removed CDN, External Chrome, profile-as-runtime, helper,
+  engine, and retired object-effect contracts from returning. It also requires
+  the one-time transfer to remain encrypted and transaction-scoped.
+- `CoreEffectAction` contains only current product effects. The dedicated
+  `LegacySessionRestore` and `ChromeProfileImportSnapshot/Apply/Rollback/Commit`
+  family may carry transaction, role, URL, and store identifiers only. Do not
+  reintroduce shell window/view attachment, cookie values, LocalStorage values,
+  generic cookie/session, or generic debugger effects; browser automation belongs
+  in the typed `BrowserAction` union.
+- Chrome transfer staging contains only `Local State`, Cookies plus WAL/SHM, and
+  `Local Storage/leveldb`. Passwords, autofill, history, bookmarks, Session
+  Storage, IndexedDB, Service Workers, Preferences, extensions, other origins,
+  and source modifications are out of scope.
 - Trusted/background macro input is classified from the supported platform and
   installed System WebView runtime, not from cached or compile-time attestation.
   macOS 14+ dispatches native events through the app-owned WKWebView responder

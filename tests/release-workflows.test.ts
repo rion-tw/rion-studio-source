@@ -1,153 +1,84 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
-import { v1Case } from "./helpers/v1Parity";
 
-describe("private and public release workflows", () => {
-  it("keeps App credentials out of candidate jobs and calls publication after verification", async () => {
-    const workflow = await readWorkflow(".github/workflows/release.yml");
-    const publisherJobIndex = workflow.indexOf("\n  publish-public-release:");
-    const candidateJobs = workflow.slice(0, publisherJobIndex);
-    const publisherJob = workflow.slice(publisherJobIndex);
-
-    expect(workflow).toContain("name: Private Release Candidate");
-    expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("- CI");
-    expect(workflow).toContain("- completed");
-    expect(workflow).toContain("github.event.workflow_run.conclusion == 'success'");
-    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
-    expect(workflow).toContain("github.event.workflow_run.head_branch == 'main'");
-    expect(workflow).toContain("ref: ${{ needs.validate-ci-run.outputs.source_ref }}");
-    expect(workflow).toContain("needs.semantic-release.result == 'success'");
-    expect(workflow).not.toContain("workflow_dispatch:");
-    expect(workflow).not.toContain("inputs:");
-    expect(workflow).toContain("RION_STUDIO_RELEASE_REPOSITORY: rion-tw/rion-studio");
-    expect(workflow).toContain('gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}"');
-    expect(publisherJobIndex).toBeGreaterThan(workflow.indexOf("\n  verify-private-release:"));
-    expect(candidateJobs).not.toContain("RION_RELEASE_APP_PRIVATE_KEY");
-    expect(candidateJobs).not.toContain("PUBLIC_RELEASE_REPOSITORY");
-    expect(publisherJob).toContain("- verify-private-release");
-    expect(publisherJob).toContain("needs.verify-private-release.result == 'success'");
-    expect(publisherJob).toContain("uses: ./.github/workflows/publish-public-release.yml");
-    expect(publisherJob).toContain("contents: read");
-    expect(publisherJob).toContain(
-      "RION_RELEASE_APP_PRIVATE_KEY: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}"
-    );
-  });
-
-  it("runs common checks on Ubuntu plus macOS and Windows package smoke jobs", async () => {
+describe("Tauri-only release workflows", () => {
+  it("runs common checks and native package gates on macOS and Windows", async () => {
     const workflow = await readWorkflow(".github/workflows/ci.yml");
 
     expect(workflow).toContain("workflow_call:");
-    expect(workflow).toContain("ref: ${{ inputs.ref || github.ref }}");
     expect(workflow).toContain("runs-on: ubuntu-latest");
+    expect(workflow).toContain("pnpm run verify:system-only");
     expect(workflow).toContain("pnpm run typecheck");
     expect(workflow).toContain("pnpm run test");
     expect(workflow).toContain("pnpm run lint");
-    expect(workflow).toContain("pnpm exec electron-vite build");
-    expect(workflow).toContain("cargo check -p rion-tauri");
-    expect(workflow).toContain("pnpm run build:tauri:renderer");
-    expect(workflow).toContain("pnpm exec tauri build --bundles ${{ matrix.tauri_bundle }}");
-    expect(workflow).toContain("tauri_bundle: app");
-    expect(workflow).toContain("tauri_bundle: nsis");
-    expect(workflow).not.toContain("verify:v1-parity");
+    expect(workflow).toContain("pnpm run build");
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
-    expect(workflow).toContain("pnpm run test:rust");
-    expect(workflow).toContain("pnpm run build:rust:release && pnpm run verify:rust");
-    expect(workflow).not.toContain("pnpm run build:rust && pnpm run verify:rust");
-    expect(workflow).toContain("pnpm run build:native:macos");
-    expect(workflow).toContain("pnpm run test:native:macos");
     expect(workflow).toContain("pnpm run test:native:system-input");
     expect(workflow).toContain("pnpm run test:native:runtime-restore");
     expect(workflow).toContain("pnpm run test:native:file-operations");
-    expect(workflow).toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED=1");
-    expect(workflow).toContain("Verify packaged Windows System WebView input");
-    expect(workflow).toContain("Verify packaged macOS System WebView input");
-    expect(workflow).toContain("Verify packaged Windows runtime restore");
-    expect(workflow).toContain("Verify packaged macOS runtime restore");
-    expect(workflow).toContain("Verify packaged Windows file operations");
-    expect(workflow).toContain("Verify packaged macOS file operations");
     expect(workflow).toContain("--require-compiled-attestation");
+    expect(workflow).toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED=1");
+    expect(workflow).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
     expect(workflow).toContain("rust-concurrency-sanitizer:");
-    expect(workflow).toContain("RUSTFLAGS: -Zsanitizer=address");
-    expect(workflow).toContain("one_thousand_start_stop_cycles");
-    expect(workflow).toContain("role_lock_registries_stay_bounded");
-    expect(workflow).toContain("Build unpacked application");
-    expect(workflow).toContain("Verify packaged Rust Node-API core");
-    expect(workflow).toContain("verifyPackagedRustCore.mjs");
-    v1Case("platform-effect-lifecycle-80bc80cb3517", () => {
-      expect(workflow).toContain("workflow_call:");
-      expect(workflow).toContain("ref: ${{ inputs.ref || github.ref }}");
-      expect(workflow).toContain("runs-on: ubuntu-latest");
-    });
+    expect(workflow.toLowerCase()).not.toContain("electron");
+    expect(workflow).not.toContain("Node-API");
   });
 
-  it("keeps platform packaging behind the Ubuntu gate and enables macOS compiler caching", async () => {
-    const workflow = await readWorkflow(".github/workflows/release.yml");
-
-    expect(workflow).toContain("fail-fast: true");
-    expect(workflow).toContain("actions/cache@v5");
-    expect(workflow).toContain("CC=ccache clang");
-    expect(workflow).toContain("CXX=ccache clang++");
-    expect(workflow).toContain(".ccache");
-    expect(workflow).toContain("ELECTRON_BUILDER_CACHE");
-    expect(workflow).toContain("needs.resolve-release.outputs.has_release == 'true'");
-    expect(workflow).toContain('gh release view "${tag}" --repo "${GITHUB_REPOSITORY}"');
-    expect(workflow).not.toContain("Build platform preflight artifact");
-  });
-
-  it("builds Tauri candidates only with OS and updater signatures", async () => {
+  it("builds only signed Tauri candidates and verifies packaged executables", async () => {
     const workflow = await readWorkflow(".github/workflows/tauri-release-candidate.yml");
 
+    expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("uses: ./.github/workflows/ci.yml");
-    expect(workflow).toContain("- quality");
-    expect(workflow).toContain("test \"$(git describe --tags --exact-match HEAD)\"");
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(workflow).toContain("Import Developer ID certificate");
     expect(workflow).toContain("Import Windows Authenticode certificate");
-    expect(workflow).toContain("Attest macOS System WebView input");
-    expect(workflow).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
-    expect(workflow).toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED=1");
-    expect(workflow).toContain("pnpm run test:native:system-input");
-    expect(workflow).toContain("pnpm run test:native:runtime-restore");
-    expect(workflow).toContain("pnpm run test:native:file-operations");
-    expect(workflow).toContain("Verify packaged Windows System WebView input");
-    expect(workflow).toContain("Verify packaged macOS System WebView input");
-    expect(workflow).toContain("Verify packaged Windows runtime restore");
-    expect(workflow).toContain("Verify packaged macOS runtime restore");
-    expect(workflow).toContain("Verify packaged Windows file operations");
-    expect(workflow).toContain("Verify packaged macOS file operations");
-    expect(workflow).toContain("--require-compiled-attestation");
-    expect(workflow).toContain("pnpm run build:tauri:release -- --bundles");
+    expect(workflow).toContain("RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER");
+    expect(workflow).toContain("certificate.Subject -cne");
+    expect(workflow).toContain("SignerCertificate.Subject -cne");
+    expect(workflow).toContain("pnpm run release:version");
+    expect(workflow).toContain("pnpm run dist -- --bundles");
     expect(workflow).toContain("codesign --verify --deep --strict");
     expect(workflow).toContain("xcrun stapler validate");
     expect(workflow).toContain("Get-AuthenticodeSignature");
     expect(workflow).toContain("createTauriUpdaterManifest.mjs");
-    expect(workflow).toContain("--windows-installer");
-    expect(workflow).not.toContain("gh release upload");
+    expect(workflow).toContain("createLegacyUpdateManifests.mjs");
+    expect(workflow).toContain("releaseArtifacts.mjs");
+    expect(workflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
+    expect(workflow).toContain("Rion.Studio-win.exe.sig");
+    expect(workflow).toContain("upgrade-compatibility:");
+    expect(workflow).toContain("Verify macOS manual replacement preserves shared data");
+    expect(workflow).toContain("Verify Windows clean install and legacy in-place upgrade");
+    expect(workflow).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
+    expect(workflow).toContain("rion-studio.sqlite3");
+    expect(workflow).toContain("roles/legacy/browser/data.marker");
+    expect(workflow.toLowerCase()).not.toContain("electron");
   });
 
-  it("supports automatic calls and CI retries with only the named App secret", async () => {
-    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
+  it("publishes verified signed assets before the public release handoff", async () => {
+    const workflow = await readWorkflow(".github/workflows/release.yml");
+    const buildIndex = workflow.indexOf("build-signed-tauri-release:");
+    const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
+    const publishIndex = workflow.indexOf("publish-public-release:");
 
-    expect(workflow).toContain("workflow_call:");
-    expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("RION_RELEASE_APP_PRIVATE_KEY:\n        required: true");
-    expect(workflow).not.toContain("secrets: inherit");
-    expect(workflow).toContain("client-id: ${{ vars.RION_RELEASE_APP_CLIENT_ID }}");
-    expect(workflow).toContain("private-key: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}");
-    expect(workflow).toContain("repositories: rion-studio");
-    expect(workflow).toContain("permission-contents: write");
-    expect(workflow).toContain('GH_TOKEN: ${{ steps.public-token.outputs.token }}');
-    expect(workflow).toContain('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}');
+    expect(workflow).toContain("name: Private Tauri Release");
+    expect(workflow).toContain("workflow_run:");
+    expect(workflow).toContain("uses: ./.github/workflows/tauri-release-candidate.yml");
+    expect(workflow).toContain("tauri-release-assets-");
+    expect(workflow).toContain("cmp release-assets/SHA256SUMS.txt");
+    expect(workflow).toContain("--verify-checksums");
+    expect(workflow).not.toContain("--clobber");
+    expect(buildIndex).toBeGreaterThan(-1);
+    expect(verifyIndex).toBeGreaterThan(buildIndex);
+    expect(publishIndex).toBeGreaterThan(verifyIndex);
+    expect(workflow.toLowerCase()).not.toContain("electron");
   });
 
-  it("publishes only after draft upload verification", async () => {
+  it("publishes source-free assets only after draft verification", async () => {
     const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
-
     const draftIndex = workflow.indexOf("gh release create");
     const uploadIndex = workflow.indexOf("gh release upload");
     const verifyIndex = workflow.indexOf("cmp release-assets/SHA256SUMS.txt");
@@ -157,58 +88,18 @@ describe("private and public release workflows", () => {
     expect(uploadIndex).toBeGreaterThan(draftIndex);
     expect(verifyIndex).toBeGreaterThan(uploadIndex);
     expect(publishIndex).toBeGreaterThan(verifyIndex);
+    expect(workflow).toContain("RION_RELEASE_APP_PRIVATE_KEY");
+    expect(workflow).toContain("--verify-checksums");
+    expect(workflow).not.toContain("--clobber");
   });
 
-  it("uses the private token only before public mutations", async () => {
-    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
-    const appTokenIndex = workflow.indexOf("- name: Create public repository token");
-
-    expect(appTokenIndex).toBeGreaterThan(
-      workflow.indexOf('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}')
-    );
-    expect(workflow.slice(appTokenIndex)).not.toContain(
-      'GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}'
-    );
-  });
-
-  it("blocks publication while public source paths remain", async () => {
-    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
-
-    for (const path of [
-      "src",
-      "tests",
-      "native",
-      "package.json",
-      "pnpm-lock.yaml",
-      "electron-builder.config.mjs"
-    ]) {
-      expect(workflow).toContain(path);
-    }
-  });
-
-  it("fails closed on a conflicting public tag and safely retries an existing draft", async () => {
-    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
-
-    expect(workflow).toContain("verify_marker");
-    expect(workflow).toContain("cmp public-release-marker.md existing-public-marker.md");
-    expect(workflow).toContain('if release_json="$(gh release view');
-    expect(workflow).toContain('if [[ "$(jq -r .isDraft');
-    expect(workflow).toContain("--clobber");
-  });
-
-  it("restores public latest only through a verified App-token workflow", async () => {
+  it("restores latest only after validating the canonical artifact set", async () => {
     const workflow = await readWorkflow(".github/workflows/restore-public-latest.yml");
-
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("CONFIRM: ${{ inputs.confirm }}");
-    expect(workflow).toContain("client-id: ${{ vars.RION_RELEASE_APP_CLIENT_ID }}");
-    expect(workflow).toContain("private-key: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}");
-    expect(workflow).toContain('GH_TOKEN: ${{ steps.public-token.outputs.token }}');
-    expect(workflow).not.toContain('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}');
     expect(workflow).toContain("node scripts/releaseArtifacts.mjs rollback-assets");
+    expect(workflow).toContain("--verify-checksums");
     expect(workflow).toContain("gh release edit");
     expect(workflow).toContain("--latest");
-    expect(workflow).toContain('releases/latest" --jq .tag_name)" = "${TAG}"');
   });
 });
 

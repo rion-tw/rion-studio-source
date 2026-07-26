@@ -665,7 +665,7 @@
   "language.zhCN": "简体中文",
   "language.ja": "日本語",
   "bridge.title": "桥接无法使用",
-  "bridge.description": "Rion Studio preload 桥接无法使用。请重新建置后重啟应用程序。",
+  "bridge.description": "Rion Studio 桌面原生桥接无法使用。请重新构建后重启应用程序。",
   "role.meta.window": "窗口",
   "role.meta.preset": "默认",
   "role.meta.updated": "更新时間",
@@ -731,7 +731,7 @@
   "confirm.deleteWorkspace.description": "此操作会永久删除工作区，但不会删除其中的角色。",
   "confirm.deleteMacro.title": "要删除「{name}」吗？",
   "confirm.deleteMacro.description": "此操作会永久删除宏及其已保存的步骤。",
-  "error.preloadBridgeUnavailable": "Rion Studio preload 桥接无法使用。请重新建置后重啟应用程序。",
+  "error.desktopBridgeUnavailable": "Rion Studio 桌面原生桥接无法使用。请重新构建后重启应用程序。",
   "error.roleNotFound": "找不到角色。",
   "error.roleDataInvalid": "角色数据文件无效。",
   "error.roleOrderInvalid": "角色排序无效。",
@@ -828,5 +828,6 @@
   "error.gameNotFound": "找不到游戏。", "error.gameDataInvalid": "游戏数据文件无效。", "error.gameNameRequired": "请输入游戏名称。", "error.gameNameTooLong": "游戏名称不得超过 80 个字符。", "error.gameNameDuplicate": "已有同名游戏。", "error.gameUrlInvalid": "游戏网址必须使用 HTTP 或 HTTPS。", "error.gameIconInvalid": "游戏图标必须是支持且不超过 1.5 MB 的图片。", "error.gameIconFileInvalid": "游戏图标必须是且不超过 1.5 MB 的图片。", "error.gameIconProcessFailed": "无法处理游戏图标。", "error.gameCoverInvalid": "游戏封面必须是支持且不超过 1.5 MB 的图片。", "error.gameCoverFileInvalid": "游戏封面必须是 PNG、JPEG、WebP 或 GIF，且不超过 8 MB。", "error.gameCoverProcessFailed": "无法处理游戏封面。", "error.gameCoverTooLarge": "游戏封面处理后仍然过大。", "error.gameLaunchModeInvalid": "游戏浏览器启动模式无效。", "error.gameBuiltinProtected": "内置游戏的名称、图标和封面受到保护。", "error.gameNotBuiltin": "只有内置游戏可以重置。", "error.gameBuiltinDeleteForbidden": "内置游戏无法删除。", "error.gameInUse": "请先改派或删除关联角色，再删除此游戏。", "error.gameCompatibilityRunning": "此游戏已有兼容性检查正在运行。",
   "games.compatibility.phase.preparing": "准备中", "games.compatibility.phase.loading": "加载游戏", "games.compatibility.phase.probing": "检查图形能力", "games.compatibility.phase.cleaning_up": "清理中", "games.compatibility.capability.available": "可用", "games.compatibility.capability.unavailable": "不可用", "games.compatibility.capability.unknown": "未知", "games.compatibility.recommendation.graphics_unavailable": "请检查全局图形设置；未自动更改任何 GPU 性能设置。", "games.compatibility.observations": "最近实际启动观察", "games.compatibility.observation.embedded": "内嵌启动成功", "games.compatibility.observation.launchFailure": "启动失败", "games.compatibility.graphicsSettings": "打开图形设置",
   "bulkDelete.roles.description": "此操作会永久删除所选角色及其浏览器会话数据；运行中的角色会先停止并清空工作区槽位。宏会保留并解除已删除角色的分配；没有剩余角色的宏需重新分配后才能运行。",
+  "settings.logsLegacySource": "旧版",
   "common.close": "关闭"
 }

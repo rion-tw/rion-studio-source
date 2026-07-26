@@ -1,6 +1,6 @@
 # Rion Studio 2.0
 
-Rion Studio 2.0 moves the non-UI application core to Rust while retaining Electron,
+Rion Studio 2.0 moved the non-UI application core to Rust while retaining the legacy shell,
 Chromium, React, existing role browser directories, IPC channels and update artifacts.
 
 ## Data migration
@@ -12,7 +12,7 @@ Chromium, React, existing role browser directories, IPC channels and update arti
   folder. Backups are not removed automatically.
 - Downgrading to 1.x cannot preserve changes made after the 2.0 migration. Portable
   JSON export is the supported cross-version transfer path.
-- Existing `roles/{roleId}/browser` data and Electron session partitions are retained.
+- Existing `roles/{roleId}/browser` data and legacy session partitions are retained.
   Rion Studio does not proactively clear cookies or login sessions during migration.
   A third-party service can still expire its own session.
 - Portable exports contain application records and selected settings, but never
@@ -23,6 +23,6 @@ Chromium, React, existing role browser directories, IPC channels and update arti
 - macOS 12 or newer on Apple silicon (arm64)
 - Windows 10/11 on x64
 
-The release retains Electron's Chromium engine and the current macOS AppKit runtime-tab
+The release retained the legacy browser engine and the then-current macOS AppKit runtime-tab
 controller. Windows external-Chrome frame alignment is now implemented in the Rust
 platform adapter; the former standalone C++ helper is not included.

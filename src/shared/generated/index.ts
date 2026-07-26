@@ -83,7 +83,6 @@ export type { LogPageRecord } from "./LogPageRecord";
 export type { LogQuery } from "./LogQuery";
 export type { LogSource } from "./LogSource";
 export type { LogStorageStatusRecord } from "./LogStorageStatusRecord";
-export type { NapiLatencySummaryRecord } from "./NapiLatencySummaryRecord";
 export type { MacroBadgePositionRecord } from "./MacroBadgePositionRecord";
 export type { MacroCoordinateRecord } from "./MacroCoordinateRecord";
 export type { MacroCreateInputRecord } from "./MacroCreateInputRecord";

@@ -38,7 +38,6 @@ export function comparePerformanceSummaries(current, baseline) {
     workspaceLaunchP95RegressionPercent: latencyRegression("workspaceLaunch")
   };
   const coreEffects = current.runtimeTelemetry?.coreEffects;
-  const napi = current.runtimeTelemetry?.napi;
   const diagnostics = {
     effectQueuePeak: coreEffects?.peakPendingEffectCount,
     effectQueueCapacity: coreEffects?.pendingEffectCapacity,
@@ -49,8 +48,6 @@ export function comparePerformanceSummaries(current, baseline) {
       coreEffects?.launchOperationCount > 0
         ? coreEffects.launchEffectCount / coreEffects.launchOperationCount
         : 0,
-    napiCallCount: napi?.callCount,
-    napiP95Ms: napi?.p95Ms,
     layoutPassCount: current.runtimeTelemetry?.layoutPassCount,
     menuRefreshCount: current.runtimeTelemetry?.menuRefreshCount,
     runtimePublishCount: current.runtimeTelemetry?.runtimePublishCount
@@ -135,13 +132,6 @@ export function aggregatePerformanceSummaries(summaries) {
       pendingEffectCount: value("pendingEffectCount")
     };
   }
-  const napiSamples = summaries.map((summary) => summary.runtimeTelemetry?.napi);
-  if (napiSamples.every(hasCountedLatency)) {
-    runtimeTelemetry.napi = {
-      ...aggregateLatency(napiSamples),
-      callCount: median(napiSamples.map((sample) => sample.callCount))
-    };
-  }
   return {
     medianNonRendererCpuPercent: value("medianNonRendererCpuPercent"),
     medianNonRendererRssBytes: value("medianNonRendererRssBytes"),
@@ -177,10 +167,6 @@ function hasCoreEffectMetrics(metrics) {
     "pendingEffectCount"
   ].every((key) => Number.isFinite(metrics[key])) &&
     hasLatencyShape(metrics.effectAckLatency);
-}
-
-function hasCountedLatency(metric) {
-  return Number.isFinite(metric?.callCount) && hasLatencyShape(metric);
 }
 
 function hasLatencyShape(metric) {

@@ -2,13 +2,10 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
-    "types": ["node", "electron", "vite/client", "vitest"]
+    "types": ["node", "vite/client", "vitest"]
   },
   "include": [
-    "electron.vite.config.ts",
     "vitest.config.ts",
-    "src/main/**/*.ts",
-    "src/preload/**/*.ts",
     "src/renderer/src/app/constants.ts",
     "src/renderer/src/app/browserEnginePresentation.ts",
     "src/renderer/src/app/copyName.ts",

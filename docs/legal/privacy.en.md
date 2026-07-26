@@ -1,6 +1,6 @@
 # Rion Studio Privacy Notice
 
-Version and effective date: 2026-07-14
+Version and effective date: 2026-07-26
 
 ## 1. Scope and provider
 
@@ -34,7 +34,7 @@ Because the project does not receive the app's local records, access, correction
 
 ## 7. Security and limitations
 
-Rion Studio uses isolated role directories and Electron's context-isolated preload bridge, but no desktop software can guarantee absolute security. Protect the operating-system account, disk, backups, exports, proxies, and physical device. Do not share a role directory with someone who should not be able to use its session.
+Rion Studio uses isolated role directories, a capability-scoped Tauri IPC bridge, and the operating system's WKWebView or WebView2 runtime, but no desktop software can guarantee absolute security. Protect the operating-system account, disk, backups, exports, proxies, and physical device. Do not share a role directory with someone who should not be able to use its session.
 
 ## 8. Children and changes
 

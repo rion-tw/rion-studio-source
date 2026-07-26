@@ -1,4 +1,4 @@
-name: Private Release Candidate
+name: Private Tauri Release
 
 on:
   workflow_run:
@@ -11,14 +11,9 @@ on:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
-
-env:
-  RION_STUDIO_RELEASE_REPOSITORY: rion-tw/rion-studio
 
 concurrency:
-  group: private-release-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: private-tauri-release-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -35,26 +30,19 @@ jobs:
         id: validate
         shell: bash
         env:
-          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          test "${WORKFLOW_CONCLUSION}" = "success"
-          test "${WORKFLOW_EVENT}" = "push"
-          test "${HEAD_BRANCH}" = "main"
           test -n "${HEAD_SHA}"
           echo "source_ref=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
 
   semantic-release:
     needs: validate-ci-run
-    if: needs.validate-ci-run.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       release_version: ${{ steps.semantic.outputs.release_version }}
     steps:
-      - name: Checkout
+      - name: Checkout verified source
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -72,10 +60,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve pinned Rust toolchain
-        run: rustup show active-toolchain
-
-      - name: Create private semantic release
+      - name: Create semantic release
         id: semantic
         run: pnpm run release
         env:
@@ -85,316 +70,117 @@ jobs:
     needs:
       - validate-ci-run
       - semantic-release
-    if: >-
-      always() &&
-      needs.validate-ci-run.result == 'success' &&
-      needs.semantic-release.result == 'success'
+    if: needs.semantic-release.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       has_release: ${{ steps.resolve.outputs.has_release }}
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       release_version: ${{ steps.resolve.outputs.release_version }}
     steps:
-      - name: Checkout release history
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
       - name: Resolve private release
         id: resolve
         shell: bash
         env:
-          SEMANTIC_VERSION: ${{ needs.semantic-release.outputs.release_version }}
+          VERSION: ${{ needs.semantic-release.outputs.release_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          version="${SEMANTIC_VERSION}"
-          if [[ -z "${version}" ]]; then
+          if [[ -z "${VERSION}" ]]; then
             echo "has_release=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          tag="v${version}"
+          tag="v${VERSION}"
           gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null
-
           echo "has_release=true" >> "${GITHUB_OUTPUT}"
           echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "release_version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "release_version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
-  build-release-assets:
+  build-signed-tauri-release:
     needs: resolve-release
-    if: >-
-      needs.resolve-release.result == 'success' &&
-      needs.resolve-release.outputs.has_release == 'true'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: macos-latest
-            build_target: --mac dmg zip --arm64
-            required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
-            optional_assets: Rion.Studio-mac.dmg.blockmap
-          - os: windows-latest
-            build_target: --win nsis --x64
-            required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
-            optional_assets: ""
-    steps:
-      - name: Checkout private release tag
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.resolve-release.outputs.release_tag }}
+    if: needs.resolve-release.outputs.has_release == 'true'
+    uses: ./.github/workflows/tauri-release-candidate.yml
+    with:
+      tag: ${{ needs.resolve-release.outputs.release_tag }}
+      updater_base_url: https://github.com/rion-tw/rion-studio/releases/latest/download
+    secrets:
+      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Resolve pinned Rust toolchain
-        run: rustup show active-toolchain
-
-      - name: Configure macOS compiler cache
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "ELECTRON_CACHE=${GITHUB_WORKSPACE}/.electron-cache" >> "${GITHUB_ENV}"
-          echo "ELECTRON_BUILDER_CACHE=${GITHUB_WORKSPACE}/.electron-builder-cache" >> "${GITHUB_ENV}"
-
-          if ! command -v ccache >/dev/null 2>&1; then
-            if ! command -v brew >/dev/null 2>&1 || ! brew install ccache; then
-              echo "ccache unavailable; falling back to the native clang compiler."
-              echo "CC=clang" >> "${GITHUB_ENV}"
-              echo "CXX=clang++" >> "${GITHUB_ENV}"
-              exit 0
-            fi
-          fi
-
-          echo "CCACHE_DIR=${GITHUB_WORKSPACE}/.ccache" >> "${GITHUB_ENV}"
-          echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
-          echo "CCACHE_COMPILERCHECK=content" >> "${GITHUB_ENV}"
-          echo "CC=ccache clang" >> "${GITHUB_ENV}"
-          echo "CXX=ccache clang++" >> "${GITHUB_ENV}"
-
-      - name: Restore macOS build caches
-        if: runner.os == 'macOS'
-        uses: actions/cache@v5
-        continue-on-error: true
-        with:
-          path: |
-            .ccache
-            .electron-cache
-            .electron-builder-cache
-            ~/Library/Caches/node-gyp
-          key: macos-ccache-v1-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'package.json', 'pnpm-lock.yaml') }}
-          restore-keys: |
-            macos-ccache-v1-${{ runner.arch }}-
-
-      - name: Reset macOS compiler cache statistics
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          if command -v ccache >/dev/null 2>&1; then
-            ccache --zero-stats
-          fi
-
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        continue-on-error: true
-        with:
-          cache-bin: "false"
-          cache-on-failure: "false"
-          save-if: "false"
-          shared-key: platform-release-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Apply release version
-        run: pnpm version ${{ needs.resolve-release.outputs.release_version }} --no-git-tag-version
-
-      - name: Build app
-        run: pnpm exec electron-vite build
-
-      - name: Build and verify Rust application core
-        run: pnpm run build:rust:release && pnpm run verify:rust
-
-      - name: Build macOS native runtime tabs
-        if: runner.os == 'macOS'
-        run: pnpm run build:native:macos
-
-      - name: Verify and test macOS native runtime tabs
-        if: runner.os == 'macOS'
-        run: pnpm run test:native:macos
-
-      - name: Build and verify Windows WebView2 adapter
-        if: runner.os == 'Windows'
-        run: pnpm run build:native:windows && pnpm run test:native:windows
-
-      - name: Build platform artifacts
-        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Verify packaged Rust application core
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ needs.resolve-release.outputs.release_version }}"
-          if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            core_path="release/${version}/mac-arm64/Rion Studio.app/Contents/Resources/native/rion-core.node"
-            electron_path="release/${version}/mac-arm64/Rion Studio.app/Contents/MacOS/Rion Studio"
-          else
-            core_path="release/${version}/win-unpacked/resources/native/rion-core.node"
-            electron_path="release/${version}/win-unpacked/Rion Studio.exe"
-          fi
-          node scripts/verifyPackagedRustCore.mjs "${electron_path}" "${core_path}"
-
-      - name: Verify macOS app signature
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          app_path="release/${{ needs.resolve-release.outputs.release_version }}/mac-arm64/Rion Studio.app"
-          rust_core="${app_path}/Contents/Resources/native/rion-core.node"
-          native_tabs="${app_path}/Contents/Resources/native/rion-runtime-tabs.node"
-          codesign --verify --deep --strict --verbose=2 "${app_path}"
-          codesign --verify --strict --verbose=2 "${rust_core}"
-          codesign --verify --strict --verbose=2 "${native_tabs}"
-          node scripts/verifyMacRuntimeTabs.mjs "${native_tabs}"
-
-          signature_info="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
-          grep -Fx "Identifier=com.rionstudio.launcher" <<< "${signature_info}"
-          grep -Fx "Signature=adhoc" <<< "${signature_info}"
-          grep -Fx "TeamIdentifier=not set" <<< "${signature_info}"
-          grep -E '^Sealed Resources version=[0-9]+' <<< "${signature_info}"
-
-          verify_entitlement() {
-            local signed_path="$1"
-            local key="$2"
-            local entitlements
-            entitlements="$(codesign -d --entitlements :- "${signed_path}" 2>/dev/null)"
-            grep -F "<key>${key}</key>" <<< "${entitlements}"
-          }
-
-          verify_entitlement "${app_path}" "com.apple.security.cs.allow-jit"
-          verify_entitlement "${app_path}" "com.apple.security.cs.disable-library-validation"
-
-          for helper_name in \
-            "Rion Studio Helper.app" \
-            "Rion Studio Helper (Renderer).app" \
-            "Rion Studio Helper (GPU).app" \
-            "Rion Studio Helper (Plugin).app"; do
-            helper_path="${app_path}/Contents/Frameworks/${helper_name}"
-            verify_entitlement "${helper_path}" "com.apple.security.cs.allow-jit"
-            verify_entitlement "${helper_path}" "com.apple.security.cs.disable-library-validation"
-          done
-
-      - name: Verify packaged updater repository
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ needs.resolve-release.outputs.release_version }}"
-          if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            update_config="release/${version}/mac-arm64/Rion Studio.app/Contents/Resources/app-update.yml"
-          else
-            update_config="release/${version}/win-unpacked/resources/app-update.yml"
-          fi
-          node scripts/verifyPackagedUpdateConfig.mjs "${update_config}" "${RION_STUDIO_RELEASE_REPOSITORY}"
-
-      - name: Upload private candidate assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          tag="${{ needs.resolve-release.outputs.release_tag }}"
-          release_dir="release/${{ needs.resolve-release.outputs.release_version }}"
-          read -r -a required_asset_names <<< "${{ matrix.required_assets }}"
-          read -r -a optional_asset_names <<< "${{ matrix.optional_assets }}"
-          assets=()
-
-          for asset_name in "${required_asset_names[@]}"; do
-            asset_path="${release_dir}/${asset_name}"
-            test -f "${asset_path}"
-            assets+=("${asset_path}")
-          done
-
-          for asset_name in "${optional_asset_names[@]}"; do
-            asset_path="${release_dir}/${asset_name}"
-            if [[ -f "${asset_path}" ]]; then
-              assets+=("${asset_path}")
-            fi
-          done
-
-          gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
-
-      - name: Report macOS compiler cache statistics
-        if: always() && runner.os == 'macOS'
-        shell: bash
-        run: |
-          if command -v ccache >/dev/null 2>&1; then
-            ccache --show-stats || true
-          fi
-
-  verify-private-release:
+  verify-and-upload-private-release:
     needs:
       - resolve-release
-      - build-release-assets
-    if: >-
-      needs.resolve-release.result == 'success' &&
-      needs.resolve-release.outputs.has_release == 'true'
+      - build-signed-tauri-release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout private release tag
+      - name: Checkout release tag
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve-release.outputs.release_tag }}
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - name: Download verified release assets
+        uses: actions/download-artifact@v8
         with:
-          node-version-file: .nvmrc
+          name: tauri-release-assets-${{ needs.resolve-release.outputs.release_version }}
+          path: release-assets
 
-      - name: Download complete private candidate
+      - name: Verify private release assets
+        run: node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --write-checksums
+
+      - name: Upload immutable private release assets
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${{ needs.resolve-release.outputs.release_tag }}" --repo "${GITHUB_REPOSITORY}" --dir candidate-assets
-
-      - name: Verify complete private candidate
-        run: node scripts/releaseArtifacts.mjs candidate-assets "${{ needs.resolve-release.outputs.release_version }}"
-
-      - name: Record candidate summary
-        shell: bash
+          TAG: ${{ needs.resolve-release.outputs.release_tag }}
+          VERSION: ${{ needs.resolve-release.outputs.release_version }}
         run: |
-          {
-            echo "## Private release candidate"
-            echo
-            echo "Tag: ${{ needs.resolve-release.outputs.release_tag }}"
-            echo
-            echo "Verified assets:"
-            find candidate-assets -maxdepth 1 -type f -exec basename {} \; | sort | sed 's/^/- /'
-          } >> "${GITHUB_STEP_SUMMARY}"
+          set -euo pipefail
+          immutable_assets=(
+            release-assets/Rion.Studio-mac.dmg
+            release-assets/Rion.Studio-mac.app.tar.gz
+            release-assets/Rion.Studio-mac.app.tar.gz.sig
+            release-assets/Rion.Studio-win.exe
+            release-assets/Rion.Studio-win.exe.sig
+            release-assets/SHA256SUMS.txt
+          )
+          manifests=(release-assets/latest.json release-assets/latest-mac.yml release-assets/latest.yml)
+
+          upload_immutable_asset() {
+            local asset="$1"
+            local name="${asset##*/}"
+            if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fxq "${name}"; then
+              mkdir -p existing-assets
+              gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${name}" --dir existing-assets
+              cmp "${asset}" "existing-assets/${name}"
+            else
+              gh release upload "${TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}"
+            fi
+          }
+
+          for asset in "${immutable_assets[@]}"; do upload_immutable_asset "${asset}"; done
+          for manifest in "${manifests[@]}"; do upload_immutable_asset "${manifest}"; done
+          rm -rf downloaded-assets
+          mkdir downloaded-assets
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir downloaded-assets
+          node scripts/releaseArtifacts.mjs downloaded-assets "${VERSION}" --verify-checksums
+          cmp release-assets/SHA256SUMS.txt downloaded-assets/SHA256SUMS.txt
 
   publish-public-release:
     needs:
       - resolve-release
-      - verify-private-release
-    if: >-
-      needs.resolve-release.result == 'success' &&
-      needs.verify-private-release.result == 'success' &&
-      needs.resolve-release.outputs.has_release == 'true'
+      - verify-and-upload-private-release
+    uses: ./.github/workflows/publish-public-release.yml
     permissions:
       contents: read
-    uses: ./.github/workflows/publish-public-release.yml
     with:
       tag: ${{ needs.resolve-release.outputs.release_tag }}
     secrets:

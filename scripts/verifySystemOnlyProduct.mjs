@@ -4,6 +4,32 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const removedPaths = [
+  "crates/rion-node",
+  "electron-builder.config.d.mts",
+  "electron-builder.config.mjs",
+  "electron.vite.config.ts",
+  "native/macos/runtime-tabs",
+  "native/windows/webview2",
+  "build/Install Help.txt",
+  "build/entitlements.mac.inherit.plist",
+  "build/entitlements.mac.plist",
+  "build/signMacAdHoc.d.mts",
+  "build/signMacAdHoc.mjs",
+  "scripts/buildMacRuntimeTabs.mjs",
+  "scripts/buildRustCore.mjs",
+  "scripts/buildWindowsWebView2.mjs",
+  "scripts/verifyMacRuntimeTabs.mjs",
+  "scripts/verifyPackagedRustCore.mjs",
+  "scripts/verifyPackagedUpdateConfig.d.mts",
+  "scripts/verifyPackagedUpdateConfig.mjs",
+  "scripts/verifyRustCore.mjs",
+  "scripts/verifyWindowsWebView2.mjs",
+  "src/main",
+  "src/preload",
+  "src/shared/internalIpc.ts",
+  "src/shared/ipc.ts",
+  "src/shared/embeddedRuntimeDiagnostics.ts",
+  "src/shared/runtimeTabs.ts",
   "build/tauri-helper-dev/package.json",
   "crates/rion-core/assets/cdn_compatibility_rules.json",
   "crates/rion-core/src/cdn.rs",
@@ -15,29 +41,22 @@ const removedPaths = [
   "crates/rion-core/src/external_runtime.rs",
   "crates/rion-platform/src/chrome.rs",
   "src-tauri/src/electron_helper.rs",
-  "src/main/browser/ChromeProfileImportManager.ts",
-  "src/main/browser/ExternalChromeCdpBridge.ts",
-  "src/main/game-browser/CdnCompatibilityManager.ts",
-  "src/main/helper/ElectronRuntimeHelper.ts",
   "src/renderer/src/features/chrome-profile-import/ChromeProfileImportFlow.tsx",
   "src/shared/runtimeHelperProtocol.ts"
 ];
 
 const sourceRoots = [
+  ".github/workflows",
   "crates/rion-core/src",
-  "crates/rion-node/src",
   "crates/rion-platform/src",
-  "native",
   "scripts",
-  "src-tauri/src",
-  "src-tauri/native",
-  "src/main",
-  "src/preload",
+  "src-tauri",
   "src/renderer/src",
   "src/shared"
 ];
 const sourceExtensions = new Set([
-  ".c", ".cc", ".cpp", ".h", ".m", ".mjs", ".mm", ".rs", ".ts", ".tsx"
+  ".c", ".cc", ".cpp", ".h", ".json", ".m", ".mjs", ".mm", ".nsh", ".rs", ".toml", ".ts",
+  ".tsx", ".yaml", ".yml"
 ]);
 const forbiddenTokens = [
   "BrowserCdnCompatibility",
@@ -48,6 +67,8 @@ const forbiddenTokens = [
   "ExternalChrome",
   "ExternalSessionRecord",
   "RION_STUDIO_CHROME_PATH",
+  "build:tauri:renderer",
+  "dev:tauri",
   "remote-debugging-port"
 ];
 const migrationOnlyTokens = new Map([
@@ -57,6 +78,12 @@ const migrationOnlyTokens = new Map([
   ["chrome-profile", new Set([
     "crates/rion-core/src/database/legacy.rs",
     "crates/rion-core/src/database/state.rs"
+  ])],
+  ["electron", new Set([
+    "crates/rion-core/src/database/state.rs",
+    "crates/rion-core/src/model.rs",
+    "crates/rion-core/src/portable.rs",
+    "src-tauri/windows/installer-hooks.nsh"
   ])]
 ]);
 
@@ -76,11 +103,49 @@ for (const root of sourceRoots) {
       if (source.includes(token)) failures.push(`${repositoryPath} contains ${token}`);
     }
     for (const [token, allowlist] of migrationOnlyTokens) {
-      if (source.includes(token) && !allowlist.has(repositoryPath)) {
+      if (source.toLowerCase().includes(token) && !allowlist.has(repositoryPath)) {
         failures.push(`${repositoryPath} contains migration-only token ${token}`);
       }
     }
   }
+}
+
+const packageJson = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8"));
+const directPackages = {
+  ...packageJson.dependencies,
+  ...packageJson.devDependencies
+};
+for (const name of [
+  "@electron/osx-sign",
+  "electron",
+  "electron-builder",
+  "electron-updater",
+  "electron-vite",
+  "node-gyp"
+]) {
+  if (name in directPackages) failures.push(`package.json contains retired dependency ${name}`);
+}
+for (const name of Object.keys(directPackages)) {
+  if (name.startsWith("@electron/") || name.toLowerCase().includes("napi")) {
+    failures.push(`package.json contains retired native-shell dependency ${name}`);
+  }
+}
+for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
+  if (/^(?:dev|build):tauri(?::|$)/i.test(name)) {
+    failures.push(`package.json contains retired transitional script ${name}`);
+  }
+  if (/electron(?:-builder|-vite)?|node-gyp|buildRustCore|buildMacRuntimeTabs|buildWindowsWebView2/i.test(command)) {
+    failures.push(`package script ${name} invokes a retired Electron build path`);
+  }
+}
+
+const cargoWorkspace = await readFile(join(repositoryRoot, "Cargo.toml"), "utf8");
+for (const token of ["crates/rion-node", "napi =", "napi-build", "napi-derive"]) {
+  if (cargoWorkspace.includes(token)) failures.push(`Cargo workspace contains ${token}`);
+}
+const pnpmWorkspace = await readFile(join(repositoryRoot, "pnpm-workspace.yaml"), "utf8");
+if (/^\s*(?:electron|electron-winstaller):|^\s*-\s*electron\s*$/mu.test(pnpmWorkspace)) {
+  failures.push("pnpm-workspace.yaml permits a retired Electron install script");
 }
 
 const embeddedEngine = await readFile(
@@ -122,7 +187,7 @@ for (const removedEffect of [
 if (failures.length > 0) {
   throw new Error(`System-only product gate failed:\n- ${failures.join("\n- ")}`);
 }
-console.log("Verified system-only product boundary: no CDN, External Chrome, or Chrome Profile runtime remains.");
+console.log("Verified Tauri-only system WebView boundary: no Electron, CDN, External Chrome, or Chrome Profile runtime remains.");
 
 async function exists(path) {
   try {

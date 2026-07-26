@@ -13,8 +13,7 @@ use crate::{
     error::{CoreError, CoreResult},
     model::{
         CoreEffectMetricsRecord, CountedLatencySummaryRecord, LatencySummaryRecord,
-        NapiLatencySummaryRecord, PerformanceTelemetryRecord, TelemetryMetric,
-        TelemetrySampleRecord,
+        PerformanceTelemetryRecord, TelemetryMetric, TelemetrySampleRecord,
     },
 };
 
@@ -23,7 +22,6 @@ const WRITE_INTERVAL: Duration = Duration::from_secs(60);
 
 enum Request {
     Record(TelemetrySampleRecord),
-    Napi(f64),
     CoreEffects(CoreEffectMetricsRecord),
     Snapshot(Sender<PerformanceTelemetryRecord>),
     Shutdown(Sender<()>),
@@ -56,10 +54,6 @@ impl TelemetryWorker {
 
     pub fn record(&self, sample: TelemetrySampleRecord) {
         let _ = self.sender.try_send(Request::Record(sample));
-    }
-
-    pub fn record_napi(&self, duration_ms: f64) {
-        let _ = self.sender.try_send(Request::Napi(duration_ms));
     }
 
     pub fn record_core_effects(&self, metrics: CoreEffectMetricsRecord) {
@@ -98,10 +92,6 @@ fn run_worker(receiver: Receiver<Request>, output_path: Option<PathBuf>) {
     loop {
         match receiver.recv_timeout(WRITE_INTERVAL) {
             Ok(Request::Record(sample)) => metrics.record(sample),
-            Ok(Request::Napi(duration_ms)) => {
-                metrics.napi_count = metrics.napi_count.saturating_add(1);
-                metrics.napi.record(duration_ms);
-            }
             Ok(Request::CoreEffects(core_effects)) => metrics.core_effects = core_effects,
             Ok(Request::Snapshot(response)) => {
                 let _ = response.send(metrics.snapshot());
@@ -134,8 +124,6 @@ struct Metrics {
     macro_schedule_to_dispatch: LatencySampler,
     main_event_loop_delay: LatencySampler,
     menu_refresh_count: u64,
-    napi: LatencySampler,
-    napi_count: u64,
     process_launch_count: u64,
     renderer_raf: LatencySampler,
     scheduled_wait_count: u64,
@@ -158,8 +146,6 @@ impl Metrics {
             macro_schedule_to_dispatch: LatencySampler::default(),
             main_event_loop_delay: LatencySampler::default(),
             menu_refresh_count: 0,
-            napi: LatencySampler::default(),
-            napi_count: 0,
             process_launch_count: 0,
             renderer_raf: LatencySampler::default(),
             scheduled_wait_count: 0,
@@ -247,10 +233,6 @@ impl Metrics {
             macro_schedule_to_dispatch: self.macro_schedule_to_dispatch.summary(),
             main_event_loop_delay: self.main_event_loop_delay.summary(),
             menu_refresh_count: self.menu_refresh_count,
-            napi: NapiLatencySummaryRecord {
-                call_count: self.napi_count,
-                latency: self.napi.summary(),
-            },
             process_launch_count: self.process_launch_count,
             renderer_raf: self.renderer_raf.summary(),
             scheduled_wait_count: self.scheduled_wait_count,
@@ -352,7 +334,6 @@ mod tests {
             duration_ms: Some(16.0),
             count: 1,
         });
-        worker.record_napi(2.0);
         worker.record_core_effects(CoreEffectMetricsRecord {
             peak_pending_effect_count: 3,
             launch_operation_count: 1,
@@ -365,7 +346,6 @@ mod tests {
         assert_eq!(snapshot.main_event_loop_delay.p95_ms, 12.0);
         assert_eq!(snapshot.layout_pass_count, 2);
         assert_eq!(snapshot.renderer_raf.p95_ms, 16.0);
-        assert_eq!(snapshot.napi.call_count, 1);
         assert_eq!(snapshot.core_effects.peak_pending_effect_count, 3);
         assert_eq!(snapshot.core_effects.launch_effect_count, 7);
         worker.shutdown();

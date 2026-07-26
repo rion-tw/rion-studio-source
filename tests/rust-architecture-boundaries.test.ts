@@ -1,485 +1,66 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
-import { v1Case } from "./helpers/v1Parity";
 
-const readSource = (path: string): Promise<string> =>
-  readFile(new URL(`../${path}`, import.meta.url), "utf8");
+describe("Tauri and Rust production architecture boundaries", () => {
+  it("has no legacy desktop-shell source roots", async () => {
+    for (const path of [
+      "src/main",
+      "src/preload",
+      "crates/rion-node",
+      "native/macos/runtime-tabs",
+      "native/windows/webview2"
+    ]) {
+      await expect(access(path)).rejects.toBeDefined();
+    }
+  });
 
-describe("Rust production architecture boundaries", () => {
-  it("keeps generated core commands typed and independent from handwritten domain models", async () => {
-    const [command, event, browserRuntime] = await Promise.all([
-      readSource("src/shared/generated/CoreCommand.ts"),
-      readSource("src/shared/generated/CoreEvent.ts"),
-      readSource("src/shared/generated/BrowserRuntimeCommand.ts")
+  it("links the authoritative Rust core directly into the Tauri shell", async () => {
+    const [manifest, shell, runtime] = await Promise.all([
+      readFile("src-tauri/Cargo.toml", "utf8"),
+      readFile("src-tauri/src/lib.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime.rs", "utf8")
     ]);
 
-    for (const contract of [command, event, browserRuntime]) {
+    expect(manifest).toContain('rion-core = { path = "../crates/rion-core" }');
+    expect(shell).toContain("AppCore::create");
+    expect(shell).toContain("rion_core_invoke");
+    expect(runtime).toContain("SystemRuntimeExecutor");
+    for (const source of [manifest, shell, runtime]) {
+      expect(source.toLowerCase()).not.toContain("electron");
+      expect(source).not.toContain("Node-API");
+    }
+  });
+
+  it("keeps generated domain and effect contracts independent from shell objects", async () => {
+    const [command, event, effects, types] = await Promise.all([
+      readFile("src/shared/generated/CoreCommand.ts", "utf8"),
+      readFile("src/shared/generated/CoreEvent.ts", "utf8"),
+      readFile("src/shared/generated/CoreEffectAction.ts", "utf8"),
+      readFile("src/shared/types.ts", "utf8")
+    ]);
+
+    for (const contract of [command, event, effects]) {
       expect(contract).not.toContain("unknown");
       expect(contract).not.toContain("../types");
+      expect(contract.toLowerCase()).not.toContain("electron");
     }
-    expect(command).not.toContain("../types");
-    expect(command).not.toContain("ApplyDelta");
-    expect(command).not.toContain("portableCommit");
-    expect(command).not.toContain("portableNormalize");
+    expect(effects).not.toContain('{ "type": "createWindow"');
+    expect(effects).not.toContain('{ "type": "debuggerCommand"');
+    expect(types).not.toContain("export interface Game ");
+    expect(types).toContain("export type CreateRoleInput = RoleCreateRequest");
   });
 
-  it("uses Rust-generated public domain and mutation contracts", async () => {
-    const sharedTypes = await readSource("src/shared/types.ts");
-
-    for (const handwritten of [
-      "export interface Game ",
-      "export interface Role ",
-      "export interface LaunchWorkspace ",
-      "export interface Macro ",
-      "export interface CreateGameInput ",
-      "export interface CreateRoleInput ",
-      "export interface CreateLaunchWorkspaceInput ",
-      "export interface CreateMacroInput "
-    ]) {
-      expect(sharedTypes).not.toContain(handwritten);
-    }
-
-    expect(sharedTypes).toContain("export type CreateGameInput = GameCreateRequest");
-    expect(sharedTypes).toContain("export type CreateRoleInput = RoleCreateRequest");
-    expect(sharedTypes).toContain("export type CreateLaunchWorkspaceInput = WorkspaceCreateRequest");
-    expect(sharedTypes).toContain("export type CreateMacroInput = MacroCreateRequest");
-  });
-
-  it("keeps workspace reservations and role operation ordering in Rust", async () => {
-    const manager = await readSource("src/main/browser/ElectronBrowserRuntime.ts");
-    const runtime = await readSource("crates/rion-core/src/browser_runtime.rs");
-    const operations = await readSource("crates/rion-core/src/browser_operations.rs");
-
-    expect(manager).not.toContain("pendingWorkspaceLaunchIds");
-    expect(manager).not.toContain("workspaceDisplayReservations");
-    expect(manager).not.toContain("roleOperationTails");
-    expect(manager).not.toContain("roleOperationVersions");
-    expect(manager).not.toContain("blockedRoleIds");
-    const sessionHandle = /interface BrowserSession \{([\s\S]*?)\n\}/.exec(manager)?.[1] ?? "";
-    expect(sessionHandle).not.toContain("state:");
-    expect(sessionHandle).not.toContain("launchedAt");
-    expect(runtime).toContain("ROLE_ALREADY_RUNNING");
-    expect(operations).toContain("BrowserOperationCoordinator");
-  });
-
-  it("keeps workspace geometry, divider resize, and adaptive zoom decisions in Rust", async () => {
-    const [manager, layout, sharedLayout] = await Promise.all([
-      readSource("src/main/browser/ElectronBrowserRuntime.ts"),
-      readSource("crates/rion-core/src/layout.rs"),
-      readSource("src/shared/workspaceLayout.ts")
+  it("installs the typed renderer bridge before React and exposes no transport shortcut", async () => {
+    const [entry, bridge] = await Promise.all([
+      readFile("src/renderer/src/main.tsx", "utf8"),
+      readFile("src/renderer/src/tauri/installTauriBridge.ts", "utf8")
     ]);
 
-    for (const source of [manager, sharedLayout]) {
-      expect(source).not.toContain("getAdaptiveWorkspaceBrowserZoomPercent");
-      expect(source).not.toContain("normalizeWorkspaceRectEdges");
-    }
-    expect(manager).not.toContain("snapWorkspaceResizePosition");
-    expect(manager).not.toContain("createDividerDescriptors");
-    expect(manager).not.toContain("workspaceLayoutResolver?.");
-    expect(layout).toContain("pub fn adaptive_zoom_percent");
-    expect(layout).toContain("pub fn normalize_rect_edges");
-    expect(layout).toContain("pub fn create_dividers");
-    expect(layout).toContain("pub fn resize_divider");
-  });
-
-  it("routes native browser macro actions through typed core effects", async () => {
-    const [adapter, core] = await Promise.all([
-      readSource("src/main/core/ElectronBrowserActionAdapter.ts"),
-      readSource("crates/rion-core/src/app.rs")
-    ]);
-
-    expect(adapter).toContain("executeEffect");
-    expect(adapter).not.toContain("dispatchExternalBrowserActions");
-    expect(core).toContain("handle_overlay_request");
-    expect(core).not.toContain("handle_external_cdp_event");
-  });
-
-  it("keeps portable parsing, pending sessions, planning, and persistence out of TypeScript", async () => {
-    const manager = await readSource("src/main/portable/PortableDataManager.ts");
-
-    expect(manager).not.toContain("pendingImport");
-    expect(manager).not.toContain("parsePortableData");
-    expect(manager).not.toContain("buildImportPlan");
-    expect(manager).not.toContain("writeJsonFileAtomically");
-    expect(manager).not.toContain("node:fs");
-    expect(manager).not.toContain("readFile");
-    expect(manager).not.toContain("writeFile");
-    expect(manager).not.toContain("setInterval");
-    expect(manager).toContain('type: "portableExportTo"');
-    expect(manager).toContain('type: "portablePreviewFile"');
-  });
-
-  it("does not expose retired browser-profile import flows", async () => {
-    const [runtime, core, api, preload] = await Promise.all([
-      readSource("src/main/browser/SystemWebViewRuntimePool.ts"),
-      readSource("crates/rion-core/src/app.rs"),
-      readSource("src/shared/api.ts"),
-      readSource("src/preload/index.ts")
-    ]);
-
-    for (const source of [runtime, core, api, preload]) {
-      expect(source).not.toContain("chromeProfile");
-      expect(source).not.toContain("ChromeProfile");
-    }
-  });
-
-  it("does not keep a JavaScript state snapshot cache or stringify diff", async () => {
-    const [client, database] = await Promise.all([
-      readSource("src/main/core/nativeCore.ts"),
-      readSource("crates/rion-core/src/database/state.rs")
-    ]);
-
-    expect(client).not.toContain("cachedSnapshot");
-    expect(client).not.toContain("private tail");
-    expect(client).not.toContain("private serialize");
-    const ordinaryMutation = database.slice(
-      database.indexOf("fn apply_domain_mutation"),
-      database.indexOf("fn validate_workspace_role_references")
-    );
-    expect(ordinaryMutation).not.toContain("read_snapshot");
-    expect(ordinaryMutation).not.toContain("snapshot_hash");
-    expect(database).toContain("fn read_typed_collection");
-  });
-
-  it("keeps runtime-aware mutations, bulk classification, and rollback journals in Rust", async () => {
-    const [handlers, app, database] = await Promise.all([
-      readSource("src/main/ipc/registerHandlers.ts"),
-      readSource("crates/rion-core/src/app.rs"),
-      readSource("crates/rion-core/src/database/state.rs")
-    ]);
-
-    expect(handlers).not.toContain("runWithExistingRoles");
-    expect(handlers).not.toContain("runBulkDelete");
-    expect(handlers).not.toContain("withDataMutation");
-    expect(handlers).not.toContain("stopAndRunMutation");
-    expect(app).toContain("delete_role_saga");
-    expect(app).toContain("quarantine");
-    expect(database).toContain("operation_journal");
-    expect(database).toContain("StateMutation::GamesDelete");
-    expect(database).toContain("StateMutation::WorkspacesDelete");
-  });
-
-  it("does not expose the removed TypeScript runtime fallback switch", async () => {
-    const main = await readSource("src/main/index.ts");
-
-    expect(main).not.toContain("RION_STUDIO_RUST_FALLBACK_SUBSYSTEMS");
-    expect(main).not.toContain("isRustSubsystemEnabled");
-    expect(main).not.toContain("rust_subsystem_fallback_active");
-  });
-
-  it("keeps log identity, filtering, redaction, persistence and batching in Rust", async () => {
-    const [adapter, capture, persistence] = await Promise.all([
-      readSource("src/main/logging/LogService.ts"),
-      readSource("crates/rion-core/src/log_capture.rs"),
-      readSource("crates/rion-core/src/database/logs.rs")
-    ]);
-
-    expect(adapter).not.toContain("randomUUID");
-    expect(adapter).not.toContain("private sequence");
-    expect(adapter).not.toContain("currentLevel");
-    expect(adapter).not.toContain("pendingEntries");
-    expect(adapter).not.toContain("sanitizeText");
-    expect(adapter).not.toContain("node:fs");
-    expect(adapter).toContain('type: "logsCapture"');
-    expect(capture).toContain("CAPTURE_QUEUE_CAPACITY");
-    expect(capture).toContain("sanitize_value");
-    expect(persistence).toContain("BATCH_INTERVAL");
-    expect(persistence).toContain("BATCH_MAX_ENTRIES");
-    expect(persistence).toContain("RETENTION_TARGET_BYTES");
-    expect(persistence).toContain("wal_checkpoint");
-  });
-
-  it("does not retain external browser health scheduling", async () => {
-    const [main, core] = await Promise.all([
-      readSource("src/main/index.ts"),
-      readSource("crates/rion-core/src/app.rs")
-    ]);
-
-    expect(main).not.toContain("ExternalChromeHealth");
-    expect(core).not.toContain("ExternalHealthChanged");
-  });
-
-  it("keeps embedded runtime diagnostics event-driven", async () => {
-    const [preload, diagnostics] = await Promise.all([
-      readSource("src/preload/embedded.ts"),
-      readSource("src/main/browser/EmbeddedRuntimeDiagnostics.ts")
-    ]);
-
-    expect(preload).not.toContain("window.setInterval");
-    expect(preload).not.toContain("EMBEDDED_HEARTBEAT_INTERVAL_MS");
-    expect(diagnostics).not.toContain("setInterval");
-    expect(diagnostics).not.toContain("EMBEDDED_HEARTBEAT_STALL_MS");
-    expect(diagnostics).toContain('contents.on("unresponsive"');
-    expect(diagnostics).toContain('contents.on("responsive"');
-  });
-
-  it("uses native background throttling without a custom CPU resource runtime", async () => {
-    const [app, model, coreLibrary, browser, executor] = await Promise.all([
-      readSource("crates/rion-core/src/app.rs"),
-      readSource("crates/rion-core/src/model.rs"),
-      readSource("crates/rion-core/src/lib.rs"),
-      readSource("src/main/browser/ElectronBrowserRuntime.ts"),
-      readSource("src/main/core/ElectronEffectExecutor.ts")
-    ]);
-
-    for (const source of [app, model, coreLibrary, browser, executor]) {
-      expect(source).not.toContain("ResourceRuntime");
-      expect(source).not.toContain("EmbeddedApplyResourceEffects");
-      expect(source).not.toContain("cpuThrottleRate");
-      expect(source).not.toContain("Emulation.setCPUThrottlingRate");
-    }
-    expect(app).not.toContain("resource_controller");
-    expect(app).not.toContain("SystemPressure");
-    expect(browser).toContain("backgroundThrottling: true");
-    v1Case("resource-platform-778b4474a64f", () => {
-      expect(browser).not.toContain("Target.setAutoAttach");
-      expect(browser).not.toContain("Emulation.setCPUThrottlingRate");
-    });
-    v1Case("resource-platform-352a23429e77", () => {
-      expect(browser).not.toContain("ElectronWorkspaceResourceTarget");
-    });
-    v1Case("resource-platform-44932c30115a", () => {
-      expect(browser).not.toContain("resourceTarget");
-    });
-    v1Case("resource-platform-e65c2a683baa", () => {
-      expect(browser).not.toContain("resourceTargetInvalidated");
-    });
-    v1Case("resource-platform-d0472c874e98", () => {
-      expect(app).not.toContain("SystemPressure");
-      expect(coreLibrary).not.toContain("pressure");
-    });
-    v1Case("resource-platform-9256c88b0721", () => {
-      expect(coreLibrary).not.toContain("SystemPressureSnapshot");
-    });
-  });
-
-  it("does not retain external browser process, CDP, or session APIs", async () => {
-    const [main, app, addon] = await Promise.all([
-      readSource("src/main/index.ts"),
-      readSource("crates/rion-core/src/app.rs"),
-      readSource("crates/rion-node/src/lib.rs")
-    ]);
-
-    for (const source of [main, app, addon]) {
-      expect(source).not.toContain("ExternalChromeManager");
-      expect(source).not.toContain("connectExternalChrome");
-      expect(source).not.toContain("launch_external_session");
-    }
-  });
-
-  it("keeps role-scoped macro cancellation and held-key ownership in Rust", async () => {
-    const [manager, runtime, target, embeddedInput] = await Promise.all([
-      readSource("src/main/macros/RustMacroManager.ts"),
-      readSource("crates/rion-core/src/macro_runtime.rs"),
-      readSource("src/main/browser/ElectronAutomationTarget.ts"),
-      readSource("crates/rion-core/src/embedded_input.rs")
-    ]);
-
-    expect(manager).not.toContain("macroStore");
-    expect(manager).toContain('type: "macroStopForRole"');
-    expect(runtime).toContain("cancelled_role_ids");
-    expect(runtime).toContain("held_keys: HashMap");
-    expect(runtime).toContain("stop_role_matching");
-    expect(target).not.toContain("macroInvocations");
-    expect(target).not.toContain("heldKeyOwners");
-    expect(target).toContain('type: "embeddedKeyPrepare"');
-    expect(target).not.toContain("prepareEmbeddedKeyTransition");
-    expect(embeddedInput).toContain("struct EmbeddedInputRuntime");
-    expect(embeddedInput).toContain("pending_role_ids");
-    expect(embeddedInput).toContain("apply_release");
-  });
-
-  it("does not retain the legacy TypeScript CDP transport", async () => {
-    const context = await readSource(".agents/context.md");
-
-    expect(context).toContain("SQLite is the only production metadata write source");
-  });
-
-  it("configures System WebView fonts directly without a Chromium Preferences command", async () => {
-    const [main, core] = await Promise.all([
-      readSource("src/main/index.ts"),
-      readSource("crates/rion-core/src/model.rs")
-    ]);
-
-    expect(main).not.toContain("BrowserFontApplier");
-    expect(main).not.toContain("ChromeZoomPreferenceApplier");
-    expect(main).not.toContain('type: "browserPreferencesApply"');
-    expect(main).toContain("createNativeBrowserFontDocumentStartScript");
-    expect(core).not.toContain("BrowserPreferencesApply");
-  });
-
-  it("keeps system font discovery and caching in Rust", async () => {
-    const [adapter, platform] = await Promise.all([
-      readSource("src/main/game-browser/RustSystemFontService.ts"),
-      readSource("crates/rion-platform/src/system_fonts.rs")
-    ]);
-
-    expect(adapter).not.toContain("node:child_process");
-    expect(adapter).not.toContain("system_profiler");
-    expect(adapter).not.toContain("powershell.exe");
-    expect(adapter).toContain('type: "systemFontsList"');
-    expect(platform).toContain("query_system_font_names");
-  });
-
-  it("keeps Windows graphics event-log access and parsing in Rust", async () => {
-    const [main, platform, parser] = await Promise.all([
-      readSource("src/main/index.ts"),
-      readSource("crates/rion-platform/src/windows_events.rs"),
-      readSource("crates/rion-core/src/windows_graphics_events.rs")
-    ]);
-
-    expect(main).not.toContain("RustWindowsGraphicsEventCollector");
-    expect(platform).toContain('Command::new("wevtutil")');
-    expect(parser).toContain("fn parse");
-  });
-
-  it("keeps diagnostic ZIP, telemetry timers and system process control in Rust", async () => {
-    const [main, native, diagnostics, telemetry, platform] = await Promise.all([
-      readSource("src/main/index.ts"),
-      readSource("src/main/core/nativeCore.ts"),
-      readSource("crates/rion-core/src/diagnostics.rs"),
-      readSource("crates/rion-core/src/telemetry.rs"),
-      readSource("crates/rion-platform/src/system.rs")
-    ]);
-
-    expect(main).not.toContain("node:fs");
-    expect(main).not.toContain("node:os");
-    expect(main).not.toContain("performanceTelemetryTimer");
-    expect(main).not.toContain("writeZip");
-    expect(main).toContain('type: "diagnosticsExport"');
-    expect(main).toContain("await logService.flush()");
-    expect(native).not.toContain("class PerformanceMetrics");
-    expect(diagnostics).toContain("atomic_replace_file");
-    expect(telemetry).toContain("WRITE_INTERVAL");
-    expect(platform).toContain("collect_system_host_diagnostics");
-  });
-
-  it("keeps macro lifecycle delivery reliable while presentation events stay bounded", async () => {
-    const [main, native, core, runtime] = await Promise.all([
-      readSource("src/main/index.ts"),
-      readSource("crates/rion-node/src/lib.rs"),
-      readSource("crates/rion-core/src/app.rs"),
-      readSource("crates/rion-core/src/macro_runtime.rs")
-    ]);
-
-    expect(main).not.toContain("iteration: status.iteration");
-    expect(main).toContain("macro_lifecycle_stopped");
-    expect(native).toContain("CoreEvent::MacroStatuses { reliable: true, .. }");
-    expect(core).toContain("CoreEvent::MacroStatuses { reliable: true, .. }");
-    expect(runtime).toContain("PRESENTATION_STATUS_MIN_INTERVAL");
-    expect(runtime).toContain("emit_statuses(shared, false)");
-  });
-
-  it("keeps scalar production metadata stores free of filesystem persistence", async () => {
-    const sources = await Promise.all([
-      readSource("src/main/game-browser/GameBrowserSettingsStore.ts"),
-      readSource("src/main/macros/MacroSettingsStore.ts"),
-      readSource("src/main/legal/LegalAcceptanceStore.ts"),
-      readSource("src/main/window/RuntimeWindowPreferencesStore.ts")
-    ]);
-
-    for (const source of sources) {
-      expect(source).not.toContain("node:fs");
-      expect(source).not.toContain("readFile");
-      expect(source).not.toContain("writeFile");
-      expect(source).not.toContain("?? DEFAULT_");
-    }
-    expect(sources[2]).not.toContain("normalizeAcceptanceFile");
-    expect(sources[3]).not.toContain("normalizeRuntimeWindowPreferences");
-  });
-
-  it("keeps collection metadata stores free of JSON files and snapshot caches", async () => {
-    const sources = await Promise.all([
-      readSource("src/main/games/GameStore.ts"),
-      readSource("src/main/workspaces/LaunchWorkspaceStore.ts"),
-      readSource("src/main/macros/MacroStore.ts")
-    ]);
-
-    for (const source of sources) {
-      expect(source).not.toContain("node:fs");
-      expect(source).not.toContain("writeJsonFileAtomically");
-      expect(source).not.toContain("cachedFile");
-      expect(source).not.toContain("stateRepository?:");
-    }
-
-    expect(sources[2]).not.toContain(".sort(");
-
-    const roleStore = await readSource("src/main/roles/RoleStore.ts");
-    expect(roleStore).not.toContain("node:fs");
-    expect(roleStore).not.toContain("node:path");
-    expect(roleStore).not.toContain("mkdir(");
-    expect(roleStore).not.toContain("rm(");
-    expect(roleStore).not.toContain("readFile");
-    expect(roleStore).not.toContain("writeFile");
-    expect(roleStore).not.toContain("writeJsonFileAtomically");
-    expect(roleStore).not.toContain("cachedFile");
-    expect(roleStore).toContain('type: "rolePathsResolve"');
-  });
-
-  it("keeps compatibility decisions and run state in Rust", async () => {
-    const manager = await readSource("src/main/games/GameCompatibilityManager.ts");
-    const runtime = await readSource("crates/rion-core/src/compatibility_runtime.rs");
-
-    expect(manager).not.toContain("createHash");
-    expect(manager).not.toContain("configurationFingerprint");
-    expect(manager).not.toContain("activeChecks");
-    expect(manager).toContain('type: "compatibilityRun"');
-    expect(manager).not.toContain('type: "compatibilityPrepare"');
-    expect(manager).not.toContain('type: "compatibilityComplete"');
-    expect(manager).not.toContain("setTimeout");
-    expect(manager).not.toContain("BrowserWindow");
-    expect(manager).not.toContain("WebContents");
-    expect(manager).not.toContain("window.webContents");
-    expect(manager).toContain("WebSurfacePort");
-    expect(runtime).toContain("configuration_fingerprint");
-    expect(runtime).toContain("cancel_requested");
-    expect(runtime).toContain("effect_operation_id");
-  });
-
-  it("keeps graphics normalization, switch selection, and report assembly in Rust", async () => {
-    const [adapter, graphics, bootstrap] = await Promise.all([
-      readSource("src/main/game-browser/GraphicsDiagnosticsService.ts"),
-      readSource("crates/rion-core/src/graphics_diagnostics.rs"),
-      readSource("crates/rion-core/src/bootstrap_settings.rs")
-    ]);
-
-    expect(adapter).not.toContain("normalizeAvailability");
-    expect(adapter).not.toContain("readGpuDevice");
-    expect(adapter).not.toContain("getGraphicsSwitches");
-    expect(adapter).toContain('type: "graphicsDiagnosticsAssemble"');
-    expect(graphics).toContain("normalize_web_graphics");
-    expect(graphics).toContain("GraphicsDiagnosticsRecord");
-    expect(bootstrap).toContain("fn graphics_switches");
-  });
-
-  it("keeps overlay projection, request validation, and refresh ordering in Rust", async () => {
-    const [adapter, overlay, core, page] = await Promise.all([
-      readSource("src/main/macros/MacroOverlayInjector.ts"),
-      readSource("crates/rion-core/src/overlay.rs"),
-      readSource("crates/rion-core/src/app.rs"),
-      readSource("src/shared/browser-overlay/macroOverlayRuntime.js")
-    ]);
-
-    for (const forbidden of [
-      "externalRefreshStates",
-      "contentRefreshStates",
-      "pendingClickStatuses",
-      "previousMacroStatuses",
-      "previousRolePresentation",
-      "findUnassignedMacroDependency",
-      "listStatuses",
-      "setTimeout"
-    ]) {
-      expect(adapter).not.toContain(forbidden);
-    }
-    expect(adapter).toContain('type: "overlayRequest"');
-    expect(overlay).toContain("struct OverlayProjection");
-    expect(overlay).toContain("REFRESH_MIN_INTERVAL");
-    expect(core).toContain("handle_overlay_request");
-    expect(core).toContain("OverlayCopyCoordinate");
-    expect(core).toContain("OverlayOpenMacroPage");
-    expect(page).toContain("retainedClickStatuses");
-    expect(page).toContain("clickStatusRetentionTimer");
+    expect(entry.indexOf("await installTauriBridgeIfNeeded()"))
+      .toBeLessThan(entry.indexOf("ReactDOM.createRoot"));
+    expect(bridge).toContain("const api: RionStudioApi");
+    expect(bridge).toContain('invoke<CoreCommandResult<C>>("rion_core_invoke"');
+    expect(bridge).not.toContain("window.__TAURI_INTERNALS__.postMessage");
   });
 });

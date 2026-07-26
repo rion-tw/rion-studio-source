@@ -4,8 +4,8 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc, thread};
 use std::fs;
 
 use rion_core::{
-    AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectResult,
-    CoreErrorPayload, CoreEvent, EmbeddedLaunchTargetRecord, StateCollection,
+    AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
+    CoreEffectResult, CoreErrorPayload, CoreEvent, EmbeddedLaunchTargetRecord, StateCollection,
     StatePixelBoundsRecord, WorkspaceDisplayInfoRecord,
 };
 use serde_json::{Value, json};
@@ -31,6 +31,28 @@ const RESTORE_ATTESTATION_FIXTURE_URL_ENV: &str =
 const RESTORE_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT";
 const RESTORE_ATTESTATION_STAGE_ENV: &str = "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_STAGE";
 
+fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
+    match action {
+        CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
+        CoreEffectAction::CompatibilityCreateWindow { .. } => "compatibilityCreateWindow",
+        CoreEffectAction::CompatibilityConfigureSession { .. } => "compatibilityConfigureSession",
+        CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
+        CoreEffectAction::CompatibilityProbeGraphics { .. } => "compatibilityProbeGraphics",
+        CoreEffectAction::CompatibilityCleanupWindow { .. } => "compatibilityCleanupWindow",
+        CoreEffectAction::EmbeddedCreateTab { .. } => "embeddedCreateTab",
+        CoreEffectAction::EmbeddedConfigureRoleSessions { .. } => "embeddedConfigureRoleSessions",
+        CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
+        CoreEffectAction::EmbeddedInstallOverlays { .. } => "embeddedInstallOverlays",
+        CoreEffectAction::EmbeddedFocusRole { .. } => "embeddedFocusRole",
+        CoreEffectAction::EmbeddedDestroyRole { .. } => "embeddedDestroyRole",
+        CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
+        CoreEffectAction::EmbeddedApplyRuntime { .. } => "embeddedApplyRuntime",
+        CoreEffectAction::OverlayOpenMacroPage { .. } => "overlayOpenMacroPage",
+        CoreEffectAction::OverlayCopyCoordinate { .. } => "overlayCopyCoordinate",
+        CoreEffectAction::BrowserAction { .. } => "browserAction",
+    }
+}
+
 struct RuntimeRestoreAttestationRequest {
     fixture_url: String,
     output_path: PathBuf,
@@ -51,7 +73,7 @@ fn platform_name() -> Result<&'static str, String> {
     } else if cfg!(target_os = "windows") {
         Ok("win32")
     } else {
-        Err("Rion Studio Tauri Preview supports only macOS and Windows.".to_owned())
+        Err("Rion Studio supports only macOS and Windows.".to_owned())
     }
 }
 
@@ -642,7 +664,7 @@ async fn rion_shell_invoke(
         _ => Err(shell_error(
             "TAURI_SHELL_OPERATION_UNAVAILABLE",
             format!(
-                "Tauri Preview shell operation {operation} is not available ({} argument(s)).",
+                "Tauri shell operation {operation} is not available ({} argument(s)).",
                 args.len()
             ),
         )),
@@ -1041,8 +1063,9 @@ fn start_runtime_restore_attestation(
         .name("rion-runtime-restore-attestation".to_owned())
         .spawn(move || {
             let stage = request.stage.clone();
-            let outcome =
-                tauri::async_runtime::block_on(run_runtime_restore_attestation(&app, &request));
+            let outcome = wait_for_tauri_main_loop(&app).and_then(|()| {
+                tauri::async_runtime::block_on(run_runtime_restore_attestation(&app, &request))
+            });
             let (document, exit_code) = match outcome {
                 Ok(report) => (
                     json!({
@@ -1085,6 +1108,18 @@ fn start_runtime_restore_attestation(
         })
         .map(|_| ())
         .map_err(|error| error.to_string())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn wait_for_tauri_main_loop(app: &AppHandle) -> Result<(), String> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = sender.send(());
+    })
+    .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .map_err(|_| "The Tauri main loop did not become ready for runtime restore.".to_owned())
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -1669,7 +1704,7 @@ pub fn run() {
                     user_data_dir: user_data_dir.to_string_lossy().into_owned(),
                     performance_telemetry_path: None,
                 },
-                "tauri-preview",
+                "tauri-stable",
             ) {
                 Ok(core) => Arc::new(core),
                 Err(error) if error.code() == "APP_INSTANCE_LOCKED" => {
@@ -1726,6 +1761,10 @@ pub fn run() {
                                     for effect in effects {
                                         let result_core = Arc::clone(&effect_core);
                                         let result_runtime = Arc::clone(&effect_runtime);
+                                        let restore_attestation =
+                                            std::env::var_os(RESTORE_ATTESTATION_OUTPUT_ENV)
+                                                .is_some();
+                                        let action_name = core_effect_action_name(&effect.action);
                                         let persist_runtime = matches!(
                                                 &effect.action,
                                             rion_core::CoreEffectAction::EmbeddedApplyRuntime { .. }
@@ -1735,8 +1774,18 @@ pub fn run() {
                                         let _ = thread::Builder::new()
                                             .name("rion-tauri-core-effect".to_owned())
                                             .spawn(move || {
+                                                if restore_attestation {
+                                                    eprintln!(
+                                                        "Runtime restore attestation: executing {action_name}."
+                                                    );
+                                                }
                                                 let result = result_runtime.execute(effect);
                                                 let succeeded = result.ok;
+                                                if restore_attestation {
+                                                    eprintln!(
+                                                        "Runtime restore attestation: {action_name} completed (ok={succeeded})."
+                                                    );
+                                                }
                                                 if result_core
                                                     .dispatch_core_effect_results(vec![result])
                                                     .is_ok()
@@ -1835,7 +1884,7 @@ pub fn run() {
             rion_shell_invoke
         ])
         .build(tauri::generate_context!())
-        .expect("failed to build Rion Studio Tauri Preview")
+        .expect("failed to build Rion Studio")
         .run(|app_handle, event| {
             match event {
                 tauri::RunEvent::ExitRequested { .. } => {

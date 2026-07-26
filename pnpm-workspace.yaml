@@ -1,6 +1,4 @@
 allowBuilds:
-  electron: true
-  electron-winstaller: true
   esbuild: true
 
 minimumReleaseAgeExclude:
@@ -17,7 +15,6 @@ minimumReleaseAgeExclude:
   - typescript-eslint@8.64.0
 
 onlyBuiltDependencies:
-  - electron
   - esbuild
 
 verifyDepsBeforeRun: false

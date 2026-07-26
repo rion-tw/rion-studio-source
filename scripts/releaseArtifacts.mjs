@@ -6,107 +6,125 @@ import { pathToFileURL } from "node:url";
 
 export const REQUIRED_RELEASE_ASSETS = [
   "Rion.Studio-mac.dmg",
-  "Rion.Studio-mac.zip",
-  "Rion.Studio-mac.zip.blockmap",
-  "latest-mac.yml",
+  "Rion.Studio-mac.app.tar.gz",
+  "Rion.Studio-mac.app.tar.gz.sig",
   "Rion.Studio-win.exe",
-  "Rion.Studio-win.exe.blockmap",
+  "Rion.Studio-win.exe.sig",
+  "latest.json",
+  "latest-mac.yml",
   "latest.yml"
 ];
 
-export const OPTIONAL_RELEASE_ASSETS = ["Rion.Studio-mac.dmg.blockmap"];
 export const CHECKSUM_ASSET_NAME = "SHA256SUMS.txt";
-
-const ALLOWED_RELEASE_ASSETS = new Set([
-  ...REQUIRED_RELEASE_ASSETS,
-  ...OPTIONAL_RELEASE_ASSETS,
-  CHECKSUM_ASSET_NAME
-]);
+const ALLOWED_RELEASE_ASSETS = new Set([...REQUIRED_RELEASE_ASSETS, CHECKSUM_ASSET_NAME]);
 
 export async function verifyReleaseAssets(directory, expectedVersion, options = {}) {
   const { allowChecksums = false } = options;
   const names = (await readdir(directory)).sort();
   const missing = REQUIRED_RELEASE_ASSETS.filter((name) => !names.includes(name));
-
-  if (missing.length > 0) {
-    throw new Error(`Missing required release assets: ${missing.join(", ")}`);
-  }
+  if (missing.length > 0) throw new Error(`Missing required release assets: ${missing.join(", ")}`);
 
   const unexpected = names.filter(
     (name) => !ALLOWED_RELEASE_ASSETS.has(name) || (!allowChecksums && name === CHECKSUM_ASSET_NAME)
   );
-
-  if (unexpected.length > 0) {
-    throw new Error(`Unexpected release assets: ${unexpected.join(", ")}`);
-  }
+  if (unexpected.length > 0) throw new Error(`Unexpected release assets: ${unexpected.join(", ")}`);
 
   for (const name of names) {
     const file = await stat(join(directory, name));
-    if (!file.isFile() || file.size === 0) {
-      throw new Error(`Release asset is empty or not a file: ${name}`);
-    }
+    if (!file.isFile() || file.size === 0) throw new Error(`Release asset is empty or not a file: ${name}`);
   }
 
-  await verifyUpdateMetadata(join(directory, "latest.yml"), expectedVersion, [
-    "Rion.Studio-win.exe"
-  ]);
-  await verifyUpdateMetadata(join(directory, "latest-mac.yml"), expectedVersion, [
-    "Rion.Studio-mac.zip",
-    "Rion.Studio-mac.dmg"
-  ]);
-
+  await verifyTauriManifest(join(directory, "latest.json"), expectedVersion);
+  await verifyLegacyManifest(
+    join(directory, "latest.yml"),
+    expectedVersion,
+    join(directory, "Rion.Studio-win.exe")
+  );
+  await verifyLegacyManifest(
+    join(directory, "latest-mac.yml"),
+    expectedVersion,
+    join(directory, "Rion.Studio-mac.dmg")
+  );
+  if (allowChecksums) await verifyReleaseChecksums(directory);
   return names;
 }
 
 export async function writeReleaseChecksums(directory) {
-  const names = (await readdir(directory))
-    .filter((name) => ALLOWED_RELEASE_ASSETS.has(name) && name !== CHECKSUM_ASSET_NAME)
-    .sort();
-  const lines = [];
-
-  for (const name of names) {
-    lines.push(`${await sha256File(join(directory, name))}  ${name}`);
-  }
-
-  const output = `${lines.join("\n")}\n`;
+  const output = await releaseChecksumDocument(directory);
   await writeFile(join(directory, CHECKSUM_ASSET_NAME), output, "utf8");
   return output;
 }
 
-async function verifyUpdateMetadata(path, expectedVersion, expectedAssetNames) {
-  const source = await readFile(path, "utf8");
-  const version = source.match(/^version:\s*['"]?([^'"\s]+)['"]?\s*$/mu)?.[1];
+export async function verifyReleaseChecksums(directory) {
+  const expected = await releaseChecksumDocument(directory);
+  const actual = await readFile(join(directory, CHECKSUM_ASSET_NAME), "utf8");
+  if (actual !== expected) throw new Error(`${CHECKSUM_ASSET_NAME} does not match the release assets.`);
+}
 
-  if (version !== expectedVersion) {
-    throw new Error(`${basename(path)} version ${version ?? "<missing>"} does not match ${expectedVersion}`);
+async function releaseChecksumDocument(directory) {
+  const names = (await readdir(directory))
+    .filter((name) => ALLOWED_RELEASE_ASSETS.has(name) && name !== CHECKSUM_ASSET_NAME)
+    .sort();
+  const lines = [];
+  for (const name of names) lines.push(`${await hashFile(join(directory, name), "sha256", "hex")}  ${name}`);
+  return `${lines.join("\n")}\n`;
+}
+
+async function verifyTauriManifest(path, expectedVersion) {
+  const manifest = JSON.parse(await readFile(path, "utf8"));
+  if (manifest.version !== expectedVersion) {
+    throw new Error(`${basename(path)} version ${manifest.version ?? "<missing>"} does not match ${expectedVersion}`);
   }
-
-  for (const name of expectedAssetNames) {
-    if (!source.includes(`url: ${name}`)) {
-      throw new Error(`${basename(path)} does not reference ${name}`);
+  for (const [platform, name] of [
+    ["darwin-aarch64", "Rion.Studio-mac.app.tar.gz"],
+    ["windows-x86_64", "Rion.Studio-win.exe"]
+  ]) {
+    const artifact = manifest.platforms?.[platform];
+    if (!artifact?.url?.endsWith(`/${name}`) || typeof artifact.signature !== "string" || !artifact.signature.trim()) {
+      throw new Error(`${basename(path)} has an invalid ${platform} signed artifact.`);
     }
   }
 }
 
-function sha256File(path) {
+async function verifyLegacyManifest(path, expectedVersion, artifactPath) {
+  const source = await readFile(path, "utf8");
+  const version = source.match(/^version:\s*['"]?([^'"\s]+)['"]?\s*$/mu)?.[1];
+  if (version !== expectedVersion) {
+    throw new Error(`${basename(path)} version ${version ?? "<missing>"} does not match ${expectedVersion}`);
+  }
+  const name = basename(artifactPath);
+  if (!source.includes(`url: ${name}`) || !source.includes(`path: ${name}`)) {
+    throw new Error(`${basename(path)} does not reference ${name}.`);
+  }
+  const expectedHash = await hashFile(artifactPath, "sha512", "base64");
+  const hashes = [...source.matchAll(/^\s*sha512:\s*(\S+)\s*$/gmu)].map((match) => match[1]);
+  if (hashes.length < 2 || hashes.some((hash) => hash !== expectedHash)) {
+    throw new Error(`${basename(path)} SHA-512 does not match ${name}.`);
+  }
+}
+
+function hashFile(path, algorithm, encoding) {
   return new Promise((resolveHash, reject) => {
-    const hash = createHash("sha256");
+    const hash = createHash(algorithm);
     const input = createReadStream(path);
     input.on("error", reject);
     input.on("data", (chunk) => hash.update(chunk));
-    input.on("end", () => resolveHash(hash.digest("hex")));
+    input.on("end", () => resolveHash(hash.digest(encoding)));
   });
 }
 
 async function runCli() {
   const [directoryArg, version, ...flags] = process.argv.slice(2);
   if (!directoryArg || !version) {
-    throw new Error("Usage: node scripts/releaseArtifacts.mjs <directory> <version> [--write-checksums]");
+    throw new Error("Usage: node scripts/releaseArtifacts.mjs <directory> <version> [--write-checksums|--verify-checksums]");
   }
-
   const directory = resolve(directoryArg);
   const writeChecksums = flags.includes("--write-checksums");
-  await verifyReleaseAssets(directory, version, { allowChecksums: writeChecksums });
+  const verifyChecksums = flags.includes("--verify-checksums");
+  if (writeChecksums && verifyChecksums) {
+    throw new Error("Choose either --write-checksums or --verify-checksums.");
+  }
+  await verifyReleaseAssets(directory, version, { allowChecksums: verifyChecksums });
   if (writeChecksums) {
     await writeReleaseChecksums(directory);
     await verifyReleaseAssets(directory, version, { allowChecksums: true });

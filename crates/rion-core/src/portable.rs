@@ -93,7 +93,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
         for role in &mut roles {
             role.as_object_mut()
                 .expect("normalized role")
-                .insert("browserEnginePin".to_owned(), json!("electron"));
+                .insert("browserEnginePin".to_owned(), json!("system"));
         }
         for game in &mut input_games {
             game.as_object_mut()
@@ -104,7 +104,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
             workspace
                 .as_object_mut()
                 .expect("normalized workspace")
-                .insert("browserEngine".to_owned(), json!("electron"));
+                .insert("browserEngine".to_owned(), json!("system"));
         }
     }
     let (games, recovered_roles) = recover_games(input_games, roles)?;
@@ -240,9 +240,8 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
     role.insert(
         "browserEnginePin".to_owned(),
         match source.get("browserEnginePin") {
-            Some(Value::String(value)) if matches!(value.as_str(), "system" | "electron") => {
-                json!(value)
-            }
+            Some(Value::String(value)) if value == "system" => json!("system"),
+            Some(Value::String(value)) if value == "electron" => json!("system"),
             Some(Value::Null) | None => Value::Null,
             _ => return Err(invalid("portable role browser engine pin is invalid")),
         },
@@ -804,7 +803,7 @@ fn engine_override(value: Option<&Value>) -> CoreResult<&'static str> {
     match value.and_then(Value::as_str).unwrap_or("inherit") {
         "inherit" => Ok("inherit"),
         "system" => Ok("system"),
-        "electron" => Ok("electron"),
+        "electron" => Ok("system"),
         _ => Err(invalid("portable browser engine override is invalid")),
     }
 }
@@ -2310,6 +2309,20 @@ mod tests {
             assert_eq!(value["macros"][0]["enabled"], true);
             assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
         }
+    }
+
+    #[test]
+    fn normalizes_legacy_browser_engines_to_system_before_import() {
+        let mut source = fixture_value(7);
+        source["games"][0]["browserEngine"] = json!("electron");
+        source["roles"][0]["browserEnginePin"] = json!("electron");
+        source["launchWorkspaces"][0]["browserEngine"] = json!("electron");
+
+        let normalized = normalize(&source.to_string()).unwrap();
+
+        assert_eq!(normalized["games"][0]["browserEngine"], "system");
+        assert_eq!(normalized["roles"][0]["browserEnginePin"], "system");
+        assert_eq!(normalized["launchWorkspaces"][0]["browserEngine"], "system");
     }
 
     #[test]

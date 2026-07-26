@@ -63,7 +63,7 @@ jobs:
           git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null
           gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq .body > private-release-notes.md
           gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir release-assets
-          node scripts/releaseArtifacts.mjs release-assets "${version}" --write-checksums
+          node scripts/releaseArtifacts.mjs release-assets "${version}" --verify-checksums
           node scripts/sanitizePublicReleaseNotes.mjs private-release-notes.md public-release-notes.md
 
           {
@@ -95,7 +95,7 @@ jobs:
           test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}" --jq .visibility)" = "public"
           test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}" --jq .default_branch)" = "main"
 
-          for forbidden_path in src tests native package.json pnpm-lock.yaml electron-builder.config.mjs; do
+          for forbidden_path in src src-tauri crates tests scripts package.json pnpm-lock.yaml Cargo.toml; do
             if gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/contents/${forbidden_path}?ref=main" >/dev/null 2>&1; then
               echo "Public repository still contains forbidden source path: ${forbidden_path}" >&2
               exit 1
@@ -176,12 +176,35 @@ jobs:
         run: |
           set -euo pipefail
           version="${TAG#v}"
-          assets=(release-assets/*)
-          gh release upload "${TAG}" "${assets[@]}" --repo "${PUBLIC_RELEASE_REPOSITORY}" --clobber
+          immutable_assets=(
+            release-assets/Rion.Studio-mac.dmg
+            release-assets/Rion.Studio-mac.app.tar.gz
+            release-assets/Rion.Studio-mac.app.tar.gz.sig
+            release-assets/Rion.Studio-win.exe
+            release-assets/Rion.Studio-win.exe.sig
+            release-assets/SHA256SUMS.txt
+          )
+          manifests=(release-assets/latest.json release-assets/latest-mac.yml release-assets/latest.yml)
 
+          upload_immutable_asset() {
+            local asset="$1"
+            local name="${asset##*/}"
+            if gh release view "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fxq "${name}"; then
+              mkdir -p existing-public-assets
+              gh release download "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern "${name}" --dir existing-public-assets
+              cmp "${asset}" "existing-public-assets/${name}"
+            else
+              gh release upload "${TAG}" "${asset}" --repo "${PUBLIC_RELEASE_REPOSITORY}"
+            fi
+          }
+
+          for asset in "${immutable_assets[@]}"; do upload_immutable_asset "${asset}"; done
+          for manifest in "${manifests[@]}"; do upload_immutable_asset "${manifest}"; done
+
+          rm -rf verified-public-assets
           mkdir verified-public-assets
           gh release download "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" --dir verified-public-assets
-          node scripts/releaseArtifacts.mjs verified-public-assets "${version}" --write-checksums
+          node scripts/releaseArtifacts.mjs verified-public-assets "${version}" --verify-checksums
           cmp release-assets/SHA256SUMS.txt verified-public-assets/SHA256SUMS.txt
 
       - name: Verify already-published release is identical
@@ -195,7 +218,7 @@ jobs:
           version="${TAG#v}"
           mkdir verified-public-assets
           gh release download "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" --dir verified-public-assets
-          node scripts/releaseArtifacts.mjs verified-public-assets "${version}" --write-checksums
+          node scripts/releaseArtifacts.mjs verified-public-assets "${version}" --verify-checksums
           cmp release-assets/SHA256SUMS.txt verified-public-assets/SHA256SUMS.txt
 
       - name: Publish verified public release

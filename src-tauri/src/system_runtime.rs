@@ -1965,6 +1965,7 @@ impl SystemRuntimeExecutor {
                 },
             );
         }
+        wait_for_tauri_main_thread(&self.app)?;
         let tab_id = tab.tab_id;
         let mut state = self.state()?;
         if state.tabs.contains_key(&tab_id) {
@@ -2016,6 +2017,8 @@ impl SystemRuntimeExecutor {
                 (surface.webview.clone(), Arc::clone(&surface.navigation))
             };
             let url = checked_web_url(&role.url)?;
+            let restore_attestation =
+                std::env::var_os("RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT").is_some();
             if let Ok(mut state) = self.state()
                 && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
                 && let Some(role_surface) = state
@@ -2030,13 +2033,31 @@ impl SystemRuntimeExecutor {
                 role_surface.zoom_factor = role.zoom_factor;
             }
             navigation.reset();
+            if restore_attestation {
+                eprintln!(
+                    "Runtime restore attestation: navigating {} to {url}.",
+                    role.role_id
+                );
+            }
             surface.navigate(url.clone()).map_err(RuntimeError::tauri)?;
+            if restore_attestation {
+                eprintln!(
+                    "Runtime restore attestation: navigation scheduled for {}.",
+                    role.role_id
+                );
+            }
             surface
                 .set_zoom(role.zoom_factor)
                 .map_err(RuntimeError::tauri)?;
             navigation
                 .wait()
                 .map_err(|message| RuntimeError::new("TAURI_NAVIGATION_FAILED", message))?;
+            if restore_attestation {
+                eprintln!(
+                    "Runtime restore attestation: navigation finished for {}.",
+                    role.role_id
+                );
+            }
             self.reassert_role_keys(&role.role_id, &surface)?;
         }
         Ok(())
@@ -2467,6 +2488,22 @@ fn evaluate_system_webview(webview: &Webview, source: &str) -> RuntimeResult<Str
     })
 }
 
+fn wait_for_tauri_main_thread(app: &AppHandle) -> RuntimeResult<()> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = sender.send(());
+    })
+    .map_err(RuntimeError::tauri)?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "TAURI_MAIN_THREAD_TIMEOUT",
+                "The Tauri main thread did not finish creating the System WebView.",
+            )
+        })
+}
+
 #[cfg(any(windows, target_os = "macos"))]
 pub fn start_trusted_input_attestation(
     app: AppHandle,
@@ -2487,6 +2524,7 @@ pub fn start_trusted_input_attestation(
         .visible(false)
         .build()
         .map_err(|error| error.to_string())?;
+    eprintln!("System WebView parity: attestation host window created.");
     let (page_sender, page_receiver) = std::sync::mpsc::sync_channel(1);
     let builder = WebviewBuilder::new(
         "system-input-attestation-webview",
@@ -2513,6 +2551,7 @@ pub fn start_trusted_input_attestation(
             let _ = window.close();
             error.to_string()
         })?;
+    eprintln!("System WebView parity: attestation child WebView created.");
     if let Err(error) = install_platform_security_policy(&webview) {
         let _ = webview.close();
         let _ = window.close();

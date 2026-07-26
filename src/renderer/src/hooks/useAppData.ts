@@ -186,7 +186,7 @@ export function useAppData() {
 
     try {
       if (!window.rionStudio) {
-        throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+        throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
       }
 
       const snapshot = await window.rionStudio.getAppSnapshot();

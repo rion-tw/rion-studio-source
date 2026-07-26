@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 describe("Tauri updater manifest", () => {
   it("publishes only explicit signed macOS and Windows updater archives", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "rion-updater-manifest-"));
-    const macArchive = path.join(directory, "Rion Studio Preview.app.tar.gz");
-    const windowsArchive = path.join(directory, "Rion Studio Preview_2.3.4_x64-setup.exe");
+    const macArchive = path.join(directory, "Rion.Studio-mac.app.tar.gz");
+    const windowsArchive = path.join(directory, "Rion.Studio-win.exe");
     const output = path.join(directory, "latest.json");
     await Promise.all([
       writeFile(macArchive, "mac"),
@@ -39,11 +39,11 @@ describe("Tauri updater manifest", () => {
       pub_date: "2026-07-26T00:00:00Z",
       platforms: {
         "darwin-aarch64": {
-          url: "https://downloads.example.test/releases/v2.3.4/Rion%20Studio%20Preview.app.tar.gz",
+          url: "https://downloads.example.test/releases/v2.3.4/Rion.Studio-mac.app.tar.gz",
           signature: "mac-signature"
         },
         "windows-x86_64": {
-          url: "https://downloads.example.test/releases/v2.3.4/Rion%20Studio%20Preview_2.3.4_x64-setup.exe",
+          url: "https://downloads.example.test/releases/v2.3.4/Rion.Studio-win.exe",
           signature: "windows-signature"
         }
       }

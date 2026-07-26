@@ -1,5 +1,4 @@
 export const REQUIRED_RELEASE_ASSETS: string[];
-export const OPTIONAL_RELEASE_ASSETS: string[];
 export const CHECKSUM_ASSET_NAME: string;
 
 export function verifyReleaseAssets(
@@ -9,3 +8,4 @@ export function verifyReleaseAssets(
 ): Promise<string[]>;
 
 export function writeReleaseChecksums(directory: string): Promise<string>;
+export function verifyReleaseChecksums(directory: string): Promise<void>;

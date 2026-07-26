@@ -32,6 +32,13 @@ else if (process.platform === "win32") {
   const certificateThumbprint = requiredEnvironment(
     "RION_STUDIO_WINDOWS_CERTIFICATE_THUMBPRINT"
   );
+  const expectedPublisher = requiredEnvironment(
+    "RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER"
+  );
+  if (!/^[0-9A-F]{40}$/i.test(certificateThumbprint)) {
+    throw new Error("RION_STUDIO_WINDOWS_CERTIFICATE_THUMBPRINT must be a SHA-1 certificate thumbprint.");
+  }
+  verifyWindowsCertificatePublisher(certificateThumbprint, expectedPublisher);
   const timestampUrl = new URL(requiredEnvironment("RION_STUDIO_WINDOWS_TIMESTAMP_URL"));
   if (timestampUrl.protocol !== "https:") {
     throw new Error("RION_STUDIO_WINDOWS_TIMESTAMP_URL must use HTTPS.");
@@ -80,9 +87,11 @@ writeFileSync(configPath, JSON.stringify({
 
 try {
   const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  const forwardedArguments = process.argv.slice(2);
+  if (forwardedArguments[0] === "--") forwardedArguments.shift();
   const result = spawnSync(
     command,
-    ["exec", "tauri", "build", "--config", configPath, ...process.argv.slice(2)],
+    ["exec", "tauri", "build", "--config", configPath, ...forwardedArguments],
     {
       env: process.env,
       stdio: "inherit"
@@ -98,4 +107,27 @@ function requiredEnvironment(name) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required for a signed Tauri release.`);
   return value;
+}
+
+function verifyWindowsCertificatePublisher(certificateThumbprint, expectedPublisher) {
+  const result = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$certificate = Get-Item (\"Cert:\\CurrentUser\\My\\\" + $env:RION_STUDIO_WINDOWS_CERTIFICATE_THUMBPRINT) -ErrorAction Stop; [Console]::Out.Write($certificate.Subject)"
+    ],
+    { encoding: "utf8", env: process.env }
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`Could not inspect the Windows signing certificate: ${result.stderr.trim()}`);
+  }
+  const actualPublisher = result.stdout.trim();
+  if (actualPublisher !== expectedPublisher) {
+    throw new Error(
+      `Windows signing publisher mismatch: expected ${expectedPublisher}, received ${actualPublisher}.`
+    );
+  }
 }

@@ -223,7 +223,10 @@ fn probe_windows() -> RawSystemWebViewProbe {
         background_input_verified: false,
         automation_spi_available: false,
         audio_mute_available: runtime_available,
-        reason_codes: Vec::new(),
+        reason_codes: (!runtime_available)
+            .then(|| "webview2-runtime-unavailable".to_owned())
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -295,5 +298,37 @@ mod tests {
                 .reason_codes
                 .contains(&"audio-mute-unavailable".to_owned())
         );
+    }
+
+    #[test]
+    fn classifies_windows_webview2_available_missing_and_damaged_scenarios() {
+        let available = classify_probe(
+            Platform::Windows,
+            RawSystemWebViewProbe {
+                runtime_version: Some("fixture".to_owned()),
+                public_api_available: true,
+                audio_mute_available: true,
+                trusted_input_verified: true,
+                background_input_verified: true,
+                ..RawSystemWebViewProbe::default()
+            },
+        );
+        assert!(available.available);
+
+        for reason in [
+            "webview2-loader-unavailable",
+            "webview2-version-api-unavailable",
+            "webview2-runtime-unavailable",
+        ] {
+            let unavailable = classify_probe(
+                Platform::Windows,
+                RawSystemWebViewProbe {
+                    reason_codes: vec![reason.to_owned()],
+                    ..RawSystemWebViewProbe::default()
+                },
+            );
+            assert!(!unavailable.available);
+            assert!(unavailable.reason_codes.contains(&reason.to_owned()));
+        }
     }
 }

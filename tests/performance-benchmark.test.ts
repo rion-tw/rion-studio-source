@@ -64,7 +64,6 @@ describe("performance benchmark release gates", () => {
         },
         ipcCommand: latency(p95Ms),
         macroScheduleToDispatch: latency(p95Ms),
-        napi: { ...latency(p95Ms + 2), callCount: 100 },
         tabActivation: latency(p95Ms)
       },
       sampleCount: 5
@@ -76,11 +75,10 @@ describe("performance benchmark release gates", () => {
     expect(summary.runtimeTelemetry?.ipcCommand?.sampleCount).toBe(6);
     expect(summary.runtimeTelemetry?.coreEffects?.effectAckLatency.p95Ms).toBe(3);
     expect(summary.runtimeTelemetry?.coreEffects?.peakPendingEffectCount).toBe(3);
-    expect(summary.runtimeTelemetry?.napi?.callCount).toBe(100);
     expect(summary.sampleCount).toBe(15);
   });
 
-  it("reports actor and NAPI release diagnostics without inventing thresholds", () => {
+  it("reports actor release diagnostics without inventing thresholds", () => {
     const latency = { maxMs: 3, p50Ms: 2, p95Ms: 3, sampleCount: 2 };
     const baseline = {
       medianNonRendererCpuPercent: 100,
@@ -115,7 +113,6 @@ describe("performance benchmark release gates", () => {
         },
         ipcCommand: latency,
         macroScheduleToDispatch: latency,
-        napi: { ...latency, callCount: 44 },
         tabActivation: latency
       }
     };
@@ -125,8 +122,7 @@ describe("performance benchmark release gates", () => {
       effectQueuePeak: 4,
       effectQueueCapacity: 512,
       effectAckP95Ms: 3,
-      effectsPerLaunch: 8,
-      napiCallCount: 44
+      effectsPerLaunch: 8
     });
   });
 

@@ -27,7 +27,7 @@ async function main() {
         process.platform === "win32" ? "rion-tauri.exe" : "rion-tauri"
       );
   if (!requestedExecutable) {
-    await run(command("pnpm"), ["run", "build:tauri:renderer"]);
+    await run(command("pnpm"), ["run", "build:renderer"]);
     await run(command("cargo"), ["build", "-p", "rion-tauri"]);
   }
   if (!isAbsolute(executable)) {

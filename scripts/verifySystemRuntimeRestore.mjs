@@ -26,7 +26,7 @@ async function main() {
         process.platform === "win32" ? "rion-tauri.exe" : "rion-tauri"
       );
   if (!requestedExecutable) {
-    await run(command("pnpm"), ["run", "build:tauri:renderer"]);
+    await run(command("pnpm"), ["run", "build:renderer"]);
     await run(command("cargo"), ["build", "-p", "rion-tauri"]);
   }
   if (!isAbsolute(executable)) {
@@ -40,6 +40,7 @@ async function main() {
   try {
     const reports = {};
     for (const stage of ["seed", "restore", "clean-check"]) {
+      console.log(`Runtime restore attestation: starting ${stage} stage.`);
       const output = join(directory, `${stage}.json`);
       const result = await run(executable, [], {
         ...process.env,
@@ -53,6 +54,7 @@ async function main() {
       if (result.code !== 0) {
         throw new Error(`Runtime-restore ${stage} stage exited with code ${result.code}.`);
       }
+      console.log(`Runtime restore attestation: completed ${stage} stage.`);
     }
     console.log(
       "Attested live display-removal migration, unclean recovery, removed-display fallback, " +
@@ -129,7 +131,8 @@ function validateStage(value, stage) {
 }
 
 async function startFixtureServer() {
-  const server = createServer((_request, response) => {
+  const server = createServer((request, response) => {
+    console.log(`Runtime restore attestation: fixture request ${request.method} ${request.url}.`);
     const body = "<!doctype html><meta charset=utf-8><title>Rion restore parity</title>restore ready";
     response.writeHead(200, {
       "cache-control": "no-store",

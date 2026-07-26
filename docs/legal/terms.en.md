@@ -1,6 +1,6 @@
 # Rion Studio Terms of Use
 
-Version and effective date: 2026-07-14
+Version and effective date: 2026-07-26
 
 ## 1. Provider and acceptance
 

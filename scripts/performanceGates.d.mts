@@ -34,7 +34,6 @@ export interface PerformanceSummary {
       pendingEffectCapacity: number;
       pendingEffectCount: number;
     };
-    napi?: LatencySummary & { callCount: number };
   };
 }
 
@@ -60,8 +59,6 @@ export interface PerformanceComparison {
     launchEffectCount?: number;
     launchOperationCount?: number;
     effectsPerLaunch: number;
-    napiCallCount?: number;
-    napiP95Ms?: number;
     layoutPassCount?: number;
     menuRefreshCount?: number;
     runtimePublishCount?: number;

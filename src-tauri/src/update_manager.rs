@@ -219,10 +219,12 @@ impl UpdateManager {
         let update = pending
             .as_ref()
             .ok_or_else(|| "No verified update is ready to install.".to_owned())?;
-        update
-            .update
-            .install(&update.bytes)
-            .map_err(|error| error.to_string())?;
+        if let Err(error) = update.update.install(&update.bytes) {
+            let message = error.to_string();
+            drop(pending);
+            self.set_status(self.error_status(&message));
+            return Err(message);
+        }
         *pending = None;
         Ok(())
     }

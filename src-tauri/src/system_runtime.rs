@@ -17,17 +17,22 @@ use rion_core::{
     EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
     GameBrowserSettingsRecord, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-    RuntimeRestoreWindowRecord, StateGameRecord, StateNormalizedRectRecord, StateRoleRecord,
-    StateWorkspaceDisplayTargetRecord, SystemWebViewRuntimeRegistrationRecord,
-    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
-    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
+    StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceDisplayTargetRecord,
+    SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
+    WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
+    WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl,
     WebviewWindowBuilder, Window,
-    webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder},
+    webview::{
+        Cookie, DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder,
+        cookie::{SameSite, time::OffsetDateTime},
+    },
     window::WindowBuilder,
 };
 
@@ -422,8 +427,33 @@ struct RuntimeState {
     recovery_generations: HashMap<String, u64>,
     recovering_roles: HashSet<String>,
     role_tabs: HashMap<String, String>,
+    session_import_backups: HashMap<String, NativeSessionBackup>,
     display_hosts: HashMap<i64, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
+}
+
+#[derive(Clone)]
+struct NativeSessionBackup {
+    cookies: Vec<Cookie<'static>>,
+    local_storage: Vec<(String, String)>,
+    storage_touched: bool,
+}
+
+struct RoleSessionTransferRequest<'a> {
+    role_id: &'a str,
+    launch_url: &'a str,
+    webview2_user_data_dir: &'a str,
+    webkit_data_store_identifier: &'a str,
+    replace_existing: bool,
+    payload: SessionTransferPayloadRecord,
+    backup_transaction_id: Option<&'a str>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedSessionBackup {
+    payload: SessionTransferPayloadRecord,
+    storage_touched: bool,
 }
 
 struct RuntimeWebViewConfiguration {
@@ -1938,6 +1968,92 @@ impl SystemRuntimeExecutor {
                 )?;
                 Ok(None)
             }
+            CoreEffectAction::LegacySessionRestore {
+                transaction_id,
+                role_id,
+                launch_url,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+            } => {
+                let payload = self.load_session_transfer(&transaction_id)?;
+                let (inserted_cookie_count, _) =
+                    self.apply_role_session_transfer(RoleSessionTransferRequest {
+                        role_id: &role_id,
+                        launch_url: &launch_url,
+                        webview2_user_data_dir: &webview2_user_data_dir,
+                        webkit_data_store_identifier: &webkit_data_store_identifier,
+                        replace_existing: false,
+                        payload,
+                        backup_transaction_id: None,
+                    })?;
+                Ok(Some(
+                    json!({ "insertedCookieCount": inserted_cookie_count }).to_string(),
+                ))
+            }
+            CoreEffectAction::ChromeProfileImportSnapshot {
+                transaction_id,
+                role_id,
+                launch_url,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+                replace_existing,
+            } => {
+                self.snapshot_role_session_transfer(
+                    &transaction_id,
+                    &role_id,
+                    &launch_url,
+                    &webview2_user_data_dir,
+                    &webkit_data_store_identifier,
+                    replace_existing,
+                )?;
+                Ok(None)
+            }
+            CoreEffectAction::ChromeProfileImportApply {
+                transaction_id,
+                role_id,
+                launch_url,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+                replace_existing,
+            } => {
+                let payload = self.load_session_transfer(&transaction_id)?;
+                let (inserted_cookie_count, backup) =
+                    self.apply_role_session_transfer(RoleSessionTransferRequest {
+                        role_id: &role_id,
+                        launch_url: &launch_url,
+                        webview2_user_data_dir: &webview2_user_data_dir,
+                        webkit_data_store_identifier: &webkit_data_store_identifier,
+                        replace_existing,
+                        payload,
+                        backup_transaction_id: Some(&transaction_id),
+                    })?;
+                self.state()?
+                    .session_import_backups
+                    .insert(transaction_id, backup);
+                Ok(Some(
+                    json!({ "insertedCookieCount": inserted_cookie_count }).to_string(),
+                ))
+            }
+            CoreEffectAction::ChromeProfileImportRollback {
+                transaction_id,
+                role_id,
+                launch_url,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+            } => {
+                self.rollback_role_session_transfer(
+                    &transaction_id,
+                    &role_id,
+                    &launch_url,
+                    &webview2_user_data_dir,
+                    &webkit_data_store_identifier,
+                )?;
+                Ok(None)
+            }
+            CoreEffectAction::ChromeProfileImportCommit { transaction_id } => {
+                self.commit_role_session_transfer(&transaction_id)?;
+                Ok(None)
+            }
             CoreEffectAction::CompatibilityCreateWindow { plan } => {
                 self.create_compatibility_surface(plan)?;
                 Ok(None)
@@ -2470,6 +2586,469 @@ impl SystemRuntimeExecutor {
             .map_err(RuntimeError::tauri);
         let _ = webview.close();
         let _ = window.close();
+        result
+    }
+
+    fn apply_role_session_transfer(
+        &self,
+        request: RoleSessionTransferRequest<'_>,
+    ) -> RuntimeResult<(u32, NativeSessionBackup)> {
+        let RoleSessionTransferRequest {
+            role_id,
+            launch_url,
+            webview2_user_data_dir,
+            webkit_data_store_identifier,
+            replace_existing,
+            payload,
+            backup_transaction_id,
+        } = request;
+        if self.state()?.role_tabs.contains_key(role_id) {
+            return Err(RuntimeError::new(
+                "ROLE_SESSION_IMPORT_IN_USE",
+                "Stop the role before importing browser session data.",
+            ));
+        }
+        let launch = checked_web_url(launch_url)?;
+        let origin = launch.origin().ascii_serialization();
+        let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
+        fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
+
+        let (snapshot_window, snapshot_webview, snapshot_navigation) =
+            self.create_session_transfer_surface(role_id, &paths, None)?;
+        let existing_backup = match backup_transaction_id {
+            Some(transaction_id) => self
+                .state()?
+                .session_import_backups
+                .get(transaction_id)
+                .cloned(),
+            None => None,
+        };
+        if backup_transaction_id.is_some() && existing_backup.is_none() {
+            close_hidden_surface(snapshot_window, snapshot_webview);
+            return Err(RuntimeError::new(
+                "SESSION_IMPORT_BACKUP_UNAVAILABLE",
+                "Chrome profile import requires a verified native session snapshot.",
+            ));
+        }
+        let (cookie_backup, storage_backup) = if let Some(backup) = existing_backup {
+            (backup.cookies, backup.local_storage)
+        } else {
+            let cookies = snapshot_webview
+                .cookies_for_url(launch.clone())
+                .map_err(RuntimeError::tauri)?;
+            let local_storage = if replace_existing {
+                match (|| {
+                    snapshot_navigation.reset();
+                    snapshot_webview
+                        .navigate(launch.clone())
+                        .map_err(RuntimeError::tauri)?;
+                    snapshot_navigation.wait().map_err(|message| {
+                        RuntimeError::new("SESSION_IMPORT_SNAPSHOT_LOAD_FAILED", message)
+                    })?;
+                    require_exact_webview_origin(&snapshot_webview, &origin)?;
+                    read_local_storage_entries(&snapshot_webview)
+                })() {
+                    Ok(entries) => entries,
+                    Err(error) => {
+                        close_hidden_surface(snapshot_window, snapshot_webview);
+                        return Err(error);
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+            (cookies, local_storage)
+        };
+
+        let existing_cookie_keys = cookie_backup
+            .iter()
+            .map(native_cookie_key)
+            .collect::<HashSet<_>>();
+        let import_cookies = payload
+            .cookies
+            .iter()
+            .filter(|cookie| {
+                replace_existing
+                    || !existing_cookie_keys.contains(&transfer_cookie_key(cookie, &launch))
+            })
+            .map(|cookie| transfer_cookie(cookie, &launch))
+            .collect::<RuntimeResult<Vec<_>>>()?;
+        if let Some(transaction_id) = backup_transaction_id {
+            let backup = NativeSessionBackup {
+                cookies: cookie_backup.clone(),
+                local_storage: storage_backup.clone(),
+                storage_touched: replace_existing || !payload.local_storage.is_empty(),
+            };
+            self.persist_session_backup(transaction_id, &backup)?;
+            self.state()?
+                .session_import_backups
+                .insert(transaction_id.to_owned(), backup);
+        }
+
+        let cookie_apply_result = (|| {
+            if replace_existing {
+                for cookie in &cookie_backup {
+                    snapshot_webview
+                        .delete_cookie(cookie.clone())
+                        .map_err(RuntimeError::tauri)?;
+                }
+            }
+            for cookie in &import_cookies {
+                snapshot_webview
+                    .set_cookie(cookie.clone())
+                    .map_err(RuntimeError::tauri)?;
+            }
+            let readback = snapshot_webview
+                .cookies_for_url(launch.clone())
+                .map_err(RuntimeError::tauri)?;
+            verify_cookie_readback(&import_cookies, &readback)
+        })();
+        if let Err(error) = cookie_apply_result {
+            let rollback = restore_url_cookies(&snapshot_webview, &launch, &cookie_backup);
+            close_hidden_surface(snapshot_window, snapshot_webview);
+            return Err(rollback.err().unwrap_or(error));
+        }
+        close_hidden_surface(snapshot_window, snapshot_webview);
+
+        let storage_required = replace_existing || !payload.local_storage.is_empty();
+        if !storage_required {
+            return Ok((
+                import_cookies.len() as u32,
+                NativeSessionBackup {
+                    cookies: cookie_backup,
+                    local_storage: Vec::new(),
+                    storage_touched: false,
+                },
+            ));
+        }
+        let apply_script =
+            local_storage_document_start_script(&origin, replace_existing, &payload.local_storage)?;
+        let storage_result = (|| {
+            let (window, webview, navigation) =
+                self.create_session_transfer_surface(role_id, &paths, Some(&apply_script))?;
+            let result = (|| {
+                navigation.reset();
+                webview
+                    .navigate(launch.clone())
+                    .map_err(RuntimeError::tauri)?;
+                navigation.wait().map_err(|message| {
+                    RuntimeError::new("SESSION_IMPORT_STORAGE_LOAD_FAILED", message)
+                })?;
+                require_exact_webview_origin(&webview, &origin)?;
+                verify_local_storage_import(&webview, &payload.local_storage, replace_existing)
+            })();
+            close_hidden_surface(window, webview);
+            result
+        })();
+        if let Err(error) = storage_result {
+            let cookie_rollback =
+                self.restore_role_session_cookies(role_id, &paths, &launch, &cookie_backup);
+            let storage_rollback =
+                self.restore_role_local_storage(role_id, &paths, &launch, &origin, &storage_backup);
+            if let Err(rollback_error) = cookie_rollback.and(storage_rollback) {
+                return Err(RuntimeError::new(
+                    "SESSION_IMPORT_ROLLBACK_FAILED",
+                    format!(
+                        "{} Rollback failed: {}",
+                        error.message, rollback_error.message
+                    ),
+                ));
+            }
+            return Err(error);
+        }
+        Ok((
+            import_cookies.len() as u32,
+            NativeSessionBackup {
+                cookies: cookie_backup,
+                local_storage: storage_backup,
+                storage_touched: true,
+            },
+        ))
+    }
+
+    fn snapshot_role_session_transfer(
+        &self,
+        transaction_id: &str,
+        role_id: &str,
+        launch_url: &str,
+        webview2_user_data_dir: &str,
+        webkit_data_store_identifier: &str,
+        replace_existing: bool,
+    ) -> RuntimeResult<()> {
+        validate_transaction_id(transaction_id)?;
+        if self.state()?.role_tabs.contains_key(role_id) {
+            return Err(RuntimeError::new(
+                "ROLE_SESSION_IMPORT_IN_USE",
+                "Stop the role before importing browser session data.",
+            ));
+        }
+        let launch = checked_web_url(launch_url)?;
+        let origin = launch.origin().ascii_serialization();
+        let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
+        fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
+        let (window, webview, navigation) =
+            self.create_session_transfer_surface(role_id, &paths, None)?;
+        let result = (|| {
+            let cookies = webview
+                .cookies_for_url(launch.clone())
+                .map_err(RuntimeError::tauri)?;
+            let local_storage = if replace_existing {
+                navigation.reset();
+                webview
+                    .navigate(launch.clone())
+                    .map_err(RuntimeError::tauri)?;
+                navigation.wait().map_err(|message| {
+                    RuntimeError::new("SESSION_IMPORT_SNAPSHOT_LOAD_FAILED", message)
+                })?;
+                require_exact_webview_origin(&webview, &origin)?;
+                read_local_storage_entries(&webview)?
+            } else {
+                Vec::new()
+            };
+            let backup = NativeSessionBackup {
+                cookies,
+                local_storage,
+                storage_touched: replace_existing,
+            };
+            self.persist_session_backup(transaction_id, &backup)?;
+            self.state()?
+                .session_import_backups
+                .insert(transaction_id.to_owned(), backup);
+            Ok(())
+        })();
+        close_hidden_surface(window, webview);
+        result
+    }
+
+    fn load_session_transfer(
+        &self,
+        transaction_id: &str,
+    ) -> RuntimeResult<SessionTransferPayloadRecord> {
+        validate_transaction_id(transaction_id)?;
+        let path = self
+            .user_data_dir
+            .join(".session-transfers")
+            .join(transaction_id)
+            .join("session-transfer.enc");
+        let protected = fs::read(&path).map_err(|error| {
+            RuntimeError::new(
+                "SESSION_IMPORT_STAGING_UNAVAILABLE",
+                format!("Encrypted session-transfer staging is unavailable: {error}"),
+            )
+        })?;
+        let plaintext = rion_platform::unprotect_session_transfer(current_platform(), &protected)
+            .map_err(|error| {
+            RuntimeError::new("SESSION_IMPORT_STAGING_INVALID", error.to_string())
+        })?;
+        serde_json::from_slice(&plaintext).map_err(|error| {
+            RuntimeError::new(
+                "SESSION_IMPORT_STAGING_INVALID",
+                format!("Encrypted session-transfer payload is invalid: {error}"),
+            )
+        })
+    }
+
+    fn persist_session_backup(
+        &self,
+        transaction_id: &str,
+        backup: &NativeSessionBackup,
+    ) -> RuntimeResult<()> {
+        validate_transaction_id(transaction_id)?;
+        let payload = SessionTransferPayloadRecord {
+            cookies: backup.cookies.iter().map(native_cookie_record).collect(),
+            local_storage: backup
+                .local_storage
+                .iter()
+                .map(|(key, value)| rion_core::LocalStorageEntryRecord {
+                    key: key.clone(),
+                    value: value.clone(),
+                })
+                .collect(),
+        };
+        let serialized = serde_json::to_vec(&PersistedSessionBackup {
+            payload,
+            storage_touched: backup.storage_touched,
+        })
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string()))?;
+        let platform = current_platform();
+        let protected =
+            rion_platform::protect_session_transfer(platform, &serialized).map_err(|error| {
+                RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string())
+            })?;
+        let directory = self
+            .user_data_dir
+            .join(".session-transfers")
+            .join(transaction_id);
+        write_private_file(&directory, "backup.enc", &protected)
+    }
+
+    fn load_session_backup(
+        &self,
+        transaction_id: &str,
+        launch: &Url,
+    ) -> RuntimeResult<NativeSessionBackup> {
+        validate_transaction_id(transaction_id)?;
+        let protected = fs::read(
+            self.user_data_dir
+                .join(".session-transfers")
+                .join(transaction_id)
+                .join("backup.enc"),
+        )
+        .map_err(|error| {
+            RuntimeError::new(
+                "SESSION_IMPORT_ROLLBACK_UNAVAILABLE",
+                format!("Encrypted session backup is unavailable: {error}"),
+            )
+        })?;
+        let plaintext = rion_platform::unprotect_session_transfer(current_platform(), &protected)
+            .map_err(|error| {
+            RuntimeError::new("SESSION_IMPORT_ROLLBACK_INVALID", error.to_string())
+        })?;
+        let persisted: PersistedSessionBackup =
+            serde_json::from_slice(&plaintext).map_err(|error| {
+                RuntimeError::new("SESSION_IMPORT_ROLLBACK_INVALID", error.to_string())
+            })?;
+        Ok(NativeSessionBackup {
+            cookies: persisted
+                .payload
+                .cookies
+                .iter()
+                .map(|cookie| transfer_cookie(cookie, launch))
+                .collect::<RuntimeResult<Vec<_>>>()?,
+            local_storage: persisted
+                .payload
+                .local_storage
+                .into_iter()
+                .map(|entry| (entry.key, entry.value))
+                .collect(),
+            storage_touched: persisted.storage_touched,
+        })
+    }
+
+    fn commit_role_session_transfer(&self, transaction_id: &str) -> RuntimeResult<()> {
+        validate_transaction_id(transaction_id)?;
+        let directory = self
+            .user_data_dir
+            .join(".session-transfers")
+            .join(transaction_id);
+        // Publish the durable commit marker before releasing either backup. If
+        // marker creation fails, the caller can still restore the exact prior
+        // session and the operation journal remains authoritative.
+        write_private_file(&directory, "committed", b"1")?;
+        self.state()?.session_import_backups.remove(transaction_id);
+        Ok(())
+    }
+
+    fn rollback_role_session_transfer(
+        &self,
+        transaction_id: &str,
+        role_id: &str,
+        launch_url: &str,
+        webview2_user_data_dir: &str,
+        webkit_data_store_identifier: &str,
+    ) -> RuntimeResult<()> {
+        validate_transaction_id(transaction_id)?;
+        let launch = checked_web_url(launch_url)?;
+        let backup = match self.state()?.session_import_backups.remove(transaction_id) {
+            Some(backup) => backup,
+            None => self.load_session_backup(transaction_id, &launch)?,
+        };
+        let origin = launch.origin().ascii_serialization();
+        let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
+        self.restore_role_session_cookies(role_id, &paths, &launch, &backup.cookies)?;
+        if backup.storage_touched {
+            self.restore_role_local_storage(
+                role_id,
+                &paths,
+                &launch,
+                &origin,
+                &backup.local_storage,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn create_session_transfer_surface(
+        &self,
+        role_id: &str,
+        paths: &SessionPaths,
+        document_start_script: Option<&str>,
+    ) -> RuntimeResult<(Window, Webview, Arc<NavigationTracker>)> {
+        let sequence = POPUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let suffix = format!("{role_id}:{sequence}");
+        let window =
+            WindowBuilder::new(&self.app, runtime_label("session-transfer-window", &suffix))
+                .inner_size(1.0, 1.0)
+                .visible(false)
+                .build()
+                .map_err(RuntimeError::tauri)?;
+        let navigation = Arc::new(NavigationTracker::default());
+        let callback_navigation = Arc::clone(&navigation);
+        let mut builder = self
+            .webview_builder(
+                runtime_label("session-transfer-webview", &suffix),
+                paths,
+                None,
+            )?
+            .on_page_load(move |_webview, payload| {
+                callback_navigation.page_event(payload.event(), payload.url());
+            });
+        if let Some(script) = document_start_script {
+            builder = builder.initialization_script_for_all_frames(script);
+        }
+        let webview = window
+            .add_child(
+                builder,
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(1.0, 1.0),
+            )
+            .map_err(|error| {
+                let _ = window.close();
+                RuntimeError::tauri(error)
+            })?;
+        if let Err(error) = install_platform_security_policy(&webview) {
+            close_hidden_surface(window, webview);
+            return Err(error);
+        }
+        Ok((window, webview, navigation))
+    }
+
+    fn restore_role_session_cookies(
+        &self,
+        role_id: &str,
+        paths: &SessionPaths,
+        launch: &Url,
+        backup: &[Cookie<'static>],
+    ) -> RuntimeResult<()> {
+        let (window, webview, _) = self.create_session_transfer_surface(role_id, paths, None)?;
+        let result = restore_url_cookies(&webview, launch, backup);
+        close_hidden_surface(window, webview);
+        result
+    }
+
+    fn restore_role_local_storage(
+        &self,
+        role_id: &str,
+        paths: &SessionPaths,
+        launch: &Url,
+        origin: &str,
+        backup: &[(String, String)],
+    ) -> RuntimeResult<()> {
+        let script = local_storage_restore_script(origin, backup)?;
+        let (window, webview, navigation) =
+            self.create_session_transfer_surface(role_id, paths, Some(&script))?;
+        let result = (|| {
+            navigation.reset();
+            webview
+                .navigate(launch.clone())
+                .map_err(RuntimeError::tauri)?;
+            navigation.wait().map_err(|message| {
+                RuntimeError::new("SESSION_IMPORT_ROLLBACK_LOAD_FAILED", message)
+            })?;
+            require_exact_webview_origin(&webview, origin)?;
+            verify_local_storage_snapshot(&webview, backup)
+        })();
+        close_hidden_surface(window, webview);
         result
     }
 
@@ -5452,6 +6031,394 @@ fn checked_web_url(value: &str) -> RuntimeResult<Url> {
     }
 }
 
+fn effect_session_paths(
+    webview2_user_data_dir: &str,
+    webkit_data_store_identifier: &str,
+) -> RuntimeResult<SessionPaths> {
+    let webview2 = PathBuf::from(webview2_user_data_dir);
+    if !webview2.is_absolute()
+        || webview2
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(RuntimeError::new(
+            "SESSION_IMPORT_STORE_INVALID",
+            "The role WebView2 data directory is invalid.",
+        ));
+    }
+    let webkit_identifier = uuid::Uuid::parse_str(webkit_data_store_identifier)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SESSION_IMPORT_STORE_INVALID",
+                "The role WKWebsiteDataStore identifier is invalid.",
+            )
+        })?
+        .into_bytes();
+    Ok(SessionPaths {
+        webkit_identifier,
+        webview2,
+    })
+}
+
+fn current_platform() -> rion_platform::Platform {
+    if cfg!(target_os = "macos") {
+        rion_platform::Platform::Macos
+    } else {
+        rion_platform::Platform::Windows
+    }
+}
+
+fn write_private_file(directory: &Path, name: &str, value: &[u8]) -> RuntimeResult<()> {
+    fs::create_dir_all(directory).map_err(RuntimeError::io)?;
+    #[cfg(unix)]
+    {
+        use std::{
+            io::Write,
+            os::unix::fs::{OpenOptionsExt, PermissionsExt},
+        };
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .map_err(RuntimeError::io)?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(directory.join(name))
+            .map_err(RuntimeError::io)?;
+        file.write_all(value).map_err(RuntimeError::io)?;
+        file.sync_all().map_err(RuntimeError::io)?;
+    }
+    #[cfg(windows)]
+    fs::write(directory.join(name), value).map_err(RuntimeError::io)?;
+    rion_platform::restrict_directory_to_current_user(directory)
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string()))
+}
+
+fn validate_transaction_id(value: &str) -> RuntimeResult<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        Err(RuntimeError::new(
+            "SESSION_IMPORT_TRANSACTION_INVALID",
+            "Session-transfer transaction ID is invalid.",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn close_hidden_surface(window: Window, webview: Webview) {
+    let _ = webview.close();
+    let _ = window.close();
+}
+
+fn normalized_cookie_domain(value: Option<&str>) -> String {
+    value
+        .unwrap_or_default()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+}
+
+fn native_cookie_key(cookie: &Cookie<'_>) -> (String, String, String) {
+    (
+        normalized_cookie_domain(cookie.domain()),
+        cookie.path().unwrap_or("/").to_owned(),
+        cookie.name().to_owned(),
+    )
+}
+
+fn native_cookie_record(cookie: &Cookie<'_>) -> SessionCookieRecord {
+    SessionCookieRecord {
+        name: cookie.name().to_owned(),
+        value: cookie.value().to_owned(),
+        domain: cookie.domain().map(str::to_owned),
+        path: cookie.path().unwrap_or("/").to_owned(),
+        secure: cookie.secure().unwrap_or(false),
+        http_only: cookie.http_only().unwrap_or(false),
+        same_site: match cookie.same_site() {
+            Some(SameSite::Strict) => "strict",
+            Some(SameSite::Lax) => "lax",
+            Some(SameSite::None) => "none",
+            None => "unspecified",
+        }
+        .to_owned(),
+        expires_unix_ms: cookie
+            .expires_datetime()
+            .map(|expires| expires.unix_timestamp() * 1_000),
+    }
+}
+
+fn transfer_cookie_key(cookie: &SessionCookieRecord, launch: &Url) -> (String, String, String) {
+    (
+        normalized_cookie_domain(cookie.domain.as_deref().or_else(|| launch.host_str())),
+        cookie.path.clone(),
+        cookie.name.clone(),
+    )
+}
+
+fn transfer_cookie(record: &SessionCookieRecord, launch: &Url) -> RuntimeResult<Cookie<'static>> {
+    let domain = record
+        .domain
+        .as_deref()
+        .or_else(|| launch.host_str())
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "SESSION_IMPORT_COOKIE_INVALID",
+                "Imported cookie has no valid domain.",
+            )
+        })?;
+    let mut builder = Cookie::build((record.name.clone(), record.value.clone()))
+        .domain(domain.to_owned())
+        .path(record.path.clone())
+        .secure(record.secure)
+        .http_only(record.http_only);
+    builder = match record.same_site.as_str() {
+        "strict" => builder.same_site(SameSite::Strict),
+        "lax" => builder.same_site(SameSite::Lax),
+        "none" if record.secure => builder.same_site(SameSite::None),
+        _ => builder,
+    };
+    if let Some(timestamp) = record.expires_unix_ms
+        && let Ok(expires) = OffsetDateTime::from_unix_timestamp(timestamp / 1_000)
+    {
+        builder = builder.expires(expires);
+    }
+    Ok(builder.build())
+}
+
+fn verify_cookie_readback(
+    expected: &[Cookie<'static>],
+    actual: &[Cookie<'static>],
+) -> RuntimeResult<()> {
+    for cookie in expected {
+        let key = native_cookie_key(cookie);
+        let matches = actual.iter().any(|candidate| {
+            native_cookie_key(candidate) == key && candidate.value() == cookie.value()
+        });
+        if !matches {
+            return Err(RuntimeError::new(
+                "SESSION_IMPORT_COOKIE_VERIFY_FAILED",
+                format!(
+                    "System WebView did not retain imported cookie {}.",
+                    cookie.name()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn restore_url_cookies(
+    webview: &Webview,
+    launch: &Url,
+    backup: &[Cookie<'static>],
+) -> RuntimeResult<()> {
+    let current = webview
+        .cookies_for_url(launch.clone())
+        .map_err(RuntimeError::tauri)?;
+    for cookie in current {
+        webview.delete_cookie(cookie).map_err(RuntimeError::tauri)?;
+    }
+    for cookie in backup {
+        webview
+            .set_cookie(cookie.clone())
+            .map_err(RuntimeError::tauri)?;
+    }
+    let readback = webview
+        .cookies_for_url(launch.clone())
+        .map_err(RuntimeError::tauri)?;
+    verify_cookie_readback(backup, &readback)
+}
+
+fn local_storage_document_start_script(
+    origin: &str,
+    replace_existing: bool,
+    entries: &[rion_core::LocalStorageEntryRecord],
+) -> RuntimeResult<String> {
+    let origin = serde_json::to_string(origin)
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_SCRIPT_INVALID", error.to_string()))?;
+    let entries = serde_json::to_string(entries)
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_SCRIPT_INVALID", error.to_string()))?;
+    Ok(format!(
+        r#"(() => {{
+  if (globalThis.top !== globalThis || location.origin !== {origin}) return;
+  const entries = {entries};
+  const backup = Object.entries(localStorage);
+  if ({replace_existing}) localStorage.clear();
+  for (const item of entries) localStorage.setItem(item.key, item.value);
+  Object.defineProperty(globalThis, "__rionSessionImportState", {{
+    configurable: false,
+    value: {{
+      applied: true,
+      backup,
+      origin: location.origin,
+      size: localStorage.length,
+      values: entries.map((item) => [item.key, localStorage.getItem(item.key)])
+    }}
+  }});
+}})();"#,
+    ))
+}
+
+fn local_storage_restore_script(
+    origin: &str,
+    entries: &[(String, String)],
+) -> RuntimeResult<String> {
+    let origin = serde_json::to_string(origin)
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_SCRIPT_INVALID", error.to_string()))?;
+    let entries = serde_json::to_string(entries)
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_SCRIPT_INVALID", error.to_string()))?;
+    Ok(format!(
+        r#"(() => {{
+  if (globalThis.top !== globalThis || location.origin !== {origin}) return;
+  const entries = {entries};
+  localStorage.clear();
+  for (const [key, value] of entries) localStorage.setItem(key, value);
+  Object.defineProperty(globalThis, "__rionSessionRestoreState", {{
+    configurable: false,
+    value: {{
+      applied: true,
+      origin: location.origin,
+      size: localStorage.length,
+      values: Object.entries(localStorage)
+    }}
+  }});
+}})();"#,
+    ))
+}
+
+fn evaluate_json_value(webview: &Webview, source: &str) -> RuntimeResult<Value> {
+    let raw = evaluate_system_webview(webview, source)?;
+    let value = serde_json::from_str::<Value>(&raw).map_err(|error| {
+        RuntimeError::new(
+            "SESSION_IMPORT_READBACK_INVALID",
+            format!("System WebView returned invalid JSON: {error}"),
+        )
+    })?;
+    if let Some(nested) = value.as_str() {
+        serde_json::from_str(nested).map_err(|error| {
+            RuntimeError::new(
+                "SESSION_IMPORT_READBACK_INVALID",
+                format!("System WebView returned invalid nested JSON: {error}"),
+            )
+        })
+    } else {
+        Ok(value)
+    }
+}
+
+fn require_exact_webview_origin(webview: &Webview, expected: &str) -> RuntimeResult<()> {
+    let actual = webview
+        .url()
+        .map_err(RuntimeError::tauri)?
+        .origin()
+        .ascii_serialization();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(
+            "SESSION_IMPORT_ORIGIN_MISMATCH",
+            format!("Launch page resolved to {actual}, expected {expected}."),
+        ))
+    }
+}
+
+fn storage_entries_from_value(value: &Value, field: &str) -> RuntimeResult<Vec<(String, String)>> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "SESSION_IMPORT_READBACK_INVALID",
+                format!("System WebView did not return LocalStorage {field}."),
+            )
+        })?
+        .iter()
+        .map(|entry| {
+            let pair = entry
+                .as_array()
+                .filter(|pair| pair.len() == 2)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SESSION_IMPORT_READBACK_INVALID",
+                        "System WebView returned a malformed LocalStorage entry.",
+                    )
+                })?;
+            let key = pair[0].as_str().ok_or_else(|| {
+                RuntimeError::new(
+                    "SESSION_IMPORT_READBACK_INVALID",
+                    "System WebView returned a non-string LocalStorage key.",
+                )
+            })?;
+            let value = pair[1].as_str().ok_or_else(|| {
+                RuntimeError::new(
+                    "SESSION_IMPORT_READBACK_INVALID",
+                    "System WebView returned a non-string LocalStorage value.",
+                )
+            })?;
+            Ok((key.to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
+fn read_local_storage_entries(webview: &Webview) -> RuntimeResult<Vec<(String, String)>> {
+    let value = evaluate_json_value(webview, "({ values: Object.entries(localStorage) })")?;
+    storage_entries_from_value(&value, "values")
+}
+
+fn verify_local_storage_import(
+    webview: &Webview,
+    expected: &[rion_core::LocalStorageEntryRecord],
+    replace_existing: bool,
+) -> RuntimeResult<()> {
+    let state = evaluate_json_value(webview, "globalThis.__rionSessionImportState ?? null")?;
+    if state.get("applied").and_then(Value::as_bool) != Some(true) {
+        return Err(RuntimeError::new(
+            "SESSION_IMPORT_STORAGE_VERIFY_FAILED",
+            "System WebView did not run the document-start LocalStorage import.",
+        ));
+    }
+    let values = storage_entries_from_value(&state, "values")?;
+    let expected_values = expected
+        .iter()
+        .map(|entry| (entry.key.clone(), entry.value.clone()))
+        .collect::<Vec<_>>();
+    if values != expected_values
+        || (replace_existing
+            && state.get("size").and_then(Value::as_u64) != Some(expected.len() as u64))
+    {
+        return Err(RuntimeError::new(
+            "SESSION_IMPORT_STORAGE_VERIFY_FAILED",
+            "System WebView LocalStorage readback did not match the imported data.",
+        ));
+    }
+    Ok(())
+}
+
+fn verify_local_storage_snapshot(
+    webview: &Webview,
+    expected: &[(String, String)],
+) -> RuntimeResult<()> {
+    let state = evaluate_json_value(webview, "globalThis.__rionSessionRestoreState ?? null")?;
+    let mut values = storage_entries_from_value(&state, "values")?;
+    let mut expected = expected.to_vec();
+    values.sort();
+    expected.sort();
+    if values == expected
+        && state.get("size").and_then(Value::as_u64) == Some(expected.len() as u64)
+    {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(
+            "SESSION_IMPORT_ROLLBACK_VERIFY_FAILED",
+            "System WebView LocalStorage rollback did not match its backup.",
+        ))
+    }
+}
+
 fn macro_overlay_document_start_script() -> Result<String, String> {
     let guard_token = serde_json::to_string(MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN)
         .map_err(|error| error.to_string())?;
@@ -6845,6 +7812,31 @@ mod tests {
             &Url::parse("https://example.test/redirected").unwrap(),
         );
         assert!(tracker.state.lock().unwrap().finished);
+    }
+
+    #[test]
+    fn session_transfer_scripts_are_document_start_origin_scoped_and_json_escaped() {
+        let entries = vec![rion_core::LocalStorageEntryRecord {
+            key: "token\"</script>".to_owned(),
+            value: "value\nline".to_owned(),
+        }];
+        let script =
+            local_storage_document_start_script("https://game.example.test", true, &entries)
+                .unwrap();
+        assert!(script.contains("globalThis.top !== globalThis"));
+        assert!(script.contains("location.origin !== \"https://game.example.test\""));
+        assert!(script.contains("localStorage.clear()"));
+        assert!(script.contains("token\\\"</script>"));
+
+        let restore = local_storage_restore_script(
+            "https://game.example.test",
+            &[("key".to_owned(), "old".to_owned())],
+        )
+        .unwrap();
+        assert!(restore.contains("localStorage.clear()"));
+        assert!(restore.contains("__rionSessionRestoreState"));
+        assert!(validate_transaction_id("../escape").is_err());
+        assert!(validate_transaction_id("transaction-1").is_ok());
     }
 
     #[cfg(target_os = "macos")]

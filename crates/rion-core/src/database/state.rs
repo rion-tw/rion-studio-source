@@ -35,7 +35,7 @@ use crate::model::{
     WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 9;
+pub(crate) const SCHEMA_VERSION: u32 = 10;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -43,6 +43,14 @@ pub(crate) struct OperationJournalRecord {
     pub kind: String,
     pub phase: String,
     pub payload: Value,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LegacySessionRestoreState {
+    pub role_id: String,
+    pub status: String,
+    pub source_fingerprint: Option<String>,
+    pub cookie_count: u32,
 }
 
 enum Request {
@@ -64,6 +72,11 @@ enum Request {
     OperationJournals(Sender<CoreResult<Vec<OperationJournalRecord>>>),
     OperationJournalPut(OperationJournalRecord, Sender<CoreResult<()>>),
     OperationJournalDelete(String, Sender<CoreResult<()>>),
+    LegacySessionRestoreGet(
+        String,
+        Sender<CoreResult<Option<LegacySessionRestoreState>>>,
+    ),
+    LegacySessionRestorePut(LegacySessionRestoreState, Sender<CoreResult<()>>),
     EngineCompatibilityCacheGet(
         EngineCompatibilityCacheKeyRecord,
         Sender<CoreResult<Option<EngineCompatibilityCacheRecord>>>,
@@ -92,6 +105,10 @@ pub(crate) enum StateMutation {
         ids: Vec<String>,
     },
     RoleCreate(RoleCreateInputRecord),
+    RoleCreateWithId {
+        id: String,
+        input: RoleCreateInputRecord,
+    },
     RoleUpdate {
         id: String,
         input: RoleUpdateInputRecord,
@@ -171,6 +188,7 @@ impl StateMutation {
                 vec![Games, CompatibilityReports]
             }
             Self::RoleCreate(_)
+            | Self::RoleCreateWithId { .. }
             | Self::RoleUpdate { .. }
             | Self::RoleReorder { .. }
             | Self::RoleBrowserDataReset { .. }
@@ -299,6 +317,24 @@ impl StateDatabaseWorker {
     pub(crate) fn delete_operation_journal(&self, id: String) -> CoreResult<()> {
         request(&self.sender, |response| {
             Request::OperationJournalDelete(id, response)
+        })
+    }
+
+    pub(crate) fn legacy_session_restore_get(
+        &self,
+        role_id: String,
+    ) -> CoreResult<Option<LegacySessionRestoreState>> {
+        request(&self.sender, |response| {
+            Request::LegacySessionRestoreGet(role_id, response)
+        })
+    }
+
+    pub(crate) fn legacy_session_restore_put(
+        &self,
+        state: LegacySessionRestoreState,
+    ) -> CoreResult<()> {
+        request(&self.sender, |response| {
+            Request::LegacySessionRestorePut(state, response)
         })
     }
 
@@ -452,6 +488,12 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             Request::OperationJournalDelete(id, response) => {
                 let _ = response.send(delete_operation_journal(&connection, &id));
             }
+            Request::LegacySessionRestoreGet(role_id, response) => {
+                let _ = response.send(read_legacy_session_restore(&connection, &role_id));
+            }
+            Request::LegacySessionRestorePut(state, response) => {
+                let _ = response.send(put_legacy_session_restore(&connection, &state));
+            }
             Request::EngineCompatibilityCacheGet(key, response) => {
                 let _ = response.send(read_engine_compatibility_cache(&connection, &key));
             }
@@ -547,6 +589,25 @@ fn apply_domain_mutation(
                 let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
                 let role = create_role(&games, &mut roles, input)?;
                 upsert_entity(&transaction, "roles", &json_value(&role)?, roles.len() - 1)?;
+                serde_json::to_value(role)
+            }
+            StateMutation::RoleCreateWithId { id, input } => {
+                let id = uuid::Uuid::parse_str(&id)
+                    .map_err(|_| CoreError::InvalidInput("Role id is invalid.".to_owned()))?
+                    .to_string();
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                if roles.iter().any(|role| role.id == id) {
+                    return Err(CoreError::Domain {
+                        code: "ROLE_ID_CONFLICT",
+                        message: "Role id is already in use.".to_owned(),
+                    });
+                }
+                let mut role = create_role(&games, &mut roles, input)?;
+                role.id = id;
+                let ordinal = roles.len() - 1;
+                roles[ordinal] = role.clone();
+                upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
                 serde_json::to_value(role)
             }
             StateMutation::RoleUpdate { id, input } => {
@@ -1021,6 +1082,68 @@ fn delete_operation_journal(connection: &Connection, id: &str) -> CoreResult<()>
     Ok(())
 }
 
+fn read_legacy_session_restore(
+    connection: &Connection,
+    role_id: &str,
+) -> CoreResult<Option<LegacySessionRestoreState>> {
+    connection
+        .query_row(
+            "SELECT role_id, status, source_fingerprint, cookie_count
+             FROM legacy_session_restores WHERE role_id=?1",
+            params![role_id],
+            |row| {
+                Ok(LegacySessionRestoreState {
+                    role_id: row.get(0)?,
+                    status: row.get(1)?,
+                    source_fingerprint: row.get(2)?,
+                    cookie_count: row.get::<_, u32>(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))
+}
+
+fn put_legacy_session_restore(
+    connection: &Connection,
+    state: &LegacySessionRestoreState,
+) -> CoreResult<()> {
+    if !matches!(
+        state.status.as_str(),
+        "pending" | "restored" | "preservedExisting" | "unavailable" | "disabledAfterClear"
+    ) || state
+        .source_fingerprint
+        .as_ref()
+        .is_some_and(|fingerprint| {
+            fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        return Err(CoreError::InvalidInput(
+            "Legacy session restore state is invalid.".to_owned(),
+        ));
+    }
+    connection
+        .execute(
+            "INSERT INTO legacy_session_restores(
+               role_id, status, source_fingerprint, cookie_count, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(role_id) DO UPDATE SET
+               status=excluded.status,
+               source_fingerprint=excluded.source_fingerprint,
+               cookie_count=excluded.cookie_count,
+               updated_at=excluded.updated_at",
+            params![
+                state.role_id,
+                state.status,
+                state.source_fingerprint,
+                state.cookie_count,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    Ok(())
+}
+
 fn read_engine_compatibility_cache(
     connection: &Connection,
     key: &EngineCompatibilityCacheKeyRecord,
@@ -1418,6 +1541,15 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             );
             CREATE INDEX IF NOT EXISTS operation_journal_kind_phase_idx
               ON operation_journal(kind, phase);
+            CREATE TABLE IF NOT EXISTS legacy_session_restores (
+              role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
+              status TEXT NOT NULL CHECK(status IN (
+                'pending', 'restored', 'preservedExisting', 'unavailable', 'disabledAfterClear'
+              )),
+              source_fingerprint TEXT,
+              cookie_count INTEGER NOT NULL DEFAULT 0,
+              updated_at TEXT NOT NULL
+            );
             ",
         )
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -1567,6 +1699,25 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
         transaction
             .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    if newest_version < 10 {
+        connection
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS legacy_session_restores (
+                   role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
+                   status TEXT NOT NULL CHECK(status IN (
+                     'pending', 'restored', 'preservedExisting', 'unavailable', 'disabledAfterClear'
+                   )),
+                   source_fingerprint TEXT,
+                   cookie_count INTEGER NOT NULL DEFAULT 0,
+                   updated_at TEXT NOT NULL
+                 );
+                 INSERT INTO schema_migrations(version, applied_at)
+                 VALUES (10, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 COMMIT;",
+            )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
     repair_optional_log_level(connection)?;
@@ -3710,6 +3861,86 @@ mod tests {
                 })
                 .unwrap(),
             SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn schema_ten_adds_validated_one_time_legacy_session_restore_state() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM schema_migrations WHERE version=10;
+                 DROP TABLE legacy_session_restores;",
+            )
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+        replace_snapshot(
+            &mut connection,
+            &json!({
+                "games":[{
+                    "id":"g1","source":"custom","name":"Game",
+                    "defaultLaunchUrl":"https://example.test/play","browserEngine":"inherit",
+                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+                }],
+                "roles":[{
+                    "id":"r1","gameId":"g1","name":"Role",
+                    "launchUrl":"https://example.test/play","notes":"",
+                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+                }],
+                "launchWorkspaces":[],"macros":[],"compatibilityReports":[]
+            }),
+        )
+        .unwrap();
+
+        let fingerprint = "a".repeat(64);
+        for status in [
+            "pending",
+            "restored",
+            "preservedExisting",
+            "unavailable",
+            "disabledAfterClear",
+        ] {
+            put_legacy_session_restore(
+                &connection,
+                &LegacySessionRestoreState {
+                    role_id: "r1".to_owned(),
+                    status: status.to_owned(),
+                    source_fingerprint: Some(fingerprint.clone()),
+                    cookie_count: 7,
+                },
+            )
+            .unwrap();
+            let stored = read_legacy_session_restore(&connection, "r1")
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored.status, status);
+            assert_eq!(stored.cookie_count, 7);
+            assert_eq!(
+                stored.source_fingerprint.as_deref(),
+                Some(fingerprint.as_str())
+            );
+        }
+        assert!(
+            put_legacy_session_restore(
+                &connection,
+                &LegacySessionRestoreState {
+                    role_id: "r1".to_owned(),
+                    status: "retryForever".to_owned(),
+                    source_fingerprint: None,
+                    cookie_count: 0,
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            10
         );
     }
 

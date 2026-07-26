@@ -206,6 +206,12 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
         case "logEntriesCaptured":
           event.entries.forEach((entry) => emit("logEntry", entry));
           break;
+        case "chromeProfileImportProgress":
+          emit("chromeProfileImportProgress", event.progress);
+          break;
+        case "legacySessionsRestored":
+          emit("legacySessionsRestored", event.records);
+          break;
         case "coreEffects":
           // The Rust Tauri executor consumes effect events before renderer delivery.
           break;
@@ -361,6 +367,18 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     }),
     discardPortableImport: (importId) =>
       invokeCore({ type: "portableDiscard", importId }).then(() => undefined),
+    previewChromeProfileImport: () => invokeShell("previewChromeProfileImport"),
+    requestChromeQuitForImport: (importId) =>
+      invokeCore({ type: "chromeProfileRequestQuit", importId }),
+    applyChromeProfileImport: (input) => invokeCore({
+      type: "chromeProfileApply",
+      importId: input.importId,
+      gameId: input.gameId,
+      consentAccepted: input.consentAccepted,
+      resolutions: input.resolutions
+    }),
+    discardChromeProfileImport: (importId) =>
+      invokeCore({ type: "chromeProfileDiscard", importId }).then(() => undefined),
     getGameBrowserSettings: () => invokeCore({ type: "gameBrowserSettingsGet" }),
     updateGameBrowserSettings: (settings) =>
       invokeCore({ type: "gameBrowserSettingsReplace", settings }),
@@ -397,7 +415,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onMacrosChanged: (callback) => on("macros", callback as Listener),
     onMacroPageRequested: (callback) => on("macroPageRequest", callback as Listener),
     onUpdateStatusChanged: (callback) => on("updateStatus", callback as Listener),
-    onLogEntryAdded: (callback) => on("logEntry", callback as Listener)
+    onLogEntryAdded: (callback) => on("logEntry", callback as Listener),
+    onChromeProfileImportProgress: (callback) =>
+      on("chromeProfileImportProgress", callback as Listener),
+    onLegacySessionsRestored: (callback) =>
+      on("legacySessionsRestored", callback as Listener)
   };
 
   Object.defineProperty(window, "rionStudio", {

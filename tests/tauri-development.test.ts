@@ -32,7 +32,7 @@ describe("Tauri development and release commands", () => {
     expect(launcher).toContain("configureMacOsDevBundleRunner(environment)");
     expect(launcher).toContain("CARGO_TARGET_${architecture}_APPLE_DARWIN_RUNNER");
     expect(macRunner).toContain('"Rion Studio Dev.app"');
-    expect(macRunner).toContain("com.rionstudio.launcher.dev");
+    expect(macRunner).toContain("com.rionstudio.launcher");
     expect(macRunner).toContain("NSAllowsLocalNetworking");
     expect(macRunner).toContain("process.execve(bundledExecutable");
     expect(launcher).toContain('["exec", "tauri", "dev"]');

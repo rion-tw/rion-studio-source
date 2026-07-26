@@ -7,6 +7,10 @@ import type {
   AppWindowState,
   BulkDeleteInput,
   BulkDeleteResult,
+  ChromeProfileImportInput,
+  ChromeProfileImportPreview,
+  ChromeProfileImportProgress,
+  ChromeProfileImportResult,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -20,6 +24,7 @@ import type {
   DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
   LaunchWorkspace,
+  LegacySessionRestore,
   LogEntry,
   LogLevel,
   LogPage,
@@ -117,6 +122,10 @@ export interface RionStudioApi {
   previewPortableImport: () => Promise<PortableImportPreview | null>;
   applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   discardPortableImport: (importId: string) => Promise<void>;
+  previewChromeProfileImport: () => Promise<ChromeProfileImportPreview | null>;
+  requestChromeQuitForImport: (importId: string) => Promise<ChromeProfileImportPreview>;
+  applyChromeProfileImport: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
+  discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
@@ -151,4 +160,8 @@ export interface RionStudioApi {
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
   onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;
+  onChromeProfileImportProgress: (
+    callback: (progress: ChromeProfileImportProgress) => void
+  ) => () => void;
+  onLegacySessionsRestored: (callback: (records: LegacySessionRestore[]) => void) => () => void;
 }

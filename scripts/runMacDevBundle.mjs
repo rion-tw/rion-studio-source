@@ -57,7 +57,7 @@ function infoPlist(executableName) {
   <key>CFBundleIconFile</key>
   <string>icon.icns</string>
   <key>CFBundleIdentifier</key>
-  <string>com.rionstudio.launcher.dev</string>
+  <string>com.rionstudio.launcher</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

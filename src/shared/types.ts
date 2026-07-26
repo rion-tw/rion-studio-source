@@ -3,6 +3,10 @@ import type {
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
   BrowserGraphicsSettingsRecord,
+  ChromeProfileImportPreviewRecord,
+  ChromeProfileImportProgressRecord,
+  ChromeProfileImportResolutionRecord,
+  ChromeProfileImportResultRecord,
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
   DiagnosticExportResultRecord,
@@ -17,6 +21,7 @@ import type {
   LegalAcceptDocumentsInputRecord,
   LegalAcceptanceStatusRecord,
   LegalDocumentVersionsRecord,
+  LegacySessionRestoreRecord,
   LogEntry as RustLogEntry,
   LogErrorDetails as RustLogErrorDetails,
   LogLevel as RustLogLevel,
@@ -455,6 +460,23 @@ export type PortableImportWarning = PortableImportWarningRecord;
 export type PortableImportPreview = PortableImportPreviewRecord;
 
 export type PortableImportResult = PortableImportResultRecord;
+
+export type ChromeProfileImportPreview = ChromeProfileImportPreviewRecord;
+
+export type ChromeProfileImportResolution = ChromeProfileImportResolutionRecord;
+
+export type ChromeProfileImportResult = ChromeProfileImportResultRecord;
+
+export type ChromeProfileImportProgress = ChromeProfileImportProgressRecord;
+
+export type LegacySessionRestore = LegacySessionRestoreRecord;
+
+export interface ChromeProfileImportInput {
+  importId: string;
+  gameId: string;
+  consentAccepted: boolean;
+  resolutions: ChromeProfileImportResolution[];
+}
 
 export type AppUpdateState =
   | "unsupported"

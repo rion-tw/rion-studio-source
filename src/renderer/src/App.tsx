@@ -747,11 +747,13 @@ export function App(): JSX.Element {
               path="/settings"
               element={
                 <SettingsRoute
+                  games={data.games}
                   gameBrowserSettings={gameBrowserSettings}
                   hasRunningRoles={data.statuses.some(
                     (status) => status.state === "launching" || status.state === "running"
                   )}
                   roleStatuses={data.statuses}
+                  roles={data.roles}
                   language={preferences.language}
                   macroSettings={macroSettings}
                   runtimeWindowPreferences={runtimeWindowPreferences}

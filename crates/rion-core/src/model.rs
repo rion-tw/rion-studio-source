@@ -197,6 +197,142 @@ pub struct WorkspaceEnginePreferenceRecord {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LegacySessionRestoreRecord {
+    pub role_id: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_fingerprint: Option<String>,
+    pub cookie_count: u32,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileEntryRecord {
+    pub id: String,
+    pub directory_name: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub existing_role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub existing_role_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportPreviewRecord {
+    pub import_id: String,
+    pub source_label: String,
+    pub source_in_use: bool,
+    pub profiles: Vec<ChromeProfileEntryRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum ChromeProfileImportResolutionRecord {
+    Create {
+        profile_id: String,
+    },
+    Copy {
+        profile_id: String,
+    },
+    Replace {
+        profile_id: String,
+        target_role_id: String,
+    },
+}
+
+impl ChromeProfileImportResolutionRecord {
+    pub fn profile_id(&self) -> &str {
+        match self {
+            Self::Create { profile_id }
+            | Self::Copy { profile_id }
+            | Self::Replace { profile_id, .. } => profile_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCookieRecord {
+    pub name: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_unix_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalStorageEntryRecord {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTransferPayloadRecord {
+    pub cookies: Vec<SessionCookieRecord>,
+    pub local_storage: Vec<LocalStorageEntryRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportItemResultRecord {
+    pub profile_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_id: Option<String>,
+    pub role_name: String,
+    pub status: String,
+    pub cookie_count: u32,
+    pub local_storage_count: u32,
+    pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportResultRecord {
+    pub import_id: String,
+    pub items: Vec<ChromeProfileImportItemResultRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportProgressRecord {
+    pub import_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub profile_id: Option<String>,
+    pub phase: String,
+    pub completed: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -266,6 +402,25 @@ pub enum CoreCommand {
     },
     RoleAssignGameIds {
         assignments: Vec<RoleGameAssignmentRecord>,
+    },
+    ChromeProfileDefaultPath,
+    ChromeProfilePreview {
+        source_user_data_dir: String,
+    },
+    ChromeProfileRefresh {
+        import_id: String,
+    },
+    ChromeProfileRequestQuit {
+        import_id: String,
+    },
+    ChromeProfileApply {
+        import_id: String,
+        game_id: String,
+        consent_accepted: bool,
+        resolutions: Vec<ChromeProfileImportResolutionRecord>,
+    },
+    ChromeProfileDiscard {
+        import_id: String,
     },
     WorkspacesList,
     WorkspaceGet {
@@ -677,6 +832,8 @@ impl CoreCommand {
                 | Self::RoleDelete { .. }
                 | Self::RolesDelete { .. }
                 | Self::RoleBrowserDataClear { .. }
+                | Self::ChromeProfileRequestQuit { .. }
+                | Self::ChromeProfileApply { .. }
                 | Self::WorkspaceCreate { .. }
                 | Self::WorkspaceUpdate { .. }
                 | Self::WorkspaceDelete { .. }
@@ -1974,6 +2131,12 @@ pub enum CoreEvent {
     CompatibilityStatuses {
         statuses: Vec<CompatibilityRunStatusRecord>,
     },
+    ChromeProfileImportProgress {
+        progress: ChromeProfileImportProgressRecord,
+    },
+    LegacySessionsRestored {
+        records: Vec<LegacySessionRestoreRecord>,
+    },
     Shutdown,
 }
 
@@ -3046,6 +3209,39 @@ pub enum CoreEffectAction {
         role_id: String,
         webview2_user_data_dir: String,
         webkit_data_store_identifier: String,
+    },
+    LegacySessionRestore {
+        transaction_id: String,
+        role_id: String,
+        launch_url: String,
+        webview2_user_data_dir: String,
+        webkit_data_store_identifier: String,
+    },
+    ChromeProfileImportSnapshot {
+        transaction_id: String,
+        role_id: String,
+        launch_url: String,
+        webview2_user_data_dir: String,
+        webkit_data_store_identifier: String,
+        replace_existing: bool,
+    },
+    ChromeProfileImportApply {
+        transaction_id: String,
+        role_id: String,
+        launch_url: String,
+        webview2_user_data_dir: String,
+        webkit_data_store_identifier: String,
+        replace_existing: bool,
+    },
+    ChromeProfileImportRollback {
+        transaction_id: String,
+        role_id: String,
+        launch_url: String,
+        webview2_user_data_dir: String,
+        webkit_data_store_identifier: String,
+    },
+    ChromeProfileImportCommit {
+        transaction_id: String,
     },
     CompatibilityCreateWindow {
         plan: CompatibilityCheckPlanRecord,

@@ -3153,7 +3153,7 @@ impl SystemRuntimeExecutor {
                 .and_then(|display| display.active_tab_id.as_deref())
                 .and_then(|tab_id| snapshot.tabs.iter().find(|tab| tab.id == tab_id))
                 .map(|tab| tab.name.as_str())
-                .unwrap_or("Rion Studio");
+                .unwrap_or("");
             let (_, created) = self.ensure_display_host(target, title)?;
             Some((target.display_id, created))
         } else {

@@ -698,7 +698,10 @@ pub fn reconcile_workspace_displays(
                 .iter()
                 .filter(|display| display_matches_fingerprint(display, fingerprint))
                 .collect::<Vec<_>>();
-            (matches.len() == 1).then_some(matches[0])
+            match matches.as_slice() {
+                [display] => Some(*display),
+                _ => None,
+            }
         } else {
             displays.iter().find(|display| display.id == target.id)
         };
@@ -2542,6 +2545,62 @@ mod tests {
         let mut invalid = game;
         invalid["defaultLaunchUrl"] = json!("file:///tmp/game");
         assert!(validate_collection_record(StateCollection::Games, &invalid).is_err());
+    }
+
+    #[test]
+    fn keeps_workspace_target_when_fingerprint_match_is_missing_or_ambiguous() {
+        let mut workspaces = Vec::new();
+        let target = json!({
+            "id":42,
+            "fingerprint":{
+                "label":"Expected Display",
+                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+                "resolution":{"width":1920,"height":1080},
+                "scaleFactor":1,
+                "isPrimary":true,
+                "isInternal":false
+            }
+        });
+        create_workspace(
+            &mut workspaces,
+            workspace_input(json!({"name":"Display","targetDisplay":target})),
+        )
+        .unwrap();
+        let original_target = serde_json::to_value(&workspaces[0].target_display).unwrap();
+
+        let missing_match: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([{
+            "id":7,"label":"Different Display",
+            "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+            "resolution":{"width":1920,"height":1080},
+            "scaleFactor":1,"isPrimary":true,"isInternal":false
+        }]))
+        .unwrap();
+        reconcile_workspace_displays(&mut workspaces, &missing_match).unwrap();
+        assert_eq!(
+            serde_json::to_value(&workspaces[0].target_display).unwrap(),
+            original_target
+        );
+
+        let ambiguous_match: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([
+            {
+                "id":8,"label":"Expected Display",
+                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+                "resolution":{"width":1920,"height":1080},
+                "scaleFactor":1,"isPrimary":true,"isInternal":false
+            },
+            {
+                "id":9,"label":"Expected Display",
+                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+                "resolution":{"width":1920,"height":1080},
+                "scaleFactor":1,"isPrimary":true,"isInternal":false
+            }
+        ]))
+        .unwrap();
+        reconcile_workspace_displays(&mut workspaces, &ambiguous_match).unwrap();
+        assert_eq!(
+            serde_json::to_value(&workspaces[0].target_display).unwrap(),
+            original_target
+        );
     }
 
     #[test]

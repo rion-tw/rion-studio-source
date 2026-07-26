@@ -1,5 +1,11 @@
-use std::{sync::Mutex, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+    time::Duration,
+};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -9,6 +15,13 @@ use crate::native_shell;
 const DEFAULT_RELEASE_REPOSITORY: &str = "rion-tw/rion-studio";
 const UPDATE_STATUS_EVENT: &str = "rion://update-status";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(30);
+const UPDATE_PREFERENCES_FILE: &str = "app-update-preferences.json";
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdatePreferences {
+    auto_update_enabled: bool,
+}
 
 struct PendingUpdate {
     bytes: Vec<u8>,
@@ -17,25 +30,32 @@ struct PendingUpdate {
 
 pub struct UpdateManager {
     app: AppHandle,
+    auto_update_enabled: Mutex<bool>,
     current_version: String,
     packaged: bool,
     pending: Mutex<Option<PendingUpdate>>,
+    preferences_path: PathBuf,
     status: Mutex<Value>,
 }
 
 impl UpdateManager {
-    pub fn new(app: AppHandle, current_version: String) -> Self {
+    pub fn new(app: AppHandle, current_version: String, user_data_dir: &Path) -> Self {
         let packaged = !cfg!(debug_assertions);
         let configured = embedded_updater_public_key().is_some();
+        let preferences_path = user_data_dir.join(UPDATE_PREFERENCES_FILE);
+        let auto_update_enabled = load_auto_update_enabled(&preferences_path);
         Self {
             app,
+            auto_update_enabled: Mutex::new(auto_update_enabled),
             current_version: current_version.clone(),
             packaged,
             pending: Mutex::new(None),
+            preferences_path,
             status: Mutex::new(json!({
                 "currentVersion": current_version,
                 "installMode": "automatic",
                 "isPackaged": packaged,
+                "autoUpdateEnabled": auto_update_enabled,
                 "state": if packaged && configured { "idle" } else { "unsupported" },
                 "error": if packaged && !configured {
                     Some("This build does not contain a Tauri updater verification key.")
@@ -51,6 +71,21 @@ impl UpdateManager {
             .lock()
             .map(|status| status.clone())
             .unwrap_or_else(|_| self.error_status("Update status is unavailable."))
+    }
+
+    pub fn set_auto_update_enabled(&self, enabled: bool) -> Result<Value, String> {
+        write_auto_update_enabled(&self.preferences_path, enabled)?;
+        let mut current = self
+            .auto_update_enabled
+            .lock()
+            .map_err(|_| "Update preference state is unavailable.".to_owned())?;
+        *current = enabled;
+        drop(current);
+        let mut status = self.status();
+        if let Some(status) = status.as_object_mut() {
+            status.insert("autoUpdateEnabled".to_owned(), Value::Bool(enabled));
+        }
+        Ok(self.set_status(status))
     }
 
     pub async fn check(&self) -> Value {
@@ -203,19 +238,64 @@ impl UpdateManager {
             "currentVersion": self.current_version,
             "installMode": "automatic",
             "isPackaged": self.packaged,
+            "autoUpdateEnabled": self.auto_update_enabled(),
             "state": if self.packaged { "error" } else { "unsupported" },
             "error": error,
             "checkedAt": chrono::Utc::now().to_rfc3339()
         })
     }
 
-    fn set_status(&self, status: Value) -> Value {
+    fn set_status(&self, mut status: Value) -> Value {
+        if let Some(status) = status.as_object_mut() {
+            status.insert(
+                "autoUpdateEnabled".to_owned(),
+                Value::Bool(self.auto_update_enabled()),
+            );
+        }
         if let Ok(mut current) = self.status.lock() {
             *current = status.clone();
         }
         let _ = self.app.emit(UPDATE_STATUS_EVENT, &status);
         status
     }
+
+    fn auto_update_enabled(&self) -> bool {
+        self.auto_update_enabled
+            .lock()
+            .map(|enabled| *enabled)
+            .unwrap_or(true)
+    }
+}
+
+fn load_auto_update_enabled(path: &Path) -> bool {
+    fs::read(path)
+        .ok()
+        .and_then(|content| serde_json::from_slice::<UpdatePreferences>(&content).ok())
+        .map(|preferences| preferences.auto_update_enabled)
+        .unwrap_or(true)
+}
+
+fn write_auto_update_enabled(path: &Path, enabled: bool) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Update preferences path has no parent directory.".to_owned())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let temporary = parent.join(format!(
+        ".{UPDATE_PREFERENCES_FILE}.{}.tmp",
+        std::process::id()
+    ));
+    let result = (|| {
+        let content = serde_json::to_vec(&UpdatePreferences {
+            auto_update_enabled: enabled,
+        })
+        .map_err(|error| error.to_string())?;
+        fs::write(&temporary, content).map_err(|error| error.to_string())?;
+        fs::rename(&temporary, path).map_err(|error| error.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 pub(crate) fn embedded_updater_public_key() -> Option<&'static str> {
@@ -279,5 +359,18 @@ mod tests {
                 .path()
                 .ends_with("/releases/latest/download/latest.json")
         );
+    }
+
+    #[test]
+    fn update_preferences_default_to_enabled_and_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(UPDATE_PREFERENCES_FILE);
+        assert!(load_auto_update_enabled(&path));
+
+        write_auto_update_enabled(&path, false).unwrap();
+        assert!(!load_auto_update_enabled(&path));
+
+        fs::write(&path, b"not-json").unwrap();
+        assert!(load_auto_update_enabled(&path));
     }
 }

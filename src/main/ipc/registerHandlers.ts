@@ -88,6 +88,7 @@ interface RegisterIpcHandlersOptions {
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   recordIpcCommandLatency?: (channel: string, durationMs: number) => void;
+  onUpdateAutoUpdateEnabledChange?: (enabled: boolean) => Promise<void> | void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
   onRuntimeWindowPreferencesChanged?: (preferences: RuntimeWindowPreferences) => void;
@@ -532,6 +533,16 @@ export function registerIpcHandlers(
     }
 
     return options.updateManager.checkForUpdates();
+  });
+
+  handle(IPC_CHANNELS.updatesSetAutoUpdateEnabled, async (_event, enabled: boolean) => {
+    if (!options.updateManager || typeof enabled !== "boolean") {
+      throw new Error("Update manager is not available.");
+    }
+
+    const status = options.updateManager.setAutoUpdateEnabled(enabled);
+    await options.onUpdateAutoUpdateEnabledChange?.(status.autoUpdateEnabled);
+    return status;
   });
 
   handle(IPC_CHANNELS.updatesOpenDownload, () => {

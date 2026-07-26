@@ -606,6 +606,18 @@ async fn rion_shell_invoke(
             let updates = Arc::clone(&state.updates);
             Ok(updates.check().await)
         }
+        "setAutoUpdateEnabled" => {
+            let enabled = args.first().and_then(Value::as_bool).ok_or_else(|| {
+                shell_error(
+                    "TAURI_SHELL_INPUT_INVALID",
+                    "Auto-update enabled state is required.",
+                )
+            })?;
+            state
+                .updates
+                .set_auto_update_enabled(enabled)
+                .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))
+        }
         "openUpdateDownload" => state
             .updates
             .open_release_page()
@@ -1696,6 +1708,7 @@ pub fn run() {
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),
                 app.package_info().version.to_string(),
+                &user_data_dir,
             ));
             let attestation_runtime = Arc::clone(&runtime);
             let app_handle = app.handle().clone();

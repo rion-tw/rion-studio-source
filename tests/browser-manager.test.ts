@@ -189,7 +189,7 @@ describe("system-only game runtime", () => {
       shift: true,
       type: "keyDown"
     }, "darwin")).toBe("in");
-    expect(classifyRuntimeTabSwitchShortcut({
+    const tabSwitchInput = {
       alt: false,
       code: "Tab",
       control: true,
@@ -198,9 +198,64 @@ describe("system-only game runtime", () => {
       meta: false,
       shift: true,
       type: "keyDown"
+    };
+    expect(classifyRuntimeTabSwitchShortcut(tabSwitchInput)).toBe("previous");
+    expect(classifyRuntimeTabSwitchShortcut({
+      ...tabSwitchInput,
+      type: "rawKeyDown"
     })).toBe("previous");
     expect(isExpectedNativeZoomResult("reset", 125, 100)).toBe(true);
   });
+
+  it.each([
+    ["darwin", "wkwebview"],
+    ["win32", "webview2"]
+  ] as const)(
+    "serializes rapid runtime tab switches and cancels queued work on %s",
+    async (platform, engine) => {
+      const harness = createHarness(
+        platform,
+        engine,
+        () => createMockSystemSurface().surface
+      );
+      const releases: Array<() => void> = [];
+      harness.invoke.mockImplementation(async (command: { type: string }) => {
+        if (command.type === "embeddedTabActivateAdjacent") {
+          await new Promise<void>((resolve) => releases.push(resolve));
+        }
+        return undefined;
+      });
+      harness.invoke.mockClear();
+      const runtime = harness.manager as unknown as {
+        clearRuntimeTabSwitchQueue: (displayId: number) => void;
+        enqueueRuntimeTabSwitch: (
+          displayId: number,
+          direction: "next" | "previous"
+        ) => void;
+        runtimeTabSwitchQueues: Map<number, unknown>;
+      };
+
+      runtime.enqueueRuntimeTabSwitch(11, "next");
+      runtime.enqueueRuntimeTabSwitch(11, "previous");
+      runtime.enqueueRuntimeTabSwitch(11, "next");
+      await vi.waitFor(() => expect(releases).toHaveLength(1));
+      expect(harness.invoke).toHaveBeenCalledTimes(1);
+
+      releases.shift()?.();
+      await vi.waitFor(() => expect(releases).toHaveLength(1));
+      expect(harness.invoke).toHaveBeenCalledTimes(2);
+
+      runtime.clearRuntimeTabSwitchQueue(11);
+      releases.shift()?.();
+      await vi.waitFor(() => expect(runtime.runtimeTabSwitchQueues.has(11)).toBe(false));
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(harness.invoke.mock.calls.map(([command]) => command)).toEqual([
+        { type: "embeddedTabActivateAdjacent", displayId: 11, direction: "next" },
+        { type: "embeddedTabActivateAdjacent", displayId: 11, direction: "previous" }
+      ]);
+    }
+  );
 
   it("converts normalized role rectangles using explicit host bounds", () => {
     expect(normalizedRectToPixelBounds(

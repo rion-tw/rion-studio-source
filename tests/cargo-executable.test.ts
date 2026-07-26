@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCargoExecutable } from "../scripts/cargoExecutable.mjs";
+import {
+  environmentWithCargoExecutable,
+  resolveCargoExecutable
+} from "../scripts/cargoExecutable.mjs";
 
 function usablePaths(...paths: string[]) {
   const available = new Set(paths);
@@ -24,6 +27,19 @@ describe("Rust cargo executable resolution", () => {
       isUsable: usablePaths("/Users/rion/.cargo/bin/cargo"),
       platform: "darwin"
     })).resolves.toBe("/Users/rion/.cargo/bin/cargo");
+  });
+
+  it("repairs a GUI environment for Cargo and Tauri subprocesses", async () => {
+    await expect(environmentWithCargoExecutable({
+      environment: { PATH: "/usr/bin:/bin", RION_TEST_VALUE: "preserved" },
+      homeDirectory: "/Users/rion",
+      isUsable: usablePaths("/Users/rion/.cargo/bin/cargo"),
+      platform: "darwin"
+    })).resolves.toEqual({
+      CARGO: "/Users/rion/.cargo/bin/cargo",
+      PATH: "/Users/rion/.cargo/bin:/usr/bin:/bin",
+      RION_TEST_VALUE: "preserved"
+    });
   });
 
   it("honors CARGO_HOME and an explicit CARGO override", async () => {

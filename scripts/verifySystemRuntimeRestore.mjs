@@ -7,6 +7,8 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { resolveCargoExecutable } from "./cargoExecutable.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const supported = new Set(["darwin", "win32"]);
 const timeoutMs = 3 * 60 * 1000;
@@ -27,7 +29,7 @@ async function main() {
       );
   if (!requestedExecutable) {
     await run(command("pnpm"), ["run", "build:renderer"]);
-    await run(command("cargo"), ["build", "-p", "rion-tauri"]);
+    await run(await resolveCargoExecutable(), ["build", "-p", "rion-tauri"]);
   }
   if (!isAbsolute(executable)) {
     throw new Error("The runtime-restore attestation executable must be absolute.");

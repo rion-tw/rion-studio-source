@@ -5,14 +5,17 @@ import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { environmentWithCargoExecutable } from "./cargoExecutable.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const platform = process.platform;
+const baseEnvironment = await environmentWithCargoExecutable();
 
 if (platform !== "darwin" && platform !== "win32") {
   throw new Error("Local Tauri packages are supported only on macOS and Windows.");
 }
 
-const untrustedEnvironment = { ...process.env };
+const untrustedEnvironment = { ...baseEnvironment };
 delete untrustedEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
 delete untrustedEnvironment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;
 
@@ -30,7 +33,7 @@ for (const script of ["test:native:runtime-restore", "test:native:file-operation
   );
 }
 
-const buildEnvironment = { ...process.env };
+const buildEnvironment = { ...baseEnvironment };
 if (platform === "darwin") {
   buildEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR =
     (await capture("sw_vers", ["-productVersion"])).split(".")[0];

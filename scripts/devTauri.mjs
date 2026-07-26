@@ -6,17 +6,30 @@ import { basename, join, relative } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { environmentWithCargoExecutable } from "./cargoExecutable.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const platform = process.platform;
 
-if (platform !== "darwin" && platform !== "win32") {
-  console.warn("Native input attestation is available only on macOS and Windows; starting degraded Tauri development.");
-  process.exitCode = await run(command("pnpm"), ["exec", "tauri", "dev"]);
-} else {
-  await main();
+try {
+  const environment = await environmentWithCargoExecutable();
+  if (process.argv.includes("--degraded")) {
+    console.warn("Starting degraded Tauri development; trusted native input remains disabled.");
+    delete environment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
+    delete environment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;
+    process.exitCode = await run(command("pnpm"), ["exec", "tauri", "dev"], environment);
+  } else if (platform !== "darwin" && platform !== "win32") {
+    console.warn("Native input attestation is available only on macOS and Windows; starting degraded Tauri development.");
+    process.exitCode = await run(command("pnpm"), ["exec", "tauri", "dev"], environment);
+  } else {
+    await main(environment);
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
 }
 
-async function main() {
+async function main(baseEnvironment) {
   const osVersion = await systemVersion();
   const attestationVersion = platform === "darwin" ? osVersion.split(".")[0] : osVersion;
   const fingerprint = await attestationFingerprint(attestationVersion);
@@ -30,7 +43,7 @@ async function main() {
 
   if (!cachedAttestation) {
     console.log(`No native input attestation matches ${platform} ${osVersion}; running the packaged behavior harness.`);
-    const untrustedEnvironment = { ...process.env };
+    const untrustedEnvironment = { ...baseEnvironment };
     delete untrustedEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
     delete untrustedEnvironment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;
     const result = await run(
@@ -54,7 +67,7 @@ async function main() {
     console.log(`Using cached native input attestation ${basename(attestationPath)}.`);
   }
 
-  const environment = { ...process.env };
+  const environment = { ...baseEnvironment };
   if (platform === "darwin") {
     environment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR = osVersion.split(".")[0];
   } else {

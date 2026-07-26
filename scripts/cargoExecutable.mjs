@@ -139,3 +139,31 @@ export async function resolveCargoExecutable({
       + "or set CARGO to the absolute path of the cargo executable."
   );
 }
+
+export async function environmentWithCargoExecutable(options = {}) {
+  const environment = options.environment ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const pathApi = platform === "win32" ? win32 : posix;
+  const pathDelimiter = platform === "win32" ? ";" : ":";
+  const cargo = await resolveCargoExecutable({ ...options, environment, platform });
+  const pathKey = platform === "win32"
+    ? Object.keys(environment).find((key) => key.toUpperCase() === "PATH") ?? "Path"
+    : "PATH";
+  const currentPath = environmentValue(environment, "PATH", platform) ?? "";
+  const cargoDirectory = pathApi.dirname(cargo);
+  const normalize = platform === "win32"
+    ? (value) => value.toLowerCase()
+    : (value) => value;
+  const hasCargoDirectory = currentPath
+    .split(pathDelimiter)
+    .map(unquote)
+    .some((directory) => normalize(directory) === normalize(cargoDirectory));
+
+  return {
+    ...environment,
+    CARGO: cargo,
+    [pathKey]: hasCargoDirectory
+      ? currentPath
+      : [cargoDirectory, currentPath].filter(Boolean).join(pathDelimiter)
+  };
+}

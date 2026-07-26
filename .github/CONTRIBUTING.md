@@ -14,6 +14,7 @@
 ```bash
 pnpm install
 pnpm run dev
+pnpm run dev:degraded # UI-only; native trusted input remains unavailable
 pnpm run typecheck
 pnpm run test
 pnpm run lint
@@ -50,26 +51,25 @@ toolchain and the Visual Studio 2022 MSVC/Windows SDK components required by the
 ```bash
 pnpm run lint:rust
 pnpm run test:rust
-pnpm run build:rust:release
-pnpm run verify:rust
+cargo check -p rion-tauri
+pnpm run verify:system-only
 ```
 
-`pnpm run build:tauri` links the Rust core directly into the application. Release
+`pnpm run build` links the Rust core directly into the application. Release
 CI must build on both `macos-latest` and `windows-latest`, verify the resulting
 Tauri bundle, and run the platform-aware Rust and renderer tests. macOS releases
 target 14+ and require Developer ID signing, hardened runtime, notarization and
 stapling. Windows releases require Authenticode signing and a WebView2 runtime
-presence check.
+presence check. Configure the repository variable
+`RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER` with the exact certificate subject used
+by the legacy Windows release; candidate builds reject both an imported
+certificate and a packaged installer whose signer subject differs.
 
-Ad-hoc-signed macOS builds use a manual update flow. The app checks GitHub
-Releases, opens `releases/latest/download/Rion.Studio-mac.dmg` when an update is
-available, and guides users to drag the app to Applications. The DMG includes
-`Install Help.txt` with the Privacy & Security approval flow and a scoped
-quarantine-removal fallback for trusted downloads. Keep the release asset names
-`Rion.Studio-mac.dmg` and `Rion.Studio-win.exe` stable because the in-app update
-flow and README download links depend on them. Set
-`RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at runtime if release assets are
-hosted outside the default repository with the same asset names.
+Signed releases use Tauri's signed `latest.json`; the two-version/90-day upgrade
+window additionally publishes `latest.yml` and `latest-mac.yml` for legacy
+installations. Keep `Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`, and
+`Rion.Studio-win.exe` stable because updater manifests and README links depend on
+them. Manifests are uploaded only after the signed immutable assets verify.
 
 ### Windows Multi-Display Release Check
 

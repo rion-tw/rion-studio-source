@@ -14,15 +14,15 @@ before changing code.
 
 ## Project Boundaries
 
-- This is a Tauri 2 + React + TypeScript desktop app in transition from a legacy
-  Electron shell. Do not add new product dependencies on Electron.
+- This is a Tauri 2 + React + TypeScript desktop app. Tauri is the only supported
+  product shell; retired desktop-shell dependencies and source paths must not return.
 - The Rust core and Tauri shell own file system access, managed role stores,
   system WebView launch behavior, and browser lifecycle. The product runtime is
   WebView2 on Windows and WKWebView on macOS 14+.
-- The renderer is a React app. It must call `window.rionStudio` through the preload
-  bridge and must not import Node, Electron, or browser automation clients directly.
+- The renderer is a React app. It must call `window.rionStudio` through the typed
+  Tauri bridge and must not import Node, Tauri internals, or browser automation clients directly.
 - Shared contracts live under `src/shared` and should be treated as the source of
-  truth between Rust, Tauri, the temporary Electron bridge, renderer, and tests.
+  truth between Rust, Tauri, the renderer, and tests.
 
 ## Cross-Platform Development
 
@@ -51,11 +51,11 @@ contract together:
 
 1. Domain/input/output types in `src/shared/types.ts`
 2. API surface in `src/shared/api.ts`
-3. Channel constants in `src/shared/ipc.ts`
-4. Preload bridge in `src/preload/index.ts`
-5. Main process handler in `src/main/ipc/registerHandlers.ts`
+3. Rust command/result/effect model and generated contracts in `crates/rion-core`
+4. Tauri commands and shell effects under `src-tauri/src`
+5. Typed bridge in `src/renderer/src/tauri/installTauriBridge.ts`
 6. Renderer hook or feature usage under `src/renderer/src`
-7. Adjacent Vitest coverage under `tests`
+7. Adjacent Rust and Vitest coverage
 
 Avoid adding renderer-only shortcuts around this bridge.
 
@@ -94,5 +94,5 @@ pnpm run build
 pnpm run package
 ```
 
-`pnpm run build` currently validates the transitional Electron shell. Use
-`pnpm run build:tauri` for the target desktop shell.
+`pnpm run dev` performs cached native input attestation before starting Tauri.
+Use `pnpm run dev:degraded` only for explicit UI-only development.

@@ -121,7 +121,7 @@ export function App(): JSX.Element {
   );
   const updateGameBrowserSettings = useCallback(async (settings: GameBrowserSettings): Promise<GameBrowserSettings> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     const nextSettings = await window.rionStudio.updateGameBrowserSettings(settings);
@@ -130,7 +130,7 @@ export function App(): JSX.Element {
   }, []);
   const updateMacroSettings = useCallback(async (settings: MacroSettings): Promise<MacroSettings> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     const nextSettings = await window.rionStudio.updateMacroSettings(settings);
@@ -140,7 +140,7 @@ export function App(): JSX.Element {
   const updateRuntimeWindowPreferences = useCallback(
     async (next: RuntimeWindowPreferences): Promise<RuntimeWindowPreferences> => {
       if (!window.rionStudio) {
-        throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+        throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
       }
       const updated = await window.rionStudio.updateRuntimeWindowPreferences(next);
       setRuntimeWindowPreferences(updated);
@@ -150,7 +150,7 @@ export function App(): JSX.Element {
   );
   const loadSystemFonts = useCallback(async (): Promise<SystemFontFamily[]> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     if (systemFonts.length > 0) {
@@ -163,42 +163,42 @@ export function App(): JSX.Element {
   }, [systemFonts]);
   const loadGraphicsDiagnostics = useCallback(async (): Promise<GraphicsDiagnostics> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     return window.rionStudio.getGraphicsDiagnostics();
   }, []);
   const restartApplication = useCallback(async (): Promise<void> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     await window.rionStudio.restartApplication();
   }, []);
   const exportPortableData = useCallback(async (input: PortableExportInput): Promise<PortableExportResult | null> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     return window.rionStudio.exportPortableData(input);
   }, []);
   const previewPortableImport = useCallback(async (): Promise<PortableImportPreview | null> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
 
     return window.rionStudio.previewPortableImport();
   }, []);
   const discardPortableImport = useCallback(async (importId: string): Promise<void> => {
     if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
     }
     await window.rionStudio.discardPortableImport(importId);
   }, []);
   const applyPortableImport = useCallback(
     async (input: PortableImportInput): Promise<PortableImportResult> => {
       if (!window.rionStudio) {
-        throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+        throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
       }
 
       const result = await window.rionStudio.applyPortableImport(input);

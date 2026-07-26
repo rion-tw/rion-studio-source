@@ -3976,13 +3976,6 @@ impl AppCore {
         operation(runtime.as_ref().ok_or(CoreError::ShuttingDown)?)
     }
 
-    pub fn record_napi_latency(&self, duration_ms: f64) {
-        let _ = self.with_runtime(|runtime| {
-            runtime.telemetry.record_napi(duration_ms);
-            Ok(())
-        });
-    }
-
     fn capture_logs(
         &self,
         entries: Vec<LogCaptureRecord>,
@@ -4727,10 +4720,10 @@ mod tests {
     }
 
     #[test]
-    fn tauri_preview_startup_creates_a_valid_online_database_backup() {
+    fn tauri_stable_startup_creates_a_valid_online_database_backup() {
         let directory = tempfile::tempdir().unwrap();
         let options = || AppCoreOptions {
-            app_version: "2.1.0-preview".to_owned(),
+            app_version: "2.1.0".to_owned(),
             platform: "darwin".to_owned(),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
             performance_telemetry_path: None,
@@ -4738,7 +4731,7 @@ mod tests {
         let stable = AppCore::create(options()).unwrap();
         stable.shutdown();
 
-        let preview = AppCore::create_with_startup_backup(options(), "tauri-preview").unwrap();
+        let stable = AppCore::create_with_startup_backup(options(), "tauri-stable").unwrap();
         let backup_root = directory.path().join("shell-migration-backups");
         let backup = fs::read_dir(&backup_root)
             .unwrap()
@@ -4750,9 +4743,9 @@ mod tests {
         assert!(backup.join("logs.sqlite3").is_file());
         let manifest: Value =
             serde_json::from_slice(&fs::read(backup.join("manifest.json")).unwrap()).unwrap();
-        assert_eq!(manifest["label"], "tauri-preview");
-        assert_eq!(manifest["appVersion"], "2.1.0-preview");
-        preview.shutdown();
+        assert_eq!(manifest["label"], "tauri-stable");
+        assert_eq!(manifest["appVersion"], "2.1.0");
+        stable.shutdown();
     }
 
     fn first_game_id(core: &AppCore) -> String {
@@ -4929,7 +4922,7 @@ mod tests {
                 code: if action_name == "embeddedLoadRoles" {
                     "GAME_PAGE_LOAD_FAILED"
                 } else {
-                    "ELECTRON_EFFECT_FAILED"
+                    "DESKTOP_EFFECT_FAILED"
                 }
                 .to_owned(),
                 message: "The fixture rejected the desktop shell effect.".to_owned(),
@@ -5429,7 +5422,7 @@ mod tests {
     }
 
     #[test]
-    fn role_browser_data_clear_commits_only_after_the_electron_session_is_cleared() {
+    fn role_browser_data_clear_commits_only_after_the_native_session_is_cleared() {
         let (directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let browser = directory
@@ -5512,7 +5505,7 @@ mod tests {
             Some("roleBrowserDataClearSession"),
         );
 
-        assert_eq!(result.unwrap_err().code(), "ELECTRON_EFFECT_FAILED");
+        assert_eq!(result.unwrap_err().code(), "DESKTOP_EFFECT_FAILED");
         assert_eq!(fs::read(browser.join("session")).unwrap(), b"signed-in");
         assert!(
             core.with_runtime(|runtime| runtime.state.operation_journals())
@@ -6118,7 +6111,7 @@ mod tests {
             },
             Some("embeddedDestroyTab"),
         );
-        assert_eq!(stop.unwrap_err().code(), "ELECTRON_EFFECT_FAILED");
+        assert_eq!(stop.unwrap_err().code(), "DESKTOP_EFFECT_FAILED");
         assert!(
             actions.iter().any(|action| matches!(
                 action,
@@ -6148,7 +6141,7 @@ mod tests {
     }
 
     #[test]
-    fn rolls_back_runtime_and_electron_handles_after_load_failure() {
+    fn rolls_back_runtime_and_native_handles_after_load_failure() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let (result, actions) = drive_command(

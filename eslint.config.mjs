@@ -49,7 +49,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ["src/main/**/*.ts", "src/preload/**/*.ts", "tests/**/*.ts", "scripts/**/*.mjs", "electron.vite.config.ts"],
+    files: ["tests/**/*.ts", "scripts/**/*.mjs"],
     languageOptions: {
       globals: globals.node
     }

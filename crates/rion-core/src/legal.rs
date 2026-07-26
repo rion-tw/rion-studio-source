@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-pub const CURRENT_LEGAL_RELEASE: &str = "2026-07-14";
+pub const CURRENT_LEGAL_RELEASE: &str = "2026-07-26";
 
 pub fn current_versions() -> LegalDocumentVersionsRecord {
     LegalDocumentVersionsRecord {

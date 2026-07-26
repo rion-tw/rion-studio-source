@@ -129,13 +129,13 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
               </Select>
               <Select value={source} onValueChange={(value) => setSource(value as LogSource | typeof ALL)}>
                 <SelectTrigger className="w-36 settings-menu-control"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "preload", "renderer", "ipc", "browser", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                <SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "renderer", "ipc", "browser", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
               </Select>
               <Button type="button" variant={live ? "default" : "outline"} onClick={() => setLive((value) => !value)}>{t(live ? "settings.logsLiveOn" : "settings.logsLiveOff")}</Button>
             </div>
           </div>
           <div className="max-h-[430px] overflow-auto bg-black/5 font-mono text-[11px] dark:bg-black/20">
-            {entries.length ? entries.map((entry) => <LogEntryRow key={entry.id} entry={entry} />) : <p className="p-6 text-center text-muted-foreground">{t("settings.logsEmpty")}</p>}
+            {entries.length ? entries.map((entry) => <LogEntryRow key={entry.id} entry={entry} t={t} />) : <p className="p-6 text-center text-muted-foreground">{t("settings.logsEmpty")}</p>}
           </div>
           {cursor ? <div className="border-t border-border/50 p-3 text-center"><Button variant="outline" disabled={busy} onClick={() => void loadMore()}>{t("settings.logsLoadMore")}</Button></div> : null}
         </Surface>
@@ -144,8 +144,11 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
   );
 }
 
-function LogEntryRow({ entry }: { entry: LogEntry }): JSX.Element {
-  return <details className="border-b border-border/40 px-3 py-2 last:border-0"><summary className="cursor-pointer list-none"><span className="text-muted-foreground">{new Date(entry.timestamp).toLocaleTimeString()}</span> <span className={entry.level === "error" ? "text-destructive" : entry.level === "warn" ? "text-amber-600" : "text-foreground"}>[{entry.level.toUpperCase()}]</span> <span className="text-muted-foreground">[{entry.source}]</span> {entry.message}</summary>{entry.context || entry.error ? <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded bg-black/10 p-2 text-muted-foreground">{JSON.stringify({ context: entry.context, error: entry.error }, null, 2)}</pre> : null}</details>;
+function LogEntryRow({ entry, t }: { entry: LogEntry; t: Translator }): JSX.Element {
+  const source = entry.source === "preload"
+    ? `${entry.source} (${t("settings.logsLegacySource")})`
+    : entry.source;
+  return <details className="border-b border-border/40 px-3 py-2 last:border-0"><summary className="cursor-pointer list-none"><span className="text-muted-foreground">{new Date(entry.timestamp).toLocaleTimeString()}</span> <span className={entry.level === "error" ? "text-destructive" : entry.level === "warn" ? "text-amber-600" : "text-foreground"}>[{entry.level.toUpperCase()}]</span> <span className="text-muted-foreground">[{source}]</span> {entry.message}</summary>{entry.context || entry.error ? <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded bg-black/10 p-2 text-muted-foreground">{JSON.stringify({ context: entry.context, error: entry.error }, null, 2)}</pre> : null}</details>;
 }
 
 function formatBytes(bytes: number): string {

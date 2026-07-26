@@ -2,7 +2,7 @@
 
 Rion Studio keeps product state and runtime orchestration in Rust. The React
 renderer uses the shared `window.rionStudio` contract and cannot import Node,
-Tauri, Electron, WebKit, WebView2, or automation clients directly.
+Tauri internals, WebKit, WebView2, or automation clients directly.
 
 ## Ownership
 
@@ -13,10 +13,6 @@ Tauri, Electron, WebKit, WebView2, or automation clients directly.
   APIs into the core domain.
 - `rion-tauri` links `rion-core` directly and executes shell effects. Game
   surfaces use WebView2 on Windows and WKWebView on macOS.
-- `rion-node` and the Electron main/preload code are transitional hosts only.
-  They receive no new product behavior and are removed after the Tauri release
-  gates pass.
-
 The system WebView is the only game browser engine. A missing capability is a
 typed launch or macro error; the runtime never switches to another browser
 engine.
@@ -30,7 +26,7 @@ per-role WebView store and is not copied into SQLite or portable exports.
 
 Rust models generate the TypeScript files under `src/shared/generated`. Any
 renderer-facing capability must be implemented through the complete shared API,
-preload/Tauri bridge, shell command, core command/effect, and focused tests.
+typed Tauri bridge, shell command, core command/effect, and focused tests.
 
 ## Runtime effects
 
@@ -56,7 +52,7 @@ git diff --exit-code -- src/shared/generated
 pnpm run typecheck
 pnpm run test
 pnpm run lint
-pnpm run build:tauri:renderer
+pnpm run build:renderer
 cargo check -p rion-tauri
 ```
 

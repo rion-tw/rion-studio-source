@@ -1,6 +1,6 @@
 import type { LegalDocumentVersions } from "./types";
 
-export const CURRENT_LEGAL_RELEASE = "2026-07-14";
+export const CURRENT_LEGAL_RELEASE = "2026-07-26";
 
 export const CURRENT_LEGAL_DOCUMENT_VERSIONS = {
   fairUse: CURRENT_LEGAL_RELEASE,

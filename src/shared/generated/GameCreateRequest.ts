@@ -4,6 +4,6 @@ import type { BrowserEngineOverride } from "./BrowserEngineOverride";
 /**
  * Renderer-facing game creation contract. The similarly named `*InputRecord`
  * types below are private command payloads and may contain presence flags used
- * to preserve `undefined` versus `null` across Node-API.
+ * to preserve `undefined` versus `null` across the typed desktop bridge.
  */
 export type GameCreateRequest = { name: string, iconImageDataUrl?: string | null, coverImageDataUrl?: string | null, defaultLaunchUrl: string, browserEngine?: BrowserEngineOverride, };

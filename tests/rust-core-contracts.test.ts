@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
-import { v1Case } from "./helpers/v1Parity";
 
 describe("generated Rust core contracts", () => {
   it("exports a typed browser-action union instead of unvalidated payload JSON", async () => {
@@ -82,55 +81,33 @@ describe("generated Rust core contracts", () => {
   });
 });
 
-describe("Rust addon build verification", () => {
-  it("builds locked dev and release cdylibs into the platform-specific native resource", async () => {
-    const [script, workflow, packageJsonSource] = await Promise.all([
-      readFile("scripts/buildRustCore.mjs", "utf8"),
-      readFile(".github/workflows/ci.yml", "utf8"),
-      readFile("package.json", "utf8")
+describe("direct Rust core build verification", () => {
+  it("builds the core only through Cargo and the Tauri shell", async () => {
+    const [manifest, shellManifest, packageJsonSource, workflow] = await Promise.all([
+      readFile("Cargo.toml", "utf8"),
+      readFile("src-tauri/Cargo.toml", "utf8"),
+      readFile("package.json", "utf8"),
+      readFile(".github/workflows/ci.yml", "utf8")
     ]);
+    const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
 
-    expect(script).toContain('cliArguments[0] !== "--release"');
-    expect(script).toContain('const cargoProfileDirectory = release ? "release" : "debug"');
-    expect(script).toContain('...(release ? ["--release"] : [])');
-    expect(script).toContain('`${process.platform}-${process.arch}`');
-    expect(script).toContain('"rion-core.node"');
-    expect(script).toContain('process.platform === "darwin"');
-    expect(script).toContain('"/usr/bin/codesign"');
-    expect(script).toContain('["--force", "--sign", "-", destination]');
-    v1Case("platform-effect-lifecycle-5f80733882ba", () => {
-      const packageJson = JSON.parse(packageJsonSource) as {
-        scripts: Record<string, string>;
-      };
-      expect(packageJson.scripts["build:rust"]).toBe("node scripts/buildRustCore.mjs");
-      expect(packageJson.scripts["build:rust:release"]).toBe(
-        "node scripts/buildRustCore.mjs --release"
-      );
-      expect(packageJson.scripts.dev).toContain("pnpm run build:rust &&");
-      expect(packageJson.scripts["dev:release"]).toContain("pnpm run build:rust:release &&");
-      expect(packageJson.scripts["verify:rust"]).toContain("scripts/verifyRustCore.mjs");
-      expect(workflow).toContain("os: windows-latest");
-      expect(workflow).toContain("pnpm run build:rust:release && pnpm run verify:rust");
-      expect(workflow).not.toContain("pnpm run build:rust && pnpm run verify:rust");
-      expect(script).toContain('`${process.platform}-${process.arch}`');
-    });
+    expect(manifest).not.toContain("crates/rion-node");
+    expect(manifest).not.toContain("napi-build");
+    expect(shellManifest).toContain('rion-core = { path = "../crates/rion-core" }');
+    expect(packageJson.scripts.build).toContain("cargo build -p rion-tauri");
+    expect(workflow).toContain("pnpm run build");
+    expect(workflow).not.toContain("retired native addon");
   });
 
-  it("loads the packaged addon with Electron through the generic command/effect surface", async () => {
-    const [packaged, core] = await Promise.all([
-      readFile("scripts/verifyPackagedRustCore.mjs", "utf8"),
-      readFile("scripts/verifyRustCore.mjs", "utf8")
+  it("does not generate the retired addon latency contract", async () => {
+    const [model, telemetry, generated] = await Promise.all([
+      readFile("crates/rion-core/src/model.rs", "utf8"),
+      readFile("crates/rion-core/src/telemetry.rs", "utf8"),
+      readFile("src/shared/generated/PerformanceTelemetryRecord.ts", "utf8")
     ]);
-
-    expect(packaged).toContain('ELECTRON_RUN_AS_NODE: "1"');
-    expect(core).not.toContain("matchCdnUrl");
-    expect(core).not.toContain("externalProcessLaunch");
-    expect(core).not.toContain("externalProcessExited");
-    expect(core).toContain('type: "embeddedKeyPrepare"');
-    expect(core).toContain('type: "embeddedKeysHeld"');
-    expect(core).not.toContain("core.connectExternalChromeCdp(");
-    expect(core).not.toContain("core.prepareEmbeddedKeyTransition(");
-    expect(core).toContain("dispatchCoreEffectResults");
+    for (const source of [model, telemetry, generated]) {
+      expect(source).not.toContain("NapiLatency");
+      expect(source).not.toContain("record_napi");
+    }
   });
-
 });

@@ -36,9 +36,6 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install Linux Tauri build dependencies
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
@@ -47,12 +44,15 @@ jobs:
 
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        continue-on-error: true
         with:
           cache-bin: "false"
-          cache-on-failure: "false"
-          save-if: ${{ github.event_name == 'push' }}
           shared-key: checks-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Tauri-only product boundary
+        run: pnpm run verify:system-only
 
       - name: Check Rust formatting and lints
         run: pnpm run lint:rust
@@ -63,32 +63,21 @@ jobs:
       - name: Verify generated Rust contracts
         run: git diff --exit-code -- src/shared/generated
 
-      - name: Verify system-only product boundary
-        run: pnpm run verify:system-only
-
-      - name: Build and verify Rust Node-API core
-        run: pnpm run build:rust:release && pnpm run verify:rust
-
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Check Tauri shell
-        run: cargo check -p rion-tauri
-
-      - name: Build Tauri renderer
-        run: pnpm run build:tauri:renderer
-
-      - name: Test
+      - name: Test TypeScript and renderer behavior
         run: pnpm run test
 
-      - name: Lint
+      - name: Lint TypeScript
         run: pnpm run lint
 
-      - name: Build app
-        run: pnpm exec electron-vite build
+      - name: Build Tauri application
+        run: pnpm run build
 
   rust-concurrency-sanitizer:
     name: Linux Rust sanitizer and concurrency soak
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -116,7 +105,8 @@ jobs:
           done
 
   platform-package-smoke:
-    name: ${{ matrix.name }} package smoke
+    name: ${{ matrix.name }} Tauri package smoke
+    needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -124,16 +114,10 @@ jobs:
         include:
           - name: macOS arm64
             os: macos-latest
-            package_args: --dir --mac --arm64
             tauri_bundle: app
-            packaged_core: release/0.0.0-development/mac-arm64/Rion Studio.app/Contents/Resources/native/rion-core.node
-            packaged_executable: release/0.0.0-development/mac-arm64/Rion Studio.app/Contents/MacOS/Rion Studio
           - name: Windows x64
             os: windows-latest
-            package_args: --dir --win --x64
             tauri_bundle: nsis
-            packaged_core: release/0.0.0-development/win-unpacked/resources/native/rion-core.node
-            packaged_executable: release/0.0.0-development/win-unpacked/Rion Studio.exe
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -149,104 +133,35 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 
-      - name: Configure macOS compiler cache
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "ELECTRON_CACHE=${GITHUB_WORKSPACE}/.electron-cache" >> "${GITHUB_ENV}"
-          echo "ELECTRON_BUILDER_CACHE=${GITHUB_WORKSPACE}/.electron-builder-cache" >> "${GITHUB_ENV}"
-
-          if ! command -v ccache >/dev/null 2>&1; then
-            if ! command -v brew >/dev/null 2>&1 || ! brew install ccache; then
-              echo "ccache unavailable; falling back to the native clang compiler."
-              echo "CC=clang" >> "${GITHUB_ENV}"
-              echo "CXX=clang++" >> "${GITHUB_ENV}"
-              exit 0
-            fi
-          fi
-
-          echo "CCACHE_DIR=${GITHUB_WORKSPACE}/.ccache" >> "${GITHUB_ENV}"
-          echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
-          echo "CCACHE_COMPILERCHECK=content" >> "${GITHUB_ENV}"
-          echo "CC=ccache clang" >> "${GITHUB_ENV}"
-          echo "CXX=ccache clang++" >> "${GITHUB_ENV}"
-
-      - name: Restore macOS build caches
-        if: runner.os == 'macOS'
-        id: macos-build-cache
-        uses: actions/cache/restore@v5
-        continue-on-error: true
-        with:
-          path: |
-            .ccache
-            .electron-cache
-            .electron-builder-cache
-            ~/Library/Caches/node-gyp
-          key: macos-ccache-v1-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'package.json', 'pnpm-lock.yaml') }}
-          restore-keys: |
-            macos-ccache-v1-${{ runner.arch }}-
-
-      - name: Reset macOS compiler cache statistics
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          if command -v ccache >/dev/null 2>&1; then
-            ccache --zero-stats
-          fi
-
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        continue-on-error: true
         with:
           cache-bin: "false"
-          cache-on-failure: "false"
-          save-if: ${{ github.event_name == 'push' }}
-          shared-key: platform-release-${{ runner.os }}-${{ runner.arch }}
+          shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Test Rust workspace
-        run: pnpm run test:rust
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Verify system-only product boundary
+      - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
 
-      - name: Build and verify Rust Node-API core
-        run: pnpm run build:rust:release && pnpm run verify:rust
-
-      - name: Build app
-        run: pnpm run build
-
-      - name: Check Tauri shell on target platform
-        run: cargo check -p rion-tauri
-
-      - name: Build Tauri renderer
-        run: pnpm run build:tauri:renderer
-
-      - name: Attest macOS System WebView input
+      - name: Attest macOS System WebView behavior
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          pnpm run build:native:macos
-          pnpm run test:native:macos
           pnpm run test:native:system-input
           pnpm run test:native:runtime-restore
           pnpm run test:native:file-operations
           echo "RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR=$(sw_vers -productVersion | cut -d. -f1)" >> "${GITHUB_ENV}"
 
-      - name: Build and test Windows WebView2 adapter
+      - name: Attest Windows System WebView behavior
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pnpm run build:native:windows
-          pnpm run test:native:windows
           pnpm run test:native:system-input
           pnpm run test:native:runtime-restore
           pnpm run test:native:file-operations
@@ -255,58 +170,20 @@ jobs:
       - name: Build target-platform Tauri bundle
         run: pnpm exec tauri build --bundles ${{ matrix.tauri_bundle }}
 
-      - name: Verify packaged macOS System WebView input
+      - name: Verify packaged macOS System WebView behavior
         if: runner.os == 'macOS'
-        run: pnpm run test:native:system-input -- --executable "target/release/bundle/macos/Rion Studio Preview.app/Contents/MacOS/rion-tauri" --require-compiled-attestation
-
-      - name: Verify packaged macOS runtime restore
-        if: runner.os == 'macOS'
-        run: pnpm run test:native:runtime-restore -- --executable "target/release/bundle/macos/Rion Studio Preview.app/Contents/MacOS/rion-tauri"
-
-      - name: Verify packaged macOS file operations
-        if: runner.os == 'macOS'
-        run: pnpm run test:native:file-operations -- --executable "target/release/bundle/macos/Rion Studio Preview.app/Contents/MacOS/rion-tauri"
-
-      - name: Verify packaged Windows System WebView input
-        if: runner.os == 'Windows'
-        run: pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe --require-compiled-attestation
-
-      - name: Verify packaged Windows runtime restore
-        if: runner.os == 'Windows'
-        run: pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
-
-      - name: Verify packaged Windows file operations
-        if: runner.os == 'Windows'
-        run: pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
-
-      - name: Build unpacked application
-        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.package_args }} --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Verify packaged Rust Node-API core
-        run: node scripts/verifyPackagedRustCore.mjs "${{ matrix.packaged_executable }}" "${{ matrix.packaged_core }}"
-
-      - name: Report macOS compiler cache statistics
-        if: always() && runner.os == 'macOS'
         shell: bash
         run: |
-          if command -v ccache >/dev/null 2>&1; then
-            ccache --show-stats || true
-          fi
+          set -euo pipefail
+          executable="target/release/bundle/macos/Rion Studio.app/Contents/MacOS/rion-tauri"
+          pnpm run test:native:system-input -- --executable "${executable}" --require-compiled-attestation
+          pnpm run test:native:runtime-restore -- --executable "${executable}"
+          pnpm run test:native:file-operations -- --executable "${executable}"
 
-      - name: Save macOS build caches
-        if: >-
-          success() &&
-          runner.os == 'macOS' &&
-          github.event_name == 'push' &&
-          steps.macos-build-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        continue-on-error: true
-        with:
-          path: |
-            .ccache
-            .electron-cache
-            .electron-builder-cache
-            ~/Library/Caches/node-gyp
-          key: macos-ccache-v1-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'package.json', 'pnpm-lock.yaml') }}
+      - name: Verify packaged Windows System WebView behavior
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe --require-compiled-attestation
+          pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
+          pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe

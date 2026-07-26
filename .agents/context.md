@@ -10,10 +10,9 @@ The product browser runtime is the operating system WebView: WebView2 on Windows
 and WKWebView on macOS 14+. CDN rewriting, external Chrome, and Chrome profile
 import are retired capabilities and must not be reintroduced as fallbacks.
 
-The project is transitioning from an Electron shell to a Tauri 2 + React desktop
-app with a Rust production core. Electron remains only as a temporary legacy shell
-during parity work and is scheduled for complete removal. Do not add new product
-dependencies on Electron or an Electron runtime helper.
+The product is a Tauri 2 + React desktop app with a Rust production core. Tauri is
+the only desktop shell. Legacy runtime values remain readable only during the
+documented upgrade window and must never select a retired runtime.
 
 ## Architecture Map
 
@@ -21,23 +20,15 @@ dependencies on Electron or an Electron runtime helper.
   migrations, portable transactions, macro scheduling, runtime state, and logging.
 - `crates/rion-platform`: Explicit macOS and Windows system-WebView probes,
   platform paths, system fonts, and native shell adapters.
-- `crates/rion-node`: Temporary Node-API surface consumed by the legacy Electron
-  main process; remove after Tauri parity.
-- `src-tauri`: Target desktop shell. It links `rion-core` directly and owns native
+- `src-tauri`: Desktop shell. It links `rion-core` directly and owns native
   shell integration plus WebView2/WKWebView hosting.
-- `src/main`: Temporary legacy Electron main-process adapters. Owns app startup,
-  BrowserWindow/BaseWindow/WebContentsView and session objects, IPC handlers,
-  dialogs, menus, tray/updater integration, and execution of Electron-only
-  effects requested by the Rust core.
-- `src/preload`: Secure preload bridge. Exposes the typed `window.rionStudio`
-  API through Electron `contextBridge`.
-- `src/shared`: Main/preload/renderer contract. Contains IPC channel names,
-  public API shape, shared domain types, role color helpers, and workspace
+- `src/shared`: Rust/Tauri/renderer contract. Contains the public API shape,
+  generated domain types, role color helpers, and workspace
   layout helpers.
 - `src/renderer`: React renderer app. Contains routes, hooks, UI components,
   feature modules, translations, styling, and browser-safe presentation logic.
-- `tests`: Vitest unit tests for typed core clients, IPC handlers, shell/runtime
-  adapters, menu behavior, and renderer utilities.
+- `tests`: Vitest unit tests for typed contracts, release tooling, architecture
+  boundaries, and renderer utilities.
 
 ## Data Flow
 
@@ -53,18 +44,14 @@ renderer action
   -> renderer state refresh
 ```
 
-The legacy Electron preload/main path mirrors this contract only during the
-transition and must not gain new product behavior.
-
 Renderer code should stay browser-safe. It should not access Tauri internals,
-Electron, Node file system APIs, or child processes directly. Add new capabilities
-through the shared contract and implement both the Tauri bridge and any still-
-required transitional bridge together.
+Node file system APIs, or child processes directly. Add new capabilities through
+the shared contract, Rust core, Tauri shell, and typed renderer bridge together.
 
 ## Runtime Data
 
-The Rust core stores structured app metadata below `app.getPath("userData")` in
-`rion-studio.sqlite3`; high-volume logs use the separate `logs.sqlite3`
+The Rust core stores structured app metadata below the shared `Rion Studio`
+application-data directory in `rion-studio.sqlite3`; high-volume logs use `logs.sqlite3`
 database. SQLite is the only production metadata write source. Legacy JSON is
 read once during migration, copied into a timestamped read-only backup, and is
 not mirrored after migration. Installing an older release cannot retain changes
@@ -96,13 +83,12 @@ Important runtime pieces:
 - Tauri and platform adapters own only native object handles and apply the
   semantic effects selected by Rust.
 - System WebView sessions do not expose general remote debugging endpoints.
-- Capability gaps are reported explicitly; they do not trigger an Electron or
-  external-browser fallback.
+- Capability gaps are reported explicitly; they do not trigger another runtime fallback.
 - `pnpm run verify:system-only` is a mandatory CI and signed-candidate negative
   gate. It prevents removed CDN, External Chrome, Chrome Profile, helper, engine,
-  and Electron object-effect contracts from returning outside legacy migrations.
+  and retired object-effect contracts from returning outside legacy migrations.
 - `CoreEffectAction` contains only current product effects. Do not reintroduce
-  Electron window/view attachment, cookie/session, or generic debugger effects;
+  shell window/view attachment, cookie/session, or generic debugger effects;
   browser automation belongs in the typed `BrowserAction` union.
 - Trusted/background input is fail-closed. macOS builds promote it to supported
   only when the native and packaged Tauri `isTrusted`/1000-cycle harness supplies
@@ -195,8 +181,8 @@ text fitting within controls and cards at the app minimum window size of 960x640
 
 ## Testing Guidance
 
-Use Rust unit/property/integration tests for core behavior and Vitest for IPC,
-preload, Electron effects, and renderer behavior. Prefer dependency injection
+Use Rust unit/property/integration tests for core behavior and Vitest for typed
+bridge, architecture, release tooling, and renderer behavior. Prefer dependency injection
 and deterministic fixtures; release validation additionally uses packaged apps
 and a copy of real userData.
 
@@ -205,12 +191,11 @@ Common test areas:
 - Rust domain/repository: input normalization, validation, transaction rollback,
   schema upgrade, legacy migration, portable crash recovery, macro
   ordering/cancellation/held-key release, and system runtime recovery.
-- IPC: handler registration, state updates, error behavior, and interactions with
-  stores/managers.
+- Typed bridge: command routing, state updates, error behavior, and Tauri shell effects.
 - Browser effect adapters: launch/focus/stop effects, browser user data lock retry
   behavior, rollback, native crash recovery, and macOS/Windows capability paths.
 - Renderer utilities: layout math, cover color helpers, status summaries, and
-  workflow behavior that can be tested without Electron.
+  workflow behavior that can be tested without a native UI process.
 
 For runtime changes, run the narrowest relevant tests first, then broader checks
 as needed:
@@ -219,7 +204,6 @@ as needed:
 pnpm run typecheck
 pnpm run lint:rust
 pnpm run test:rust
-pnpm run verify:rust
 pnpm run test
 pnpm run lint
 pnpm run build

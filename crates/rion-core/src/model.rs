@@ -978,7 +978,7 @@ pub struct PortableExportResultRecord {
 
 /// Renderer-facing game creation contract. The similarly named `*InputRecord`
 /// types below are private command payloads and may contain presence flags used
-/// to preserve `undefined` versus `null` across Node-API.
+/// to preserve `undefined` versus `null` across the typed desktop bridge.
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -2910,17 +2910,6 @@ pub struct CountedLatencySummaryRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct NapiLatencySummaryRecord {
-    #[ts(type = "number")]
-    pub call_count: u64,
-    #[serde(flatten)]
-    #[ts(flatten)]
-    pub latency: LatencySummaryRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct PerformanceTelemetryRecord {
     #[ts(type = "number")]
     pub browser_result_count: u64,
@@ -2934,7 +2923,6 @@ pub struct PerformanceTelemetryRecord {
     pub main_event_loop_delay: LatencySummaryRecord,
     #[ts(type = "number")]
     pub menu_refresh_count: u64,
-    pub napi: NapiLatencySummaryRecord,
     pub core_effects: CoreEffectMetricsRecord,
     #[ts(type = "number")]
     pub process_launch_count: u64,

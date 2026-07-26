@@ -2,6 +2,5 @@
 import type { CoreEffectMetricsRecord } from "./CoreEffectMetricsRecord";
 import type { CountedLatencySummaryRecord } from "./CountedLatencySummaryRecord";
 import type { LatencySummaryRecord } from "./LatencySummaryRecord";
-import type { NapiLatencySummaryRecord } from "./NapiLatencySummaryRecord";
 
-export type PerformanceTelemetryRecord = { browserResultCount: number, cdp: CountedLatencySummaryRecord, coreEventBatchCount: number, ipcCommand: LatencySummaryRecord, layoutPassCount: number, macroScheduleToDispatch: LatencySummaryRecord, mainEventLoopDelay: LatencySummaryRecord, menuRefreshCount: number, napi: NapiLatencySummaryRecord, coreEffects: CoreEffectMetricsRecord, processLaunchCount: number, rendererRaf: LatencySummaryRecord, scheduledWaitCount: number, startedAt: string, tabActivation: LatencySummaryRecord, runtimePublishCount: number, workspaceLaunch: LatencySummaryRecord, };
+export type PerformanceTelemetryRecord = { browserResultCount: number, cdp: CountedLatencySummaryRecord, coreEventBatchCount: number, ipcCommand: LatencySummaryRecord, layoutPassCount: number, macroScheduleToDispatch: LatencySummaryRecord, mainEventLoopDelay: LatencySummaryRecord, menuRefreshCount: number, coreEffects: CoreEffectMetricsRecord, processLaunchCount: number, rendererRaf: LatencySummaryRecord, scheduledWaitCount: number, startedAt: string, tabActivation: LatencySummaryRecord, runtimePublishCount: number, workspaceLaunch: LatencySummaryRecord, };

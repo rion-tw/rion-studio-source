@@ -22,7 +22,7 @@ const translationLoaders: Record<Language, () => Promise<TranslationDictionary>>
 };
 
 const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
-  "Rion Studio preload bridge is unavailable. Restart the app after rebuilding.": "error.preloadBridgeUnavailable",
+  "Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.": "error.desktopBridgeUnavailable",
   "Role not found.": "error.roleNotFound",
   "Role data file is invalid.": "error.roleDataInvalid",
   "Role order is invalid.": "error.roleOrderInvalid",

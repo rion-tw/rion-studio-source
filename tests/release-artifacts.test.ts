@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,13 +9,13 @@ import {
   CHECKSUM_ASSET_NAME,
   REQUIRED_RELEASE_ASSETS,
   verifyReleaseAssets,
+  verifyReleaseChecksums,
   writeReleaseChecksums
 } from "../scripts/releaseArtifacts.mjs";
 import {
   assertPublicReleaseNotesSafe,
   sanitizePublicReleaseNotes
 } from "../scripts/sanitizePublicReleaseNotes.mjs";
-import { verifyPackagedUpdateConfig } from "../scripts/verifyPackagedUpdateConfig.mjs";
 
 describe("release artifact verification", () => {
   it("accepts the complete stable asset contract and writes deterministic checksums", async () => {
@@ -50,8 +51,19 @@ describe("release artifact verification", () => {
 
     const wrongVersionDirectory = await createReleaseFixture("1.19.0");
     await expect(verifyReleaseAssets(wrongVersionDirectory, "1.20.0")).rejects.toThrow(
-      "latest.yml version 1.19.0 does not match 1.20.0"
+      "latest.json version 1.19.0 does not match 1.20.0"
     );
+  });
+
+  it("rejects a release asset changed after checksums were published", async () => {
+    const directory = await createReleaseFixture("1.20.0");
+    await writeReleaseChecksums(directory);
+    await expect(verifyReleaseChecksums(directory)).resolves.toBeUndefined();
+
+    await writeFile(join(directory, "Rion.Studio-win.exe.sig"), "tampered-signature", "utf8");
+    await expect(
+      verifyReleaseAssets(directory, "1.20.0", { allowChecksums: true })
+    ).rejects.toThrow("SHA256SUMS.txt does not match the release assets");
   });
 });
 
@@ -78,48 +90,40 @@ describe("public release notes", () => {
   });
 });
 
-describe("packaged updater configuration", () => {
-  it("requires the public distribution repository", () => {
-    expect(() =>
-      verifyPackagedUpdateConfig(
-        "provider: github\nowner: rion-tw\nrepo: rion-studio\n",
-        "rion-tw/rion-studio"
-      )
-    ).not.toThrow();
-
-    expect(() =>
-      verifyPackagedUpdateConfig(
-        "provider: github\nowner: rion-tw\nrepo: rion-studio-source\n",
-        "rion-tw/rion-studio"
-      )
-    ).toThrow("does not match rion-studio");
-  });
-});
-
 async function createReleaseFixture(version: string, options: { omit?: string } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "rion-release-assets-"));
-
-  for (const name of REQUIRED_RELEASE_ASSETS) {
-    if (name === options.omit) {
-      continue;
-    }
-
-    if (name === "latest.yml") {
-      await writeFile(
-        join(directory, name),
-        `version: ${version}\nfiles:\n  - url: Rion.Studio-win.exe\npath: Rion.Studio-win.exe\n`,
-        "utf8"
-      );
-    } else if (name === "latest-mac.yml") {
-      await writeFile(
-        join(directory, name),
-        `version: ${version}\nfiles:\n  - url: Rion.Studio-mac.zip\n  - url: Rion.Studio-mac.dmg\npath: Rion.Studio-mac.zip\n`,
-        "utf8"
-      );
-    } else {
-      await writeFile(join(directory, name), `fixture:${name}`, "utf8");
-    }
-  }
-
+  const macDmg = join(directory, "Rion.Studio-mac.dmg");
+  const macArchive = join(directory, "Rion.Studio-mac.app.tar.gz");
+  const windowsInstaller = join(directory, "Rion.Studio-win.exe");
+  await Promise.all([
+    writeFile(macDmg, "fixture:mac-dmg"),
+    writeFile(macArchive, "fixture:mac-archive"),
+    writeFile(`${macArchive}.sig`, "mac-signature"),
+    writeFile(windowsInstaller, "fixture:windows-installer"),
+    writeFile(`${windowsInstaller}.sig`, "windows-signature")
+  ]);
+  runScript([
+    "scripts/createTauriUpdaterManifest.mjs",
+    "--version", version,
+    "--base-url", `https://downloads.example.test/${version}`,
+    "--mac-archive", macArchive,
+    "--windows-installer", windowsInstaller,
+    "--published-at", "2026-07-26T00:00:00Z",
+    "--output", join(directory, "latest.json")
+  ]);
+  runScript([
+    "scripts/createLegacyUpdateManifests.mjs",
+    "--version", version,
+    "--mac-dmg", macDmg,
+    "--windows-installer", windowsInstaller,
+    "--published-at", "2026-07-26T00:00:00Z",
+    "--output-directory", directory
+  ]);
+  if (options.omit) await rm(join(directory, options.omit));
   return directory;
+}
+
+function runScript(args: string[]): void {
+  const result = spawnSync(process.execPath, args, { cwd: process.cwd(), encoding: "utf8" });
+  expect(result.status, result.stderr).toBe(0);
 }

@@ -9,7 +9,7 @@ describe("renderer error localization", () => {
     );
   });
 
-  it("localizes Electron-wrapped standard errors", async () => {
+  it("localizes legacy-shell-wrapped standard errors", async () => {
     await loadTranslations("zh-TW");
 
     expect(
@@ -20,7 +20,7 @@ describe("renderer error localization", () => {
     ).toBe("角色名稱為必填。");
   });
 
-  it("removes Electron IPC details from unknown errors", () => {
+  it("removes legacy IPC details from unknown errors", () => {
     expect(
       localizeErrorMessage(
         "Error invoking remote method 'roles:create': Error: A new unknown failure occurred.",

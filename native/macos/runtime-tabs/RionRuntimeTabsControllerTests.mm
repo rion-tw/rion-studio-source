@@ -310,6 +310,25 @@ static NSDictionary<NSString *, id> *EvaluateProbe(WKWebView *webView,
   return (NSDictionary<NSString *, id> *)value;
 }
 
+static NSDictionary<NSString *, id> *WaitForTrustedInputProbe(
+    WKWebView *webView, NSTimeInterval timeout) {
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+  NSDictionary<NSString *, id> *result = nil;
+  do {
+    result = EvaluateProbe(
+        webView,
+        @"({...window.__rionInputProbe,background:!document.hasFocus()})");
+    if ([result[@"keyDownCount"] unsignedIntegerValue] > 0 &&
+        [result[@"keyUpCount"] unsignedIntegerValue] > 0 &&
+        [result[@"mouseDownCount"] unsignedIntegerValue] > 0 &&
+        [result[@"mouseUpCount"] unsignedIntegerValue] > 0) {
+      return result;
+    }
+    DrainMainQueue();
+  } while (deadline.timeIntervalSinceNow > 0);
+  return result;
+}
+
 static BOOL ReadTitlebarHeight(NSView *frameView, CGFloat *height) {
   if (!frameView || !height) return NO;
   SEL selector = NSSelectorFromString(@"_titlebarHeight");
@@ -557,6 +576,7 @@ int main() {
         (__bridge void *)inputProbe, "KeyA", false, 0, false);
     Assert(keyDownDispatched && keyUpDispatched,
            "The macOS adapter must accept background key down/up dispatch.");
+    DrainMainQueue();
     BOOL mouseDownDispatched = rion_wk_dispatch_mouse(
         (__bridge void *)inputProbe, 40, 40, 0, true);
     DrainMainQueue();
@@ -564,10 +584,8 @@ int main() {
         (__bridge void *)inputProbe, 40, 40, 0, false);
     Assert(mouseDownDispatched && mouseUpDispatched,
            "The macOS adapter must accept background mouse down/up dispatch.");
-    DrainMainQueue();
-    NSDictionary<NSString *, id> *inputProbeResult = EvaluateProbe(
-        inputProbe,
-        @"({...window.__rionInputProbe,background:!document.hasFocus()})");
+    NSDictionary<NSString *, id> *inputProbeResult =
+        WaitForTrustedInputProbe(inputProbe, 5.0);
     if (![inputProbeResult[@"keyDown"] boolValue] ||
         ![inputProbeResult[@"keyUp"] boolValue] ||
         ![inputProbeResult[@"mouseDown"] boolValue] ||

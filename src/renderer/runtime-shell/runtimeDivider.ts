@@ -6,7 +6,8 @@ document.body.dataset.axis = axis;
 let dragging = false;
 let pending: number | undefined;
 let frame: number | undefined;
-const coordinate = (event: PointerEvent): number => axis === "vertical" ? event.screenX : event.screenY;
+const pointerCoordinate = (event: PointerEvent): number =>
+  axis === "vertical" ? event.screenX : event.screenY;
 const send = (phase: "start" | "move" | "end" | "reset", screenPosition?: number): void => {
   void invoke("rion_divider_pointer", {
     payload: { phase, ...(screenPosition === undefined ? {} : { screenPosition }) }
@@ -23,17 +24,17 @@ const flush = (): void => {
 addEventListener("pointerdown", (event) => {
   dragging = true;
   document.body.setPointerCapture?.(event.pointerId);
-  send("start", coordinate(event));
+  send("start", pointerCoordinate(event));
   event.preventDefault();
 });
 addEventListener("pointermove", (event) => {
   if (!dragging) return;
-  pending = coordinate(event);
+  pending = pointerCoordinate(event);
   if (frame === undefined) frame = requestAnimationFrame(flush);
 }, { passive: true });
 const finish = (event?: PointerEvent): void => {
   if (!dragging) return;
-  if (event) pending = coordinate(event);
+  if (event) pending = pointerCoordinate(event);
   flush();
   dragging = false;
   send("end");

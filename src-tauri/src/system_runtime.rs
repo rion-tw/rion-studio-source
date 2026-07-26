@@ -34,7 +34,7 @@ use tauri::{
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(40);
 const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
-const WINDOWS_TAB_CHROME_HEIGHT: f64 = 44.0;
+const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
@@ -289,7 +289,7 @@ struct RuntimeTab {
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
     workspace_template: Option<String>,
     #[cfg(windows)]
-    tabs_chrome: Webview,
+    tab_strip: Webview,
     #[cfg(windows)]
     toolbar_revealed: bool,
     #[cfg(target_os = "macos")]
@@ -664,16 +664,17 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(windows)]
-    pub fn chrome_display_for_webview(&self, webview_label: &str) -> Option<i64> {
+    pub fn tab_strip_display_for_webview(&self, webview_label: &str) -> Option<i64> {
         self.state.lock().ok().and_then(|state| {
-            state.tabs.values().find_map(|tab| {
-                (tab.tabs_chrome.label() == webview_label).then_some(tab.display_id)
-            })
+            state
+                .tabs
+                .values()
+                .find_map(|tab| (tab.tab_strip.label() == webview_label).then_some(tab.display_id))
         })
     }
 
     #[cfg(not(windows))]
-    pub fn chrome_display_for_webview(&self, _webview_label: &str) -> Option<i64> {
+    pub fn tab_strip_display_for_webview(&self, _webview_label: &str) -> Option<i64> {
         None
     }
 
@@ -730,7 +731,7 @@ impl SystemRuntimeExecutor {
         _display_id: i64,
         _revealed: bool,
     ) -> Result<(), String> {
-        Err("Windows runtime tab chrome is unavailable on this platform".to_owned())
+        Err("Windows runtime tab strip is unavailable on this platform".to_owned())
     }
 
     pub fn handle_divider_pointer(
@@ -807,9 +808,9 @@ impl SystemRuntimeExecutor {
             let scale = window.scale_factor().map_err(|error| error.to_string())?;
             let position = window.inner_position().map_err(|error| error.to_string())?;
             #[cfg(windows)]
-            let metrics = runtime_window_content_metrics_with_chrome(
+            let metrics = runtime_window_content_metrics_with_tab_strip(
                 &window,
-                self.windows_tab_chrome_height(&window, _toolbar_revealed),
+                self.windows_tab_strip_height(&window, _toolbar_revealed),
             )
             .map_err(|error| error.message)?;
             #[cfg(not(windows))]
@@ -1187,9 +1188,9 @@ impl SystemRuntimeExecutor {
             return;
         };
         #[cfg(target_os = "macos")]
-        self.sync_native_tab_chrome(&snapshot);
+        self.sync_native_tab_strip(&snapshot);
         #[cfg(windows)]
-        self.sync_windows_tab_chrome(&snapshot);
+        self.sync_windows_tab_strip(&snapshot);
         let _ = self
             .app
             .emit("rion://runtime-state", self.projection(&snapshot));
@@ -2562,7 +2563,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab(&self, tab_id: &str) -> RuntimeResult<()> {
-        let (window, role_views, divider_views, gap, tabs_chrome, _toolbar_revealed) = {
+        let (window, role_views, divider_views, gap, tab_strip, _toolbar_revealed) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
@@ -2593,7 +2594,7 @@ impl SystemRuntimeExecutor {
                     .collect::<HashMap<_, _>>(),
                 tab.workspace_appearance.gap,
                 #[cfg(windows)]
-                Some(tab.tabs_chrome.clone()),
+                Some(tab.tab_strip.clone()),
                 #[cfg(not(windows))]
                 Option::<Webview>::None,
                 #[cfg(windows)]
@@ -2603,22 +2604,22 @@ impl SystemRuntimeExecutor {
             )
         };
         #[cfg(windows)]
-        let chrome_height = self.windows_tab_chrome_height(&window, _toolbar_revealed);
+        let tab_strip_height = self.windows_tab_strip_height(&window, _toolbar_revealed);
         #[cfg(windows)]
-        let metrics = runtime_window_content_metrics_with_chrome(&window, chrome_height)?;
+        let metrics = runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?;
         #[cfg(not(windows))]
         let metrics = runtime_window_content_metrics(&window)?;
         #[cfg(windows)]
-        if let Some(chrome) = tabs_chrome {
-            chrome
+        if let Some(tab_strip) = tab_strip {
+            tab_strip
                 .set_position(LogicalPosition::new(0.0, 0.0))
                 .map_err(RuntimeError::tauri)?;
-            chrome
-                .set_size(LogicalSize::new(metrics.width, chrome_height))
+            tab_strip
+                .set_size(LogicalSize::new(metrics.width, tab_strip_height))
                 .map_err(RuntimeError::tauri)?;
         }
         #[cfg(not(windows))]
-        let _ = tabs_chrome;
+        let _ = tab_strip;
         let role_inputs = role_views
             .iter()
             .map(|(_, _, input)| input.clone())
@@ -2689,16 +2690,16 @@ impl SystemRuntimeExecutor {
             crate::runtime_tabs_macos::MacRuntimeTabsController::create(&self.app, &window)
                 .map_err(|message| RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message))?;
         #[cfg(windows)]
-        let tabs_chrome = window
+        let tab_strip = window
             .add_child(
                 WebviewBuilder::new(
-                    runtime_label("game-tabs-chrome", &tab.tab_id),
+                    runtime_label("game-tab-strip", &tab.tab_id),
                     WebviewUrl::App("runtime-tabs.html".into()),
                 ),
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(
                     target.work_area.width.max(1) as f64,
-                    WINDOWS_TAB_CHROME_HEIGHT,
+                    WINDOWS_TAB_STRIP_HEIGHT,
                 ),
             )
             .map_err(RuntimeError::tauri)?;
@@ -2823,7 +2824,7 @@ impl SystemRuntimeExecutor {
                 workspace_appearance: tab.workspace_appearance,
                 workspace_template: tab.workspace_template,
                 #[cfg(windows)]
-                tabs_chrome,
+                tab_strip,
                 #[cfg(windows)]
                 toolbar_revealed: false,
                 #[cfg(target_os = "macos")]
@@ -3089,7 +3090,7 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(target_os = "macos")]
-    fn sync_native_tab_chrome(&self, snapshot: &BrowserRuntimeSnapshot) {
+    fn sync_native_tab_strip(&self, snapshot: &BrowserRuntimeSnapshot) {
         let always_show = crate::runtime_tabs_macos::fullscreen_preference(&self.core);
         let language = self
             .language
@@ -3190,7 +3191,7 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(windows)]
-    fn sync_windows_tab_chrome(&self, snapshot: &BrowserRuntimeSnapshot) {
+    fn sync_windows_tab_strip(&self, snapshot: &BrowserRuntimeSnapshot) {
         let projection = self.projection(snapshot);
         let language = self
             .language
@@ -3262,8 +3263,8 @@ impl SystemRuntimeExecutor {
                             })
                             .collect::<serde_json::Map<_, _>>();
                         let fullscreen = tab.window.is_fullscreen().unwrap_or(false);
-                        let mut chrome = projection.clone();
-                        if let Some(object) = chrome.as_object_mut() {
+                        let mut tab_strip_state = projection.clone();
+                        if let Some(object) = tab_strip_state.as_object_mut() {
                             object.insert(
                                 "alwaysShowToolbarInFullScreen".to_owned(),
                                 json!(always_show),
@@ -3283,18 +3284,20 @@ impl SystemRuntimeExecutor {
                             );
                             object.insert("windowFullscreen".to_owned(), json!(fullscreen));
                         }
-                        (tab.tabs_chrome.clone(), chrome)
+                        (tab.tab_strip.clone(), tab_strip_state)
                     })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        for (webview, chrome) in updates {
-            let _ = webview.eval(format!("window.__rionApplyRuntimeTabState?.({chrome});"));
+        for (webview, tab_strip_state) in updates {
+            let _ = webview.eval(format!(
+                "window.__rionApplyRuntimeTabState?.({tab_strip_state});"
+            ));
         }
     }
 
     #[cfg(windows)]
-    fn windows_tab_chrome_height(&self, window: &Window, toolbar_revealed: bool) -> f64 {
+    fn windows_tab_strip_height(&self, window: &Window, toolbar_revealed: bool) -> f64 {
         let fullscreen = window.is_fullscreen().unwrap_or(false);
         let always_show = self
             .core
@@ -3305,7 +3308,7 @@ impl SystemRuntimeExecutor {
         if fullscreen && !always_show && !toolbar_revealed {
             2.0
         } else {
-            WINDOWS_TAB_CHROME_HEIGHT
+            WINDOWS_TAB_STRIP_HEIGHT
         }
     }
 
@@ -4937,17 +4940,17 @@ fn format_ratio(value: f64) -> String {
 
 #[cfg(windows)]
 fn runtime_window_content_metrics(window: &Window) -> RuntimeResult<WindowContentMetrics> {
-    runtime_window_content_metrics_with_chrome(window, WINDOWS_TAB_CHROME_HEIGHT)
+    runtime_window_content_metrics_with_tab_strip(window, WINDOWS_TAB_STRIP_HEIGHT)
 }
 
 #[cfg(windows)]
-fn runtime_window_content_metrics_with_chrome(
+fn runtime_window_content_metrics_with_tab_strip(
     window: &Window,
-    chrome_height: f64,
+    tab_strip_height: f64,
 ) -> RuntimeResult<WindowContentMetrics> {
     let mut metrics = logical_window_content_metrics(window)?;
-    metrics.top_inset += chrome_height;
-    metrics.height = (metrics.height - chrome_height).max(1.0);
+    metrics.top_inset += tab_strip_height;
+    metrics.height = (metrics.height - tab_strip_height).max(1.0);
     Ok(metrics)
 }
 

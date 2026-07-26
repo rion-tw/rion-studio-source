@@ -419,7 +419,7 @@ bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
     NSWindow *window = webView.window;
     if (!window) return false;
     // Role WKWebViews are child views already positioned below the AppKit tab
-    // chrome. BrowserAction points are DOM viewport coordinates, so applying
+    // strip. BrowserAction points are DOM viewport coordinates, so applying
     // the parent window's contentLayoutRect here would add the titlebar inset a
     // second time (and can yield a negative clientY while the host is hidden).
     NSRect viewportBounds = webView.bounds;

@@ -1,4 +1,4 @@
-name: Tauri Signed Release Candidate
+name: Tauri Release Candidate
 
 on:
   workflow_call:
@@ -15,24 +15,6 @@ on:
       TAURI_SIGNING_PRIVATE_KEY:
         required: true
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
-        required: true
-      APPLE_CERTIFICATE:
-        required: true
-      APPLE_CERTIFICATE_PASSWORD:
-        required: true
-      KEYCHAIN_PASSWORD:
-        required: true
-      APPLE_ID:
-        required: true
-      APPLE_PASSWORD:
-        required: true
-      APPLE_TEAM_ID:
-        required: true
-      APPLE_SIGNING_IDENTITY:
-        required: true
-      WINDOWS_CERTIFICATE:
-        required: true
-      WINDOWS_CERTIFICATE_PASSWORD:
         required: true
   workflow_dispatch:
     inputs:
@@ -103,12 +85,6 @@ jobs:
       RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      RION_STUDIO_WINDOWS_TIMESTAMP_URL: ${{ vars.RION_STUDIO_WINDOWS_TIMESTAMP_URL }}
-      RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER: ${{ vars.RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER }}
     steps:
       - name: Checkout requested tag
         uses: actions/checkout@v7
@@ -132,7 +108,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-bin: "false"
-          shared-key: tauri-signed-${{ runner.os }}-${{ runner.arch }}
+          shared-key: tauri-release-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -142,43 +118,6 @@ jobs:
 
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
-
-      - name: Import Developer ID certificate
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          certificate_path="${RUNNER_TEMP}/rion-developer-id.p12"
-          keychain_path="${RUNNER_TEMP}/rion-build.keychain-db"
-          printf '%s' "${APPLE_CERTIFICATE}" | base64 --decode > "${certificate_path}"
-          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
-          security set-keychain-settings -lut 21600 "${keychain_path}"
-          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
-          security import "${certificate_path}" -P "${APPLE_CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "${keychain_path}"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${keychain_path}"
-          security list-keychain -d user -s "${keychain_path}"
-          security find-identity -v -p codesigning "${keychain_path}" | grep -F "${APPLE_SIGNING_IDENTITY}"
-
-      - name: Import Windows Authenticode certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) { throw "WINDOWS_CERTIFICATE is required." }
-          $certificatePath = Join-Path $env:RUNNER_TEMP "rion-authenticode.pfx"
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password
-          if ($null -eq $certificate -or [string]::IsNullOrWhiteSpace($certificate.Thumbprint)) { throw "Authenticode certificate import failed." }
-          if ([string]::IsNullOrWhiteSpace($env:RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER)) { throw "RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER must contain the exact legacy certificate subject." }
-          if ($certificate.Subject -cne $env:RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER) { throw "Authenticode publisher mismatch: expected '$env:RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER', received '$($certificate.Subject)'." }
-          "RION_STUDIO_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Attest macOS System WebView behavior
         if: runner.os == 'macOS'
@@ -199,7 +138,7 @@ jobs:
           pnpm run test:native:file-operations
           "RION_STUDIO_WINDOWS_INPUT_ATTESTED=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build signed Tauri candidate
+      - name: Build Tauri release candidate
         run: pnpm run dist -- --bundles ${{ matrix.bundles }}
 
       - name: Verify packaged macOS candidate
@@ -209,14 +148,13 @@ jobs:
           set -euo pipefail
           app_path="target/release/bundle/macos/Rion Studio.app"
           executable="${app_path}/Contents/MacOS/rion-tauri"
-          dmg_path="$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           pnpm run test:native:system-input -- --executable "${executable}" --require-compiled-attestation
           pnpm run test:native:runtime-restore -- --executable "${executable}"
           pnpm run test:native:file-operations -- --executable "${executable}"
           codesign --verify --deep --strict --verbose=2 "${app_path}"
-          spctl --assess --type execute --verbose=2 "${app_path}"
-          xcrun stapler validate "${app_path}"
-          xcrun stapler validate "${dmg_path}"
+          codesign_details="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
+          grep -F "Signature=adhoc" <<< "${codesign_details}"
+          grep -F "TeamIdentifier=not set" <<< "${codesign_details}"
           test -s "${app_path}.tar.gz"
           test -s "${app_path}.tar.gz.sig"
 
@@ -230,8 +168,7 @@ jobs:
           $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
           if ($null -eq $installer) { throw "NSIS installer is missing." }
           $signature = Get-AuthenticodeSignature $installer.FullName
-          if ($signature.Status -ne "Valid") { throw "Authenticode verification failed." }
-          if ($signature.SignerCertificate.Subject -cne $env:RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER) { throw "Packaged installer publisher does not match the legacy publisher." }
+          if ($signature.Status -ne "NotSigned") { throw "Windows candidate must remain unsigned like the legacy release." }
           if (-not (Test-Path "$($installer.FullName).sig" -PathType Leaf)) { throw "Updater signature is missing." }
 
       - name: Normalize release assets
@@ -249,7 +186,7 @@ jobs:
             cp "${installer}.sig" candidate/Rion.Studio-win.exe.sig
           fi
 
-      - name: Upload signed platform candidate
+      - name: Upload verified platform candidate
         uses: actions/upload-artifact@v7
         with:
           name: tauri-${{ matrix.name }}-${{ needs.validate.outputs.version }}
@@ -268,14 +205,14 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
 
-      - name: Download signed candidates
+      - name: Download verified candidates
         uses: actions/download-artifact@v8
         with:
           pattern: tauri-*-${{ needs.validate.outputs.version }}
           path: candidate
           merge-multiple: true
 
-      - name: Create signed and legacy updater manifests
+      - name: Create updater-signed and legacy manifests
         shell: bash
         env:
           UPDATER_BASE_URL: ${{ inputs.updater_base_url }}

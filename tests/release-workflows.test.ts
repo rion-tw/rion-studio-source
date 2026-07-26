@@ -26,24 +26,36 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).not.toContain("Node-API");
   });
 
-  it("builds only signed Tauri candidates and verifies packaged executables", async () => {
-    const workflow = await readWorkflow(".github/workflows/tauri-release-candidate.yml");
+  it("keeps legacy platform code-signing behavior while updater artifacts stay verified", async () => {
+    const [workflow, releaseScript, packageScript, macConfigSource] = await Promise.all([
+      readWorkflow(".github/workflows/tauri-release-candidate.yml"),
+      readWorkflow("scripts/buildTauriRelease.mjs"),
+      readWorkflow("scripts/packageTauri.mjs"),
+      readWorkflow("src-tauri/tauri.macos.conf.json")
+    ]);
+    const macConfig = JSON.parse(macConfigSource);
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("uses: ./.github/workflows/ci.yml");
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
-    expect(workflow).toContain("Import Developer ID certificate");
-    expect(workflow).toContain("Import Windows Authenticode certificate");
-    expect(workflow).toContain("RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER");
-    expect(workflow).toContain("certificate.Subject -cne");
-    expect(workflow).toContain("SignerCertificate.Subject -cne");
     expect(workflow).toContain("pnpm run release:version");
     expect(workflow).toContain("pnpm run dist -- --bundles");
     expect(workflow).toContain("codesign --verify --deep --strict");
-    expect(workflow).toContain("xcrun stapler validate");
+    expect(workflow).toContain("Signature=adhoc");
+    expect(workflow).toContain("TeamIdentifier=not set");
+    expect(workflow).not.toContain("Import Developer ID certificate");
+    expect(workflow).not.toContain("xcrun stapler validate");
+    expect(workflow).not.toContain("APPLE_CERTIFICATE");
+    expect(workflow).not.toContain("WINDOWS_CERTIFICATE");
+    expect(workflow).not.toContain("Import Windows Authenticode certificate");
+    expect(releaseScript).toContain('signingIdentity: "-"');
+    expect(releaseScript).toContain('delete buildEnvironment[name]');
+    expect(packageScript).toContain('signingIdentity: "-"');
+    expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
     expect(workflow).toContain("Get-AuthenticodeSignature");
+    expect(workflow).toContain('$signature.Status -ne "NotSigned"');
     expect(workflow).toContain("createTauriUpdaterManifest.mjs");
     expect(workflow).toContain("createLegacyUpdateManifests.mjs");
     expect(workflow).toContain("releaseArtifacts.mjs");
@@ -58,9 +70,9 @@ describe("Tauri-only release workflows", () => {
     expect(workflow.toLowerCase()).not.toContain("electron");
   });
 
-  it("publishes verified signed assets before the public release handoff", async () => {
+  it("publishes verified assets before the public release handoff", async () => {
     const workflow = await readWorkflow(".github/workflows/release.yml");
-    const buildIndex = workflow.indexOf("build-signed-tauri-release:");
+    const buildIndex = workflow.indexOf("build-tauri-release:");
     const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
     const publishIndex = workflow.indexOf("publish-public-release:");
 

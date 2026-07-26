@@ -50,7 +50,7 @@ const sourceRoots = [
   "crates/rion-platform/src",
   "scripts",
   "src-tauri",
-  "src/renderer/native-chrome",
+  "src/renderer/runtime-shell",
   "src/renderer/src",
   "src/shared"
 ];
@@ -75,7 +75,11 @@ const forbiddenTokens = [
   "rion-runtime-audio://",
   "build:tauri:renderer",
   "dev:tauri",
-  "remote-debugging-port"
+  "remote-debugging-port",
+  "RuntimeTabChromeState",
+  "game-tabs-chrome",
+  "native-chrome",
+  "runtimeTabsChrome"
 ];
 const migrationOnlyTokens = new Map([
   ["cdnCompatibility", new Set([

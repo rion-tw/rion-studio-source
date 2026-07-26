@@ -31,7 +31,7 @@ export type RuntimeTabAction =
       control: "close" | "minimize" | "toggleFullscreen" | "zoom";
     };
 
-export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
+export interface RuntimeTabStripState extends EmbeddedRuntimeState {
   alwaysShowToolbarInFullScreen: boolean;
   displayId: number;
   displays: WorkspaceDisplayInfo[];

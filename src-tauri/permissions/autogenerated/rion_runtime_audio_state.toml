@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-runtime-audio-state"
+description = "Enables the rion_runtime_audio_state command without any pre-configured scope."
+commands.allow = ["rion_runtime_audio_state"]
+
+[[permission]]
+identifier = "deny-rion-runtime-audio-state"
+description = "Denies the rion_runtime_audio_state command without any pre-configured scope."
+commands.deny = ["rion_runtime_audio_state"]

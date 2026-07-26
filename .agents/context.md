@@ -122,14 +122,16 @@ Important runtime pieces:
   corrupt input rejection, and a post-temporary-write atomic replacement failure.
   The failure gate must preserve the existing destination/domain collections and
   leave no portable, diagnostics, or log-export temporary files.
-- Proxy is creation-time session configuration. The macOS automatic packaged gate
-  inspects the actual `WKWebsiteDataStore.proxyConfigurations`; end-to-end macOS
-  proxy transport remains a candidate smoke with a mature proxy. The Windows gate
-  additionally requires a loopback request to traverse WebView2's configured proxy.
+- System WebViews inherit the operating system's network and proxy settings. Rion
+  Studio does not expose, persist, attest, or inject a custom proxy configuration.
 - Never hold `SystemRuntimeExecutor`'s runtime-state mutex while creating,
   closing, or calling into Tauri/native WebViews. Main-thread window callbacks
   also acquire this state; holding it across a native callback can deadlock a
   stop-then-launch sequence.
+- Do not synchronously call back into `AppCore` while applying a core effect.
+  The originating operation is waiting for that effect result and may hold an
+  operation sequence guard. A shell projection that needs core metadata must be
+  refreshed after `dispatch_core_effect_results` acknowledges the effect.
 - macOS has no public per-WKWebView audio mute API that preserves playback. The
   runtime dynamically checks WebKit's `_setPageMuted:` SPI before use and fails
   closed when absent. `setAllMediaPlaybackSuspended:` is not an equivalent mute

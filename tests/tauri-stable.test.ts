@@ -18,7 +18,7 @@ describe("Tauri Stable shell", () => {
       title: "Rion Studio",
       minWidth: 960,
       minHeight: 640,
-      visible: true
+      visible: false
     });
     expect(config.bundle.windows.nsis).toMatchObject({
       installMode: "currentUser",

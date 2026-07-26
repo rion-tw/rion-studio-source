@@ -75,6 +75,30 @@
         gap: 16px;
       }
 
+      .boot-fallback-error {
+        max-width: 560px;
+        border: 1px solid hsl(var(--boot-muted) / 0.2);
+        border-radius: 16px;
+        padding: 28px;
+        background: hsl(var(--boot-background) / 0.82);
+        box-shadow: 0 18px 54px hsl(var(--boot-shadow));
+        color: hsl(var(--boot-muted));
+        text-align: center;
+        -webkit-app-region: no-drag;
+      }
+
+      .boot-fallback-error h1 {
+        margin: 0 0 10px;
+        color: CanvasText;
+        font-size: 20px;
+      }
+
+      .boot-fallback-error p {
+        margin: 0;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
       .boot-fallback-icon {
         width: 64px;
         height: 64px;
@@ -122,6 +146,25 @@
         </div>
       </div>
     </div>
+    <script>
+      window.__rionShowStartupFailure = (message) => {
+        const root = document.getElementById("root");
+        if (!root) return;
+        const shell = document.createElement("div");
+        shell.className = "boot-fallback";
+        shell.setAttribute("data-tauri-drag-region", "");
+        const panel = document.createElement("section");
+        panel.className = "boot-fallback-error";
+        panel.setAttribute("role", "alert");
+        const title = document.createElement("h1");
+        title.textContent = "Rion Studio could not start";
+        const detail = document.createElement("p");
+        detail.textContent = typeof message === "string" && message ? message : "The desktop renderer did not become ready.";
+        panel.append(title, detail);
+        shell.append(panel);
+        root.replaceChildren(shell);
+      };
+    </script>
     <script
       type="module"
       src="/src/main.tsx"

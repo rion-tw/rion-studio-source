@@ -24,7 +24,7 @@ Rion Studio stores isolated browser profiles on your device. These profiles may 
 
 ## 6. Network features
 
-Update checks communicate with GitHub Releases. A custom proxy can process browser traffic. These services are outside the Rion Studio project's control and do not guarantee availability, privacy, integrity, or regional access.
+Update checks communicate with GitHub Releases, and System WebViews follow the operating system's network settings. These services and settings are outside the Rion Studio project's control and do not guarantee availability, privacy, integrity, or regional access.
 
 ## 7. Availability and changes
 

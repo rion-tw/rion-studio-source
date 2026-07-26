@@ -235,7 +235,6 @@ fn inactive(game_id: &str) -> CoreError {
 #[serde(rename_all = "camelCase")]
 struct FingerprintInput<'a> {
     default_launch_url: &'a str,
-    network: &'a crate::model::BrowserNetworkSettingsRecord,
     graphics: &'a crate::model::BrowserGraphicsSettingsRecord,
     engine: crate::model::ResolvedBrowserEngine,
     engine_version: &'a str,
@@ -250,7 +249,6 @@ fn configuration_fingerprint(
 ) -> CoreResult<String> {
     let encoded = serde_json::to_vec(&FingerprintInput {
         default_launch_url: &game.default_launch_url,
-        network: &settings.network,
         graphics: &settings.graphics,
         engine: versions.engine,
         engine_version: &versions.engine_version,
@@ -280,7 +278,6 @@ mod tests {
                 "fonts": {"mode":"default","families":{}},
                 "graphics": {"mode":"automatic"}, "browserEngine":"system",
                 "macroBadgePosition":{"horizontalAlign":"right","horizontalMarginPx":16,"topPx":16},
-                "network":{"proxy":{"mode":"system","server":""}},
                 "workspace":{"background":"material","gap":4}
             }
         }))

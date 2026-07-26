@@ -1,4 +1,13 @@
-use std::{collections::HashSet, path::PathBuf, sync::Arc, thread};
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
 
 #[cfg(any(windows, target_os = "macos"))]
 use std::fs;
@@ -6,14 +15,18 @@ use std::fs;
 use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, EmbeddedLaunchTargetRecord, StateCollection,
-    StatePixelBoundsRecord, WorkspaceDisplayInfoRecord,
+    StatePixelBoundsRecord, WorkspaceDisplayInfoRecord, migrate_legacy_data_root,
 };
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State, Webview, WebviewWindow};
 
 mod activation;
+mod application_menu;
 mod native_shell;
 mod quick_menu;
+mod runtime_tab_menu;
+#[cfg(target_os = "macos")]
+mod runtime_tabs_macos;
 mod system_runtime;
 mod update_manager;
 
@@ -23,6 +36,7 @@ use system_runtime::SystemRuntimeExecutor;
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
 const OVERLAY_REQUEST_MAX_BYTES: usize = 64 * 1024;
 const SHARED_DATA_DIRECTORY_NAME: &str = "Rion Studio";
+const LEGACY_DATA_DIRECTORY_NAME: &str = "rion-studio";
 const INPUT_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_INPUT_ATTESTATION_OUTPUT";
 const FILE_OPERATIONS_ATTESTATION_OUTPUT_ENV: &str =
     "RION_STUDIO_FILE_OPERATIONS_ATTESTATION_OUTPUT";
@@ -30,6 +44,7 @@ const RESTORE_ATTESTATION_FIXTURE_URL_ENV: &str =
     "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_FIXTURE_URL";
 const RESTORE_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT";
 const RESTORE_ATTESTATION_STAGE_ENV: &str = "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_STAGE";
+const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     match action {
@@ -63,8 +78,31 @@ struct CoreState {
     _activation: ActivationServer,
     _quick_menu: tauri::tray::TrayIcon,
     core: Arc<AppCore>,
+    main_window_zoom: Mutex<f64>,
+    menu_language: Mutex<String>,
+    pending_workspace_launch_request: Mutex<Option<Value>>,
+    renderer_ready: Arc<AtomicBool>,
     runtime: Arc<SystemRuntimeExecutor>,
     updates: Arc<update_manager::UpdateManager>,
+}
+
+#[derive(Default)]
+struct StartupFailureState(Mutex<Option<String>>);
+
+fn show_startup_failure(app: &tauri::App, error: &dyn std::fmt::Display) {
+    let message = format!("Rion Studio could not finish starting.\n\n{error}");
+    if let Some(state) = app.try_state::<StartupFailureState>()
+        && let Ok(mut current) = state.0.lock()
+    {
+        *current = Some(message.clone());
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let encoded = serde_json::to_string(&message)
+            .unwrap_or_else(|_| "\"Rion Studio could not finish starting.\"".to_owned());
+        let _ = window.eval(format!("window.__rionShowStartupFailure?.({encoded});"));
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 fn platform_name() -> Result<&'static str, String> {
@@ -79,6 +117,12 @@ fn platform_name() -> Result<&'static str, String> {
 
 fn shared_user_data_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("RION_STUDIO_USER_DATA_DIR") {
+        if !user_data_override_allowed() {
+            return Err(
+                "RION_STUDIO_USER_DATA_DIR is restricted to debug and native attestation builds."
+                    .to_owned(),
+            );
+        }
         let path = PathBuf::from(path);
         if path.is_absolute() {
             return Ok(path);
@@ -89,6 +133,17 @@ fn shared_user_data_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<PathBu
         .data_dir()
         .map(|path| path.join(SHARED_DATA_DIRECTORY_NAME))
         .map_err(|error| error.to_string())
+}
+
+fn user_data_override_allowed() -> bool {
+    cfg!(debug_assertions)
+        || [
+            INPUT_ATTESTATION_OUTPUT_ENV,
+            FILE_OPERATIONS_ATTESTATION_OUTPUT_ENV,
+            RESTORE_ATTESTATION_OUTPUT_ENV,
+        ]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
 }
 
 fn input_attestation_output_path() -> Result<Option<PathBuf>, String> {
@@ -173,6 +228,7 @@ fn shell_error(code: &str, message: impl Into<String>) -> CoreErrorPayload {
 
 #[tauri::command]
 async fn rion_core_invoke(
+    app: AppHandle,
     state: State<'_, CoreState>,
     command: Value,
 ) -> Result<Value, CoreErrorPayload> {
@@ -181,7 +237,11 @@ async fn rion_core_invoke(
             code: "CORE_INPUT_INVALID".to_owned(),
             message: error.to_string(),
         })?;
-    if command.requires_async_dispatch() {
+    let menu_language = match &command {
+        CoreCommand::OverlayLanguageSet { language } => Some(language.clone()),
+        _ => None,
+    };
+    let result = if command.requires_async_dispatch() {
         Arc::clone(&state.core)
             .invoke_async(command)
             .await
@@ -195,7 +255,17 @@ async fn rion_core_invoke(
                 message: error.to_string(),
             })?
             .map_err(error_payload)
+    };
+    if result.is_ok()
+        && let Some(language) = menu_language
+    {
+        if let Ok(mut current) = state.menu_language.lock() {
+            *current = language.clone();
+        }
+        state.runtime.set_language(&language);
+        let _ = application_menu::install(&app, &state.core, &language);
     }
+    result
 }
 
 #[tauri::command]
@@ -226,6 +296,55 @@ async fn rion_overlay_request(
         })
         .await
         .map_err(error_payload)
+}
+
+#[tauri::command]
+async fn rion_runtime_audio_state(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    audible: bool,
+) -> Result<(), CoreErrorPayload> {
+    let role_id = state
+        .runtime
+        .role_id_for_webview(webview.label())
+        .map_err(|message| shell_error("TAURI_RUNTIME_AUDIO_UNAUTHORIZED", message))?;
+    state
+        .runtime
+        .set_webview_audible(webview.label(), &role_id, audible)
+        .map_err(|message| shell_error("TAURI_RUNTIME_AUDIO_FAILED", message))
+}
+
+#[tauri::command]
+async fn rion_divider_pointer(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    payload: system_runtime::DividerPointerPayload,
+) -> Result<(), CoreErrorPayload> {
+    state
+        .runtime
+        .handle_divider_pointer(webview.label(), payload)
+        .map_err(|message| shell_error("TAURI_DIVIDER_FAILED", message))
+}
+
+#[tauri::command]
+async fn rion_runtime_tab_action(
+    app: AppHandle,
+    webview: Webview,
+    state: State<'_, CoreState>,
+    action: Value,
+) -> Result<(), CoreErrorPayload> {
+    let display_id = state
+        .runtime
+        .chrome_display_for_webview(webview.label())
+        .ok_or_else(|| {
+            shell_error(
+                "TAURI_RUNTIME_CHROME_UNAUTHORIZED",
+                "Runtime tab actions are restricted to the local tab chrome WebView.",
+            )
+        })?;
+    runtime_tab_menu::handle_scoped_action(&app, &state, display_id, action)
+        .await
+        .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))
 }
 
 #[tauri::command]
@@ -469,6 +588,7 @@ async fn rion_shell_invoke(
 ) -> Result<Value, CoreErrorPayload> {
     match operation.as_str() {
         "rendererReady" => {
+            state.renderer_ready.store(true, Ordering::Release);
             window
                 .show()
                 .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
@@ -477,9 +597,18 @@ async fn rion_shell_invoke(
         "appSnapshot" => app_snapshot(&state, &window),
         "currentWindowState" => Ok(json!({ "fullscreen": window.is_fullscreen()
             .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))? })),
-        "refreshQuickMenu" => quick_menu::refresh(&app, &state.core)
-            .map(|()| Value::Null)
-            .map_err(|error| shell_error("SHELL_MENU_FAILED", error)),
+        "refreshQuickMenu" => quick_menu::refresh(
+            &app,
+            &state.core,
+            &state.runtime,
+            &state
+                .menu_language
+                .lock()
+                .map(|value| value.clone())
+                .unwrap_or_else(|_| "en".to_owned()),
+        )
+        .map(|()| Value::Null)
+        .map_err(|error| shell_error("SHELL_MENU_FAILED", error)),
         "quitApplication" => {
             app.exit(0);
             Ok(Value::Null)
@@ -525,6 +654,19 @@ async fn rion_shell_invoke(
         }
         "launchWorkspace" => {
             let workspace_id = string_argument(&args, 0, "Workspace ID")?;
+            let workspace_name = state
+                .core
+                .invoke(CoreCommand::WorkspacesList)
+                .ok()
+                .and_then(|value| value.as_array().cloned())
+                .and_then(|workspaces| {
+                    workspaces.into_iter().find_map(|workspace| {
+                        (workspace["id"].as_str() == Some(workspace_id.as_str()))
+                            .then(|| workspace["name"].as_str().map(str::to_owned))
+                            .flatten()
+                    })
+                })
+                .unwrap_or_else(|| workspace_id.clone());
             let requested_display_id = args
                 .get(1)
                 .and_then(|value| value.get("displayId"))
@@ -532,11 +674,19 @@ async fn rion_shell_invoke(
             let target = match workspace_launch_target(&window, requested_display_id) {
                 Ok(target) => target,
                 Err(_) => {
-                    return Ok(json!({
+                    let result = json!({
                         "kind": "display_selection_required",
                         "reason": "target_unavailable",
                         "displays": workspace_displays(&window)?
-                    }));
+                    });
+                    if let Ok(mut pending) = state.pending_workspace_launch_request.lock() {
+                        *pending = Some(json!({
+                            "workspaceId": workspace_id,
+                            "workspaceName": workspace_name,
+                            "result": result
+                        }));
+                    }
+                    return Ok(result);
                 }
             };
             let display_id = target.display_id;
@@ -656,7 +806,12 @@ async fn rion_shell_invoke(
                 .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))?;
             app.restart();
         }
-        "consumePendingWorkspaceLaunchRequest" => Ok(Value::Null),
+        "consumePendingWorkspaceLaunchRequest" => Ok(state
+            .pending_workspace_launch_request
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.take())
+            .unwrap_or(Value::Null)),
         "consumePendingMacroPageRequest" => Ok(state
             .runtime
             .take_macro_page_request()
@@ -1656,8 +1811,50 @@ fn workspace_launch_target(
     })
 }
 
+pub(crate) fn launch_target_for_app_display(
+    app: &AppHandle,
+    display_id: i64,
+) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
+    let monitor = app
+        .available_monitors()
+        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?
+        .into_iter()
+        .find(|monitor| monitor_id(monitor) == display_id)
+        .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
+    let scale_factor = monitor.scale_factor();
+    let work_area = monitor.work_area();
+    Ok(EmbeddedLaunchTargetRecord {
+        display_id: monitor_id(&monitor),
+        work_area: StatePixelBoundsRecord {
+            x: (work_area.position.x as f64 / scale_factor).round() as i32,
+            y: (work_area.position.y as f64 / scale_factor).round() as i32,
+            width: (work_area.size.width as f64 / scale_factor).round() as i32,
+            height: (work_area.size.height as f64 / scale_factor).round() as i32,
+        },
+    })
+}
+
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default()
+        .manage(StartupFailureState::default())
+        .on_page_load(|webview, _| {
+            if webview.label() != "main" {
+                return;
+            }
+            let app = webview.app_handle();
+            let message = app
+                .try_state::<StartupFailureState>()
+                .and_then(|state| state.0.lock().ok().and_then(|value| value.clone()));
+            if let Some(message) = message {
+                let encoded = serde_json::to_string(&message)
+                    .unwrap_or_else(|_| "\"Rion Studio could not finish starting.\"".to_owned());
+                let _ = webview.eval(format!("window.__rionShowStartupFailure?.({encoded});"));
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
     let builder = if update_manager::embedded_updater_public_key().is_some() {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     } else {
@@ -1678,8 +1875,12 @@ pub fn run() {
             );
         }
     });
+    let builder = builder.on_menu_event(|app, event| {
+        application_menu::handle_event(app, event.id().as_ref());
+    });
     builder
         .setup(|app| {
+            let setup_result = (|| -> Result<(), Box<dyn std::error::Error>> {
             let input_attestation_output = input_attestation_output_path()
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let file_operations_attestation_output = file_operations_attestation_output_path()
@@ -1695,6 +1896,17 @@ pub fn run() {
             let user_data_dir = shared_user_data_dir(app)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let app_version = app.package_info().version.to_string();
+            if std::env::var_os("RION_STUDIO_USER_DATA_DIR").is_none() {
+                let data_parent = app
+                    .path()
+                    .data_dir()
+                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+                migrate_legacy_data_root(
+                    &data_parent.join(LEGACY_DATA_DIRECTORY_NAME),
+                    &user_data_dir,
+                    &app_version,
+                )?;
+            }
             let core = match AppCore::create_with_startup_backup(
                 AppCoreOptions {
                     app_version: app_version.clone(),
@@ -1739,7 +1951,11 @@ pub fn run() {
                 registration: runtime.registration(),
             })?;
             let receiver = core.subscribe()?;
-            let quick_menu = quick_menu::create(&app.handle().clone(), Arc::clone(&core))?;
+            let quick_menu = quick_menu::create(
+                &app.handle().clone(),
+                Arc::clone(&core),
+                Arc::clone(&runtime),
+            )?;
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),
                 app.package_info().version.to_string(),
@@ -1822,8 +2038,24 @@ pub fn run() {
                                     {
                                         let menu_app = app_handle.clone();
                                         let menu_core = Arc::clone(&effect_core);
+                                        let menu_runtime = Arc::clone(&effect_runtime);
                                         let _ = app_handle.run_on_main_thread(move || {
-                                            let _ = quick_menu::refresh(&menu_app, &menu_core);
+                                            let language = menu_app
+                                                .try_state::<CoreState>()
+                                                .and_then(|state| {
+                                                    state
+                                                        .menu_language
+                                                        .lock()
+                                                        .ok()
+                                                        .map(|value| value.clone())
+                                                })
+                                                .unwrap_or_else(|| "en".to_owned());
+                                            let _ = quick_menu::refresh(
+                                                &menu_app,
+                                                &menu_core,
+                                                &menu_runtime,
+                                                &language,
+                                            );
                                         });
                                     }
                                     renderer_events.push(event);
@@ -1838,13 +2070,21 @@ pub fn run() {
                         }
                     }
                 })?;
+            let renderer_ready = Arc::new(AtomicBool::new(false));
             app.manage(CoreState {
                 _activation: activation,
                 _quick_menu: quick_menu,
                 core,
+                main_window_zoom: Mutex::new(1.0),
+                menu_language: Mutex::new("en".to_owned()),
+                pending_workspace_launch_request: Mutex::new(None),
+                renderer_ready: Arc::clone(&renderer_ready),
                 runtime,
                 updates,
             });
+            if let Some(state) = app.try_state::<CoreState>() {
+                application_menu::install(app.handle(), &state.core, "en")?;
+            }
             if let Some(request) = restore_attestation {
                 #[cfg(any(windows, target_os = "macos"))]
                 start_runtime_restore_attestation(app.handle().clone(), request)?;
@@ -1873,12 +2113,43 @@ pub fn run() {
                 return Err("System input attestation supports only macOS and Windows.".into());
             } else {
                 start_display_watcher(app.handle().clone())?;
+                let ready_app = app.handle().clone();
+                thread::Builder::new()
+                    .name("rion-tauri-renderer-ready".to_owned())
+                    .spawn(move || {
+                        thread::sleep(RENDERER_READY_TIMEOUT);
+                        if renderer_ready.load(Ordering::Acquire) {
+                            return;
+                        }
+                        let dispatch_app = ready_app.clone();
+                        let _ = ready_app.run_on_main_thread(move || {
+                            if let Some(window) = dispatch_app.get_webview_window("main") {
+                                let message = serde_json::to_string(
+                                    "The desktop renderer did not become ready within 15 seconds. Check the diagnostics log and restart Rion Studio.",
+                                )
+                                .unwrap_or_else(|_| "\"Renderer startup timed out.\"".to_owned());
+                                let _ = window.eval(format!(
+                                    "window.__rionShowStartupFailure?.({message});"
+                                ));
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        });
+                    })?;
+            }
+                Ok(())
+            })();
+            if let Err(error) = setup_result {
+                show_startup_failure(app, error.as_ref());
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             rion_core_invoke,
+            rion_divider_pointer,
             rion_overlay_request,
+            rion_runtime_audio_state,
+            rion_runtime_tab_action,
             rion_dispatch_core_effect_results,
             rion_shared_user_data_dir,
             rion_shell_invoke
@@ -1888,7 +2159,9 @@ pub fn run() {
         .run(|app_handle, event| {
             match event {
                 tauri::RunEvent::ExitRequested { .. } => {
-                    let state = app_handle.state::<CoreState>();
+                    let Some(state) = app_handle.try_state::<CoreState>() else {
+                        return;
+                    };
                     if let Err(error) = state.runtime.persist_restore_session(true) {
                         let _ = app_handle.emit(
                             "rion://shell-error",
@@ -1901,7 +2174,14 @@ pub fn run() {
                     state.runtime.close_all();
                 }
                 tauri::RunEvent::WindowEvent { label, event, .. } => {
-                    let state = app_handle.state::<CoreState>();
+                    let Some(state) = app_handle.try_state::<CoreState>() else {
+                        if matches!(event, tauri::WindowEvent::CloseRequested { .. })
+                            && label == "main"
+                        {
+                            app_handle.exit(1);
+                        }
+                        return;
+                    };
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } if label == "main" => {
                             api.prevent_close();
@@ -1915,7 +2195,19 @@ pub fn run() {
                             api.prevent_close();
                         }
                         tauri::WindowEvent::Resized(size) => {
-                            state.runtime.resize_window(&label, size.width, size.height);
+                            #[cfg(target_os = "macos")]
+                            if let Some(window) = app_handle.get_window(&label)
+                                && let Ok(fullscreen) = window.is_fullscreen()
+                            {
+                                state
+                                    .runtime
+                                    .prepare_runtime_window_fullscreen(&label, fullscreen);
+                            }
+                            state.runtime.schedule_resize_window(
+                                label.clone(),
+                                size.width,
+                                size.height,
+                            );
                             if label == "main"
                                 && let Some(window) = app_handle.get_webview_window("main")
                             {
@@ -1940,7 +2232,12 @@ pub fn run() {
                             }
                         }
                         tauri::WindowEvent::Focused(true) if label != "main" => {
-                            let _ = state.runtime.persist_restore_session(false);
+                            let runtime = Arc::clone(&state.runtime);
+                            let _ = thread::Builder::new()
+                                .name("rion-runtime-focus-persist".to_owned())
+                                .spawn(move || {
+                                    let _ = runtime.persist_restore_session(false);
+                                });
                         }
                         tauri::WindowEvent::Destroyed => {
                             state.runtime.forget_popup(&label);
@@ -1957,9 +2254,10 @@ pub fn run() {
                     }
                 }
                 tauri::RunEvent::Exit => {
-                    let state = app_handle.state::<CoreState>();
-                    state.runtime.close_all();
-                    state.core.shutdown();
+                    if let Some(state) = app_handle.try_state::<CoreState>() {
+                        state.runtime.close_all();
+                        state.core.shutdown();
+                    }
                 }
                 _ => {}
             }

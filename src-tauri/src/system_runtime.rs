@@ -15,10 +15,12 @@ use rion_core::{
     CoreEffectResult, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
     EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
     EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsRecord, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
-    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, StateNormalizedRectRecord,
-    StateRoleRecord, StateWorkspaceDisplayTargetRecord, SystemWebViewRuntimeRegistrationRecord,
-    WorkspaceAppearanceSettingsRecord,
+    GameBrowserSettingsRecord, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
+    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+    RuntimeRestoreWindowRecord, StateGameRecord, StateNormalizedRectRecord, StateRoleRecord,
+    StateWorkspaceDisplayTargetRecord, SystemWebViewRuntimeRegistrationRecord,
+    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
+    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -30,6 +32,9 @@ use tauri::{
 };
 
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(40);
+const DIVIDER_HIT_TARGET: f64 = 10.0;
+#[cfg(windows)]
+const WINDOWS_TAB_CHROME_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
@@ -51,6 +56,51 @@ Object.defineProperty(window, "__rionSystemWebView", {
   enumerable: false,
   value: Object.freeze({ version: 1 })
 });
+"#;
+const RUNTIME_TAB_SHORTCUT_SCRIPT: &str = r#"
+addEventListener("keydown", (event) => {
+  if (event.isComposing || event.key !== "Tab" || !event.ctrlKey || event.altKey || event.metaKey) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const direction = event.shiftKey ? "previous" : "next";
+  location.href = `rion-runtime-shortcut://tabs/${direction}?nonce=${Date.now()}-${Math.random()}`;
+}, true);
+"#;
+const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
+(() => {
+  if (globalThis.__rionSystemAudioObserverInstalled || globalThis.top !== globalThis) return;
+  globalThis.__rionSystemAudioObserverInstalled = true;
+  let previous;
+  const publish = () => {
+    const media = [...document.querySelectorAll("audio,video")];
+    const audible = media.some((item) => !item.paused && !item.muted && item.volume > 0);
+    if (audible === previous) return;
+    previous = audible;
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== "function") return;
+    void internals.invoke("rion_runtime_audio_state", { audible }).catch(() => undefined);
+  };
+  for (const name of ["play", "pause", "volumechange", "ended", "emptied"]) {
+    document.addEventListener(name, publish, true);
+  }
+  document.addEventListener("DOMContentLoaded", publish, { once: true });
+})();
+"#;
+const WORKSPACE_RESIZE_INDICATOR_SCRIPT: &str = r#"
+(() => {
+  if (globalThis.__rionStudioWorkspaceResizeIndicator) return;
+  const id = "rion-studio-workspace-resize-indicator";
+  globalThis.__rionStudioWorkspaceResizeIndicator = (payload) => {
+    let element = document.getElementById(id);
+    if (payload?.type === "hide") { element?.remove(); return; }
+    if (!element) {
+      element = document.createElement("div"); element.id = id;
+      Object.assign(element.style, { background:"rgba(15,23,42,.88)", border:"1px solid rgba(255,255,255,.2)", borderRadius:"8px", color:"white", font:"600 13px system-ui,sans-serif", left:"50%", padding:"6px 10px", pointerEvents:"none", position:"fixed", top:"16px", transform:"translateX(-50%)", zIndex:"2147483647" });
+      (document.body || document.documentElement).append(element);
+    }
+    element.textContent = String(payload?.label || "");
+  };
+})();
 "#;
 #[cfg(any(windows, target_os = "macos"))]
 const TRUSTED_INPUT_ATTESTATION_SOURCE: &str = r#"(() => {
@@ -179,12 +229,18 @@ impl NavigationTracker {
         }
     }
 
-    fn page_event(&self, event: PageLoadEvent) {
+    fn page_event(&self, event: PageLoadEvent, url: &Url) {
+        if !matches!(url.scheme(), "http" | "https") {
+            return;
+        }
         if let Ok(mut state) = self.state.lock() {
             match event {
                 PageLoadEvent::Started => state.started = true,
-                PageLoadEvent::Finished if state.started => state.finished = true,
-                PageLoadEvent::Finished => {}
+                // WKWebView can omit the Started callback when several child
+                // views navigate together. A completed HTTP(S) page is still
+                // authoritative; initial about:blank and bounded internal
+                // command schemes were filtered above.
+                PageLoadEvent::Finished => state.finished = true,
             }
             self.changed.notify_all();
         }
@@ -223,11 +279,53 @@ struct RoleSurface {
 }
 
 struct RuntimeTab {
+    active_divider_resize: Option<ActiveDividerResize>,
     audio_muted: bool,
+    dividers: Vec<RuntimeDivider>,
     display_id: i64,
     roles: HashMap<String, RoleSurface>,
     target: EmbeddedLaunchTargetRecord,
     window: Window,
+    workspace_appearance: WorkspaceAppearanceSettingsRecord,
+    workspace_template: Option<String>,
+    #[cfg(windows)]
+    tabs_chrome: Webview,
+    #[cfg(windows)]
+    toolbar_revealed: bool,
+    #[cfg(target_os = "macos")]
+    tabs_controller: crate::runtime_tabs_macos::MacRuntimeTabsController,
+}
+
+fn runtime_tab_is_audible(state: &RuntimeState, tab: &RuntimeTab) -> bool {
+    tab.roles.values().any(|surface| {
+        state
+            .audible_webviews
+            .get(surface.webview.label())
+            .copied()
+            .unwrap_or(false)
+    }) || state.popup_roles.iter().any(|(label, role_id)| {
+        tab.roles.contains_key(role_id)
+            && state.audible_webviews.get(label).copied().unwrap_or(false)
+    })
+}
+
+struct RuntimeDivider {
+    descriptor: WorkspaceDividerDescriptor,
+    index: u32,
+    webview: Webview,
+}
+
+struct ActiveDividerResize {
+    divider_index: u32,
+    role_ids: Vec<String>,
+    snapped_position: f64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DividerPointerPayload {
+    phase: String,
+    screen_position: Option<f64>,
 }
 
 struct CompatibilitySurface {
@@ -258,11 +356,14 @@ impl RecoveryBudget {
 
 #[derive(Default)]
 struct RuntimeState {
+    active_window_resize_workers: HashSet<String>,
     allow_window_close_labels: HashSet<String>,
+    audible_webviews: HashMap<String, bool>,
     auto_restore_attempted: bool,
     compatibility: HashMap<String, CompatibilitySurface>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
+    pending_window_resizes: HashMap<String, (u32, u32)>,
     pending_window_close_labels: HashSet<String>,
     popup_roles: HashMap<String, String>,
     recovery_required: bool,
@@ -280,7 +381,6 @@ struct RuntimeWebViewConfiguration {
     #[cfg(any(windows, target_os = "macos"))]
     download_attestation: Option<Arc<DownloadAttestationTracker>>,
     overlay_document_start_script: String,
-    proxy_url: Option<Url>,
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -380,6 +480,7 @@ pub struct SystemRuntimeExecutor {
     app: AppHandle,
     configuration: RuntimeWebViewConfiguration,
     core: Arc<AppCore>,
+    language: Mutex<String>,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
 }
@@ -413,12 +514,11 @@ impl SystemRuntimeExecutor {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        let proxy_url = (settings.network.proxy.mode == "custom")
-            .then(|| Url::parse(&settings.network.proxy.server))
-            .transpose()
-            .map_err(|_| "The configured System WebView proxy URL is invalid.".to_owned())?;
         let document_start_script = [
             SYSTEM_RUNTIME_INIT_SCRIPT.to_owned(),
+            RUNTIME_TAB_SHORTCUT_SCRIPT.to_owned(),
+            RUNTIME_AUDIO_OBSERVER_SCRIPT.to_owned(),
+            WORKSPACE_RESIZE_INDICATOR_SCRIPT.to_owned(),
             native_font_document_start_script(&settings),
         ]
         .into_iter()
@@ -452,9 +552,9 @@ impl SystemRuntimeExecutor {
                 #[cfg(any(windows, target_os = "macos"))]
                 download_attestation: DownloadAttestationTracker::from_environment(),
                 overlay_document_start_script,
-                proxy_url,
             },
             core,
+            language: Mutex::new("en".to_owned()),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -504,7 +604,6 @@ impl SystemRuntimeExecutor {
                 } else {
                     EngineCapabilityStatus::Disabled
                 },
-                proxy: supported_if(available),
                 popup: degraded_if(available),
                 audio_mute: supported_if(available),
                 custom_fonts: degraded_if(available),
@@ -531,6 +630,345 @@ impl SystemRuntimeExecutor {
                 rion_core::SystemWebViewIssueReason::RuntimeCreationFailed
             }),
         }
+    }
+
+    pub fn set_language(&self, language: &str) {
+        if matches!(language, "en" | "zh-TW" | "zh-CN" | "ja") {
+            if let Ok(mut current) = self.language.lock() {
+                *current = language.to_owned();
+            }
+            self.publish_projection();
+        }
+    }
+
+    pub fn window_for_tab(&self, tab_id: &str) -> Option<Window> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window.clone()))
+    }
+
+    pub fn window_for_display(&self, display_id: i64) -> Option<Window> {
+        let snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .ok()
+            .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())?;
+        let tab_id = snapshot
+            .displays
+            .iter()
+            .find(|display| display.display_id == display_id)?
+            .active_tab_id
+            .as_deref()?;
+        self.window_for_tab(tab_id)
+    }
+
+    #[cfg(windows)]
+    pub fn chrome_display_for_webview(&self, webview_label: &str) -> Option<i64> {
+        self.state.lock().ok().and_then(|state| {
+            state.tabs.values().find_map(|tab| {
+                (tab.tabs_chrome.label() == webview_label).then_some(tab.display_id)
+            })
+        })
+    }
+
+    #[cfg(not(windows))]
+    pub fn chrome_display_for_webview(&self, _webview_label: &str) -> Option<i64> {
+        None
+    }
+
+    pub fn set_tab_audio_muted(&self, tab_id: &str, muted: bool) -> Result<(), String> {
+        let role_id = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                    .map_err(|error| error.to_string())
+            })?
+            .tabs
+            .into_iter()
+            .find(|tab| tab.id == tab_id)
+            .and_then(|tab| tab.role_ids.first().cloned())
+            .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
+        self.set_role_audio_muted(&role_id, muted)
+            .map_err(|error| error.message)?;
+        self.publish_projection();
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn set_windows_toolbar_revealed(
+        &self,
+        display_id: i64,
+        revealed: bool,
+    ) -> Result<(), String> {
+        let tab_ids = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            state
+                .tabs
+                .iter_mut()
+                .filter_map(|(tab_id, tab)| {
+                    (tab.display_id == display_id).then(|| {
+                        tab.toolbar_revealed = revealed;
+                        tab_id.clone()
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tab_ids {
+            self.layout_runtime_tab(&tab_id)
+                .map_err(|error| error.message)?;
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    pub fn set_windows_toolbar_revealed(
+        &self,
+        _display_id: i64,
+        _revealed: bool,
+    ) -> Result<(), String> {
+        Err("Windows runtime tab chrome is unavailable on this platform".to_owned())
+    }
+
+    pub fn handle_divider_pointer(
+        &self,
+        webview_label: &str,
+        payload: DividerPointerPayload,
+    ) -> Result<(), String> {
+        if !matches!(payload.phase.as_str(), "start" | "move" | "end" | "reset") {
+            return Err("divider pointer phase is invalid".to_owned());
+        }
+        let context = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let Some((tab_id, tab)) = state.tabs.iter_mut().find(|(_, tab)| {
+                tab.dividers
+                    .iter()
+                    .any(|divider| divider.webview.label() == webview_label)
+            }) else {
+                return Err("divider bridge is not authorized for this WebView".to_owned());
+            };
+            let divider = tab
+                .dividers
+                .iter()
+                .find(|divider| divider.webview.label() == webview_label)
+                .ok_or_else(|| "runtime divider was not found".to_owned())?;
+            if payload.phase == "end" {
+                let active = tab.active_divider_resize.take();
+                let role_ids = active.map(|value| value.role_ids).unwrap_or_default();
+                drop(state);
+                self.send_divider_indicators(&role_ids, "hide");
+                return Ok(());
+            }
+            let previous = tab
+                .active_divider_resize
+                .as_ref()
+                .filter(|active| active.divider_index == divider.index)
+                .map(|active| active.snapped_position);
+            (
+                tab_id.clone(),
+                divider.index,
+                divider.descriptor.clone(),
+                tab.dividers
+                    .iter()
+                    .map(|divider| divider.descriptor.clone())
+                    .collect::<Vec<_>>(),
+                tab.roles
+                    .iter()
+                    .map(|(role_id, role)| LayoutRoleInput {
+                        role_id: role_id.clone(),
+                        rect: LayoutRect {
+                            x: role.rect.x,
+                            y: role.rect.y,
+                            width: role.rect.width,
+                            height: role.rect.height,
+                        },
+                    })
+                    .collect::<Vec<_>>(),
+                tab.window.clone(),
+                previous,
+                #[cfg(windows)]
+                tab.toolbar_revealed,
+                #[cfg(not(windows))]
+                false,
+            )
+        };
+        let (tab_id, divider_index, divider, dividers, roles, window, previous, _toolbar_revealed) =
+            context;
+        let requested_position = if payload.phase == "reset" {
+            divider.default_position
+        } else {
+            let screen_position = payload
+                .screen_position
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| "divider screen position is invalid".to_owned())?;
+            let scale = window.scale_factor().map_err(|error| error.to_string())?;
+            let position = window.inner_position().map_err(|error| error.to_string())?;
+            #[cfg(windows)]
+            let metrics = runtime_window_content_metrics_with_chrome(
+                &window,
+                self.windows_tab_chrome_height(&window, _toolbar_revealed),
+            )
+            .map_err(|error| error.message)?;
+            #[cfg(not(windows))]
+            let metrics = runtime_window_content_metrics(&window).map_err(|error| error.message)?;
+            if divider.axis == "vertical" {
+                (screen_position - position.x as f64 / scale) / metrics.width.max(1.0)
+            } else {
+                (screen_position - position.y as f64 / scale - metrics.top_inset)
+                    / metrics.height.max(1.0)
+            }
+        };
+        let result = self
+            .core
+            .invoke(CoreCommand::LayoutResizeDivider {
+                input: WorkspaceDividerResizeInput {
+                    roles,
+                    dividers,
+                    divider_index,
+                    requested_position,
+                    previous_position: (payload.phase == "move").then_some(previous).flatten(),
+                },
+            })
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<WorkspaceDividerResizeOutput>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get_mut(&tab_id)
+                .ok_or_else(|| "runtime tab was closed during divider resize".to_owned())?;
+            for role in &result.roles {
+                if let Some(surface) = tab.roles.get_mut(&role.role_id) {
+                    surface.rect = StateNormalizedRectRecord {
+                        x: role.rect.x,
+                        y: role.rect.y,
+                        width: role.rect.width,
+                        height: role.rect.height,
+                    };
+                }
+            }
+            if payload.phase == "start" {
+                tab.active_divider_resize = Some(ActiveDividerResize {
+                    divider_index,
+                    role_ids: result.role_ids.clone(),
+                    snapped_position: result.position,
+                });
+            } else if payload.phase == "move"
+                && let Some(active) = tab.active_divider_resize.as_mut()
+            {
+                active.role_ids = result.role_ids.clone();
+                active.snapped_position = result.position;
+            } else if payload.phase == "reset" {
+                tab.active_divider_resize = None;
+            }
+        }
+        if result.changed {
+            self.layout_runtime_tab(&tab_id)
+                .map_err(|error| error.message)?;
+        }
+        let indicator_type = if payload.phase == "start" {
+            "show"
+        } else {
+            "update"
+        };
+        self.send_divider_indicators(&result.role_ids, indicator_type);
+        if payload.phase == "reset" {
+            self.send_divider_indicators(&result.role_ids, "hide");
+        }
+        let _ = self.persist_restore_session(false);
+        Ok(())
+    }
+
+    fn send_divider_indicators(&self, role_ids: &[String], indicator_type: &str) {
+        let surfaces = self.state.lock().ok().map(|state| {
+            role_ids
+                .iter()
+                .filter_map(|role_id| {
+                    let tab_id = state.role_tabs.get(role_id)?;
+                    let role = state.tabs.get(tab_id)?.roles.get(role_id)?;
+                    Some((role.webview.clone(), role.rect.clone()))
+                })
+                .collect::<Vec<_>>()
+        });
+        for (webview, rect) in surfaces.unwrap_or_default() {
+            let payload = if indicator_type == "hide" {
+                json!({ "type": "hide" })
+            } else {
+                json!({
+                    "type": indicator_type,
+                    "label": format!("{} × {}", format_ratio(rect.width), format_ratio(rect.height))
+                })
+            };
+            let _ = webview.eval(format!(
+                "globalThis.__rionStudioWorkspaceResizeIndicator?.({payload});"
+            ));
+        }
+    }
+
+    pub fn toggle_focused_runtime_fullscreen(&self) -> Result<bool, String> {
+        let window = {
+            let state = self.state().map_err(|error| error.message)?;
+            state
+                .tabs
+                .values()
+                .find(|tab| tab.window.is_focused().unwrap_or(false))
+                .map(|tab| tab.window.clone())
+        };
+        let Some(window) = window else {
+            return Ok(false);
+        };
+        let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        self.prepare_runtime_window_fullscreen(window.label(), !fullscreen);
+        window
+            .set_fullscreen(!fullscreen)
+            .map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    pub fn zoom_focused_runtime(&self, action: &str) -> Result<bool, String> {
+        let surfaces = {
+            let state = self.state().map_err(|error| error.message)?;
+            let Some(tab) = state
+                .tabs
+                .values()
+                .find(|tab| tab.window.is_focused().unwrap_or(false))
+            else {
+                return Ok(false);
+            };
+            tab.roles
+                .iter()
+                .map(|(role_id, surface)| {
+                    let zoom = match action {
+                        "in" => (surface.zoom_factor + 0.1).min(5.0),
+                        "out" => (surface.zoom_factor - 0.1).max(0.25),
+                        _ => 1.0,
+                    };
+                    (role_id.clone(), surface.webview.clone(), zoom)
+                })
+                .collect::<Vec<_>>()
+        };
+        for (_, webview, zoom) in &surfaces {
+            webview.set_zoom(*zoom).map_err(|error| error.to_string())?;
+        }
+        let mut state = self.state().map_err(|error| error.message)?;
+        for (role_id, _, zoom) in surfaces {
+            if let Some(tab_id) = state.role_tabs.get(&role_id).cloned()
+                && let Some(surface) = state
+                    .tabs
+                    .get_mut(&tab_id)
+                    .and_then(|tab| tab.roles.get_mut(&role_id))
+            {
+                surface.zoom_factor = zoom;
+            }
+        }
+        Ok(true)
     }
 
     pub fn execute(&self, effect: CoreEffectRequest) -> CoreEffectResult {
@@ -564,6 +1002,7 @@ impl SystemRuntimeExecutor {
             let popup_labels = std::mem::take(&mut state.popup_roles)
                 .into_keys()
                 .collect::<Vec<_>>();
+            state.audible_webviews.clear();
             state.role_tabs.clear();
             state.allow_window_close_labels.extend(
                 tabs.values()
@@ -593,90 +1032,119 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn projection(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
-        let Ok(state) = self.state.lock() else {
-            return json!({ "windows": [], "tabs": [] });
+        let role_names = self
+            .core
+            .invoke(CoreCommand::RolesList)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|role| (role.id, role.name))
+            .collect::<HashMap<_, _>>();
+        let (tabs, window_inputs, saved_windows, recovery) = {
+            let Ok(state) = self.state.lock() else {
+                return json!({ "windows": [], "tabs": [] });
+            };
+            let tabs = snapshot
+                .tabs
+                .iter()
+                .map(|tab| {
+                    let active = snapshot.displays.iter().any(|display| {
+                        display.active_tab_id.as_deref() == Some(tab.id.as_str())
+                    });
+                    let audio_muted = state
+                        .tabs
+                        .get(&tab.id)
+                        .is_some_and(|runtime_tab| runtime_tab.audio_muted);
+                    let audible = state
+                        .tabs
+                        .get(&tab.id)
+                        .is_some_and(|runtime_tab| runtime_tab_is_audible(&state, runtime_tab));
+                    json!({
+                        "id": tab.id,
+                        "type": if tab.tab_type == "workspace" { "workspace" } else { "role" },
+                        "sourceId": tab.source_id,
+                        "name": tab.name,
+                        "displayId": tab.display_id,
+                        "roleIds": tab.role_ids,
+                        "roleNames": tab.role_ids.iter().filter_map(|role_id| role_names.get(role_id).cloned()).collect::<Vec<_>>(),
+                        "hidden": tab.hidden,
+                        "active": active,
+                        "audible": audible,
+                        "audioMuted": audio_muted
+                    })
+                })
+                .collect::<Vec<_>>();
+            let window_inputs = snapshot
+                .displays
+                .iter()
+                .filter_map(|display| {
+                    let tab_id = display.active_tab_id.as_ref()?;
+                    let tab = state.tabs.get(tab_id)?;
+                    Some((
+                        runtime_label("game-tab", tab_id),
+                        display.display_id,
+                        tab.target.work_area.clone(),
+                        tab.window.clone(),
+                        tab_id.clone(),
+                        display.tab_ids.len(),
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let saved_windows = state
+                .dormant_windows
+                .iter()
+                .map(|window| {
+                    let display_label = window
+                        .target_display
+                        .fingerprint
+                        .as_ref()
+                        .map(|fingerprint| fingerprint.label.trim())
+                        .filter(|label| !label.is_empty())
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("Display {}", window.target_display.id));
+                    let role_count = window
+                        .tabs
+                        .iter()
+                        .flat_map(|tab| tab.role_ids.iter())
+                        .collect::<HashSet<_>>()
+                        .len();
+                    json!({
+                        "id": window.id,
+                        "displayId": window.target_display.id,
+                        "displayLabel": display_label,
+                        "wasVisible": window.was_visible,
+                        "activeSourceId": window.active_source_id,
+                        "tabCount": window.tabs.len(),
+                        "roleCount": role_count,
+                        "tabNames": window.tabs.iter().map(|tab| tab.name.clone()).collect::<Vec<_>>(),
+                        "state": "saved"
+                    })
+                })
+                .collect::<Vec<_>>();
+            let recovery = state.recovery_required.then(|| {
+                json!({
+                    "reason": "unclean-exit",
+                    "windowCount": saved_windows.len(),
+                    "tabCount": state.dormant_windows.iter().map(|window| window.tabs.len()).sum::<usize>()
+                })
+            });
+            (tabs, window_inputs, saved_windows, recovery)
         };
-        let tabs = snapshot
-            .tabs
-            .iter()
-            .map(|tab| {
-                let active = snapshot
-                    .displays
-                    .iter()
-                    .any(|display| display.active_tab_id.as_deref() == Some(tab.id.as_str()));
-                let audio_muted = state
-                    .tabs
-                    .get(&tab.id)
-                    .is_some_and(|runtime_tab| runtime_tab.audio_muted);
+        let windows = window_inputs
+            .into_iter()
+            .map(|(id, display_id, bounds, window, tab_id, tab_count)| {
                 json!({
-                    "id": tab.id,
-                    "type": if tab.tab_type == "workspace" { "workspace" } else { "role" },
-                    "sourceId": tab.source_id,
-                    "name": tab.name,
-                    "displayId": tab.display_id,
-                    "roleIds": tab.role_ids,
-                    "hidden": tab.hidden,
-                    "active": active,
-                    "audible": false,
-                    "audioMuted": audio_muted
-                })
-            })
-            .collect::<Vec<_>>();
-        let windows = snapshot
-            .displays
-            .iter()
-            .filter_map(|display| {
-                let tab_id = display.active_tab_id.as_ref()?;
-                let tab = state.tabs.get(tab_id)?;
-                Some(json!({
-                    "id": runtime_label("game-tab", tab_id),
-                    "displayId": display.display_id,
-                    "bounds": tab.target.work_area,
-                    "visible": tab.window.is_visible().unwrap_or(false),
-                    "focused": tab.window.is_focused().unwrap_or(false),
+                    "id": id,
+                    "displayId": display_id,
+                    "bounds": bounds,
+                    "visible": window.is_visible().unwrap_or(false),
+                    "focused": window.is_focused().unwrap_or(false),
                     "activeTabId": tab_id,
-                    "tabCount": display.tab_ids.len()
-                }))
-            })
-            .collect::<Vec<_>>();
-        let saved_windows = state
-            .dormant_windows
-            .iter()
-            .map(|window| {
-                let display_label = window
-                    .target_display
-                    .fingerprint
-                    .as_ref()
-                    .map(|fingerprint| fingerprint.label.trim())
-                    .filter(|label| !label.is_empty())
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| format!("Display {}", window.target_display.id));
-                let role_count = window
-                    .tabs
-                    .iter()
-                    .flat_map(|tab| tab.role_ids.iter())
-                    .collect::<HashSet<_>>()
-                    .len();
-                json!({
-                    "id": window.id,
-                    "displayId": window.target_display.id,
-                    "displayLabel": display_label,
-                    "wasVisible": window.was_visible,
-                    "activeSourceId": window.active_source_id,
-                    "tabCount": window.tabs.len(),
-                    "roleCount": role_count,
-                    "tabNames": window.tabs.iter().map(|tab| tab.name.clone()).collect::<Vec<_>>(),
-                    "state": "saved"
+                    "tabCount": tab_count
                 })
             })
             .collect::<Vec<_>>();
-        let recovery = state.recovery_required.then(|| {
-            json!({
-                "reason": "unclean-exit",
-                "windowCount": saved_windows.len(),
-                "tabCount": state.dormant_windows.iter().map(|window| window.tabs.len()).sum::<usize>()
-            })
-        });
         json!({
             "windows": windows,
             "tabs": tabs,
@@ -718,6 +1186,10 @@ impl SystemRuntimeExecutor {
         let Ok(snapshot) = serde_json::from_value::<BrowserRuntimeSnapshot>(value) else {
             return;
         };
+        #[cfg(target_os = "macos")]
+        self.sync_native_tab_chrome(&snapshot);
+        #[cfg(windows)]
+        self.sync_windows_tab_chrome(&snapshot);
         let _ = self
             .app
             .emit("rion://runtime-state", self.projection(&snapshot));
@@ -805,31 +1277,15 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) {
-        let Some((window, roles)) = self.state.lock().ok().and_then(|state| {
+        let Some((tab_id, window)) = self.state.lock().ok().and_then(|state| {
             state
                 .tabs
-                .values()
-                .find(|tab| tab.window.label() == label)
-                .map(|tab| {
-                    (
-                        tab.window.clone(),
-                        tab.roles
-                            .values()
-                            .map(|role| (role.webview.clone(), role.rect.clone()))
-                            .collect::<Vec<_>>(),
-                    )
-                })
+                .iter()
+                .find(|(_, tab)| tab.window.label() == label)
+                .map(|(tab_id, tab)| (tab_id.clone(), tab.window.clone()))
         }) else {
             return;
         };
-        let Ok(metrics) = logical_window_content_metrics(&window) else {
-            return;
-        };
-        for (webview, rect) in roles {
-            let bounds = role_bounds_for_content(metrics, &rect);
-            let _ = webview.set_position(LogicalPosition::new(bounds.x, bounds.y));
-            let _ = webview.set_size(LogicalSize::new(bounds.width, bounds.height));
-        }
         let scale_factor = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
         let width = (physical_width as f64 / scale_factor).max(1.0);
         let height = (physical_height as f64 / scale_factor).max(1.0);
@@ -842,6 +1298,64 @@ impl SystemRuntimeExecutor {
             tab.target.work_area.width = width.round() as i32;
             tab.target.work_area.height = height.round() as i32;
         }
+        let _ = self.layout_runtime_tab(&tab_id);
+        self.publish_projection();
+    }
+
+    pub fn schedule_resize_window(
+        self: &Arc<Self>,
+        label: String,
+        physical_width: u32,
+        physical_height: u32,
+    ) {
+        let should_spawn = self.state.lock().ok().is_some_and(|mut state| {
+            state
+                .pending_window_resizes
+                .insert(label.clone(), (physical_width, physical_height));
+            state.active_window_resize_workers.insert(label.clone())
+        });
+        if !should_spawn {
+            return;
+        }
+        let runtime = Arc::clone(self);
+        let worker_label = label.clone();
+        if std::thread::Builder::new()
+            .name("rion-runtime-window-resize".to_owned())
+            .spawn(move || {
+                loop {
+                    let next = runtime.state.lock().ok().and_then(|mut state| {
+                        let next = state.pending_window_resizes.remove(&worker_label);
+                        if next.is_none() {
+                            state.active_window_resize_workers.remove(&worker_label);
+                        }
+                        next
+                    });
+                    let Some((width, height)) = next else {
+                        break;
+                    };
+                    runtime.resize_window(&worker_label, width, height);
+                }
+            })
+            .is_err()
+            && let Ok(mut state) = self.state.lock()
+        {
+            state.active_window_resize_workers.remove(&label);
+            state.pending_window_resizes.remove(&label);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn prepare_runtime_window_fullscreen(&self, label: &str, fullscreen: bool) {
+        let controller = self.state.lock().ok().and_then(|state| {
+            state
+                .tabs
+                .values()
+                .find(|tab| tab.window.label() == label)
+                .map(|tab| tab.tabs_controller.clone())
+        });
+        if let Some(controller) = controller {
+            controller.prepare_fullscreen(fullscreen);
+        }
     }
 
     pub fn persist_restore_session(&self, clean_exit: bool) -> Result<(), String> {
@@ -853,14 +1367,13 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<BrowserRuntimeSnapshot>(value)
                     .map_err(|error| error.to_string())
             })?;
-        let (windows, last_focused_window_id) = {
+        let (live_windows, dormant_windows) = {
             let state = self
                 .state
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
             let mut live_sources = HashSet::new();
             let mut live_role_ids = HashSet::new();
-            let mut focused = None;
             let mut live_windows = Vec::new();
             for display in &snapshot.displays {
                 let tabs = snapshot
@@ -893,42 +1406,58 @@ impl SystemRuntimeExecutor {
                     .as_ref()
                     .and_then(|tab_id| state.tabs.get(tab_id));
                 let id = format!("display-{}", display.display_id);
-                if active_runtime.is_some_and(|tab| tab.window.is_focused().unwrap_or(false)) {
-                    focused = Some(id.clone());
-                }
-                live_windows.push(RuntimeRestoreWindowRecord {
-                    id,
-                    target_display: StateWorkspaceDisplayTargetRecord {
-                        id: display.display_id,
-                        fingerprint: None,
+                live_windows.push((
+                    RuntimeRestoreWindowRecord {
+                        id,
+                        target_display: StateWorkspaceDisplayTargetRecord {
+                            id: display.display_id,
+                            fingerprint: None,
+                        },
+                        was_visible: false,
+                        active_source_id: active_tab.map(|tab| tab.source_id.clone()),
+                        tabs,
                     },
-                    was_visible: active_runtime
-                        .is_some_and(|tab| tab.window.is_visible().unwrap_or(false)),
-                    active_source_id: active_tab.map(|tab| tab.source_id.clone()),
-                    tabs,
-                });
+                    active_runtime.map(|tab| tab.window.clone()),
+                ));
             }
-            let dormant = state.dormant_windows.iter().filter_map(|window| {
-                let tabs = window
-                    .tabs
-                    .iter()
-                    .filter(|tab| {
-                        !live_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
-                            && !tab
-                                .role_ids
-                                .iter()
-                                .any(|role_id| live_role_ids.contains(role_id))
+            let dormant_windows = state
+                .dormant_windows
+                .iter()
+                .filter_map(|window| {
+                    let tabs = window
+                        .tabs
+                        .iter()
+                        .filter(|tab| {
+                            !live_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
+                                && !tab
+                                    .role_ids
+                                    .iter()
+                                    .any(|role_id| live_role_ids.contains(role_id))
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    (!tabs.is_empty()).then(|| RuntimeRestoreWindowRecord {
+                        tabs,
+                        ..window.clone()
                     })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                (!tabs.is_empty()).then(|| RuntimeRestoreWindowRecord {
-                    tabs,
-                    ..window.clone()
                 })
-            });
-            live_windows.extend(dormant);
-            (live_windows, focused)
+                .collect::<Vec<_>>();
+            (live_windows, dormant_windows)
         };
+        let mut last_focused_window_id = None;
+        let mut windows = live_windows
+            .into_iter()
+            .map(|(mut record, window)| {
+                if let Some(window) = window {
+                    if window.is_focused().unwrap_or(false) {
+                        last_focused_window_id = Some(record.id.clone());
+                    }
+                    record.was_visible = window.is_visible().unwrap_or(false);
+                }
+                record
+            })
+            .collect::<Vec<_>>();
+        windows.extend(dormant_windows);
         self.core
             .invoke(CoreCommand::RuntimeRestoreSessionReplace {
                 session: RuntimeRestoreSessionRecord {
@@ -995,6 +1524,51 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Overlay WebView is not associated with a running role.".to_owned())
     }
 
+    pub fn set_webview_audible(
+        &self,
+        webview_label: &str,
+        role_id: &str,
+        audible: bool,
+    ) -> Result<(), String> {
+        let changed = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            let belongs_to_role = state
+                .popup_roles
+                .get(webview_label)
+                .is_some_and(|id| id == role_id)
+                || state.role_tabs.get(role_id).is_some_and(|tab_id| {
+                    state.tabs.get(tab_id).is_some_and(|tab| {
+                        tab.roles
+                            .get(role_id)
+                            .is_some_and(|surface| surface.webview.label() == webview_label)
+                    })
+                });
+            if !belongs_to_role {
+                return Err("Audio state source is not associated with this role.".to_owned());
+            }
+            let previous = state
+                .audible_webviews
+                .get(webview_label)
+                .copied()
+                .unwrap_or(false);
+            if audible {
+                state
+                    .audible_webviews
+                    .insert(webview_label.to_owned(), true);
+            } else {
+                state.audible_webviews.remove(webview_label);
+            }
+            previous != audible
+        };
+        if changed {
+            self.publish_projection();
+        }
+        Ok(())
+    }
+
     pub fn handle_web_content_process_terminated(
         self: &Arc<Self>,
         webview_label: &str,
@@ -1010,7 +1584,9 @@ impl SystemRuntimeExecutor {
     pub fn forget_popup(&self, window_label: &str) {
         if let Ok(mut state) = self.state.lock() {
             state.popup_roles.remove(window_label);
+            state.audible_webviews.remove(window_label);
         }
+        self.publish_projection();
     }
 
     fn register_popup(&self, window_label: String, role_id: String) {
@@ -1148,9 +1724,9 @@ impl SystemRuntimeExecutor {
                 Some(role_id),
             )?
             .on_page_load(move |_webview, payload| {
-                callback_navigation.page_event(payload.event());
+                callback_navigation.page_event(payload.event(), payload.url());
             });
-        let bounds = role_bounds_for_content(logical_window_content_metrics(&window)?, &rect);
+        let bounds = role_bounds_for_content(runtime_window_content_metrics(&window)?, &rect);
         let webview = window
             .add_child(
                 builder,
@@ -1172,7 +1748,7 @@ impl SystemRuntimeExecutor {
             set_audio_muted(&webview, true)?;
         }
         let _ = old_webview.close();
-        {
+        let tab_id = {
             let mut state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
@@ -1193,8 +1769,9 @@ impl SystemRuntimeExecutor {
                     zoom_factor,
                 },
             );
-        }
-        Ok(())
+            tab_id
+        };
+        self.layout_runtime_tab(&tab_id)
     }
 
     fn apply(&self, effect: CoreEffectRequest) -> RuntimeResult<Option<String>> {
@@ -1537,16 +2114,6 @@ impl SystemRuntimeExecutor {
         paths: &SessionPaths,
         role_id: Option<&str>,
     ) -> RuntimeResult<WebviewBuilder<tauri::Wry>> {
-        self.webview_builder_with_proxy(label, paths, role_id, None)
-    }
-
-    fn webview_builder_with_proxy(
-        &self,
-        label: String,
-        paths: &SessionPaths,
-        role_id: Option<&str>,
-        proxy_override: Option<Url>,
-    ) -> RuntimeResult<WebviewBuilder<tauri::Wry>> {
         let blank = "about:blank"
             .parse()
             .map_err(|_| RuntimeError::new("TAURI_URL_INVALID", "Invalid blank URL."))?;
@@ -1554,8 +2121,6 @@ impl SystemRuntimeExecutor {
         let popup_role_id = role_id.map(str::to_owned);
         let popup_webview2_data_directory = paths.webview2.clone();
         let popup_webkit_data_store_identifier = paths.webkit_identifier;
-        let effective_proxy_url = proxy_override.or_else(|| self.configuration.proxy_url.clone());
-        let popup_proxy_url = effective_proxy_url.clone();
         #[cfg(windows)]
         let popup_additional_browser_arguments =
             self.configuration.additional_browser_arguments.clone();
@@ -1566,6 +2131,8 @@ impl SystemRuntimeExecutor {
         .join("\n");
         let download_app = self.app.clone();
         let download_role_id = role_id.map(str::to_owned);
+        let shortcut_core = Arc::clone(&self.core);
+        let shortcut_role_id = role_id.map(str::to_owned);
         #[cfg(any(windows, target_os = "macos"))]
         let download_attestation = self.configuration.download_attestation.clone();
         #[cfg(any(windows, target_os = "macos"))]
@@ -1576,7 +2143,43 @@ impl SystemRuntimeExecutor {
             .initialization_script_for_all_frames(&self.configuration.document_start_script)
             .enable_clipboard_access()
             .zoom_hotkeys_enabled(false)
-            .on_navigation(|url| matches!(url.scheme(), "about" | "http" | "https"))
+            .on_navigation(move |url| {
+                if url.scheme() == "rion-runtime-shortcut" {
+                    if let Some(role_id) = shortcut_role_id.as_ref() {
+                        let direction = if url.path() == "/previous" {
+                            "previous"
+                        } else {
+                            "next"
+                        }
+                        .to_owned();
+                        if let Ok(snapshot) = shortcut_core
+                            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+                            .and_then(|value| {
+                                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(
+                                    |error| rion_core::CoreError::Internal(error.to_string()),
+                                )
+                            })
+                            && let Some(display_id) = snapshot
+                                .tabs
+                                .iter()
+                                .find(|tab| tab.role_ids.iter().any(|id| id == role_id))
+                                .map(|tab| tab.display_id)
+                        {
+                            let core = Arc::clone(&shortcut_core);
+                            tauri::async_runtime::spawn(async move {
+                                let _ = core
+                                    .invoke_async(CoreCommand::EmbeddedTabActivateAdjacent {
+                                        display_id,
+                                        direction,
+                                    })
+                                    .await;
+                            });
+                        }
+                    }
+                    return false;
+                }
+                matches!(url.scheme(), "about" | "http" | "https")
+            })
             .on_new_window(move |url, features| {
                 let Some(role_id) = popup_role_id.as_ref() else {
                     return NewWindowResponse::Deny;
@@ -1594,7 +2197,7 @@ impl SystemRuntimeExecutor {
                 let popup_download_role_id = role_id.clone();
                 #[cfg(any(windows, target_os = "macos"))]
                 let popup_download_attestation = popup_download_attestation.clone();
-                let mut popup_builder = WebviewWindowBuilder::new(
+                let popup_builder = WebviewWindowBuilder::new(
                     &popup_app,
                     label.clone(),
                     WebviewUrl::External(blank),
@@ -1617,13 +2220,8 @@ impl SystemRuntimeExecutor {
                     )
                 });
                 #[cfg(windows)]
-                {
-                    popup_builder =
-                        popup_builder.additional_browser_args(&popup_additional_browser_arguments);
-                }
-                if let Some(proxy_url) = popup_proxy_url.clone() {
-                    popup_builder = popup_builder.proxy_url(proxy_url);
-                }
+                let popup_builder =
+                    popup_builder.additional_browser_args(&popup_additional_browser_arguments);
                 let popup = popup_builder.build();
                 match popup {
                     Ok(window) => {
@@ -1694,9 +2292,6 @@ impl SystemRuntimeExecutor {
         {
             builder =
                 builder.additional_browser_args(&self.configuration.additional_browser_arguments);
-        }
-        if let Some(proxy_url) = effective_proxy_url {
-            builder = builder.proxy_url(proxy_url);
         }
         Ok(builder)
     }
@@ -1785,7 +2380,9 @@ impl SystemRuntimeExecutor {
                 None,
             )?
             .incognito(true)
-            .on_page_load(move |_webview, payload| callback_navigation.page_event(payload.event()));
+            .on_page_load(move |_webview, payload| {
+                callback_navigation.page_event(payload.event(), payload.url());
+            });
         let webview = window
             .add_child(
                 builder,
@@ -1879,6 +2476,179 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
+    fn resolve_runtime_layout(
+        &self,
+        metrics: WindowContentMetrics,
+        roles: Vec<LayoutRoleInput>,
+        gap: u32,
+    ) -> RuntimeResult<ResolvedRuntimeLayout> {
+        let descriptors = self
+            .core
+            .invoke(CoreCommand::LayoutCreateDividers {
+                roles: roles.clone(),
+            })
+            .map_err(RuntimeError::core)
+            .and_then(|value| {
+                serde_json::from_value::<Vec<WorkspaceDividerDescriptor>>(value)
+                    .map_err(|error| RuntimeError::new("TAURI_LAYOUT_INVALID", error.to_string()))
+            })?;
+        let output = self
+            .core
+            .invoke(CoreCommand::LayoutResolve {
+                input: WorkspaceLayoutInput {
+                    active: true,
+                    hidden: false,
+                    window_visible: true,
+                    content_bounds: LayoutBounds {
+                        x: 0,
+                        y: metrics.top_inset.round() as i32,
+                        width: metrics.width.round().max(1.0) as i32,
+                        height: metrics.height.round().max(1.0) as i32,
+                    },
+                    gap,
+                    roles,
+                    dividers: descriptors
+                        .iter()
+                        .map(|divider| LayoutDividerInput {
+                            axis: divider.axis.clone(),
+                            before_role_ids: divider.before_role_ids.clone(),
+                            after_role_ids: divider.after_role_ids.clone(),
+                        })
+                        .collect(),
+                },
+            })
+            .map_err(RuntimeError::core)
+            .and_then(|value| {
+                serde_json::from_value::<WorkspaceLayoutOutput>(value)
+                    .map_err(|error| RuntimeError::new("TAURI_LAYOUT_INVALID", error.to_string()))
+            })?;
+        let roles = output
+            .roles
+            .into_iter()
+            .map(|role| {
+                (
+                    role.role_id,
+                    RoleBounds {
+                        x: role.bounds.x as f64,
+                        y: role.bounds.y as f64,
+                        width: role.bounds.width.max(1) as f64,
+                        height: role.bounds.height.max(1) as f64,
+                    },
+                )
+            })
+            .collect();
+        let dividers = output
+            .dividers
+            .into_iter()
+            .filter_map(|divider| {
+                descriptors
+                    .get(divider.index as usize)
+                    .cloned()
+                    .map(|descriptor| {
+                        (
+                            divider.index,
+                            descriptor,
+                            RoleBounds {
+                                x: divider.bounds.x as f64,
+                                y: divider.bounds.y as f64,
+                                width: divider.bounds.width.max(1) as f64,
+                                height: divider.bounds.height.max(1) as f64,
+                            },
+                        )
+                    })
+            })
+            .collect();
+        Ok((roles, dividers))
+    }
+
+    fn layout_runtime_tab(&self, tab_id: &str) -> RuntimeResult<()> {
+        let (window, role_views, divider_views, gap, tabs_chrome, _toolbar_revealed) = {
+            let state = self.state()?;
+            let tab = state.tabs.get(tab_id).ok_or_else(|| {
+                RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
+            })?;
+            (
+                tab.window.clone(),
+                tab.roles
+                    .iter()
+                    .map(|(role_id, surface)| {
+                        (
+                            role_id.clone(),
+                            surface.webview.clone(),
+                            LayoutRoleInput {
+                                role_id: role_id.clone(),
+                                rect: LayoutRect {
+                                    x: surface.rect.x,
+                                    y: surface.rect.y,
+                                    width: surface.rect.width,
+                                    height: surface.rect.height,
+                                },
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                tab.dividers
+                    .iter()
+                    .map(|divider| (divider.index, divider.webview.clone()))
+                    .collect::<HashMap<_, _>>(),
+                tab.workspace_appearance.gap,
+                #[cfg(windows)]
+                Some(tab.tabs_chrome.clone()),
+                #[cfg(not(windows))]
+                Option::<Webview>::None,
+                #[cfg(windows)]
+                tab.toolbar_revealed,
+                #[cfg(not(windows))]
+                false,
+            )
+        };
+        #[cfg(windows)]
+        let chrome_height = self.windows_tab_chrome_height(&window, _toolbar_revealed);
+        #[cfg(windows)]
+        let metrics = runtime_window_content_metrics_with_chrome(&window, chrome_height)?;
+        #[cfg(not(windows))]
+        let metrics = runtime_window_content_metrics(&window)?;
+        #[cfg(windows)]
+        if let Some(chrome) = tabs_chrome {
+            chrome
+                .set_position(LogicalPosition::new(0.0, 0.0))
+                .map_err(RuntimeError::tauri)?;
+            chrome
+                .set_size(LogicalSize::new(metrics.width, chrome_height))
+                .map_err(RuntimeError::tauri)?;
+        }
+        #[cfg(not(windows))]
+        let _ = tabs_chrome;
+        let role_inputs = role_views
+            .iter()
+            .map(|(_, _, input)| input.clone())
+            .collect();
+        let (role_bounds, divider_bounds) =
+            self.resolve_runtime_layout(metrics, role_inputs, gap)?;
+        for (role_id, webview, _) in role_views {
+            if let Some(bounds) = role_bounds.get(&role_id) {
+                webview
+                    .set_position(LogicalPosition::new(bounds.x, bounds.y))
+                    .map_err(RuntimeError::tauri)?;
+                webview
+                    .set_size(LogicalSize::new(bounds.width, bounds.height))
+                    .map_err(RuntimeError::tauri)?;
+            }
+        }
+        for (index, descriptor, bounds) in divider_bounds {
+            if let Some(webview) = divider_views.get(&index) {
+                let bounds = divider_hit_bounds(&descriptor.axis, bounds);
+                webview
+                    .set_position(LogicalPosition::new(bounds.x, bounds.y))
+                    .map_err(RuntimeError::tauri)?;
+                webview
+                    .set_size(LogicalSize::new(bounds.width, bounds.height))
+                    .map_err(RuntimeError::tauri)?;
+            }
+        }
+        Ok(())
+    }
+
     fn create_tab(&self, tab: EmbeddedTabEffectRecord) -> RuntimeResult<()> {
         if tab
             .roles
@@ -1914,7 +2684,43 @@ impl SystemRuntimeExecutor {
             .visible(false)
             .build()
             .map_err(RuntimeError::tauri)?;
-        let content_metrics = logical_window_content_metrics(&window)?;
+        #[cfg(target_os = "macos")]
+        let tabs_controller =
+            crate::runtime_tabs_macos::MacRuntimeTabsController::create(&self.app, &window)
+                .map_err(|message| RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message))?;
+        #[cfg(windows)]
+        let tabs_chrome = window
+            .add_child(
+                WebviewBuilder::new(
+                    runtime_label("game-tabs-chrome", &tab.tab_id),
+                    WebviewUrl::App("runtime-tabs.html".into()),
+                ),
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(
+                    target.work_area.width.max(1) as f64,
+                    WINDOWS_TAB_CHROME_HEIGHT,
+                ),
+            )
+            .map_err(RuntimeError::tauri)?;
+        let content_metrics = runtime_window_content_metrics(&window)?;
+        let role_inputs = tab
+            .roles
+            .iter()
+            .map(|role| LayoutRoleInput {
+                role_id: role.role.id.clone(),
+                rect: LayoutRect {
+                    x: role.rect.x,
+                    y: role.rect.y,
+                    width: role.rect.width,
+                    height: role.rect.height,
+                },
+            })
+            .collect::<Vec<_>>();
+        let (resolved_role_bounds, resolved_dividers) = self.resolve_runtime_layout(
+            content_metrics,
+            role_inputs,
+            tab.workspace_appearance.gap,
+        )?;
         let mut surfaces = HashMap::new();
         let mut role_ids = Vec::with_capacity(tab.roles.len());
         for role in &tab.roles {
@@ -1927,9 +2733,12 @@ impl SystemRuntimeExecutor {
             let builder = self
                 .webview_builder(role_label, &paths, Some(&role_id))?
                 .on_page_load(move |_webview, payload| {
-                    callback_navigation.page_event(payload.event());
+                    callback_navigation.page_event(payload.event(), payload.url());
                 });
-            let bounds = role_bounds_for_content(content_metrics, &role.rect);
+            let bounds = resolved_role_bounds
+                .get(&role_id)
+                .copied()
+                .unwrap_or_else(|| role_bounds_for_content(content_metrics, &role.rect));
             let webview = window
                 .add_child(
                     builder,
@@ -1965,6 +2774,28 @@ impl SystemRuntimeExecutor {
                 },
             );
         }
+        let mut dividers = Vec::with_capacity(resolved_dividers.len());
+        for (index, descriptor, bounds) in resolved_dividers {
+            let bounds = divider_hit_bounds(&descriptor.axis, bounds);
+            let webview = window
+                .add_child(
+                    WebviewBuilder::new(
+                        runtime_label("game-divider", &format!("{}:{index}", tab.tab_id)),
+                        WebviewUrl::App(
+                            format!("runtime-divider.html?axis={}", descriptor.axis).into(),
+                        ),
+                    )
+                    .transparent(true),
+                    LogicalPosition::new(bounds.x, bounds.y),
+                    LogicalSize::new(bounds.width, bounds.height),
+                )
+                .map_err(RuntimeError::tauri)?;
+            dividers.push(RuntimeDivider {
+                descriptor,
+                index,
+                webview,
+            });
+        }
         wait_for_tauri_main_thread(&self.app)?;
         let tab_id = tab.tab_id;
         let mut state = self.state()?;
@@ -1982,11 +2813,21 @@ impl SystemRuntimeExecutor {
         state.tabs.insert(
             tab_id,
             RuntimeTab {
+                active_divider_resize: None,
                 audio_muted: false,
+                dividers,
                 display_id: target.display_id,
                 roles: surfaces,
                 target,
                 window,
+                workspace_appearance: tab.workspace_appearance,
+                workspace_template: tab.workspace_template,
+                #[cfg(windows)]
+                tabs_chrome,
+                #[cfg(windows)]
+                toolbar_revealed: false,
+                #[cfg(target_os = "macos")]
+                tabs_controller,
             },
         );
         Ok(())
@@ -2128,6 +2969,13 @@ impl SystemRuntimeExecutor {
         focus_window_display_ids: &[i64],
         focus_tab_id: Option<&str>,
     ) -> RuntimeResult<()> {
+        let trace_restore =
+            std::env::var_os("RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT").is_some();
+        let trace = |step: &str| {
+            if trace_restore {
+                eprintln!("Runtime restore attestation: apply runtime {step}.");
+            }
+        };
         struct WindowUpdate {
             focus: bool,
             layout: Option<(
@@ -2190,8 +3038,10 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Vec<_>>()
         };
+        trace("window updates resolved");
         for update in &updates {
             if let Some((target, roles)) = &update.layout {
+                trace("setting window position");
                 update
                     .window
                     .set_position(LogicalPosition::new(
@@ -2199,6 +3049,7 @@ impl SystemRuntimeExecutor {
                         target.work_area.y as f64,
                     ))
                     .map_err(RuntimeError::tauri)?;
+                trace("setting window size");
                 update
                     .window
                     .set_size(LogicalSize::new(
@@ -2206,26 +3057,24 @@ impl SystemRuntimeExecutor {
                         target.work_area.height.max(1) as f64,
                     ))
                     .map_err(RuntimeError::tauri)?;
-                let metrics = logical_window_content_metrics(&update.window)?;
-                for (webview, rect) in roles {
-                    let bounds = role_bounds_for_content(metrics, rect);
-                    webview
-                        .set_position(LogicalPosition::new(bounds.x, bounds.y))
-                        .map_err(RuntimeError::tauri)?;
-                    webview
-                        .set_size(LogicalSize::new(bounds.width, bounds.height))
-                        .map_err(RuntimeError::tauri)?;
-                }
+                let _ = roles;
+                trace("laying out runtime tab");
+                self.layout_runtime_tab(&update.tab_id)?;
+                trace("runtime tab laid out");
             }
             if update.visible {
+                trace("showing runtime window");
                 update.window.show().map_err(RuntimeError::tauri)?;
             } else {
+                trace("hiding runtime window");
                 update.window.hide().map_err(RuntimeError::tauri)?;
             }
             if update.focus {
+                trace("focusing runtime window");
                 update.window.set_focus().map_err(RuntimeError::tauri)?;
             }
         }
+        trace("updating runtime state");
         let mut state = self.state()?;
         for update in updates {
             if let Some((target, _)) = update.layout
@@ -2235,7 +3084,229 @@ impl SystemRuntimeExecutor {
                 runtime_tab.target = target;
             }
         }
+        trace("completed");
         Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sync_native_tab_chrome(&self, snapshot: &BrowserRuntimeSnapshot) {
+        let always_show = crate::runtime_tabs_macos::fullscreen_preference(&self.core);
+        let language = self
+            .language
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        let roles = self
+            .core
+            .invoke(CoreCommand::RolesList)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
+            .unwrap_or_default();
+        let role_names = roles
+            .iter()
+            .map(|role| (role.id.as_str(), role.name.as_str()))
+            .collect::<HashMap<_, _>>();
+        let games = self
+            .core
+            .invoke(CoreCommand::GamesList)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Vec<StateGameRecord>>(value).ok())
+            .unwrap_or_default();
+        let game_icons = games
+            .iter()
+            .filter_map(|game| {
+                game.icon_image_data_url
+                    .as_ref()
+                    .map(|icon| (game.id.as_str(), icon.as_str()))
+            })
+            .collect::<HashMap<_, _>>();
+        let role_games = roles
+            .iter()
+            .map(|role| (role.id.as_str(), role.game_id.as_str()))
+            .collect::<HashMap<_, _>>();
+        let Ok(state) = self.state.lock() else {
+            return;
+        };
+        let updates = state
+            .tabs
+            .values()
+            .map(|runtime_tab| {
+                let active_id = snapshot
+                    .displays
+                    .iter()
+                    .find(|display| display.display_id == runtime_tab.display_id)
+                    .and_then(|display| display.active_tab_id.as_deref());
+                let tabs = snapshot
+                    .tabs
+                    .iter()
+                    .filter(|tab| tab.display_id == runtime_tab.display_id && !tab.hidden)
+                    .filter_map(|tab| {
+                        let live = state.tabs.get(&tab.id)?;
+                        let names = tab
+                            .role_ids
+                            .iter()
+                            .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
+                            .collect::<Vec<_>>();
+                        let tooltip = if tab.tab_type == "workspace" && !names.is_empty() {
+                            let separator = if matches!(language.as_str(), "zh-TW" | "zh-CN") {
+                                "："
+                            } else {
+                                ":"
+                            };
+                            format!("{}{separator}{}", tab.name, names.join(", "))
+                        } else {
+                            tab.name.clone()
+                        };
+                        let icon_data_url = tab.role_ids.first().and_then(|role_id| {
+                            role_games
+                                .get(role_id.as_str())
+                                .and_then(|game_id| game_icons.get(*game_id))
+                                .map(|value| (*value).to_owned())
+                        });
+                        Some(crate::runtime_tabs_macos::MacRuntimeTabState {
+                            active: active_id == Some(tab.id.as_str()),
+                            audio_muted: live.audio_muted,
+                            audible: runtime_tab_is_audible(&state, live),
+                            icon_data_url,
+                            id: tab.id.clone(),
+                            name: tab.name.clone(),
+                            tooltip,
+                            tab_type: tab.tab_type.clone(),
+                            workspace_template: live.workspace_template.clone(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                (
+                    runtime_tab.tabs_controller.clone(),
+                    runtime_tab.display_id,
+                    tabs,
+                )
+            })
+            .collect::<Vec<_>>();
+        drop(state);
+        for (controller, display_id, tabs) in updates {
+            let _ = controller.update(display_id, tabs, always_show, &language);
+        }
+    }
+
+    #[cfg(windows)]
+    fn sync_windows_tab_chrome(&self, snapshot: &BrowserRuntimeSnapshot) {
+        let projection = self.projection(snapshot);
+        let language = self
+            .language
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        let always_show = self
+            .core
+            .invoke(CoreCommand::RuntimeWindowPreferencesGet)
+            .ok()
+            .and_then(|value| value["alwaysShowToolbarInFullScreen"].as_bool())
+            .unwrap_or(false);
+        let roles = self
+            .core
+            .invoke(CoreCommand::RolesList)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
+            .unwrap_or_default();
+        let games = self
+            .core
+            .invoke(CoreCommand::GamesList)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Vec<StateGameRecord>>(value).ok())
+            .unwrap_or_default();
+        let icons = roles
+            .iter()
+            .filter_map(|role| {
+                games
+                    .iter()
+                    .find(|game| game.id == role.game_id)
+                    .and_then(|game| game.icon_image_data_url.clone())
+                    .map(|icon| (role.id.as_str(), icon))
+            })
+            .collect::<HashMap<_, _>>();
+        let displays = self
+            .app
+            .get_webview_window("main")
+            .and_then(|window| crate::workspace_displays(&window).ok())
+            .unwrap_or_else(|| Value::Array(Vec::new()));
+        let updates = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| {
+                state
+                    .tabs
+                    .values()
+                    .map(|tab| {
+                        let tab_icons = snapshot
+                            .tabs
+                            .iter()
+                            .filter_map(|snapshot_tab| {
+                                snapshot_tab
+                                    .role_ids
+                                    .first()
+                                    .and_then(|role_id| icons.get(role_id.as_str()))
+                                    .map(|icon| (snapshot_tab.id.clone(), icon.clone()))
+                            })
+                            .collect::<serde_json::Map<_, _>>();
+                        let templates = snapshot
+                            .tabs
+                            .iter()
+                            .filter_map(|snapshot_tab| {
+                                state.tabs.get(&snapshot_tab.id).and_then(|live| {
+                                    live.workspace_template.as_ref().map(|template| {
+                                        (snapshot_tab.id.clone(), Value::String(template.clone()))
+                                    })
+                                })
+                            })
+                            .collect::<serde_json::Map<_, _>>();
+                        let fullscreen = tab.window.is_fullscreen().unwrap_or(false);
+                        let mut chrome = projection.clone();
+                        if let Some(object) = chrome.as_object_mut() {
+                            object.insert(
+                                "alwaysShowToolbarInFullScreen".to_owned(),
+                                json!(always_show),
+                            );
+                            object.insert("displayId".to_owned(), json!(tab.display_id));
+                            object.insert("displays".to_owned(), displays.clone());
+                            object.insert("fullscreen".to_owned(), json!(fullscreen));
+                            object.insert("language".to_owned(), json!(language));
+                            object.insert("tabIconDataUrls".to_owned(), Value::Object(tab_icons));
+                            object.insert(
+                                "tabWorkspaceTemplates".to_owned(),
+                                Value::Object(templates),
+                            );
+                            object.insert(
+                                "toolbarVisible".to_owned(),
+                                json!(!fullscreen || always_show || tab.toolbar_revealed),
+                            );
+                            object.insert("windowFullscreen".to_owned(), json!(fullscreen));
+                        }
+                        (tab.tabs_chrome.clone(), chrome)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for (webview, chrome) in updates {
+            let _ = webview.eval(format!("window.__rionApplyRuntimeTabState?.({chrome});"));
+        }
+    }
+
+    #[cfg(windows)]
+    fn windows_tab_chrome_height(&self, window: &Window, toolbar_revealed: bool) -> f64 {
+        let fullscreen = window.is_fullscreen().unwrap_or(false);
+        let always_show = self
+            .core
+            .invoke(CoreCommand::RuntimeWindowPreferencesGet)
+            .ok()
+            .and_then(|value| value["alwaysShowToolbarInFullScreen"].as_bool())
+            .unwrap_or(false);
+        if fullscreen && !always_show && !toolbar_revealed {
+            2.0
+        } else {
+            WINDOWS_TAB_CHROME_HEIGHT
+        }
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
@@ -2263,7 +3334,9 @@ impl SystemRuntimeExecutor {
             .collect::<Vec<_>>();
         popup_labels.iter().for_each(|label| {
             state.popup_roles.remove(label);
+            state.audible_webviews.remove(label);
         });
+        state.audible_webviews.remove(role.webview.label());
         drop(state);
         self.clear_role_keys(role_id);
         role.webview.close().map_err(RuntimeError::tauri)?;
@@ -2292,7 +3365,11 @@ impl SystemRuntimeExecutor {
             .collect::<Vec<_>>();
         popup_labels.iter().for_each(|label| {
             state.popup_roles.remove(label);
+            state.audible_webviews.remove(label);
         });
+        for surface in tab.roles.values() {
+            state.audible_webviews.remove(surface.webview.label());
+        }
         let window_label = tab.window.label().to_owned();
         state.pending_window_close_labels.remove(&window_label);
         state.allow_window_close_labels.insert(window_label);
@@ -2711,7 +3788,6 @@ fn run_trusted_input_attestation(
 #[cfg(any(windows, target_os = "macos"))]
 fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeResult<Value> {
     let server = AttestationServer::start()?;
-    let proxy = run_proxy_attestation(runtime, &server)?;
     let mut layouts = Vec::new();
     let mut popup_download = None;
     let mut recovery = None;
@@ -2802,7 +3878,6 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
         "createDestroyCycles": create_destroy_cycles,
         "layouts": layouts,
         "popupDownload": popup_download,
-        "proxy": proxy,
         "recovery": recovery,
         "totalRoles": total_roles
     }))
@@ -2881,106 +3956,6 @@ fn verify_surface_recovery_attestation(
         "processTerminationObserved": true,
         "roleStorePreserved": true
     })))
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-fn run_proxy_attestation(
-    runtime: &SystemRuntimeExecutor,
-    server: &AttestationServer,
-) -> RuntimeResult<Value> {
-    eprintln!("System WebView parity: validating per-session proxy.");
-    let proxy = ProxyAttestationServer::start(server.address)?;
-    let window = WindowBuilder::new(&runtime.app, "system-proxy-attestation-window")
-        .title("System WebView proxy attestation")
-        .inner_size(360.0, 240.0)
-        .visible(false)
-        .build()
-        .map_err(RuntimeError::tauri)?;
-    let paths = role_session_paths(&runtime.user_data_dir, "attestation-proxy")?;
-    fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-    let navigation = Arc::new(NavigationTracker::default());
-    let callback_navigation = Arc::clone(&navigation);
-    let builder = runtime
-        .webview_builder_with_proxy(
-            "system-proxy-attestation-webview".to_owned(),
-            &paths,
-            None,
-            Some(proxy.url()?),
-        )?
-        .on_page_load(move |_webview, payload| {
-            callback_navigation.page_event(payload.event());
-        });
-    let metrics = logical_window_content_metrics(&window)?;
-    let bounds = role_bounds_for_content(
-        metrics,
-        &StateNormalizedRectRecord {
-            x: 0.0,
-            y: 0.0,
-            width: 1.0,
-            height: 1.0,
-        },
-    );
-    let webview = window
-        .add_child(
-            builder,
-            LogicalPosition::new(bounds.x, bounds.y),
-            LogicalSize::new(bounds.width, bounds.height),
-        )
-        .map_err(RuntimeError::tauri)?;
-    install_platform_security_policy(&webview)?;
-    let configuration_applied = proxy_configuration_applied(&webview)?;
-    #[cfg(target_os = "macos")]
-    let verification = if configuration_applied {
-        Ok(json!({
-            "configurationApplied": true,
-            "navigationCompleted": false,
-            "requestObserved": false,
-            "transportVerified": false
-        }))
-    } else {
-        Err(input_attestation_error(
-            "WKWebsiteDataStore did not retain its launch-time proxy configuration.",
-        ))
-    };
-    #[cfg(windows)]
-    let verification = {
-        navigation.reset();
-        webview
-            .navigate(checked_web_url("http://192.0.2.1/proxy")?)
-            .map_err(RuntimeError::tauri)?;
-        navigation
-            .wait()
-            .map_err(|message| {
-                RuntimeError::new(
-                    "SYSTEM_PROXY_ATTESTATION_FAILED",
-                    format!("{message} Proxy target observed: {}.", proxy.saw_target()),
-                )
-            })
-            .and_then(|()| {
-                evaluate_attestation_value(
-                    &webview,
-                    "document.body?.dataset?.rionProxyAttestation === 'passed'",
-                )
-            })
-            .and_then(|value| {
-                if value == Value::Bool(true) && proxy.saw_target() {
-                    Ok(json!({
-                        "configurationApplied": configuration_applied,
-                        "navigationCompleted": true,
-                        "requestObserved": true,
-                        "transportVerified": true
-                    }))
-                } else {
-                    Err(input_attestation_error(format!(
-                        "The System WebView proxy did not carry the expected request: page={value}, observed={}.",
-                        proxy.saw_target()
-                    )))
-                }
-            })
-    };
-    let _ = webview.close();
-    let _ = window.close();
-    verification
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -3340,7 +4315,7 @@ fn verify_attestation_tab(
     tab_id: &str,
     count: usize,
 ) -> RuntimeResult<()> {
-    let (window, surfaces) = {
+    let (window, surfaces, workspace_gap) = {
         let state = runtime.state()?;
         let tab = state.tabs.get(tab_id).ok_or_else(|| {
             input_attestation_error(format!(
@@ -3372,9 +4347,27 @@ fn verify_attestation_tab(
                     })
             })
             .collect::<RuntimeResult<Vec<_>>>()?;
-        (tab.window.clone(), surfaces)
+        (tab.window.clone(), surfaces, tab.workspace_appearance.gap)
     };
     let content_metrics = logical_window_content_metrics(&window)?;
+    let expected_bounds = runtime
+        .resolve_runtime_layout(
+            content_metrics,
+            surfaces
+                .iter()
+                .map(|(role_id, _, _, rect)| LayoutRoleInput {
+                    role_id: role_id.clone(),
+                    rect: LayoutRect {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    },
+                })
+                .collect(),
+            workspace_gap,
+        )?
+        .0;
 
     for (role_id, webview, navigation, rect) in &surfaces {
         eprintln!("System WebView parity: loading {role_id}.");
@@ -3402,7 +4395,10 @@ fn verify_attestation_tab(
         }
         let viewport =
             evaluate_attestation_value(webview, "({ width: innerWidth, height: innerHeight })")?;
-        let expected = role_bounds_for_content(content_metrics, rect);
+        let expected = expected_bounds
+            .get(role_id)
+            .copied()
+            .unwrap_or_else(|| role_bounds_for_content(content_metrics, rect));
         let actual_width = viewport.get("width").and_then(Value::as_f64).unwrap_or(0.0);
         let actual_height = viewport
             .get("height")
@@ -3551,153 +4547,6 @@ impl Drop for AttestationServer {
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-struct ProxyAttestationServer {
-    address: std::net::SocketAddr,
-    #[cfg(windows)]
-    saw_target: Arc<std::sync::atomic::AtomicBool>,
-    stop: Arc<std::sync::atomic::AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-impl ProxyAttestationServer {
-    fn start(origin: std::net::SocketAddr) -> RuntimeResult<Self> {
-        use std::sync::atomic::Ordering as AtomicOrdering;
-
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(RuntimeError::io)?;
-        listener.set_nonblocking(true).map_err(RuntimeError::io)?;
-        let address = listener.local_addr().map_err(RuntimeError::io)?;
-        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let saw_target = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let thread_stop = Arc::clone(&stop);
-        let thread_saw_target = Arc::clone(&saw_target);
-        let thread = std::thread::Builder::new()
-            .name("rion-proxy-attestation-server".to_owned())
-            .spawn(move || {
-                while !thread_stop.load(AtomicOrdering::Relaxed) {
-                    match listener.accept() {
-                        Ok((mut stream, _)) => {
-                            let connection_saw_target = Arc::clone(&thread_saw_target);
-                            let _ = std::thread::Builder::new()
-                                .name("rion-proxy-attestation-connection".to_owned())
-                                .spawn(move || {
-                                    serve_proxy_attestation(
-                                        &mut stream,
-                                        connection_saw_target.as_ref(),
-                                        origin,
-                                    )
-                                });
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(_) => break,
-                    }
-                }
-            })
-            .map_err(|error| {
-                RuntimeError::new("SYSTEM_PROXY_ATTESTATION_FAILED", error.to_string())
-            })?;
-        Ok(Self {
-            address,
-            #[cfg(windows)]
-            saw_target,
-            stop,
-            thread: Some(thread),
-        })
-    }
-
-    #[cfg(windows)]
-    fn saw_target(&self) -> bool {
-        self.saw_target.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn url(&self) -> RuntimeResult<Url> {
-        Url::parse(&format!("http://{}", self.address)).map_err(|error| {
-            RuntimeError::new("SYSTEM_PROXY_ATTESTATION_FAILED", error.to_string())
-        })
-    }
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-impl Drop for ProxyAttestationServer {
-    fn drop(&mut self) {
-        use std::sync::atomic::Ordering as AtomicOrdering;
-
-        self.stop.store(true, AtomicOrdering::Relaxed);
-        let _ = std::net::TcpStream::connect(self.address);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-#[cfg(any(windows, target_os = "macos"))]
-fn serve_proxy_attestation(
-    stream: &mut std::net::TcpStream,
-    saw_target: &std::sync::atomic::AtomicBool,
-    origin: std::net::SocketAddr,
-) {
-    use std::{
-        io::{Read, Write},
-        sync::atomic::Ordering as AtomicOrdering,
-    };
-
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
-    let mut request = [0_u8; 8 * 1024];
-    let read = stream.read(&mut request).unwrap_or(0);
-    if read == 0 {
-        return;
-    }
-    let request = String::from_utf8_lossy(&request[..read]);
-    let target = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or_default();
-    if target.starts_with("http://192.0.2.1/proxy") || target.starts_with("192.0.2.1:") {
-        saw_target.store(true, AtomicOrdering::Relaxed);
-    }
-    if request.starts_with("CONNECT ") {
-        let Ok(mut origin_stream) = std::net::TcpStream::connect(origin) else {
-            return;
-        };
-        if stream
-            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
-            .is_err()
-            || stream.flush().is_err()
-        {
-            return;
-        }
-        let mut initial = [0_u8; 8 * 1024];
-        let initial_read = stream.read(&mut initial).unwrap_or(0);
-        if initial_read == 0 || origin_stream.write_all(&initial[..initial_read]).is_err() {
-            return;
-        }
-        let Ok(mut client_reader) = stream.try_clone() else {
-            return;
-        };
-        let Ok(mut origin_writer) = origin_stream.try_clone() else {
-            return;
-        };
-        let upstream = std::thread::spawn(move || {
-            let _ = std::io::copy(&mut client_reader, &mut origin_writer);
-        });
-        let _ = std::io::copy(&mut origin_stream, stream);
-        let _ = upstream.join();
-        return;
-    }
-    const BODY: &str = "<!doctype html><meta charset=utf-8><body data-rion-proxy-attestation=passed>proxy passed</body>";
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{BODY}",
-        BODY.len()
-    );
-    let _ = stream.write_all(response.as_bytes());
-    let _ = stream.flush();
-}
-
-#[cfg(any(windows, target_os = "macos"))]
 fn serve_attestation_fixture(stream: &mut std::net::TcpStream) {
     use std::io::{Read, Write};
 
@@ -3740,10 +4589,8 @@ document.getElementById('upload').addEventListener('change',async(event)=>{
 });
 </script>"#;
     const POPUP_BODY: &str = "<!doctype html><meta charset=utf-8><title>Rion System popup parity</title><body>popup ready</body>";
-    const PROXY_BODY: &str = "<!doctype html><meta charset=utf-8><body data-rion-proxy-attestation=passed>proxy passed</body>";
     let (content_type, disposition, body) = match path.as_str() {
         "/popup" => ("text/html; charset=utf-8", None, POPUP_BODY.as_bytes()),
-        "/proxy" => ("text/html; charset=utf-8", None, PROXY_BODY.as_bytes()),
         "/download" => (
             "application/octet-stream",
             Some("attachment; filename=\"rion-system-download-attestation.bin\""),
@@ -4026,6 +4873,7 @@ fn push_font_rule(rules: &mut Vec<String>, selector: &str, family: Option<&Strin
     ));
 }
 
+#[derive(Clone, Copy)]
 struct RoleBounds {
     height: f64,
     width: f64,
@@ -4039,6 +4887,11 @@ struct WindowContentMetrics {
     top_inset: f64,
     width: f64,
 }
+
+type ResolvedRuntimeLayout = (
+    HashMap<String, RoleBounds>,
+    Vec<(u32, WorkspaceDividerDescriptor, RoleBounds)>,
+);
 
 fn role_bounds_for_size(
     width: f64,
@@ -4060,6 +4913,47 @@ fn role_bounds_for_content(
     let mut bounds = role_bounds_for_size(metrics.width, metrics.height, rect);
     bounds.y += metrics.top_inset;
     bounds
+}
+
+fn divider_hit_bounds(axis: &str, mut bounds: RoleBounds) -> RoleBounds {
+    if axis == "vertical" && bounds.width < DIVIDER_HIT_TARGET {
+        bounds.x -= (DIVIDER_HIT_TARGET - bounds.width) / 2.0;
+        bounds.width = DIVIDER_HIT_TARGET;
+    } else if axis == "horizontal" && bounds.height < DIVIDER_HIT_TARGET {
+        bounds.y -= (DIVIDER_HIT_TARGET - bounds.height) / 2.0;
+        bounds.height = DIVIDER_HIT_TARGET;
+    }
+    bounds
+}
+
+fn format_ratio(value: f64) -> String {
+    let percent = (value * 1_000.0).round() / 10.0;
+    if percent.fract().abs() < f64::EPSILON {
+        format!("{percent:.0}%")
+    } else {
+        format!("{percent:.1}%")
+    }
+}
+
+#[cfg(windows)]
+fn runtime_window_content_metrics(window: &Window) -> RuntimeResult<WindowContentMetrics> {
+    runtime_window_content_metrics_with_chrome(window, WINDOWS_TAB_CHROME_HEIGHT)
+}
+
+#[cfg(windows)]
+fn runtime_window_content_metrics_with_chrome(
+    window: &Window,
+    chrome_height: f64,
+) -> RuntimeResult<WindowContentMetrics> {
+    let mut metrics = logical_window_content_metrics(window)?;
+    metrics.top_inset += chrome_height;
+    metrics.height = (metrics.height - chrome_height).max(1.0);
+    Ok(metrics)
+}
+
+#[cfg(not(windows))]
+fn runtime_window_content_metrics(window: &Window) -> RuntimeResult<WindowContentMetrics> {
+    logical_window_content_metrics(window)
 }
 
 fn logical_window_content_metrics(window: &Window) -> RuntimeResult<WindowContentMetrics> {
@@ -4735,34 +5629,6 @@ fn validate_mouse_button(button: &str) -> RuntimeResult<&str> {
 }
 
 #[cfg(target_os = "macos")]
-fn proxy_configuration_applied(webview: &Webview) -> RuntimeResult<bool> {
-    unsafe extern "C" {
-        fn rion_wk_has_proxy_configuration(webview: *mut std::ffi::c_void) -> bool;
-    }
-
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    webview
-        .with_webview(move |platform_webview| {
-            let applied = unsafe { rion_wk_has_proxy_configuration(platform_webview.inner()) };
-            let _ = sender.send(applied);
-        })
-        .map_err(RuntimeError::tauri)?;
-    receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_PROXY_ATTESTATION_FAILED",
-                "WKWebsiteDataStore proxy inspection timed out.",
-            )
-        })
-}
-
-#[cfg(windows)]
-fn proxy_configuration_applied(_webview: &Webview) -> RuntimeResult<bool> {
-    Ok(true)
-}
-
-#[cfg(target_os = "macos")]
 fn terminate_surface_for_attestation(webview: &Webview) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_terminate_web_content_process(webview: *mut std::ffi::c_void) -> bool;
@@ -5143,6 +6009,20 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
+    #[test]
+    fn navigation_tracker_ignores_blank_pages_and_accepts_http_finish_without_started() {
+        let tracker = NavigationTracker::default();
+        tracker.reset();
+        tracker.page_event(PageLoadEvent::Finished, &Url::parse("about:blank").unwrap());
+        assert!(!tracker.state.lock().unwrap().finished);
+
+        tracker.page_event(
+            PageLoadEvent::Finished,
+            &Url::parse("https://example.test/redirected").unwrap(),
+        );
+        assert!(tracker.state.lock().unwrap().finished);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_security_policy_installs_dialogs_and_denies_undefined_media_permissions() {
@@ -5208,7 +6088,6 @@ mod tests {
             "graphics": {"mode":"automatic"},
             "browserEngine":"system",
             "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
-            "network":{"proxy":{"mode":"system","server":""}},
             "workspace":{"background":"material","gap":4}
         }))
         .unwrap();

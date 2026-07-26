@@ -39,8 +39,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("wk-open-panel-callback");
     expect(runtime).toContain("uploadContentVerified");
     expect(runtime).toContain("verify_surface_recovery_attestation");
-    expect(runtime).toContain("run_proxy_attestation");
-    expect(runtime).toContain("proxy_configuration_applied");
+    expect(runtime).not.toContain("proxy_url");
+    expect(runtime).not.toContain("proxy_attestation");
     expect(runtime).toContain("DOWNLOAD_ATTESTATION_BODY");
     expect(runtime).toContain("add_ProcessFailed");
     expect(runtime).toContain("PermissionRequestedEventHandler");
@@ -50,6 +50,17 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("EmbeddedSystemSurfaceFailed");
     expect(runtime).toContain("EmbeddedSystemSurfaceRecovered");
     expect(runtime).toContain("SURFACE_RECOVERY_LIMIT");
+    expect(runtime).toContain('internals.invoke("rion_runtime_audio_state", { audible })');
+    expect(runtime).not.toContain("rion-runtime-audio://");
+    expect(runtime).toContain("set_webview_audible");
+    expect(shell).toContain("rion_runtime_audio_state");
+    const applyRuntime = runtime.slice(
+      runtime.indexOf("fn apply_runtime("),
+      runtime.indexOf("fn sync_native_tab_chrome(")
+    );
+    expect(applyRuntime).not.toContain("sync_native_tab_chrome");
+    expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
+    expect(runtime).not.toContain('  publish();\n})();\n"#;');
     expect(runtime).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
     expect(runtime).toContain("+trusted-input-attested");
     expect(runtime).toContain("start_trusted_input_attestation");
@@ -75,8 +86,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("rion_wk_install_security_policy");
     expect(macInput).toContain("rion_wk_window_content_layout_metrics");
     expect(macInput).toContain("window.contentLayoutRect");
-    expect(macInput).toContain("rion_wk_has_proxy_configuration");
-    expect(macInput).toContain('valueForKey:@"proxyConfigurations"');
+    expect(macInput).toContain("NSRect viewportBounds = webView.bounds");
+    expect(macInput).not.toContain("NSIntersectionRect(webView.bounds, layoutInView)");
+    expect(macInput).not.toContain("proxyConfigurations");
     expect(macInput).toContain("rion_wk_terminate_web_content_process");
     expect(macInput).toContain('@"_webProcessIdentifier"');
     expect(macInput).toContain("kill(pid, SIGKILL)");
@@ -93,7 +105,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("rion_wk_install_upload_attestation");
     expect(macInput).toContain("runOpenPanelWithParameters");
     expect(inputVerifier).toContain("layout?.pixelParity !== true");
-    expect(inputVerifier).toContain("proxy?.configurationApplied !== true");
+    expect(inputVerifier).not.toContain("roleParity?.proxy");
     expect(inputVerifier).toContain('expectedPlatform === "windows"');
     expect(inputVerifier).toContain("recovery?.nativeHandleReplaced !== true");
     expect(inputVerifier).toContain("recovery?.processTerminationObserved !== true");

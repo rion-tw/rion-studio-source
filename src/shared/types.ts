@@ -3,8 +3,6 @@ import type {
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
   BrowserGraphicsSettingsRecord,
-  BrowserNetworkSettingsRecord,
-  BrowserProxySettingsRecord,
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
   DiagnosticExportResultRecord,
@@ -369,15 +367,10 @@ export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
 export type BrowserHostKind = RustBrowserHostKind;
 export type SystemWebViewIssueReason = RustSystemWebViewIssueReason;
 export type EngineCapabilitySnapshot = RustEngineCapabilitySnapshotRecord;
-export type BrowserProxySettingsMode = "system" | "custom";
 export type WorkspaceBackgroundStyle = "material" | "black";
 export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
 export type BrowserFontSettings = BrowserFontSettingsRecord;
-
-export type BrowserProxySettings = BrowserProxySettingsRecord;
-
-export type BrowserNetworkSettings = BrowserNetworkSettingsRecord;
 
 export type BrowserGraphicsSettings = BrowserGraphicsSettingsRecord;
 

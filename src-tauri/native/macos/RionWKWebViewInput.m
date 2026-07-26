@@ -219,16 +219,6 @@ bool rion_wk_upload_attestation_invoked(void *rawWebView) {
   }
 }
 
-bool rion_wk_has_proxy_configuration(void *rawWebView) {
-  @autoreleasepool {
-    if (!rawWebView) return false;
-    WKWebView *webView = (__bridge WKWebView *)rawWebView;
-    id value = [webView.configuration.websiteDataStore
-        valueForKey:@"proxyConfigurations"];
-    return [value isKindOfClass:NSArray.class] && [(NSArray *)value count] > 0;
-  }
-}
-
 bool rion_wk_terminate_web_content_process(void *rawWebView) {
   @autoreleasepool {
     if (!rawWebView) return false;
@@ -426,27 +416,22 @@ bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
       return false;
     }
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
-    NSRect visibleBounds = webView.visibleRect;
     NSWindow *window = webView.window;
-    if (window) {
-      // Tauri uses a full-size content view on macOS. `contentView.bounds` can
-      // therefore extend under the title bar even though WebKit's DOM viewport
-      // is restricted to AppKit's content layout rect.
-      NSRect layoutInView = [webView convertRect:window.contentLayoutRect fromView:nil];
-      NSRect clippedToLayout = NSIntersectionRect(webView.bounds, layoutInView);
-      if (!NSIsEmptyRect(clippedToLayout)) {
-        visibleBounds = clippedToLayout;
-      }
-    }
-    NSPoint viewPoint = NSMakePoint(NSMinX(visibleBounds) + x, y);
+    if (!window) return false;
+    // Role WKWebViews are child views already positioned below the AppKit tab
+    // chrome. BrowserAction points are DOM viewport coordinates, so applying
+    // the parent window's contentLayoutRect here would add the titlebar inset a
+    // second time (and can yield a negative clientY while the host is hidden).
+    NSRect viewportBounds = webView.bounds;
+    NSPoint viewPoint = NSMakePoint(NSMinX(viewportBounds) + x, y);
     // BrowserAction coordinates use the DOM convention (origin at top-left).
     // AppKit views normally use a bottom-left origin, while a subclass may opt
     // into flipped coordinates. Normalize only when the concrete WKWebView is
     // not already flipped so the same semantic point reaches both variants.
     if (!webView.isFlipped) {
-      viewPoint.y = NSMaxY(visibleBounds) - y;
+      viewPoint.y = NSMaxY(viewportBounds) - y;
     } else {
-      viewPoint.y = NSMinY(visibleBounds) + y;
+      viewPoint.y = NSMinY(viewportBounds) + y;
     }
     NSPoint windowPoint = [webView convertPoint:viewPoint toView:nil];
     NSEventType type;

@@ -19,7 +19,7 @@ macro_rules! v1_case {
 pub(crate) use v1_case;
 
 mod filesystem;
-pub use filesystem::atomic_replace_file;
+pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
 mod system;

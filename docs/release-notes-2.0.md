@@ -1,5 +1,8 @@
 # Rion Studio 2.0
 
+> Historical release note. For the current Tauri-only architecture and upgrade
+> policy, see `docs/system-native-engine-tauri-plan.md`.
+
 Rion Studio 2.0 moved the non-UI application core to Rust while retaining the legacy shell,
 Chromium, React, existing role browser directories, IPC channels and update artifacts.
 
@@ -23,6 +26,6 @@ Chromium, React, existing role browser directories, IPC channels and update arti
 - macOS 12 or newer on Apple silicon (arm64)
 - Windows 10/11 on x64
 
-The release retained the legacy browser engine and the then-current macOS AppKit runtime-tab
-controller. Windows external-Chrome frame alignment is now implemented in the Rust
-platform adapter; the former standalone C++ helper is not included.
+The release retained its then-current browser engine and macOS AppKit runtime-tab
+controller. The current product line replaces that shell with platform System
+WebViews managed by the Rust/Tauri runtime.

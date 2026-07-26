@@ -4,6 +4,7 @@ mod browser_action_effects;
 mod browser_operations;
 mod browser_runtime;
 mod compatibility_runtime;
+mod data_root_migration;
 mod database;
 mod diagnostics;
 mod domain;
@@ -44,14 +45,14 @@ pub(crate) use v1_case;
 
 pub use app::AppCore;
 pub use bootstrap_settings::read_plan as read_bootstrap_plan;
+pub use data_root_migration::{DataRootMigrationOutcome, migrate_legacy_data_root};
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
 pub use model::{
     AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BootstrapPlanRecord, BrowserAction,
     BrowserActionRequest, BrowserActionResult, BrowserEngineOverride,
     BrowserEngineResolutionRecord, BrowserFontSettingsRecord, BrowserGraphicsBackendSettingsRecord,
-    BrowserGraphicsSettingsRecord, BrowserHostKind, BrowserNetworkSettingsRecord,
-    BrowserOperationLease, BrowserOperationRequest, BrowserProxySettingsRecord,
+    BrowserGraphicsSettingsRecord, BrowserHostKind, BrowserOperationLease, BrowserOperationRequest,
     BrowserRoleStatusRecord, BrowserRuntimeCommand, BrowserRuntimeDisplayRecord,
     BrowserRuntimeResult, BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot,
     BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord, BrowserWorkspaceStatusRecord,
@@ -127,8 +128,6 @@ mod generated_contract_tests {
                 "export type { BrowserGraphicsBackendSettingsRecord } from \"./BrowserGraphicsBackendSettingsRecord\";\n",
                 "export type { BrowserGraphicsSettingsRecord } from \"./BrowserGraphicsSettingsRecord\";\n",
                 "export type { BrowserHostKind } from \"./BrowserHostKind\";\n",
-                "export type { BrowserNetworkSettingsRecord } from \"./BrowserNetworkSettingsRecord\";\n",
-                "export type { BrowserProxySettingsRecord } from \"./BrowserProxySettingsRecord\";\n",
                 "export type { BrowserRoleStatusRecord } from \"./BrowserRoleStatusRecord\";\n",
                 "export type { BrowserRuntimeCommand } from \"./BrowserRuntimeCommand\";\n",
                 "export type { BrowserRuntimeDisplayRecord } from \"./BrowserRuntimeDisplayRecord\";\n",

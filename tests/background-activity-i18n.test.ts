@@ -29,7 +29,7 @@ describe("native background throttling i18n", () => {
     }
   });
 
-  it("explains that native Chromium and Electron throttling remains enabled", () => {
+  it("explains that the system WebView owns background resource management", () => {
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary).not.toHaveProperty("roleForm.section.launchDescription");
       expect(dictionary).not.toHaveProperty("roleForm.width");
@@ -47,9 +47,9 @@ describe("native background throttling i18n", () => {
     }
 
     expect(en["workspaces.help.runtimeResource"]).toContain("does not apply an additional CPU speed limit");
-    expect(en["workspaces.help.runtimeResource"]).toContain("native throttling");
+    expect(en["workspaces.help.runtimeResource"]).toContain("operating-system WebView");
     expect(zhTW["workspaces.help.runtimeResource"]).toContain("不會額外限制 CPU 速度");
-    expect(zhTW["workspaces.help.runtimeResource"]).toContain("原生節流機制");
+    expect(zhTW["workspaces.help.runtimeResource"]).toContain("作業系統 WebView");
   });
 
   it("documents the Windows EcoQoS opt-out in every language", () => {
@@ -60,11 +60,9 @@ describe("native background throttling i18n", () => {
       );
     }
 
-    expect(en["settings.graphicsWindowsEcoQosDescription"]).toContain(
-      "other native background throttling remains active"
-    );
+    expect(en["settings.graphicsWindowsEcoQosDescription"]).toContain("WebView2");
     expect(zhTW["settings.graphicsWindowsEcoQosDescription"]).toContain(
-      "其他原生背景節流仍維持啟用"
+      "WebView2"
     );
   });
 });

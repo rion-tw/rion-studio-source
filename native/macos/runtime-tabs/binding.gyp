@@ -22,6 +22,7 @@
       "target_name": "rion-runtime-tabs-tests",
       "type": "executable",
       "sources": [
+        "../../../src-tauri/native/macos/RionWKWebViewInput.m",
         "RionRuntimeTabsController.mm",
         "RionSystemWebViewSurface.mm",
         "RionRuntimeTabsControllerTests.mm"

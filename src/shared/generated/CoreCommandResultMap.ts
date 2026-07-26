@@ -3,10 +3,6 @@ import type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 import type { BrowserRuntimeSnapshot } from "./BrowserRuntimeSnapshot";
 import type { BrowserWorkspaceStatusRecord } from "./BrowserWorkspaceStatusRecord";
 import type { BulkDeleteResultRecord } from "./BulkDeleteResultRecord";
-import type { CdnResolutionRecord } from "./CdnResolutionRecord";
-import type { ChromeProfileImportPrepareRecord } from "./ChromeProfileImportPrepareRecord";
-import type { ChromeProfileImportPreviewRecord } from "./ChromeProfileImportPreviewRecord";
-import type { ChromeProfileImportResultRecord } from "./ChromeProfileImportResultRecord";
 import type { CompatibilityRunStatusRecord } from "./CompatibilityRunStatusRecord";
 import type { CoreCommand } from "./CoreCommand";
 import type { CoreEffectMetricsRecord } from "./CoreEffectMetricsRecord";
@@ -15,7 +11,6 @@ import type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecor
 import type { EmbeddedKeyTransitionRecord } from "./EmbeddedKeyTransitionRecord";
 import type { EmbeddedLaunchResultRecord } from "./EmbeddedLaunchResultRecord";
 import type { EngineCompatibilityCacheRecord } from "./EngineCompatibilityCacheRecord";
-import type { ExternalChromeDiagnosticsRecord } from "./ExternalChromeDiagnosticsRecord";
 import type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
 import type { GraphicsDiagnosticsRecord } from "./GraphicsDiagnosticsRecord";
 import type { LegalAcceptanceStatusRecord } from "./LegalAcceptanceStatusRecord";
@@ -31,9 +26,6 @@ import type { PortableExportResultRecord } from "./PortableExportResultRecord";
 import type { PortableImportPreviewRecord } from "./PortableImportPreviewRecord";
 import type { PortableImportResultRecord } from "./PortableImportResultRecord";
 import type { RolePathsRecord } from "./RolePathsRecord";
-import type { RoleSessionMigrationPreviewRecord } from "./RoleSessionMigrationPreviewRecord";
-import type { RoleSessionMigrationResultRecord } from "./RoleSessionMigrationResultRecord";
-import type { RoleSessionMigrationRollbackRecord } from "./RoleSessionMigrationRollbackRecord";
 import type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesRecord";
 import type { RuntimeRestoreSessionRecord } from "./RuntimeRestoreSessionRecord";
 import type { StateCompatibilityReportRecord } from "./StateCompatibilityReportRecord";
@@ -54,7 +46,7 @@ export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] |
 
 type DefaultCoreCommandResultMap = { [K in CoreCommand["type"]]: CoreJsonValue };
 
-export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebViewProbe" | "systemWebViewRuntimeRegister" | "stateSnapshot" | "gamesList" | "gameGet" | "gameCreate" | "gameUpdate" | "gameResetBuiltin" | "gamesDelete" | "rolesList" | "roleGet" | "roleCreate" | "roleUpdate" | "roleReorder" | "roleBrowserDataClear" | "roleSessionMigrationPreview" | "roleSessionMigrationApply" | "roleSessionMigrationRollback" | "roleBrowserDirectoryEnsure" | "roleBrowserDirectoryReset" | "rolePathsResolve" | "roleSetBrowserSessionSource" | "roleAssignGameIds" | "rolesDelete" | "workspacesList" | "workspaceGet" | "workspaceCreate" | "workspaceUpdate" | "workspaceReorder" | "workspaceSetRoleBrowserZoom" | "workspaceReconcileDisplays" | "workspacesDelete" | "macrosList" | "macroGet" | "macroCreate" | "macroUpdate" | "macrosDelete" | "compatibilityStatuses" | "compatibilityReportsCurrent" | "compatibilityRun" | "gameBrowserSettingsGet" | "gameBrowserSettingsReplace" | "engineCompatibilityCacheGet" | "engineCompatibilityCachePut" | "engineCompatibilityCacheDeleteGame" | "macroSettingsGet" | "macroSettingsReplace" | "runtimeWindowPreferencesGet" | "runtimeWindowPreferencesReplace" | "runtimeRestoreSessionGet" | "runtimeRestoreSessionReplace" | "legalAcceptanceStatus" | "legalAcceptanceAccept" | "systemFontsList" | "portableExport" | "portableExportTo" | "portablePreview" | "portablePreviewFile" | "portableApply" | "chromeProfileDefaultPath" | "chromeProfilePreview" | "chromeProfilePrepare" | "chromeProfileApply" | "externalProcessLaunch" | "macroStart" | "macroPress" | "macroStatuses" | "layoutResolve" | "layoutNormalizeRects" | "layoutCreateDividers" | "layoutResizeDivider" | "layoutAdaptiveZoom" | "embeddedKeyPrepare" | "embeddedKeysReassert" | "embeddedKeysHeld" | "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedSystemSurfaceFailed" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "browserRuntimeSnapshot" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "cdnResolveSession" | "graphicsDiagnosticsAssemble" | "logsQuery" | "logsStatus" | "diagnosticsExport" | "telemetrySnapshot" | "overlayRequest" | "windowsGraphicsEventsCollect"> & {
+type TypedCoreCommandResultMap = {
   systemWebViewProbe: SystemWebViewProbeRecord;
   systemWebViewRuntimeRegister: SystemWebViewRuntimeRegistrationRecord;
   stateSnapshot: CoreStateSnapshotRecord;
@@ -70,13 +62,9 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebV
   roleUpdate: StateRoleRecord;
   roleReorder: StateRoleRecord[];
   roleBrowserDataClear: StateRoleRecord;
-  roleSessionMigrationPreview: RoleSessionMigrationPreviewRecord;
-  roleSessionMigrationApply: RoleSessionMigrationResultRecord;
-  roleSessionMigrationRollback: RoleSessionMigrationRollbackRecord;
   roleBrowserDirectoryEnsure: RolePathsRecord;
   roleBrowserDirectoryReset: RolePathsRecord;
   rolePathsResolve: RolePathsRecord;
-  roleSetBrowserSessionSource: StateRoleRecord;
   roleAssignGameIds: StateRoleRecord[];
   rolesDelete: BulkDeleteResultRecord;
   workspacesList: StateLaunchWorkspaceRecord[];
@@ -114,11 +102,6 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebV
   portablePreview: PortableImportPreviewRecord | null;
   portablePreviewFile: PortableImportPreviewRecord | null;
   portableApply: PortableImportResultRecord;
-  chromeProfileDefaultPath: { path?: string };
-  chromeProfilePreview: ChromeProfileImportPreviewRecord | null;
-  chromeProfilePrepare: ChromeProfileImportPrepareRecord;
-  chromeProfileApply: ChromeProfileImportResultRecord;
-  externalProcessLaunch: { pid: number };
   macroStart: MacroRunStatus[];
   macroPress: MacroRunStatus[];
   macroStatuses: MacroRunStatus[];
@@ -135,6 +118,7 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebV
   embeddedRoleLaunch: EmbeddedLaunchResultRecord[];
   embeddedWorkspaceLaunch: EmbeddedLaunchResultRecord[];
   embeddedSystemSurfaceFailed: BrowserRoleStatusRecord[];
+  embeddedSystemSurfaceRecovered: BrowserRoleStatusRecord[];
   embeddedWindowsShow: BrowserRuntimeSnapshot;
   embeddedTabActivate: BrowserRuntimeSnapshot;
   embeddedTabActivateAdjacent: BrowserRuntimeSnapshot;
@@ -144,13 +128,9 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebV
   embeddedDisplayRemove: BrowserRuntimeSnapshot;
   browserRoleLaunch: BrowserRoleStatusRecord[];
   browserWorkspaceLaunch: BrowserRoleStatusRecord[];
-  browserExternalRecover: BrowserRoleStatusRecord;
   browserStatuses: BrowserRoleStatusRecord[];
   browserWorkspaceStatuses: BrowserWorkspaceStatusRecord[];
   browserRuntimeSnapshot: BrowserRuntimeSnapshot;
-  externalDiagnosticsCapture: ExternalChromeDiagnosticsRecord;
-  externalDiagnosticsList: ExternalChromeDiagnosticsRecord[];
-  cdnResolveSession: CdnResolutionRecord;
   graphicsDiagnosticsAssemble: GraphicsDiagnosticsRecord;
   logsQuery: LogPageRecord;
   logsStatus: LogStorageStatusRecord;
@@ -159,5 +139,7 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "systemWebV
   overlayRequest: MacroOverlayViewModelRecord;
   windowsGraphicsEventsCollect: WindowsGraphicsEventCollectionRecord;
 };
+
+export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, keyof TypedCoreCommandResultMap> & TypedCoreCommandResultMap;
 
 export type CoreCommandResult<C extends CoreCommand> = CoreCommandResultMap[C["type"]];

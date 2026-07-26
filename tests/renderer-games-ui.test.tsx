@@ -77,7 +77,7 @@ describe("games cover UI", () => {
     expect(onEdit).toHaveBeenCalledWith(covered);
   });
 
-  it("replaces the built-in and embedded-available badges with a compatibility shield", () => {
+  it("replaces the built-in and system-WebView-available badges with a compatibility shield", () => {
     const builtinGame = game({
       id: "builtin-flyff-universe",
       source: "builtin",
@@ -92,7 +92,7 @@ describe("games cover UI", () => {
           checkedAt: "2026-07-15T01:00:00.000Z",
           isStale: false,
           load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
-          recommendation: { mode: "embedded", reason: "embedded_available" },
+          recommendation: { reason: "system_webview_available" },
           observations: {}
         }]}
         roles={[]}
@@ -111,12 +111,11 @@ describe("games cover UI", () => {
     const card = screen.getByText("Flyff Universe").closest(".glass-panel");
     const cardQueries = within(card as HTMLElement);
     const shield = cardQueries.getByRole("img", {
-      name: "Embedded mode is available; no settings were changed."
+      name: "System WebView is available; no settings were changed."
     });
 
     expect(cardQueries.queryByText("Built-in")).toBeNull();
-    expect(cardQueries.queryByText("Embedded available")).toBeNull();
-    expect(shield.getAttribute("title")).toBe("Embedded mode is available; no settings were changed.");
+    expect(shield.getAttribute("title")).toBe("System WebView is available; no settings were changed.");
     expect(shield.classList.contains("text-emerald-500")).toBe(true);
   });
 
@@ -130,7 +129,7 @@ describe("games cover UI", () => {
           checkedAt: "2026-07-15T01:00:00.000Z",
           isStale: true,
           load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
-          recommendation: { mode: "embedded", reason: "embedded_available" },
+          recommendation: { reason: "system_webview_available" },
           observations: {}
         }]}
         roles={[]}
@@ -196,7 +195,7 @@ describe("games cover UI", () => {
             gameId: failedGame.id,
             isStale: false,
             load: { state: "failed", durationMs: 321 },
-            recommendation: { mode: "external", reason: "external_recommended" },
+            recommendation: { reason: "load_failed" },
             observations: {}
           },
           {
@@ -209,7 +208,7 @@ describe("games cover UI", () => {
             gameId: graphicsGame.id,
             isStale: false,
             load: { state: "available", durationMs: 321 },
-            recommendation: { mode: "external", reason: "graphics_unavailable" },
+            recommendation: { reason: "graphics_unavailable" },
             observations: {}
           }
         ]}
@@ -262,7 +261,6 @@ describe("games cover UI", () => {
         reports={[]}
         runStatuses={[]}
         t={t}
-        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
         onCancelCheck={vi.fn()}
         onError={vi.fn()}
         onOpenGraphicsSettings={vi.fn()}
@@ -301,7 +299,6 @@ describe("games cover UI", () => {
         reports={[]}
         runStatuses={[]}
         t={t}
-        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
         onCancelCheck={vi.fn()}
         onError={vi.fn()}
         onOpenGraphicsSettings={vi.fn()}
@@ -332,12 +329,11 @@ describe("games cover UI", () => {
           checkedAt: "2026-07-15T01:00:00.000Z",
           isStale: false,
           load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
-          recommendation: { mode: "embedded", reason: "embedded_available" },
+          recommendation: { reason: "system_webview_available" },
           observations: {}
         }]}
         runStatuses={[]}
         t={t}
-        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
         onCancelCheck={vi.fn()}
         onError={vi.fn()}
         onOpenGraphicsSettings={vi.fn()}
@@ -364,7 +360,6 @@ function game(overrides: Partial<Game> = {}): Game {
     source: "custom",
     name: "Game",
     defaultLaunchUrl: "https://example.test/play",
-    browserLaunchMode: "inherit",
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z",
     ...overrides

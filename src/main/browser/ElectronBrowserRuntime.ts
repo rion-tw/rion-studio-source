@@ -6,8 +6,6 @@ import type {
   BaseWindowConstructorOptions,
   BrowserWindow,
   BrowserWindowConstructorOptions,
-  KeyboardEvent as ElectronKeyboardEvent,
-  Session,
   WebContents,
   WebContentsView,
   WebContentsViewConstructorOptions
@@ -49,18 +47,12 @@ import {
   type RuntimeTabAction,
   type RuntimeTabChromeState
 } from "../../shared/runtimeTabs";
-import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
-import { isWorkspaceSlotBrowserZoomPercent } from "../../shared/workspaceLayout";
 import {
   formatWorkspaceResizeRatio,
   type WorkspaceResizeIndicatorPayload
 } from "../../shared/workspaceResize";
 import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnostics";
-import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
-import {
-  createElectronSessionStore,
-  type BrowserCookieTransferRecord
-} from "./ElectronProfileEffectAdapter";
+import type { BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import type {
   NativeRoleSurfaceHandle,
   NativeRoleSurfaceConfiguration,
@@ -105,27 +97,15 @@ export interface BrowserAutomationSession {
   target: BrowserAutomationTarget;
 }
 
-export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents) => Promise<void>;
-export type BrowserProxyApplier = (role: Role, partition: string, session: Session) => Promise<void>;
-export type BrowserCdnCompatibilityApplier = (role: Role, partition: string, session: Session) => Promise<void>;
 export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
 export type WorkspaceRoleZoomPersister = (
   workspaceId: string,
   roleId: string,
   browserZoomPercent: WorkspaceSlotBrowserZoomPercent
 ) => Promise<void>;
-export type NativeZoomPerformer = (
-  action: NativeZoomShortcutAction,
-  window: BaseWindow,
-  webContents: WebContents,
-  event: ElectronKeyboardEvent
-) => boolean;
 type MaybePromise<T> = T | Promise<T>;
 
 export interface ElectronBrowserRuntimeOptions {
-  applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
-  applyBrowserProxy?: BrowserProxyApplier;
-  applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
   browserRuntimeState: Pick<AppCoreClient, "invoke" | "subscribe">;
   createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
   createRuntimeChromeView?: (options: WebContentsViewConstructorOptions) => WebContentsView;
@@ -136,7 +116,6 @@ export interface ElectronBrowserRuntimeOptions {
   embeddedPreloadPath: string;
   runtimeTabsPageUrl?: string;
   runtimeTabsPreloadPath?: string;
-  getRoleSession?: (role: Role) => Session | undefined | Promise<Session | undefined>;
   getRolePaths?: (roleId: string) => Promise<RolePathsRecord>;
   getNativeSessionConfiguration?: (
     role: Role
@@ -160,7 +139,6 @@ export interface ElectronBrowserRuntimeOptions {
     context: EmbeddedRuntimeDiagnosticContext,
     webContents: WebContents
   ) => void;
-  performNativeZoom?: NativeZoomPerformer;
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
   adaptiveZoomResolver: (
     viewportWidth: number,
@@ -273,10 +251,10 @@ interface EmbeddedDisplayHost {
 }
 
 type DividerAxis = "horizontal" | "vertical";
-type EmbeddedEngineFamily = "electron" | "system";
+type EmbeddedEngineFamily = "system";
 
-function embeddedEngineFamily(engine: ResolvedBrowserEngine): EmbeddedEngineFamily {
-  return engine === "webview2" || engine === "wkwebview" ? "system" : "electron";
+function embeddedEngineFamily(_engine: ResolvedBrowserEngine): EmbeddedEngineFamily {
+  return "system";
 }
 
 function embeddedDisplayHostKey(
@@ -322,7 +300,7 @@ interface BrowserSessionBase {
   abortController: AbortController;
   audible: boolean;
   currentUrl?: string;
-  fallbackInProgress?: boolean;
+  recoveryInProgress?: boolean;
   gameInputContextActive: boolean;
   hostId: string;
   rect: NormalizedRect;
@@ -334,14 +312,6 @@ interface BrowserSessionBase {
   zoomPersistenceTimer?: ReturnType<typeof setTimeout>;
 }
 
-interface ElectronBrowserSession extends BrowserSessionBase {
-  kind: "electron";
-  popupViews: Set<WebContentsView>;
-  target: BrowserAutomationTarget;
-  view: WebContentsView;
-  webContents: WebContents;
-}
-
 interface NativeBrowserSession extends BrowserSessionBase {
   kind: "native";
   lifecycleUnsubscribe: () => void;
@@ -349,19 +319,7 @@ interface NativeBrowserSession extends BrowserSessionBase {
   pendingPopupUrls: string[];
 }
 
-type BrowserSession = ElectronBrowserSession | NativeBrowserSession;
-
-interface EmbeddedFallbackRoleContinuity {
-  [key: string]: CoreJsonValue;
-  authVerified: boolean;
-  cookiesMirrored: number;
-  roleId: string;
-}
-
-interface EmbeddedFallbackResult {
-  [key: string]: CoreJsonValue;
-  roles: EmbeddedFallbackRoleContinuity[];
-}
+type BrowserSession = NativeBrowserSession;
 
 interface NativeZoomShortcutInput {
   alt: boolean;
@@ -385,7 +343,6 @@ type EmbeddedCoreEffectAction = Extract<
       | "embeddedCreateTab"
       | "embeddedDestroyRole"
       | "embeddedDestroyTab"
-      | "embeddedFallbackTabToElectron"
       | "embeddedFocusRole"
       | "embeddedInstallOverlays"
       | "embeddedLoadRoles";
@@ -399,6 +356,7 @@ const RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT = 2;
 const RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT = 30;
 const RUNTIME_TAB_MAC_MENU_BAR_MAX_HEIGHT = 64;
 const NATIVE_OVERLAY_BRIDGE_MAX_MESSAGE_BYTES = 64 * 1024;
+const SYSTEM_SURFACE_RECOVERY_ATTEMPTS = 2;
 const NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE = `(() => {
   const version = "rion-native-overlay-1";
   if (globalThis.__rionStudioNativeOverlayBridge?.version === version) return;
@@ -440,9 +398,37 @@ const NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE = `(() => {
     })
   });
 })();`;
-export const EXTERNAL_COMPAT_NOTICE =
-  "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
-
+const NATIVE_WORKSPACE_RESIZE_INDICATOR_SOURCE = `(() => {
+  if (globalThis.__rionStudioWorkspaceResizeIndicator) return;
+  const elementId = "rion-studio-workspace-resize-indicator";
+  globalThis.__rionStudioWorkspaceResizeIndicator = (payload) => {
+    let element = document.getElementById(elementId);
+    if (payload?.type === "hide") {
+      element?.remove();
+      return;
+    }
+    if (!element) {
+      element = document.createElement("div");
+      element.id = elementId;
+      Object.assign(element.style, {
+        background: "rgba(15, 23, 42, .88)",
+        border: "1px solid rgba(255, 255, 255, .2)",
+        borderRadius: "8px",
+        color: "white",
+        font: "600 13px system-ui, sans-serif",
+        left: "50%",
+        padding: "6px 10px",
+        pointerEvents: "none",
+        position: "fixed",
+        top: "16px",
+        transform: "translateX(-50%)",
+        zIndex: "2147483647"
+      });
+      (document.body || document.documentElement).append(element);
+    }
+    element.textContent = String(payload?.label || "");
+  };
+})();`;
 function getErrorCode(error: unknown): string | undefined {
   return error instanceof Error && "code" in error && typeof error.code === "string"
     ? error.code
@@ -574,7 +560,6 @@ export class ElectronBrowserRuntime
   private workspaceStatuses: BrowserWorkspaceRuntimeStatus[] = [];
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
-  private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
   private runtimeSessionProjection?: () => Pick<
     EmbeddedRuntimeState,
     "savedWindows" | "recovery"
@@ -629,16 +614,12 @@ export class ElectronBrowserRuntime
     });
   }
 
-  setMacroOverlayInstaller(installer: BrowserMacroOverlayInstaller): void {
-    this.macroOverlayInstaller = installer;
-  }
-
   refreshNativeMacroOverlays(roleIds?: string | string[]): void {
     const selectedRoleIds = roleIds === undefined
       ? undefined
       : new Set(Array.isArray(roleIds) ? roleIds : [roleIds]);
     this.roleHandles.forEach((session, roleId) => {
-      if (session.kind !== "native" || selectedRoleIds && !selectedRoleIds.has(roleId)) {
+      if (selectedRoleIds && !selectedRoleIds.has(roleId)) {
         return;
       }
       void session.nativeHandle.surface.evaluate(
@@ -674,7 +655,7 @@ export class ElectronBrowserRuntime
           undefined,
           tab.workspaceTemplate as WorkspaceLayoutTemplate | undefined,
           tab.tabId,
-          engineFamilies.values().next().value ?? "electron"
+          engineFamilies.values().next().value ?? "system"
         );
         for (const [index, role] of tab.roles.entries()) {
           await this.createSession(
@@ -717,8 +698,6 @@ export class ElectronBrowserRuntime
           const session = this.requireEmbeddedSession(roleId);
           await this.applyBrowserProxy(session);
           this.assertSessionActive(session);
-          await this.applyCdnCompatibility(session);
-          this.assertSessionActive(session);
         }));
         return undefined;
       }
@@ -738,11 +717,7 @@ export class ElectronBrowserRuntime
           }
           this.assertSessionActive(session);
           try {
-            if (session.kind === "electron") {
-              await session.webContents.loadURL(role.url);
-            } else {
-              await session.nativeHandle.surface.loadUrl(role.url);
-            }
+            await session.nativeHandle.surface.loadUrl(role.url);
             session.currentUrl = role.url;
           } catch {
             this.assertSessionActive(session);
@@ -761,11 +736,7 @@ export class ElectronBrowserRuntime
       case "embeddedInstallOverlays": {
         await waitForAllEffects(action.roleIds.map(async (roleId) => {
           const session = this.requireEmbeddedSession(roleId);
-          if (session.kind === "electron") {
-            await this.installMacroOverlay(session.role, session.webContents);
-          } else {
-            await this.installNativeMacroOverlay(session);
-          }
+          await this.installNativeMacroOverlay(session);
           this.assertSessionActive(session);
         }));
         return undefined;
@@ -778,13 +749,11 @@ export class ElectronBrowserRuntime
         }
         if (session.target) {
           await session.target.focus();
-        } else if (session.kind === "native") {
+        } else {
           await session.nativeHandle.surface.focus();
         }
         return undefined;
       }
-      case "embeddedFallbackTabToElectron":
-        return this.fallbackTabToElectron(action.tabId, action.roleIds);
       case "embeddedDestroyRole":
         await this.destroyRoleHandles(action.roleId);
         return undefined;
@@ -1263,26 +1232,12 @@ export class ElectronBrowserRuntime
     return this.workspaceStatuses.map((status) => ({ ...status }));
   }
 
-  getRoleIdForWebContents(webContentsId: number): string | undefined {
-    return [...this.roleHandles.entries()].find(([, session]) =>
-      session.kind === "electron" && (
-        session.webContents.id === webContentsId ||
-        [...session.popupViews].some((view) => view.webContents?.id === webContentsId)
-      )
-    )?.[0];
+  getRoleIdForWebContents(_webContentsId: number): string | undefined {
+    return undefined;
   }
 
-  setGameInputContext(webContentsId: number, active: boolean): void {
-    const session = [...this.roleHandles.values()].find(
-      (candidate): candidate is ElectronBrowserSession =>
-        candidate.kind === "electron" && candidate.webContents.id === webContentsId
-    );
-    if (!session || session.webContents.isDestroyed()) return;
-
-    const nextActive = active && this.isEmbeddedRoleRunning(session.role.id);
-    if (session.gameInputContextActive === nextActive) return;
-    session.gameInputContextActive = nextActive;
-    session.webContents.setIgnoreMenuShortcuts(nextActive);
+  setGameInputContext(_webContentsId: number, _active: boolean): void {
+    // Native surfaces report input-context changes through their document bridge.
   }
 
   getAutomationSession(roleId: string): BrowserAutomationSession | undefined {
@@ -1300,38 +1255,11 @@ export class ElectronBrowserRuntime
     return { role: session.role, target: session.target };
   }
 
-  getExternalRoleName(roleId: string): string {
-    return roleId;
-  }
-
   getEmbeddedAutomationSession(roleId: string): BrowserAutomationSession | undefined {
     const session = this.roleHandles.get(roleId);
     return session?.target && this.isEmbeddedRoleRunning(roleId) && !isSessionDestroyed(session)
       ? { role: session.role, target: session.target }
       : undefined;
-  }
-
-  captureExternalRoleDiagnostics(roleId: string) {
-    return this.options.browserRuntimeState.invoke({
-      type: "externalDiagnosticsCapture",
-      roleId
-    });
-  }
-
-  recoverExternalRole(roleId: string): Promise<RoleStatus> {
-    return this.options.browserRuntimeState.invoke({
-      type: "browserExternalRecover",
-      roleId
-    }) as Promise<RoleStatus>;
-  }
-
-  listExternalRoleDiagnostics() {
-    return this.options.browserRuntimeState.invoke({ type: "externalDiagnosticsList" });
-  }
-
-  async captureAllExternalRoleDiagnostics() {
-    const statuses = this.roleStatuses.filter((status) => status.runtimeMode === "external");
-    return Promise.all(statuses.map(({ roleId }) => this.captureExternalRoleDiagnostics(roleId)));
   }
 
   async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus | null> {
@@ -1358,7 +1286,6 @@ export class ElectronBrowserRuntime
     workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "template">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
-    _launchMode?: "auto" | "embedded" | "external"
   ): Promise<RoleStatus[]> {
     void items;
     return this.launchWorkspaceThroughCore(workspace, target);
@@ -1402,14 +1329,8 @@ export class ElectronBrowserRuntime
     const samples = await Promise.all(roleIds.map(async (roleId) => {
       const session = this.roleHandles.get(roleId);
       if (!session || isSessionDestroyed(session)) return undefined;
-      const snapshot = await (
-        session.kind === "electron"
-          ? session.webContents.executeJavaScript(
-              "globalThis.__rionPerformanceSnapshot?.()"
-            )
-          : session.nativeHandle.surface.evaluate(
-              "globalThis.__rionPerformanceSnapshot?.()"
-            )
+      const snapshot = await session.nativeHandle.surface.evaluate(
+        "globalThis.__rionPerformanceSnapshot?.()"
       ).catch(() => undefined) as { raf?: { p95Ms?: unknown } } | undefined;
       return typeof snapshot?.raf?.p95Ms === "number"
         ? snapshot.raf.p95Ms
@@ -1520,7 +1441,7 @@ export class ElectronBrowserRuntime
     gameIconDataUrl?: string,
     workspaceTemplate?: WorkspaceLayoutTemplate,
     runtimeTabId?: string,
-    engineFamily: EmbeddedEngineFamily = "electron"
+    engineFamily: EmbeddedEngineFamily = "system"
   ): GameHostWindow {
     const target = displayId === undefined
       ? this.getDefaultLaunchTarget()
@@ -1855,23 +1776,11 @@ export class ElectronBrowserRuntime
 
   private detachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
     if (displayHost.window.isDestroyed()) return;
-    tab.roleIds.forEach((roleId) => {
-      const session = this.roleHandles.get(roleId);
-      if (!session || session.kind !== "electron") return;
-      displayHost.window.contentView.removeChildView(session.view);
-      session.popupViews.forEach((view) => displayHost.window.contentView.removeChildView(view));
-    });
     tab.dividers.forEach((divider) => displayHost.window.contentView.removeChildView(divider.view));
   }
 
   private attachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
     if (displayHost.window.isDestroyed()) return;
-    tab.roleIds.forEach((roleId) => {
-      const session = this.roleHandles.get(roleId);
-      if (!session || session.kind !== "electron") return;
-      displayHost.window.contentView.addChildView(session.view);
-      session.popupViews.forEach((view) => displayHost.window.contentView.addChildView(view));
-    });
     tab.dividers.forEach((divider) => displayHost.window.contentView.addChildView(divider.view));
     this.bringRuntimeChromeToFront(displayHost);
   }
@@ -1885,8 +1794,7 @@ export class ElectronBrowserRuntime
     const sessions = [...tab.roleIds]
       .map((roleId) => this.roleHandles.get(roleId))
       .filter((session): session is NativeBrowserSession =>
-        session?.kind === "native" &&
-        session.nativeHandle.hostWindow !== destinationWindow
+        Boolean(session && session.nativeHandle.hostWindow !== destinationWindow)
       );
     if (sessions.length === 0) return;
     if (!pool || !getRolePaths) {
@@ -1896,40 +1804,54 @@ export class ElectronBrowserRuntime
       );
     }
     for (const session of sessions) {
-      session.lifecycleUnsubscribe();
-      await pool.destroy(session.role.id);
-      const configuration =
-        await this.options.getNativeSessionConfiguration?.(session.role);
-      const handle = pool.create(
-        session.role.id,
-        destinationWindow,
-        await getRolePaths(session.role.id),
-        configuration
-      );
-      if (handle.engine !== session.resolvedEngine) {
-        await pool.destroy(session.role.id);
-        throw effectError(
-          "SYSTEM_RUNTIME_ENGINE_MISMATCH",
-          `The recreated surface uses ${handle.engine}; ${session.resolvedEngine} was requested.`
-        );
-      }
-      session.nativeHandle = handle;
-      session.target = handle.target;
-      session.lifecycleUnsubscribe = this.subscribeNativeSessionLifecycle(session);
-      if (configuration?.documentStartScript) {
-        await handle.surface.addDocumentStartScript(configuration.documentStartScript);
-      }
-      await handle.surface.addDocumentStartScript(
-        `${NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE}\n${MACRO_OVERLAY_SCRIPT}`
-      );
-      if (configuration?.cdnRewriteRules?.length) {
-        await handle.surface.configureRequestRewrites(configuration.cdnRewriteRules);
-      }
-      await handle.surface.setVisible(false);
-      await handle.surface.setZoomFactor(session.zoomFactor);
-      if (tab.audioMuted) await handle.surface.setAudioMuted(true);
-      await handle.surface.loadUrl(session.currentUrl ?? session.role.launchUrl);
+      await this.replaceNativeSessionSurface(session, destinationWindow, tab.audioMuted);
     }
+  }
+
+  private async replaceNativeSessionSurface(
+    session: NativeBrowserSession,
+    destinationWindow: BaseWindow,
+    audioMuted: boolean
+  ): Promise<void> {
+    const pool = this.options.systemRuntimePool;
+    const getRolePaths = this.options.getRolePaths;
+    if (!pool || !getRolePaths) {
+      throw effectError(
+        "SYSTEM_SURFACE_RECREATE_UNAVAILABLE",
+        "The native surface pool cannot recreate this role."
+      );
+    }
+    session.lifecycleUnsubscribe();
+    await pool.destroy(session.role.id);
+    const configuration =
+      await this.options.getNativeSessionConfiguration?.(session.role);
+    const handle = pool.create(
+      session.role.id,
+      destinationWindow,
+      await getRolePaths(session.role.id),
+      configuration
+    );
+    if (handle.engine !== session.resolvedEngine) {
+      await pool.destroy(session.role.id);
+      throw effectError(
+        "SYSTEM_RUNTIME_ENGINE_MISMATCH",
+        `The recreated surface uses ${handle.engine}; ${session.resolvedEngine} was requested.`
+      );
+    }
+    session.nativeHandle = handle;
+    session.target = handle.target;
+    session.lifecycleUnsubscribe = this.subscribeNativeSessionLifecycle(session);
+    if (configuration?.documentStartScript) {
+      await handle.surface.addDocumentStartScript(configuration.documentStartScript);
+    }
+    await handle.surface.addDocumentStartScript(
+      `${NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE}\n` +
+      `${NATIVE_WORKSPACE_RESIZE_INDICATOR_SOURCE}\n${MACRO_OVERLAY_SCRIPT}`
+    );
+    await handle.surface.setVisible(false);
+    await handle.surface.setZoomFactor(session.zoomFactor);
+    if (audioMuted) await handle.surface.setAudioMuted(true);
+    await handle.surface.loadUrl(session.currentUrl ?? session.role.launchUrl);
   }
 
   private destroyDisplayHostIfEmpty(displayHost: EmbeddedDisplayHost): void {
@@ -2424,13 +2346,8 @@ export class ElectronBrowserRuntime
   }
 
   private getRuntimeTabWebContents(host: GameHostWindow): WebContents[] {
-    return [...host.roleIds].flatMap((roleId) => {
-      const session = this.roleHandles.get(roleId);
-      return session?.kind === "electron"
-        ? [session.webContents, ...[...session.popupViews].flatMap((view) =>
-            view.webContents ? [view.webContents] : [])]
-        : [];
-    });
+    void host;
+    return [];
   }
 
   private getRuntimeTabAudioState(host: GameHostWindow): Pick<EmbeddedRuntimeTabSummary, "audible" | "audioMuted"> {
@@ -2457,104 +2374,10 @@ export class ElectronBrowserRuntime
     host: GameHostWindow,
     rect: NormalizedRect,
     zoomFactor: number,
-    zoomMode: WorkspaceBrowserZoomMode = "fixed",
-    resolvedEngine: "electron" | "external-chrome" | "webview2" | "wkwebview" = "electron"
-  ): Promise<BrowserSession> {
-    if (resolvedEngine === "webview2" || resolvedEngine === "wkwebview") {
-      return this.createNativeSession(
-        role,
-        host,
-        rect,
-        zoomFactor,
-        zoomMode,
-        resolvedEngine
-      );
-    }
-    if (resolvedEngine !== "electron") {
-      throw effectError(
-        "EMBEDDED_ENGINE_UNSUPPORTED",
-        `The embedded runtime cannot create a ${resolvedEngine} role surface.`
-      );
-    }
-    const initialZoomFactor = zoomFactor;
-    const partition = createRoleSessionPartition(role.id);
-    await this.applyBrowserFonts(role);
-    const roleSession = await this.options.getRoleSession?.(role);
-    const view = this.options.createView({
-      webPreferences: {
-        backgroundThrottling: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        ...(roleSession ? { session: roleSession } : { partition }),
-        preload: this.options.embeddedPreloadPath,
-        sandbox: true,
-        spellcheck: false,
-        webgl: true,
-        zoomFactor: initialZoomFactor
-      }
-    });
-    const webContents = view.webContents;
-    const session: ElectronBrowserSession = {
-      abortController: new AbortController(),
-      audible: false,
-      gameInputContextActive: false,
-      hostId: host.id,
-      kind: "electron",
-      popupViews: new Set(),
-      rect,
-      role,
-      resolvedEngine,
-      target: new ElectronAutomationTarget(
-        view,
-        webContents,
-        this.options.embeddedKeyRuntime,
-        role.id,
-        this.options.platform ?? process.platform
-      ),
-      view,
-      webContents,
-      zoomFactor: initialZoomFactor,
-      zoomMode
-    };
-
-    this.roleHandles.set(role.id, session);
-    host.roleIds.add(role.id);
-    host.window.contentView.addChildView(view);
-    this.options.onEmbeddedWebContentsCreated?.({
-      hostId: host.id,
-      kind: "game",
-      roleId: role.id,
-      ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
-    }, webContents);
-    this.configureZoomPersistence(session, webContents);
-    this.configureAudioState(host, webContents);
-    this.configureNativeZoomShortcuts(host, session, webContents);
-    this.configureWindowOpenHandler(session, webContents);
-    this.configureCloseShortcut(host, session, webContents);
-    this.configureHtmlFullscreen(host, webContents);
-    this.trackGameViewFocus(host, view);
-    webContents.on("blur", () => this.setGameInputContext(webContents.id, false));
-    webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
-      if (isMainFrame) this.setGameInputContext(webContents.id, false);
-    });
-    webContents.once("destroyed", () => {
-      if (session.zoomPersistenceTimer) {
-        clearTimeout(session.zoomPersistenceTimer);
-        session.zoomPersistenceTimer = undefined;
-      }
-      if (this.roleHandles.get(role.id) === session) {
-        void this.options.browserRuntimeState.invoke({
-          type: "embeddedRoleStop",
-          roleId: role.id
-        }).catch(() => {
-          if (this.roleHandles.get(role.id) !== session) return;
-          this.roleHandles.delete(role.id);
-          host.roleIds.delete(role.id);
-          this.emitChange();
-        });
-      }
-    });
-    return session;
+    zoomMode: WorkspaceBrowserZoomMode,
+    resolvedEngine: ResolvedBrowserEngine
+  ): Promise<NativeBrowserSession> {
+    return this.createNativeSession(role, host, rect, zoomFactor, zoomMode, resolvedEngine);
   }
 
   private async createNativeSession(
@@ -2610,11 +2433,9 @@ export class ElectronBrowserRuntime
       await handle.surface.addDocumentStartScript(configuration.documentStartScript);
     }
     await handle.surface.addDocumentStartScript(
-      `${NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE}\n${MACRO_OVERLAY_SCRIPT}`
+      `${NATIVE_MACRO_OVERLAY_BRIDGE_SOURCE}\n` +
+      `${NATIVE_WORKSPACE_RESIZE_INDICATOR_SOURCE}\n${MACRO_OVERLAY_SCRIPT}`
     );
-    if (configuration?.cdnRewriteRules?.length) {
-      await handle.surface.configureRequestRewrites(configuration.cdnRewriteRules);
-    }
     await handle.surface.setVisible(false);
     if (host.audioMuted) await handle.surface.setAudioMuted(true);
     return session;
@@ -2654,59 +2475,74 @@ export class ElectronBrowserRuntime
       if (
         event.type === "popupRequested" &&
         this.roleHandles.get(session.role.id) === session &&
-        !session.fallbackInProgress &&
         isAllowedNativePopupUrl(event.url)
       ) {
         session.pendingPopupUrls.push(event.url);
-        session.fallbackInProgress = true;
         void this.options.browserRuntimeState.invoke({
           type: "embeddedSystemSurfaceFailed",
           roleId: session.role.id,
           reason: "popup-unsupported"
         }).catch(async (error) => {
-          console.error("Failed to fall back a System WebView popup to Electron.", error);
-          await this.options.browserRuntimeState.invoke({
-            type: "embeddedRoleStop",
-            roleId: session.role.id
-          }).catch((stopError) => {
-            console.error("Failed to stop a System WebView popup fallback.", stopError);
-          });
+          console.error("Failed to report an unsupported System WebView popup.", error);
         });
         return;
       }
       if (
         event.type === "crashed" &&
         this.roleHandles.get(session.role.id) === session &&
-        !session.fallbackInProgress
+        !session.recoveryInProgress
       ) {
-        session.fallbackInProgress = true;
-        void this.options.browserRuntimeState.invoke({
-          type: "embeddedSystemSurfaceFailed",
-          roleId: session.role.id,
-          ...(event.reason ? { reason: event.reason } : {})
-        }).catch(async (error) => {
-          console.error("Failed to fall back a crashed System WebView role.", error);
-          await this.options.browserRuntimeState.invoke({
-            type: "embeddedRoleStop",
-            roleId: session.role.id
-          }).catch((stopError) => {
-            console.error("Failed to stop a crashed System WebView role.", stopError);
-          });
-        });
+        void this.recoverNativeSession(session, event.reason);
       }
     });
   }
 
-  private async applyBrowserFonts(role: Role): Promise<void> {
-    if (!this.options.applyBrowserFonts) {
-      return;
+  private async recoverNativeSession(
+    session: NativeBrowserSession,
+    reason?: string
+  ): Promise<void> {
+    if (
+      session.recoveryInProgress ||
+      this.roleHandles.get(session.role.id) !== session ||
+      isSessionDestroyed(session)
+    ) return;
+    session.recoveryInProgress = true;
+    await this.options.browserRuntimeState.invoke({
+      type: "embeddedSystemSurfaceFailed",
+      roleId: session.role.id,
+      ...(reason ? { reason } : {})
+    }).catch((error) => {
+      console.error("Failed to report a crashed System WebView role.", error);
+    });
+    const host = this.tabHandles.get(session.hostId);
+    let recoveryError: unknown;
+    if (host && !host.closing && !host.window.isDestroyed()) {
+      for (let attempt = 0; attempt < SYSTEM_SURFACE_RECOVERY_ATTEMPTS; attempt += 1) {
+        try {
+          await this.replaceNativeSessionSurface(session, host.window, host.audioMuted);
+          if (
+            this.roleHandles.get(session.role.id) !== session ||
+            isSessionDestroyed(session)
+          ) return;
+          await this.layoutHost(host);
+          await this.options.browserRuntimeState.invoke({
+            type: "embeddedSystemSurfaceRecovered",
+            roleId: session.role.id
+          });
+          session.recoveryInProgress = false;
+          return;
+        } catch (error) {
+          recoveryError = error;
+        }
+      }
     }
-
-    try {
-      await this.options.applyBrowserFonts(role, createRoleSessionPartition(role.id));
-    } catch (error) {
-      console.warn("Failed to apply browser font settings.", error);
-    }
+    console.error("System WebView recovery was exhausted.", recoveryError);
+    await this.options.browserRuntimeState.invoke({
+      type: "embeddedRoleStop",
+      roleId: session.role.id
+    }).catch((stopError) => {
+      console.error("Failed to stop a crashed System WebView role.", stopError);
+    });
   }
 
   private async createHostDividers(host: GameHostWindow): Promise<void> {
@@ -2765,72 +2601,13 @@ export class ElectronBrowserRuntime
     divider.view.setBackgroundColor(settings.background === "black" ? "#FF000000" : "#00000000");
   }
 
-  private async applyBrowserProxy(session: BrowserSession): Promise<void> {
-    if (session.kind === "native") {
-      return;
-    }
-    if (!this.options.applyBrowserProxy) {
-      return;
-    }
-
-    await this.options.applyBrowserProxy(
-      session.role,
-      createRoleSessionPartition(session.role.id),
-      session.webContents.session
-    );
-  }
-
-  private async applyCdnCompatibility(session: BrowserSession): Promise<void> {
-    if (session.kind === "native") {
-      return;
-    }
-    if (!this.options.applyCdnCompatibility) {
-      return;
-    }
-
-    try {
-      await this.options.applyCdnCompatibility(
-        session.role,
-        createRoleSessionPartition(session.role.id),
-        session.webContents.session
-      );
-    } catch (error) {
-      console.warn("Failed to apply CDN compatibility settings.", error);
-    }
-  }
-
-
-  private configureWindowOpenHandler(
-    session: ElectronBrowserSession,
-    webContents: WebContents
-  ): void {
-    webContents.setWindowOpenHandler(() => ({
-      action: "allow",
-      createWindow: (windowOptions) => this.createPopupView(session, windowOptions).webContents
-    }));
-  }
-
-  private configureCloseShortcut(
-    host: GameHostWindow,
-    session: ElectronBrowserSession,
-    webContents: WebContents
-  ): void {
-    const displayHost = this.getDisplayHost(host);
-    if (displayHost) this.configureRuntimeWindowAccelerators(displayHost, webContents, session);
-    webContents.on("before-input-event", (event, input) => {
-      if (this.isProtectedGameInputActive(session, webContents)) return;
-      if (input.type !== "keyDown" || input.key.toLowerCase() !== "w" || (!input.meta && !input.control)) {
-        return;
-      }
-      event.preventDefault();
-      void this.hideRuntimeTab(host.id);
-    });
+  private async applyBrowserProxy(_session: BrowserSession): Promise<void> {
+    // Native proxy configuration is applied when the platform surface is created.
   }
 
   private configureRuntimeWindowAccelerators(
     displayHost: EmbeddedDisplayHost,
-    webContents: WebContents,
-    session?: ElectronBrowserSession
+    webContents: WebContents
   ): void {
     webContents.on("before-input-event", (event, input) => {
       const tabSwitchDirection = classifyRuntimeTabSwitchShortcut(input);
@@ -2841,7 +2618,6 @@ export class ElectronBrowserRuntime
       }
 
       if ((this.options.platform ?? process.platform) !== "darwin") return;
-      if (session && this.isProtectedGameInputActive(session, webContents)) return;
       if (
         input.type !== "keyDown" ||
         input.isAutoRepeat ||
@@ -2865,64 +2641,6 @@ export class ElectronBrowserRuntime
     }).catch((error) => {
       console.error("Failed to switch embedded runtime tab.", error);
     });
-  }
-
-  private isProtectedGameInputActive(
-    session: ElectronBrowserSession,
-    webContents: WebContents
-  ): boolean {
-    return session.gameInputContextActive && session.webContents === webContents;
-  }
-
-  private createPopupView(
-    session: ElectronBrowserSession,
-    windowOptions: BrowserWindowConstructorOptions
-  ): WebContentsView {
-    const host = this.tabHandles.get(session.hostId);
-    if (!host || host.window.isDestroyed()) {
-      throw new Error("The game window is no longer available.");
-    }
-
-    const popupView = this.options.createView({
-      webPreferences: {
-        ...windowOptions.webPreferences,
-        backgroundThrottling: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        partition: createRoleSessionPartition(session.role.id),
-        preload: this.options.embeddedPreloadPath,
-        sandbox: true,
-        spellcheck: false,
-        webgl: true,
-        zoomFactor: session.zoomFactor
-      }
-    });
-
-    popupView.setBounds(session.view.getBounds());
-    host.window.contentView.addChildView(popupView);
-    this.bringRuntimeChromeToFront(this.getDisplayHost(host));
-    session.popupViews.add(popupView);
-    this.options.onEmbeddedWebContentsCreated?.({
-      hostId: host.id,
-      kind: "popup",
-      roleId: session.role.id,
-      ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
-    }, popupView.webContents);
-    this.configureZoomPersistence(session, popupView.webContents);
-    this.configureAudioState(host, popupView.webContents);
-    this.configureNativeZoomShortcuts(host, session, popupView.webContents);
-    this.configureWindowOpenHandler(session, popupView.webContents);
-    this.configureCloseShortcut(host, session, popupView.webContents);
-    this.configureHtmlFullscreen(host, popupView.webContents);
-    this.trackGameViewFocus(host, popupView);
-    popupView.webContents.once("destroyed", () => {
-      session.popupViews.delete(popupView);
-      if (!host.window.isDestroyed()) {
-        host.window.contentView.removeChildView(popupView);
-      }
-      if (this.tabHandles.get(host.id) === host) this.emitChange();
-    });
-    return popupView;
   }
 
   private layoutHost(host: GameHostWindow): Promise<void> {
@@ -2974,12 +2692,7 @@ export class ElectronBrowserRuntime
       host.roleIds.forEach((roleId) => {
         const session = this.roleHandles.get(roleId);
         if (!session) return;
-        if (session.kind === "electron") {
-          session.view.setVisible(visible);
-          session.popupViews.forEach((popupView) => popupView.setVisible(visible));
-        } else {
-          nativePresentation.push(session.nativeHandle.surface.setVisible(visible));
-        }
+        nativePresentation.push(session.nativeHandle.surface.setVisible(visible));
       });
       host.dividers.forEach((divider) => divider.view.setVisible(visible));
       if (!visible) {
@@ -2994,16 +2707,10 @@ export class ElectronBrowserRuntime
         const session = this.roleHandles.get(roleId);
         const bounds = boundsByRole.get(roleId);
         if (!session || !bounds) return;
-        if (session.kind === "electron") {
-          session.view.setBounds(bounds);
-          session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
-          void this.applyAdaptiveZoom(session, bounds.width);
-        } else {
-          nativePresentation.push(
-            session.nativeHandle.surface.setBounds(bounds),
-            this.applyAdaptiveZoom(session, bounds.width)
-          );
-        }
+        nativePresentation.push(
+          session.nativeHandle.surface.setBounds(bounds),
+          this.applyAdaptiveZoom(session, bounds.width)
+        );
       });
       resolvedLayout.dividers.forEach(({ bounds, index }) => {
         host.dividers[index]?.view.setBounds(bounds);
@@ -3095,18 +2802,14 @@ export class ElectronBrowserRuntime
   ): void {
     roleIds.forEach((roleId) => {
       const session = this.roleHandles.get(roleId);
-      if (
-        !session ||
-        session.kind !== "electron" ||
-        session.webContents.isDestroyed()
-      ) {
-        return;
-      }
+      if (!session) return;
 
       const payload: WorkspaceResizeIndicatorPayload = type === "hide"
         ? { type }
         : { type, label: formatWorkspaceResizeRatio(session.rect) };
-      session.webContents.send(WORKSPACE_RESIZE_INDICATOR_CHANNEL, payload);
+      void session.nativeHandle.surface.evaluate(
+        `globalThis.__rionStudioWorkspaceResizeIndicator?.(${JSON.stringify(payload)})`
+      ).catch(() => undefined);
     });
   }
 
@@ -3134,119 +2837,7 @@ export class ElectronBrowserRuntime
     zoomFactor: number
   ): Promise<void> {
     session.zoomFactor = zoomFactor;
-    if (session.kind === "native") {
-      await session.nativeHandle.surface.setZoomFactor(zoomFactor);
-      return;
-    }
-    if (!session.webContents.isDestroyed()) {
-      session.webContents.setZoomFactor(zoomFactor);
-    }
-    session.popupViews.forEach((popupView) => {
-      if (!popupView.webContents.isDestroyed()) {
-        popupView.webContents.setZoomFactor(zoomFactor);
-      }
-    });
-  }
-
-  private configureZoomPersistence(
-    session: ElectronBrowserSession,
-    webContents: WebContents
-  ): void {
-    webContents.on("did-finish-load", () => {
-      if (webContents.isDestroyed()) {
-        return;
-      }
-
-      try {
-        webContents.setZoomFactor(session.zoomFactor);
-      } catch (error) {
-        console.warn("Failed to reapply browser zoom after navigation.", error);
-      }
-    });
-  }
-
-  private configureNativeZoomShortcuts(
-    host: GameHostWindow,
-    session: ElectronBrowserSession,
-    webContents: WebContents
-  ): void {
-    webContents.on("before-input-event", (_event, input) => {
-      const zoomAction = classifyNativeZoomShortcut(input, this.options.platform ?? process.platform);
-      if (!zoomAction) {
-        return;
-      }
-
-      let previousPercent: number;
-      try {
-        previousPercent = Math.round(webContents.getZoomFactor() * 100);
-      } catch (error) {
-        console.warn("Failed to read browser zoom before the native action.", error);
-        return;
-      }
-
-      webContents.setIgnoreMenuShortcuts(true);
-      let didPerformNativeZoom = false;
-      try {
-        didPerformNativeZoom = this.options.performNativeZoom?.(
-          zoomAction,
-          host.window,
-          webContents,
-          {
-            altKey: input.alt,
-            ctrlKey: input.control,
-            metaKey: input.meta,
-            shiftKey: input.shift,
-            triggeredByAccelerator: true
-          }
-        ) ?? false;
-      } catch (error) {
-        console.warn("Failed to execute native browser zoom for the game role.", error);
-      }
-
-      setImmediate(async () => {
-        if (!webContents.isDestroyed()) {
-          webContents.setIgnoreMenuShortcuts(this.isProtectedGameInputActive(session, webContents));
-        }
-        if (webContents.isDestroyed()) {
-          return;
-        }
-
-        if (!didPerformNativeZoom) {
-          console.warn("Native browser zoom was unavailable for the game role.", {
-            roleId: session.role.id,
-            zoomAction
-          });
-          return;
-        }
-
-        try {
-          const browserZoomPercent = Math.round(webContents.getZoomFactor() * 100);
-          if (!isWorkspaceSlotBrowserZoomPercent(browserZoomPercent)) {
-            console.warn("Ignoring browser zoom outside the supported workspace role range.", {
-              browserZoomPercent,
-              roleId: session.role.id
-            });
-            return;
-          }
-          if (!isExpectedNativeZoomResult(zoomAction, previousPercent, browserZoomPercent)) {
-            await this.setSessionZoomFactor(session, session.zoomFactor);
-            console.warn("Native browser zoom did not change the targeted game role as expected.", {
-              browserZoomPercent,
-              previousPercent,
-              roleId: session.role.id,
-              zoomAction
-            });
-            return;
-          }
-
-          session.zoomMode = "fixed";
-          await this.setSessionZoomFactor(session, browserZoomPercent / 100);
-          this.scheduleWorkspaceRoleZoomPersistence(host, session, browserZoomPercent);
-        } catch (error) {
-          console.warn("Failed to synchronize native browser zoom.", error);
-        }
-      });
-    });
+    await session.nativeHandle.surface.setZoomFactor(zoomFactor);
   }
 
   private scheduleWorkspaceRoleZoomPersistence(
@@ -3273,22 +2864,6 @@ export class ElectronBrowserRuntime
     }, WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS);
   }
 
-  private trackGameViewFocus(host: GameHostWindow, view: WebContentsView): void {
-    if (!host.lastFocusedView) {
-      host.lastFocusedView = view;
-    }
-    view.webContents.on("focus", () => {
-      if (!host.closing && !view.webContents.isDestroyed()) {
-        host.lastFocusedView = view;
-      }
-    });
-    view.webContents.once("destroyed", () => {
-      if (host.lastFocusedView === view) {
-        host.lastFocusedView = undefined;
-      }
-    });
-  }
-
   private restoreActiveGameViewFocus(displayHost: EmbeddedDisplayHost): void {
     if (displayHost.closing || displayHost.window.isDestroyed()) {
       return;
@@ -3300,39 +2875,12 @@ export class ElectronBrowserRuntime
       return;
     }
 
-    const rememberedView = activeHost.lastFocusedView;
-    const fallbackViews = [...activeHost.roleIds].flatMap((roleId) => {
-      const session = this.roleHandles.get(roleId);
-      return session?.kind === "electron"
-        ? [...session.popupViews].reverse().concat(session.view)
-        : [];
-    });
-    const targetView = [rememberedView, ...fallbackViews].find(
-      (view): view is WebContentsView => Boolean(view && !view.webContents.isDestroyed())
-    );
-    if (!targetView) {
-      const nativeSession = [...activeHost.roleIds]
-        .map((roleId) => this.roleHandles.get(roleId))
-        .find((session): session is NativeBrowserSession => session?.kind === "native");
-      if (nativeSession) {
-        void (nativeSession.target?.focus() ??
-          nativeSession.nativeHandle.surface.focus()).catch(() => undefined);
-      }
-      return;
-    }
-
-    activeHost.lastFocusedView = targetView;
-    targetView.webContents.focus();
-  }
-
-  private async installMacroOverlay(role: Role, webContents: WebContents): Promise<void> {
-    if (!this.macroOverlayInstaller) {
-      return;
-    }
-    try {
-      await this.macroOverlayInstaller(role, webContents);
-    } catch (error) {
-      console.warn("Failed to install Rion Studio macro overlay.", error);
+    const nativeSession = [...activeHost.roleIds]
+      .map((roleId) => this.roleHandles.get(roleId))
+      .find((session): session is NativeBrowserSession => Boolean(session));
+    if (nativeSession) {
+      void (nativeSession.target?.focus() ??
+        nativeSession.nativeHandle.surface.focus()).catch(() => undefined);
     }
   }
 
@@ -3423,175 +2971,6 @@ export class ElectronBrowserRuntime
     );
   }
 
-  private async fallbackTabToElectron(
-    tabId: string,
-    roleIds: string[]
-  ): Promise<EmbeddedFallbackResult> {
-    const host = this.tabHandles.get(tabId);
-    if (!host || host.closing) {
-      throw effectError(
-        "EMBEDDED_TAB_HANDLE_NOT_FOUND",
-        `The embedded tab handle was not found: ${tabId}`
-      );
-    }
-    const replacements = await Promise.all(roleIds.map(async (roleId) => {
-      const session = this.requireEmbeddedSession(roleId);
-      let sourceCookies: BrowserCookieTransferRecord[] = [];
-      let sourceCookiesRead = session.kind === "electron";
-      if (session.kind === "native") {
-        try {
-          sourceCookies = await session.nativeHandle.surface.getCookies();
-          sourceCookiesRead = true;
-        } catch (error) {
-          console.warn(
-            `Failed to read System WebView cookies before falling back role ${roleId}.`,
-            error
-          );
-        }
-      }
-      return {
-        currentUrl: session.currentUrl ?? session.role.launchUrl,
-        popupUrls: session.kind === "native" ? [...session.pendingPopupUrls] : [],
-        rect: session.rect,
-        role: session.role,
-        sourceCookies,
-        sourceCookiesRead,
-        zoomFactor: session.zoomFactor,
-        zoomMode: session.zoomMode,
-        session
-      };
-    }));
-    if (replacements.every(({ session }) => session.kind === "electron")) {
-      return {
-        roles: replacements.map(({ role }) => ({
-          authVerified: true,
-          cookiesMirrored: 0,
-          roleId: role.id
-        }))
-      };
-    }
-    const createdRoleIds: string[] = [];
-    const continuity: EmbeddedFallbackRoleContinuity[] = [];
-    try {
-      for (const replacement of replacements) {
-        if (replacement.session.kind === "electron") continue;
-        await this.destroySession(replacement.role.id, replacement.session);
-      }
-      await this.moveTabToEngineHost(host, "electron");
-      for (const replacement of replacements) {
-        if (replacement.session.kind === "electron") continue;
-        const session = await this.createSession(
-          replacement.role,
-          host,
-          replacement.rect,
-          replacement.zoomFactor,
-          replacement.zoomMode,
-          "electron"
-        );
-        createdRoleIds.push(replacement.role.id);
-        await this.applyBrowserProxy(session);
-        this.assertSessionActive(session);
-        await this.applyCdnCompatibility(session);
-        this.assertSessionActive(session);
-        if (session.kind !== "electron") {
-          throw effectError(
-            "EMBEDDED_ENGINE_EFFECT_MISMATCH",
-            `Role ${replacement.role.id} did not fall back to Electron.`
-          );
-        }
-        let cookiesMirrored = 0;
-        let cookieMirrorVerified = replacement.sourceCookiesRead;
-        try {
-          cookiesMirrored = await createElectronSessionStore(
-            session.webContents.session
-          ).setCookies(replacement.sourceCookies);
-          cookieMirrorVerified =
-            cookieMirrorVerified &&
-            cookiesMirrored === replacement.sourceCookies.length;
-        } catch (error) {
-          cookieMirrorVerified = false;
-          console.warn(
-            `Failed to mirror System WebView cookies into Electron for role ` +
-            `${replacement.role.id}.`,
-            error
-          );
-        }
-        await session.webContents.loadURL(replacement.currentUrl);
-        session.currentUrl = replacement.currentUrl;
-        await this.installMacroOverlay(session.role, session.webContents);
-        const documentReady = await session.webContents.executeJavaScript(
-          "document.readyState === 'interactive' || document.readyState === 'complete'"
-        ).then((value) => value === true, () => false);
-        continuity.push({
-          authVerified: cookieMirrorVerified && documentReady,
-          cookiesMirrored,
-          roleId: replacement.role.id
-        });
-        for (const popupUrl of replacement.popupUrls) {
-          const popup = this.createPopupView(session, {});
-          await popup.webContents.loadURL(popupUrl);
-          await this.installMacroOverlay(session.role, popup.webContents);
-        }
-      }
-      await this.layoutHost(host);
-      const first = roleIds
-        .map((roleId) => this.roleHandles.get(roleId))
-        .find((session): session is ElectronBrowserSession => session?.kind === "electron");
-      await first?.target.focus();
-      this.emitChange();
-      return { roles: continuity };
-    } catch (error) {
-      await Promise.all(createdRoleIds.map(async (roleId) => {
-        const session = this.roleHandles.get(roleId);
-        if (session) await this.destroySession(roleId, session);
-      }));
-      throw error;
-    }
-  }
-
-  private async moveTabToEngineHost(
-    tab: GameHostWindow,
-    engineFamily: EmbeddedEngineFamily
-  ): Promise<void> {
-    if (tab.engineFamily === engineFamily) return;
-    const runtimeTab = this.runtimeSnapshot.tabs.find((candidate) => candidate.id === tab.id);
-    const target = runtimeTab
-      ? this.getLaunchTargetForDisplay(runtimeTab.displayId)
-      : undefined;
-    if (!runtimeTab || !target) {
-      throw effectError(
-        "EMBEDDED_DISPLAY_HANDLE_NOT_FOUND",
-        `The embedded display target was not found for tab ${tab.id}.`
-      );
-    }
-    const source = this.getDisplayHost(tab);
-    const destination = this.getOrCreateDisplayHost(target, engineFamily);
-    if (source === destination) {
-      tab.engineFamily = engineFamily;
-      return;
-    }
-    const sourceWasVisible = source
-      ? !source.window.isDestroyed() && isWindowVisible(source.window)
-      : false;
-    if (source) {
-      this.detachTabViews(tab, source);
-      source.tabIds = source.tabIds.filter((tabId) => tabId !== tab.id);
-      if (source.activeTabId === tab.id) source.activeTabId = undefined;
-    }
-    tab.engineFamily = engineFamily;
-    tab.window = destination.window;
-    tab.displayHostId = destination.id;
-    if (!destination.tabIds.includes(tab.id)) destination.tabIds.push(tab.id);
-    destination.activeTabId = runtimeTab.hidden ? undefined : tab.id;
-    this.attachTabViews(tab, destination);
-    if (!runtimeTab.hidden) {
-      this.displayHosts.set(runtimeTab.displayId, destination);
-      if (source && source !== destination) this.hideDisplayHost(source);
-      if (sourceWasVisible) this.showDisplayHost(destination);
-    }
-    if (source) this.destroyDisplayHostIfEmpty(source);
-  }
-
   private async destroyTabHandles(hostId: string): Promise<void> {
     const host = this.tabHandles.get(hostId);
     if (!host || host.closing) {
@@ -3631,27 +3010,8 @@ export class ElectronBrowserRuntime
     }
     this.roleHandles.delete(roleId);
     host?.roleIds.delete(roleId);
-    if (session.kind === "native") {
-      session.lifecycleUnsubscribe();
-      await this.options.systemRuntimePool?.destroy(roleId);
-      this.emitChange();
-      return;
-    }
-    await session.target.dispose().catch(() => undefined);
-    if (host && !host.window.isDestroyed()) {
-      host.window.contentView.removeChildView(session.view);
-      session.popupViews.forEach((popupView) => host.window.contentView.removeChildView(popupView));
-    }
-    session.popupViews.forEach((popupView) => {
-      const popupWebContents = popupView.webContents;
-      if (popupWebContents && !popupWebContents.isDestroyed()) {
-        popupWebContents.close();
-      }
-    });
-    session.popupViews.clear();
-    if (!session.webContents.isDestroyed()) {
-      session.webContents.close();
-    }
+    session.lifecycleUnsubscribe();
+    await this.options.systemRuntimePool?.destroy(roleId);
     this.emitChange();
   }
 
@@ -3784,10 +3144,6 @@ function clampBoundsToWorkArea(bounds: PixelBounds, workArea: PixelBounds): Pixe
   };
 }
 
-export function createRoleSessionPartition(roleId: string): string {
-  return `persist:rion-role-${roleId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-}
-
 export function normalizedRectToPixelBounds(rect: NormalizedRect, contentBounds: PixelBounds): PixelBounds {
   const left = Math.round(rect.x * contentBounds.width);
   const top = Math.round(rect.y * contentBounds.height);
@@ -3851,8 +3207,7 @@ function isPromiseLike<T>(value: MaybePromise<T>): value is Promise<T> {
 }
 
 function isSessionDestroyed(session: BrowserSession): boolean {
-  return session.abortController.signal.aborted ||
-    (session.kind === "electron" && session.webContents.isDestroyed());
+  return session.abortController.signal.aborted;
 }
 
 function isAllowedNativePopupUrl(value: string): boolean {

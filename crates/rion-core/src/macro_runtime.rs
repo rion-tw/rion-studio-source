@@ -2699,7 +2699,7 @@ mod tests {
         });
         runtime.dispatch_results(success_results(percent)).unwrap();
         let first_click = wait_for_last_click(&runtime, "r1", 1, "percent-click");
-        crate::v1_case!("external-chrome-cdn-09beabfa3d19", {
+        crate::v1_case!("macro-runtime-09beabfa3d19", {
             assert_eq!(
                 (first_click.sequence, first_click.step_id.as_str()),
                 (1, "percent-click")
@@ -3820,11 +3820,11 @@ mod tests {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
             assert!(!stop.is_finished());
         });
-        crate::v1_case!("external-chrome-cdn-046554940f1f", {
+        crate::v1_case!("macro-runtime-046554940f1f", {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
             assert!(!stop.is_finished());
         });
-        crate::v1_case!("external-chrome-cdn-5f44c60fd7a4", {
+        crate::v1_case!("macro-runtime-5f44c60fd7a4", {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
             assert!(!stop.is_finished());
         });
@@ -4050,7 +4050,7 @@ mod tests {
         stop.join().unwrap();
         assert_eq!(phases, ["focus", "hold", "release"]);
         assert!(runtime.statuses().unwrap().is_empty());
-        crate::v1_case!("external-chrome-cdn-8dff14f03246", {
+        crate::v1_case!("macro-runtime-8dff14f03246", {
             assert_eq!(phases.last().map(String::as_str), Some("release"));
             assert!(runtime.statuses().unwrap().is_empty());
         });
@@ -4087,7 +4087,7 @@ mod tests {
 
         runtime.dispatch_results(success_results(hold)).unwrap();
         let release = next_browser_actions(&receiver);
-        crate::v1_case!("external-chrome-cdn-10c50f77180d", {
+        crate::v1_case!("macro-runtime-10c50f77180d", {
             assert!(matches!(
                 release[0].action,
                 BrowserAction::Key {

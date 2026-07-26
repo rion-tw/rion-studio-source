@@ -9,17 +9,16 @@ use crate::{
     error::{CoreError, CoreResult},
     model::StateCollection,
     model::{
-        BrowserCdnCompatibilityRecord, BrowserEngineOverride, BrowserFontSettingsRecord,
-        BrowserGraphicsSettingsRecord, BrowserNetworkSettingsRecord, BrowserProxySettingsRecord,
-        BrowserSessionSource, EmbeddedBrowserEngine, GameBrowserSettingsRecord,
-        GameCreateInputRecord, GameUpdateInputRecord, LegalAcceptanceRecord,
-        MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord,
-        MacroStepDefinition, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
-        RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
-        RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
-        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
-        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
-        StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
+        BrowserEngineOverride, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
+        BrowserNetworkSettingsRecord, BrowserProxySettingsRecord, EmbeddedBrowserEngine,
+        GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
+        LegalAcceptanceRecord, MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat,
+        MacroSettingsRecord, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
+        MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
+        RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord,
+        StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
+        StateRoleRecord, StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
         WorkspaceSlotInputRecord, WorkspaceUpdateInputRecord,
     },
@@ -36,7 +35,6 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             families: HashMap::new(),
         },
         graphics: BrowserGraphicsSettingsRecord::recommended_default(),
-        launch_mode: "auto".to_owned(),
         browser_engine: Some(EmbeddedBrowserEngine::System),
         macro_badge_position: MacroBadgePositionRecord {
             horizontal_align: "center".to_owned(),
@@ -44,9 +42,6 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             top_px: 128,
         },
         network: BrowserNetworkSettingsRecord {
-            cdn_compatibility: BrowserCdnCompatibilityRecord {
-                mode: "auto".to_owned(),
-            },
             proxy: BrowserProxySettingsRecord {
                 mode: "system".to_owned(),
                 server: String::new(),
@@ -216,7 +211,6 @@ pub fn create_game(
             "GAME_COVER_INVALID",
         )?,
         default_launch_url: normalize_http_url(&input.default_launch_url, "GAME_URL_INVALID")?,
-        browser_launch_mode: normalize_game_launch_mode(input.browser_launch_mode.as_deref())?,
         browser_engine: Some(input.browser_engine.unwrap_or_default()),
         created_at: now.clone(),
         updated_at: now,
@@ -282,12 +276,6 @@ pub fn update_game(
         } else {
             current.cover_image_data_url.clone()
         },
-        browser_launch_mode: input
-            .browser_launch_mode
-            .as_deref()
-            .map(|value| normalize_game_launch_mode(Some(value)))
-            .transpose()?
-            .unwrap_or_else(|| current.browser_launch_mode.clone()),
         browser_engine: input.browser_engine.or(current.browser_engine),
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
@@ -317,7 +305,6 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         icon_image_data_url: None,
         cover_image_data_url: None,
         default_launch_url: default_launch_url.to_owned(),
-        browser_launch_mode: "inherit".to_owned(),
         browser_engine: Some(BrowserEngineOverride::Inherit),
         created_at: game.created_at.clone(),
         updated_at: chrono::Utc::now().to_rfc3339(),
@@ -374,7 +361,6 @@ pub fn create_role(
             "ROLE_LAUNCH_URL_INVALID",
         )?,
         notes: input.notes.unwrap_or_default().trim().to_owned(),
-        browser_session_source: Some(BrowserSessionSource::Managed),
         browser_engine_pin: None,
         cover_image_dominant_color: if cover.is_some() {
             normalize_color(input.cover_image_dominant_color)?
@@ -483,45 +469,6 @@ pub fn reorder_roles(roles: &mut Vec<StateRoleRecord>, ordered_ids: &[String]) -
     Ok(())
 }
 
-pub fn set_role_browser_session_source(
-    roles: &mut [StateRoleRecord],
-    id: &str,
-    source: &str,
-) -> CoreResult<StateRoleRecord> {
-    let source = match source {
-        "managed" | "embedded" => BrowserSessionSource::Managed,
-        "chrome-profile" => BrowserSessionSource::ChromeProfile,
-        _ => {
-            return Err(domain(
-                "ROLE_SESSION_SOURCE_INVALID",
-                "Role browser session source is invalid.",
-            ));
-        }
-    };
-    let role = roles
-        .iter_mut()
-        .find(|role| role.id == id)
-        .ok_or_else(|| domain("ROLE_NOT_FOUND", "Role not found."))?;
-    role.browser_session_source = Some(source);
-    role.updated_at = chrono::Utc::now().to_rfc3339();
-    Ok(role.clone())
-}
-
-pub fn set_role_browser_engine_pin(
-    roles: &mut [StateRoleRecord],
-    id: &str,
-    engine: EmbeddedBrowserEngine,
-) -> CoreResult<StateRoleRecord> {
-    let role = roles
-        .iter_mut()
-        .find(|role| role.id == id)
-        .ok_or_else(|| domain("ROLE_NOT_FOUND", "Role not found."))?;
-    role.browser_engine_pin = Some(engine);
-    role.browser_session_source = Some(BrowserSessionSource::Managed);
-    role.updated_at = chrono::Utc::now().to_rfc3339();
-    Ok(role.clone())
-}
-
 pub fn assign_role_game_ids(
     games: &[StateGameRecord],
     roles: &mut [StateRoleRecord],
@@ -568,7 +515,6 @@ pub fn create_workspace(
         id: Uuid::new_v4().to_string(),
         name,
         template: template.clone(),
-        browser_launch_mode: normalize_workspace_launch_mode(input.browser_launch_mode.as_deref())?,
         browser_engine: Some(input.browser_engine.unwrap_or_default()),
         browser_zoom_mode: normalize_workspace_zoom_mode(input.browser_zoom_mode.as_deref())?,
         browser_zoom_percent: normalize_workspace_zoom_percent(
@@ -635,12 +581,6 @@ pub fn update_workspace(
         id: current.id.clone(),
         name,
         template,
-        browser_launch_mode: input
-            .browser_launch_mode
-            .as_deref()
-            .map(|mode| normalize_workspace_launch_mode(Some(mode)))
-            .transpose()?
-            .unwrap_or_else(|| current.browser_launch_mode.clone()),
         browser_engine: input.browser_engine.or(current.browser_engine),
         browser_zoom_mode: input
             .browser_zoom_mode
@@ -1014,18 +954,6 @@ fn default_workspace_zoom_percent(template: &str) -> f64 {
         | "two_top_three_bottom" => 80.0,
         "three_columns" | "quad" | "four_columns" => 90.0,
         _ => 100.0,
-    }
-}
-
-fn normalize_workspace_launch_mode(value: Option<&str>) -> CoreResult<String> {
-    let value = value.unwrap_or("inherit");
-    if matches!(value, "inherit" | "auto" | "embedded" | "external") {
-        Ok(value.to_owned())
-    } else {
-        Err(domain(
-            "WORKSPACE_BROWSER_LAUNCH_MODE_INVALID",
-            "Launch workspace browser mode is invalid.",
-        ))
     }
 }
 
@@ -1844,17 +1772,6 @@ fn normalize_color(value: Option<String>) -> CoreResult<Option<String>> {
     Ok(Some(value.to_ascii_uppercase()))
 }
 
-fn normalize_game_launch_mode(value: Option<&str>) -> CoreResult<String> {
-    let value = value.unwrap_or("inherit");
-    if !matches!(value, "inherit" | "auto" | "embedded" | "external") {
-        return Err(domain(
-            "GAME_LAUNCH_MODE_INVALID",
-            "Game browser launch mode is invalid.",
-        ));
-    }
-    Ok(value.to_owned())
-}
-
 fn normalize_game_id(value: &str) -> CoreResult<String> {
     let value = value.trim();
     if value.is_empty() || value.len() > 120 {
@@ -1926,7 +1843,6 @@ struct GameRecord {
     source: String,
     name: String,
     default_launch_url: String,
-    browser_launch_mode: String,
     #[serde(default)]
     #[serde(rename = "browserEngine")]
     _browser_engine: Option<BrowserEngineOverride>,
@@ -1967,11 +1883,6 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
         ));
     }
     one_of(
-        &settings.launch_mode,
-        &["auto", "embedded", "external"],
-        "browser launch mode",
-    )?;
-    one_of(
         &settings.macro_badge_position.horizontal_align,
         &["left", "center", "right"],
         "macro badge alignment",
@@ -1988,11 +1899,6 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
             "macro badge position is invalid".to_owned(),
         ));
     }
-    one_of(
-        &settings.network.cdn_compatibility.mode,
-        &["off", "auto", "on"],
-        "CDN compatibility mode",
-    )?;
     one_of(
         &settings.network.proxy.mode,
         &["system", "custom"],
@@ -2067,12 +1973,6 @@ pub fn normalize_game_browser_settings(
         settings.graphics.vsync_enabled = false;
     }
     if !matches!(
-        settings.launch_mode.as_str(),
-        "auto" | "embedded" | "external"
-    ) {
-        settings.launch_mode = "auto".to_owned();
-    }
-    if !matches!(
         settings.macro_badge_position.horizontal_align.as_str(),
         "left" | "center" | "right"
     ) {
@@ -2090,12 +1990,6 @@ pub fn normalize_game_browser_settings(
         || !settings.macro_badge_position.top_px.is_multiple_of(8)
     {
         settings.macro_badge_position.top_px = 128;
-    }
-    if !matches!(
-        settings.network.cdn_compatibility.mode.as_str(),
-        "off" | "auto" | "on"
-    ) {
-        settings.network.cdn_compatibility.mode = "auto".to_owned();
     }
     settings.network.proxy.server = settings.network.proxy.server.trim().to_owned();
     let normalized_proxy = (settings.network.proxy.mode == "custom")
@@ -2189,9 +2083,6 @@ struct RoleRecord {
     launch_url: String,
     notes: String,
     #[serde(default)]
-    #[serde(rename = "browserSessionSource")]
-    _browser_session_source: Option<BrowserSessionSource>,
-    #[serde(default)]
     #[serde(rename = "browserEnginePin")]
     _browser_engine_pin: Option<EmbeddedBrowserEngine>,
     created_at: String,
@@ -2204,7 +2095,6 @@ struct WorkspaceRecord {
     id: String,
     name: String,
     template: String,
-    browser_launch_mode: String,
     #[serde(default)]
     #[serde(rename = "browserEngine")]
     _browser_engine: Option<BrowserEngineOverride>,
@@ -2319,11 +2209,6 @@ fn validate_game(game: GameRecord) -> CoreResult<()> {
     non_empty(&game.id, "game id")?;
     non_empty(&game.name, "game name")?;
     one_of(&game.source, &["builtin", "custom"], "game source")?;
-    one_of(
-        &game.browser_launch_mode,
-        &["inherit", "auto", "embedded", "external"],
-        "game browser launch mode",
-    )?;
     http_url(&game.default_launch_url, "game launch URL")?;
     timestamps(&game.created_at, &game.updated_at, "game")
 }
@@ -2362,11 +2247,6 @@ fn validate_workspace(workspace: WorkspaceRecord) -> CoreResult<()> {
             "nine_grid",
         ],
         "workspace template",
-    )?;
-    one_of(
-        &workspace.browser_launch_mode,
-        &["inherit", "auto", "embedded", "external"],
-        "workspace browser launch mode",
     )?;
     one_of(
         &workspace.browser_zoom_mode,
@@ -2537,27 +2417,12 @@ fn validate_compatibility_report(report: StateCompatibilityReportRecord) -> Core
             )?;
         }
     }
-    if let Some(chrome) = report.system_chrome {
-        one_of(
-            &chrome.state,
-            &["available", "unavailable"],
-            "system Chrome state",
-        )?;
-    }
     if let Some(recommendation) = report.recommendation {
-        if let Some(mode) = recommendation.mode {
-            one_of(
-                &mode,
-                &["auto", "embedded", "external"],
-                "compatibility recommendation mode",
-            )?;
-        }
         one_of(
             &recommendation.reason,
             &[
-                "embedded_available",
-                "external_recommended",
-                "chrome_required",
+                "system_webview_available",
+                "load_failed",
                 "graphics_unavailable",
             ],
             "compatibility recommendation reason",
@@ -2568,11 +2433,6 @@ fn validate_compatibility_report(report: StateCompatibilityReportRecord) -> Core
             "lastEmbeddedSuccessAt",
             report.observations.last_embedded_success_at,
         ),
-        (
-            "lastExternalSuccessAt",
-            report.observations.last_external_success_at,
-        ),
-        ("lastFallbackAt", report.observations.last_fallback_at),
         (
             "lastLaunchFailureAt",
             report.observations.last_launch_failure_at,
@@ -2691,9 +2551,10 @@ mod tests {
             "graphics":{"mode":"high_performance"},
             "launchMode":"external",
             "macroBadgePosition":{"horizontalAlign":"right","horizontalMarginPx":80,"topPx":280},
-            "network":{"cdnCompatibility":{"mode":"on"},"proxy":{"mode":"custom","server":" socks5://127.0.0.1:7890/ "}},
+            "network":{"proxy":{"mode":"custom","server":" socks5://127.0.0.1:7890/ "}},
             "workspace":{"background":"black","gap":12}
-        })).unwrap();
+        }))
+        .unwrap();
         let settings = normalize_game_browser_settings(settings);
         assert_eq!(settings.fonts.families["fixed"], "Courier New");
         assert!(!settings.fonts.families.contains_key("bad"));
@@ -2737,7 +2598,6 @@ mod tests {
         crate::v1_case!("state-migration-16455f5cd61d", {
             let defaults = default_game_browser_settings();
             validate_game_browser_settings(&defaults).unwrap();
-            assert_eq!(defaults.launch_mode, "auto");
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);
         });
@@ -2864,7 +2724,6 @@ mod tests {
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
-                browser_launch_mode: None,
                 browser_engine: None,
             };
             let mut games = Vec::new();
@@ -4118,7 +3977,6 @@ mod tests {
                     default_launch_url: "https://example.test/play".to_owned(),
                     icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
-                    browser_launch_mode: None,
                     browser_engine: None,
                 },
             )
@@ -4131,7 +3989,6 @@ mod tests {
                         default_launch_url: "https://other.test/play".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
-                        browser_launch_mode: None,
                         browser_engine: None,
                     }
                 )
@@ -4147,7 +4004,6 @@ mod tests {
                         default_launch_url: "file:///tmp/game".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
-                        browser_launch_mode: None,
                         browser_engine: None,
                     }
                 )
@@ -4161,7 +4017,6 @@ mod tests {
                         default_launch_url: "https://image.test/play".to_owned(),
                         icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
                         cover_image_data_url: None,
-                        browser_launch_mode: None,
                         browser_engine: None,
                     }
                 )
@@ -4190,7 +4045,6 @@ mod tests {
             let reset = reset_builtin_game(&mut games, "builtin-flyff-universe").unwrap();
             assert_eq!(reset.name, "Flyff Universe");
             assert_eq!(reset.default_launch_url, "https://universe.flyff.com/play");
-            assert_eq!(reset.browser_launch_mode, "inherit");
             assert!(delete_game(&mut games, &[], "builtin-flyff-universe").is_err());
         });
 

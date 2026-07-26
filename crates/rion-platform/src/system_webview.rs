@@ -59,7 +59,7 @@ fn classify_probe(platform: Platform, mut raw: RawSystemWebViewProbe) -> SystemW
         }
         .to_owned(),
         // Runtime creation can begin with public APIs present. The core separately
-        // checks per-workspace macro/CDN requirements before enabling System.
+        // checks per-workspace native capability requirements before enabling System.
         available: raw.public_api_available,
         runtime_version: raw.runtime_version,
         public_api_available: raw.public_api_available,
@@ -121,7 +121,7 @@ fn probe_macos() -> RawSystemWebViewProbe {
     ]
     .into_iter()
     .all(|selector| has_instance_selector(automation, selector));
-    let audio_mute_available = has_instance_selector(webview, "_setMuted:");
+    let audio_mute_available = has_instance_selector(webview, "_setPageMuted:");
     RawSystemWebViewProbe {
         runtime_version: sysinfo::System::os_version(),
         public_api_available: !webview.is_null() && !data_store.is_null(),
@@ -213,15 +213,16 @@ fn probe_windows() -> RawSystemWebViewProbe {
     };
     // SAFETY: module came from LoadLibraryW and no function pointer escapes.
     unsafe { FreeLibrary(module) };
+    let runtime_available = runtime_version.is_some();
     RawSystemWebViewProbe {
-        public_api_available: runtime_version.is_some(),
+        public_api_available: runtime_available,
         runtime_version,
         // WebView2 CDP exists, but trusted/background macro parity is promoted only
         // by the packaged native harness.
         trusted_input_verified: false,
         background_input_verified: false,
         automation_spi_available: false,
-        audio_mute_available: runtime_version.is_some(),
+        audio_mute_available: runtime_available,
         reason_codes: Vec::new(),
     }
 }

@@ -19,7 +19,6 @@ pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord>
     let browser_user_data_dir = browser_directory(user_data_dir, role_id);
     Ok(RolePathsRecord {
         browser_user_data_dir: browser_user_data_dir.to_string_lossy().into_owned(),
-        electron_browser_user_data_dir: browser_user_data_dir.to_string_lossy().into_owned(),
         system_browser_data_dir: browser_user_data_dir
             .join("system")
             .to_string_lossy()
@@ -188,10 +187,6 @@ mod tests {
         let browser = Path::new(&paths.browser_user_data_dir);
         let system = Path::new(&paths.system_browser_data_dir);
         let webview2 = Path::new(&paths.webview2_user_data_dir);
-        assert_eq!(
-            paths.electron_browser_user_data_dir,
-            paths.browser_user_data_dir
-        );
         assert_eq!(paths.webkit_data_store_key, "role:role-1:wkwebview");
         assert_eq!(
             paths.webkit_data_store_identifier,

@@ -21,14 +21,18 @@ describe("GraphicsDiagnosticsService", () => {
       appliedSwitches: [],
       collectedAt: "2026-07-23T00:00:00.000Z",
       embedded: probe,
-      externalRoles: [],
       featureStatus: { webgl: "enabled" },
       gpuInfoReady: true,
       hardwareAccelerationEnabled: true,
       platform: "darwin",
       restartRequired: false,
       savedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
-      versions: { chromium: "140", electron: "40", node: "24" }
+      versions: {
+        engine: "wkwebview",
+        engineVersion: "14.6",
+        shell: "electron",
+        shellVersion: "40"
+      }
     };
     const invoke = vi.fn(async () => diagnostics);
     const app = {
@@ -42,9 +46,14 @@ describe("GraphicsDiagnosticsService", () => {
       app: app as never,
       appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
       core: { invoke } as never,
+      getVersions: async () => ({
+        engine: "wkwebview",
+        engineVersion: "14.6",
+        shell: "electron",
+        shellVersion: "40"
+      }),
       isGpuInfoReady: () => true,
-      platform: "darwin",
-      versions: { chrome: "140", electron: "40", node: "24" } as NodeJS.ProcessVersions
+      platform: "darwin"
     });
 
     await expect(service.collect({
@@ -62,7 +71,12 @@ describe("GraphicsDiagnosticsService", () => {
       gpuInfoReady: true,
       hardwareAccelerationEnabled: true,
       platform: "darwin",
-      versions: { chromium: "140", electron: "40", node: "24" }
+      versions: {
+        engine: "wkwebview",
+        engineVersion: "14.6",
+        shell: "electron",
+        shellVersion: "40"
+      }
     });
   });
 
@@ -77,9 +91,14 @@ describe("GraphicsDiagnosticsService", () => {
       app: app as never,
       appliedSettings: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
       core: { invoke } as never,
+      getVersions: async () => ({
+        engine: "webview2",
+        engineVersion: "140",
+        shell: "electron",
+        shellVersion: "40"
+      }),
       isGpuInfoReady: () => false,
-      platform: "win32",
-      versions: { chrome: "140", electron: "40", node: "24" } as NodeJS.ProcessVersions
+      platform: "win32"
     });
 
     await service.collect({

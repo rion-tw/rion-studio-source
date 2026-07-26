@@ -19,7 +19,6 @@ export interface PerformanceSummary {
       "tabActivation" | "workspaceLaunch",
     LatencySummary
   >> & {
-    cdnPlanCount?: number;
     layoutPassCount?: number;
     menuRefreshCount?: number;
     runtimePublishCount?: number;
@@ -63,7 +62,6 @@ export interface PerformanceComparison {
     effectsPerLaunch: number;
     napiCallCount?: number;
     napiP95Ms?: number;
-    cdnPlanCount?: number;
     layoutPassCount?: number;
     menuRefreshCount?: number;
     runtimePublishCount?: number;

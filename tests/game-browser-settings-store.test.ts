@@ -19,10 +19,8 @@ describe("GameBrowserSettingsStore", () => {
         ...DEFAULT_GAME_BROWSER_SETTINGS.graphics,
         gpuBlocklistEnabled: true
       },
-      launchMode: "external",
       macroBadgePosition: { horizontalAlign: "right", horizontalMarginPx: 80, topPx: 280 },
       network: {
-        cdnCompatibility: { mode: "on" },
         proxy: { mode: "custom", server: " socks5://127.0.0.1:7890/ " }
       },
       workspace: { background: "black", gap: 12 }

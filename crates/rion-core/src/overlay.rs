@@ -12,7 +12,6 @@ use crossbeam_channel::{Receiver, Sender, after, bounded, select};
 
 use crate::{
     error::{CoreError, CoreResult},
-    external_automation::ExternalAutomationRuntime,
     model::{CoreEvent, MacroDefinition, MacroOverlayRequestRecord},
 };
 
@@ -160,42 +159,17 @@ pub struct OverlayRefreshRuntime {
 }
 
 impl OverlayRefreshRuntime {
-    pub fn start(
-        core_events: Receiver<Vec<CoreEvent>>,
-        events: EventSink,
-        external: Arc<ExternalAutomationRuntime>,
-    ) -> CoreResult<Self> {
+    pub fn start(core_events: Receiver<Vec<CoreEvent>>, events: EventSink) -> CoreResult<Self> {
         let (control, control_receiver) = bounded(1);
         let (invalidation, invalidation_receiver) = bounded(32);
         let (ready_sender, ready_receiver) = bounded(1);
         let join = thread::Builder::new()
             .name("rion-overlay-refresh".to_owned())
             .spawn(move || {
-                let io_runtime = match tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(1)
-                    .thread_name("rion-overlay-cdp")
-                    .enable_all()
-                    .build()
-                {
-                    Ok(runtime) => runtime,
-                    Err(error) => {
-                        let _ = ready_sender.send(Err(error.to_string()));
-                        return;
-                    }
-                };
-                let io_handle = io_runtime.handle().clone();
                 if ready_sender.send(Ok(())).is_err() {
                     return;
                 }
-                run_refresh_worker(
-                    core_events,
-                    control_receiver,
-                    invalidation_receiver,
-                    events,
-                    external,
-                    io_handle,
-                );
-                io_runtime.shutdown_timeout(Duration::from_secs(3));
+                run_refresh_worker(core_events, control_receiver, invalidation_receiver, events);
             })
             .map_err(|error| CoreError::Internal(error.to_string()))?;
         match ready_receiver.recv() {
@@ -246,7 +220,6 @@ impl Drop for OverlayRefreshRuntime {
 struct OverlayProjection {
     browser: HashMap<String, String>,
     macros: HashMap<String, String>,
-    unresponsive: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -294,11 +267,6 @@ impl OverlayProjection {
                     ));
                 }
                 CoreEvent::BrowserStatuses { statuses } => {
-                    self.unresponsive = statuses
-                        .iter()
-                        .filter(|status| status.page_health.as_deref() == Some("unresponsive"))
-                        .map(|status| status.role_id.clone())
-                        .collect();
                     change.role_ids.extend(update_grouped_signatures(
                         &mut self.browser,
                         statuses,
@@ -349,8 +317,6 @@ fn run_refresh_worker(
     control: Receiver<()>,
     invalidation: Receiver<Vec<String>>,
     events: EventSink,
-    external: Arc<ExternalAutomationRuntime>,
-    io: tokio::runtime::Handle,
 ) {
     let mut projection = OverlayProjection::default();
     let mut pending = PendingRefresh::default();
@@ -374,7 +340,7 @@ fn run_refresh_worker(
         } else {
             let remaining = REFRESH_MIN_INTERVAL.saturating_sub(last_started.elapsed());
             if remaining.is_zero() {
-                flush_refresh(&mut pending, &projection, &events, &external, &io);
+                flush_refresh(&mut pending, &events);
                 last_started = Instant::now();
                 continue;
             }
@@ -391,10 +357,7 @@ fn run_refresh_worker(
                 recv(after(remaining)) -> _ => {
                     flush_refresh(
                         &mut pending,
-                        &projection,
                         &events,
-                        &external,
-                        &io,
                     );
                     last_started = Instant::now();
                 }
@@ -416,37 +379,12 @@ fn explicit_invalidation(role_ids: Vec<String>) -> ProjectionChange {
     }
 }
 
-fn flush_refresh(
-    pending: &mut PendingRefresh,
-    projection: &OverlayProjection,
-    events: &EventSink,
-    external: &Arc<ExternalAutomationRuntime>,
-    io: &tokio::runtime::Handle,
-) {
+fn flush_refresh(pending: &mut PendingRefresh, events: &EventSink) {
     let (all, role_ids) = pending.take();
     let event_role_ids = if all { Vec::new() } else { role_ids.clone() };
     events(vec![CoreEvent::OverlayChanged {
         role_ids: event_role_ids,
     }]);
-
-    let external_role_ids = if all {
-        external.role_ids().unwrap_or_default()
-    } else {
-        role_ids
-    };
-    let external_role_ids = external_role_ids
-        .into_iter()
-        .filter(|role_id| !projection.unresponsive.contains(role_id))
-        .collect::<Vec<_>>();
-    if external_role_ids.is_empty() {
-        return;
-    }
-    let external = Arc::clone(external);
-    io.spawn(async move {
-        for role_id in external_role_ids {
-            let _ = external.refresh_overlay(&role_id).await;
-        }
-    });
 }
 
 fn domain(code: &'static str, message: &str) -> CoreError {
@@ -458,12 +396,8 @@ fn domain(code: &'static str, message: &str) -> CoreError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
-
     use super::*;
-    use crate::model::{
-        BrowserRoleStatusRecord, MacroLastClick, MacroRepeat, MacroRunStatus, MacroStepDefinition,
-    };
+    use crate::model::{MacroLastClick, MacroRepeat, MacroRunStatus, MacroStepDefinition};
 
     fn definition(id: &str, role_ids: &[&str], steps: Vec<MacroStepDefinition>) -> MacroDefinition {
         MacroDefinition {
@@ -597,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn coalesces_and_rate_limits_external_refresh_bursts() {
+    fn coalesces_and_rate_limits_refresh_bursts() {
         let (core_sender, core_receiver) = bounded(32);
         let (output_sender, output_receiver) = std::sync::mpsc::channel();
         let starts = Arc::new(Mutex::new(Vec::<Instant>::new()));
@@ -611,21 +545,7 @@ mod tests {
                 let _ = output_sender.send(());
             }
         });
-        let refreshes = Arc::new(AtomicUsize::new(0));
-        let refreshes_output = Arc::clone(&refreshes);
-        let external = Arc::new(ExternalAutomationRuntime::new("darwin".to_owned()));
-        external
-            .register(
-                "role-1".to_owned(),
-                Arc::new(crate::ExternalChromeCdpSession::test_session_with_observer(
-                    Duration::from_millis(100),
-                    move || {
-                        refreshes_output.fetch_add(1, Ordering::AcqRel);
-                    },
-                )),
-            )
-            .unwrap();
-        let runtime = OverlayRefreshRuntime::start(core_receiver, events, external).unwrap();
+        let runtime = OverlayRefreshRuntime::start(core_receiver, events).unwrap();
 
         runtime.invalidate(vec!["role-1".to_owned()]);
         output_receiver
@@ -637,15 +557,7 @@ mod tests {
         output_receiver
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while refreshes.load(Ordering::Acquire) < 2 {
-            assert!(Instant::now() < deadline);
-            thread::yield_now();
-        }
         thread::sleep(Duration::from_millis(300));
-        crate::v1_case!("overlay-4cc5837ceff2", {
-            assert_eq!(refreshes.load(Ordering::Acquire), 2);
-        });
         crate::v1_case!("overlay-d253bf812639", {
             let starts = starts.lock().unwrap();
             assert_eq!(REFRESH_MIN_INTERVAL, Duration::from_millis(250));
@@ -653,91 +565,5 @@ mod tests {
         });
         drop(core_sender);
         runtime.shutdown();
-    }
-
-    #[test]
-    fn skips_unresponsive_or_disconnected_external_refresh_targets() {
-        let (core_sender, core_receiver) = bounded(32);
-        let (output_sender, output_receiver) = std::sync::mpsc::channel();
-        let events: EventSink = Arc::new(move |events| {
-            if events
-                .iter()
-                .any(|event| matches!(event, CoreEvent::OverlayChanged { .. }))
-            {
-                let _ = output_sender.send(());
-            }
-        });
-        let refreshes = Arc::new(AtomicUsize::new(0));
-        let refreshes_output = Arc::clone(&refreshes);
-        let external = Arc::new(ExternalAutomationRuntime::new("darwin".to_owned()));
-        external
-            .register(
-                "role-1".to_owned(),
-                Arc::new(crate::ExternalChromeCdpSession::test_session_with_observer(
-                    Duration::from_millis(25),
-                    move || {
-                        refreshes_output.fetch_add(1, Ordering::AcqRel);
-                    },
-                )),
-            )
-            .unwrap();
-        let runtime =
-            OverlayRefreshRuntime::start(core_receiver, events, Arc::clone(&external)).unwrap();
-
-        core_sender
-            .send(vec![CoreEvent::BrowserStatuses {
-                statuses: vec![browser_status("role-1", Some("unresponsive"))],
-            }])
-            .unwrap();
-        output_receiver
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
-        thread::sleep(Duration::from_millis(75));
-        crate::v1_case!("overlay-b4848b618886", {
-            assert_eq!(refreshes.load(Ordering::Acquire), 0);
-        });
-
-        core_sender
-            .send(vec![CoreEvent::BrowserStatuses {
-                statuses: vec![browser_status("role-1", Some("healthy"))],
-            }])
-            .unwrap();
-        output_receiver
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while refreshes.load(Ordering::Acquire) < 1 {
-            assert!(Instant::now() < deadline);
-            thread::yield_now();
-        }
-        runtime.invalidate(vec!["role-1".to_owned()]);
-        external.unregister("role-1").unwrap();
-        output_receiver
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
-        thread::sleep(Duration::from_millis(75));
-        crate::v1_case!("overlay-832f83a77ef2", {
-            assert_eq!(refreshes.load(Ordering::Acquire), 1);
-        });
-        runtime.shutdown();
-    }
-
-    fn browser_status(role_id: &str, page_health: Option<&str>) -> BrowserRoleStatusRecord {
-        BrowserRoleStatusRecord {
-            role_id: role_id.to_owned(),
-            state: "running".to_owned(),
-            launched_at: Some("2026-01-01T00:00:00Z".to_owned()),
-            notice: None,
-            runtime_mode: "external".to_owned(),
-            automation_state: Some("ready".to_owned()),
-            overlay_state: Some("ready".to_owned()),
-            page_health: page_health.map(str::to_owned),
-            preferred_engine: None,
-            resolved_engine: Some(crate::model::ResolvedBrowserEngine::ExternalChrome),
-            host_kind: Some(crate::model::BrowserHostKind::External),
-            fallback_reason: None,
-            capability_snapshot: None,
-            session_continuity: None,
-        }
     }
 }

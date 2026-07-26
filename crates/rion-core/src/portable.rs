@@ -19,15 +19,14 @@ use crate::{
     layout::normalize_rect_edges,
     macro_graph::validate_macro_graph,
     model::{
-        BrowserSessionSource, CoreStateSnapshotRecord, GameBrowserSettingsRecord, LayoutRect,
-        MacroSettingsRecord, MacroStepDefinition, MacroTrigger, PortableDataRecord,
-        PortableDataSelectionRecord, PortableExportResultRecord, PortableGameRecord,
-        PortableImportOperationsRecord, PortableImportPreviewRecord, PortableImportResultRecord,
-        PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
-        PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
-        PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
-        PortableRoleRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
-        StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
+        CoreStateSnapshotRecord, GameBrowserSettingsRecord, LayoutRect, MacroSettingsRecord,
+        MacroStepDefinition, MacroTrigger, PortableDataRecord, PortableDataSelectionRecord,
+        PortableExportResultRecord, PortableGameRecord, PortableImportOperationsRecord,
+        PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
+        PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
+        PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
+        PortablePreferencesRecord, PortableRoleRecord, StateGameRecord, StateLaunchWorkspaceRecord,
+        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
     },
 };
 
@@ -195,10 +194,6 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
             "defaultLaunchUrl",
             "game",
         )?)?),
-    );
-    game.insert(
-        "browserLaunchMode".to_owned(),
-        json!(launch_mode(source.get("browserLaunchMode"))?),
     );
     game.insert(
         "browserEngine".to_owned(),
@@ -389,7 +384,6 @@ fn normalize_workspace(value: &Value) -> CoreResult<Value> {
         "id": required_string(source, "id", "workspace")?,
         "name": required_string(source, "name", "workspace")?,
         "template": template,
-        "browserLaunchMode": launch_mode(source.get("browserLaunchMode"))?,
         "browserEngine": engine_override(source.get("browserEngine"))?,
         "browserZoomMode": match source.get("browserZoomMode").and_then(Value::as_str) {
             Some("fixed") => "fixed",
@@ -806,16 +800,6 @@ fn normalize_url(value: String) -> CoreResult<String> {
     Ok(url.to_string())
 }
 
-fn launch_mode(value: Option<&Value>) -> CoreResult<&'static str> {
-    match value.and_then(Value::as_str).unwrap_or("inherit") {
-        "inherit" => Ok("inherit"),
-        "auto" => Ok("auto"),
-        "embedded" => Ok("embedded"),
-        "external" => Ok("external"),
-        _ => Err(invalid("portable browser launch mode is invalid")),
-    }
-}
-
 fn engine_override(value: Option<&Value>) -> CoreResult<&'static str> {
     match value.and_then(Value::as_str).unwrap_or("inherit") {
         "inherit" => Ok("inherit"),
@@ -1230,7 +1214,6 @@ fn build_import_plan(
                     updated.cover_image_data_url = game.cover_image_data_url.clone();
                 }
                 updated.default_launch_url = game.default_launch_url.clone();
-                updated.browser_launch_mode = game.browser_launch_mode.clone();
                 updated.updated_at = timestamp.clone();
                 if game_equivalent(&existing, &updated)? {
                     operations.games.unchanged += 1;
@@ -1287,7 +1270,6 @@ fn build_import_plan(
                     .then_some(source.cover_image_data_url)
                     .flatten(),
                 default_launch_url: source.default_launch_url,
-                browser_launch_mode: source.browser_launch_mode,
                 browser_engine: source.browser_engine,
                 created_at: timestamp.clone(),
                 updated_at: timestamp.clone(),
@@ -1348,7 +1330,6 @@ fn build_import_plan(
                     name: role.name.clone(),
                     launch_url: role.launch_url.clone(),
                     notes: role.notes.clone(),
-                    browser_session_source: Some(BrowserSessionSource::Managed),
                     browser_engine_pin: role.browser_engine_pin,
                     cover_image_data_url: role.cover_image_data_url.clone(),
                     cover_image_dominant_color: role
@@ -1473,7 +1454,6 @@ fn build_import_plan(
                     .unwrap_or_else(|| Uuid::new_v4().to_string()),
                 name,
                 template: workspace.template.clone(),
-                browser_launch_mode: workspace.browser_launch_mode.clone(),
                 browser_engine: workspace.browser_engine,
                 browser_zoom_mode: workspace.browser_zoom_mode.clone(),
                 browser_zoom_percent: workspace.browser_zoom_percent,
@@ -1928,7 +1908,6 @@ fn portable_game(game: &StateGameRecord) -> PortableGameRecord {
         icon_image_data_url: game.icon_image_data_url.clone(),
         cover_image_data_url: game.cover_image_data_url.clone(),
         default_launch_url: game.default_launch_url.clone(),
-        browser_launch_mode: game.browser_launch_mode.clone(),
         browser_engine: game.browser_engine,
     }
 }
@@ -1952,7 +1931,6 @@ fn portable_workspace(workspace: &StateLaunchWorkspaceRecord) -> PortableLaunchW
         id: workspace.id.clone(),
         name: workspace.name.clone(),
         template: workspace.template.clone(),
-        browser_launch_mode: workspace.browser_launch_mode.clone(),
         browser_engine: workspace.browser_engine,
         browser_zoom_mode: workspace.browser_zoom_mode.clone(),
         browser_zoom_percent: workspace.browser_zoom_percent,
@@ -3449,7 +3427,6 @@ mod tests {
                 .find(|game| game.builtin_key.as_deref() == Some("flyff-universe"))
                 .unwrap();
             assert_eq!(builtin.default_launch_url, "https://override.test/play");
-            assert_eq!(builtin.browser_launch_mode, "external");
             assert!(prepared.snapshot.roles.iter().all(|role| {
                 prepared
                     .snapshot
@@ -3549,7 +3526,6 @@ mod tests {
                 builtin.default_launch_url,
                 "https://local-override.test/play"
             );
-            assert_eq!(builtin.browser_launch_mode, "external");
         });
     }
 
@@ -3757,7 +3733,7 @@ mod tests {
     fn export_is_v7_and_never_emits_internal_timestamps_or_browser_session_source() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
-            "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","browserSessionSource":"chrome-profile","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
+            "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "launchWorkspaces": [{
                 "id":"w","name":"Workspace","template":"single","browserLaunchMode":"inherit",
                 "browserZoomMode":"adaptive","browserZoomPercent":100,

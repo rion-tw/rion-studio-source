@@ -115,7 +115,7 @@ function GamesRoute({
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
             const isReportStale = !checking && report?.isStale === true;
-            const isEmbeddedAvailable = !checking
+            const isSystemWebViewAvailable = !checking
               && !report?.isStale
               && report?.recommendation?.reason !== "graphics_unavailable"
               && report?.load?.state === "available";
@@ -131,7 +131,7 @@ function GamesRoute({
               && report?.load?.state === "cancelled";
             const isNotChecked = !checking
               && !isReportStale
-              && !isEmbeddedAvailable
+              && !isSystemWebViewAvailable
               && !isGraphicsLimited
               && !isFailed
               && !isCancelled;
@@ -174,12 +174,12 @@ function GamesRoute({
                           <Badge className="shrink-0" variant="warning">
                             {t("games.compatibility.stale")}
                           </Badge>
-                        ) : isEmbeddedAvailable ? (
+                        ) : isSystemWebViewAvailable ? (
                           <span
-                            aria-label={t("games.compatibility.recommendation.embedded_available")}
+                            aria-label={t("games.compatibility.recommendation.system_webview_available")}
                             className="inline-flex shrink-0 text-emerald-500"
                             role="img"
-                            title={t("games.compatibility.recommendation.embedded_available")}
+                            title={t("games.compatibility.recommendation.system_webview_available")}
                           >
                             <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.5} />
                           </span>

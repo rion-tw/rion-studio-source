@@ -16,8 +16,7 @@ import type {
   BrowserEngineOverride,
   Game,
   GameCompatibilityReport,
-  GameCompatibilityRunStatus,
-  InheritableBrowserLaunchMode
+  GameCompatibilityRunStatus
 } from "../../../../shared/types";
 import { GameCompatibilityPanel } from "./GameCompatibilityPanel";
 import { createGameCoverImageDataUrl } from "./gameCover";
@@ -28,7 +27,6 @@ interface GameEditorRouteProps {
   reports: GameCompatibilityReport[];
   runStatuses: GameCompatibilityRunStatus[];
   t: Translator;
-  onApplyRecommendation: (game: Game) => Promise<Game | undefined>;
   onCancelCheck: (gameId: string) => void;
   onError: (error: unknown | null) => void;
   onOpenGraphicsSettings: (gameId: string) => void;
@@ -56,7 +54,6 @@ function GameEditor({
   reports,
   runStatuses,
   t,
-  onApplyRecommendation,
   onCancelCheck,
   onError,
   onOpenGraphicsSettings,
@@ -87,15 +84,6 @@ function GameEditor({
     setForm(resetForm);
   }
 
-  async function applyRecommendation(): Promise<void> {
-    if (!game) return;
-    const saved = await onApplyRecommendation(game);
-    if (!saved) return;
-    const nextForm = { ...form, browserLaunchMode: saved.browserLaunchMode };
-    initialRef.current = { ...initialRef.current, browserLaunchMode: saved.browserLaunchMode };
-    setForm(nextForm);
-  }
-
   return (
     <EditorPage
       backActionLabel={t("editor.back")} backLabel={t("games.back")} canSubmit={canSubmit}
@@ -113,17 +101,14 @@ function GameEditor({
           <FieldHeader title={t("games.form.urls")} description={t("games.form.urlsDescription")} />
           <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
         </Surface>
-        <Surface className="grid gap-4 p-4 sm:grid-cols-2" variant="inset">
-          <FormField label={t("games.form.launchMode")}><Select value={form.browserLaunchMode} onValueChange={(value) => setForm({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent></Select></FormField>
-          <FormField label={t("games.form.browserEngine")}><Select value={form.browserEngine ?? "inherit"} onValueChange={(value) => setForm({ ...form, browserEngine: value as BrowserEngineOverride })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.engine.inherit")}</SelectItem><SelectItem value="system">{t("games.engine.system")}</SelectItem><SelectItem value="electron">{t("games.engine.electron")}</SelectItem></SelectContent></Select></FormField>
+        <Surface className="grid gap-4 p-4" variant="inset">
+          <FormField label={t("games.form.browserEngine")}><Select value={form.browserEngine ?? "inherit"} onValueChange={(value) => setForm({ ...form, browserEngine: value as BrowserEngineOverride })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.engine.inherit")}</SelectItem><SelectItem value="system">{t("games.engine.system")}</SelectItem></SelectContent></Select></FormField>
         </Surface>
         {game ? (
           <GameCompatibilityPanel
-            game={game}
             report={reports.find((item) => item.gameId === game.id)}
             runStatus={runStatuses.find((item) => item.gameId === game.id)}
             t={t}
-            onApply={() => void applyRecommendation()}
             onCancel={() => onCancelCheck(game.id)}
             onOpenGraphicsSettings={() => onOpenGraphicsSettings(game.id)}
             onRun={() => onRunCheck(game.id)}

@@ -29,7 +29,6 @@ let core;
 try {
   const legacyGames = {
     games: [{
-      browserLaunchMode: "inherit",
       createdAt: "2026-01-01T00:00:00Z",
       defaultLaunchUrl: "https://fixture.rion.test/play",
       id: "fixture-game",
@@ -80,13 +79,11 @@ try {
     typeof core.subscribeCoreEvents !== "function" ||
     typeof core.dispatchCoreEffectResults !== "function" ||
     typeof core.invoke !== "function" ||
-    typeof core.matchCdnUrl !== "function" ||
     typeof core.shutdown !== "function"
   ) {
     throw new Error("Rust core addon failed its create/invoke integration check.");
   }
   for (const removedMethod of [
-    "connectExternalChromeCdp",
     "dispatchBrowserResults",
     "invokeBrowserRuntime",
     "invokeResourceRuntime",
@@ -200,35 +197,6 @@ try {
   const rolePaths = await invoke({ type: "rolePathsResolve", id: "fixture-role" });
   if (rolePaths.browserUserDataDir !== join(userDataDir, "roles", "fixture-role", "browser")) {
     throw new Error(`Rust role path resolver returned an invalid path: ${JSON.stringify(rolePaths)}.`);
-  }
-  const processRoleId = "fixture-process";
-  const exit = new Promise((resolveExit, rejectExit) => {
-    const timeout = setTimeout(
-      () => rejectExit(new Error("Rust process supervisor did not report exit.")),
-      5_000
-    );
-    core.subscribeCoreEvents((eventsJson) => {
-      const event = JSON.parse(eventsJson).find(
-        (candidate) => candidate.type === "externalProcessExited" && candidate.roleId === processRoleId
-      );
-      if (event) {
-        clearTimeout(timeout);
-        resolveExit(event);
-      }
-    });
-  });
-  const launched = JSON.parse(await core.invoke(JSON.stringify({
-    type: "externalProcessLaunch",
-    roleId: processRoleId,
-    executablePath: process.execPath,
-    arguments: ["-e", "process.exit(7)"]
-  })));
-  if (!Number.isSafeInteger(launched.pid) || launched.pid <= 0) {
-    throw new Error("Rust process supervisor returned an invalid process id.");
-  }
-  const processExit = await exit;
-  if (processExit.exitCode !== 7 || processExit.terminated !== false) {
-    throw new Error(`Rust process supervisor returned an invalid exit: ${JSON.stringify(processExit)}.`);
   }
   await core.shutdown();
   core = undefined;

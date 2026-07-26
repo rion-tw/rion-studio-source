@@ -17,7 +17,6 @@ export function toWorkspaceCreateInput(
   return {
     name: input.name,
     ...(input.template === undefined ? {} : { template: input.template }),
-    ...(input.browserLaunchMode === undefined ? {} : { browserLaunchMode: input.browserLaunchMode }),
     ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine }),
     ...(input.browserZoomMode === undefined ? {} : { browserZoomMode: input.browserZoomMode }),
     ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),
@@ -32,7 +31,6 @@ export function toWorkspaceUpdateInput(
   return {
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.template === undefined ? {} : { template: input.template }),
-    ...(input.browserLaunchMode === undefined ? {} : { browserLaunchMode: input.browserLaunchMode }),
     ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine }),
     ...(input.browserZoomMode === undefined ? {} : { browserZoomMode: input.browserZoomMode }),
     ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),

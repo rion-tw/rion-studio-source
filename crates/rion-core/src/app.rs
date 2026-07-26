@@ -8,15 +8,11 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use fs2::FileExt;
-use futures_util::future::join_all;
-use rion_platform::PixelBounds;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    cdn::CdnMatcher,
     database::{
         DatabasePaths, LogDatabaseWorker, OperationJournalRecord, SCHEMA_VERSION,
         StateDatabaseWorker, StateMutation, bootstrap_databases,
@@ -27,59 +23,28 @@ use crate::{
         validate_legal_acceptance, validate_macro_settings,
     },
     error::{CoreError, CoreResult},
-    external_health::ExternalHealthRuntime,
     layout,
     macro_runtime::MacroRuntime,
     model::{
-        AppCoreOptions, BrowserActionResult, BrowserOperationRequest, BrowserRuntimeCommand,
-        BrowserSessionSource, CdnResolutionRecord, ChromeProfileImportProgressRecord,
-        ChromeProfileImportedSessionRecord, CompatibilityCheckOutcome, CompatibilityRunPhase,
-        CompatibilityVersionRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+        AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BrowserActionResult,
+        BrowserOperationRequest, BrowserRuntimeCommand, CompatibilityCheckOutcome,
+        CompatibilityRunPhase, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
         CoreEffectResult, CoreEffectTarget, CoreEvent, DiagnosticExportResultRecord,
-        ElectronDiagnosticsSnapshotRecord, EmbeddedBrowserEngine, EmbeddedLaunchResultRecord,
-        EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
-        EmbeddedTabEffectRecord, ExternalChromeDiagnosticsRecord,
-        ExternalGraphicsDiagnosticsRecord, ExternalPrepareSessionResultRecord,
-        ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
-        GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord, LogCaptureRecord,
-        LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
-        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
-        MacroStartRequest, OperationCancelResultRecord, RuntimeRestoreSessionRecord,
+        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
+        GraphicsDiagnosticsRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
+        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        OperationCancelResultRecord, RuntimeRestoreSessionRecord, RuntimeVersionRecord,
         RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityReportRecord,
         StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
-        StatePixelBoundsRecord, StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
+        StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
 };
 
 const EVENT_QUEUE_CAPACITY: usize = 64;
-const CDN_COMPATIBILITY_EXTERNAL_NOTICE: &str =
-    "China CDN compatibility mode is active in external Chrome.";
-const CDN_COMPATIBILITY_UNAVAILABLE_NOTICE: &str = "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.";
-const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE: &str =
-    "Macro control could not connect to compatibility mode. Restart this role to try again.";
-const EXTERNAL_DIAGNOSTICS_BINDING: &str = "rionStudioExternalDiagnostics";
-const EXTERNAL_OVERLAY_BINDING: &str = "rionStudioMacroOverlay";
-const EXTERNAL_OVERLAY_BRIDGE_KEY: &str = "__rionStudioExternalMacroBridge";
-const EXTERNAL_OVERLAY_UNAVAILABLE_NOTICE: &str =
-    "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.";
-const EXTERNAL_PAGE_UNRESPONSIVE_NOTICE: &str =
-    "The external Chrome game page stopped responding. Capture diagnostics or restart this role.";
-const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE: &str =
-    "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EmbeddedFallbackRoleContinuity {
-    auth_verified: bool,
-    role_id: String,
-}
-
-#[derive(Deserialize)]
-struct EmbeddedFallbackResult {
-    roles: Vec<EmbeddedFallbackRoleContinuity>,
-}
 
 fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
     fs::create_dir_all(user_data_dir).map_err(|error| {
@@ -90,6 +55,7 @@ fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
     let lock_path = user_data_dir.join(INSTANCE_LOCK_FILE_NAME);
     let file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&lock_path)
@@ -135,20 +101,13 @@ pub struct AppCore {
     app_version: String,
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
-    cdn: Arc<RwLock<CdnMatcher>>,
-    cdn_detection: Mutex<crate::cdn_detection::CdnDetectionRuntime>,
     browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
-    chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     compatibility_runtime: Mutex<crate::compatibility_runtime::CompatibilityRuntime>,
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
-    embedded_engine_fallbacks:
-        RwLock<std::collections::HashMap<String, crate::model::EngineFallbackReason>>,
+    system_webview_issues:
+        RwLock<std::collections::HashMap<String, crate::model::SystemWebViewIssueReason>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
-    external_automation: Arc<crate::external_automation::ExternalAutomationRuntime>,
-    external_health: Arc<Mutex<ExternalHealthRuntime>>,
-    external_processes: crate::external_processes::ExternalProcessRuntime,
-    external_sessions: Arc<Mutex<crate::external_sessions::ExternalSessionRuntime>>,
     instance_lock: Mutex<Option<File>>,
     macro_runtime: Arc<MacroRuntime>,
     log_capture: Mutex<crate::log_capture::LogCaptureRuntime>,
@@ -187,10 +146,6 @@ impl AppCore {
         }
         let platform = rion_platform::Platform::parse(&options.platform)
             .map_err(|error| CoreError::Platform(error.to_string()))?;
-        let platform_name = match platform {
-            rion_platform::Platform::Macos => "darwin",
-            rion_platform::Platform::Windows => "win32",
-        };
         let instance_lock = acquire_instance_lock(&user_data_dir)?;
         if let Some(backup_label) = backup_label {
             crate::database::create_online_startup_backup(
@@ -207,7 +162,6 @@ impl AppCore {
             .read_scalar("logLevel".to_owned())?
             .and_then(|value| serde_json::from_value::<LogLevel>(value).ok())
             .unwrap_or(LogLevel::Info);
-        let chrome_profile_import = restore_chrome_profile_import_runtime(&state, &user_data_dir)?;
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
         let effect_subscribers = Arc::clone(&subscribers);
@@ -245,145 +199,12 @@ impl AppCore {
         })));
         let browser_runtime =
             Arc::new(Mutex::new(crate::browser_runtime::BrowserRuntime::default()));
-        let external_sessions = Arc::new(Mutex::new(
-            crate::external_sessions::ExternalSessionRuntime::default(),
-        ));
-        let health_subscribers = Arc::clone(&subscribers);
-        let health_browser_runtime = Arc::clone(&browser_runtime);
-        let health_external_sessions = Arc::clone(&external_sessions);
-        let health_browser_action_sender = browser_action_sender.clone();
-        let external_health = Arc::new(Mutex::new(ExternalHealthRuntime::new(Arc::new(
-            move |mut events| {
-                let mut changed = false;
-                for event in &events {
-                    match event {
-                        CoreEvent::ExternalHealthChanged { role_id, health } => {
-                            if let Ok(mut sessions) = health_external_sessions.lock()
-                                && let Some(session) = sessions.get(role_id).cloned()
-                            {
-                                let notice = if health == "unresponsive" {
-                                    append_external_notice(
-                                        session.notice,
-                                        EXTERNAL_PAGE_UNRESPONSIVE_NOTICE,
-                                    )
-                                } else {
-                                    remove_external_notice(
-                                        session.notice,
-                                        EXTERNAL_PAGE_UNRESPONSIVE_NOTICE,
-                                    )
-                                };
-                                let _ = sessions.invoke(ExternalSessionCommand::SetHealth {
-                                    role_id: role_id.clone(),
-                                    health: Some(health.clone()),
-                                    page_hidden: session.page_hidden,
-                                });
-                                let _ = sessions.invoke(ExternalSessionCommand::SetNotice {
-                                    role_id: role_id.clone(),
-                                    notice,
-                                });
-                                changed = true;
-                            }
-                        }
-                        CoreEvent::ExternalHealthProbeFailed { role_id, .. } => {
-                            if let Ok(mut sessions) = health_external_sessions.lock() {
-                                let _ = sessions.invoke(ExternalSessionCommand::RecordCdpTimeout {
-                                    role_id: role_id.clone(),
-                                    at_ms: system_epoch_millis(),
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                if changed
-                    && let (Ok(browser), Ok(sessions)) = (
-                        health_browser_runtime.lock(),
-                        health_external_sessions.lock(),
-                    )
-                {
-                    events.push(CoreEvent::BrowserStatuses {
-                        statuses: crate::external_runtime::role_statuses(
-                            browser.snapshot().roles.into_iter(),
-                            &sessions.snapshot(),
-                        ),
-                    });
-                }
-                route_browser_action_events(
-                    events,
-                    &health_browser_action_sender,
-                    &health_subscribers,
-                );
-            },
-        ))?));
-        let external_automation = Arc::new(
-            crate::external_automation::ExternalAutomationRuntime::new(platform_name.to_owned()),
-        );
         let browser_action_subscribers = Arc::clone(&subscribers);
         let browser_action_effects =
             crate::browser_action_effects::BrowserActionEffectRuntime::start(
                 browser_action_receiver,
                 Arc::new(move |events| broadcast_events(&browser_action_subscribers, events)),
-                Arc::clone(&external_automation),
-                Arc::clone(&external_health),
-                Arc::clone(&macro_runtime),
             )?;
-        let process_subscribers = Arc::clone(&subscribers);
-        let process_browser_runtime = Arc::clone(&browser_runtime);
-        let process_external_sessions = Arc::clone(&external_sessions);
-        let process_external_automation = Arc::clone(&external_automation);
-        let process_external_health = Arc::clone(&external_health);
-        let process_macro_runtime = Arc::clone(&macro_runtime);
-        let external_processes = crate::external_processes::ExternalProcessRuntime::new(Arc::new(
-            move |role_id, event| {
-                let mut changed = false;
-                if let (Ok(mut browser), Ok(mut sessions)) = (
-                    process_browser_runtime.lock(),
-                    process_external_sessions.lock(),
-                ) && let Some(session) = sessions.get(&role_id).cloned()
-                {
-                    let _ = sessions.invoke(crate::model::ExternalSessionCommand::Remove {
-                        role_id: role_id.clone(),
-                        preserve_workspace: false,
-                    });
-                    let _ = browser.invoke(crate::model::BrowserRuntimeCommand::RemoveRole {
-                        role_id: role_id.clone(),
-                    });
-                    if let Some(workspace_id) = session.workspace_id
-                        && !sessions.workspace_has_sessions(&workspace_id)
-                    {
-                        let _ =
-                            browser.invoke(crate::model::BrowserRuntimeCommand::RemoveWorkspace {
-                                workspace_id,
-                            });
-                    }
-                    changed = true;
-                }
-                let _ = process_external_automation.unregister(&role_id);
-                if let Ok(health) = process_external_health.lock() {
-                    let _ = health.remove(role_id.clone());
-                }
-                let _ = process_macro_runtime.stop_role(&role_id);
-                let mut events = vec![CoreEvent::ExternalProcessExited {
-                    role_id,
-                    exit_code: event.exit_code,
-                    terminated: event.terminated,
-                }];
-                if changed
-                    && let (Ok(browser), Ok(sessions)) = (
-                        process_browser_runtime.lock(),
-                        process_external_sessions.lock(),
-                    )
-                {
-                    events.push(CoreEvent::BrowserStatuses {
-                        statuses: crate::external_runtime::role_statuses(
-                            browser.snapshot().roles.into_iter(),
-                            &sessions.snapshot(),
-                        ),
-                    });
-                }
-                broadcast_events(&process_subscribers, events);
-            },
-        ));
         let (overlay_event_sender, overlay_event_receiver) = bounded(EVENT_QUEUE_CAPACITY);
         subscribers
             .lock()
@@ -393,27 +214,19 @@ impl AppCore {
         let overlay_refresh = crate::overlay::OverlayRefreshRuntime::start(
             overlay_event_receiver,
             Arc::new(move |events| broadcast_events(&overlay_subscribers, events)),
-            Arc::clone(&external_automation),
         )?;
         let core = Self {
             app_version: options.app_version,
             browser_action_effects,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
             browser_runtime,
-            cdn: Arc::new(RwLock::new(CdnMatcher::bundled()?)),
-            cdn_detection: Mutex::new(crate::cdn_detection::CdnDetectionRuntime::default()),
-            chrome_profile_import: Mutex::new(chrome_profile_import),
             compatibility_runtime: Mutex::new(
                 crate::compatibility_runtime::CompatibilityRuntime::default(),
             ),
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
-            embedded_engine_fallbacks: RwLock::new(std::collections::HashMap::new()),
+            system_webview_issues: RwLock::new(std::collections::HashMap::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
-            external_automation,
-            external_health,
-            external_processes,
-            external_sessions,
             instance_lock: Mutex::new(Some(instance_lock)),
             log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new(
                 user_data_dir.clone(),
@@ -580,9 +393,6 @@ impl AppCore {
                 serde_json::to_value(self.resolve_role_paths(&id)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::RoleSetBrowserSessionSource { id, source } => {
-                self.mutate_state(StateMutation::RoleSetBrowserSessionSource { id, source })
-            }
             CoreCommand::RoleAssignGameIds { assignments } => {
                 self.mutate_state(StateMutation::RoleAssignGameIds(assignments))
             }
@@ -655,11 +465,7 @@ impl AppCore {
                 serde_json::to_value(self.compatibility_runtime()?.statuses())
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::CompatibilityPrepare {
-                game_id,
-                system_chrome_available,
-                versions,
-            } => {
+            CoreCommand::CompatibilityPrepare { game_id, versions } => {
                 let _guard = self.state_mutation_guard()?;
                 let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
                 let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
@@ -668,13 +474,7 @@ impl AppCore {
                 )?;
                 let (plan, statuses) = {
                     let mut runtime = self.compatibility_runtime()?;
-                    let plan = runtime.prepare(
-                        &games,
-                        &settings,
-                        &game_id,
-                        system_chrome_available,
-                        &versions,
-                    )?;
+                    let plan = runtime.prepare(&games, &settings, &game_id, &versions)?;
                     (plan, runtime.statuses())
                 };
                 self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
@@ -801,32 +601,22 @@ impl AppCore {
                 serde_json::to_value(session)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::LegalAcceptanceStatus { versions } => {
+            CoreCommand::LegalAcceptanceStatus => {
                 let acceptance = self.read_legal_acceptance_fail_closed()?;
-                serde_json::to_value(crate::legal::status(acceptance.as_ref(), versions))
-                    .map_err(|error| CoreError::Internal(error.to_string()))
+                serde_json::to_value(crate::legal::status(
+                    acceptance.as_ref(),
+                    crate::legal::current_versions(),
+                ))
+                .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::LegalAcceptanceAccept { versions, input } => {
+            CoreCommand::LegalAcceptanceAccept { input } => {
+                let versions = crate::legal::current_versions();
                 let acceptance = crate::legal::accept(&versions, input)?;
                 validate_legal_acceptance(&acceptance)?;
                 self.replace_scalar_state("legalAcceptance", acceptance.clone())?;
                 serde_json::to_value(crate::legal::status(Some(&acceptance), versions))
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::BrowserPreferencesApply {
-                browser_user_data_dir,
-                role_session_partition,
-                fonts,
-                zoom_factor,
-            } => Ok(json!({
-                "updatedPaths": crate::browser_preferences::apply(
-                    &self.user_data_dir,
-                    &PathBuf::from(browser_user_data_dir),
-                    role_session_partition.as_deref(),
-                    &fonts,
-                    zoom_factor,
-                )?
-            })),
             CoreCommand::SystemFontsList => {
                 let mut cache = self.system_fonts.lock().map_err(|_| {
                     CoreError::Internal("system font cache lock poisoned".to_owned())
@@ -1130,141 +920,6 @@ impl AppCore {
             }
             CoreCommand::MacroStatuses => serde_json::to_value(self.macro_runtime.statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::ExternalHealthRegister { role_id } => {
-                self.external_health()?.register(role_id)?;
-                Ok(json!({ "registered": true }))
-            }
-            CoreCommand::ExternalHealthHeartbeat {
-                role_id,
-                page_hidden,
-            } => {
-                self.external_health()?.heartbeat(role_id, page_hidden)?;
-                Ok(json!({ "updated": true }))
-            }
-            CoreCommand::ExternalHealthRemove { role_id } => {
-                self.external_health()?.remove(role_id)?;
-                Ok(json!({ "removed": true }))
-            }
-            CoreCommand::ExternalHealthSuspend { suspended } => {
-                self.external_health()?.suspend(suspended)?;
-                Ok(json!({ "suspended": suspended }))
-            }
-            CoreCommand::ExternalProcessLaunch {
-                role_id,
-                executable_path,
-                arguments,
-            } => Ok(json!({
-                "pid": self.external_processes.launch(
-                    role_id,
-                    PathBuf::from(executable_path).as_path(),
-                    &arguments,
-                )?
-            })),
-            CoreCommand::ExternalProcessTerminate { role_id } => Ok(json!({
-                "terminated": self.external_processes.terminate(&role_id)?
-            })),
-            CoreCommand::ChromeProfileDefaultPath => Ok(json!({
-                "path": rion_platform::default_chrome_user_data_directory(self.platform)
-                    .map(|path| path.to_string_lossy().into_owned())
-            })),
-            CoreCommand::ChromeProfilePreview {
-                source_user_data_dir,
-            } => {
-                let preview = {
-                    self.chrome_profile_import()?
-                        .preview(&source_user_data_dir)?
-                };
-                let journal_id = chrome_profile_preview_journal_id(&preview.import_id);
-                let persist = self.with_runtime(|runtime| {
-                    runtime.state.put_operation_journal(OperationJournalRecord {
-                        id: journal_id,
-                        kind: crate::chrome_profile_import::PREVIEW_JOURNAL_KIND.to_owned(),
-                        phase: "pending".to_owned(),
-                        payload: json!({
-                            "createdAtMs": system_epoch_millis(),
-                            "preview": preview,
-                            "sourceUserDataDir": source_user_data_dir
-                        }),
-                    })
-                });
-                if let Err(error) = persist {
-                    let _ = self.chrome_profile_import()?.discard(&preview.import_id);
-                    return Err(error);
-                }
-                serde_json::to_value(preview)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::ChromeProfilePrepare {
-                import_id,
-                profile_ids,
-                game_id,
-                consent_accepted,
-            } => {
-                let _guard = self.state_mutation_guard()?;
-                let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-                let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
-                let prepared = self.chrome_profile_import()?.prepare(
-                    &import_id,
-                    profile_ids,
-                    &game_id,
-                    consent_accepted,
-                    &games,
-                    &roles,
-                )?;
-                serde_json::to_value(prepared)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::ChromeProfileCommit { import_id } => {
-                let _guard = self.state_mutation_guard()?;
-                let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
-                let mut profile_import = self.chrome_profile_import()?;
-                let prepared = profile_import.commit_files(&import_id, roles)?;
-                let revision = match self.with_runtime(|runtime| {
-                    runtime.state.apply_profile_roles(prepared.roles.clone())
-                }) {
-                    Ok(revision) => revision,
-                    Err(error) => {
-                        let _ = profile_import.finish_rollback(&import_id);
-                        return Err(error);
-                    }
-                };
-                self.emit(vec![CoreEvent::StateChanged {
-                    revision,
-                    changed_collections: vec![StateCollection::Roles],
-                }]);
-                serde_json::to_value(prepared.result)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::ChromeProfileFinalize { import_id } => {
-                self.chrome_profile_import()?.finalize(&import_id)?;
-                self.delete_chrome_profile_preview_journal(&import_id)?;
-                Ok(json!({ "finalized": true }))
-            }
-            CoreCommand::ChromeProfileRollback { import_id } => {
-                let _guard = self.state_mutation_guard()?;
-                let mut profile_import = self.chrome_profile_import()?;
-                let roles = profile_import.rollback_roles(&import_id)?;
-                let revision =
-                    self.with_runtime(|runtime| runtime.state.apply_profile_roles(roles))?;
-                profile_import.finish_rollback(&import_id)?;
-                self.emit(vec![CoreEvent::StateChanged {
-                    revision,
-                    changed_collections: vec![StateCollection::Roles],
-                }]);
-                Ok(json!({ "rolledBack": true }))
-            }
-            CoreCommand::ChromeProfileDiscard { import_id } => {
-                self.chrome_profile_import()?.discard(&import_id)?;
-                self.delete_chrome_profile_preview_journal(&import_id)?;
-                Ok(json!({ "discarded": true }))
-            }
-            CoreCommand::ChromeProfileReadCookies {
-                browser_user_data_dir,
-            } => serde_json::to_value(crate::chrome_cookies::read_imported_cookies(
-                &PathBuf::from(browser_user_data_dir),
-                self.platform,
-            )?)
-            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::OperationCancel { operation_id } => {
                 serde_json::to_value(OperationCancelResultRecord {
                     cancelled: self.operation_actor.cancel(&operation_id)?,
@@ -1297,9 +952,13 @@ impl AppCore {
                 Ok(json!({ "stopped": true }))
             }
             CoreCommand::EmbeddedSystemSurfaceFailed { role_id, reason } => serde_json::to_value(
-                self.fallback_crashed_system_surface(&role_id, reason.as_deref())?,
+                self.report_crashed_system_surface(&role_id, reason.as_deref())?,
             )
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedSystemSurfaceRecovered { role_id } => {
+                serde_json::to_value(self.report_recovered_system_surface(&role_id)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::EmbeddedWindowsShow { display_id } => {
                 let display_ids = match display_id {
                     Some(display_id) => vec![display_id],
@@ -1430,42 +1089,17 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRuntimeSuspend { suspended } => {
-                self.external_health()?.suspend(suspended)?;
                 Ok(json!({ "suspended": suspended }))
             }
-            CoreCommand::ExternalDiagnosticsList => {
-                let sessions = self
-                    .external_sessions
-                    .lock()
-                    .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-                    .snapshot();
-                serde_json::to_value(
-                    sessions
-                        .iter()
-                        .map(|session| {
-                            crate::external_runtime::diagnostics(session, sessions.len(), None)
-                        })
-                        .collect::<Vec<_>>(),
-                )
-                .map_err(|error| CoreError::Internal(error.to_string()))
-            }
             CoreCommand::RoleBrowserDataClear { .. }
-            | CoreCommand::RoleSessionMigrationPreview { .. }
-            | CoreCommand::RoleSessionMigrationApply { .. }
-            | CoreCommand::RoleSessionMigrationRollback { .. }
-            | CoreCommand::ChromeProfileApply { .. }
             | CoreCommand::CompatibilityRun { .. }
-            | CoreCommand::CdnResolveSession { .. }
             | CoreCommand::GraphicsDiagnosticsAssemble { .. }
             | CoreCommand::DiagnosticsExport { .. }
-            | CoreCommand::SystemChromeClose
             | CoreCommand::OverlayRequest { .. }
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleStop { .. }
-            | CoreCommand::BrowserWorkspaceStop { .. }
-            | CoreCommand::BrowserExternalRecover { .. }
-            | CoreCommand::ExternalDiagnosticsCapture { .. } => Err(CoreError::Internal(
+            | CoreCommand::BrowserWorkspaceStop { .. } => Err(CoreError::Internal(
                 "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),
             )),
         }
@@ -1475,26 +1109,6 @@ impl AppCore {
         match command {
             CoreCommand::RoleBrowserDataClear { role_id } => {
                 self.clear_role_browser_data(role_id).await
-            }
-            CoreCommand::RoleSessionMigrationPreview {
-                role_id,
-                target_engine,
-            } => serde_json::to_value(
-                self.preview_role_session_migration(role_id, target_engine)
-                    .await?,
-            )
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::RoleSessionMigrationApply {
-                role_id,
-                target_engine,
-            } => serde_json::to_value(
-                self.apply_role_session_migration(role_id, target_engine)
-                    .await?,
-            )
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::RoleSessionMigrationRollback { role_id } => {
-                serde_json::to_value(self.rollback_role_session_migration(role_id).await?)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::GameDelete { id } => {
                 let core = Arc::clone(self);
@@ -1528,7 +1142,7 @@ impl AppCore {
             }
             CoreCommand::WorkspaceUpdate { id, input } => {
                 let mut role_ids = self
-                    .external_workspace(&id)?
+                    .state_workspace(&id)?
                     .slots
                     .into_iter()
                     .filter_map(|slot| slot.role_id)
@@ -1585,21 +1199,8 @@ impl AppCore {
                 .await
                 .map_err(|error| CoreError::Internal(error.to_string()))?
             }
-            CoreCommand::ChromeProfileApply {
-                import_id,
-                profile_ids,
-                game_id,
-                consent_accepted,
-            } => {
-                self.apply_chrome_profile_import(import_id, profile_ids, game_id, consent_accepted)
-                    .await
-            }
             CoreCommand::CompatibilityRun { game_id, versions } => {
                 self.run_compatibility_check(game_id, versions).await
-            }
-            CoreCommand::CdnResolveSession { session_handle_id } => {
-                serde_json::to_value(self.resolve_cdn_session(session_handle_id).await?)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::GraphicsDiagnosticsAssemble {
                 applied_settings,
@@ -1630,17 +1231,6 @@ impl AppCore {
                 serde_json::to_value(self.export_diagnostics(path, snapshot).await?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::SystemChromeClose => {
-                let platform = self.platform;
-                tokio::task::spawn_blocking(move || {
-                    normalize_chrome_close_result(rion_platform::request_graceful_chrome_quit(
-                        platform,
-                    ))
-                })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??;
-                Ok(json!({ "closed": true }))
-            }
             CoreCommand::OverlayRequest {
                 role_id,
                 request_json,
@@ -1655,71 +1245,15 @@ impl AppCore {
                 target,
                 zoom_factor,
             } => {
-                let role = self.external_role(&role_id)?;
-                let game = self.external_game(&role.game_id)?;
-                let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-                    "gameBrowserSettings",
-                    "game browser settings are missing",
-                )?;
-                let mode = crate::external_runtime::resolve_launch_mode(
-                    &game.browser_launch_mode,
-                    &settings.launch_mode,
-                );
-                let zoom_factor = zoom_factor.unwrap_or(1.0);
-                let statuses = match mode {
-                    "external" => {
-                        vec![
-                            self.launch_external_role(role, target, zoom_factor, None, settings)
-                                .await?,
-                        ]
-                    }
-                    "auto" => {
-                        let core = Arc::clone(self);
-                        let embedded_target = target.clone();
-                        let role_id = role.id.clone();
-                        match tokio::task::spawn_blocking(move || {
-                            core.launch_embedded_role(&role_id, embedded_target, zoom_factor)
-                        })
-                        .await
-                        .map_err(|error| CoreError::Internal(error.to_string()))?
-                        {
-                            Ok(statuses) => statuses.into_iter().map(embedded_status).collect(),
-                            Err(error)
-                                if crate::external_runtime::should_fallback_to_external(
-                                    mode,
-                                    error.code(),
-                                ) =>
-                            {
-                                vec![
-                                    self.launch_external_role(
-                                        role,
-                                        target,
-                                        zoom_factor,
-                                        Some(
-                                            crate::external_runtime::EXTERNAL_COMPAT_NOTICE
-                                                .to_owned(),
-                                        ),
-                                        settings,
-                                    )
-                                    .await?,
-                                ]
-                            }
-                            Err(error) => return Err(error),
-                        }
-                    }
-                    _ => {
-                        let core = Arc::clone(self);
-                        let role_id = role.id;
-                        tokio::task::spawn_blocking(move || {
-                            core.launch_embedded_role(&role_id, target, zoom_factor)
-                        })
-                        .await
-                        .map_err(|error| CoreError::Internal(error.to_string()))??
-                        .into_iter()
-                        .map(embedded_status)
-                        .collect()
-                    }
-                };
+                let core = Arc::clone(self);
+                let statuses = tokio::task::spawn_blocking(move || {
+                    core.launch_embedded_role(&role_id, target, zoom_factor.unwrap_or(1.0))
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??
+                .into_iter()
+                .map(embedded_status)
+                .collect();
                 serde_json::to_value(self.decorate_browser_statuses(statuses)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -1727,157 +1261,61 @@ impl AppCore {
                 workspace_id,
                 target,
             } => {
-                let workspace = self.external_workspace(&workspace_id)?;
+                let workspace = self.state_workspace(&workspace_id)?;
                 let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
                     "gameBrowserSettings",
                     "game browser settings are missing",
                 )?;
                 self.ensure_workspace_engine_preference(&workspace, &settings)?;
-                let mode = crate::external_runtime::resolve_launch_mode(
-                    &workspace.browser_launch_mode,
-                    &settings.launch_mode,
-                );
-                let statuses = match mode {
-                    "external" => {
-                        self.launch_external_workspace(workspace, target, None, settings)
-                            .await?
-                    }
-                    "auto" => {
-                        let core = Arc::clone(self);
-                        let embedded_target = target.clone();
-                        let embedded_workspace_id = workspace.id.clone();
-                        match tokio::task::spawn_blocking(move || {
-                            core.launch_embedded_workspace(&embedded_workspace_id, embedded_target)
-                        })
-                        .await
-                        .map_err(|error| CoreError::Internal(error.to_string()))?
-                        {
-                            Ok(statuses) => statuses.into_iter().map(embedded_status).collect(),
-                            Err(error)
-                                if crate::external_runtime::should_fallback_to_external(
-                                    mode,
-                                    error.code(),
-                                ) =>
-                            {
-                                self.launch_external_workspace(
-                                    workspace,
-                                    target,
-                                    Some(
-                                        crate::external_runtime::EXTERNAL_COMPAT_NOTICE.to_owned(),
-                                    ),
-                                    settings,
-                                )
-                                .await?
-                            }
-                            Err(error) => return Err(error),
-                        }
-                    }
-                    _ => {
-                        let core = Arc::clone(self);
-                        let embedded_workspace_id = workspace.id;
-                        tokio::task::spawn_blocking(move || {
-                            core.launch_embedded_workspace(&embedded_workspace_id, target)
-                        })
-                        .await
-                        .map_err(|error| CoreError::Internal(error.to_string()))??
-                        .into_iter()
-                        .map(embedded_status)
-                        .collect()
-                    }
-                };
+                let core = Arc::clone(self);
+                let statuses = tokio::task::spawn_blocking(move || {
+                    core.launch_embedded_workspace(&workspace_id, target)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??
+                .into_iter()
+                .map(embedded_status)
+                .collect();
                 serde_json::to_value(self.decorate_browser_statuses(statuses)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRoleStop { role_id } => {
-                let runtime = self
-                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                    .snapshot
-                    .roles
-                    .into_iter()
-                    .find(|role| role.role_id == role_id)
-                    .map(|role| role.runtime);
-                if runtime.as_deref() == Some("external") {
-                    self.stop_external_role(&role_id).await?;
-                } else {
-                    let core = Arc::clone(self);
-                    tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
-                        .await
-                        .map_err(|error| CoreError::Internal(error.to_string()))??;
-                }
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "stopped": true }))
             }
             CoreCommand::BrowserWorkspaceStop { workspace_id } => {
-                let runtime = self
-                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                    .snapshot
-                    .workspaces
-                    .into_iter()
-                    .find(|workspace| workspace.workspace_id == workspace_id)
-                    .map(|workspace| workspace.runtime);
-                if runtime.as_deref() == Some("external") {
-                    self.stop_external_workspace(&workspace_id).await?;
-                } else {
-                    let core = Arc::clone(self);
-                    tokio::task::spawn_blocking(move || {
-                        core.stop_embedded_workspace(&workspace_id)
-                    })
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.stop_embedded_workspace(&workspace_id))
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
-                }
                 Ok(json!({ "stopped": true }))
             }
-            CoreCommand::BrowserExternalRecover { role_id } => {
-                serde_json::to_value(self.recover_external_role(&role_id).await?)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
+            command => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.invoke(command))
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))?
             }
-            CoreCommand::ExternalDiagnosticsCapture { role_id } => {
-                serde_json::to_value(self.capture_external_diagnostics(&role_id).await?)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            command => self.invoke(command),
         }
     }
 
     async fn stop_role_runtime(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
-        let runtime = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
-            .roles
-            .into_iter()
-            .find(|role| role.role_id == role_id)
-            .map(|role| role.runtime);
-        if runtime.as_deref() == Some("external") {
-            self.stop_external_role(role_id).await
-        } else if runtime.as_deref() == Some("embedded") {
-            let core = Arc::clone(self);
-            let role_id = role_id.to_owned();
-            tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))?
-        } else {
-            Ok(())
-        }
+        let core = Arc::clone(self);
+        let role_id = role_id.to_owned();
+        tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
+            .await
+            .map_err(|error| CoreError::Internal(error.to_string()))?
     }
 
     async fn stop_workspace_runtime(self: &Arc<Self>, workspace_id: &str) -> CoreResult<()> {
-        let runtime = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
-            .workspaces
-            .into_iter()
-            .find(|workspace| workspace.workspace_id == workspace_id)
-            .map(|workspace| workspace.runtime);
-        if runtime.as_deref() == Some("external") {
-            self.stop_external_workspace(workspace_id).await
-        } else if runtime.as_deref() == Some("embedded") {
-            let core = Arc::clone(self);
-            let workspace_id = workspace_id.to_owned();
-            tokio::task::spawn_blocking(move || core.stop_embedded_workspace(&workspace_id))
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))?
-        } else {
-            Ok(())
-        }
+        let core = Arc::clone(self);
+        let workspace_id = workspace_id.to_owned();
+        tokio::task::spawn_blocking(move || core.stop_embedded_workspace(&workspace_id))
+            .await
+            .map_err(|error| CoreError::Internal(error.to_string()))?
     }
 
     async fn update_role_runtime_aware(
@@ -2225,7 +1663,7 @@ impl AppCore {
     }
 
     async fn clear_role_browser_data(self: &Arc<Self>, role_id: String) -> CoreResult<Value> {
-        let role = self.external_role(&role_id)?;
+        self.ensure_role_exists(&role_id)?;
         self.stop_role_runtime(&role_id).await?;
         self.macro_runtime.stop_role(&role_id)?;
         let lease = self
@@ -2235,8 +1673,7 @@ impl AppCore {
             })
             .await?;
         let operation_id = format!("role-browser-clear-{}", uuid::Uuid::new_v4());
-        let browser_user_data_dir =
-            crate::role_browser_data::paths(&self.user_data_dir, &role_id)?.browser_user_data_dir;
+        let role_paths = crate::role_browser_data::paths(&self.user_data_dir, &role_id)?;
         let journal = OperationJournalRecord {
             id: operation_id.clone(),
             kind: "role_browser_data_clear_v1".to_owned(),
@@ -2303,10 +1740,8 @@ impl AppCore {
                 &role_id,
                 CoreEffectAction::RoleBrowserDataClearSession {
                     role_id: role_id.clone(),
-                    browser_user_data_dir,
-                    session_source: role
-                        .browser_session_source
-                        .unwrap_or(BrowserSessionSource::Managed),
+                    webview2_user_data_dir: role_paths.webview2_user_data_dir,
+                    webkit_data_store_identifier: role_paths.webkit_data_store_identifier,
                 },
                 Duration::from_secs(30),
             )
@@ -2362,626 +1797,11 @@ impl AppCore {
         }
     }
 
-    async fn preview_role_session_migration(
-        &self,
-        role_id: String,
-        target_engine: crate::model::EmbeddedBrowserEngine,
-    ) -> CoreResult<crate::model::RoleSessionMigrationPreviewRecord> {
-        self.recover_pending_role_session_migrations(&role_id)
-            .await?;
-        let role = self.external_role(&role_id)?;
-        let source_engine = role.browser_engine_pin.unwrap_or(match target_engine {
-            crate::model::EmbeddedBrowserEngine::System => {
-                crate::model::EmbeddedBrowserEngine::Electron
-            }
-            crate::model::EmbeddedBrowserEngine::Electron => {
-                crate::model::EmbeddedBrowserEngine::System
-            }
-        });
-        if source_engine == target_engine {
-            return Err(CoreError::Domain {
-                code: "ROLE_SESSION_MIGRATION_ENGINE_UNCHANGED",
-                message: "The role already uses the selected browser engine.".to_owned(),
-            });
-        }
-        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role_id)?;
-        let inspection = self
-            .request_core_effect(
-                &role_id,
-                CoreEffectAction::RoleSessionMigrationInspect {
-                    role_id: role_id.clone(),
-                    source_engine,
-                    target_engine,
-                    session_source: role
-                        .browser_session_source
-                        .unwrap_or(BrowserSessionSource::Managed),
-                    paths,
-                },
-                Duration::from_secs(30),
-            )
-            .await
-            .and_then(|result| {
-                effect_value::<crate::model::RoleSessionMigrationInspectionRecord>(&result)
-            })?;
-        let mut warnings = Vec::new();
-        if inspection.source_cookie_count == 0 {
-            warnings.push("source-cookie-store-empty".to_owned());
-        }
-        if inspection.target_cookie_count > 0 {
-            warnings.push("target-cookie-store-not-empty".to_owned());
-        }
-        if role.browser_session_source == Some(BrowserSessionSource::ChromeProfile) {
-            warnings.push("chrome-profile-cookie-only".to_owned());
-        }
-        Ok(crate::model::RoleSessionMigrationPreviewRecord {
-            role_id,
-            source_engine,
-            target_engine,
-            source_cookie_count: inspection.source_cookie_count,
-            target_cookie_count: inspection.target_cookie_count,
-            can_apply: inspection.target_cookie_count == 0,
-            warnings,
-        })
-    }
-
-    async fn recover_pending_role_session_migrations(&self, role_id: &str) -> CoreResult<()> {
-        let journals = self.with_runtime(|runtime| runtime.state.operation_journals())?;
-        for journal in journals.into_iter().filter(|journal| {
-            journal.kind == "role_session_migration_v1"
-                && journal.payload.get("roleId").and_then(Value::as_str) == Some(role_id)
-        }) {
-            let source_engine = journal
-                .payload
-                .get("sourceEngine")
-                .cloned()
-                .ok_or_else(|| {
-                    CoreError::Migration(
-                        "role session migration source engine is missing".to_owned(),
-                    )
-                })
-                .and_then(|value| {
-                    serde_json::from_value::<EmbeddedBrowserEngine>(value)
-                        .map_err(|error| CoreError::Migration(error.to_string()))
-                })?;
-            let target_engine = journal
-                .payload
-                .get("targetEngine")
-                .cloned()
-                .ok_or_else(|| {
-                    CoreError::Migration(
-                        "role session migration target engine is missing".to_owned(),
-                    )
-                })
-                .and_then(|value| {
-                    serde_json::from_value::<EmbeddedBrowserEngine>(value)
-                        .map_err(|error| CoreError::Migration(error.to_string()))
-                })?;
-            let role = self.external_role(role_id)?;
-            self.request_core_effect(
-                role_id,
-                CoreEffectAction::RoleSessionMigrationRollback {
-                    role_id: role_id.to_owned(),
-                    source_engine,
-                    target_engine,
-                    session_source: role
-                        .browser_session_source
-                        .unwrap_or(BrowserSessionSource::Managed),
-                    paths: crate::role_browser_data::ensure(&self.user_data_dir, role_id)?,
-                },
-                Duration::from_secs(30),
-            )
-            .await?;
-            self.with_runtime(|runtime| runtime.state.delete_operation_journal(journal.id))?;
-        }
-        Ok(())
-    }
-
-    async fn apply_role_session_migration(
-        self: &Arc<Self>,
-        role_id: String,
-        target_engine: crate::model::EmbeddedBrowserEngine,
-    ) -> CoreResult<crate::model::RoleSessionMigrationResultRecord> {
-        let preview = self
-            .preview_role_session_migration(role_id.clone(), target_engine)
-            .await?;
-        if !preview.can_apply {
-            return Err(CoreError::Domain {
-                code: "ROLE_SESSION_MIGRATION_TARGET_NOT_EMPTY",
-                message: "The target browser session already contains cookies. Clear it or roll back the previous migration first.".to_owned(),
-            });
-        }
-        self.stop_role_runtime(&role_id).await?;
-        self.macro_runtime.stop_role(&role_id)?;
-        let lease = self
-            .acquire_browser_operation_async(BrowserOperationRequest {
-                role_ids: vec![role_id.clone()],
-                kind: "recoverableMutation".to_owned(),
-            })
-            .await?;
-        let operation_id = format!("role-session-migration-{}", uuid::Uuid::new_v4());
-        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role_id)?;
-        let role = self.external_role(&role_id)?;
-        let session_source = role
-            .browser_session_source
-            .unwrap_or(BrowserSessionSource::Managed);
-        let journal = OperationJournalRecord {
-            id: operation_id.clone(),
-            kind: "role_session_migration_v1".to_owned(),
-            phase: "prepared".to_owned(),
-            payload: json!({
-                "roleId": role_id,
-                "sourceEngine": preview.source_engine,
-                "targetEngine": target_engine
-            }),
-        };
-        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal))?;
-
-        let applied = self
-            .request_core_effect(
-                &role_id,
-                CoreEffectAction::RoleSessionMigrationApply {
-                    role_id: role_id.clone(),
-                    source_engine: preview.source_engine,
-                    target_engine,
-                    session_source,
-                    launch_url: role.launch_url,
-                    paths: paths.clone(),
-                },
-                Duration::from_secs(60),
-            )
-            .await
-            .and_then(|result| {
-                effect_value::<crate::model::RoleSessionMigrationApplyRecord>(&result)
-            });
-        let applied = match applied {
-            Ok(applied) if applied.auth_verified => applied,
-            Ok(_) => {
-                let error = CoreError::Domain {
-                    code: "ROLE_SESSION_MIGRATION_AUTH_NOT_VERIFIED",
-                    message: "The target browser engine did not preserve the signed-in session."
-                        .to_owned(),
-                };
-                let _ = self
-                    .request_core_effect(
-                        &role_id,
-                        CoreEffectAction::RoleSessionMigrationRollback {
-                            role_id: role_id.clone(),
-                            source_engine: preview.source_engine,
-                            target_engine,
-                            session_source,
-                            paths: paths.clone(),
-                        },
-                        Duration::from_secs(30),
-                    )
-                    .await;
-                let _ = self.with_runtime(|runtime| {
-                    runtime.state.delete_operation_journal(operation_id.clone())
-                });
-                let _ = self.browser_operations.abort(&lease.id);
-                return Err(error);
-            }
-            Err(error) => {
-                let _ = self
-                    .request_core_effect(
-                        &role_id,
-                        CoreEffectAction::RoleSessionMigrationRollback {
-                            role_id: role_id.clone(),
-                            source_engine: preview.source_engine,
-                            target_engine,
-                            session_source,
-                            paths: paths.clone(),
-                        },
-                        Duration::from_secs(30),
-                    )
-                    .await;
-                let _ = self.with_runtime(|runtime| {
-                    runtime.state.delete_operation_journal(operation_id.clone())
-                });
-                let _ = self.browser_operations.abort(&lease.id);
-                return Err(error);
-            }
-        };
-        let completed_at = chrono::Utc::now().to_rfc3339();
-        let checkpoint = crate::model::RoleSessionMigrationCheckpointRecord {
-            role_id: role_id.clone(),
-            source_engine: preview.source_engine,
-            target_engine,
-            completed_at: completed_at.clone(),
-        };
-        let commit = (|| {
-            self.mutate_state(StateMutation::RoleCommitSessionMigration {
-                id: role_id.clone(),
-                engine: target_engine,
-                checkpoint,
-                operation_id: operation_id.clone(),
-            })?;
-            Ok::<_, CoreError>(crate::model::RoleSessionMigrationResultRecord {
-                role_id: role_id.clone(),
-                source_engine: preview.source_engine,
-                target_engine,
-                cookies_migrated: applied.cookies_migrated,
-                auth_verified: true,
-                completed_at,
-            })
-        })();
-        let committed = match commit {
-            Ok(result) => result,
-            Err(error) => {
-                let _ = self
-                    .request_core_effect(
-                        &role_id,
-                        CoreEffectAction::RoleSessionMigrationRollback {
-                            role_id: role_id.clone(),
-                            source_engine: preview.source_engine,
-                            target_engine,
-                            session_source,
-                            paths,
-                        },
-                        Duration::from_secs(30),
-                    )
-                    .await;
-                let _ = self.with_runtime(|runtime| {
-                    runtime.state.delete_operation_journal(operation_id.clone())
-                });
-                let _ = self.browser_operations.abort(&lease.id);
-                return Err(error);
-            }
-        };
-        match self.browser_operations.complete(&lease.id) {
-            Ok(()) => Ok(committed),
-            Err(error) => Err(error),
-        }
-    }
-
-    async fn rollback_role_session_migration(
-        self: &Arc<Self>,
-        role_id: String,
-    ) -> CoreResult<crate::model::RoleSessionMigrationRollbackRecord> {
-        let checkpoint = self
-            .with_runtime(|runtime| {
-                runtime
-                    .state
-                    .role_session_migration_checkpoint_get(role_id.clone())
-            })?
-            .ok_or_else(|| CoreError::Domain {
-                code: "ROLE_SESSION_MIGRATION_ROLLBACK_UNAVAILABLE",
-                message: "No completed browser session migration can be rolled back.".to_owned(),
-            })?;
-        self.stop_role_runtime(&role_id).await?;
-        self.macro_runtime.stop_role(&role_id)?;
-        let lease = self
-            .acquire_browser_operation_async(BrowserOperationRequest {
-                role_ids: vec![role_id.clone()],
-                kind: "recoverableMutation".to_owned(),
-            })
-            .await?;
-        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role_id)?;
-        let role = self.external_role(&role_id)?;
-        let effect = self
-            .request_core_effect(
-                &role_id,
-                CoreEffectAction::RoleSessionMigrationRollback {
-                    role_id: role_id.clone(),
-                    source_engine: checkpoint.source_engine,
-                    target_engine: checkpoint.target_engine,
-                    session_source: role
-                        .browser_session_source
-                        .unwrap_or(BrowserSessionSource::Managed),
-                    paths,
-                },
-                Duration::from_secs(30),
-            )
-            .await;
-        if let Err(error) = effect {
-            let _ = self.browser_operations.abort(&lease.id);
-            return Err(error);
-        }
-        let commit = (|| {
-            self.mutate_state(StateMutation::RoleRollbackSessionMigration {
-                id: role_id.clone(),
-                engine: checkpoint.source_engine,
-            })?;
-            Ok::<_, CoreError>(crate::model::RoleSessionMigrationRollbackRecord {
-                role_id,
-                restored_engine: checkpoint.source_engine,
-                target_store_cleared: true,
-                rolled_back_at: chrono::Utc::now().to_rfc3339(),
-            })
-        })();
-        let completion = if commit.is_ok() {
-            self.browser_operations.complete(&lease.id)
-        } else {
-            self.browser_operations.abort(&lease.id)
-        };
-        match (commit, completion) {
-            (Ok(result), Ok(())) => Ok(result),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
-        }
-    }
-
-    async fn apply_chrome_profile_import(
-        self: &Arc<Self>,
-        import_id: String,
-        profile_ids: Vec<String>,
-        game_id: String,
-        consent_accepted: bool,
-    ) -> CoreResult<Value> {
-        let prepared = {
-            let core = Arc::clone(self);
-            let import_id = import_id.clone();
-            tokio::task::spawn_blocking(move || {
-                let _guard = core.state_mutation_guard()?;
-                let games = core.read_typed_state_collection::<StateGameRecord>("games")?;
-                let roles = core.read_typed_state_collection::<StateRoleRecord>("roles")?;
-                core.chrome_profile_import()?.prepare(
-                    &import_id,
-                    profile_ids,
-                    &game_id,
-                    consent_accepted,
-                    &games,
-                    &roles,
-                )
-            })
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))??
-        };
-        self.emit_chrome_profile_progress(
-            &import_id,
-            "preparing",
-            0,
-            prepared.profiles.len(),
-            None,
-        );
-
-        for role_id in &prepared.overwritten_role_ids {
-            if let Err(error) = self.stop_role_runtime(role_id).await {
-                let _ = self.chrome_profile_import()?.abort_prepare(&import_id);
-                return Err(error);
-            }
-            if let Err(error) = self.macro_runtime.stop_role(role_id) {
-                let _ = self.chrome_profile_import()?.abort_prepare(&import_id);
-                return Err(error);
-            }
-        }
-        let lease = if prepared.overwritten_role_ids.is_empty() {
-            None
-        } else {
-            match self
-                .acquire_browser_operation_async(BrowserOperationRequest {
-                    role_ids: prepared.overwritten_role_ids.clone(),
-                    kind: "recoverableMutation".to_owned(),
-                })
-                .await
-            {
-                Ok(lease) => Some(lease),
-                Err(error) => {
-                    let _ = self.chrome_profile_import()?.abort_prepare(&import_id);
-                    return Err(error);
-                }
-            }
-        };
-
-        let committed = {
-            let core = Arc::clone(self);
-            let import_id = import_id.clone();
-            tokio::task::spawn_blocking(move || core.commit_chrome_profile_import(&import_id))
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))?
-        };
-        let committed = match committed {
-            Ok(committed) => committed,
-            Err(error) => {
-                let _ = complete_profile_lease(self, lease.as_ref(), false);
-                return Err(error);
-            }
-        };
-
-        let effect_steps = match self
-            .profile_session_effect_steps(&committed.result.sessions)
-            .await
-        {
-            Ok(steps) => steps,
-            Err(error) => {
-                let rollback = self.rollback_chrome_profile_import(&import_id);
-                let _ = complete_profile_lease(self, lease.as_ref(), false);
-                rollback?;
-                return Err(error);
-            }
-        };
-        let effects = self.run_effect_plan_async(effect_steps).await;
-        if let Err(error) = effects {
-            let rollback = self.rollback_chrome_profile_import(&import_id);
-            let _ = complete_profile_lease(self, lease.as_ref(), false);
-            rollback?;
-            return Err(error);
-        }
-        for (index, session) in committed.result.sessions.iter().enumerate() {
-            self.emit_chrome_profile_progress(
-                &import_id,
-                "importing",
-                index + 1,
-                committed.result.sessions.len(),
-                Some((&session.profile_id, &session.profile_name)),
-            );
-        }
-
-        let finalize = self.chrome_profile_import()?.finalize(&import_id);
-        if let Err(error) = finalize {
-            let _ = self
-                .clear_imported_profile_sessions(&committed.result.sessions)
-                .await;
-            let rollback = self.rollback_chrome_profile_import(&import_id);
-            let _ = complete_profile_lease(self, lease.as_ref(), false);
-            rollback?;
-            return Err(error);
-        }
-        self.delete_chrome_profile_preview_journal(&import_id)?;
-        complete_profile_lease(self, lease.as_ref(), true)?;
-        self.emit_chrome_profile_progress(
-            &import_id,
-            "completed",
-            committed.result.sessions.len(),
-            committed.result.sessions.len(),
-            None,
-        );
-        serde_json::to_value(crate::model::ChromeProfileImportResultRecord {
-            roles: committed.result.roles,
-        })
-        .map_err(|error| CoreError::Internal(error.to_string()))
-    }
-
-    fn commit_chrome_profile_import(
-        &self,
-        import_id: &str,
-    ) -> CoreResult<crate::chrome_profile_import::PreparedChromeProfileCommit> {
-        let _guard = self.state_mutation_guard()?;
-        let current_roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
-        let mut profile_import = self.chrome_profile_import()?;
-        let prepared = profile_import.commit_files(import_id, current_roles)?;
-        let result = self.with_runtime(|runtime| {
-            runtime.state.mutate(StateMutation::ProfileRolesPatch {
-                upserts: prepared.upsert_roles.clone(),
-                delete_ids: Vec::new(),
-            })
-        });
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => {
-                let _ = profile_import.finish_rollback(import_id);
-                return Err(error);
-            }
-        };
-        let revision = result
-            .get("revision")
-            .and_then(Value::as_u64)
-            .unwrap_or_default();
-        self.emit(vec![CoreEvent::StateChanged {
-            revision,
-            changed_collections: vec![StateCollection::Roles],
-        }]);
-        Ok(prepared)
-    }
-
-    fn rollback_chrome_profile_import(&self, import_id: &str) -> CoreResult<()> {
-        let _guard = self.state_mutation_guard()?;
-        let mut profile_import = self.chrome_profile_import()?;
-        let plan = profile_import.rollback_plan(import_id)?;
-        let result = self.with_runtime(|runtime| {
-            runtime.state.mutate(StateMutation::ProfileRolesPatch {
-                upserts: plan.restore_roles,
-                delete_ids: plan.delete_role_ids,
-            })
-        })?;
-        profile_import.finish_rollback(import_id)?;
-        let revision = result
-            .get("revision")
-            .and_then(Value::as_u64)
-            .unwrap_or_default();
-        self.emit(vec![CoreEvent::StateChanged {
-            revision,
-            changed_collections: vec![StateCollection::Roles],
-        }]);
-        Ok(())
-    }
-
-    async fn run_effect_plan_async(
-        &self,
-        steps: Vec<crate::operation_actor::OperationStep>,
-    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
-        let handle = self
-            .operation_actor
-            .start(crate::operation_actor::OperationPlan { steps })?;
-        let outcome = handle.outcome.await.map_err(|_| {
-            CoreError::Internal("operation actor stopped before returning an outcome".to_owned())
-        })?;
-        if let Some(error) = &outcome.error {
-            return Err(CoreError::Effect {
-                code: error.code.clone(),
-                message: error.message.clone(),
-            });
-        }
-        Ok(outcome)
-    }
-
-    async fn clear_imported_profile_sessions(
-        &self,
-        sessions: &[ChromeProfileImportedSessionRecord],
-    ) -> CoreResult<()> {
-        let steps = sessions
-            .iter()
-            .map(|session| {
-                effect_step(
-                    &session.role.id,
-                    CoreEffectAction::ChromeProfileClearSession {
-                        role_id: session.role.id.clone(),
-                        browser_user_data_dir: session.browser_user_data_dir.clone(),
-                    },
-                    Duration::from_secs(30),
-                    None,
-                )
-            })
-            .collect();
-        self.run_effect_plan_async(steps).await.map(|_| ())
-    }
-
-    async fn profile_session_effect_steps(
-        &self,
-        sessions: &[ChromeProfileImportedSessionRecord],
-    ) -> CoreResult<Vec<crate::operation_actor::OperationStep>> {
-        let mut steps = Vec::with_capacity(sessions.len());
-        for session in sessions {
-            let browser_user_data_dir = PathBuf::from(&session.browser_user_data_dir);
-            let platform = self.platform;
-            let cookies = tokio::task::spawn_blocking(move || {
-                crate::chrome_cookies::read_imported_cookies(&browser_user_data_dir, platform)
-            })
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))??;
-            let cookies_json = serde_json::to_string(&cookies)
-                .map_err(|error| CoreError::Internal(error.to_string()))?;
-            steps.push(effect_step(
-                &session.role.id,
-                CoreEffectAction::ChromeProfileApplySession {
-                    role_id: session.role.id.clone(),
-                    browser_user_data_dir: session.browser_user_data_dir.clone(),
-                    cookies_json,
-                },
-                Duration::from_secs(60),
-                Some(CoreEffectAction::ChromeProfileClearSession {
-                    role_id: session.role.id.clone(),
-                    browser_user_data_dir: session.browser_user_data_dir.clone(),
-                }),
-            ));
-        }
-        Ok(steps)
-    }
-
-    fn emit_chrome_profile_progress(
-        &self,
-        import_id: &str,
-        phase: &str,
-        completed: usize,
-        total: usize,
-        current: Option<(&str, &str)>,
-    ) {
-        self.emit(vec![CoreEvent::ChromeProfileImportProgress {
-            progress: ChromeProfileImportProgressRecord {
-                completed_profile_count: completed as u32,
-                current_profile_id: current.map(|(id, _)| id.to_owned()),
-                current_profile_name: current.map(|(_, name)| name.to_owned()),
-                import_id: import_id.to_owned(),
-                phase: phase.to_owned(),
-                total_profile_count: total as u32,
-            },
-        }]);
-    }
-
     async fn run_compatibility_check(
         self: &Arc<Self>,
         game_id: String,
-        versions: CompatibilityVersionRecord,
+        versions: RuntimeVersionRecord,
     ) -> CoreResult<Value> {
-        let system_chrome_available = self.find_chrome_executable().is_ok();
         let plan = {
             let _guard = self.state_mutation_guard()?;
             let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
@@ -2991,13 +1811,7 @@ impl AppCore {
             )?;
             let (plan, statuses) = {
                 let mut runtime = self.compatibility_runtime()?;
-                let plan = runtime.prepare(
-                    &games,
-                    &settings,
-                    &game_id,
-                    system_chrome_available,
-                    &versions,
-                )?;
+                let plan = runtime.prepare(&games, &settings, &game_id, &versions)?;
                 (plan, runtime.statuses())
             };
             self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
@@ -3160,76 +1974,6 @@ impl AppCore {
         Ok(())
     }
 
-    async fn resolve_cdn_session(
-        &self,
-        session_handle_id: String,
-    ) -> CoreResult<CdnResolutionRecord> {
-        if session_handle_id.trim().is_empty() || session_handle_id.len() > 160 {
-            return Err(CoreError::InvalidInput(
-                "CDN session handle is invalid".to_owned(),
-            ));
-        }
-        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-            "gameBrowserSettings",
-            "game browser settings are missing",
-        )?;
-        let start = self
-            .cdn_detection
-            .lock()
-            .map_err(|_| CoreError::Internal("CDN detection lock poisoned".to_owned()))?
-            .begin(
-                &settings.network.cdn_compatibility.mode,
-                &settings.network.proxy,
-            )?;
-        let enabled = match start {
-            crate::cdn_detection::DetectionStart::Immediate(enabled) => enabled,
-            crate::cdn_detection::DetectionStart::Follower(receiver) => receiver
-                .await
-                .map_err(|_| CoreError::Internal("CDN detection leader stopped".to_owned()))?,
-            crate::cdn_detection::DetectionStart::Leader { cache_key } => {
-                let timeout = self
-                    .cdn_detection
-                    .lock()
-                    .map_err(|_| CoreError::Internal("CDN detection lock poisoned".to_owned()))?
-                    .probe_timeout();
-                let google_available = self
-                    .request_core_effect(
-                        &session_handle_id,
-                        CoreEffectAction::CdnProbeGoogle {
-                            url: "https://www.google.com/recaptcha/api.js?render=explicit"
-                                .to_owned(),
-                        },
-                        timeout,
-                    )
-                    .await
-                    .ok()
-                    .and_then(|result| effect_value::<Value>(&result).ok())
-                    .and_then(|value| value.get("available").and_then(Value::as_bool))
-                    .unwrap_or(false);
-                let enabled = !google_available;
-                self.cdn_detection
-                    .lock()
-                    .map_err(|_| CoreError::Internal("CDN detection lock poisoned".to_owned()))?
-                    .complete(cache_key, enabled);
-                enabled
-            }
-        };
-        let (request_patterns, rewrite_rules) = if enabled {
-            let matcher = self
-                .cdn
-                .read()
-                .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?;
-            (matcher.request_patterns(), matcher.rewrite_plan())
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        Ok(CdnResolutionRecord {
-            enabled,
-            request_patterns,
-            rewrite_rules,
-        })
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn assemble_graphics_diagnostics(
         &self,
@@ -3241,7 +1985,7 @@ impl AppCore {
         gpu_info_ready: bool,
         hardware_acceleration_enabled: Option<bool>,
         platform: String,
-        versions: GraphicsVersionRecord,
+        versions: RuntimeVersionRecord,
     ) -> CoreResult<GraphicsDiagnosticsRecord> {
         let requested_platform = rion_platform::Platform::parse(&platform)
             .map_err(|error| CoreError::Platform(error.to_string()))?;
@@ -3256,76 +2000,11 @@ impl AppCore {
                 "game browser settings are missing",
             )?
             .graphics;
-        let sessions = running_external_diagnostic_sessions(
-            self.external_sessions
-                .lock()
-                .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-                .snapshot(),
-        );
-        let automation = Arc::clone(&self.external_automation);
-        let external_roles = join_all(sessions.into_iter().map(|session| {
-            let automation = Arc::clone(&automation);
-            async move {
-                if !session.automation_available {
-                    return ExternalGraphicsDiagnosticsRecord {
-                        error: Some("Chrome DevTools connection is unavailable.".to_owned()),
-                        probe: None,
-                        role_id: session.role.id,
-                        role_name: session.role.name,
-                        state: "unavailable".to_owned(),
-                    };
-                }
-                match tokio::time::timeout(
-                    Duration::from_secs(2),
-                    automation.evaluate(
-                        &session.role.id,
-                        crate::graphics_diagnostics::WEB_GRAPHICS_PROBE_SOURCE,
-                    ),
-                )
-                .await
-                {
-                    Ok(Ok(value)) => {
-                        let probe = crate::graphics_diagnostics::normalize_web_graphics(value);
-                        let unavailable = probe.error.is_some()
-                            || (probe.webgl == "unknown"
-                                && probe.webgl2 == "unknown"
-                                && probe.webgpu == "unknown");
-                        ExternalGraphicsDiagnosticsRecord {
-                            error: unavailable.then(|| {
-                                probe.error.clone().unwrap_or_else(|| {
-                                    "Chrome graphics probe returned invalid data.".to_owned()
-                                })
-                            }),
-                            probe: Some(probe),
-                            role_id: session.role.id,
-                            role_name: session.role.name,
-                            state: if unavailable { "unavailable" } else { "ready" }.to_owned(),
-                        }
-                    }
-                    Ok(Err(error)) => ExternalGraphicsDiagnosticsRecord {
-                        error: Some(error.to_string()),
-                        probe: None,
-                        role_id: session.role.id,
-                        role_name: session.role.name,
-                        state: "unavailable".to_owned(),
-                    },
-                    Err(_) => ExternalGraphicsDiagnosticsRecord {
-                        error: Some("Chrome graphics probe timed out.".to_owned()),
-                        probe: None,
-                        role_id: session.role.id,
-                        role_name: session.role.name,
-                        state: "unavailable".to_owned(),
-                    },
-                }
-            }
-        }))
-        .await;
         Ok(crate::graphics_diagnostics::assemble(
             crate::graphics_diagnostics::GraphicsDiagnosticsInput {
                 applied_settings,
                 embedded_raw_json,
                 embedded_error,
-                external_roles,
                 feature_status_raw_json,
                 gpu_info_raw_json,
                 gpu_info_ready,
@@ -3337,17 +2016,7 @@ impl AppCore {
         ))
     }
 
-    fn external_role(&self, role_id: &str) -> CoreResult<StateRoleRecord> {
-        self.read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .find(|role| role.id == role_id)
-            .ok_or_else(|| CoreError::Domain {
-                code: "ROLE_NOT_FOUND",
-                message: "Role not found.".to_owned(),
-            })
-    }
-
-    fn external_game(&self, game_id: &str) -> CoreResult<StateGameRecord> {
+    fn state_game(&self, game_id: &str) -> CoreResult<StateGameRecord> {
         self.read_typed_state_collection::<StateGameRecord>("games")?
             .into_iter()
             .find(|game| game.id == game_id)
@@ -3357,7 +2026,7 @@ impl AppCore {
             })
     }
 
-    fn external_workspace(&self, workspace_id: &str) -> CoreResult<StateLaunchWorkspaceRecord> {
+    fn state_workspace(&self, workspace_id: &str) -> CoreResult<StateLaunchWorkspaceRecord> {
         self.read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?
             .into_iter()
             .find(|workspace| workspace.id == workspace_id)
@@ -3365,979 +2034,6 @@ impl AppCore {
                 code: "WORKSPACE_NOT_FOUND",
                 message: "Launch workspace not found.".to_owned(),
             })
-    }
-
-    async fn launch_external_role(
-        self: &Arc<Self>,
-        role: StateRoleRecord,
-        target: EmbeddedLaunchTargetRecord,
-        zoom_factor: f64,
-        notice: Option<String>,
-        settings: GameBrowserSettingsRecord,
-    ) -> CoreResult<crate::model::BrowserRoleStatusRecord> {
-        if let Some(existing) = self.external_session(&role.id)? {
-            self.invoke_external_session(ExternalSessionCommand::UpdateRole { role })?;
-            let _ = self.external_automation.focus(&existing.role.id).await;
-            return self
-                .external_session(&existing.role.id)?
-                .map(|session| external_status(&session))
-                .ok_or_else(|| CoreError::Internal("external session disappeared".to_owned()));
-        }
-
-        let role_id = role.id.clone();
-        let lease = self
-            .acquire_browser_operation_async(BrowserOperationRequest {
-                role_ids: vec![role_id.clone()],
-                kind: "normal".to_owned(),
-            })
-            .await?;
-        let result = self
-            .launch_external_session(
-                role,
-                target.work_area.clone(),
-                None,
-                None,
-                notice,
-                zoom_factor,
-                settings,
-            )
-            .await;
-        let completion = self.browser_operations.complete(&lease.id);
-        match (result, completion) {
-            (Ok(session), Ok(())) => Ok(external_status(&session)),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
-        }
-    }
-
-    async fn launch_external_workspace(
-        self: &Arc<Self>,
-        workspace: StateLaunchWorkspaceRecord,
-        target: EmbeddedLaunchTargetRecord,
-        notice: Option<String>,
-        settings: GameBrowserSettingsRecord,
-    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
-        let available_roles = self
-            .read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .map(|role| (role.id.clone(), role))
-            .collect::<std::collections::HashMap<_, _>>();
-        let slots = workspace
-            .slots
-            .iter()
-            .filter_map(|slot| {
-                let role_id = slot.role_id.as_ref()?;
-                Some((slot, available_roles.get(role_id).cloned()))
-            })
-            .collect::<Vec<_>>();
-        if slots.is_empty() {
-            return Err(CoreError::Domain {
-                code: "WORKSPACE_ROLES_REQUIRED",
-                message: "The launch workspace has no roles.".to_owned(),
-            });
-        }
-        if slots.iter().any(|(_, role)| role.is_none()) {
-            return Err(CoreError::Domain {
-                code: "WORKSPACE_ROLE_NOT_FOUND",
-                message: "A launch workspace role no longer exists.".to_owned(),
-            });
-        }
-        let role_ids = slots
-            .iter()
-            .filter_map(|(_, role)| role.as_ref().map(|role| role.id.clone()))
-            .collect::<Vec<_>>();
-        if role_ids
-            .iter()
-            .any(|role_id| self.external_session(role_id).ok().flatten().is_some())
-        {
-            return Err(CoreError::Domain {
-                code: "ROLE_ALREADY_RUNNING",
-                message: "A workspace role is already running.".to_owned(),
-            });
-        }
-        let lease = self
-            .acquire_browser_operation_async(BrowserOperationRequest {
-                role_ids: role_ids.clone(),
-                kind: "normal".to_owned(),
-            })
-            .await?;
-        let result = async {
-            self.invoke_browser_runtime(BrowserRuntimeCommand::CreateExternalWorkspace {
-                workspace_id: workspace.id.clone(),
-                name: workspace.name.clone(),
-                display_id: Some(target.display_id),
-                exclusive_display: true,
-                role_ids: role_ids.clone(),
-            })?;
-            let bounds = crate::external_runtime::workspace_bounds(
-                &slots
-                    .iter()
-                    .map(|(slot, _)| slot.rect.clone())
-                    .collect::<Vec<_>>(),
-                &target.work_area,
-                self.platform,
-            );
-            let physical_bounds = if self.platform == rion_platform::Platform::Windows {
-                let physical_work_area = self
-                    .resolve_external_physical_bounds(&target.work_area)
-                    .await?;
-                Some(crate::external_runtime::workspace_bounds(
-                    &slots
-                        .iter()
-                        .map(|(slot, _)| slot.rect.clone())
-                        .collect::<Vec<_>>(),
-                    &physical_work_area,
-                    self.platform,
-                ))
-            } else {
-                None
-            };
-            let launches = slots
-                .iter()
-                .zip(bounds)
-                .enumerate()
-                .map(|(index, ((slot, role), bounds))| {
-                    let core = Arc::clone(self);
-                    let role = role.clone().expect("workspace roles were validated");
-                    let physical_bounds = physical_bounds
-                        .as_ref()
-                        .and_then(|items| items.get(index))
-                        .cloned();
-                    let workspace_id = workspace.id.clone();
-                    let notice = notice.clone();
-                    let settings = settings.clone();
-                    let zoom_factor = crate::external_runtime::workspace_zoom_factor(
-                        &workspace.browser_zoom_mode,
-                        workspace.browser_zoom_percent,
-                        slot.browser_zoom_percent,
-                        bounds.width,
-                    );
-                    async move {
-                        core.launch_external_session(
-                            role,
-                            bounds,
-                            physical_bounds,
-                            Some(workspace_id),
-                            notice,
-                            zoom_factor,
-                            settings,
-                        )
-                        .await
-                    }
-                })
-                .collect::<Vec<_>>();
-            let results = join_all(launches).await;
-            if let Some(error) = results.iter().find_map(|result| result.as_ref().err()) {
-                let code = error.code();
-                let message = error.to_string();
-                for role_id in &role_ids {
-                    let _ = self.stop_external_session(role_id, true).await;
-                }
-                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-                    workspace_id: workspace.id.clone(),
-                });
-                return Err(CoreError::Effect {
-                    code: code.to_owned(),
-                    message,
-                });
-            }
-            let by_role_id = results
-                .into_iter()
-                .filter_map(Result::ok)
-                .map(|session| (session.role.id.clone(), external_status(&session)))
-                .collect::<std::collections::HashMap<_, _>>();
-            if let Some(first) = role_ids.first() {
-                let _ = self.external_automation.focus(first).await;
-            }
-            Ok(role_ids
-                .iter()
-                .filter_map(|role_id| by_role_id.get(role_id).cloned())
-                .collect::<Vec<_>>())
-        }
-        .await;
-        let completion = self.browser_operations.complete(&lease.id);
-        match (result, completion) {
-            (Ok(statuses), Ok(())) => Ok(statuses),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn launch_external_session(
-        self: &Arc<Self>,
-        role: StateRoleRecord,
-        bounds: StatePixelBoundsRecord,
-        physical_bounds: Option<StatePixelBoundsRecord>,
-        workspace_id: Option<String>,
-        notice: Option<String>,
-        zoom_factor: f64,
-        settings: GameBrowserSettingsRecord,
-    ) -> CoreResult<ExternalSessionRecord> {
-        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role.id)?;
-        let browser_user_data_dir = PathBuf::from(&paths.browser_user_data_dir);
-        self.prepare_external_chrome_profile(browser_user_data_dir.clone())?;
-        let mut session_notice = notice;
-        if crate::browser_preferences::apply(
-            &self.user_data_dir,
-            &browser_user_data_dir,
-            None,
-            &settings.fonts,
-            Some(zoom_factor),
-        )
-        .is_err()
-        {
-            session_notice =
-                append_external_notice(session_notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
-        }
-
-        let prepared = self
-            .request_core_effect(
-                &role.id,
-                CoreEffectAction::ExternalPrepareSession {
-                    role_id: role.id.clone(),
-                    cdn_mode: settings.network.cdn_compatibility.mode.clone(),
-                },
-                Duration::from_secs(10),
-            )
-            .await
-            .and_then(|result| effect_value::<ExternalPrepareSessionResultRecord>(&result));
-        let (cdn_enabled, proxy_server) = match prepared {
-            Ok(value) => {
-                let proxy = value.proxy_server.or_else(|| {
-                    (settings.network.proxy.mode == "custom"
-                        && !settings.network.proxy.server.trim().is_empty())
-                    .then(|| settings.network.proxy.server.clone())
-                });
-                (value.cdn_enabled, proxy)
-            }
-            Err(_) => {
-                session_notice =
-                    append_external_notice(session_notice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
-                (false, None)
-            }
-        };
-
-        let executable = self.find_chrome_executable()?;
-        let arguments = crate::external_runtime::build_arguments(
-            &role.launch_url,
-            &paths.browser_user_data_dir,
-            &bounds,
-            proxy_server.as_deref(),
-            &settings.graphics,
-            self.platform,
-        );
-        self.invoke_external_session(ExternalSessionCommand::Begin {
-            role: role.clone(),
-            bounds: bounds.clone(),
-            physical_bounds: physical_bounds.clone(),
-            workspace_id: workspace_id.clone(),
-            notice: session_notice.clone(),
-            zoom_factor,
-        })?;
-        self.emit_browser_statuses();
-        let process_id =
-            match self
-                .external_processes
-                .launch(role.id.clone(), &executable, &arguments)
-            {
-                Ok(process_id) => process_id,
-                Err(error) => {
-                    let _ = self.invoke_external_session(ExternalSessionCommand::Remove {
-                        role_id: role.id.clone(),
-                        preserve_workspace: false,
-                    });
-                    self.emit_browser_statuses();
-                    return Err(error);
-                }
-            };
-
-        let automation = self
-            .connect_external_chrome_cdp(
-                role.id.clone(),
-                browser_user_data_dir,
-                role.launch_url.clone(),
-                Some(Duration::from_secs(10)),
-                cdn_enabled,
-            )
-            .await;
-        match automation {
-            Ok(session) => {
-                if let Err(error) = self
-                    .initialize_external_automation(&role.id, Arc::clone(&session))
-                    .await
-                {
-                    let _ = self.external_automation.unregister(&role.id);
-                    session_notice = self
-                        .external_session(&role.id)?
-                        .and_then(|session| session.notice);
-                    session_notice = append_external_notice(
-                        session_notice,
-                        EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE,
-                    );
-                    self.invoke_external_session(ExternalSessionCommand::SetNotice {
-                        role_id: role.id.clone(),
-                        notice: session_notice.clone(),
-                    })?;
-                    self.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                        role_id: role.id.clone(),
-                        available: false,
-                        cdn_active: false,
-                    })?;
-                    let _ = error;
-                } else {
-                    session_notice = self
-                        .external_session(&role.id)?
-                        .and_then(|session| session.notice);
-                    if cdn_enabled {
-                        session_notice = append_external_notice(
-                            session_notice,
-                            CDN_COMPATIBILITY_EXTERNAL_NOTICE,
-                        );
-                        self.invoke_external_session(ExternalSessionCommand::SetNotice {
-                            role_id: role.id.clone(),
-                            notice: session_notice.clone(),
-                        })?;
-                    }
-                    self.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                        role_id: role.id.clone(),
-                        available: true,
-                        cdn_active: cdn_enabled,
-                    })?;
-                    self.invoke_external_session(ExternalSessionCommand::SetHealth {
-                        role_id: role.id.clone(),
-                        health: Some("healthy".to_owned()),
-                        page_hidden: false,
-                    })?;
-                    self.external_health()?.register(role.id.clone())?;
-                    let _ = self
-                        .external_automation
-                        .set_window_bounds(&role.id, bounds.clone())
-                        .await;
-                }
-            }
-            Err(_) => {
-                session_notice =
-                    append_external_notice(session_notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
-                self.invoke_external_session(ExternalSessionCommand::SetNotice {
-                    role_id: role.id.clone(),
-                    notice: session_notice,
-                })?;
-                self.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                    role_id: role.id.clone(),
-                    available: false,
-                    cdn_active: false,
-                })?;
-            }
-        }
-
-        if self.platform == rion_platform::Platform::Windows
-            && let Some(physical_bounds) = &physical_bounds
-        {
-            let target = PixelBounds {
-                x: physical_bounds.x,
-                y: physical_bounds.y,
-                width: physical_bounds.width,
-                height: physical_bounds.height,
-            };
-            let _ = self.align_external_chrome_window(process_id, target);
-        }
-        let launched_at = chrono::Utc::now().to_rfc3339();
-        self.invoke_external_session(ExternalSessionCommand::SetRunning {
-            role_id: role.id.clone(),
-            launched_at,
-        })?;
-        self.emit_browser_statuses();
-        self.external_session(&role.id)?
-            .ok_or_else(|| CoreError::Internal("external session disappeared".to_owned()))
-    }
-
-    async fn initialize_external_automation(
-        self: &Arc<Self>,
-        role_id: &str,
-        session: Arc<crate::ExternalChromeCdpSession>,
-    ) -> CoreResult<()> {
-        let events = session.take_events()?;
-        let weak = Arc::downgrade(self);
-        let role_id = role_id.to_owned();
-        let event_role_id = role_id.clone();
-        let event_session = Arc::clone(&session);
-        let runtime_handle = tokio::runtime::Handle::current();
-        std::thread::Builder::new()
-            .name(format!("rion-external-events-{role_id}"))
-            .spawn(move || {
-                while let Ok(event) = events.recv() {
-                    let Some(core) = weak.upgrade() else {
-                        break;
-                    };
-                    let role_id = event_role_id.clone();
-                    let session = Arc::clone(&event_session);
-                    let concurrent = matches!(
-                        &event,
-                        crate::external_chrome::CdpEvent::Notification { method, .. }
-                            if method == "Runtime.bindingCalled"
-                    );
-                    if concurrent {
-                        runtime_handle.spawn(async move {
-                            core.handle_external_cdp_event(&role_id, &session, event)
-                                .await;
-                        });
-                    } else {
-                        runtime_handle.block_on(async move {
-                            core.handle_external_cdp_event(&role_id, &session, event)
-                                .await;
-                        });
-                    }
-                }
-            })
-            .map_err(|error| CoreError::Internal(error.to_string()))?;
-
-        self.enable_external_automation_domains(&session).await?;
-        let source = match self
-            .request_core_effect(
-                &role_id,
-                CoreEffectAction::ExternalOverlaySource {
-                    role_id: role_id.clone(),
-                },
-                Duration::from_secs(5),
-            )
-            .await
-            .and_then(|result| effect_value::<String>(&result))
-        {
-            Ok(source) => source,
-            Err(_) => {
-                self.set_external_overlay_state(
-                    &role_id,
-                    false,
-                    "source",
-                    Some("EXTERNAL_OVERLAY_SOURCE_UNAVAILABLE"),
-                );
-                return Ok(());
-            }
-        };
-        let expression = format!("{};\n{source}", external_overlay_bridge_source());
-        self.external_automation
-            .set_overlay_source(&role_id, expression.clone())?;
-        if self
-            .register_external_overlay_scripts(&session, &expression)
-            .await
-            .is_err()
-        {
-            self.set_external_overlay_state(
-                &role_id,
-                false,
-                "registration",
-                Some("EXTERNAL_OVERLAY_REGISTRATION_FAILED"),
-            );
-        }
-        self.retry_external_overlay_injection(role_id, session, expression, "injection");
-        Ok(())
-    }
-
-    async fn enable_external_automation_domains(
-        &self,
-        session: &crate::ExternalChromeCdpSession,
-    ) -> CoreResult<()> {
-        session
-            .send("Page.enable".to_owned(), None, None, None)
-            .await?;
-        session
-            .send("Runtime.enable".to_owned(), None, None, None)
-            .await?;
-        let _ = session
-            .send(
-                "Page.setLifecycleEventsEnabled".to_owned(),
-                Some(json!({"enabled":true})),
-                None,
-                None,
-            )
-            .await;
-        let diagnostics_source = external_page_diagnostics_source();
-        if session
-            .send(
-                "Runtime.addBinding".to_owned(),
-                Some(json!({"name":EXTERNAL_DIAGNOSTICS_BINDING})),
-                None,
-                None,
-            )
-            .await
-            .is_ok()
-        {
-            let _ = session
-                .send(
-                    "Page.addScriptToEvaluateOnNewDocument".to_owned(),
-                    Some(json!({"source":diagnostics_source})),
-                    None,
-                    None,
-                )
-                .await;
-            let _ = session
-                .send(
-                    "Runtime.evaluate".to_owned(),
-                    Some(json!({"expression":diagnostics_source})),
-                    Some(Duration::from_millis(500)),
-                    None,
-                )
-                .await;
-        }
-        Ok(())
-    }
-
-    async fn register_external_overlay_scripts(
-        &self,
-        session: &crate::ExternalChromeCdpSession,
-        expression: &str,
-    ) -> CoreResult<()> {
-        session
-            .send(
-                "Runtime.addBinding".to_owned(),
-                Some(json!({"name":EXTERNAL_OVERLAY_BINDING})),
-                None,
-                None,
-            )
-            .await?;
-        session
-            .send(
-                "Page.addScriptToEvaluateOnNewDocument".to_owned(),
-                Some(json!({"source":expression})),
-                None,
-                None,
-            )
-            .await?;
-        Ok(())
-    }
-
-    fn retry_external_overlay_injection(
-        self: &Arc<Self>,
-        role_id: String,
-        session: Arc<crate::ExternalChromeCdpSession>,
-        expression: String,
-        stage: &'static str,
-    ) {
-        let core = Arc::clone(self);
-        tokio::spawn(async move {
-            let delays = [0_u64, 100, 500, 1_500, 3_000];
-            let mut previous = 0;
-            for delay in delays {
-                if delay > previous {
-                    tokio::time::sleep(Duration::from_millis(delay - previous)).await;
-                }
-                previous = delay;
-                if core.external_session(&role_id).ok().flatten().is_none() {
-                    return;
-                }
-                if external_overlay_evaluate(&session, &expression, None).await {
-                    let context_ids = core
-                        .external_automation
-                        .execution_context_ids(&role_id)
-                        .unwrap_or_default();
-                    join_all(context_ids.into_iter().map(|context_id| {
-                        external_overlay_evaluate(&session, &expression, Some(context_id))
-                    }))
-                    .await;
-                    core.set_external_overlay_state(&role_id, true, stage, None);
-                    return;
-                }
-            }
-            core.set_external_overlay_state(
-                &role_id,
-                false,
-                stage,
-                Some("EXTERNAL_OVERLAY_INJECTION_FAILED"),
-            );
-        });
-    }
-
-    fn set_external_overlay_state(
-        &self,
-        role_id: &str,
-        available: bool,
-        stage: &str,
-        error_code: Option<&str>,
-    ) {
-        let Ok(Some(session)) = self.external_session(role_id) else {
-            return;
-        };
-        let notice = if available {
-            remove_external_notice(session.notice, EXTERNAL_OVERLAY_UNAVAILABLE_NOTICE)
-        } else {
-            append_external_notice(session.notice, EXTERNAL_OVERLAY_UNAVAILABLE_NOTICE)
-        };
-        let _ = self.invoke_external_session(ExternalSessionCommand::SetOverlay {
-            role_id: role_id.to_owned(),
-            available,
-        });
-        let _ = self.invoke_external_session(ExternalSessionCommand::SetNotice {
-            role_id: role_id.to_owned(),
-            notice,
-        });
-        self.emit(vec![
-            CoreEvent::ExternalOverlayStateChanged {
-                role_id: role_id.to_owned(),
-                state: if available { "ready" } else { "unavailable" }.to_owned(),
-                stage: stage.to_owned(),
-                error_code: error_code.map(str::to_owned),
-                error_message: error_code
-                    .map(|_| "External Chrome overlay initialization did not complete.".to_owned()),
-            },
-            CoreEvent::BrowserStatuses {
-                statuses: self.browser_statuses().unwrap_or_default(),
-            },
-        ]);
-    }
-
-    async fn handle_external_cdp_event(
-        self: &Arc<Self>,
-        role_id: &str,
-        session: &Arc<crate::ExternalChromeCdpSession>,
-        event: crate::external_chrome::CdpEvent,
-    ) {
-        if let crate::external_chrome::CdpEvent::Notification { method, params, .. } = &event {
-            let _ = self
-                .external_automation
-                .handle_notification(role_id, method, params.as_ref())
-                .await;
-        }
-        match event {
-            crate::external_chrome::CdpEvent::Disconnected { message: _ } => {
-                let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                    role_id: role_id.to_owned(),
-                    available: false,
-                    cdn_active: false,
-                });
-                let _ = self
-                    .external_health()
-                    .and_then(|health| health.remove(role_id.to_owned()));
-                let _ = self.macro_runtime.stop_role(role_id);
-                self.emit_browser_statuses();
-            }
-            crate::external_chrome::CdpEvent::Reconnected => {
-                self.set_external_overlay_state(role_id, false, "reconnect", None);
-                let _ = self.external_automation.reset_execution_contexts(role_id);
-                let current = self.external_session(role_id).ok().flatten();
-                if self
-                    .enable_external_automation_domains(session)
-                    .await
-                    .is_err()
-                {
-                    let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                        role_id: role_id.to_owned(),
-                        available: false,
-                        cdn_active: false,
-                    });
-                    self.set_external_overlay_state(
-                        role_id,
-                        false,
-                        "reconnect",
-                        Some("EXTERNAL_AUTOMATION_RECONNECT_FAILED"),
-                    );
-                    return;
-                }
-                let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                    role_id: role_id.to_owned(),
-                    available: true,
-                    cdn_active: current.as_ref().is_some_and(|session| session.cdn_active),
-                });
-                let _ = self
-                    .external_health()
-                    .and_then(|health| health.register(role_id.to_owned()));
-                let source = self
-                    .external_automation
-                    .overlay_source(role_id)
-                    .ok()
-                    .flatten();
-                let Some(source) = source else {
-                    self.set_external_overlay_state(
-                        role_id,
-                        false,
-                        "source",
-                        Some("EXTERNAL_OVERLAY_SOURCE_UNAVAILABLE"),
-                    );
-                    return;
-                };
-                if self
-                    .register_external_overlay_scripts(session, &source)
-                    .await
-                    .is_err()
-                {
-                    self.set_external_overlay_state(
-                        role_id,
-                        false,
-                        "registration",
-                        Some("EXTERNAL_OVERLAY_REGISTRATION_FAILED"),
-                    );
-                }
-                self.retry_external_overlay_injection(
-                    role_id.to_owned(),
-                    Arc::clone(session),
-                    source,
-                    "reconnect",
-                );
-            }
-            crate::external_chrome::CdpEvent::Notification { method, params, .. }
-                if is_main_frame_navigation(&method, params.as_ref()) =>
-            {
-                let _ = self.macro_runtime.release_role(role_id);
-                if let Ok(Some(source)) = self.external_automation.overlay_source(role_id) {
-                    self.retry_external_overlay_injection(
-                        role_id.to_owned(),
-                        Arc::clone(session),
-                        source,
-                        "injection",
-                    );
-                }
-            }
-            crate::external_chrome::CdpEvent::Notification {
-                method,
-                params,
-                session_id,
-            } if method == "Runtime.bindingCalled" => {
-                let binding_name = params
-                    .as_ref()
-                    .and_then(|value| value.get("name"))
-                    .and_then(Value::as_str);
-                if binding_name == Some(EXTERNAL_DIAGNOSTICS_BINDING) {
-                    let Some(payload) = params
-                        .as_ref()
-                        .and_then(|value| value.get("payload"))
-                        .and_then(Value::as_str)
-                        .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
-                    else {
-                        return;
-                    };
-                    let page_hidden = payload
-                        .get("hidden")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    if let Ok(Some(current)) = self.external_session(role_id) {
-                        let _ = self.invoke_external_session(ExternalSessionCommand::SetHealth {
-                            role_id: role_id.to_owned(),
-                            health: Some(
-                                current.page_health.unwrap_or_else(|| "healthy".to_owned()),
-                            ),
-                            page_hidden,
-                        });
-                    }
-                    let _ = self
-                        .external_health()
-                        .and_then(|health| health.heartbeat(role_id.to_owned(), page_hidden));
-                    return;
-                }
-                if binding_name != Some(EXTERNAL_OVERLAY_BINDING) {
-                    return;
-                }
-                let Some(payload) = params
-                    .as_ref()
-                    .and_then(|value| value.get("payload"))
-                    .and_then(Value::as_str)
-                else {
-                    return;
-                };
-                let Ok(envelope) = serde_json::from_str::<Value>(payload) else {
-                    return;
-                };
-                let Some(request_id) = envelope
-                    .get("id")
-                    .filter(|id| id.is_number() || id.is_string())
-                    .cloned()
-                else {
-                    return;
-                };
-                let execution_context_id = params
-                    .as_ref()
-                    .and_then(|value| value.get("executionContextId"))
-                    .and_then(Value::as_i64);
-                let request_json = envelope
-                    .get("request")
-                    .cloned()
-                    .unwrap_or(Value::Null)
-                    .to_string();
-                let result = self
-                    .handle_overlay_request(role_id, &request_json, None)
-                    .await;
-                let (ok, value_json) = match result {
-                    Ok(view_model) => (
-                        true,
-                        serde_json::to_string(&view_model).unwrap_or_else(|_| "null".to_owned()),
-                    ),
-                    Err(error) => (
-                        false,
-                        serde_json::to_string(&error.to_string())
-                            .unwrap_or_else(|_| "\"Overlay request failed.\"".to_owned()),
-                    ),
-                };
-                let request_id = request_id.to_string();
-                let expression = format!(
-                    "window[{bridge}]?.resolve({request_id},{ok},{value});",
-                    bridge = serde_json::to_string(EXTERNAL_OVERLAY_BRIDGE_KEY)
-                        .expect("bridge key is valid JSON"),
-                    value = value_json
-                );
-                let mut evaluate_params = json!({"expression":expression});
-                if let Some(context_id) = execution_context_id {
-                    evaluate_params["contextId"] = Value::from(context_id);
-                }
-                let _ = session
-                    .send(
-                        "Runtime.evaluate".to_owned(),
-                        Some(evaluate_params),
-                        None,
-                        session_id,
-                    )
-                    .await;
-            }
-            _ => {}
-        }
-    }
-
-    async fn stop_external_role(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
-        let lease = self
-            .acquire_browser_operation_async(BrowserOperationRequest {
-                role_ids: vec![role_id.to_owned()],
-                kind: "normal".to_owned(),
-            })
-            .await?;
-        let result = self.stop_external_session(role_id, false).await;
-        let completion = self.browser_operations.complete(&lease.id);
-        match (result, completion) {
-            (Ok(()), Ok(())) => Ok(()),
-            (Err(error), _) | (Ok(()), Err(error)) => Err(error),
-        }
-    }
-
-    async fn stop_external_workspace(self: &Arc<Self>, workspace_id: &str) -> CoreResult<()> {
-        let role_ids = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-            .snapshot()
-            .into_iter()
-            .filter(|session| session.workspace_id.as_deref() == Some(workspace_id))
-            .map(|session| session.role.id)
-            .collect::<Vec<_>>();
-        if role_ids.is_empty() {
-            return Ok(());
-        }
-        let lease = self
-            .acquire_browser_operation_async(BrowserOperationRequest {
-                role_ids: role_ids.clone(),
-                kind: "normal".to_owned(),
-            })
-            .await?;
-        let results = join_all(
-            role_ids
-                .iter()
-                .map(|role_id| self.stop_external_session(role_id, true)),
-        )
-        .await;
-        let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-            workspace_id: workspace_id.to_owned(),
-        });
-        let completion = self.browser_operations.complete(&lease.id);
-        if let Some(error) = results.into_iter().find_map(Result::err) {
-            return Err(error);
-        }
-        completion
-    }
-
-    async fn stop_external_session(
-        &self,
-        role_id: &str,
-        preserve_workspace: bool,
-    ) -> CoreResult<()> {
-        if self.external_session(role_id)?.is_none() {
-            return Ok(());
-        }
-        self.invoke_external_session(ExternalSessionCommand::SetStopping {
-            role_id: role_id.to_owned(),
-        })?;
-        let _ = self.macro_runtime.stop_role(role_id);
-        let _ = self.external_health()?.remove(role_id.to_owned());
-        let _ = self.external_automation.unregister(role_id);
-        let _ = self.external_processes.terminate(role_id);
-        self.invoke_external_session(ExternalSessionCommand::Remove {
-            role_id: role_id.to_owned(),
-            preserve_workspace,
-        })?;
-        self.emit_browser_statuses();
-        Ok(())
-    }
-
-    async fn recover_external_role(
-        self: &Arc<Self>,
-        role_id: &str,
-    ) -> CoreResult<crate::model::BrowserRoleStatusRecord> {
-        let session = self
-            .external_session(role_id)?
-            .ok_or_else(|| CoreError::Domain {
-                code: "EXTERNAL_SESSION_NOT_FOUND",
-                message: "External Chrome role is not running.".to_owned(),
-            })?;
-        if session.state != "running" || session.page_health.as_deref() != Some("unresponsive") {
-            return Err(CoreError::Domain {
-                code: "EXTERNAL_RECOVERY_NOT_REQUIRED",
-                message: "External Chrome role does not need recovery.".to_owned(),
-            });
-        }
-        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-            "gameBrowserSettings",
-            "game browser settings are missing",
-        )?;
-        let notice = remove_external_notice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
-        self.stop_external_session(role_id, true).await?;
-        let replacement = self
-            .launch_external_session(
-                session.role,
-                session.bounds,
-                session.physical_bounds,
-                session.workspace_id,
-                notice,
-                session.zoom_factor,
-                settings,
-            )
-            .await?;
-        let _ = self.external_automation.focus(role_id).await;
-        Ok(external_status(&replacement))
-    }
-
-    async fn capture_external_diagnostics(
-        &self,
-        role_id: &str,
-    ) -> CoreResult<ExternalChromeDiagnosticsRecord> {
-        let session = self
-            .external_session(role_id)?
-            .ok_or_else(|| CoreError::Domain {
-                code: "EXTERNAL_SESSION_NOT_FOUND",
-                message: "External Chrome role is not running.".to_owned(),
-            })?;
-        let chrome = if session.automation_available {
-            self.external_automation.diagnostics(role_id).await.ok()
-        } else {
-            None
-        };
-        let count = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-            .snapshot()
-            .len();
-        Ok(crate::external_runtime::diagnostics(
-            &session, count, chrome,
-        ))
-    }
-
-    async fn resolve_external_physical_bounds(
-        self: &Arc<Self>,
-        bounds: &StatePixelBoundsRecord,
-    ) -> CoreResult<StatePixelBoundsRecord> {
-        let result = self
-            .request_core_effect(
-                "external-bounds",
-                CoreEffectAction::ExternalResolvePhysicalBounds {
-                    bounds: bounds.clone(),
-                },
-                Duration::from_secs(5),
-            )
-            .await?;
-        effect_value(&result)
     }
 
     async fn request_core_effect(
@@ -4538,15 +2234,6 @@ impl AppCore {
             .map_err(|error| CoreError::Internal(error.to_string()))?
     }
 
-    fn external_session(&self, role_id: &str) -> CoreResult<Option<ExternalSessionRecord>> {
-        Ok(self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-            .get(role_id)
-            .cloned())
-    }
-
     fn emit_browser_statuses(&self) {
         if let Ok(statuses) = self.browser_statuses() {
             self.emit(vec![CoreEvent::BrowserStatuses { statuses }]);
@@ -4554,25 +2241,18 @@ impl AppCore {
     }
 
     pub fn browser_statuses(&self) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
-        let statuses = {
-            let browser = self
-                .browser_runtime
+        let statuses = embedded_role_statuses(
+            self.browser_runtime
                 .lock()
-                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-            let sessions = self
-                .external_sessions
-                .lock()
-                .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
-            crate::external_runtime::role_statuses(
-                browser.snapshot().roles.into_iter(),
-                &sessions.snapshot(),
-            )
-        };
+                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+                .snapshot()
+                .roles,
+        );
         self.decorate_browser_statuses(statuses)
     }
 
     fn macro_active_role_ids(&self) -> CoreResult<Vec<String>> {
-        let embedded = self
+        let mut role_ids = self
             .browser_runtime
             .lock()
             .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
@@ -4580,16 +2260,8 @@ impl AppCore {
             .roles
             .into_iter()
             .filter(|role| role.runtime == "embedded" && role.state == "running")
-            .map(|role| role.role_id);
-        let external = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-            .snapshot()
-            .into_iter()
-            .filter(|session| session.state == "running" && session.automation_available)
-            .map(|session| session.role.id);
-        let mut role_ids = embedded.chain(external).collect::<Vec<_>>();
+            .map(|role| role.role_id)
+            .collect::<Vec<_>>();
         role_ids.sort();
         role_ids.dedup();
         Ok(role_ids)
@@ -4598,20 +2270,13 @@ impl AppCore {
     pub fn browser_workspace_statuses(
         &self,
     ) -> CoreResult<Vec<crate::model::BrowserWorkspaceStatusRecord>> {
-        let (snapshot, external) = {
-            let browser = self
-                .browser_runtime
-                .lock()
-                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-            let sessions = self
-                .external_sessions
-                .lock()
-                .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
-            (browser.snapshot(), sessions.snapshot())
-        };
-        let role_statuses = self.decorate_browser_statuses(
-            crate::external_runtime::role_statuses(snapshot.roles.clone().into_iter(), &external),
-        )?;
+        let snapshot = self
+            .browser_runtime
+            .lock()
+            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+            .snapshot();
+        let role_statuses =
+            self.decorate_browser_statuses(embedded_role_statuses(snapshot.roles.clone()))?;
         let status_by_role = role_statuses
             .into_iter()
             .map(|status| (status.role_id.clone(), status))
@@ -4621,8 +2286,7 @@ impl AppCore {
             .iter()
             .map(|workspace| (workspace.workspace_id.clone(), workspace.role_ids.clone()))
             .collect::<std::collections::HashMap<_, _>>();
-        let mut statuses =
-            crate::external_runtime::workspace_statuses(&external, snapshot.workspaces.into_iter());
+        let mut statuses = embedded_workspace_statuses(snapshot.workspaces);
         for status in &mut statuses {
             let role_statuses = role_ids_by_workspace
                 .get(&status.workspace_id)
@@ -4648,18 +2312,9 @@ impl AppCore {
                 .all(|candidate| candidate.host_kind == first.host_kind)
                 .then_some(first.host_kind)
                 .flatten();
-            status.fallback_reason = role_statuses
+            status.issue_reason = role_statuses
                 .iter()
-                .find_map(|candidate| {
-                    (candidate.fallback_reason
-                        == Some(crate::model::EngineFallbackReason::AuthVerificationFailed))
-                    .then_some(crate::model::EngineFallbackReason::AuthVerificationFailed)
-                })
-                .or_else(|| {
-                    role_statuses
-                        .iter()
-                        .find_map(|candidate| candidate.fallback_reason)
-                });
+                .find_map(|candidate| candidate.issue_reason);
             status.capability_snapshot = role_statuses
                 .iter()
                 .all(|candidate| candidate.capability_snapshot == first.capability_snapshot)
@@ -4717,47 +2372,13 @@ impl AppCore {
                 .get(&status.role_id)
                 .and_then(|workspace_id| workspace_by_id.get(workspace_id))
                 .copied();
-            let mode = crate::external_runtime::resolve_launch_mode(
-                workspace
-                    .map(|workspace| workspace.browser_launch_mode.as_str())
-                    .unwrap_or(game.browser_launch_mode.as_str()),
-                &settings.launch_mode,
-            );
             let system_runtime = self.system_webview_runtime()?;
-            let resolution = self.resolve_role_browser_engine(
-                role,
-                game,
-                workspace,
-                &settings,
-                if status.runtime_mode == "external" {
-                    "external"
-                } else {
-                    "embedded"
-                },
-            )?;
+            let resolution = self.resolve_role_browser_engine(role, game, workspace, &settings)?;
             status.preferred_engine = Some(resolution.preferred_engine);
-            status.resolved_engine = Some(if status.runtime_mode == "external" {
-                crate::model::ResolvedBrowserEngine::ExternalChrome
-            } else {
-                resolution.resolved_engine
-            });
-            status.host_kind = Some(if status.runtime_mode == "external" {
-                crate::model::BrowserHostKind::External
-            } else {
-                resolution.host_kind
-            });
-            status.fallback_reason = if status.runtime_mode == "external" && mode == "external" {
-                None
-            } else {
-                resolution.fallback_reason
-            };
-            status.capability_snapshot = if status.runtime_mode == "external" {
-                None
-            } else if resolution.host_kind == crate::model::BrowserHostKind::System {
-                Some(system_runtime.capability_snapshot.clone())
-            } else {
-                Some(electron_capability_snapshot())
-            };
+            status.resolved_engine = Some(resolution.resolved_engine);
+            status.host_kind = Some(resolution.host_kind);
+            status.issue_reason = resolution.issue_reason;
+            status.capability_snapshot = Some(system_runtime.capability_snapshot.clone());
         }
         for workspace in &workspaces {
             let active_role_ids = active_workspace_by_role
@@ -4778,14 +2399,8 @@ impl AppCore {
                 &games,
                 workspace,
                 &settings,
-                "embedded",
             )?;
-            let capability_snapshot =
-                if resolution.host_kind == crate::model::BrowserHostKind::System {
-                    Some(self.system_webview_runtime()?.capability_snapshot)
-                } else {
-                    Some(electron_capability_snapshot())
-                };
+            let capability_snapshot = Some(self.system_webview_runtime()?.capability_snapshot);
             for status in &mut statuses {
                 if status.runtime_mode != "embedded"
                     || !active_role_ids.contains(status.role_id.as_str())
@@ -4795,26 +2410,14 @@ impl AppCore {
                 status.preferred_engine = Some(resolution.preferred_engine);
                 status.resolved_engine = Some(resolution.resolved_engine);
                 status.host_kind = Some(resolution.host_kind);
-                status.fallback_reason = match status.fallback_reason {
-                    Some(
-                        reason @ (crate::model::EngineFallbackReason::RuntimeCrashed
-                        | crate::model::EngineFallbackReason::AuthVerificationFailed),
-                    ) => Some(reason),
-                    _ => resolution.fallback_reason,
+                status.issue_reason = match status.issue_reason {
+                    Some(reason @ crate::model::SystemWebViewIssueReason::RuntimeCrashed) => {
+                        Some(reason)
+                    }
+                    _ => resolution.issue_reason,
                 };
                 status.capability_snapshot = capability_snapshot.clone();
             }
-        }
-        for status in &mut statuses {
-            status.session_continuity = match status.fallback_reason {
-                Some(crate::model::EngineFallbackReason::AuthVerificationFailed) => {
-                    Some("needs-login".to_owned())
-                }
-                Some(crate::model::EngineFallbackReason::RuntimeCrashed) => {
-                    Some("verified".to_owned())
-                }
-                _ => None,
-            };
         }
         Ok(statuses)
     }
@@ -4859,9 +2462,9 @@ impl AppCore {
                         .trusted_input
                         .eq(&crate::model::EngineCapabilityStatus::Supported)
                 {
-                    crate::model::EngineFallbackReason::WebkitSpiUnavailable
+                    crate::model::SystemWebViewIssueReason::WebkitSpiUnavailable
                 } else {
-                    crate::model::EngineFallbackReason::RuntimeCreationFailed
+                    crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
                 },
             );
         }
@@ -4870,9 +2473,9 @@ impl AppCore {
             .write()
             .map_err(|_| CoreError::Internal("system WebView runtime lock poisoned".to_owned()))?;
         *runtime = registration.clone();
-        self.embedded_engine_fallbacks
+        self.system_webview_issues
             .write()
-            .map_err(|_| CoreError::Internal("embedded engine fallback lock poisoned".to_owned()))?
+            .map_err(|_| CoreError::Internal("system WebView issue lock poisoned".to_owned()))?
             .clear();
         Ok(registration)
     }
@@ -4890,24 +2493,20 @@ impl AppCore {
         game: &StateGameRecord,
         workspace: Option<&StateLaunchWorkspaceRecord>,
         settings: &GameBrowserSettingsRecord,
-        launch_mode: &str,
     ) -> CoreResult<crate::model::BrowserEngineResolutionRecord> {
         let system_runtime = self.system_webview_runtime()?;
         let (system_available, system_failure_reason) =
             self.system_runtime_preflight(role, game, settings, &system_runtime)?;
         Ok(crate::engine_resolution::resolve_browser_engine(
             crate::engine_resolution::BrowserEngineResolutionInput {
-                launch_mode,
                 global_engine: settings.browser_engine.unwrap_or_default(),
                 game_engine: game.browser_engine.unwrap_or_default(),
                 workspace_engine: workspace
                     .and_then(|workspace| workspace.browser_engine)
                     .unwrap_or_default(),
                 role_engine_pin: role.browser_engine_pin,
-                browser_session_source: role.browser_session_source,
                 platform: self.platform,
                 system_available,
-                electron_available: true,
                 system_failure_reason,
             },
         ))
@@ -4919,7 +2518,6 @@ impl AppCore {
         games: &std::collections::HashMap<String, StateGameRecord>,
         workspace: &StateLaunchWorkspaceRecord,
         settings: &GameBrowserSettingsRecord,
-        launch_mode: &str,
     ) -> CoreResult<crate::model::BrowserEngineResolutionRecord> {
         let preferred_engine = crate::engine_resolution::resolve_workspace_preference(
             settings.browser_engine.unwrap_or_default(),
@@ -4933,7 +2531,7 @@ impl AppCore {
         .preferred_engine
         .ok_or_else(|| CoreError::Domain {
             code: "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED",
-            message: "The workspace contains games with different browser engine preferences. Choose System or Electron for this workspace before launching.".to_owned(),
+            message: "The workspace contains legacy browser engine settings that could not be normalized to System.".to_owned(),
         })?;
         let resolutions = roles
             .iter()
@@ -4942,31 +2540,9 @@ impl AppCore {
                     code: "GAME_NOT_FOUND",
                     message: "Game not found.".to_owned(),
                 })?;
-                self.resolve_role_browser_engine(role, game, Some(workspace), settings, launch_mode)
+                self.resolve_role_browser_engine(role, game, Some(workspace), settings)
             })
             .collect::<CoreResult<Vec<_>>>()?;
-        if launch_mode == "external" {
-            return Ok(crate::model::BrowserEngineResolutionRecord {
-                preferred_engine,
-                resolved_engine: crate::model::ResolvedBrowserEngine::ExternalChrome,
-                host_kind: crate::model::BrowserHostKind::External,
-                fallback_reason: resolutions
-                    .iter()
-                    .find_map(|resolution| resolution.fallback_reason),
-            });
-        }
-        if resolutions.iter().any(|resolution| {
-            resolution.resolved_engine == crate::model::ResolvedBrowserEngine::Electron
-        }) {
-            return Ok(crate::model::BrowserEngineResolutionRecord {
-                preferred_engine,
-                resolved_engine: crate::model::ResolvedBrowserEngine::Electron,
-                host_kind: crate::model::BrowserHostKind::Electron,
-                fallback_reason: resolutions
-                    .iter()
-                    .find_map(|resolution| resolution.fallback_reason),
-            });
-        }
         let system_engine = match self.platform {
             rion_platform::Platform::Macos => crate::model::ResolvedBrowserEngine::Wkwebview,
             rion_platform::Platform::Windows => crate::model::ResolvedBrowserEngine::Webview2,
@@ -4974,8 +2550,10 @@ impl AppCore {
         Ok(crate::model::BrowserEngineResolutionRecord {
             preferred_engine,
             resolved_engine: system_engine,
-            host_kind: crate::model::BrowserHostKind::System,
-            fallback_reason: None,
+            host_kind: crate::model::BrowserHostKind::SystemNative,
+            issue_reason: resolutions
+                .iter()
+                .find_map(|resolution| resolution.issue_reason),
         })
     }
 
@@ -4985,11 +2563,11 @@ impl AppCore {
         game: &StateGameRecord,
         settings: &GameBrowserSettingsRecord,
         runtime: &SystemWebViewRuntimeRegistrationRecord,
-    ) -> CoreResult<(bool, Option<crate::model::EngineFallbackReason>)> {
+    ) -> CoreResult<(bool, Option<crate::model::SystemWebViewIssueReason>)> {
         if let Some(reason) = self
-            .embedded_engine_fallbacks
+            .system_webview_issues
             .read()
-            .map_err(|_| CoreError::Internal("embedded engine fallback lock poisoned".to_owned()))?
+            .map_err(|_| CoreError::Internal("system WebView issue lock poisoned".to_owned()))?
             .get(&role.id)
             .copied()
         {
@@ -5005,28 +2583,16 @@ impl AppCore {
                 macro_record.enabled && macro_record.role_ids.iter().any(|id| id == &role.id)
             });
         if role_uses_macros
-            && (!system_capability_available(runtime.capability_snapshot.trusted_input)
-                || !system_capability_available(runtime.capability_snapshot.background_input)
+            && (!system_capability_verified(runtime.capability_snapshot.trusted_input)
+                || !system_capability_verified(runtime.capability_snapshot.background_input)
                 || !system_capability_available(runtime.capability_snapshot.frame_evaluation))
         {
             return Ok((
                 false,
                 Some(if self.platform == rion_platform::Platform::Macos {
-                    crate::model::EngineFallbackReason::WebkitSpiUnavailable
+                    crate::model::SystemWebViewIssueReason::WebkitSpiUnavailable
                 } else {
-                    crate::model::EngineFallbackReason::RuntimeCreationFailed
-                }),
-            ));
-        }
-        if settings.network.cdn_compatibility.mode == "on"
-            && !system_capability_available(runtime.capability_snapshot.cdn_rewrite)
-        {
-            return Ok((
-                false,
-                Some(if self.platform == rion_platform::Platform::Macos {
-                    crate::model::EngineFallbackReason::MacCdnRewriteUnsupported
-                } else {
-                    crate::model::EngineFallbackReason::RuntimeCreationFailed
+                    crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
                 }),
             ));
         }
@@ -5036,7 +2602,7 @@ impl AppCore {
         {
             return Ok((
                 false,
-                Some(crate::model::EngineFallbackReason::RuntimeCreationFailed),
+                Some(crate::model::SystemWebViewIssueReason::RuntimeCreationFailed),
             ));
         }
         let cache_key = self.engine_compatibility_cache_key(game, settings, runtime)?;
@@ -5046,7 +2612,7 @@ impl AppCore {
         {
             return Ok((
                 false,
-                Some(crate::model::EngineFallbackReason::CachedCompatibilityFailure),
+                Some(crate::model::SystemWebViewIssueReason::CachedCompatibilityFailure),
             ));
         }
         Ok((true, None))
@@ -5088,7 +2654,7 @@ impl AppCore {
         &self,
         roles: &[StateRoleRecord],
         compatible: bool,
-        fallback_reason: Option<crate::model::EngineFallbackReason>,
+        issue_reason: Option<crate::model::SystemWebViewIssueReason>,
     ) -> CoreResult<()> {
         let runtime = self.system_webview_runtime()?;
         let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
@@ -5105,7 +2671,7 @@ impl AppCore {
                 key: self.engine_compatibility_cache_key(game, &settings, &runtime)?,
                 compatible,
                 capability_snapshot: runtime.capability_snapshot.clone(),
-                fallback_reason,
+                issue_reason,
                 checked_at: chrono::Utc::now().to_rfc3339(),
             };
             self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_put(record))?;
@@ -5113,16 +2679,17 @@ impl AppCore {
         Ok(())
     }
 
-    fn record_embedded_engine_fallback(
+    fn record_system_webview_issue(
         &self,
         role_ids: &[String],
-        reason: crate::model::EngineFallbackReason,
+        reason: crate::model::SystemWebViewIssueReason,
     ) -> CoreResult<()> {
-        let mut fallbacks = self.embedded_engine_fallbacks.write().map_err(|_| {
-            CoreError::Internal("embedded engine fallback lock poisoned".to_owned())
-        })?;
+        let mut issues = self
+            .system_webview_issues
+            .write()
+            .map_err(|_| CoreError::Internal("system WebView issue lock poisoned".to_owned()))?;
         role_ids.iter().for_each(|role_id| {
-            fallbacks.insert(role_id.clone(), reason);
+            issues.insert(role_id.clone(), reason);
         });
         Ok(())
     }
@@ -5155,7 +2722,7 @@ impl AppCore {
         if preference.requires_override {
             return Err(CoreError::Domain {
                 code: "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED",
-                message: "The workspace contains games with different browser engine preferences. Choose System or Electron for this workspace before launching.".to_owned(),
+                message: "The workspace contains legacy browser engine settings that could not be normalized to System.".to_owned(),
             });
         }
         Ok(())
@@ -5259,6 +2826,15 @@ impl AppCore {
             });
         }
 
+        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        let game = self.state_game(&role.game_id)?;
+        let resolution = self.resolve_role_browser_engine(&role, &game, None, &settings)?;
+        require_system_resolution(&resolution)?;
+        let resolved_engine = resolution.resolved_engine;
+
         let tab_id = self
             .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
                 source_id: role.id.clone(),
@@ -5282,14 +2858,6 @@ impl AppCore {
             tab_id: tab_id.clone(),
         })?;
 
-        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-            "gameBrowserSettings",
-            "game browser settings are missing",
-        )?;
-        let game = self.external_game(&role.game_id)?;
-        let resolved_engine = self
-            .resolve_role_browser_engine(&role, &game, None, &settings, "embedded")?
-            .resolved_engine;
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             source_id: role.id.clone(),
@@ -5309,12 +2877,8 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let launch = self.run_embedded_launch_with_system_fallback(
-            &tab_id,
-            tab,
-            std::slice::from_ref(&role),
-            runtime_snapshot,
-        );
+        let launch =
+            self.run_system_launch(&tab_id, tab, std::slice::from_ref(&role), runtime_snapshot);
         if let Err(error) = launch {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                 role_id: role.id.clone(),
@@ -5420,6 +2984,19 @@ impl AppCore {
                 message: "A launch workspace role no longer exists.".to_owned(),
             });
         }
+        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        let available_games = self
+            .read_typed_state_collection::<StateGameRecord>("games")?
+            .into_iter()
+            .map(|game| (game.id.clone(), game))
+            .collect::<std::collections::HashMap<_, _>>();
+        let workspace_resolution =
+            self.resolve_workspace_browser_engine(&roles, &available_games, &workspace, &settings)?;
+        require_system_resolution(&workspace_resolution)?;
+        let workspace_resolved_engine = workspace_resolution.resolved_engine;
         self.invoke_browser_runtime(BrowserRuntimeCommand::BeginWorkspace {
             workspace_id: workspace.id.clone(),
             name: workspace.name.clone(),
@@ -5457,24 +3034,6 @@ impl AppCore {
         self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
             tab_id: tab_id.clone(),
         })?;
-        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-            "gameBrowserSettings",
-            "game browser settings are missing",
-        )?;
-        let available_games = self
-            .read_typed_state_collection::<StateGameRecord>("games")?
-            .into_iter()
-            .map(|game| (game.id.clone(), game))
-            .collect::<std::collections::HashMap<_, _>>();
-        let workspace_resolved_engine = self
-            .resolve_workspace_browser_engine(
-                &roles,
-                &available_games,
-                &workspace,
-                &settings,
-                "embedded",
-            )?
-            .resolved_engine;
         let effect_roles = workspace
             .slots
             .iter()
@@ -5510,8 +3069,7 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let launch =
-            self.run_embedded_launch_with_system_fallback(&tab_id, tab, &roles, runtime_snapshot);
+        let launch = self.run_system_launch(&tab_id, tab, &roles, runtime_snapshot);
         if let Err(error) = launch {
             for role_id in &role_ids {
                 let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
@@ -5767,7 +3325,7 @@ impl AppCore {
         self.run_effect_plan_for_roles(steps, &[])
     }
 
-    fn run_embedded_launch_with_system_fallback(
+    fn run_system_launch(
         &self,
         tab_id: &str,
         tab: EmbeddedTabEffectRecord,
@@ -5775,50 +3333,31 @@ impl AppCore {
         runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
-        let requested_system = tab
-            .roles
-            .iter()
-            .any(|role| is_system_resolved_engine(role.resolved_engine));
         let launch = self.run_effect_plan_for_roles(
             embedded_launch_effects(tab_id, tab.clone(), roles, runtime_snapshot.clone()),
             &role_ids,
         );
         let error = match launch {
             Ok(outcome) => {
-                if requested_system {
-                    self.record_system_engine_compatibility(roles, true, None)?;
-                }
+                self.record_system_engine_compatibility(roles, true, None)?;
                 return Ok(outcome);
             }
             Err(error) => error,
         };
-        if !requested_system || error.code() == "LAUNCH_CANCELLED" {
+        if error.code() == "LAUNCH_CANCELLED" {
             return Err(error);
         }
-        let fallback_reason = match error.code() {
-            "MAC_CDN_REWRITE_UNSUPPORTED" => {
-                crate::model::EngineFallbackReason::MacCdnRewriteUnsupported
-            }
-            _ => crate::model::EngineFallbackReason::RuntimeCreationFailed,
-        };
-        self.record_embedded_engine_fallback(&role_ids, fallback_reason)?;
-        self.record_system_engine_compatibility(roles, false, Some(fallback_reason))?;
-        let mut fallback_tab = tab;
-        fallback_tab.roles.iter_mut().for_each(|role| {
-            role.resolved_engine = crate::model::ResolvedBrowserEngine::Electron;
-        });
-        self.run_effect_plan_for_roles(
-            embedded_launch_effects(tab_id, fallback_tab, roles, runtime_snapshot),
-            &role_ids,
-        )
+        let failure_reason = crate::model::SystemWebViewIssueReason::RuntimeCreationFailed;
+        self.record_system_webview_issue(&role_ids, failure_reason)?;
+        self.record_system_engine_compatibility(roles, false, Some(failure_reason))?;
+        Err(error)
     }
 
-    fn fallback_crashed_system_surface(
+    fn report_crashed_system_surface(
         &self,
         role_id: &str,
         reason: Option<&str>,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
-        let _sequence = self.embedded_runtime_sequence.acquire()?;
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
@@ -5830,35 +3369,16 @@ impl AppCore {
                 code: "EMBEDDED_ROLE_NOT_RUNNING",
                 message: "The embedded role is not running.".to_owned(),
             })?;
-        let tab_id = runtime_role.tab_id.as_ref().ok_or_else(|| {
-            CoreError::Internal("embedded role runtime is missing its tab".to_owned())
-        })?;
         let role_ids = snapshot
             .tabs
             .iter()
-            .find(|tab| &tab.id == tab_id)
+            .find(|tab| runtime_role.tab_id.as_deref() == Some(tab.id.as_str()))
             .map(|tab| tab.role_ids.clone())
             .ok_or_else(|| CoreError::Domain {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),
             })?;
-        let fallback = self.run_effect_plan_for_roles(
-            vec![effect_step(
-                tab_id,
-                CoreEffectAction::EmbeddedFallbackTabToElectron {
-                    tab_id: tab_id.clone(),
-                    role_ids: role_ids.clone(),
-                },
-                Duration::from_secs(90),
-                None,
-            )],
-            &role_ids,
-        )?;
-        let fallback_result = fallback
-            .results
-            .last()
-            .ok_or_else(|| CoreError::Internal("fallback effect returned no result".to_owned()))
-            .and_then(effect_value::<EmbeddedFallbackResult>)?;
+        let _ = self.macro_runtime.stop_role(role_id);
         let roles = self
             .read_typed_state_collection::<StateRoleRecord>("roles")?
             .into_iter()
@@ -5867,33 +3387,70 @@ impl AppCore {
         let _ = self.record_system_engine_compatibility(
             &roles,
             false,
-            Some(crate::model::EngineFallbackReason::RuntimeCrashed),
+            Some(crate::model::SystemWebViewIssueReason::RuntimeCrashed),
         );
-        let default_reason = if reason == Some("popup-unsupported") {
-            crate::model::EngineFallbackReason::RuntimeCreationFailed
+        let failure_reason = if reason == Some("popup-unsupported") {
+            crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
         } else {
-            crate::model::EngineFallbackReason::RuntimeCrashed
+            crate::model::SystemWebViewIssueReason::RuntimeCrashed
         };
-        let continuity = fallback_result
-            .roles
-            .into_iter()
-            .map(|role| (role.role_id, role.auth_verified))
-            .collect::<std::collections::HashMap<_, _>>();
         {
-            let mut fallbacks = self.embedded_engine_fallbacks.write().map_err(|_| {
-                CoreError::Internal("embedded engine fallback lock poisoned".to_owned())
+            let mut issues = self.system_webview_issues.write().map_err(|_| {
+                CoreError::Internal("system WebView issue lock poisoned".to_owned())
             })?;
             for role_id in &role_ids {
-                fallbacks.insert(
-                    role_id.clone(),
-                    if continuity.get(role_id).copied().unwrap_or(false) {
-                        default_reason
-                    } else {
-                        crate::model::EngineFallbackReason::AuthVerificationFailed
-                    },
-                );
+                issues.insert(role_id.clone(), failure_reason);
             }
         }
+        let statuses = self
+            .browser_statuses()?
+            .into_iter()
+            .filter(|status| role_ids.contains(&status.role_id))
+            .collect::<Vec<_>>();
+        self.emit(vec![CoreEvent::BrowserStatuses {
+            statuses: self.browser_statuses()?,
+        }]);
+        Ok(statuses)
+    }
+
+    fn report_recovered_system_surface(
+        &self,
+        role_id: &str,
+    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        let runtime_role = snapshot
+            .roles
+            .iter()
+            .find(|role| role.role_id == role_id && role.runtime == "embedded")
+            .ok_or_else(|| CoreError::Domain {
+                code: "EMBEDDED_ROLE_NOT_RUNNING",
+                message: "The embedded role is not running.".to_owned(),
+            })?;
+        let role_ids = snapshot
+            .tabs
+            .iter()
+            .find(|tab| runtime_role.tab_id.as_deref() == Some(tab.id.as_str()))
+            .map(|tab| tab.role_ids.clone())
+            .ok_or_else(|| CoreError::Domain {
+                code: "RUNTIME_TAB_NOT_FOUND",
+                message: "Runtime tab was not found.".to_owned(),
+            })?;
+        let roles = self
+            .read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .filter(|role| role_ids.contains(&role.id))
+            .collect::<Vec<_>>();
+        {
+            let mut issues = self.system_webview_issues.write().map_err(|_| {
+                CoreError::Internal("system WebView issue lock poisoned".to_owned())
+            })?;
+            for role_id in &role_ids {
+                issues.remove(role_id);
+            }
+        }
+        self.record_system_engine_compatibility(&roles, true, None)?;
         let statuses = self
             .browser_statuses()?
             .into_iter()
@@ -6146,7 +3703,6 @@ impl AppCore {
     }
 
     pub fn dispatch_browser_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
-        self.external_health()?.dispatch_results(results.clone());
         self.macro_runtime.dispatch_results(results)
     }
 
@@ -6169,8 +3725,6 @@ impl AppCore {
             }
         }
         if !browser_results.is_empty() {
-            self.external_health()?
-                .dispatch_results(browser_results.clone());
             self.macro_runtime.dispatch_results(browser_results)?;
         }
         let mut report = self.operation_actor.dispatch_results(operation_results)?;
@@ -6181,14 +3735,6 @@ impl AppCore {
         })?;
         report.accepted.extend(browser_effect_ids);
         Ok(report)
-    }
-
-    pub fn match_cdn_url(&self, url: &str) -> CoreResult<Option<String>> {
-        let matcher = self
-            .cdn
-            .read()
-            .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?;
-        Ok(matcher.rewrite(url))
     }
 
     pub fn resolve_workspace_layout(
@@ -6339,24 +3885,6 @@ impl AppCore {
             .map_err(|_| CoreError::Internal("portable runtime lock poisoned".to_owned()))
     }
 
-    fn chrome_profile_import(
-        &self,
-    ) -> CoreResult<
-        std::sync::MutexGuard<'_, crate::chrome_profile_import::ChromeProfileImportRuntime>,
-    > {
-        self.chrome_profile_import
-            .lock()
-            .map_err(|_| CoreError::Internal("Chrome profile import lock poisoned".to_owned()))
-    }
-
-    fn delete_chrome_profile_preview_journal(&self, import_id: &str) -> CoreResult<()> {
-        self.with_runtime(|runtime| {
-            runtime
-                .state
-                .delete_operation_journal(chrome_profile_preview_journal_id(import_id))
-        })
-    }
-
     fn compatibility_runtime(
         &self,
     ) -> CoreResult<std::sync::MutexGuard<'_, crate::compatibility_runtime::CompatibilityRuntime>>
@@ -6382,43 +3910,6 @@ impl AppCore {
 
     pub fn cancel_wait(&self, id: String) -> CoreResult<()> {
         self.with_runtime(|runtime| runtime.scheduler.cancel(id))
-    }
-
-    pub fn align_external_chrome_window(
-        &self,
-        process_id: u32,
-        target: PixelBounds,
-    ) -> CoreResult<PixelBounds> {
-        #[cfg(windows)]
-        {
-            rion_platform::windows::align_visible_frame(process_id, target)
-                .map_err(|error| CoreError::Platform(error.to_string()))
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = (process_id, target);
-            Err(CoreError::Platform(
-                "external Chrome window alignment is available on Windows only".to_owned(),
-            ))
-        }
-    }
-
-    pub fn find_chrome_executable(&self) -> CoreResult<PathBuf> {
-        rion_platform::find_chrome_executable(self.platform)
-            .map_err(|error| CoreError::Platform(error.to_string()))
-    }
-
-    pub fn prepare_external_chrome_profile(&self, path: PathBuf) -> CoreResult<()> {
-        if !path.is_absolute() {
-            return Err(CoreError::InvalidInput(
-                "external Chrome profile path must be absolute".to_owned(),
-            ));
-        }
-        match fs::remove_file(path.join("DevToolsActivePort")) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(CoreError::ExternalChrome(error.to_string())),
-        }
     }
 
     pub fn subscribe(&self) -> CoreResult<Receiver<Vec<CoreEvent>>> {
@@ -6447,187 +3938,13 @@ impl AppCore {
         self.browser_operations.complete(id)
     }
 
-    pub fn invoke_external_session(
-        &self,
-        command: crate::model::ExternalSessionCommand,
-    ) -> CoreResult<crate::model::ExternalSessionResult> {
-        self.with_runtime(|_| Ok(()))?;
-        let mut browser = self
-            .browser_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-        let mut sessions = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
-        let previous = sessions.clone();
-        let removed = match &command {
-            crate::model::ExternalSessionCommand::Remove { role_id, .. } => {
-                sessions.get(role_id).cloned()
-            }
-            _ => None,
-        };
-        let result = sessions.invoke(command.clone())?;
-        let browser_result = match command {
-            crate::model::ExternalSessionCommand::Begin {
-                role, workspace_id, ..
-            } => browser.invoke(crate::model::BrowserRuntimeCommand::RoleTransition {
-                role_id: role.id,
-                runtime: "external".to_owned(),
-                workspace_id,
-                tab_id: None,
-                state: "launching".to_owned(),
-                launched_at: None,
-            }),
-            crate::model::ExternalSessionCommand::SetRunning {
-                role_id,
-                launched_at,
-            } => {
-                let workspace_id = sessions
-                    .get(&role_id)
-                    .and_then(|session| session.workspace_id.clone());
-                browser.invoke(crate::model::BrowserRuntimeCommand::RoleTransition {
-                    role_id,
-                    runtime: "external".to_owned(),
-                    workspace_id,
-                    tab_id: None,
-                    state: "running".to_owned(),
-                    launched_at: Some(launched_at),
-                })
-            }
-            crate::model::ExternalSessionCommand::SetStopping { role_id } => {
-                let workspace_id = sessions
-                    .get(&role_id)
-                    .and_then(|session| session.workspace_id.clone());
-                browser.invoke(crate::model::BrowserRuntimeCommand::RoleTransition {
-                    role_id,
-                    runtime: "external".to_owned(),
-                    workspace_id,
-                    tab_id: None,
-                    state: "stopping".to_owned(),
-                    launched_at: None,
-                })
-            }
-            crate::model::ExternalSessionCommand::Remove {
-                role_id,
-                preserve_workspace,
-            } => {
-                browser.invoke(crate::model::BrowserRuntimeCommand::RemoveRole { role_id })?;
-                if let Some(workspace_id) = removed.and_then(|session| session.workspace_id)
-                    && !preserve_workspace
-                    && !sessions.workspace_has_sessions(&workspace_id)
-                {
-                    browser.invoke(crate::model::BrowserRuntimeCommand::RemoveWorkspace {
-                        workspace_id,
-                    })
-                } else {
-                    browser.invoke(crate::model::BrowserRuntimeCommand::Snapshot)
-                }
-            }
-            _ => browser.invoke(crate::model::BrowserRuntimeCommand::Snapshot),
-        };
-        if let Err(error) = browser_result {
-            *sessions = previous;
-            return Err(error);
-        }
-        Ok(result)
-    }
-
-    pub async fn connect_external_chrome_cdp(
-        &self,
-        role_id: String,
-        browser_user_data_dir: PathBuf,
-        launch_url: String,
-        timeout: Option<std::time::Duration>,
-        cdn_enabled: bool,
-    ) -> CoreResult<Arc<crate::ExternalChromeCdpSession>> {
-        self.with_runtime(|_| Ok(()))?;
-        let cdn = if cdn_enabled {
-            let matcher = Arc::clone(&self.cdn);
-            let patterns = matcher
-                .read()
-                .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?
-                .request_patterns();
-            Some(crate::external_chrome::CdnRequestRewriter {
-                patterns,
-                rewrite: Arc::new(move |url| {
-                    matcher.read().ok().and_then(|matcher| matcher.rewrite(url))
-                }),
-            })
-        } else {
-            None
-        };
-        let session = Arc::new(
-            crate::ExternalChromeCdpSession::connect(
-                browser_user_data_dir,
-                launch_url,
-                timeout,
-                cdn,
-            )
-            .await?,
-        );
-        self.external_automation
-            .register(role_id, Arc::clone(&session))?;
-        Ok(session)
-    }
-
-    pub fn unregister_external_chrome_automation(&self, role_id: &str) -> CoreResult<()> {
-        self.external_automation.unregister(role_id)
-    }
-
-    pub async fn dispatch_external_browser_actions(
-        &self,
-        actions: Vec<crate::model::BrowserActionRequest>,
-    ) -> CoreResult<crate::model::ExternalBrowserActionDispatch> {
-        self.with_runtime(|_| Ok(()))?;
-        self.external_automation.dispatch(actions).await
-    }
-
-    pub async fn focus_external_chrome(&self, role_id: &str) -> CoreResult<()> {
-        self.with_runtime(|_| Ok(()))?;
-        self.external_automation.focus(role_id).await
-    }
-
-    pub async fn set_external_chrome_window_bounds(
-        &self,
-        role_id: &str,
-        bounds: crate::model::StatePixelBoundsRecord,
-    ) -> CoreResult<()> {
-        self.with_runtime(|_| Ok(()))?;
-        self.external_automation
-            .set_window_bounds(role_id, bounds)
-            .await
-    }
-
-    pub async fn capture_external_chrome_diagnostics(
-        &self,
-        role_id: &str,
-    ) -> CoreResult<serde_json::Value> {
-        self.with_runtime(|_| Ok(()))?;
-        self.external_automation.diagnostics(role_id).await
-    }
-
-    pub async fn evaluate_external_chrome(
-        &self,
-        role_id: &str,
-        source: &str,
-    ) -> CoreResult<serde_json::Value> {
-        self.with_runtime(|_| Ok(()))?;
-        self.external_automation.evaluate(role_id, source).await
-    }
-
     pub fn shutdown(&self) {
         self.browser_operations.shutdown();
-        if let Ok(mut health) = self.external_health.lock() {
-            health.shutdown();
-        }
         self.macro_runtime.shutdown();
         self.browser_action_effects.shutdown();
         self.operation_actor.shutdown();
         let core_effects = self.operation_actor.metrics();
         self.overlay_refresh.shutdown();
-        self.external_automation.shutdown();
-        self.external_processes.shutdown();
         if let Ok(mut embedded_input) = self.embedded_input.lock() {
             embedded_input.shutdown();
         }
@@ -6684,35 +4001,14 @@ impl AppCore {
     async fn export_diagnostics(
         self: &Arc<Self>,
         path: String,
-        snapshot: ElectronDiagnosticsSnapshotRecord,
+        snapshot: ApplicationDiagnosticsSnapshotRecord,
     ) -> CoreResult<DiagnosticExportResultRecord> {
         let captured_at = chrono::Utc::now();
-        let freeze_reported_at = snapshot
-            .external_freeze_reported_at
-            .as_deref()
-            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-            .map(|value| value.with_timezone(&chrono::Utc));
-        let graphics_since = freeze_reported_at
-            .map(|value| value - chrono::Duration::minutes(30))
-            .unwrap_or_else(|| captured_at - chrono::Duration::minutes(30));
+        let graphics_since = captured_at - chrono::Duration::minutes(30);
         let windows_graphics_events =
             crate::windows_graphics_events::collect(self.platform, &graphics_since.to_rfc3339())?;
         let host = rion_platform::collect_system_host_diagnostics();
         let state = self.read_typed_snapshot()?;
-        let external_role_ids = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-            .snapshot()
-            .into_iter()
-            .map(|session| session.role.id)
-            .collect::<Vec<_>>();
-        let mut external_chrome = Vec::with_capacity(external_role_ids.len());
-        for role_id in external_role_ids {
-            if let Ok(diagnostics) = self.capture_external_diagnostics(&role_id).await {
-                external_chrome.push(diagnostics);
-            }
-        }
         let current_level = self.log_capture()?.current_level();
         let logging = self.with_runtime(|runtime| runtime.logs.storage_status(current_level))?;
         let browser_role_statuses = self.browser_statuses()?;
@@ -6738,23 +4034,6 @@ impl AppCore {
                     .flatten()
             })
             .collect::<Vec<_>>();
-        let migrated_role_count = self.with_runtime(|runtime| {
-            let mut count = 0_u32;
-            for role in &state.roles {
-                if runtime
-                    .state
-                    .role_session_migration_checkpoint_get(role.id.clone())?
-                    .is_some()
-                {
-                    count = count.saturating_add(1);
-                }
-            }
-            Ok(count)
-        })?;
-        let needs_login_count = browser_role_statuses
-            .iter()
-            .filter(|status| status.session_continuity.as_deref() == Some("needs-login"))
-            .count();
         let gpu_feature_status =
             serde_json::from_str::<Value>(&snapshot.gpu_feature_status_raw_json)
                 .unwrap_or(Value::Null);
@@ -6770,9 +4049,10 @@ impl AppCore {
                 "packaged": snapshot.packaged,
             },
             "runtime": {
-                "electron": snapshot.electron_version,
-                "chromium": snapshot.chromium_version,
-                "node": snapshot.node_version,
+                "engine": snapshot.engine,
+                "engineVersion": snapshot.engine_version,
+                "shell": snapshot.shell,
+                "shellVersion": snapshot.shell_version,
             },
             "system": {
                 "platform": match self.platform {
@@ -6795,7 +4075,6 @@ impl AppCore {
                 "gpuFeatureStatus": gpu_feature_status,
                 "gpuInfo": gpu_info,
             },
-            "externalChrome": external_chrome,
             "browserEngines": {
                 "systemRuntime": system_webview_runtime,
                 "activeRoles": browser_role_statuses,
@@ -6803,23 +4082,13 @@ impl AppCore {
                 "compatibilityCache": engine_compatibility_cache,
                 "requirements": {
                     "defaultEngine": browser_settings.browser_engine,
-                    "cdnMode": browser_settings.network.cdn_compatibility.mode,
                     "proxyMode": browser_settings.network.proxy.mode,
                     "customProxyConfigured": browser_settings.network.proxy.mode == "custom"
                         && !browser_settings.network.proxy.server.is_empty(),
                 },
-                "sessionContinuity": {
-                    "migratedRoleCount": migrated_role_count,
-                    "legacyElectronPinCount": state.roles.iter().filter(|role| {
-                        role.browser_engine_pin
-                            == Some(crate::model::EmbeddedBrowserEngine::Electron)
-                    }).count(),
-                    "needsLoginCount": needs_login_count,
-                },
             },
             "windowsGraphicsEvents": windows_graphics_events,
             "windowsGraphicsEventWindow": {
-                "freezeReportedAt": freeze_reported_at.map(|value| value.to_rfc3339()),
                 "since": graphics_since.to_rfc3339(),
                 "until": captured_at.to_rfc3339(),
             },
@@ -6850,12 +4119,6 @@ impl AppCore {
         })
     }
 
-    fn external_health(&self) -> CoreResult<std::sync::MutexGuard<'_, ExternalHealthRuntime>> {
-        self.external_health
-            .lock()
-            .map_err(|_| CoreError::Internal("external health lock poisoned".to_owned()))
-    }
-
     fn emit(&self, events: Vec<CoreEvent>) {
         broadcast_events(&self.subscribers, events);
     }
@@ -6871,44 +4134,57 @@ fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserR
         automation_state: None,
         overlay_state: None,
         page_health: None,
-        preferred_engine: Some(crate::model::EmbeddedBrowserEngine::Electron),
-        resolved_engine: Some(crate::model::ResolvedBrowserEngine::Electron),
-        host_kind: Some(crate::model::BrowserHostKind::Electron),
-        fallback_reason: None,
+        preferred_engine: None,
+        resolved_engine: None,
+        host_kind: None,
+        issue_reason: None,
         capability_snapshot: None,
-        session_continuity: None,
     }
 }
 
-fn external_status(session: &ExternalSessionRecord) -> crate::model::BrowserRoleStatusRecord {
-    crate::model::BrowserRoleStatusRecord {
-        role_id: session.role.id.clone(),
-        state: session.state.clone(),
-        launched_at: session.launched_at.clone(),
-        notice: session.notice.clone(),
-        runtime_mode: "external".to_owned(),
-        automation_state: (session.state == "running").then(|| {
-            if session.automation_available {
-                "ready".to_owned()
-            } else {
-                "unavailable".to_owned()
-            }
-        }),
-        overlay_state: (session.state == "running").then(|| {
-            if session.overlay_available {
-                "ready".to_owned()
-            } else {
-                "unavailable".to_owned()
-            }
-        }),
-        page_health: session.page_health.clone(),
-        preferred_engine: None,
-        resolved_engine: Some(crate::model::ResolvedBrowserEngine::ExternalChrome),
-        host_kind: Some(crate::model::BrowserHostKind::External),
-        fallback_reason: None,
-        capability_snapshot: None,
-        session_continuity: None,
-    }
+fn embedded_role_statuses(
+    roles: Vec<crate::model::BrowserRuntimeRoleRecord>,
+) -> Vec<crate::model::BrowserRoleStatusRecord> {
+    let mut statuses = roles
+        .into_iter()
+        .filter(|role| role.runtime == "embedded")
+        .map(|role| crate::model::BrowserRoleStatusRecord {
+            role_id: role.role_id,
+            state: role.state,
+            launched_at: role.launched_at,
+            notice: None,
+            runtime_mode: "embedded".to_owned(),
+            automation_state: None,
+            overlay_state: None,
+            page_health: None,
+            preferred_engine: None,
+            resolved_engine: None,
+            host_kind: None,
+            issue_reason: None,
+            capability_snapshot: None,
+        })
+        .collect::<Vec<_>>();
+    statuses.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+    statuses
+}
+
+fn embedded_workspace_statuses(
+    workspaces: Vec<crate::model::BrowserRuntimeWorkspaceRecord>,
+) -> Vec<crate::model::BrowserWorkspaceStatusRecord> {
+    let mut statuses = workspaces
+        .into_iter()
+        .map(|workspace| crate::model::BrowserWorkspaceStatusRecord {
+            workspace_id: workspace.workspace_id,
+            state: workspace.state,
+            preferred_engine: None,
+            resolved_engine: None,
+            host_kind: None,
+            issue_reason: None,
+            capability_snapshot: None,
+        })
+        .collect::<Vec<_>>();
+    statuses.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));
+    statuses
 }
 
 fn effect_value<T: DeserializeOwned>(result: &CoreEffectResult) -> CoreResult<T> {
@@ -6918,7 +4194,7 @@ fn effect_value<T: DeserializeOwned>(result: &CoreEffectResult) -> CoreResult<T>
             .clone()
             .unwrap_or_else(|| crate::error::CoreErrorPayload {
                 code: "CORE_EFFECT_FAILED".to_owned(),
-                message: "The Electron effect failed.".to_owned(),
+                message: "The desktop shell effect failed.".to_owned(),
             });
         return Err(CoreError::Effect {
             code: error.code,
@@ -6928,23 +4204,8 @@ fn effect_value<T: DeserializeOwned>(result: &CoreEffectResult) -> CoreResult<T>
     let value = result.value_json.as_deref().unwrap_or("null");
     serde_json::from_str(value).map_err(|error| {
         CoreError::Internal(format!(
-            "Electron effect returned an invalid result: {error}"
+            "Desktop shell effect returned an invalid result: {error}"
         ))
-    })
-}
-
-fn append_external_notice(current: Option<String>, next: &str) -> Option<String> {
-    match current {
-        Some(current) if current.contains(next) => Some(current),
-        Some(current) => Some(format!("{current} {next}")),
-        None => Some(next.to_owned()),
-    }
-}
-
-fn remove_external_notice(current: Option<String>, target: &str) -> Option<String> {
-    current.and_then(|current| {
-        let next = current.replace(target, "").trim().to_owned();
-        (!next.is_empty()).then_some(next)
     })
 }
 
@@ -6956,124 +4217,6 @@ fn validate_overlay_language(language: &str) -> CoreResult<()> {
             "macro overlay language is invalid".to_owned(),
         ))
     }
-}
-
-fn external_overlay_bridge_source() -> String {
-    format!(
-        r#"(() => {{
-  const bindingName = {binding};
-  const bridgeKey = {bridge};
-  if (window[bridgeKey]?.version === 1 || typeof window[bindingName] !== "function") return;
-  const nativeBinding = window[bindingName];
-  let nextId = 1;
-  const pending = new Map();
-  window[bridgeKey] = {{
-    version: 1,
-    resolve(id, ok, value) {{
-      const request = pending.get(id);
-      if (!request) return;
-      pending.delete(id);
-      if (ok) request.resolve(value);
-      else request.reject(new Error(String(value)));
-    }}
-  }};
-  window[bindingName] = (request) => new Promise((resolve, reject) => {{
-    const id = nextId++;
-    pending.set(id, {{ resolve, reject }});
-    nativeBinding(JSON.stringify({{ id, request }}));
-  }});
-}})()"#,
-        binding =
-            serde_json::to_string(EXTERNAL_OVERLAY_BINDING).expect("overlay binding is valid JSON"),
-        bridge = serde_json::to_string(EXTERNAL_OVERLAY_BRIDGE_KEY)
-            .expect("overlay bridge key is valid JSON"),
-    )
-}
-
-async fn external_overlay_evaluate(
-    session: &crate::ExternalChromeCdpSession,
-    expression: &str,
-    context_id: Option<i64>,
-) -> bool {
-    let expression =
-        format!("(() => {{\n{expression}\nreturn Boolean(window.__rionStudioMacroOverlay);\n}})()");
-    let mut params = json!({
-        "expression": expression,
-        "returnByValue": true
-    });
-    if let Some(context_id) = context_id {
-        params["contextId"] = Value::from(context_id);
-    }
-    matches!(
-        tokio::time::timeout(
-            Duration::from_secs(1),
-            session.send(
-                "Runtime.evaluate".to_owned(),
-                Some(params),
-                Some(Duration::from_millis(750)),
-                None,
-            ),
-        )
-        .await,
-        Ok(Ok(result))
-            if result.get("exceptionDetails").is_none()
-                && result.pointer("/result/value").and_then(Value::as_bool) == Some(true)
-    )
-}
-
-fn is_main_frame_navigation(method: &str, params: Option<&Value>) -> bool {
-    method == "Page.frameNavigated"
-        && params
-            .and_then(|value| value.get("frame"))
-            .is_some_and(|frame| frame.get("parentId").is_none())
-}
-
-fn external_page_diagnostics_source() -> &'static str {
-    r#"(() => {
-  const bindingName = "rionStudioExternalDiagnostics";
-  const stateKey = "__rionStudioExternalDiagnosticsV2";
-  if (window.top !== window || typeof window[bindingName] !== "function") return;
-  if (window[stateKey]?.version === 2) {
-    window[stateKey].report("reinstall");
-    return;
-  }
-  const binding = window[bindingName];
-  let sequence = 0;
-  const report = (event) => {
-    try {
-      binding(JSON.stringify({
-        event,
-        hasFocus: document.hasFocus(),
-        hidden: document.hidden,
-        monotonicMs: performance.now(),
-        sequence: sequence++,
-        visibilityState: document.visibilityState,
-        wasDiscarded: Boolean(document.wasDiscarded)
-      }));
-    } catch {}
-  };
-  window[stateKey] = { report, version: 2 };
-  ["focus", "blur", "pageshow", "pagehide"].forEach((event) => {
-    window.addEventListener(event, () => report(event), true);
-  });
-  ["freeze", "resume"].forEach((event) => {
-    document.addEventListener(event, () => report(event), true);
-  });
-  document.addEventListener("visibilitychange", () => report("visibilitychange"), true);
-  const reportHeartbeat = () => requestAnimationFrame(() => report("heartbeat"));
-  window.setInterval(reportHeartbeat, 5000);
-  report("install");
-  reportHeartbeat();
-})()"#
-}
-
-fn system_epoch_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 fn effect_step(
@@ -7179,21 +4322,6 @@ fn rollback_role_browser_data_clear(
     })
 }
 
-fn complete_profile_lease(
-    core: &AppCore,
-    lease: Option<&crate::model::BrowserOperationLease>,
-    succeeded: bool,
-) -> CoreResult<()> {
-    let Some(lease) = lease else {
-        return Ok(());
-    };
-    if succeeded {
-        core.browser_operations.complete(&lease.id)
-    } else {
-        core.browser_operations.abort(&lease.id)
-    }
-}
-
 fn compatibility_load_error(error: CoreError) -> CoreError {
     if error.code() == "CORE_EFFECT_TIMEOUT" {
         CoreError::Effect {
@@ -7210,9 +4338,6 @@ fn recover_operation_journals(
     user_data_dir: &std::path::Path,
 ) -> CoreResult<()> {
     for journal in state.operation_journals()? {
-        if journal.kind == crate::chrome_profile_import::PREVIEW_JOURNAL_KIND {
-            continue;
-        }
         let role_id = journal
             .payload
             .get("roleId")
@@ -7283,46 +4408,6 @@ fn recover_operation_journals(
     Ok(())
 }
 
-fn restore_chrome_profile_import_runtime(
-    state: &StateDatabaseWorker,
-    user_data_dir: &std::path::Path,
-) -> CoreResult<crate::chrome_profile_import::ChromeProfileImportRuntime> {
-    let mut runtime =
-        crate::chrome_profile_import::ChromeProfileImportRuntime::new(user_data_dir.to_path_buf());
-    let now_ms = system_epoch_millis();
-    for journal in state
-        .operation_journals()?
-        .into_iter()
-        .filter(|journal| journal.kind == crate::chrome_profile_import::PREVIEW_JOURNAL_KIND)
-    {
-        let source = journal
-            .payload
-            .get("sourceUserDataDir")
-            .and_then(Value::as_str)
-            .map(PathBuf::from);
-        let preview = journal.payload.get("preview").cloned().and_then(|value| {
-            serde_json::from_value::<crate::model::ChromeProfileImportPreviewRecord>(value).ok()
-        });
-        let created_at_ms = journal.payload.get("createdAtMs").and_then(Value::as_u64);
-        let restored = match (source, preview, created_at_ms) {
-            (Some(source), Some(preview), Some(created_at_ms)) => runtime.restore_preview(
-                source,
-                preview,
-                Duration::from_millis(now_ms.saturating_sub(created_at_ms)),
-            )?,
-            _ => false,
-        };
-        if !restored {
-            state.delete_operation_journal(journal.id)?;
-        }
-    }
-    Ok(runtime)
-}
-
-fn chrome_profile_preview_journal_id(import_id: &str) -> String {
-    format!("chrome-profile-preview-{import_id}")
-}
-
 fn embedded_launch_effects(
     tab_id: &str,
     tab: EmbeddedTabEffectRecord,
@@ -7382,7 +4467,7 @@ fn embedded_launch_effects(
                     resolved_engine: resolved_engines
                         .get(&role.id)
                         .copied()
-                        .unwrap_or(crate::model::ResolvedBrowserEngine::Electron),
+                        .expect("every launched role has a resolved system engine"),
                     url: role.launch_url.clone(),
                     zoom_factor: zoom_factors.get(&role.id).copied().unwrap_or(1.0),
                 })
@@ -7445,7 +4530,6 @@ fn unavailable_system_webview_runtime(
             trusted_input: EngineCapabilityStatus::Disabled,
             background_input: EngineCapabilityStatus::Disabled,
             frame_evaluation: EngineCapabilityStatus::Disabled,
-            cdn_rewrite: EngineCapabilityStatus::Disabled,
             proxy: EngineCapabilityStatus::Disabled,
             popup: EngineCapabilityStatus::Disabled,
             audio_mute: EngineCapabilityStatus::Disabled,
@@ -7457,7 +4541,7 @@ fn unavailable_system_webview_runtime(
             dialogs: EngineCapabilityStatus::Disabled,
             certificate_handling: EngineCapabilityStatus::Disabled,
         },
-        failure_reason: Some(crate::model::EngineFallbackReason::RuntimeCreationFailed),
+        failure_reason: Some(crate::model::SystemWebViewIssueReason::RuntimeCreationFailed),
     }
 }
 
@@ -7469,54 +4553,20 @@ fn system_capability_available(status: crate::model::EngineCapabilityStatus) -> 
     )
 }
 
-fn is_system_resolved_engine(engine: crate::model::ResolvedBrowserEngine) -> bool {
-    matches!(
-        engine,
-        crate::model::ResolvedBrowserEngine::Webview2
-            | crate::model::ResolvedBrowserEngine::Wkwebview
-    )
+fn system_capability_verified(status: crate::model::EngineCapabilityStatus) -> bool {
+    status == crate::model::EngineCapabilityStatus::Supported
 }
 
-fn electron_capability_snapshot() -> crate::model::EngineCapabilitySnapshotRecord {
-    use crate::model::{EngineCapabilitySnapshotRecord, EngineCapabilityStatus};
-
-    EngineCapabilitySnapshotRecord {
-        navigation: EngineCapabilityStatus::Supported,
-        persistent_session: EngineCapabilityStatus::Supported,
-        trusted_input: EngineCapabilityStatus::Supported,
-        background_input: EngineCapabilityStatus::Supported,
-        frame_evaluation: EngineCapabilityStatus::Supported,
-        cdn_rewrite: EngineCapabilityStatus::Supported,
-        proxy: EngineCapabilityStatus::Supported,
-        popup: EngineCapabilityStatus::Supported,
-        audio_mute: EngineCapabilityStatus::Supported,
-        custom_fonts: EngineCapabilityStatus::Supported,
-        graphics_tuning: EngineCapabilityStatus::Supported,
-        downloads: EngineCapabilityStatus::Supported,
-        file_upload: EngineCapabilityStatus::Supported,
-        permissions: EngineCapabilityStatus::Supported,
-        dialogs: EngineCapabilityStatus::Supported,
-        certificate_handling: EngineCapabilityStatus::Supported,
-    }
-}
-
-fn normalize_chrome_close_result(
-    result: Result<(), rion_platform::PlatformError>,
+fn require_system_resolution(
+    resolution: &crate::model::BrowserEngineResolutionRecord,
 ) -> CoreResult<()> {
-    result.map_err(|_| CoreError::Domain {
-        code: "CHROME_CLOSE_FAILED",
-        message: "Unable to ask Google Chrome to close. Close Chrome manually and try again."
-            .to_owned(),
-    })
-}
-
-fn running_external_diagnostic_sessions(
-    sessions: Vec<ExternalSessionRecord>,
-) -> Vec<ExternalSessionRecord> {
-    sessions
-        .into_iter()
-        .filter(|session| session.state == "running")
-        .collect()
+    if let Some(reason) = resolution.issue_reason {
+        return Err(CoreError::Domain {
+            code: "SYSTEM_WEBVIEW_CAPABILITY_UNAVAILABLE",
+            message: format!("The System WebView cannot satisfy this launch because {reason:?}."),
+        });
+    }
+    Ok(())
 }
 
 fn embedded_launch_result(role_id: &str, launched_at: String) -> EmbeddedLaunchResultRecord {
@@ -7620,7 +4670,6 @@ impl Drop for AppCore {
 mod tests {
     use std::{
         collections::HashMap,
-        path::Path,
         sync::{Arc, Mutex},
         thread,
         time::Duration,
@@ -7650,6 +4699,7 @@ mod tests {
             })
             .unwrap(),
         );
+        install_test_system_runtime(&core, supported_system_capabilities());
         (directory, core)
     }
 
@@ -7736,7 +4786,6 @@ mod tests {
             trusted_input: Supported,
             background_input: Supported,
             frame_evaluation: Supported,
-            cdn_rewrite: Supported,
             proxy: Supported,
             popup: Supported,
             audio_mute: Supported,
@@ -7762,7 +4811,7 @@ mod tests {
             capability_snapshot,
             failure_reason: None,
         };
-        core.embedded_engine_fallbacks.write().unwrap().clear();
+        core.system_webview_issues.write().unwrap().clear();
     }
 
     fn drive_command(
@@ -7798,48 +4847,11 @@ mod tests {
         )
     }
 
-    fn drive_command_with(
-        core: Arc<AppCore>,
-        command: CoreCommand,
-        mut result_for: impl FnMut(CoreEffectRequest) -> CoreEffectResult,
-    ) -> (CoreResult<Value>, Vec<CoreEffectAction>) {
-        let receiver = core.subscribe().unwrap();
-        let invocation_core = Arc::clone(&core);
-        let invocation = thread::spawn(move || invocation_core.invoke(command));
-        let actions = Arc::new(Mutex::new(Vec::new()));
-        while !invocation.is_finished() {
-            let Ok(events) = receiver.recv_timeout(Duration::from_secs(2)) else {
-                continue;
-            };
-            for event in events {
-                let CoreEvent::CoreEffects { effects } = event else {
-                    continue;
-                };
-                let results = effects
-                    .into_iter()
-                    .map(|effect| {
-                        actions.lock().unwrap().push(effect.action.clone());
-                        result_for(effect)
-                    })
-                    .collect();
-                core.dispatch_core_effect_results(results).unwrap();
-            }
-        }
-        (
-            invocation.join().unwrap(),
-            Arc::try_unwrap(actions).unwrap().into_inner().unwrap(),
-        )
-    }
-
     fn drive_async_command(
         core: Arc<AppCore>,
         command: CoreCommand,
         fail_action: Option<&'static str>,
-    ) -> (
-        CoreResult<Value>,
-        Vec<CoreEffectAction>,
-        Vec<ChromeProfileImportProgressRecord>,
-    ) {
+    ) -> (CoreResult<Value>, Vec<CoreEffectAction>, Vec<()>) {
         drive_async_command_with(core, command, |effect| effect_result(effect, fail_action))
     }
 
@@ -7847,11 +4859,7 @@ mod tests {
         core: Arc<AppCore>,
         command: CoreCommand,
         mut result_for: impl FnMut(CoreEffectRequest) -> CoreEffectResult,
-    ) -> (
-        CoreResult<Value>,
-        Vec<CoreEffectAction>,
-        Vec<ChromeProfileImportProgressRecord>,
-    ) {
+    ) -> (CoreResult<Value>, Vec<CoreEffectAction>, Vec<()>) {
         let receiver = core.subscribe().unwrap();
         let invocation_core = Arc::clone(&core);
         let invocation = thread::spawn(move || {
@@ -7862,27 +4870,21 @@ mod tests {
                 .block_on(invocation_core.invoke_async(command))
         });
         let actions = Arc::new(Mutex::new(Vec::new()));
-        let progress = Arc::new(Mutex::new(Vec::new()));
+        let progress = Arc::new(Mutex::new(Vec::<()>::new()));
         while !invocation.is_finished() {
             let Ok(events) = receiver.recv_timeout(Duration::from_secs(2)) else {
                 continue;
             };
             for event in events {
-                match event {
-                    CoreEvent::CoreEffects { effects } => {
-                        let results = effects
-                            .into_iter()
-                            .map(|effect| {
-                                actions.lock().unwrap().push(effect.action.clone());
-                                result_for(effect)
-                            })
-                            .collect();
-                        core.dispatch_core_effect_results(results).unwrap();
-                    }
-                    CoreEvent::ChromeProfileImportProgress { progress: update } => {
-                        progress.lock().unwrap().push(update)
-                    }
-                    _ => {}
+                if let CoreEvent::CoreEffects { effects } = event {
+                    let results = effects
+                        .into_iter()
+                        .map(|effect| {
+                            actions.lock().unwrap().push(effect.action.clone());
+                            result_for(effect)
+                        })
+                        .collect();
+                    core.dispatch_core_effect_results(results).unwrap();
                 }
             }
         }
@@ -7897,15 +4899,9 @@ mod tests {
         let action_name = match &effect.action {
             CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
             CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
-            CoreEffectAction::ChromeProfileApplySession { .. } => "chromeProfileApplySession",
-            CoreEffectAction::ChromeProfileClearSession { .. } => "chromeProfileClearSession",
             CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
-            CoreEffectAction::RoleSessionMigrationInspect { .. } => "roleSessionMigrationInspect",
-            CoreEffectAction::RoleSessionMigrationApply { .. } => "roleSessionMigrationApply",
-            CoreEffectAction::RoleSessionMigrationRollback { .. } => "roleSessionMigrationRollback",
             CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
             CoreEffectAction::CompatibilityProbeGraphics { .. } => "compatibilityProbeGraphics",
-            CoreEffectAction::CdnProbeGoogle { .. } => "cdnProbeGoogle",
             _ => "other",
         };
         let failed = fail_action == Some(action_name);
@@ -7919,36 +4915,6 @@ mod tests {
                     "webgl2":"available",
                     "webgpu":"unavailable",
                     "renderer":"Fixture GPU"
-                })
-                .to_string(),
-            ),
-            CoreEffectAction::CdnProbeGoogle { .. } => {
-                Some(json!({ "available": false }).to_string())
-            }
-            CoreEffectAction::RoleSessionMigrationInspect { .. } => Some(
-                json!({
-                    "sourceCookieCount": 2,
-                    "targetCookieCount": 0
-                })
-                .to_string(),
-            ),
-            CoreEffectAction::RoleSessionMigrationApply { .. } => Some(
-                json!({
-                    "cookiesMigrated": 2,
-                    "authVerified": true
-                })
-                .to_string(),
-            ),
-            CoreEffectAction::RoleSessionMigrationRollback { .. } => {
-                Some(json!({ "targetStoreCleared": true }).to_string())
-            }
-            CoreEffectAction::EmbeddedFallbackTabToElectron { role_ids, .. } => Some(
-                json!({
-                    "roles": role_ids.iter().map(|role_id| json!({
-                        "roleId": role_id,
-                        "cookiesMirrored": 1,
-                        "authVerified": true
-                    })).collect::<Vec<_>>()
                 })
                 .to_string(),
             ),
@@ -7966,40 +4932,9 @@ mod tests {
                     "ELECTRON_EFFECT_FAILED"
                 }
                 .to_owned(),
-                message: "The fixture rejected the Electron effect.".to_owned(),
+                message: "The fixture rejected the desktop shell effect.".to_owned(),
             }),
         }
-    }
-
-    fn chrome_profile_source_fixture(root: &Path) -> PathBuf {
-        let source = root.join("Chrome User Data");
-        fs::create_dir_all(source.join("Default/Local Storage")).unwrap();
-        fs::write(
-            source.join("Default/Local Storage/session"),
-            b"imported-login-state",
-        )
-        .unwrap();
-        fs::write(
-            source.join("Local State"),
-            json!({"profile":{"info_cache":{"Default":{"name":"Aron"}}}}).to_string(),
-        )
-        .unwrap();
-        source
-    }
-
-    fn create_named_role(core: &AppCore, game_id: &str, name: &str) -> StateRoleRecord {
-        serde_json::from_value(
-            core.invoke(command(json!({
-                "type": "roleCreate",
-                "input": {
-                    "gameId": game_id,
-                    "name": name,
-                    "launchUrl": "https://example.com/play"
-                }
-            })))
-            .unwrap(),
-        )
-        .unwrap()
     }
 
     fn workspace_rect(index: usize, count: usize) -> Value {
@@ -8215,11 +5150,6 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-            assert_eq!(
-                role.browser_session_source
-                    .map(BrowserSessionSource::as_str),
-                Some("managed")
-            );
             assert!(first_browser.is_dir());
             let value = serde_json::to_value(role).unwrap();
             assert!(value.get("windowWidth").is_none());
@@ -8518,21 +5448,15 @@ mod tests {
         );
 
         crate::v1_case!("portable-profile-d7ae496f0b91", {
-            let role: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
-            assert_eq!(
-                role.browser_session_source
-                    .map(BrowserSessionSource::as_str),
-                Some("managed")
-            );
+            let _: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
             assert!(browser.is_dir());
             assert!(!browser.join("session").exists());
             assert!(actions.iter().any(|action| matches!(
                 action,
                 CoreEffectAction::RoleBrowserDataClearSession {
                     role_id: effect_role_id,
-                    session_source,
                     ..
-                } if effect_role_id == &role_id && session_source == &BrowserSessionSource::Managed
+                } if effect_role_id == &role_id
             )));
             assert!(
                 core.with_runtime(|runtime| runtime.state.operation_journals())
@@ -8573,11 +5497,6 @@ mod tests {
     fn role_browser_data_clear_restores_the_login_directory_after_effect_failure() {
         let (directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
-        core.invoke(CoreCommand::RoleSetBrowserSessionSource {
-            id: role_id.clone(),
-            source: "chrome-profile".to_owned(),
-        })
-        .unwrap();
         let browser = directory
             .path()
             .join("roles")
@@ -8595,18 +5514,6 @@ mod tests {
 
         assert_eq!(result.unwrap_err().code(), "ELECTRON_EFFECT_FAILED");
         assert_eq!(fs::read(browser.join("session")).unwrap(), b"signed-in");
-        let role: StateRoleRecord = serde_json::from_value(
-            core.invoke(CoreCommand::RoleGet {
-                id: role_id.clone(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            role.browser_session_source
-                .map(BrowserSessionSource::as_str),
-            Some("chrome-profile")
-        );
         assert!(
             core.with_runtime(|runtime| runtime.state.operation_journals())
                 .unwrap()
@@ -8620,214 +5527,6 @@ mod tests {
             })
             .unwrap();
         core.browser_operations.complete(&lease.id).unwrap();
-        core.shutdown();
-    }
-
-    #[test]
-    fn role_session_migration_previews_commits_and_rolls_back_without_touching_source_store() {
-        let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-
-        let (preview, preview_actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::RoleSessionMigrationPreview {
-                role_id: role_id.clone(),
-                target_engine: crate::model::EmbeddedBrowserEngine::System,
-            },
-            None,
-        );
-        let preview: crate::model::RoleSessionMigrationPreviewRecord =
-            serde_json::from_value(preview.unwrap()).unwrap();
-        assert_eq!(preview.source_engine, EmbeddedBrowserEngine::Electron);
-        assert_eq!(preview.target_engine, EmbeddedBrowserEngine::System);
-        assert_eq!(preview.source_cookie_count, 2);
-        assert_eq!(preview.target_cookie_count, 0);
-        assert!(preview.can_apply);
-        assert!(
-            preview_actions.iter().all(|action| matches!(
-                action,
-                CoreEffectAction::RoleSessionMigrationInspect { .. }
-            ))
-        );
-
-        let (applied, apply_actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::RoleSessionMigrationApply {
-                role_id: role_id.clone(),
-                target_engine: EmbeddedBrowserEngine::System,
-            },
-            None,
-        );
-        let applied: crate::model::RoleSessionMigrationResultRecord =
-            serde_json::from_value(applied.unwrap()).unwrap();
-        assert_eq!(applied.cookies_migrated, 2);
-        assert!(applied.auth_verified);
-        assert!(apply_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::RoleSessionMigrationApply {
-                source_engine: EmbeddedBrowserEngine::Electron,
-                target_engine: EmbeddedBrowserEngine::System,
-                ..
-            }
-        )));
-        assert!(!apply_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::RoleSessionMigrationRollback { .. }
-        )));
-        let migrated_role: StateRoleRecord = serde_json::from_value(
-            core.invoke(CoreCommand::RoleGet {
-                id: role_id.clone(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            migrated_role.browser_engine_pin,
-            Some(EmbeddedBrowserEngine::System)
-        );
-        assert!(
-            core.with_runtime(|runtime| {
-                runtime
-                    .state
-                    .role_session_migration_checkpoint_get(role_id.clone())
-            })
-            .unwrap()
-            .is_some()
-        );
-
-        let (rolled_back, rollback_actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::RoleSessionMigrationRollback {
-                role_id: role_id.clone(),
-            },
-            None,
-        );
-        let rolled_back: crate::model::RoleSessionMigrationRollbackRecord =
-            serde_json::from_value(rolled_back.unwrap()).unwrap();
-        assert_eq!(rolled_back.restored_engine, EmbeddedBrowserEngine::Electron);
-        assert!(rolled_back.target_store_cleared);
-        assert!(rollback_actions.iter().all(|action| matches!(
-            action,
-            CoreEffectAction::RoleSessionMigrationRollback {
-                source_engine: EmbeddedBrowserEngine::Electron,
-                target_engine: EmbeddedBrowserEngine::System,
-                ..
-            }
-        )));
-        let restored_role: StateRoleRecord = serde_json::from_value(
-            core.invoke(CoreCommand::RoleGet {
-                id: role_id.clone(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            restored_role.browser_engine_pin,
-            Some(EmbeddedBrowserEngine::Electron)
-        );
-        assert!(
-            core.with_runtime(|runtime| {
-                runtime
-                    .state
-                    .role_session_migration_checkpoint_get(role_id.clone())
-            })
-            .unwrap()
-            .is_none()
-        );
-        core.shutdown();
-    }
-
-    #[test]
-    fn role_session_migration_auth_failure_clears_target_and_preserves_engine() {
-        let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let (result, actions, _) = drive_async_command_with(
-            Arc::clone(&core),
-            CoreCommand::RoleSessionMigrationApply {
-                role_id: role_id.clone(),
-                target_engine: EmbeddedBrowserEngine::System,
-            },
-            |effect| {
-                let is_apply = matches!(
-                    effect.action,
-                    CoreEffectAction::RoleSessionMigrationApply { .. }
-                );
-                let mut result = effect_result(effect, None);
-                if is_apply {
-                    result.value_json =
-                        Some(json!({"cookiesMigrated":2,"authVerified":false}).to_string());
-                }
-                result
-            },
-        );
-
-        assert_eq!(
-            result.unwrap_err().code(),
-            "ROLE_SESSION_MIGRATION_AUTH_NOT_VERIFIED"
-        );
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::RoleSessionMigrationRollback { .. }
-        )));
-        let role: StateRoleRecord = serde_json::from_value(
-            core.invoke(CoreCommand::RoleGet {
-                id: role_id.clone(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(role.browser_engine_pin, None);
-        assert!(
-            core.with_runtime(|runtime| {
-                runtime
-                    .state
-                    .role_session_migration_checkpoint_get(role_id.clone())
-            })
-            .unwrap()
-            .is_none()
-        );
-        assert!(
-            core.with_runtime(|runtime| runtime.state.operation_journals())
-                .unwrap()
-                .is_empty()
-        );
-        core.shutdown();
-    }
-
-    #[test]
-    fn role_session_migration_refuses_a_nonempty_target_store_before_copying() {
-        let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let (result, actions, _) = drive_async_command_with(
-            Arc::clone(&core),
-            CoreCommand::RoleSessionMigrationApply {
-                role_id,
-                target_engine: EmbeddedBrowserEngine::System,
-            },
-            |effect| {
-                let is_inspection = matches!(
-                    effect.action,
-                    CoreEffectAction::RoleSessionMigrationInspect { .. }
-                );
-                let mut result = effect_result(effect, None);
-                if is_inspection {
-                    result.value_json =
-                        Some(json!({"sourceCookieCount":2,"targetCookieCount":1}).to_string());
-                }
-                result
-            },
-        );
-
-        assert_eq!(
-            result.unwrap_err().code(),
-            "ROLE_SESSION_MIGRATION_TARGET_NOT_EMPTY"
-        );
-        assert!(
-            actions.iter().all(|action| matches!(
-                action,
-                CoreEffectAction::RoleSessionMigrationInspect { .. }
-            ))
-        );
         core.shutdown();
     }
 
@@ -8863,123 +5562,6 @@ mod tests {
         assert_eq!(fs::read(browser.join("session")).unwrap(), b"signed-in");
         assert!(!browser.join("new-session").exists());
         assert!(state.operation_journals().unwrap().is_empty());
-    }
-
-    #[test]
-    fn chrome_profile_apply_commits_files_state_session_effects_and_progress() {
-        let (directory, core) = core();
-        let game_id = first_game_id(&core);
-        let existing = create_named_role(&core, &game_id, "Aron");
-        let browser = directory
-            .path()
-            .join("roles")
-            .join(&existing.id)
-            .join("browser");
-        fs::write(browser.join("session"), b"old-login-state").unwrap();
-        let source = chrome_profile_source_fixture(directory.path());
-        let preview = core
-            .invoke(CoreCommand::ChromeProfilePreview {
-                source_user_data_dir: source.to_string_lossy().into_owned(),
-            })
-            .unwrap();
-        let import_id = preview["importId"].as_str().unwrap().to_owned();
-
-        let (result, actions, progress) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::ChromeProfileApply {
-                import_id: import_id.clone(),
-                profile_ids: vec!["Default".to_owned()],
-                game_id,
-                consent_accepted: true,
-            },
-            None,
-        );
-
-        assert_eq!(result.unwrap()["roles"][0]["id"], existing.id);
-        assert_eq!(
-            fs::read(browser.join("Default/Local Storage/session")).unwrap(),
-            b"imported-login-state"
-        );
-        assert!(!browser.join("session").exists());
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::ChromeProfileApplySession {
-                role_id,
-                cookies_json,
-                ..
-            } if role_id == &existing.id && cookies_json == "[]"
-        )));
-        assert_eq!(
-            progress
-                .iter()
-                .map(|update| update.phase.as_str())
-                .collect::<Vec<_>>(),
-            vec!["preparing", "importing", "completed"]
-        );
-        let role: StateRoleRecord = serde_json::from_value(
-            core.invoke(CoreCommand::RoleGet {
-                id: existing.id.clone(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            role.browser_session_source
-                .map(BrowserSessionSource::as_str),
-            Some("chrome-profile")
-        );
-        assert!(
-            !directory
-                .path()
-                .join("chrome-profile-import-transaction.json")
-                .exists()
-        );
-        core.shutdown();
-    }
-
-    #[test]
-    fn chrome_profile_preview_survives_core_recreation_in_sqlite() {
-        let directory = tempfile::tempdir().unwrap();
-        let options = || AppCoreOptions {
-            app_version: "2.1.0-test".to_owned(),
-            platform: "darwin".to_owned(),
-            user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
-        };
-        let first = Arc::new(AppCore::create(options()).unwrap());
-        let source = chrome_profile_source_fixture(directory.path());
-        let preview = first
-            .invoke(CoreCommand::ChromeProfilePreview {
-                source_user_data_dir: source.to_string_lossy().into_owned(),
-            })
-            .unwrap();
-        let import_id = preview["importId"].as_str().unwrap().to_owned();
-        first.shutdown();
-        drop(first);
-
-        let restored = Arc::new(AppCore::create(options()).unwrap());
-        let game_id = first_game_id(&restored);
-        let prepared = restored.invoke(CoreCommand::ChromeProfilePrepare {
-            import_id: import_id.clone(),
-            profile_ids: vec!["Default".to_owned()],
-            game_id,
-            consent_accepted: true,
-        });
-        crate::v1_case!("portable-profile-54a2d1b2c16d", {
-            let prepared = prepared.unwrap();
-            assert_eq!(prepared["profiles"][0]["id"], "Default");
-            assert!(
-                restored
-                    .with_runtime(|runtime| runtime.state.operation_journals())
-                    .unwrap()
-                    .iter()
-                    .any(|journal| {
-                        journal.id == chrome_profile_preview_journal_id(&import_id)
-                            && journal.kind == crate::chrome_profile_import::PREVIEW_JOURNAL_KIND
-                    })
-            );
-        });
-        restored.shutdown();
     }
 
     #[test]
@@ -9051,73 +5633,6 @@ mod tests {
     }
 
     #[test]
-    fn chrome_profile_apply_rolls_back_files_and_state_after_session_effect_failure() {
-        let (directory, core) = core();
-        let game_id = first_game_id(&core);
-        let existing = create_named_role(&core, &game_id, "Aron");
-        let browser = directory
-            .path()
-            .join("roles")
-            .join(&existing.id)
-            .join("browser");
-        fs::write(browser.join("session"), b"old-login-state").unwrap();
-        let source = chrome_profile_source_fixture(directory.path());
-        let preview = core
-            .invoke(CoreCommand::ChromeProfilePreview {
-                source_user_data_dir: source.to_string_lossy().into_owned(),
-            })
-            .unwrap();
-
-        let (result, actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::ChromeProfileApply {
-                import_id: preview["importId"].as_str().unwrap().to_owned(),
-                profile_ids: vec!["Default".to_owned()],
-                game_id,
-                consent_accepted: true,
-            },
-            Some("chromeProfileApplySession"),
-        );
-
-        crate::v1_case!("portable-profile-2cc8b85abe92", {
-            assert_eq!(result.unwrap_err().code(), "ELECTRON_EFFECT_FAILED");
-            assert_eq!(
-                fs::read(browser.join("session")).unwrap(),
-                b"old-login-state"
-            );
-            assert!(!browser.join("Default/Local Storage/session").exists());
-            assert!(actions.iter().any(|action| matches!(
-                action,
-                CoreEffectAction::ChromeProfileClearSession { role_id, .. }
-                    if role_id == &existing.id
-            )));
-            let role: StateRoleRecord = serde_json::from_value(
-                core.invoke(CoreCommand::RoleGet {
-                    id: existing.id.clone(),
-                })
-                .unwrap(),
-            )
-            .unwrap();
-            assert_eq!(role.browser_session_source, existing.browser_session_source);
-            assert!(
-                !directory
-                    .path()
-                    .join("chrome-profile-import-transaction.json")
-                    .exists()
-            );
-        });
-        let lease = core
-            .browser_operations
-            .acquire(BrowserOperationRequest {
-                role_ids: vec![existing.id],
-                kind: "normal".to_owned(),
-            })
-            .unwrap();
-        core.browser_operations.complete(&lease.id).unwrap();
-        core.shutdown();
-    }
-
-    #[test]
     fn compatibility_run_owns_effect_order_report_outcome_and_cleanup() {
         let (_directory, core) = core();
         let game_id = first_game_id(&core);
@@ -9126,9 +5641,11 @@ mod tests {
             Arc::clone(&core),
             CoreCommand::CompatibilityRun {
                 game_id: game_id.clone(),
-                versions: CompatibilityVersionRecord {
-                    chrome: "140".to_owned(),
-                    electron: "40".to_owned(),
+                versions: RuntimeVersionRecord {
+                    engine: crate::model::ResolvedBrowserEngine::Webview2,
+                    engine_version: "140".to_owned(),
+                    shell: "test".to_owned(),
+                    shell_version: "1".to_owned(),
                 },
             },
             None,
@@ -9167,9 +5684,11 @@ mod tests {
                 .unwrap()
                 .block_on(invocation_core.invoke_async(CoreCommand::CompatibilityRun {
                     game_id: invocation_game_id,
-                    versions: CompatibilityVersionRecord {
-                        chrome: "140".to_owned(),
-                        electron: "40".to_owned(),
+                    versions: RuntimeVersionRecord {
+                        engine: crate::model::ResolvedBrowserEngine::Webview2,
+                        engine_version: "140".to_owned(),
+                        shell: "test".to_owned(),
+                        shell_version: "1".to_owned(),
                     },
                 }))
         });
@@ -9202,9 +5721,11 @@ mod tests {
                                 .unwrap()
                                 .block_on(core.invoke_async(CoreCommand::CompatibilityRun {
                                     game_id: game_id.clone(),
-                                    versions: CompatibilityVersionRecord {
-                                        chrome: "140".to_owned(),
-                                        electron: "40".to_owned(),
+                                    versions: RuntimeVersionRecord {
+                                        engine: crate::model::ResolvedBrowserEngine::Webview2,
+                                        engine_version: "140".to_owned(),
+                                        shell: "test".to_owned(),
+                                        shell_version: "1".to_owned(),
                                     },
                                 }))
                                 .unwrap_err();
@@ -9241,9 +5762,11 @@ mod tests {
                 .unwrap()
                 .block_on(cancel_core.invoke_async(CoreCommand::CompatibilityRun {
                     game_id: cancel_game_id,
-                    versions: CompatibilityVersionRecord {
-                        chrome: "140".to_owned(),
-                        electron: "40".to_owned(),
+                    versions: RuntimeVersionRecord {
+                        engine: crate::model::ResolvedBrowserEngine::Webview2,
+                        engine_version: "140".to_owned(),
+                        shell: "test".to_owned(),
+                        shell_version: "1".to_owned(),
                     },
                 }))
         });
@@ -9304,312 +5827,6 @@ mod tests {
     }
 
     #[test]
-    fn cdn_auto_detection_is_deduplicated_cached_and_returns_bundled_patterns() {
-        let (_directory, core) = core();
-
-        let (first, first_actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::CdnResolveSession {
-                session_handle_id: "session-1".to_owned(),
-            },
-            None,
-        );
-        let (second, second_actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::CdnResolveSession {
-                session_handle_id: "session-2".to_owned(),
-            },
-            None,
-        );
-
-        let first = first.unwrap();
-        crate::v1_case!("external-chrome-cdn-d32842c6fe1c", {
-            assert_eq!(first["enabled"], true);
-            assert_eq!(first["requestPatterns"].as_array().unwrap().len(), 8);
-            assert_eq!(
-                first_actions
-                    .iter()
-                    .filter(|action| matches!(action, CoreEffectAction::CdnProbeGoogle { .. }))
-                    .count(),
-                1
-            );
-        });
-        assert_eq!(second.unwrap()["enabled"], true);
-        assert!(second_actions.is_empty());
-        core.shutdown();
-    }
-
-    #[test]
-    fn cdn_auto_detection_remains_disabled_when_google_succeeds() {
-        let (_directory, core) = core();
-        let (result, actions, _) = drive_async_command_with(
-            Arc::clone(&core),
-            CoreCommand::CdnResolveSession {
-                session_handle_id: "session-google-available".to_owned(),
-            },
-            |effect| {
-                let is_google_probe =
-                    matches!(&effect.action, CoreEffectAction::CdnProbeGoogle { .. });
-                let mut result = effect_result(effect, None);
-                if is_google_probe {
-                    result.value_json = Some(json!({ "available": true }).to_string());
-                }
-                result
-            },
-        );
-        let result = result.unwrap();
-
-        crate::v1_case!("external-chrome-cdn-ff23b82d4659", {
-            assert_eq!(result["enabled"], false);
-            assert_eq!(result["requestPatterns"], json!([]));
-            assert_eq!(
-                actions
-                    .iter()
-                    .filter(|action| matches!(action, CoreEffectAction::CdnProbeGoogle { .. }))
-                    .count(),
-                1
-            );
-        });
-        core.shutdown();
-    }
-
-    #[test]
-    fn external_cdp_sources_preserve_navigation_overlay_and_native_zoom_boundaries() {
-        let main = json!({"frame":{"id":"main","url":"https://example.com/next"}});
-        let child = json!({
-            "frame":{"id":"child","parentId":"main","url":"https://example.com/frame"}
-        });
-        crate::v1_case!("external-chrome-cdn-4db02e1872d7", {
-            assert!(is_main_frame_navigation("Page.frameNavigated", Some(&main)));
-            assert!(!is_main_frame_navigation(
-                "Page.frameNavigated",
-                Some(&child)
-            ));
-            assert!(!is_main_frame_navigation(
-                "Runtime.bindingCalled",
-                Some(&main)
-            ));
-        });
-
-        let overlay = external_overlay_bridge_source();
-        crate::v1_case!("external-chrome-cdn-78f5b96cf03f", {
-            assert!(overlay.contains("rionStudioMacroOverlay"));
-            assert!(overlay.contains("__rionStudioExternalMacroBridge"));
-            assert!(overlay.contains("nativeBinding(JSON.stringify({ id, request }))"));
-            assert!(overlay.contains("resolve(id, ok, value)"));
-        });
-
-        let diagnostics = external_page_diagnostics_source();
-        assert!(diagnostics.contains("report(\"heartbeat\")"));
-        assert!(diagnostics.contains("visibilitychange"));
-        crate::v1_case!("external-chrome-cdn-8da0070d51dd", {
-            let installed = format!("{overlay}\n{diagnostics}");
-            assert!(!installed.contains("WorkspaceZoom"));
-            assert!(!installed.contains("style.setProperty(\"zoom\""));
-            assert!(!installed.contains("visualViewport?.width"));
-        });
-    }
-
-    #[tokio::test]
-    async fn external_overlay_registration_and_evaluation_detect_protocol_exceptions() {
-        let (_directory, core) = core();
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let output = Arc::clone(&calls);
-        let session = Arc::new(crate::ExternalChromeCdpSession::test_session_with_handler(
-            move |method, params| {
-                output
-                    .lock()
-                    .unwrap()
-                    .push((method.to_owned(), params.cloned()));
-                Ok(if method == "Runtime.evaluate" {
-                    json!({
-                        "exceptionDetails":{"text":"ReferenceError"},
-                        "result":{"value":true}
-                    })
-                } else {
-                    json!({})
-                })
-            },
-        ));
-        core.register_external_overlay_scripts(&session, "window.testOverlay = true")
-            .await
-            .unwrap();
-        assert!(!external_overlay_evaluate(&session, "window.testOverlay = true", Some(9)).await);
-        let calls = calls.lock().unwrap();
-        assert!(calls.iter().any(|(method, params)| {
-            method == "Runtime.addBinding"
-                && params.as_ref().and_then(|value| value.get("name"))
-                    == Some(&json!(EXTERNAL_OVERLAY_BINDING))
-        }));
-        assert!(calls.iter().any(|(method, params)| {
-            method == "Page.addScriptToEvaluateOnNewDocument"
-                && params
-                    .as_ref()
-                    .and_then(|value| value.get("source"))
-                    .and_then(Value::as_str)
-                    == Some("window.testOverlay = true")
-        }));
-        assert!(calls.iter().any(|(method, params)| {
-            method == "Runtime.evaluate"
-                && params.as_ref().and_then(|value| value.get("contextId")) == Some(&json!(9))
-        }));
-        drop(calls);
-        core.shutdown();
-    }
-
-    #[tokio::test]
-    async fn external_overlay_binding_replies_in_the_originating_iframe_context() {
-        let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let output = Arc::clone(&calls);
-        let session = Arc::new(
-            crate::ExternalChromeCdpSession::test_session_with_full_handler(
-                move |method, params, session_id| {
-                    output.lock().unwrap().push((
-                        method.to_owned(),
-                        params.cloned(),
-                        session_id.map(str::to_owned),
-                    ));
-                    Ok(json!({}))
-                },
-            ),
-        );
-        core.handle_external_cdp_event(
-            &role_id,
-            &session,
-            crate::external_chrome::CdpEvent::Notification {
-                method: "Runtime.bindingCalled".to_owned(),
-                params: Some(json!({
-                    "name":EXTERNAL_OVERLAY_BINDING,
-                    "payload":json!({"id":7,"request":{"type":"list"}}).to_string(),
-                    "executionContextId":42
-                })),
-                session_id: Some("child-session".to_owned()),
-            },
-        )
-        .await;
-        let calls = calls.lock().unwrap();
-        let reply = calls
-            .iter()
-            .find(|(method, _, _)| method == "Runtime.evaluate")
-            .unwrap();
-        assert_eq!(
-            reply.1.as_ref().and_then(|value| value.get("contextId")),
-            Some(&json!(42))
-        );
-        assert_eq!(reply.2.as_deref(), Some("child-session"));
-        assert!(
-            reply
-                .1
-                .as_ref()
-                .and_then(|value| value.get("expression"))
-                .and_then(Value::as_str)
-                .is_some_and(|source| source.contains("resolve(7,true"))
-        );
-        drop(calls);
-        core.shutdown();
-    }
-
-    #[tokio::test]
-    async fn external_reconnect_rebuilds_domains_bindings_scripts_and_current_overlay() {
-        let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let role = core
-            .invoke(CoreCommand::RolesList)
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|role| role["id"] == role_id)
-            .cloned()
-            .map(serde_json::from_value::<StateRoleRecord>)
-            .unwrap()
-            .unwrap();
-        core.invoke_external_session(ExternalSessionCommand::Begin {
-            role,
-            bounds: StatePixelBoundsRecord {
-                x: 0,
-                y: 0,
-                width: 800,
-                height: 600,
-            },
-            physical_bounds: None,
-            workspace_id: None,
-            notice: None,
-            zoom_factor: 1.0,
-        })
-        .unwrap();
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let output = Arc::clone(&calls);
-        let session = Arc::new(crate::ExternalChromeCdpSession::test_session_with_handler(
-            move |method, params| {
-                output
-                    .lock()
-                    .unwrap()
-                    .push((method.to_owned(), params.cloned()));
-                Ok(if method == "Runtime.evaluate" {
-                    json!({"result":{"value":true}})
-                } else {
-                    json!({})
-                })
-            },
-        ));
-        core.external_automation
-            .register(role_id.clone(), Arc::clone(&session))
-            .unwrap();
-        core.external_automation
-            .set_overlay_source(
-                &role_id,
-                "window.__rionStudioMacroOverlay = { refresh() {} };".to_owned(),
-            )
-            .unwrap();
-
-        core.handle_external_cdp_event(
-            &role_id,
-            &session,
-            crate::external_chrome::CdpEvent::Reconnected,
-        )
-        .await;
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if core
-                    .external_session(&role_id)
-                    .unwrap()
-                    .is_some_and(|session| session.overlay_available)
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let calls = calls.lock().unwrap();
-        let methods = calls
-            .iter()
-            .map(|(method, _)| method.as_str())
-            .collect::<Vec<_>>();
-        assert!(methods.contains(&"Page.enable"));
-        assert!(methods.contains(&"Runtime.enable"));
-        assert!(calls.iter().any(|(method, params)| {
-            method == "Runtime.addBinding"
-                && params.as_ref().and_then(|value| value.get("name"))
-                    == Some(&json!(EXTERNAL_OVERLAY_BINDING))
-        }));
-        assert!(calls.iter().any(|(method, params)| {
-            method == "Page.addScriptToEvaluateOnNewDocument"
-                && params
-                    .as_ref()
-                    .and_then(|value| value.get("source"))
-                    .and_then(Value::as_str)
-                    .is_some_and(|source| source.contains("__rionStudioMacroOverlay"))
-        }));
-        drop(calls);
-        core.shutdown();
-    }
-
-    #[test]
     fn launches_and_stops_an_embedded_role_through_typed_effects() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
@@ -9630,7 +5847,7 @@ mod tests {
             launch_actions.first(),
             Some(CoreEffectAction::EmbeddedCreateTab { tab })
                 if tab.roles.iter().all(|role| {
-                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Electron
+                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Wkwebview
                 })
         ));
         assert!(launch_actions.iter().any(|action| matches!(
@@ -9638,7 +5855,7 @@ mod tests {
             CoreEffectAction::EmbeddedLoadRoles { roles }
                 if roles.len() == 1
                     && roles[0].resolved_engine
-                        == crate::model::ResolvedBrowserEngine::Electron
+                        == crate::model::ResolvedBrowserEngine::Wkwebview
         )));
         assert!(launch_actions.iter().any(|action| matches!(
             action,
@@ -9656,6 +5873,24 @@ mod tests {
                 .iter()
                 .any(|status| { status["roleId"] == role_id && status["state"] == "running" })
         );
+        let tab_id = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap()["tabs"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (hide, _, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedTabHide {
+                tab_id: tab_id.clone(),
+            },
+            None,
+        );
+        assert!(hide.is_ok());
+        let (activate, _, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedTabActivate { tab_id },
+            None,
+        );
+        assert!(activate.is_ok());
 
         let (stop, stop_actions) = drive_command(
             Arc::clone(&core),
@@ -9855,67 +6090,6 @@ mod tests {
             None,
         );
         assert!(sibling_stopped.is_ok());
-        core.shutdown();
-    }
-
-    #[test]
-    fn external_running_session_without_automation_is_not_a_macro_target() {
-        let (_directory, core) = core();
-        let game_id = first_game_id(&core);
-        let role_id = create_role(&core, &game_id, 1);
-        let role: StateRoleRecord =
-            serde_json::from_value(core.invoke(CoreCommand::RolesList).unwrap()[0].clone())
-                .unwrap();
-        core.invoke_external_session(ExternalSessionCommand::Begin {
-            role,
-            bounds: StatePixelBoundsRecord {
-                x: 0,
-                y: 0,
-                width: 1200,
-                height: 800,
-            },
-            physical_bounds: None,
-            workspace_id: None,
-            notice: None,
-            zoom_factor: 1.0,
-        })
-        .unwrap();
-        core.invoke_external_session(ExternalSessionCommand::SetRunning {
-            role_id: role_id.clone(),
-            launched_at: "2026-01-01T00:00:00Z".to_owned(),
-        })
-        .unwrap();
-        let macro_id = core
-            .invoke(command(json!({
-                "type": "macroCreate",
-                "input": {
-                    "name": "External without target",
-                    "roleIds": [role_id],
-                    "steps": [{"type": "delay", "ms": 10}]
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let error = core
-            .invoke(CoreCommand::MacroStart {
-                request: crate::model::MacroInvocationRequest {
-                    macro_id,
-                    source_role_id: None,
-                },
-            })
-            .unwrap_err();
-        crate::v1_case!("macro-ab2ca63c56bf", {
-            assert_eq!(error.code(), "CORE_INPUT_INVALID");
-            assert!(
-                error
-                    .to_string()
-                    .ends_with("Launch at least one assigned role before running a macro.")
-            );
-            assert!(core.macro_runtime.statuses().unwrap().is_empty());
-            assert!(core.macro_active_role_ids().unwrap().is_empty());
-        });
         core.shutdown();
     }
 
@@ -10163,46 +6337,6 @@ mod tests {
             core.shutdown();
         }
     }
-
-    #[test]
-    fn phase_one_status_reports_system_preference_and_electron_fallback() {
-        let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let (result, _, _) = drive_async_command(
-            Arc::clone(&core),
-            command(json!({
-                "type": "browserRoleLaunch",
-                "roleId": role_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            None,
-        );
-        let statuses =
-            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(result.unwrap())
-                .unwrap();
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(
-            statuses[0].preferred_engine,
-            Some(crate::model::EmbeddedBrowserEngine::System)
-        );
-        assert_eq!(
-            statuses[0].resolved_engine,
-            Some(crate::model::ResolvedBrowserEngine::Electron)
-        );
-        assert_eq!(
-            statuses[0].host_kind,
-            Some(crate::model::BrowserHostKind::Electron)
-        );
-        assert_eq!(
-            statuses[0].fallback_reason,
-            Some(crate::model::EngineFallbackReason::RuntimeCreationFailed)
-        );
-        core.shutdown();
-    }
-
     #[test]
     fn registered_system_runtime_drives_new_roles_and_status_capabilities() {
         let (_directory, core) = core();
@@ -10228,13 +6362,6 @@ mod tests {
                     role.resolved_engine == crate::model::ResolvedBrowserEngine::Wkwebview
                 })
         )));
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedLoadRoles { roles }
-                if roles.iter().all(|role| {
-                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Wkwebview
-                })
-        )));
         let statuses = core.browser_statuses().unwrap();
         assert_eq!(
             statuses[0].resolved_engine,
@@ -10242,7 +6369,7 @@ mod tests {
         );
         assert_eq!(
             statuses[0].host_kind,
-            Some(crate::model::BrowserHostKind::System)
+            Some(crate::model::BrowserHostKind::SystemNative)
         );
         assert_eq!(
             statuses[0]
@@ -10253,353 +6380,6 @@ mod tests {
         );
         let (stopped, _) = drive_command(
             Arc::clone(&core),
-            CoreCommand::EmbeddedRoleStop {
-                role_id: role_id.clone(),
-            },
-            None,
-        );
-        assert!(stopped.is_ok());
-        core.shutdown();
-    }
-
-    #[test]
-    fn system_creation_failure_is_retried_by_core_as_visible_electron_fallback() {
-        let (_directory, core) = core();
-        install_test_system_runtime(&core, supported_system_capabilities());
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let mut rejected_system_create = false;
-        let (result, actions) = drive_command_with(
-            Arc::clone(&core),
-            command(json!({
-                "type": "embeddedRoleLaunch",
-                "roleId": role_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            |effect| {
-                let reject = !rejected_system_create
-                    && matches!(
-                        &effect.action,
-                        CoreEffectAction::EmbeddedCreateTab { tab }
-                            if tab.roles.iter().any(|role| {
-                                role.resolved_engine
-                                    == crate::model::ResolvedBrowserEngine::Wkwebview
-                            })
-                    );
-                if reject {
-                    rejected_system_create = true;
-                    CoreEffectResult {
-                        effect_id: effect.effect_id,
-                        operation_id: effect.operation_id,
-                        ok: false,
-                        value_json: None,
-                        error: Some(crate::error::CoreErrorPayload {
-                            code: "SYSTEM_RUNTIME_UNAVAILABLE".to_owned(),
-                            message: "The fixture rejected the System surface.".to_owned(),
-                        }),
-                    }
-                } else {
-                    effect_result(effect, None)
-                }
-            },
-        );
-        assert!(result.is_ok(), "{result:?}");
-        let created_engines = actions
-            .iter()
-            .filter_map(|action| match action {
-                CoreEffectAction::EmbeddedCreateTab { tab } => {
-                    tab.roles.first().map(|role| role.resolved_engine)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            created_engines,
-            vec![
-                crate::model::ResolvedBrowserEngine::Wkwebview,
-                crate::model::ResolvedBrowserEngine::Electron
-            ]
-        );
-        let statuses = core.browser_statuses().unwrap();
-        assert_eq!(
-            statuses[0].resolved_engine,
-            Some(crate::model::ResolvedBrowserEngine::Electron)
-        );
-        assert_eq!(
-            statuses[0].fallback_reason,
-            Some(crate::model::EngineFallbackReason::RuntimeCreationFailed)
-        );
-        let (stopped, _) = drive_command(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedRoleStop {
-                role_id: role_id.clone(),
-            },
-            None,
-        );
-        assert!(stopped.is_ok());
-        install_test_system_runtime(&core, supported_system_capabilities());
-        let role = core
-            .read_typed_state_collection::<StateRoleRecord>("roles")
-            .unwrap()
-            .into_iter()
-            .find(|role| role.id == role_id)
-            .unwrap();
-        let game = core.external_game(&role.game_id).unwrap();
-        let settings = core
-            .read_scalar_state::<GameBrowserSettingsRecord>(
-                "gameBrowserSettings",
-                "game browser settings are missing",
-            )
-            .unwrap();
-        let runtime = core.system_webview_runtime().unwrap();
-        let key = core
-            .engine_compatibility_cache_key(&game, &settings, &runtime)
-            .unwrap();
-        assert!(
-            core.with_runtime(|runtime| runtime.state.engine_compatibility_cache_get(key))
-                .unwrap()
-                .is_some_and(|record| !record.compatible)
-        );
-        assert_eq!(
-            core.resolve_role_browser_engine(&role, &game, None, &settings, "embedded")
-                .unwrap()
-                .fallback_reason,
-            Some(crate::model::EngineFallbackReason::CachedCompatibilityFailure)
-        );
-        let (cached_launch, cached_actions) = drive_command(
-            Arc::clone(&core),
-            command(json!({
-                "type": "embeddedRoleLaunch",
-                "roleId": role_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            None,
-        );
-        assert!(cached_launch.is_ok(), "{cached_launch:?}");
-        assert!(cached_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedCreateTab { tab }
-                if tab.roles.iter().all(|role| {
-                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Electron
-                })
-        )));
-        assert!(!cached_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedCreateTab { tab }
-                if tab.roles.iter().any(|role| {
-                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Wkwebview
-                })
-        )));
-        assert_eq!(
-            core.browser_statuses().unwrap()[0].fallback_reason,
-            Some(crate::model::EngineFallbackReason::CachedCompatibilityFailure)
-        );
-        core.shutdown();
-    }
-
-    #[test]
-    fn active_mac_cdn_plan_failure_has_a_specific_visible_fallback_reason() {
-        let (_directory, core) = core();
-        install_test_system_runtime(&core, supported_system_capabilities());
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let mut rejected_system_create = false;
-        let (result, _) = drive_command_with(
-            Arc::clone(&core),
-            command(json!({
-                "type": "embeddedRoleLaunch",
-                "roleId": role_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            |effect| {
-                let reject = !rejected_system_create
-                    && matches!(
-                        &effect.action,
-                        CoreEffectAction::EmbeddedCreateTab { tab }
-                            if tab.roles.iter().any(|role| {
-                                role.resolved_engine
-                                    == crate::model::ResolvedBrowserEngine::Wkwebview
-                            })
-                    );
-                if reject {
-                    rejected_system_create = true;
-                    CoreEffectResult {
-                        effect_id: effect.effect_id,
-                        operation_id: effect.operation_id,
-                        ok: false,
-                        value_json: None,
-                        error: Some(crate::error::CoreErrorPayload {
-                            code: "MAC_CDN_REWRITE_UNSUPPORTED".to_owned(),
-                            message: "The active CDN plan cannot run in WKWebView.".to_owned(),
-                        }),
-                    }
-                } else {
-                    effect_result(effect, None)
-                }
-            },
-        );
-        assert!(result.is_ok(), "{result:?}");
-        let status = &core.browser_statuses().unwrap()[0];
-        assert_eq!(
-            status.resolved_engine,
-            Some(crate::model::ResolvedBrowserEngine::Electron)
-        );
-        assert_eq!(
-            status.fallback_reason,
-            Some(crate::model::EngineFallbackReason::MacCdnRewriteUnsupported)
-        );
-        core.shutdown();
-    }
-
-    #[test]
-    fn crashed_system_tab_falls_back_as_one_core_owned_transaction() {
-        let (_directory, core) = core();
-        install_test_system_runtime(&core, supported_system_capabilities());
-        let game_id = first_game_id(&core);
-        let first_role_id = create_role(&core, &game_id, 1);
-        let second_role_id = create_role(&core, &game_id, 2);
-        let workspace_id = core
-            .invoke(command(json!({
-                "type": "workspaceCreate",
-                "input": {
-                    "name": "Crash fallback",
-                    "template": "two_columns",
-                    "browserEngine": "system",
-                    "slots": [
-                        {
-                            "roleId": first_role_id,
-                            "rect": {"x": 0, "y": 0, "width": 0.5, "height": 1}
-                        },
-                        {
-                            "roleId": second_role_id,
-                            "rect": {"x": 0.5, "y": 0, "width": 0.5, "height": 1}
-                        }
-                    ]
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let (launch, _) = drive_command(
-            Arc::clone(&core),
-            command(json!({
-                "type": "embeddedWorkspaceLaunch",
-                "workspaceId": workspace_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            None,
-        );
-        assert!(launch.is_ok(), "{launch:?}");
-
-        let (fallback, actions) = drive_command(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedSystemSurfaceFailed {
-                role_id: first_role_id,
-                reason: Some("web-content-process-terminated".to_owned()),
-            },
-            None,
-        );
-        let statuses =
-            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(fallback.unwrap())
-                .unwrap();
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedFallbackTabToElectron { role_ids, .. }
-                if role_ids.len() == 2
-        )));
-        assert_eq!(statuses.len(), 2);
-        assert!(statuses.iter().all(|status| {
-            status.resolved_engine == Some(crate::model::ResolvedBrowserEngine::Electron)
-                && status.host_kind == Some(crate::model::BrowserHostKind::Electron)
-                && status.fallback_reason
-                    == Some(crate::model::EngineFallbackReason::RuntimeCrashed)
-        }));
-        let (stopped, _) = drive_command(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedWorkspaceStop { workspace_id },
-            None,
-        );
-        assert!(stopped.is_ok());
-        core.shutdown();
-    }
-
-    #[test]
-    fn failed_cookie_continuity_marks_electron_fallback_as_needs_login() {
-        let (_directory, core) = core();
-        install_test_system_runtime(&core, supported_system_capabilities());
-        let role_id = create_role(&core, &first_game_id(&core), 1);
-        let (launch, _) = drive_command(
-            Arc::clone(&core),
-            command(json!({
-                "type": "embeddedRoleLaunch",
-                "roleId": role_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            None,
-        );
-        assert!(launch.is_ok(), "{launch:?}");
-
-        let fallback_role_id = role_id.clone();
-        let (fallback, _) = drive_command_with(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedSystemSurfaceFailed {
-                role_id: role_id.clone(),
-                reason: Some("web-content-process-terminated".to_owned()),
-            },
-            move |effect| {
-                let is_fallback = matches!(
-                    &effect.action,
-                    CoreEffectAction::EmbeddedFallbackTabToElectron { .. }
-                );
-                let mut result = effect_result(effect, None);
-                if is_fallback {
-                    result.value_json = Some(
-                        json!({
-                            "roles": [{
-                                "roleId": fallback_role_id.clone(),
-                                "cookiesMirrored": 0,
-                                "authVerified": false
-                            }]
-                        })
-                        .to_string(),
-                    );
-                }
-                result
-            },
-        );
-        let statuses =
-            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(fallback.unwrap())
-                .unwrap();
-        assert_eq!(statuses.len(), 1);
-        assert_eq!(
-            statuses[0].resolved_engine,
-            Some(crate::model::ResolvedBrowserEngine::Electron)
-        );
-        assert_eq!(
-            statuses[0].fallback_reason,
-            Some(crate::model::EngineFallbackReason::AuthVerificationFailed)
-        );
-        assert_eq!(
-            statuses[0].session_continuity.as_deref(),
-            Some("needs-login")
-        );
-
-        let (stopped, _) = drive_command(
-            Arc::clone(&core),
             CoreCommand::EmbeddedRoleStop { role_id },
             None,
         );
@@ -10608,23 +6388,60 @@ mod tests {
     }
 
     #[test]
-    fn macro_assigned_role_falls_back_when_system_trusted_input_is_unavailable() {
+    fn macro_launch_fails_closed_before_surface_creation_when_trusted_input_is_unverified() {
         let (_directory, core) = core();
         let mut capabilities = supported_system_capabilities();
-        capabilities.trusted_input = crate::model::EngineCapabilityStatus::Unsupported;
-        capabilities.background_input = crate::model::EngineCapabilityStatus::Unsupported;
+        capabilities.trusted_input = crate::model::EngineCapabilityStatus::Degraded;
         install_test_system_runtime(&core, capabilities);
         let role_id = create_role(&core, &first_game_id(&core), 1);
         core.invoke(command(json!({
             "type": "macroCreate",
             "input": {
-                "name": "System preflight macro",
-                "roleIds": [role_id],
-                "steps": [{"type": "delay", "ms": 10}]
+                "name": "Requires trusted input",
+                "roleIds": [role_id.clone()],
+                "steps": [{"type": "key", "code": "Digit1", "action": "tap"}]
             }
         })))
         .unwrap();
+
         let (result, actions) = drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedRoleLaunch {
+                role_id,
+                target: EmbeddedLaunchTargetRecord {
+                    display_id: 1,
+                    work_area: crate::model::StatePixelBoundsRecord {
+                        x: 0,
+                        y: 0,
+                        width: 1200,
+                        height: 800,
+                    },
+                },
+                zoom_factor: None,
+            },
+            None,
+        );
+
+        assert_eq!(
+            result.unwrap_err().code(),
+            "SYSTEM_WEBVIEW_CAPABILITY_UNAVAILABLE"
+        );
+        assert!(actions.is_empty());
+        let runtime = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(runtime.roles.is_empty());
+        assert!(runtime.tabs.is_empty());
+        core.shutdown();
+    }
+
+    #[test]
+    fn crashed_system_surface_stays_on_the_native_engine_and_clears_its_issue_after_recovery() {
+        let (_directory, core) = core();
+        install_test_system_runtime(&core, supported_system_capabilities());
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let (launch, _) = drive_command(
             Arc::clone(&core),
             command(json!({
                 "type": "embeddedRoleLaunch",
@@ -10636,161 +6453,54 @@ mod tests {
             })),
             None,
         );
-        assert!(result.is_ok(), "{result:?}");
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedCreateTab { tab }
-                if tab.roles.iter().all(|role| {
-                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Electron
-                })
-        )));
-        let statuses = core.browser_statuses().unwrap();
-        assert_eq!(
-            statuses[0].fallback_reason,
-            Some(crate::model::EngineFallbackReason::WebkitSpiUnavailable)
+        assert!(launch.is_ok(), "{launch:?}");
+
+        let (failed, failed_actions) = drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedSystemSurfaceFailed {
+                role_id: role_id.clone(),
+                reason: Some("web-content-process-terminated".to_owned()),
+            },
+            None,
         );
+        assert!(failed_actions.is_empty());
+        let failed_statuses =
+            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(failed.unwrap())
+                .unwrap();
+        assert_eq!(
+            failed_statuses[0].resolved_engine,
+            Some(crate::model::ResolvedBrowserEngine::Wkwebview)
+        );
+        assert_eq!(
+            failed_statuses[0].issue_reason,
+            Some(crate::model::SystemWebViewIssueReason::RuntimeCrashed)
+        );
+
+        let (recovered, recovered_actions) = drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedSystemSurfaceRecovered {
+                role_id: role_id.clone(),
+            },
+            None,
+        );
+        assert!(recovered_actions.is_empty());
+        let recovered_statuses =
+            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(
+                recovered.unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            recovered_statuses[0].resolved_engine,
+            Some(crate::model::ResolvedBrowserEngine::Wkwebview)
+        );
+        assert_eq!(recovered_statuses[0].issue_reason, None);
+
         let (stopped, _) = drive_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedRoleStop { role_id },
             None,
         );
         assert!(stopped.is_ok());
-        core.shutdown();
-    }
-
-    #[test]
-    fn one_legacy_role_forces_the_entire_system_workspace_to_electron() {
-        let (_directory, core) = core();
-        install_test_system_runtime(&core, supported_system_capabilities());
-        let game_id = first_game_id(&core);
-        let system_role_id = create_role(&core, &game_id, 1);
-        let legacy_role_id = create_role(&core, &game_id, 2);
-        core.mutate_state(StateMutation::RoleRollbackSessionMigration {
-            id: legacy_role_id.clone(),
-            engine: crate::model::EmbeddedBrowserEngine::Electron,
-        })
-        .unwrap();
-        let workspace_id = core
-            .invoke(command(json!({
-                "type": "workspaceCreate",
-                "input": {
-                    "name": "Uniform fallback",
-                    "template": "two_columns",
-                    "browserEngine": "system",
-                    "slots": [
-                        {
-                            "roleId": system_role_id,
-                            "rect": {"x": 0, "y": 0, "width": 0.5, "height": 1}
-                        },
-                        {
-                            "roleId": legacy_role_id,
-                            "rect": {"x": 0.5, "y": 0, "width": 0.5, "height": 1}
-                        }
-                    ]
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let (result, actions) = drive_command(
-            Arc::clone(&core),
-            command(json!({
-                "type": "embeddedWorkspaceLaunch",
-                "workspaceId": workspace_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })),
-            None,
-        );
-        assert!(result.is_ok(), "{result:?}");
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedCreateTab { tab }
-                if tab.roles.len() == 2 && tab.roles.iter().all(|role| {
-                    role.resolved_engine == crate::model::ResolvedBrowserEngine::Electron
-                })
-        )));
-        let statuses = core.browser_statuses().unwrap();
-        assert_eq!(statuses.len(), 2);
-        assert!(statuses.iter().all(|status| {
-            status.resolved_engine == Some(crate::model::ResolvedBrowserEngine::Electron)
-                && status.host_kind == Some(crate::model::BrowserHostKind::Electron)
-                && status.fallback_reason == Some(crate::model::EngineFallbackReason::LegacyRolePin)
-        }));
-        let workspace_statuses = core.browser_workspace_statuses().unwrap();
-        assert_eq!(workspace_statuses.len(), 1);
-        assert_eq!(
-            workspace_statuses[0].resolved_engine,
-            Some(crate::model::ResolvedBrowserEngine::Electron)
-        );
-        let (stopped, _) = drive_command(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedWorkspaceStop { workspace_id },
-            None,
-        );
-        assert!(stopped.is_ok());
-        core.shutdown();
-    }
-
-    #[tokio::test]
-    async fn mixed_workspace_engine_preferences_require_a_persisted_override() {
-        let (_directory, core) = core();
-        let create_game = |name: &str, browser_engine: &str| {
-            core.invoke(command(json!({
-                "type": "gameCreate",
-                "input": {
-                    "name": name,
-                    "defaultLaunchUrl": format!("https://example.com/{name}"),
-                    "browserEngine": browser_engine
-                }
-            })))
-            .unwrap()["id"]
-                .as_str()
-                .unwrap()
-                .to_owned()
-        };
-        let system_game_id = create_game("System game", "system");
-        let electron_game_id = create_game("Electron game", "electron");
-        let system_role_id = create_role(&core, &system_game_id, 1);
-        let electron_role_id = create_role(&core, &electron_game_id, 2);
-        let workspace_id = core
-            .invoke(command(json!({
-                "type": "workspaceCreate",
-                "input": {
-                    "name": "Mixed engines",
-                    "template": "two_columns",
-                    "browserEngine": "inherit",
-                    "slots": [
-                        {
-                            "roleId": system_role_id,
-                            "rect": {"x": 0, "y": 0, "width": 0.5, "height": 1}
-                        },
-                        {
-                            "roleId": electron_role_id,
-                            "rect": {"x": 0.5, "y": 0, "width": 0.5, "height": 1}
-                        }
-                    ]
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let error = core
-            .invoke_async(command(json!({
-                "type": "browserWorkspaceLaunch",
-                "workspaceId": workspace_id,
-                "target": {
-                    "displayId": 1,
-                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
-                }
-            })))
-            .await
-            .unwrap_err();
-        assert_eq!(error.code(), "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED");
         core.shutdown();
     }
 
@@ -10853,7 +6563,7 @@ mod tests {
         let action = crate::model::BrowserActionRequest {
             request_id: "health-1".to_owned(),
             role_id: "role-1".to_owned(),
-            origin: "external_health".to_owned(),
+            origin: "macro".to_owned(),
             scheduled_at_ms: 1,
             deadline_ms: 2,
             action: crate::model::BrowserAction::Evaluate {
@@ -10888,165 +6598,5 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, CoreEvent::Ready { .. }))
         );
-    }
-
-    #[test]
-    fn normalizes_graceful_chrome_close_failures() {
-        crate::v1_case!("portable-profile-3d31e6bee6bf", {
-            assert!(normalize_chrome_close_result(Ok(())).is_ok());
-        });
-        crate::v1_case!("resource-platform-f3ee090416c3", {
-            let error = normalize_chrome_close_result(Err(
-                rion_platform::PlatformError::Operation("command failed".to_owned()),
-            ))
-            .unwrap_err();
-            assert_eq!(error.code(), "CHROME_CLOSE_FAILED");
-            assert_eq!(
-                error.to_string(),
-                "Unable to ask Google Chrome to close. Close Chrome manually and try again."
-            );
-        });
-    }
-
-    #[test]
-    fn collects_complete_graphics_diagnostics_from_running_external_sessions_only() {
-        crate::v1_case!("resource-platform-d9818e8ce344", {
-            let (_directory, core) = core();
-            let game_id = first_game_id(&core);
-            let first_id = create_role(&core, &game_id, 1);
-            let second_id = create_role(&core, &game_id, 2);
-            let roles = core
-                .invoke(CoreCommand::RolesList)
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .iter()
-                .cloned()
-                .map(serde_json::from_value::<StateRoleRecord>)
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap();
-            let bounds = StatePixelBoundsRecord {
-                x: 0,
-                y: 0,
-                width: 1200,
-                height: 800,
-            };
-            for role in roles
-                .iter()
-                .filter(|role| role.id == first_id || role.id == second_id)
-            {
-                core.invoke_external_session(ExternalSessionCommand::Begin {
-                    role: role.clone(),
-                    bounds: bounds.clone(),
-                    physical_bounds: None,
-                    workspace_id: None,
-                    notice: None,
-                    zoom_factor: 1.0,
-                })
-                .unwrap();
-            }
-            core.invoke_external_session(ExternalSessionCommand::SetAutomation {
-                role_id: first_id.clone(),
-                available: true,
-                cdn_active: false,
-            })
-            .unwrap();
-            core.invoke_external_session(ExternalSessionCommand::SetRunning {
-                role_id: first_id.clone(),
-                launched_at: "2026-07-21T10:00:00Z".to_owned(),
-            })
-            .unwrap();
-            let running = running_external_diagnostic_sessions(
-                core.external_sessions.lock().unwrap().snapshot(),
-            );
-            assert_eq!(running.len(), 1);
-            assert_eq!(running[0].role.id, first_id);
-            assert!(running[0].automation_available);
-
-            let applied =
-                crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance");
-            let saved =
-                crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("experimental");
-            let diagnostics = crate::graphics_diagnostics::assemble(
-                crate::graphics_diagnostics::GraphicsDiagnosticsInput {
-                    applied_settings: applied,
-                    embedded_raw_json: json!({
-                        "renderer": "ANGLE Metal Renderer",
-                        "vendor": "Apple",
-                        "webgl": "available",
-                        "webgl2": "available",
-                        "webgpu": "available"
-                    })
-                    .to_string(),
-                    embedded_error: None,
-                    external_roles: vec![ExternalGraphicsDiagnosticsRecord {
-                        error: None,
-                        probe: Some(crate::model::StateWebGraphicsRecord {
-                            error: None,
-                            renderer: Some("ANGLE Metal Renderer".to_owned()),
-                            vendor: Some("Apple".to_owned()),
-                            webgl: "available".to_owned(),
-                            webgl2: "available".to_owned(),
-                            webgpu: "available".to_owned(),
-                        }),
-                        role_id: first_id,
-                        role_name: "Role 1".to_owned(),
-                        state: "ready".to_owned(),
-                    }],
-                    feature_status_raw_json: json!({
-                        "gpu_compositing": "enabled",
-                        "rasterization": "enabled_on",
-                        "webgl": "enabled",
-                        "webgl2": "enabled"
-                    })
-                    .to_string(),
-                    gpu_info_raw_json: Some(
-                        json!({
-                            "auxAttributes": {
-                                "driverVendor": "Apple",
-                                "driverVersion": "1.0"
-                            },
-                            "gpuDevice": [{
-                                "active": true,
-                                "deviceId": 2,
-                                "deviceString": "Apple M GPU",
-                                "vendorId": 1
-                            }]
-                        })
-                        .to_string(),
-                    ),
-                    gpu_info_ready: true,
-                    hardware_acceleration_enabled: Some(true),
-                    platform: rion_platform::Platform::Macos,
-                    saved_settings: saved,
-                    versions: GraphicsVersionRecord {
-                        chromium: "1".to_owned(),
-                        electron: "1".to_owned(),
-                        node: "1".to_owned(),
-                    },
-                },
-            );
-            assert!(diagnostics.restart_required);
-            assert!(diagnostics.gpu_info_ready);
-            assert_eq!(diagnostics.hardware_acceleration_enabled, Some(true));
-            assert_eq!(diagnostics.embedded.webgl2, "available");
-            assert_eq!(diagnostics.external_roles.len(), 1);
-            assert_eq!(diagnostics.external_roles[0].state, "ready");
-            assert_eq!(
-                diagnostics
-                    .gpu_device
-                    .as_ref()
-                    .and_then(|device| device.device_string.as_deref()),
-                Some("Apple M GPU")
-            );
-            assert_eq!(
-                diagnostics
-                    .gpu_device
-                    .as_ref()
-                    .and_then(|device| device.driver_version.as_deref()),
-                Some("1.0")
-            );
-            core.shutdown();
-        });
     }
 }

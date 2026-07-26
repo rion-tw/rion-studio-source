@@ -5,7 +5,6 @@ import type { RionStudioApi } from "../shared/api";
 import type {
   AppUpdateStatus,
   AppWindowState,
-  ChromeProfileImportProgress,
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
@@ -56,16 +55,8 @@ const api: RionStudioApi = {
   deleteRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesDelete, id),
   deleteRoles: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesDeleteMany, input),
   clearRoleBrowserData: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesClearBrowserData, id),
-  previewRoleSessionMigration: (id, targetEngine) =>
-    ipcRenderer.invoke(IPC_CHANNELS.rolesSessionMigrationPreview, id, targetEngine),
-  applyRoleSessionMigration: (id, targetEngine) =>
-    ipcRenderer.invoke(IPC_CHANNELS.rolesSessionMigrationApply, id, targetEngine),
-  rollbackRoleSessionMigration: (id) =>
-    ipcRenderer.invoke(IPC_CHANNELS.rolesSessionMigrationRollback, id),
   getRolePaths: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesPaths, id),
   launchRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesLaunch, id),
-  captureExternalRoleDiagnostics: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesCaptureExternalDiagnostics, id),
-  recoverExternalRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesRecoverExternal, id),
   stopRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStop, id),
   listRoleStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.rolesStatuses),
   listLaunchWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.workspacesList),
@@ -94,10 +85,6 @@ const api: RionStudioApi = {
   previewPortableImport: () => ipcRenderer.invoke(IPC_CHANNELS.portableImportPreview),
   applyPortableImport: (input) => ipcRenderer.invoke(IPC_CHANNELS.portableImportApply, input),
   discardPortableImport: (importId) => ipcRenderer.invoke(IPC_CHANNELS.portableImportDiscard, importId),
-  previewChromeProfileImport: () => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportPreview),
-  closeChromeForImport: () => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportCloseChrome),
-  applyChromeProfileImport: (input) => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportApply, input),
-  discardChromeProfileImport: (importId) => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportDiscard, importId),
   getGameBrowserSettings: () => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsGet),
   updateGameBrowserSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsUpdate, settings),
   getGraphicsDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.graphicsDiagnosticsGet),
@@ -116,13 +103,6 @@ const api: RionStudioApi = {
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updatesCheck),
   openUpdateDownload: () => ipcRenderer.invoke(IPC_CHANNELS.updatesOpenDownload),
   installDownloadedUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updatesInstall),
-  onChromeProfileImportProgress: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, progress: ChromeProfileImportProgress) => {
-      callback(progress);
-    };
-    ipcRenderer.on(IPC_CHANNELS.chromeProfileImportProgress, listener);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.chromeProfileImportProgress, listener);
-  },
   onRoleStatusChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, statuses: RoleStatus[]) => {
       callback(statuses);

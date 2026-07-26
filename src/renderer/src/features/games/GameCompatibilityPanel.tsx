@@ -13,28 +13,23 @@ import { Button } from "../../components/ui/button";
 import { FieldHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import type {
-  Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus
 } from "../../../../shared/types";
 
 interface GameCompatibilityPanelProps {
-  game: Game;
   report?: GameCompatibilityReport;
   runStatus?: GameCompatibilityRunStatus;
   t: Translator;
-  onApply: () => void;
   onCancel: () => void;
   onOpenGraphicsSettings: () => void;
   onRun: () => void;
 }
 
 export function GameCompatibilityPanel({
-  game,
   report,
   runStatus,
   t,
-  onApply,
   onCancel,
   onOpenGraphicsSettings,
   onRun
@@ -43,8 +38,6 @@ export function GameCompatibilityPanel({
   const observations = report?.observations;
   const observationItems = observations ? [
     ["games.compatibility.observation.embedded", observations.lastEmbeddedSuccessAt],
-    ["games.compatibility.observation.external", observations.lastExternalSuccessAt],
-    ["games.compatibility.observation.fallback", observations.lastFallbackAt],
     ["games.compatibility.observation.launchFailure", observations.lastLaunchFailureAt, observations.lastLaunchFailureCode],
   ].filter((item) => item[1]) : [];
 
@@ -71,9 +64,6 @@ export function GameCompatibilityPanel({
           ) : (
             <Button type="button" onClick={onRun}>{t("games.compatibility.run")}</Button>
           )}
-          {recommendation?.mode === "external" && game.browserLaunchMode !== "external" ? (
-            <Button type="button" variant="secondary" onClick={onApply}>{t("games.compatibility.apply")}</Button>
-          ) : null}
           {recommendation?.reason === "graphics_unavailable" ? (
             <Button type="button" variant="secondary" onClick={onOpenGraphicsSettings}>
               {t("games.compatibility.graphicsSettings")}
@@ -112,8 +102,7 @@ export function GameCompatibilityPanel({
             <Datum label="WebGL / WebGL2" value={`${formatAvailability(report.graphics?.webgl, t)} / ${formatAvailability(report.graphics?.webgl2, t)}`} />
             <Datum label="WebGPU" value={formatAvailability(report.graphics?.webgpu, t)} />
             <Datum label={t("games.compatibility.renderer")} value={report.graphics?.renderer ?? "—"} />
-            <Datum label={t("games.compatibility.chrome")} value={report.systemChrome ? formatAvailability(report.systemChrome.state, t) : "—"} />
-            <Datum label={t("games.compatibility.recommendation")} value={recommendation ? t(`games.compatibility.recommendation.${recommendation.reason}` as "games.compatibility.recommendation.embedded_available") : "—"} />
+            <Datum label={t("games.compatibility.recommendation")} value={recommendation ? t(`games.compatibility.recommendation.${recommendation.reason}` as "games.compatibility.recommendation.system_webview_available") : "—"} />
             <Datum label={t("games.compatibility.errorCode")} value={report.load?.errorCode ?? "—"} />
           </div>
         </div>

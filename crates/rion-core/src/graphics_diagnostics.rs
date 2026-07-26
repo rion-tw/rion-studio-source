@@ -4,9 +4,8 @@ use chrono::Utc;
 use serde_json::Value;
 
 use crate::model::{
-    BrowserGraphicsSettingsRecord, ExternalGraphicsDiagnosticsRecord,
-    GraphicsDeviceDiagnosticsRecord, GraphicsDiagnosticsRecord, GraphicsVersionRecord,
-    StateWebGraphicsRecord,
+    BrowserGraphicsSettingsRecord, GraphicsDeviceDiagnosticsRecord, GraphicsDiagnosticsRecord,
+    RuntimeVersionRecord, StateWebGraphicsRecord,
 };
 
 pub(crate) const WEB_GRAPHICS_PROBE_SOURCE: &str = r#"(async () => {
@@ -38,14 +37,13 @@ pub(crate) struct GraphicsDiagnosticsInput {
     pub applied_settings: BrowserGraphicsSettingsRecord,
     pub embedded_raw_json: String,
     pub embedded_error: Option<String>,
-    pub external_roles: Vec<ExternalGraphicsDiagnosticsRecord>,
     pub feature_status_raw_json: String,
     pub gpu_info_raw_json: Option<String>,
     pub gpu_info_ready: bool,
     pub hardware_acceleration_enabled: Option<bool>,
     pub platform: rion_platform::Platform,
     pub saved_settings: BrowserGraphicsSettingsRecord,
-    pub versions: GraphicsVersionRecord,
+    pub versions: RuntimeVersionRecord,
 }
 
 pub(crate) fn assemble(input: GraphicsDiagnosticsInput) -> GraphicsDiagnosticsRecord {
@@ -63,7 +61,6 @@ pub(crate) fn assemble(input: GraphicsDiagnosticsInput) -> GraphicsDiagnosticsRe
         applied_settings: input.applied_settings,
         collected_at: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         embedded,
-        external_roles: input.external_roles,
         feature_status: normalize_feature_status(parse_json(&input.feature_status_raw_json)),
         gpu_device: input
             .gpu_info_raw_json
@@ -204,7 +201,6 @@ mod tests {
             })
             .to_string(),
             embedded_error: None,
-            external_roles: Vec::new(),
             feature_status_raw_json: json!({"webgl":"enabled", "ignored": 3}).to_string(),
             gpu_info_raw_json: Some(
                 json!({
@@ -217,10 +213,11 @@ mod tests {
             hardware_acceleration_enabled: Some(true),
             platform: rion_platform::Platform::Windows,
             saved_settings: saved,
-            versions: GraphicsVersionRecord {
-                chromium: "140".to_owned(),
-                electron: "40".to_owned(),
-                node: "24".to_owned(),
+            versions: RuntimeVersionRecord {
+                engine: crate::model::ResolvedBrowserEngine::Webview2,
+                engine_version: "140".to_owned(),
+                shell: "test".to_owned(),
+                shell_version: "1".to_owned(),
             },
         });
         assert!(diagnostics.restart_required);
@@ -262,17 +259,17 @@ mod tests {
                 })
                 .to_string(),
                 embedded_error: None,
-                external_roles: Vec::new(),
                 feature_status_raw_json: "{}".to_owned(),
                 gpu_info_raw_json: None,
                 gpu_info_ready: false,
                 hardware_acceleration_enabled: None,
                 platform: rion_platform::Platform::Macos,
                 saved_settings: automatic,
-                versions: GraphicsVersionRecord {
-                    chromium: "1".to_owned(),
-                    electron: "1".to_owned(),
-                    node: "1".to_owned(),
+                versions: RuntimeVersionRecord {
+                    engine: crate::model::ResolvedBrowserEngine::Wkwebview,
+                    engine_version: "1".to_owned(),
+                    shell: "test".to_owned(),
+                    shell_version: "1".to_owned(),
                 },
             });
             assert!(!diagnostics.gpu_info_ready);

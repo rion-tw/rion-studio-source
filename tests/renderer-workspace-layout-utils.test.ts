@@ -71,7 +71,6 @@ describe("renderer workspace layout helpers", () => {
     expect(
       createWorkspaceFormState({
         id: "workspace-1",
-        browserLaunchMode: "inherit",
         browserZoomMode: "fixed",
         name: "Party",
         template: "three_columns",
@@ -99,7 +98,6 @@ describe("renderer workspace layout helpers", () => {
 
     expect(createWorkspaceFormState({
       id: "workspace-1",
-      browserLaunchMode: "inherit",
       browserZoomMode: "adaptive",
       name: "Solo",
       template: "single",

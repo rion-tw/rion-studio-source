@@ -17,3 +17,13 @@ export function configureChromiumCommandLine(
     }
   }
 }
+
+export function formatChromiumSwitches(
+  switches: ChromiumSwitchRecord[]
+): string {
+  return switches
+    .map(({ name, value }) => value === undefined
+      ? `--${name}`
+      : `--${name}=${value}`)
+    .join(" ");
+}

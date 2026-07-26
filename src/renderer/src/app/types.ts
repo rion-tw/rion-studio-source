@@ -1,7 +1,6 @@
 import type {
   BrowserEngineOverride,
   GameSource,
-  InheritableBrowserLaunchMode,
   LaunchWorkspaceSlot,
   MacroActivationMode,
   MacroRepeat,
@@ -27,7 +26,6 @@ export interface WorkspaceFormState {
   id?: string;
   name: string;
   template: WorkspaceLayoutTemplate;
-  browserLaunchMode: InheritableBrowserLaunchMode;
   browserEngine?: BrowserEngineOverride;
   browserZoomMode: WorkspaceBrowserZoomMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
@@ -42,7 +40,6 @@ export interface GameFormState {
   iconImageDataUrl?: string;
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
-  browserLaunchMode: InheritableBrowserLaunchMode;
   browserEngine?: BrowserEngineOverride;
 }
 

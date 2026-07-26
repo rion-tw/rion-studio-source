@@ -8,10 +8,9 @@ use crate::{
     error::{CoreError, CoreResult},
     model::{
         CompatibilityCheckOutcome, CompatibilityCheckPlanRecord, CompatibilityRunPhase,
-        CompatibilityRunStatusRecord, CompatibilityVersionRecord, GameBrowserSettingsRecord,
-        StateCompatibilityChromeRecord, StateCompatibilityLoadRecord,
-        StateCompatibilityObservationsRecord, StateCompatibilityRecommendationRecord,
-        StateCompatibilityReportRecord, StateGameRecord,
+        CompatibilityRunStatusRecord, GameBrowserSettingsRecord, RuntimeVersionRecord,
+        StateCompatibilityLoadRecord, StateCompatibilityObservationsRecord,
+        StateCompatibilityRecommendationRecord, StateCompatibilityReportRecord, StateGameRecord,
     },
 };
 
@@ -19,7 +18,6 @@ use crate::{
 struct ActiveCheck {
     configuration_fingerprint: String,
     status: CompatibilityRunStatusRecord,
-    system_chrome_available: bool,
     cancel_requested: bool,
     effect_operation_id: Option<String>,
 }
@@ -42,8 +40,7 @@ impl CompatibilityRuntime {
         games: &[StateGameRecord],
         settings: &GameBrowserSettingsRecord,
         game_id: &str,
-        system_chrome_available: bool,
-        versions: &CompatibilityVersionRecord,
+        versions: &RuntimeVersionRecord,
     ) -> CoreResult<CompatibilityCheckPlanRecord> {
         if self.active.contains_key(game_id) {
             return Err(CoreError::Domain {
@@ -70,7 +67,6 @@ impl CompatibilityRuntime {
             ActiveCheck {
                 configuration_fingerprint: configuration_fingerprint(game, settings, versions)?,
                 status,
-                system_chrome_available,
                 cancel_requested: false,
                 effect_operation_id: None,
             },
@@ -125,13 +121,6 @@ impl CompatibilityRuntime {
         outcome: CompatibilityCheckOutcome,
     ) -> CoreResult<StateCompatibilityReportRecord> {
         let active = self.active.get(game_id).ok_or_else(|| inactive(game_id))?;
-        let system_chrome = Some(StateCompatibilityChromeRecord {
-            state: if active.system_chrome_available {
-                "available".to_owned()
-            } else {
-                "unavailable".to_owned()
-            },
-        });
         let checked_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let cancelled = active.cancel_requested
             || matches!(outcome, CompatibilityCheckOutcome::Cancelled { .. });
@@ -143,12 +132,10 @@ impl CompatibilityRuntime {
             } if !cancelled => {
                 let recommendation = if graphics.webgl == "available" {
                     StateCompatibilityRecommendationRecord {
-                        mode: None,
-                        reason: "embedded_available".to_owned(),
+                        reason: "system_webview_available".to_owned(),
                     }
                 } else {
                     StateCompatibilityRecommendationRecord {
-                        mode: None,
                         reason: "graphics_unavailable".to_owned(),
                     }
                 };
@@ -174,16 +161,8 @@ impl CompatibilityRuntime {
                     error_code: Some(error_code),
                 },
                 None,
-                Some(if active.system_chrome_available {
-                    StateCompatibilityRecommendationRecord {
-                        mode: Some("external".to_owned()),
-                        reason: "external_recommended".to_owned(),
-                    }
-                } else {
-                    StateCompatibilityRecommendationRecord {
-                        mode: None,
-                        reason: "chrome_required".to_owned(),
-                    }
+                Some(StateCompatibilityRecommendationRecord {
+                    reason: "load_failed".to_owned(),
                 }),
             ),
             CompatibilityCheckOutcome::Cancelled { duration_ms }
@@ -206,12 +185,9 @@ impl CompatibilityRuntime {
             is_stale: false,
             load: Some(load),
             graphics,
-            system_chrome,
             recommendation,
             observations: StateCompatibilityObservationsRecord {
                 last_embedded_success_at: None,
-                last_external_success_at: None,
-                last_fallback_at: None,
                 last_launch_failure_at: None,
                 last_launch_failure_code: None,
             },
@@ -226,7 +202,7 @@ impl CompatibilityRuntime {
         games: &[StateGameRecord],
         reports: &[StateCompatibilityReportRecord],
         settings: &GameBrowserSettingsRecord,
-        versions: &CompatibilityVersionRecord,
+        versions: &RuntimeVersionRecord,
     ) -> CoreResult<Vec<StateCompatibilityReportRecord>> {
         reports
             .iter()
@@ -261,21 +237,25 @@ struct FingerprintInput<'a> {
     default_launch_url: &'a str,
     network: &'a crate::model::BrowserNetworkSettingsRecord,
     graphics: &'a crate::model::BrowserGraphicsSettingsRecord,
-    chrome: &'a str,
-    electron: &'a str,
+    engine: crate::model::ResolvedBrowserEngine,
+    engine_version: &'a str,
+    shell: &'a str,
+    shell_version: &'a str,
 }
 
 fn configuration_fingerprint(
     game: &StateGameRecord,
     settings: &GameBrowserSettingsRecord,
-    versions: &CompatibilityVersionRecord,
+    versions: &RuntimeVersionRecord,
 ) -> CoreResult<String> {
     let encoded = serde_json::to_vec(&FingerprintInput {
         default_launch_url: &game.default_launch_url,
         network: &settings.network,
         graphics: &settings.graphics,
-        chrome: &versions.chrome,
-        electron: &versions.electron,
+        engine: versions.engine,
+        engine_version: &versions.engine_version,
+        shell: &versions.shell,
+        shell_version: &versions.shell_version,
     })
     .map_err(|error| CoreError::Internal(error.to_string()))?;
     Ok(format!("{:x}", Sha256::digest(encoded)))
@@ -292,37 +272,38 @@ mod tests {
         serde_json::from_value(json!({
             "games": [{
                 "id": "game-1", "source": "custom", "name": "Example",
-                "defaultLaunchUrl": "https://example.test/play", "browserLaunchMode": "inherit",
+                "defaultLaunchUrl": "https://example.test/play", "browserEngine": "inherit",
                 "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z"
             }],
             "roles": [], "launchWorkspaces": [], "macros": [], "compatibilityReports": [],
             "gameBrowserSettings": {
                 "fonts": {"mode":"default","families":{}},
-                "graphics": {"mode":"automatic"}, "launchMode":"auto",
+                "graphics": {"mode":"automatic"}, "browserEngine":"system",
                 "macroBadgePosition":{"horizontalAlign":"right","horizontalMarginPx":16,"topPx":16},
-                "network":{"cdnCompatibility":{"mode":"auto"},"proxy":{"mode":"system","server":""}},
+                "network":{"proxy":{"mode":"system","server":""}},
                 "workspace":{"background":"material","gap":4}
             }
-        })).unwrap()
+        }))
+        .unwrap()
     }
 
-    fn versions() -> CompatibilityVersionRecord {
-        CompatibilityVersionRecord {
-            chrome: "140".to_owned(),
-            electron: "40".to_owned(),
+    fn versions() -> RuntimeVersionRecord {
+        RuntimeVersionRecord {
+            engine: crate::model::ResolvedBrowserEngine::Webview2,
+            engine_version: "140".to_owned(),
+            shell: "test".to_owned(),
+            shell_version: "1".to_owned(),
         }
     }
 
     fn prepare(
         runtime: &mut CompatibilityRuntime,
         state: &CoreStateSnapshotRecord,
-        system_chrome_available: bool,
     ) -> CoreResult<CompatibilityCheckPlanRecord> {
         runtime.prepare(
             &state.games,
             state.game_browser_settings.as_ref().unwrap(),
             "game-1",
-            system_chrome_available,
             &versions(),
         )
     }
@@ -331,8 +312,8 @@ mod tests {
     fn owns_duplicate_prevention_transitions_and_completion_decisions() {
         let mut runtime = CompatibilityRuntime::default();
         let state = snapshot();
-        prepare(&mut runtime, &state, true).unwrap();
-        let duplicate_error = prepare(&mut runtime, &state, true).unwrap_err();
+        prepare(&mut runtime, &state).unwrap();
+        let duplicate_error = prepare(&mut runtime, &state).unwrap_err();
         assert_eq!(duplicate_error.code(), "COMPATIBILITY_CHECK_ACTIVE");
         runtime
             .transition("game-1", CompatibilityRunPhase::Loading)
@@ -353,53 +334,19 @@ mod tests {
                 Some("ERR_CONNECTION_REFUSED")
             );
             assert_eq!(
-                report.recommendation.as_ref().unwrap().mode.as_deref(),
-                Some("external")
-            );
-            assert_eq!(
                 report.recommendation.as_ref().unwrap().reason,
-                "external_recommended"
+                "load_failed"
             );
         });
         runtime.finish("game-1");
         assert!(runtime.statuses().is_empty());
-
-        prepare(&mut runtime, &state, false).unwrap();
-        let no_chrome_report = runtime
-            .build_report(
-                "game-1",
-                CompatibilityCheckOutcome::Failed {
-                    duration_ms: 42,
-                    error_code: "ERR_CONNECTION_REFUSED".to_owned(),
-                },
-            )
-            .unwrap();
-        crate::v1_case!("browser-workspace-63d8d3912912", {
-            assert_eq!(
-                no_chrome_report.system_chrome.as_ref().unwrap().state,
-                "unavailable"
-            );
-            assert_eq!(
-                no_chrome_report.recommendation.as_ref().unwrap().reason,
-                "chrome_required"
-            );
-            assert!(
-                no_chrome_report
-                    .recommendation
-                    .as_ref()
-                    .unwrap()
-                    .mode
-                    .is_none()
-            );
-        });
-        runtime.finish("game-1");
     }
 
     #[test]
     fn cancellation_is_authoritative_even_when_an_effect_reports_success() {
         let mut runtime = CompatibilityRuntime::default();
         let state = snapshot();
-        prepare(&mut runtime, &state, false).unwrap();
+        prepare(&mut runtime, &state).unwrap();
         let _ = runtime.request_cancel("game-1");
         let report = runtime
             .build_report(
@@ -423,7 +370,7 @@ mod tests {
     fn stale_reports_are_resolved_from_current_rust_domain_state() {
         let mut state = snapshot();
         let mut runtime = CompatibilityRuntime::default();
-        prepare(&mut runtime, &state, true).unwrap();
+        prepare(&mut runtime, &state).unwrap();
         let report = runtime
             .build_report(
                 "game-1",

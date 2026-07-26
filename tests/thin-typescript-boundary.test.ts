@@ -18,21 +18,26 @@ const prohibitedNodeModules = new Set([
   "node:tls"
 ]);
 const allowedNodeIoImports = new Set([
+  // The temporary Electron shell owns authenticated cross-shell activation forwarding.
+  "src/main/shell/CrossShellActivation.ts:node:fs/promises",
+  "src/main/shell/CrossShellActivation.ts:node:net",
   // This adapter locates the AppKit addon it owns; it does not perform domain I/O.
   "src/main/browser/MacRuntimeTabsController.ts:node:fs",
   // Native surface loaders only locate their packaged N-API addon.
   "src/main/browser/MacSystemWebViewSurface.ts:node:fs",
+  "src/main/browser/SystemCompatibilitySurfaceFactory.ts:node:fs/promises",
   "src/main/browser/WindowsWebView2Surface.ts:node:fs"
 ]);
 const allowedMapProperties = new Set([
-  "src/main/core/ElectronEffectExecutor.ts:ElectronHandleRegistry.handles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHostByChromeWebContentsId",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHosts",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.engineDisplayHosts",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.dividerByWebContentsId",
   // Electron-only single-flight generation state; Rust still owns layout decisions.
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.hostLayoutStates",
   // Serialized presentation dedupe for native/runtime chrome sends, not domain state.
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.lastRuntimeChromeStateByDisplay",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.lastRuntimeChromeStateByHost",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.roleHandles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.tabHandles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.workspaceTabHandleIds",
@@ -40,7 +45,7 @@ const allowedMapProperties = new Set([
   "src/main/browser/SystemWebViewRuntimePool.ts:SystemWebViewRuntimePool.handles",
   "src/main/browser/SystemWebViewRuntimePool.ts:SystemWebViewRuntimePool.unsubscribe",
   "src/main/browser/EmbeddedRuntimeDiagnostics.ts:EmbeddedRuntimeDiagnostics.records",
-  "src/main/games/GameCompatibilityManager.ts:GameCompatibilityManager.windows",
+  "src/main/games/GameCompatibilityManager.ts:GameCompatibilityManager.surfaces",
   "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.contentRoleIds",
   "src/main/startup/startupWindow.ts:RendererReadyGate.pendingByWebContentsId"
 ]);
@@ -48,7 +53,6 @@ const rustOwnedOrchestrationName = /^(?:withRoleOperation)$/;
 const allowedNativeAppCoreMethods = new Set([
   "dispatchCoreEffectResults",
   "invoke",
-  "matchCdnUrl",
   "shutdown",
   "subscribeCoreEvents"
 ]);

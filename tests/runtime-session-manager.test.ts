@@ -191,9 +191,9 @@ describe("RuntimeSessionManager", () => {
     }
   });
 
-  it("prunes deleted sources and never starts External Chrome during restore", async () => {
+  it("prunes deleted sources before restoring a native browser session", async () => {
     const fallbackDisplay = display(1, "Main", 0);
-    const externalGame = game("game-external", "external");
+    const externalGame = game("game-native");
     const harness = createHarness({
       displays: [fallbackDisplay],
       fallbackDisplay,
@@ -215,10 +215,9 @@ describe("RuntimeSessionManager", () => {
 
     await harness.manager.restore({ scope: "all" });
 
-    expect(harness.browser.launched).toEqual([]);
-    expect(harness.manager.getProjection().savedWindows).toMatchObject([
-      { id: "window-1", state: "failed", tabCount: 1 }
-    ]);
+    expect(harness.browser.launched).toHaveLength(1);
+    expect(harness.browser.launched[0]?.input.sourceId).toBe("role-external");
+    expect(harness.manager.getProjection()).toEqual({});
     await harness.manager.discard({ scope: "window", windowId: "window-1" });
     expect(harness.manager.getProjection()).toEqual({});
   });
@@ -383,7 +382,7 @@ function createHarness({
   canRestoreSavedWindows = true,
   displays,
   fallbackDisplay,
-  games = [game("game-1", "inherit")],
+  games = [game("game-1")],
   preferences = {
     alwaysShowToolbarInFullScreen: false,
     restoreGameWindowsOnStartup: true
@@ -502,13 +501,12 @@ function display(id: number, label: string, x: number): WorkspaceDisplayInfo {
   };
 }
 
-function game(id: string, browserLaunchMode: Game["browserLaunchMode"]): Game {
+function game(id: string): Game {
   return {
     id,
     source: "custom",
     name: id,
     defaultLaunchUrl: `https://${id}.example.test/play`,
-    browserLaunchMode,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"
   };

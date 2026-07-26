@@ -1,395 +1,317 @@
-# Rion Studio 系統原生引擎與 Tauri 2 雙殼遷移計畫
+# Rion Studio 系統原生引擎與 Tauri 2 單殼遷移計畫
 
-## 實作進度（持續更新）
+## 0. 文件狀態
 
-最後更新：2026-07-25
+最後更新：2026-07-26
 
-- [x] 建立並鎖定本文件中的產品決策、fallback 規則、平台矩陣與 release gates。
-- [x] 完成 Phase 1 的引擎／session 資料模型：System、Electron、WebView2、WKWebView、External Chrome、inherit、legacy pin、capability 與 fallback reason。
-- [x] SQLite schema v8：既有角色固定 Electron、舊 `embedded` session source 遷移為 `managed`、既有工作區固定 Electron、全域預設 System；另加入完整版本鍵的 engine compatibility cache 與不含敏感資料的 session migration checkpoint。
-- [x] Portable schema v8 與舊 JSON migration；登入資料、cookie 與 session 仍不進 portable export。
-- [x] 完成全域 → 遊戲 → 工作區解析器；混合遊戲偏好的工作區必須先保存 System 或 Electron 覆寫。
-- [x] 設定、遊戲編輯器與工作區編輯器已加入引擎選項；en、zh-TW、zh-CN、ja 已同步。
-- [x] Runtime status 已區分 preferred/resolved engine、host kind、fallback reason；Phase 1 相容版會如實顯示 System → Electron fallback。
-- [x] 抽出 `RuntimeHostPort`、`WebSurfacePort`、`AutomationTargetPort`；現有 Electron runtime 與巨集 adapter 已開始使用語意介面。
-- [x] 每角色已建立 Electron、System、WebView2 與 WKWebsiteDataStore key 的獨立路徑／識別；reset 與刪除交易涵蓋兩套 managed store。
-- [x] 加入 macOS／Windows 系統 WebView runtime 與 API/SPI capability probe；未通過可信／背景輸入實機 gate 前不會誤升級為 System executor。
-- [x] Cookie-only session migration 已完成 preview/apply/rollback、auth verification、啟動復原 journal、原子 engine pin/checkpoint commit；來源 store 不動，失敗或 rollback 會清除目標 store。
-- [x] Windows WebView2 native prototype、TypeScript surface、cookie/data adapter 與 CDP-based trusted input adapter 已完成；Windows CI 負責真實編譯與 native smoke gate。
-- [x] macOS WKWebView/AppKit public-API surface、persistent data store、cookie/data adapter、生命週期事件與受控 audio SPI 已完成；native smoke tests 已納入既有 addon gate。
-- [x] Windows/macOS 打包資源、native build/verify scripts 與雙平台 CI/release job 已接線。
-- [x] Resolved engine 已寫入 Rust 產生的 create/load effects；Electron adapter 對非 Electron effect 會 fail closed，不會靜默冒充 System。
-- [x] System native surface pool 已完成角色 ownership、平台資料路徑、presentation/load/destroy 與 lifecycle forwarding，並以 macOS/Windows table tests 覆蓋。
-- [x] Electron shell 會把實際載入的 native adapter capability snapshot 註冊進 Rust；core 以工作區為單位解析單一引擎，並以同一結果產生 effect 與 runtime status。
-- [x] `ElectronBrowserRuntime` 已改為 Electron/native surface union；兩者共用 create/load/bounds/visible/zoom/focus/audio/destroy/telemetry 語義，跨 display 會明確 recreate 原生 surface。
-- [x] native create/config/load/overlay/focus 失敗與 native process crash 均由 Rust 產生整個 tab 的 Electron fallback plan，不在 TypeScript adapter 靜默換殼；目前 URL、layout、zoom、mute 會帶入替換 session。
-- [x] WebView2/WKWebView 已加入原生 overlay message bridge；popup 意圖會保留原始 URL，並在原生 popup parity 完成前明確將整個 tab fallback Electron。
-- [x] 同一 display 的 runtime host 已依 `(displayId, engineFamily)` 分組；System 與 Electron 分頁不再共用實體宿主。
-- [x] 完整版本鍵的 compatibility cache 已接入 System preflight、成功／建立失敗／crash 寫入與手動重測清除；相同版本組合不會反覆嘗試已知失敗的原生 executor。
-- [x] 設定頁已顯示目前 resolved engine 的逐項 capability matrix，保留 supported／partial／fallback／disabled 差異，不會以總體「可用」掩蓋功能缺口。
-- [x] Tauri 2 Preview crate 已直接 link `rion-core`、重用 React renderer 與 `window.rionStudio` typed transport；已完成最小權限 capability、macOS 14 deployment target、實際 monitor 列舉與基本角色／工作區 core commands。
-- [x] Electron Stable 與 Tauri Preview 已在開啟 SQLite 前共用 OS 級 lock、online backup 與 authenticated loopback activation forwarding；另一個殼啟動時會喚醒既有殼後退出。
-- [x] Tauri Preview 已能直接建立 WebView2／WKWebView 系統 surface，套用角色隔離 store、layout、navigation、zoom、focus、visibility 與 mute，並把 native lifecycle 結果回送 Rust core；未實作的硬需求會由 capability preflight 或明確 effect error 阻止假成功。
-- [x] System runtime crash fallback 已在銷毀 native surface 前讀取 cookies，於 Electron navigation 前寫入 shadow session，並回報逐角色 mirror/auth 結果；失敗時 Electron 仍可見但 core 狀態明確為 `auth-verification-failed` 與 `needs-login`。
-- [x] System custom proxy 已由 WebView2 environment arguments 與 macOS 14 `WKWebsiteDataStore.proxyConfigurations` 在首次 navigation 前套用；跨螢幕 surface 重建會重新解析設定。macOS 不支援的 SOCKS4 會明確建立失敗並 fallback。
-- [x] System custom fonts 已經由跨平台 document-start port 接線：WebView2 `AddScriptToExecuteOnDocumentCreated`、WKWebView `WKUserScript`；使用 constructed stylesheet／style fallback，能力如實標示 degraded。
-- [x] Windows System CDN 已把 Rust 解析出的八條規則接到 `WebResourceRequested` 原生攔截；macOS 在 active rewrite plan 下維持明確 Electron fallback，不使用不等價的 content blocker 假實作。
-- [x] fallback notification、compatibility cache／capability matrix／session continuity 已納入 UI 狀態與診斷匯出；診斷不包含 cookie value 或自訂 proxy URL。
-- [x] 原生 popup 已使用同一 profile/data store 建立並納入 bounds、focus、mute、audio、close 與 crash lifecycle；建立失敗才由 Rust 將整個 tab fallback Electron。
-- [x] 原生下載、檔案上傳、憑證與 JS dialog 已接入平台 UI；未定義的網站權限採預設拒絕，並在 capability matrix 如實標為 degraded。
-- [x] 最新聚焦驗證：TypeScript typecheck、能力矩陣／相容性／Tauri bridge Vitest、Tauri Rust tests 與 debug macOS `.app` build 通過；完整套件計數會在本輪 release gate 重跑後更新。macOS native addon protocol 10 需在本輪重建並跑 smoke tests；Windows native protocol 6 build 留給 `windows-latest`。
-- [x] Phase 2：原生 popup、proxy/CDN、字型、下載/上傳、權限/憑證/JS dialog 已完成支援、明確降級或 capability-accurate Electron fallback。
-- [ ] Phase 3：補齊 Tauri shell adapters、無 domain state 的 Electron helper、updater 與簽章封裝；Preview 基礎殼、共用 core、System runtime、跨殼 lock／backup／activation 已完成。
-- [ ] Phase 4：雙平台實機 parity、效能、安裝／更新／回復與發佈 gate。
+這份文件是後續實作的唯一主計畫。2026-07-26 起產品方向改為：
 
-Electron Stable 與 Tauri Preview 現在都可以實際執行 System surface，且 System 是新資料的預設偏好。Rust 仍是唯一的引擎解析與 fallback 權威；任何 capability 缺口都會在 effect/status 中可見，不會把 Electron 或未完成的 Tauri executor 偽裝成完整 System。
+- 完全取消 CDN 相容／改寫／偵測功能。
+- 完全取消外開 Chrome、Chrome Profile 匯入與 External Chrome CDP runtime。
+- 新安裝與既有資料一律收斂到作業系統原生 WebView：Windows WebView2、macOS WKWebView。
+- Electron 只保留為短期舊殼與建置期間的相容元件，不再是產品瀏覽器引擎或 runtime fallback。
+- Tauri 2 會成為唯一桌面殼；基本重構與雙平台原生 gate 通過後，從產品依賴、打包與原始碼完全移除 Electron。
 
-### 可續作 checkpoint
+舊計畫中所有「CDN 不支援則 fallback Electron」、「External Chrome 最後相容路徑」、「Chrome Profile 固定 Electron」、
+「Tauri 隨附 Electron runtime helper」決策自本版起作廢。
 
-若實作中斷，從下列順序繼續；不得跳過狀態真實性 gate：
+## 1. 完成定義
 
-1. 在 Windows CI 編譯並驗證 WebView2 protocol 6 proxy/CDN/document-start/popup/download/permission 路徑。
-2. 補齊 Tauri tray／Quick Menu／dialog／updater／External Chrome shell adapters。
-3. 建立無 domain state 的 Electron helper，完成 Tauri 的 Electron fallback 路徑、sidecar 封裝與 crash recovery。
-4. 完成 macOS 14+ 與 Windows 10/11 原生實機 parity/performance matrix。
+完成後的產品只有一種使用者可選的瀏覽器引擎：`system`。設定頁仍保留「瀏覽器引擎」欄位，
+用來清楚顯示目前平台實作與未來擴充入口，但不再提供 Electron／External Chrome 選項：
 
-## 1. 目標與已鎖定決策
+- Windows：System（WebView2）。
+- macOS 14+：System（WKWebView）。
+- 舊資料中的 Electron、external、Chrome Profile、legacy pin 由 schema migration 正規化成 System／managed session。
+- 無法搬移的登入資料不偽裝成功；保留 System store、清除舊引擎 pin，第一次啟動要求重新登入。
+- 不再以另一個瀏覽器引擎掩蓋 capability 缺口。硬需求不支援時，顯示精確診斷並停止該次啟動。
 
-本計畫新增 Windows WebView2／macOS WKWebView 系統引擎，並讓它成為新角色的預設偏好；Electron 保留作為相容引擎。同步建立 Tauri 2 Preview 主殼，通過完整 parity gate 後才取代 Electron Stable。
-
-已確認的產品規則：
-
-- 支援 macOS 14+、Windows 10/11 x64。
-- 引擎設定採「全域 → 遊戲 → 工作區」繼承。
-- System 是預設偏好，不是絕對強制；必要時可見地 fallback Electron。
-- 工作區只能使用單一引擎；混合遊戲偏好時要求持久化工作區覆寫。
-- 同一螢幕若同時存在 System/Electron 分頁，各自使用一個宿主視窗。
-- 既有角色與工作區保持 Electron；新角色預設 System。
-- Chrome Profile 匯入角色固定使用 Electron，另提供 cookie-only 遷移。
-- macOS CDN 無法完整表示規則時，整個工作區使用 Electron。
-- System 不支援的 Chromium 圖形旗標不觸發 fallback，改為標示「不適用」。
-- 自訂字型採平台 API/SPI／document-start stylesheet 最佳努力並回報套用程度。
-- Tauri Preview 與 Electron Stable 共用資料，但不得同時執行。
-- Tauri 隨附精簡 Electron runtime helper，直到 Electron fallback 不再需要。
-- macOS 使用公證直發，不進 Mac App Store；SPI 有版本 allowlist、簽章 kill switch 和 Electron fallback。
-
-技術上不要求 WKWebView 實作「完整 CDP 協議」，而是要求完整實作 Rion 現有需要的語義：可信鍵鼠輸入、frame evaluation、layout metrics、初始化腳本、binding、popup、網路改寫與生命週期。Windows 可在內部使用官方 WebView2 CDP API；macOS 使用公開 WebKit API 加受控 SPI。WebView2 官方提供 CDP 呼叫及網路攔截，而 WebKit 的 `_WKAutomationSession` 原始碼確實包含原生輸入模擬，但不是公開穩定 API。
-
-參考：
-
-- [WebView2 CDP](https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2.calldevtoolsprotocolmethodasync)
-- [WebResourceRequested](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webresourcerequested)
-- [WebKit Automation SPI](https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/API/Cocoa/_WKAutomationSession.h)
+「完整涵蓋 Rion Studio」改為所有仍在產品範圍內的流程都由 WebView2／WKWebView 實作。已取消的 CDN、
+External Chrome 與 Chrome Profile 匯入不屬於 parity 範圍，必須從 UI、契約、資料、診斷、測試與文件真正刪除。
 
 ## 2. 目標架構
 
 ```mermaid
 flowchart LR
-    UI["共用 React Renderer"] --> Bridge["window.rionStudio 合約"]
-    Bridge --> ES["Electron Stable Shell"]
-    Bridge --> TS["Tauri Preview Shell"]
-
-    ES --> Core["單一 Rust rion-core"]
-    TS --> Core
-
-    Core --> Runtime["Runtime Orchestrator / Semantic Ports"]
-    Runtime --> W2["Windows WebView2 Adapter"]
-    Runtime --> WK["macOS WKWebView Adapter"]
-    Runtime --> EC["Electron Adapter"]
-    Runtime --> Chrome["External Chrome Adapter"]
-
-    TS --> Helper["Stateless Electron Runtime Helper"]
-    Helper --> EC
+    UI["React renderer"] --> Bridge["window.rionStudio typed contract"]
+    Bridge --> Tauri["Tauri 2 shell"]
+    Tauri --> Core["rion-core"]
+    Core --> Runtime["System runtime orchestrator"]
+    Runtime --> W2["Windows WebView2 adapter"]
+    Runtime --> WK["macOS WKWebView adapter"]
+    Tauri --> Shell["Native shell ports"]
 ```
 
-- React renderer、i18n、shared contracts 維持共用；renderer 不直接 import Electron、Node、WebView2、WebKit 或 Tauri plugin。
-- Electron 透過 preload 建立 `window.rionStudio`；Tauri 透過專用 bootstrap adapter 建立相同物件，兩者接受相同型別、錯誤碼與事件。
-- `rion-core` 仍是 SQLite、domain、runtime 狀態、巨集、相容性與資料交易的唯一權威。
-- Electron Stable 繼續透過 N-API 使用 core；Tauri 直接 link core。
-- Electron helper 不開 SQLite、不持有第二份 domain state，只執行 Tauri 傳來且通過 schema 驗證的 runtime effects。
-- 新增 shell-neutral ports：
-  - `ShellPort`：視窗、螢幕、tray、menu、dialog、updater、single instance。
-  - `RuntimeHostPort`：宿主視窗、分頁、全螢幕、版面、焦點、恢復。
-  - `WebSurfacePort`：session、navigation、script、popup、audio、cookie、data、crash。
-  - `AutomationTargetPort`：語義化 click/key/hold/release/evaluate/frame/layout，不暴露 CDP method string。
-- Tauri 只負責主殼及一般 UI WebView。遊戲 surface 直接使用 WebView2 COM／WebKit，不受 WRY 共同 API 限制。Tauri 本身仍建立在 WRY 與 OS WebView 上，但 Rion 的遊戲能力需要更深的平台 API。
+邊界規則：
 
-參考：[Tauri 架構](https://v2.tauri.app/concept/architecture/)
+- `rion-core` 是 SQLite、角色／工作區、runtime 狀態、巨集、恢復與交易的唯一權威。
+- renderer 只使用 `window.rionStudio`，不直接 import Tauri、Node、Electron、WebKit 或 WebView2。
+- 遊戲 surface 直接使用 WebView2 COM／WebKit/AppKit；不受 WRY 的共同最小 API 限制。
+- 平台差異只存在 `rion-platform`、Tauri shell adapter 與 native addon／FFI 邊界。
+- 不新增 Electron fallback，也不讓 Tauri 啟動 Electron helper。
+- 原生能力缺失以 capability error、診斷與可恢復 UI 呈現，不能靜默換引擎或假成功。
 
-## 3. 設定、型別與引擎解析
+## 3. 刪除矩陣
 
-### 公開合約
+### 3.1 CDN 全面移除
 
-新增或調整 shared/Rust-generated contracts：
+必須刪除：
 
-- `EmbeddedBrowserEngine = "system" | "electron"`
-- `BrowserEngineOverride = "inherit" | "system" | "electron"`
-- `ResolvedBrowserEngine = "webview2" | "wkwebview" | "electron" | "external-chrome"`
-- 將 storage source 改名為 `BrowserSessionSource = "managed" | "chrome-profile"`；舊 `"embedded"` 自動遷移為 `"managed"`。
-- `BrowserRoleStatus`、workspace status 與 restore tab 增加：
-  - `preferredEngine`
-  - `resolvedEngine`
-  - `hostKind`
-  - `fallbackReason`
-  - `capabilitySnapshot`
-- `EngineCapabilityStatus = supported | degraded | unsupported | disabled`
-- `EngineFallbackReason` 使用固定 union，例如：
-  - `legacy-role-pin`
-  - `chrome-profile-session`
-  - `mac-cdn-rewrite-unsupported`
-  - `webkit-spi-unavailable`
-  - `cached-compatibility-failure`
-  - `runtime-creation-failed`
-  - `runtime-crashed`
-  - `auth-verification-failed`
-- 新增 role session migration 的 preview/apply/rollback API，以及手動重新執行 engine compatibility 的 API。
+- Rust `cdn`、`cdn_detection` 模組、規則資產、domain records、commands、effects、SQLite tables／settings 與 telemetry。
+- WebView2 `WebResourceRequested` CDN 規則、WKWebView CDN capability、Electron session 攔截器。
+- main/preload/shared IPC、設定 UI、相容性面板、狀態摘要、i18n、診斷匯出欄位。
+- CDN 專用 tests、fixtures、parity ledger、release evidence 與文件說明。
 
-### UI
+資料遷移必須容忍舊 SQLite 欄位／表仍存在，但 runtime 不讀取、不寫入、不匯出。為避免破壞既有使用者資料，
+第一個 migration 只停止使用；後續 schema compact 版本再實體 drop。
 
-- 全域「設定 → 瀏覽器」新增預設引擎：System／Electron，預設 System。
-- 「遊戲設定 → 瀏覽器」新增：繼承／System／Electron。
-- 工作區新增相同引擎覆寫。
-- 既有角色顯示「Legacy Electron」badge，並提供「遷移到 System」動作。
-- 啟動狀態清楚顯示實際引擎，不把 fallback 偽裝成 System。
-- fallback 採非阻塞通知，包含簡短原因、診斷入口與重新測試操作。
-- 新增引擎能力矩陣，逐項顯示圖形、字型、CDN、巨集、profile import 的套用狀態。
-- 所有新文案同步更新 en、zh-TW、zh-CN、ja。
+### 3.2 外開 Chrome 全面移除
 
-### 解析順序
+必須刪除：
 
-1. 先解析 `launchMode`：
-   - `external`：直接 External Chrome。
-   - `embedded`：只在 System/Electron 之間解析，不轉 External。
-   - `auto`：System/Electron 都無法啟動且符合現有可恢復錯誤條件時，才轉 External Chrome。
-2. 工作區覆寫優先於遊戲設定，遊戲設定再繼承全域預設。
-3. 既有角色 legacy pin、Chrome Profile session 等硬性 capability 再修正結果。
-4. 工作區內所有角色使用同一 resolved engine。
-5. 工作區為 inherit 且成員遊戲解析出不同引擎時，第一次啟動要求選擇 System 或 Electron，並保存為工作區覆寫；不做臨時隱式混合。
-6. 相容性失敗依 app、OS build、WebView/WebKit、adapter、遊戲 URL/設定版本持久快取；版本變更或手動重測才重試。
-7. 同一螢幕的 runtime hosts 以 `(displayId, engineFamily)` 分組，因此最多出現一個 System host 與一個 Electron host；Quick Menu 可跨 host 切換。
+- `launchMode=external/auto` 的產品行為；角色永遠以 System WebView 啟動。
+- External Chrome process discovery、啟動、CDP transport、session health、automation、overlay 與 diagnostics。
+- Chrome Profile discovery/import/copy/cookie injection/rollback 與相關 shell dialog。
+- `BrowserSessionSource=chrome-profile`；公開模型只保留 `managed`。
+- Rust commands/effects、N-API、shared generated types、IPC、Electron adapters、renderer flow、i18n 與 tests。
+- `RION_STUDIO_CHROME_PATH`、`CHROME_PATH` 等產品環境變數與文件。
 
-## 4. 平台實作與功能涵蓋
+舊角色若為 external／auto／chrome-profile，migration 將其設為 System + managed；不再讀取原 Chrome profile，
+也不刪除或修改使用者原始 Chrome 資料。若無可用 System 登入狀態，UI 只提示重新登入。
 
-| 現有能力 | Windows System | macOS System | 不完整時的規則 |
+### 3.3 Electron 收斂與最終移除
+
+第一階段先停止 Electron 作為瀏覽器引擎：
+
+- 從公開 engine union、resolver、fallback plan、capability matrix 與 UI 選項移除 Electron。
+- 移除 System → Electron cookie mirror 與 crash fallback；crash 改為同引擎重建／可恢復失敗。
+- 停止新增或封裝 Tauri Electron runtime helper；刪除 helper protocol、launcher 與 Tauri resource。
+
+第二階段在 Tauri shell parity 完成後移除舊 Electron 殼：
+
+- 刪除 `src/main`、`src/preload`、Electron Vite config、Electron builder config 與 Node-API host glue。
+- 移除 `electron`、`electron-vite`、`electron-builder`、`electron-updater` 與只為 Electron 存在的套件／scripts。
+- `rion-node` 若沒有其他消費者則刪除；Rust core 改由 Tauri 直接 link。
+- package/release/CI 只產生 Tauri artifacts。
+
+## 4. 產品模型與遷移
+
+最終公開模型：
+
+- `EmbeddedBrowserEngine = "system"`，或在沒有未來第二引擎需求時完全移除這個可變 union。
+- `ResolvedBrowserEngine = "webview2" | "wkwebview"`。
+- `BrowserHostKind = "system-native"`。
+- session source 不再是公開可變模型；所有角色資料皆由 Rion 管理的 System store 持有。
+- 全域／遊戲／工作區 engine override 在過渡 migration 後可從資料庫與公開 API 移除；UI 顯示唯讀平台引擎。
+
+遷移原則：
+
+1. 先讓新版 reader 接受所有舊 enum value。
+2. 單一 SQLite transaction 將 Electron、external、auto、chrome-profile、legacy pin 與 workspace override 正規化。
+3. 保留未知欄位的 forward-safe 行為；不因舊值而拒絕開庫。
+4. 不複製 LocalStorage、IndexedDB 或 Service Worker 的 raw files。
+5. 不搬移舊 Electron／其他瀏覽器的 cookie；升級後若 System store 沒有有效登入狀態，明確要求重新登入。
+6. portable import 接受舊 schema，但 portable export 只輸出新模型。
+7. migration、reset、delete 永不觸碰使用者原始 Chrome profile。
+
+## 5. 系統 WebView 完整能力範圍
+
+| 能力 | Windows WebView2 | macOS WKWebView | Gate |
 |---|---|---|---|
-| 角色隔離與持久登入 | 每角色獨立 WebView2 user-data folder/profile | 每角色持久 `WKWebsiteDataStore` identifier 與 process pool | 建立失敗 fallback Electron |
-| Navigation／auth verification | WebView2 navigation events + 現有驗證 | WKNavigationDelegate + 現有驗證 | 沿用啟動後驗證，未驗證不得標記 running |
-| Proxy | WebView2 environment options | macOS 14 `WKWebsiteDataStore.proxyConfigurations` | 啟動前 capability check |
-| CDN 八條規則 | `WebResourceRequested` 精確改寫 | 先測 WKContentRuleList/SPI；必須八條全部等價 | 任一 active rule 不等價，整個工作區 Electron |
-| JS／frame／layout | CDP Runtime/Page + WebView2 script APIs | frame/content-world evaluation + Automation SPI | 跨來源 frame 測試失敗則 macro-assigned 工作區 Electron |
-| 巨集 click/key/hold/release | CDP Input；保留 Rust key ownership | `_WKAutomationSession` 或目標 NSEvent SPI | 不得以 `isTrusted=false` 的 DOM event 代替 |
-| 背景多角色巨集 | 每 role target 並行 dispatch | 必須驗證不搶外部前景、不送錯角色 | 驗證失敗時，有巨集需求的工作區 Electron |
-| Overlay/binding/init script | document-created script + host objects | WKUserScript/content world/message handler | navigation、popup、iframe 都重建 |
-| Popup/window.open | `NewWindowRequested` 建立共享 profile overlay | WKUIDelegate 建立同 data store popup | 納入音訊、mute、關閉與恢復 |
-| Workspace 1–9 角色 | native child surfaces + 既有 Rust layout | NSView child surfaces + 既有 Rust layout | resize/divider/zoom 結果需 pixel parity |
-| Zoom | WebView2 zoom factor | WKWebView page zoom | 每角色保存，adaptive/fixed 行為不變 |
-| Audible/mute | WebView2 audio state/mute | 公開 media state + 動態 `_setMuted:` SPI | mute 是 system-ready 基線能力；缺失則該 OS build 禁用 System |
-| Fullscreen／toolbar | Tauri/Electron host window + surface bounds | AppKit host + 現有 native tab controller 抽取 | HTML fullscreen與視窗 fullscreen分開追蹤 |
-| Tabs／跨螢幕／恢復 | engine host pool | engine host pool | display hotplug、move/reorder/hide 全部保留 |
-| Downloads／file upload | WebView2 download/file callbacks | WKDownload/WKOpenPanel | 使用共用 ShellPort dialog，保持 sandbox 邊界 |
-| 權限／憑證／JS dialogs | WebView2 permission/auth events | WKUIDelegate/navigation challenge | 預設拒絕未定義權限，加入來源與決策記錄 |
-| Crash/unresponsive | process-failed、browser exit、heartbeat | webContentProcessTerminated、heartbeat | 嘗試 cookie sync 後 Electron fallback |
-| 圖形設定 | 僅映射驗證過的 WebView2 arguments | 使用 OS/WebKit 管理的 Metal 路徑 | 未映射項顯示「不適用」，不 fallback |
-| 自訂字型 | profile preference 或 document-start stylesheet | WKPreferences SPI／stylesheet | 顯示 full/partial/not-applied，不 fallback |
-| Chrome Profile 匯入 | Electron | Electron | System migration 只搬 cookie |
-| External Chrome | 保持現有 Rust/CDP 實作 | 保持現有 Rust/CDP 實作 | 不重寫既有可靠路徑 |
+| 角色隔離 | 每角色獨立 UDF/profile | 每角色 persistent `WKWebsiteDataStore` | 不可互讀 cookie/storage |
+| Navigation／驗證 | navigation events | navigation delegate | 未驗證不得標 running |
+| Proxy | environment arguments | macOS 14 data-store proxy config | 啟動前精確驗證 |
+| 巨集輸入 | WebView2 CDP Input | 受控 WebKit automation/NSEvent adapter | `isTrusted`、背景 target、hold/release |
+| JS/frame/layout | CDP + script APIs | content world/frame API + isolated SPI | iframe 與跨來源案例 |
+| Overlay/binding/init | document-created script/host objects | user script/message handler | navigation/popup 後重建 |
+| Popup | shared-profile child surface | shared-data-store child surface | bounds/focus/audio/close/crash |
+| 1–9 角色 layout | native child surfaces | NSView child surfaces | 所有 template pixel parity |
+| Zoom/audio/mute | WebView2 APIs | page zoom/media state + guarded mute SPI | 狀態與 UI 一致 |
+| Fullscreen/tabs/display | Tauri host + native surface | Tauri/AppKit host + native surface | hotplug/reorder/hide/restore |
+| Download/upload | WebView2 callbacks | WKDownload/open panel | 共用 native dialog policy |
+| Permission/cert/JS dialog | WebView2 events | UI/navigation delegates | 未定義權限預設拒絕 |
+| Crash recovery | process-failed 後同引擎重建 | process terminated 後同引擎重建 | 有界重試、狀態不假成功 |
+| Graphics | 僅映射已驗證選項 | OS/WebKit 管理 Metal | 不適用即明示 |
+| Custom fonts | document-start stylesheet | WKUserScript stylesheet | full/degraded 狀態 |
 
-Apple 公開的 `WKWebsiteDataStore` 可建立持久 profile store；它與 WebView2 profile/UDF 是兩個平台各自的 session source of truth。
+CDN 改寫、External Chrome 與 Chrome Profile 不出現在 capability matrix。
 
-參考：
+### macOS 14+ SPI 原則
 
-- [WKWebsiteDataStore](https://developer.apple.com/documentation/webkit/wkwebsitedatastore)
-- [WebView2 user-data folders](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/user-data-folder)
+- 公開 API 優先，SPI 集中在單一 adapter，不散落 core、renderer 或 Tauri commands。
+- 以 runtime selector/class lookup、OS build allowlist、ABI smoke probe 與 crash boundary 隔離。
+- 不要求 Safari Develop menu；不以 `isTrusted=false` DOM event 冒充巨集成功。
+- 若可信背景輸入在特定 macOS build 不成立，阻止需要該能力的巨集啟動並提供診斷；不 fallback Electron。
+- 相容性 manifest 只能停用 capability，不能下載或執行程式碼。
 
-### macOS SPI 策略
+## 6. Tauri 2 唯一外殼
 
-- 公開 API 永遠優先；SPI 集中在單一 adapter，不散落 core、renderer 或 Tauri commands。
-- 不靜態 link 私有 symbol；啟動時以 selector/class lookup、`respondsToSelector`、ABI smoke probe 驗證。
-- 輸入原型依序測試：
-  1. 每 role process pool 的 `_WKAutomationSession` 與本機 Automation protocol。
-  2. 參照 WebKit macOS 實作的目標 NSEvent dispatcher。
-  3. 若無法保證 trusted input、hidden target、hold/release 或不搶外部焦點，將 `trustedBackgroundInput` 標為 unsupported。
-- 不要求使用者開啟 Safari Develop menu，也不要求 Accessibility 權限；若某方案需要上述權限，即視為 prototype 失敗。
-- 所有 SPI 呼叫包在 crash boundary；版本不符時不嘗試「猜 selector」。
-- 系統引擎 manifest 只允許切換 capability／deny OS build，不能下載程式碼或新增 selector。
+Tauri 必須完成：
 
-## 5. Session、資料與遷移
+- 主視窗、window state/fullscreen、monitor/display 事件與最小尺寸。
+- tray／Quick Menu、角色／工作區啟動、顯示所有遊戲視窗、正常退出。
+- file/directory/save dialogs、open external HTTPS、reveal logs。
+- single-instance lock、authenticated activation forwarding、SQLite online backup。
+- runtime restore：啟動標記 unclean、乾淨退出保存、crash 後恢復 tabs/layout/display/audio/hidden 狀態。
+- updater：平台簽章 artifact、檢查、下載、安裝／重啟、失敗回復與 UI 狀態。
+- diagnostics／portable import/export／graphics diagnostics（限系統 WebView 能提供的資料）。
+- capability allowlist：bundled renderer 可呼叫完整 app command；遠端遊戲頁只可呼叫由目前 WebView 身分綁定的 overlay request，不能取得角色參數或其他 Tauri API。
 
-- 保留現有 Electron browser directory 原位，避免破壞既有登入。
-- 新增獨立 system store：
-  - Windows：`roles/{roleId}/browser/webview2`。
-  - macOS：SQLite 保存 `WKWebsiteDataStore` identifier；role directory 保存非敏感 locator/版本 metadata，實體網站資料由 WebKit 管理。
-- 同一角色可同時有 Electron 與 System 兩套 managed stores，不直接共用 Chromium/WebKit 檔案。
-- schema migration 對所有既有角色寫入 legacy Electron pin；既有工作區寫入 Electron override。新角色不建立 pin。
-- 遷移精靈：
-  1. 讀取 Electron cookies 並顯示來源、目的地、數量，不顯示值。
-  2. 對 domain/path/secure/httpOnly/sameSite/expiry 做明確轉換。
-  3. 寫入 System store，啟動遊戲並執行 auth verification。
-  4. 驗證成功才移除 pin；失敗回滾 System store transaction，角色仍使用 Electron。
-  5. Electron store 保留供回復，直到使用者另行清除。
-- System 執行中需要 fallback 時，反向同步 cookies 到 Electron shadow store，重新驗證；若 cookie 不足以延續登入，角色進入 `needs-login`，但不宣稱 fallback 成功。
-- LocalStorage、IndexedDB、Service Worker 不做未受支援的原始資料複製。
-- 「清除角色瀏覽器資料」清除該角色兩套 managed stores 與 Rion 建立的 Chrome import copy；永不修改使用者原始 Chrome profile。
-- 刪除角色同步清除兩套 stores、compatibility cache、cookie mirror metadata。
-- Portable export 仍排除 browser session、cookie、auth state；只增加 engine preference/pin 的非敏感設定。
+過渡期允許 Electron Stable 與 Tauri Preview 共用資料但不能同時執行；Tauri 成為預設後停止發布 Electron Stable。
+資料 schema 必須先維持一個發行週期可由舊 Stable 讀取，之後才做 destructive schema compact。
 
-## 6. Tauri 2 Preview 與 Electron Helper
+## 7. 執行階段
 
-### 主殼遷移
+### Phase A：方向切換與產品刪除
 
-- 新增 Tauri desktop crate，直接 link `rion-core`，重用現有 React build。
-- `window.rionStudio` 保持唯一 renderer API；Tauri-specific imports 只存在 bootstrap adapter。
-- 依序移植 app window、menu、tray/Quick Menu、dialog、display enumeration、single instance、updater、open-external、shutdown/recovery。
-- 使用 Tauri capability files採最小權限；只有 bundled main UI 可呼叫 commands，遠端遊戲頁永遠拿不到 Tauri API。
-- Tauri 與 plugins 鎖定同一 minor/patch 組合；升級必須重新跑 native parity matrix。
-- updater 對 renderer 暴露既有 `AppUpdateStatus`，底層換成 Tauri updater adapter，維持 check/download/progress/install 狀態語義。
+- [x] 鎖定取消 CDN、External Chrome、Chrome Profile 與 Electron runtime fallback 的決策。
+- [x] 移除 CDN 全層功能與測試。
+- [x] 移除 External Chrome／Chrome Profile 全層功能與測試。
+- [x] 更新 schema／portable migration，舊資料安全正規化。
+- [x] 讓 System 成為唯一產品 engine，更新 UI、i18n、diagnostics、capability matrix。
 
-參考：
+### Phase B：純 System runtime
 
-- [Tauri capabilities](https://v2.tauri.app/security/capabilities/)
-- [Tauri updater](https://v2.tauri.app/reference/javascript/updater/)
+- [x] WebView2/WKWebView surface、角色 store、navigation、layout、zoom、focus、mute 基礎實作。
+- [x] popup、下載／上傳、proxy、字型、permission/cert/JS dialog 基礎實作。
+- [x] 移除 Electron surface union、fallback effects、cookie shadow mirror 與 helper dependency。
+- [x] 完成原生 crash 同引擎有界重建、session recovery、runtime restore 與 clean/unclean exit 標記。
+- [ ] 完成可信背景巨集與所有平台 capability gate。
 
-### 共用資料與互斥
+### Phase C：Tauri shell parity
 
-- Stable 與 Preview 使用不同 bundle/app identifier及更新通道，但明確指向同一 Rion user-data root。
-- 在任何 SQLite、role store 或 browser store 開啟前取得 OS 級跨程序 lock。
-- 第二個殼啟動時，透過當前使用者限定的 command socket 將 activate/open request 交給既有殼後退出。
-- Preview 首次開啟前做 SQLite online backup 與 migration manifest。
-- 所有 Preview schema migration 先以 additive、forward-readable 形式進入 Stable；舊 Stable 若不具備 minimum reader version，必須阻擋開庫並提示更新，不能猜測讀取。
-- Electron helper 是 Tauri 的受控 child，不取得資料鎖、不讀 SQLite。
+- [x] Tauri crate、共用 renderer bridge、core direct-link、資料 lock／backup／activation。
+- [x] 基本 native dialogs、tray／Quick Menu、manual update status adapter。
+- [x] 完成 window/display watcher、display removal reconcile、restore/clean-exit、portable/diagnostics 基本流程。
+- [ ] 完成實體 display hotplug callback 與跨螢幕 restore 的雙平台 packaged/manual edge-case smoke。
+- [x] 完成 portable/diagnostics 成功路徑、損壞輸入、原子 replace 失敗與暫存清理的雙平台 packaged gate 接線。
+- [x] 以 Tauri/native adapter 直接執行 runtime effects，不啟動 Electron helper。
+- [x] 刪除 helper protocol、helper launcher、bundle resource 與相關測試。
 
-### Electron Helper
+### Phase D：移除 Electron
 
-- 從現有 ElectronBrowserRuntime 抽出無主 UI 的 runtime host entrypoint。
-- helper 只接受建立宿主、建立 session/view、load、bounds、focus、input、audio、popup、destroy 等白名單命令。
-- 使用匿名 pipe 或目前使用者 ACL 的 named pipe；啟動 nonce 透過 pipe 傳遞，不放 command line。
-- 每個 payload 做大小、版本、role directory scope 與 URL schema 驗證。
-- helper crash 不影響 core database；Tauri 接收退出事件並執行既有 runtime recovery。
-- macOS helper 作為巢狀 signed app/component；Windows 作為 signed sidecar。兩者與主程式一起更新，禁止獨立版本漂移。
-- Tauri 轉正式預設後，Electron Stable 主 UI 可停止發佈，但 helper 持續保留，直到另一次明確的移除決策。
+- [ ] Tauri 在 macOS 14+、Windows 10/11 通過 1/3/6/9 角色完整 parity。
+- [ ] 切換開發、build、package、updater 與 release scripts 到 Tauri-only。
+- [ ] 移除 Electron 主殼、preload、N-API host glue、套件與 builder config。
+- [ ] 清理 SQLite 舊欄位／表與不再使用的 browser store metadata。
+- [ ] 更新 README、法律文件、架構文件與貢獻指南。
 
-## 7. 相容性、診斷與 Kill Switch
+### Phase E：發佈 gate
 
-- Compatibility check 從單一 Electron 結果改為每個 engine 的 capability report。
-- cache key 至少包含 app 版本、adapter 版本、OS build、WebKit/WebView2 版本、遊戲 URL/更新時間、proxy/CDN/graphics/font 設定摘要。
-- System 啟動前執行快速 preflight；完整 compatibility run 使用隔離、非持久 hidden view。
-- fallback observation 版本化持久保存；手動重測或 cache key 變更才重試。
-- 新增已簽章的 `system-engine-compatibility.json` release asset：
-  - 內含已知可用/停用 OS 與 WebView 版本、SPI capability denylist。
-  - 使用內嵌 Ed25519 public key 驗證。
-  - 每 24 小時最多抓取一次並保留 last-known-good。
-  - 網路不可用時使用已驗證 cache 或隨程式內建 manifest。
-- Diagnostics export 加入：
-  - shell 與 helper 版本。
-  - preferred/resolved engine 和 fallback chain。
-  - system WebView 版本、OS build、SPI probe 結果。
-  - 每項 graphics/font/network/macro capability 狀態。
-  - session migration 統計，但絕不輸出 cookie、token、URL query secrets。
-- 實際 macOS 正式發佈改為 Developer ID 簽章、hardened runtime 與 notarization；不能再以 ad-hoc 簽章視為可發佈候選。
+- [ ] macOS Developer ID、hardened runtime、notarization、stapling、乾淨機 Gatekeeper。
+- [ ] Windows Authenticode、NSIS install/upgrade/uninstall、WebView2 Runtime 缺失／損壞流程。
+- [ ] updater 成功、下載中斷、簽章錯誤與 rollback 演練。
+- [ ] SQLite 升級、portable 舊版匯入、crash recovery 與 single-instance 演練。
+- [ ] System 1/6/9 角色 RSS、CPU、resize、macro p95、100 次 create/destroy 無資源洩漏。
+- [ ] `macos-latest`、`windows-latest` CI 全綠，並完成實際 macOS 14+、Windows 10/11 桌面 smoke。
 
-## 8. 實作分期與硬性 Gate
+## 8. 自動測試與驗收
 
-### Phase 0：原型與 parity ledger
+- Rust：migration、舊 enum 正規化、單一 System resolver、transaction rollback、runtime ordering、macro key ownership。
+- Contract：Rust generated types、Tauri bridge 與 renderer API 完全一致；不再出現 CDN／external／chrome-profile。
+- 平台 adapter：所有測試明確傳入 macOS／Windows，不繼承開發機平台。
+- Native fixture：cookie/storage isolation、popup、iframe、audio/mute、fullscreen、download、upload、permission、cert、dialog。
+- 巨集：trusted tap/hold/repeat/modifier/release、1/3/6/9 角色、1000 次 start/stop 無 stuck key、hidden target 不誤送。
+- 恢復：web process crash、app crash、display hotplug、更新中斷、store lock、clean/unclean exit。
+- 靜態負面 gate：repository production source 不得含 CDN command/effect、External Chrome runtime、Chrome Profile import
+  或 Electron helper；Phase D 切殼後再禁止 Electron package dependency。
 
-- 將現有角色、工作區、分頁、巨集、session、CDN、proxy、圖形、字型、診斷、更新與恢復測試整理成跨引擎 parity ledger。
-- 建立最小 WebView2 與 WKWebView child-surface 原型，同時嵌入 Electron host 與 Tauri host。
-- 驗證多角色、popup、audio、fullscreen、proxy、storage、input 與 crash。
-- macOS 必須實測 `_WKAutomationSession`、NSEvent、跨來源 iframe、背景角色與焦點。
-- Phase 0 失敗不阻止 Windows 繼續，但 macOS 對失敗能力必須形成明確 preflight fallback，不能以 JS 假事件冒充。
+目前 `pnpm run verify:system-only` 已成為一般 CI、雙平台 package smoke 與 Tauri signed candidate 的必要步驟；
+它會檢查已刪除檔案、production token、唯一 engine union、resolved engine union 與不再允許的 Electron object effects。
+Electron package dependency 只在 Phase D 最後切殼時才納入同一 gate，避免過渡殼尚在使用時製造假失敗。
 
-### Phase 1：模型與核心邊界
+## 9. Release gates 與已知限制
 
-- 拆開 launch location、engine preference、resolved engine、session source。
-- 完成資料 migration、legacy pin、workspace override、versioned compatibility cache。
-- 將 Electron-specific effect 名稱改為語義化 runtime effects。
-- Stable 先發佈能讀寫新 schema 但仍以 Electron 執行的相容版本。
+- System 是唯一引擎後，任何原生缺口都不能靠 fallback 隱藏；release gate 必須比舊雙引擎方案更嚴格。
+- macOS trusted background input 仍是最高風險。若特定 OS build 未通過，只停用需要該能力的巨集，不停用一般遊戲瀏覽。
+- WKWebView 與 WebView2 session 格式不同，跨平台／跨舊引擎只能做明確支援的 cookie migration；不能保證免登入。
+- 更新器正式發佈必須依賴 OS code signature。開發版 manual updater 不是正式 release gate 的替代品。
+- 本計畫支援 macOS 14+、Windows 10/11 x64；不涵蓋 Linux、Windows ARM64、Intel macOS 或 Mac App Store。
 
-### Phase 2：System Runtime
+## 10. 目前實作證據與 Electron 刪除門檻
 
-- 完成 Windows WebView2 adapter。
-- 完成 macOS WebKit/AppKit adapter 及 SPI isolation。
-- 接入 Electron Stable host，讓新角色預設 System。
-- 完成 cookie migration、雙 store、CDN/Chrome-profile fallback 與引擎狀態 UI。
+截至 2026-07-26 已完成：
 
-### Phase 3：Tauri Preview
+- CDN、External Chrome、Chrome Profile 與 Tauri Electron helper 已從產品路徑和公開契約刪除。
+- Rust `CoreEffectAction` 已移除 Electron window/view attach、cookie/session、舊 debugger 等 object-level effect；
+  過渡 Electron shell 只轉送 Rust 定義的 System runtime、相容性、overlay 與 browser action。
+- Tauri 直接 link `rion-core`，直接建立角色／工作區 System WebView，並具備角色 store、proxy、popup、download、
+  upload、權限與憑證拒絕策略、JS dialog、同引擎 crash recovery、顯示器 reconcile 與 runtime restore。
+- Quick Menu 可顯示／停止執行中角色與工作區、停止全部角色、遵守法律文件 gate，並可恢復已保存遊戲視窗。
+- diagnostics 已改為 `engine + engineVersion + shell + shellVersion`，不再把 Electron／Chromium／Node 當產品引擎版本。
+- Tauri updater 使用官方簽章驗證鏈；signed release-candidate workflow 會驗證 Developer ID/notarization/stapling、
+  Authenticode、updater signature 與 `latest.json`，但尚不發布 stable。
 
-- 完成共用 renderer bridge 及所有 shell adapters。
-- 完成跨殼 lock、backup、single-instance forwarding。
-- 建立、封裝、簽章 Electron runtime helper。
-- Preview 支援 System、Electron helper 與 External Chrome 三條完整 runtime 路徑。
+在以下條件同時成立前不刪除 Electron 舊殼：
 
-### Phase 4：發佈與切換
+1. macOS packaged harness 證明 trusted/background key、mouse、hold/release 的 `isTrusted` 與無 stuck key；
+   目前已在 macOS 26.5 同時完成 native harness 與最新 release Tauri app bundle：背景 key/mouse、hold/release、
+   Shift modifier、repeat、1000 次 press/release、1/3/6/9 角色像素佈局（共 19 個隔離 store）、同 store popup、
+   WKWebView native open-panel callback 與逐 byte upload、native download、實際終止 Web Content process
+   後的 callback／同引擎恢復，以及 100 次 create/destroy
+   均通過。只有同一 OS major、且由通過 harness 的 CI build 注入 attestation 時 capability
+   才升為 `supported`；其他 build／major 維持 `degraded` 並讓帶有 enabled macro 的角色 fail closed。
+   Stable 的最低 macOS 版本必須收斂到已 attested 的最低 major。
+2. Windows 10/11 packaged harness 完成相同輸入 gate，並驗證 WebView2 Runtime 缺失／損壞提示。目前同一套
+   Tauri/WebView2 harness 與 CI attestation 接線已完成，但仍須取得 `windows-latest`、Windows 10 與 Windows 11
+   的實際通過結果，才能把 Windows capability 視為已驗證。
+3. 兩平台通過 1/3/6/9 角色、popup、download/upload、mute、proxy、crash、restore、hotplug 與 100 次 create/destroy smoke。
+4. signed candidate 安裝、升級、更新失敗與乾淨機驗證完成，且 `macos-latest`／`windows-latest` CI 全綠。
+5. 才將 Tauri identifier/product name 切為 stable，切換預設 scripts/release，刪除 `src/main`、`src/preload`、
+   `rion-node` 與 Electron packages，最後把 Electron dependency 檢查加入 `verify:system-only`。
 
-- Electron Stable 與 Tauri Preview 使用不同 artifact/channel 並行。
-- Tauri 不得轉預設，直到：
-  - parity ledger 所有現有能力均通過，或符合本計畫明列的 degradation/fallback。
-  - macOS 14+ 及 Windows 10/11 native matrix 完成。
-  - helper、updater、shared-data downgrade/rollback 完成演練。
-  - 1/6/9 角色效能 gate 通過。
-  - packaged、signed、notarized/Authenticode 候選完成安裝與更新測試。
-- 切換後保留「以 Electron Stable 開啟」的緊急回復通道至少一個正式發行週期；資料 schema 保持可回退。
+補充的 packaged gate 實作證據：
 
-### Phase 5：逐步淘汰 Electron
+- `pnpm run test:native:system-input` 會啟動 Tauri binary 的內建診斷模式，使用正式 child WebView 與正式
+  key/mouse dispatch，輸出原子 JSON attestation；CI 在 attestation 通過後才注入對應 capability build env。
+- CI 與 signed-candidate workflow 在 bundle 前跑 debug attestation，bundle 後再對 release executable 重跑，
+  因此不以 mock、Electron 或單純編譯成功代替 packaged 行為。
+- macOS mute 使用 WebKit `_setPageMuted:` SPI 的動態 selector 檢查；公開的
+  `setAllMediaPlaybackSuspended:` 會暫停 media，無法維持原有 mute 行為。selector 缺失時回傳 capability 錯誤，
+  不再像舊 `_setMuted:` 呼叫一樣造成 Objective-C foreign exception 與整個程序 abort。
+- 1-role 結束後立即建立 3-role 的 smoke 曾重現 runtime mutex 與 main-thread Destroyed callback 的鎖順序死結；
+  `create_tab` 現已只在狀態檢查／提交時持鎖，所有 native 建窗與 callback 都在鎖外執行。
+- popup gate 由可信原生滑鼠事件觸發真正的 `window.open`，驗證 child surface 沿用同一角色 data store，
+  關閉後釋放 native window 與 `popup_roles`；download gate 經正式 WebView download callback 寫入診斷目錄，
+  並逐 byte 驗證內容。upload gate 在 macOS 由可信滑鼠觸發 `<input type=file>`，確認 WKWebView 呼叫其
+  native `runOpenPanel` delegate，再驗證檔名、大小與逐 byte 內容；Windows 自動化使用 WebView2
+  `DOM.setFileInputFiles` 驗證瀏覽器檔案處理，但原生 chooser UI 仍保留 signed-candidate manual smoke。
+  最新 debug 與重建後的 release `.app` executable 均已通過 macOS upload/download gate。
+- macOS full-size content view 包含 titlebar 區域；若直接以該 bounds 排版，6-role 上排會少 16px，DOM mouse Y
+  也會偏移。runtime 現從 AppKit `contentLayoutRect` 取得可用內容區與 top inset，1/3/6/9 每個 child WebView
+  的 `innerWidth/innerHeight` 都與 native pixel bounds 比對，滑鼠座標也走同一轉換。
+- crash gate 不再直接呼叫恢復函式。macOS 診斷會讀取該 WKWebView 的 `_webProcessIdentifier` 並只終止該
+  Web Content 子程序；只有 Tauri/WRY 的實際 termination callback、舊 handle 釋放、同 store 重建、
+  localStorage 保留與背景可信輸入恢復全部成立才通過。這個 gate 同時找出並修正 WRY 對已死亡 WKWebView
+  空 URL 的 unwrap panic：導覽目標現在會在 native navigate 前先保存於 Rust state，恢復時不查死 surface。
+- `pnpm run test:native:runtime-restore` 以同一個隔離 userData 連續啟動三個真實 Tauri 程序：第一個建立並
+  先把 live 角色放在合成 display，再走正式 `EmbeddedDisplayRemove` effect 搬到實際 fallback 螢幕；接著
+  持久化角色與 localStorage、把已保存 target 改為合法但不存在的 display ID，然後刻意繞過 clean shutdown；
+  第二個必須顯示 unclean recovery、走正式 `restoreSavedGameWindows` 回退到當前可用螢幕、
+  清除 dormant/recovery 狀態並保留角色 store，然後正常退出；第三個則必須判定為可自動恢復且不顯示
+  crash recovery。最新 debug 與重建後的 release `.app` executable 均已通過。
+- 這個跨程序 gate 找出兩個正式路徑問題：monitor hash 原先可能超出 JavaScript safe integer，導致真實
+  display 被 Rust domain 拒絕；以及 restore 的 active/hidden tab command 會在 Tokio runtime 內落回同步
+  effect plan 並 panic。display ID 現限制在 safe-integer 範圍，`invoke_async` 的同步 fallback 一律透過
+  `spawn_blocking`，並有 Rust regression coverage。
+- `pnpm run test:native:file-operations` 由正式 Tauri executable 執行 portable export/preview 與 diagnostics ZIP，
+  驗證 schema/ZIP 內容並拒絕損壞 import；再把既有目錄當成輸出目的地，讓原子 replace 在產生暫存檔後失敗，
+  確認 portable/diagnostics 暫存檔全部釋放、目的地未被覆寫且 games/roles/workspaces/macros 未變。一般 CI 與
+  signed candidate 都會在 debug attestation 與 bundle 後的 exact release executable 各跑一次。
+- proxy gate 會以帶有實際 proxy URL 的 child WebView 驗證建立時設定。macOS 自動 gate 檢查該
+  `WKWebsiteDataStore.proxyConfigurations` 確實非空；由於簡易自製 CONNECT relay 無法可靠代表系統代理，
+  macOS 端到端傳輸保留給使用成熟代理的 signed-candidate smoke。Windows gate 則另外要求 loopback target
+  確實經 WebView2 proxy 抵達。不可把 macOS 的配置 gate 描述成 transport 已自動驗證。
 
-- 先移除 Electron 主 UI，只保留 helper。
-- 清理 legacy pin 必須由遷移成功或使用者明確選擇觸發，不能批次靜默刪除。
-- Chrome Profile、macOS CDN 與 WebKit SPI fallback 仍依賴 Electron 時，不得移除 helper。
-- 未來若要完全刪除 Electron，需另行決定這些情境改用 System 重新登入、External Chrome 或停止支援；不在本次計畫中假設已解決。
+## 11. 中斷續作 checkpoint
 
-## 9. 測試與驗收標準
+每次中斷後依序恢復：
 
-### 自動測試
-
-- Rust domain tests：繼承、legacy pin、工作區單一引擎、fallback chain、cache invalidation、migration rollback。
-- Contract tests：Rust 生成型別、Electron preload、Tauri adapter 保持完全一致。
-- 平台 adapter tests 全部顯式傳入 macOS/Windows，不繼承開發機 OS。
-- Native harness 使用本機 fixture pages 涵蓋：
-  - cookie/localStorage/IndexedDB/service worker 隔離。
-  - popup、iframe、跨來源 frame、audio、mute、fullscreen。
-  - download、file picker、auth challenge、permission。
-  - WebGL/canvas/game loop 與 graphics diagnostics。
-  - 八條 CDN 規則、main document 不改寫、subframe 與 subresource 改寫。
-- 巨集驗收：
-  - 事件必須 `isTrusted=true`。
-  - tap、hold、auto-repeat、modifier、release 順序與 Electron 一致。
-  - 1/3/6/9 角色並行，1000 次 start/stop 後不得有 stuck key。
-  - hidden/background 角色不得送錯 target。
-  - macOS 不得把其他應用程式強制帶到背景；做不到即標記 capability unsupported 並 preflight fallback。
-- session 驗收：
-  - 不同角色 cookie/storage 不可互讀。
-  - cookie 雙向 mirror 保留屬性。
-  - 驗證失敗不移除 legacy pin。
-  - clear/delete/rollback 不觸碰原始 Chrome profile。
-- runtime 驗收：
-  - tabs reorder/move/hide、兩個 engine hosts、display hotplug、window recovery、fullscreen toolbar、audio aggregation。
-  - workspace 所有 template、divider 拖曳、gap、adaptive/fixed zoom 與 pixel rounding。
-  - web process/helper crash、app 重啟、更新中斷與資料 lock 恢復。
-
-### CI 與實機矩陣
-
-- 保留 `macos-latest`、`windows-latest` 完整 build/test/package jobs。
-- 增加 macOS 14 最低版與目前最新 macOS 的 native smoke。
-- Windows 10/11 使用實機或 self-hosted runner 驗證 WebView2 Evergreen；GitHub Windows Server runner 不能替代兩個桌面版本。
-- 每個 release 驗證 Electron Stable、Tauri Preview、Electron helper 三種 artifact/component 版本一致。
-- macOS 執行 codesign nested verification、notary stapling 與乾淨機 Gatekeeper 測試。
-- Windows 執行 Authenticode、NSIS 安裝/升級/解除安裝及缺少/損壞 WebView2 Runtime 流程。
-
-### 效能 Gate
-
-- 以相同 fixture 與 1/6/9 角色比較 System 和 Electron：
-  - System 總 RSS 不得高於 Electron 基準，否則不得成為該平台預設。
-  - p95 巨集 dispatch 不得比 Electron 慢超過一個顯示 frame。
-  - resize/切 tab 不得出現持續掉幀或錯位。
-  - background idle CPU 不得高於 Electron 基準。
-  - 100 次建立/銷毀與 crash recovery 後不得持續增加 process、handle 或 WebView store lock。
-- 效能結果納入既有 benchmark aggregate 與 release evidence，不以單次開發機觀察取代。
-
-## 10. 明確假設與例外
-
-- 「涵蓋所有 Rion 功能」指所有使用者流程均有原生實作、已明列的可見 degradation，或可驗證的 Electron fallback；不代表 WKWebView 提供完整 CDP。
-- 圖形設定與字型是已接受的 degradation：System 保留設定與診斷 UI，但不假裝套用了不存在的 Chromium 能力。
-- Chrome Profile 完整 session 與 macOS 不完整 CDN 規則是硬性 Electron fallback。
-- macOS private SPI 可用性必須按 OS build 驗證，未知新版本預設 fallback，直到 manifest 或新版程式明確放行。
-- Tauri Preview 初期仍包含 Electron/Chromium helper，因此主要收益是架構去耦與主殼遷移，不是立即縮小安裝包。
-- External Chrome 保持現有 Rust/CDP 實作，作為 launch mode 的最後相容路徑。
-- 本計畫不支援 Linux、Windows ARM64、Intel macOS或 Mac App Store。
+1. 讀本文件與 `.agents/context.md`，確認目前 Phase checkbox。
+2. 執行負面搜尋，確認是否仍有 CDN／External Chrome／Chrome Profile 的 production references。
+3. 執行 `cargo check -p rion-tauri`、`pnpm run typecheck`，先修復共享契約斷點。
+4. 依 Rust core → generated contract → Tauri bridge → renderer → tests 順序完成一條垂直切片。
+5. 每一批刪除後跑 focused tests；Phase 完成時跑 Rust、Vitest、lint、native build 與雙平台 CI。
+6. Electron 僅在 Tauri parity 尚未完成時保留舊殼；不得再為 Electron 新增產品能力。
+7. 原生／封裝行為變更後執行 `pnpm run test:native:system-input`；macOS 本機通過不能取代 Windows CI 與
+   Windows 10/11 實機結果。

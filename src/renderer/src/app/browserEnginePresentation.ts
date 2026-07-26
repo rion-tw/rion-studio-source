@@ -1,6 +1,5 @@
 import type {
-  EmbeddedBrowserEngine,
-  EngineFallbackReason,
+  SystemWebViewIssueReason,
   ResolvedBrowserEngine,
   RoleStatus
 } from "../../../shared/types";
@@ -8,25 +7,14 @@ import type { TranslationKey, Translator } from "../i18n";
 
 const resolvedEngineLabelKeys: Record<ResolvedBrowserEngine, TranslationKey> = {
   webview2: "browserEngine.actual.webview2",
-  wkwebview: "browserEngine.actual.wkwebview",
-  electron: "browserEngine.actual.electron",
-  "external-chrome": "browserEngine.actual.externalChrome"
+  wkwebview: "browserEngine.actual.wkwebview"
 };
 
-const preferredEngineLabelKeys: Record<EmbeddedBrowserEngine, TranslationKey> = {
-  system: "games.engine.system",
-  electron: "games.engine.electron"
-};
-
-const fallbackReasonLabelKeys: Record<EngineFallbackReason, TranslationKey> = {
-  "legacy-role-pin": "browserEngine.fallbackReason.legacyRolePin",
-  "chrome-profile-session": "browserEngine.fallbackReason.chromeProfileSession",
-  "mac-cdn-rewrite-unsupported": "browserEngine.fallbackReason.macCdnRewriteUnsupported",
-  "webkit-spi-unavailable": "browserEngine.fallbackReason.webkitSpiUnavailable",
-  "cached-compatibility-failure": "browserEngine.fallbackReason.cachedCompatibilityFailure",
-  "runtime-creation-failed": "browserEngine.fallbackReason.runtimeCreationFailed",
-  "runtime-crashed": "browserEngine.fallbackReason.runtimeCrashed",
-  "auth-verification-failed": "browserEngine.fallbackReason.authVerificationFailed"
+const engineIssueLabelKeys: Record<SystemWebViewIssueReason, TranslationKey> = {
+  "webkit-spi-unavailable": "browserEngine.issueReason.webkitSpiUnavailable",
+  "cached-compatibility-failure": "browserEngine.issueReason.cachedCompatibilityFailure",
+  "runtime-creation-failed": "browserEngine.issueReason.runtimeCreationFailed",
+  "runtime-crashed": "browserEngine.issueReason.runtimeCrashed"
 };
 
 export function getResolvedBrowserEngineLabel(
@@ -39,11 +27,10 @@ export function getResolvedBrowserEngineLabel(
 export function getBrowserEngineStatusTitle(status: RoleStatus, t: Translator): string {
   if (!status.resolvedEngine) return "";
   const resolved = getResolvedBrowserEngineLabel(status.resolvedEngine, t);
-  if (!status.fallbackReason || !status.preferredEngine) {
+  if (!status.issueReason) {
     return t("browserEngine.actualTitle").replace("{engine}", resolved);
   }
-  return t("browserEngine.fallbackTitle")
-    .replace("{preferred}", t(preferredEngineLabelKeys[status.preferredEngine]))
+  return t("browserEngine.issueTitle")
     .replace("{resolved}", resolved)
-    .replace("{reason}", t(fallbackReasonLabelKeys[status.fallbackReason]));
+    .replace("{reason}", t(engineIssueLabelKeys[status.issueReason]));
 }

@@ -114,11 +114,6 @@ impl NativeAppCore {
     }
 
     #[napi]
-    pub fn match_cdn_url(&self, url: String) -> Result<Option<String>> {
-        self.inner.match_cdn_url(&url).map_err(to_napi_error)
-    }
-
-    #[napi]
     pub async fn shutdown(&self) -> Result<()> {
         let core = Arc::clone(&self.inner);
         napi::tokio::task::spawn_blocking(move || core.shutdown())

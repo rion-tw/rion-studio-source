@@ -14,13 +14,15 @@ before changing code.
 
 ## Project Boundaries
 
-- This is an Electron + React + TypeScript desktop app built with Electron Vite.
-- The main process owns Electron APIs, file system access, profile stores, auth flow,
-  embedded Electron and external Chrome launch behavior, and browser lifecycle.
+- This is a Tauri 2 + React + TypeScript desktop app in transition from a legacy
+  Electron shell. Do not add new product dependencies on Electron.
+- The Rust core and Tauri shell own file system access, managed role stores,
+  system WebView launch behavior, and browser lifecycle. The product runtime is
+  WebView2 on Windows and WKWebView on macOS 14+.
 - The renderer is a React app. It must call `window.rionStudio` through the preload
   bridge and must not import Node, Electron, or browser automation clients directly.
 - Shared contracts live under `src/shared` and should be treated as the source of
-  truth between main, preload, renderer, and tests.
+  truth between Rust, Tauri, the temporary Electron bridge, renderer, and tests.
 
 ## Cross-Platform Development
 
@@ -29,7 +31,7 @@ before changing code.
 - A feature is not complete if it works on only one target platform. When behavior
   differs by platform, keep the shared behavior consistent and provide explicit
   macOS and Windows implementations instead of omitting or deferring one platform.
-- Isolate operating-system-specific APIs behind main-process modules or adapters;
+- Isolate operating-system-specific APIs behind Tauri/native modules or adapters;
   do not leak platform assumptions into the renderer or shared contracts.
 - Add focused coverage for shared behavior and each platform branch. Where local
   end-to-end verification is unavailable, use platform-aware unit tests or mocks
@@ -59,16 +61,17 @@ Avoid adding renderer-only shortcuts around this bridge.
 
 ## Data And Runtime Rules
 
-- Profile metadata is stored under `app.getPath("userData")`.
-- Each profile owns an isolated browser directory at `profiles/{profileId}/browser`.
+- Metadata is stored in `rion-studio.sqlite3` below the shared app data directory.
+- Each role owns an isolated browser directory at `roles/{roleId}/browser`.
 - Do not store account passwords.
-- Stores should validate and normalize persisted metadata and write JSON atomically
-  with a temporary file followed by rename.
-- Keep login and launch behavior centralized in the main process managers.
+- Rust repositories validate and normalize persisted metadata and commit related
+  mutations in one SQLite transaction.
+- Keep launch behavior centralized in the Rust core and system runtime adapters.
 - Preserve the existing post-launch auth verification before considering a browser
   session running.
-- Normal embedded launches should not add remote debugging flags. External Chrome
-  compatibility sessions use loopback DevTools control for macros and CDN rewriting.
+- System WebView launches must not expose a general remote-debugging endpoint.
+  CDN rewriting, external browser launch, and browser-profile import are retired
+  and must not return as compatibility paths.
 
 ## Renderer And UI Rules
 
@@ -91,4 +94,5 @@ pnpm run build
 pnpm run package
 ```
 
-`pnpm run build` runs typecheck before the Electron Vite build.
+`pnpm run build` currently validates the transitional Electron shell. Use
+`pnpm run build:tauri` for the target desktop shell.

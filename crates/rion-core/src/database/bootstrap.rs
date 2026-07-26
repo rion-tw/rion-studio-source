@@ -28,9 +28,6 @@ const LEGACY_STATE_FILES: &[&str] = &[
     "game-compatibility.json",
     "background-activity-migration.json",
     "portable-import-transaction.json",
-    "chrome-profile-import-transaction.json",
-    "chrome-profile-import-transaction.committed",
-    "chrome-profile-import-previews.json",
 ];
 
 #[derive(Debug, Clone)]
@@ -47,7 +44,6 @@ pub fn bootstrap_databases(user_data_dir: &Path) -> CoreResult<DatabasePaths> {
     let state_path = user_data_dir.join(STATE_DATABASE_FILENAME);
     let log_path = user_data_dir.join(LOG_DATABASE_FILENAME);
     portable_recovery::recover_legacy_json(user_data_dir)?;
-    legacy::recover_chrome_profile_import(user_data_dir, &state_path)?;
     let needs_state = !state_path.exists();
     let needs_logs = !log_path.exists();
     if !needs_state && !needs_logs {

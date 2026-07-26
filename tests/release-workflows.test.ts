@@ -45,16 +45,34 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("pnpm run test");
     expect(workflow).toContain("pnpm run lint");
     expect(workflow).toContain("pnpm exec electron-vite build");
+    expect(workflow).toContain("cargo check -p rion-tauri");
+    expect(workflow).toContain("pnpm run build:tauri:renderer");
+    expect(workflow).toContain("pnpm exec tauri build --bundles ${{ matrix.tauri_bundle }}");
+    expect(workflow).toContain("tauri_bundle: app");
+    expect(workflow).toContain("tauri_bundle: nsis");
+    expect(workflow).not.toContain("verify:v1-parity");
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
     expect(workflow).toContain("pnpm run test:rust");
     expect(workflow).toContain("pnpm run build:rust:release && pnpm run verify:rust");
     expect(workflow).not.toContain("pnpm run build:rust && pnpm run verify:rust");
-    expect(workflow).toContain("pnpm run build:native:macos && pnpm run test:native:macos");
+    expect(workflow).toContain("pnpm run build:native:macos");
+    expect(workflow).toContain("pnpm run test:native:macos");
+    expect(workflow).toContain("pnpm run test:native:system-input");
+    expect(workflow).toContain("pnpm run test:native:runtime-restore");
+    expect(workflow).toContain("pnpm run test:native:file-operations");
+    expect(workflow).toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED=1");
+    expect(workflow).toContain("Verify packaged Windows System WebView input");
+    expect(workflow).toContain("Verify packaged macOS System WebView input");
+    expect(workflow).toContain("Verify packaged Windows runtime restore");
+    expect(workflow).toContain("Verify packaged macOS runtime restore");
+    expect(workflow).toContain("Verify packaged Windows file operations");
+    expect(workflow).toContain("Verify packaged macOS file operations");
+    expect(workflow).toContain("--require-compiled-attestation");
     expect(workflow).toContain("rust-concurrency-sanitizer:");
     expect(workflow).toContain("RUSTFLAGS: -Zsanitizer=address");
     expect(workflow).toContain("one_thousand_start_stop_cycles");
-    expect(workflow).toContain("external_health_lane_does_not_block");
+    expect(workflow).toContain("role_lock_registries_stay_bounded");
     expect(workflow).toContain("Build unpacked application");
     expect(workflow).toContain("Verify packaged Rust Node-API core");
     expect(workflow).toContain("verifyPackagedRustCore.mjs");
@@ -77,6 +95,39 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("needs.resolve-release.outputs.has_release == 'true'");
     expect(workflow).toContain('gh release view "${tag}" --repo "${GITHUB_REPOSITORY}"');
     expect(workflow).not.toContain("Build platform preflight artifact");
+  });
+
+  it("builds Tauri candidates only with OS and updater signatures", async () => {
+    const workflow = await readWorkflow(".github/workflows/tauri-release-candidate.yml");
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("uses: ./.github/workflows/ci.yml");
+    expect(workflow).toContain("- quality");
+    expect(workflow).toContain("test \"$(git describe --tags --exact-match HEAD)\"");
+    expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
+    expect(workflow).toContain("Import Developer ID certificate");
+    expect(workflow).toContain("Import Windows Authenticode certificate");
+    expect(workflow).toContain("Attest macOS System WebView input");
+    expect(workflow).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
+    expect(workflow).toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED=1");
+    expect(workflow).toContain("pnpm run test:native:system-input");
+    expect(workflow).toContain("pnpm run test:native:runtime-restore");
+    expect(workflow).toContain("pnpm run test:native:file-operations");
+    expect(workflow).toContain("Verify packaged Windows System WebView input");
+    expect(workflow).toContain("Verify packaged macOS System WebView input");
+    expect(workflow).toContain("Verify packaged Windows runtime restore");
+    expect(workflow).toContain("Verify packaged macOS runtime restore");
+    expect(workflow).toContain("Verify packaged Windows file operations");
+    expect(workflow).toContain("Verify packaged macOS file operations");
+    expect(workflow).toContain("--require-compiled-attestation");
+    expect(workflow).toContain("pnpm run build:tauri:release -- --bundles");
+    expect(workflow).toContain("codesign --verify --deep --strict");
+    expect(workflow).toContain("xcrun stapler validate");
+    expect(workflow).toContain("Get-AuthenticodeSignature");
+    expect(workflow).toContain("createTauriUpdaterManifest.mjs");
+    expect(workflow).toContain("--windows-installer");
+    expect(workflow).not.toContain("gh release upload");
   });
 
   it("supports automatic calls and CI retries with only the named App secret", async () => {

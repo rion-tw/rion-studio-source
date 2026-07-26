@@ -35,9 +35,9 @@ export interface RuntimeHostWorkspaceStatus {
 /**
  * Shell-neutral orchestration boundary used by launch coordinators and menus.
  *
- * ElectronBrowserRuntime already satisfies this interface structurally. Native
- * WebView2/WKWebView pools and the Tauri Electron helper will implement the same
- * user-visible lifecycle without leaking platform handles to callers.
+ * The transitional Electron shell and the Tauri-native WebView2/WKWebView host
+ * implement the same user-visible lifecycle without leaking platform handles to
+ * callers.
  */
 export interface RuntimeHostPort {
   acquireRuntimeToolbarRevealLock: (displayId: number) => () => void;
@@ -53,8 +53,7 @@ export interface RuntimeHostPort {
       "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "template"
     >,
     items: RuntimeHostWorkspaceItem[],
-    target?: RuntimeHostLaunchTarget,
-    launchMode?: "auto" | "embedded" | "external"
+    target?: RuntimeHostLaunchTarget
   ) => Promise<RoleStatus[]>;
   launchEmbeddedRestoreTab: (
     tab: RuntimeHostRestoreTabInput,

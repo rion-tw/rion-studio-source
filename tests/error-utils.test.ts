@@ -9,18 +9,6 @@ describe("renderer error localization", () => {
     );
   });
 
-  it("localizes Electron-wrapped custom errors", async () => {
-    await loadTranslations("zh-TW");
-
-    expect(
-      localizeErrorMessage(
-        "Error invoking remote method 'chrome-profile:import-preview':\nChromeProfileImportError: " +
-          "Chrome is still using the selected profile. Quit Chrome and try again.",
-        "zh-TW"
-      )
-    ).toBe("Chrome 仍在使用選取的個人資料。請關閉 Chrome 後再試一次。");
-  });
-
   it("localizes Electron-wrapped standard errors", async () => {
     await loadTranslations("zh-TW");
 
@@ -120,35 +108,4 @@ describe("renderer error localization", () => {
     );
   });
 
-  it("localizes external Chrome zoom failures alone and inside fallback notices", async () => {
-    const fallback =
-      "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
-    const zoomFailure =
-      "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
-    await loadTranslations("zh-TW");
-    await loadTranslations("zh-CN");
-    await loadTranslations("ja");
-
-    expect(localizeErrorMessage(zoomFailure, "en")).toBe(zoomFailure);
-    expect(localizeErrorMessage(zoomFailure, "zh-TW")).toBe(
-      "無法在外部 Chrome 套用工作區縮放。請重新啟動此角色後再試一次。"
-    );
-    expect(localizeErrorMessage(`${fallback} ${zoomFailure}`, "zh-CN")).toBe(
-      "内嵌游戏画面无法加载。Rion Studio 已切换到外部 Chrome 兼容模式，以提高加速器支持。 " +
-      "无法在外部 Chrome 应用工作区缩放。请重新启动此角色后再试一次。"
-    );
-    expect(localizeErrorMessage(zoomFailure, "ja")).toBe(
-      "外部 Chrome でワークスペースのズームを適用できませんでした。このロールを再起動してもう一度お試しください。"
-    );
-  });
-
-  it("explains that an unavailable external overlay does not disable Studio macros", async () => {
-    const message =
-      "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.";
-    await loadTranslations("zh-TW");
-
-    expect(localizeErrorMessage(message, "zh-TW")).toBe(
-      "Chrome 頁面內的巨集快捷鍵目前無法使用，但仍可從 Rion Studio 執行巨集。"
-    );
-  });
 });

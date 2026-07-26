@@ -37,19 +37,11 @@ import type {
   PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
-  ChromeProfileImportInput,
-  ChromeProfileImportPreview,
-  ChromeProfileImportProgress,
-  ChromeProfileImportResult,
   ReorderItemsInput,
   RestoreSavedGameWindowsInput,
   Role,
   RolePaths,
-  RoleSessionMigrationPreview,
-  RoleSessionMigrationResult,
-  RoleSessionMigrationRollback,
   RoleStatus,
-  EmbeddedBrowserEngine,
   RuntimeWindowPreferences,
   SystemFontFamily,
   UpdateLaunchWorkspaceInput,
@@ -97,19 +89,8 @@ export interface RionStudioApi {
   deleteRole: (id: string) => Promise<void>;
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   clearRoleBrowserData: (id: string) => Promise<Role>;
-  previewRoleSessionMigration: (
-    id: string,
-    targetEngine: EmbeddedBrowserEngine
-  ) => Promise<RoleSessionMigrationPreview>;
-  applyRoleSessionMigration: (
-    id: string,
-    targetEngine: EmbeddedBrowserEngine
-  ) => Promise<RoleSessionMigrationResult>;
-  rollbackRoleSessionMigration: (id: string) => Promise<RoleSessionMigrationRollback>;
   getRolePaths: (id: string) => Promise<RolePaths>;
   launchRole: (id: string) => Promise<RoleStatus | null>;
-  captureExternalRoleDiagnostics: (id: string) => Promise<void>;
-  recoverExternalRole: (id: string) => Promise<RoleStatus>;
   stopRole: (id: string) => Promise<void>;
   listRoleStatuses: () => Promise<RoleStatus[]>;
   listLaunchWorkspaces: () => Promise<LaunchWorkspace[]>;
@@ -136,10 +117,6 @@ export interface RionStudioApi {
   previewPortableImport: () => Promise<PortableImportPreview | null>;
   applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   discardPortableImport: (importId: string) => Promise<void>;
-  previewChromeProfileImport: () => Promise<ChromeProfileImportPreview | null>;
-  closeChromeForImport: () => Promise<void>;
-  applyChromeProfileImport: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
-  discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
@@ -172,6 +149,5 @@ export interface RionStudioApi {
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
-  onChromeProfileImportProgress: (callback: (progress: ChromeProfileImportProgress) => void) => () => void;
   onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;
 }

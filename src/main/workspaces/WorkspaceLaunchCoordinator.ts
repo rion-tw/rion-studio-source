@@ -1,7 +1,6 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
 import type {
-  RoleStatus,
   WorkspaceDisplayInfo,
   WorkspaceDisplayLaunchOption,
   WorkspaceLaunchInput,
@@ -106,7 +105,7 @@ export class WorkspaceLaunchCoordinator {
       );
       await Promise.all(statuses.map((status) => {
         const role = launchItems.find((item) => item.role.id === status.roleId)?.role;
-        return role ? this.recordLaunchSuccess(role.gameId, status) : Promise.resolve();
+        return role ? this.recordLaunchSuccess(role.gameId) : Promise.resolve();
       }));
       return {
         kind: "launched",
@@ -160,18 +159,15 @@ export class WorkspaceLaunchCoordinator {
     return this.options.getWorkspaceDisplays?.() ?? [DEFAULT_WORKSPACE_DISPLAY];
   }
 
-  private async recordLaunchSuccess(gameId: string, status: RoleStatus): Promise<void> {
+  private async recordLaunchSuccess(gameId: string): Promise<void> {
     if (!this.options.gameCompatibilityManager) {
       return;
     }
 
     const timestamp = new Date().toISOString();
-    await this.options.gameCompatibilityManager.recordObservation(gameId, status.runtimeMode === "external"
-      ? {
-          lastExternalSuccessAt: timestamp,
-          ...(status.notice?.includes(EMBEDDED_FALLBACK_NOTICE) ? { lastFallbackAt: timestamp } : {})
-        }
-      : { lastEmbeddedSuccessAt: timestamp });
+    await this.options.gameCompatibilityManager.recordObservation(gameId, {
+      lastEmbeddedSuccessAt: timestamp
+    });
   }
 
   private async recordLaunchFailure(gameId: string, error: unknown): Promise<void> {
@@ -190,9 +186,6 @@ function nanosecondsToMilliseconds(value: number): number {
   const milliseconds = value / 1_000_000;
   return Number.isFinite(milliseconds) ? milliseconds : 0;
 }
-
-const EMBEDDED_FALLBACK_NOTICE =
-  "The embedded browser could not load this game. It opened in external Chrome compatibility mode.";
 
 const DEFAULT_WORKSPACE_DISPLAY: WorkspaceDisplayInfo = {
   id: 0,

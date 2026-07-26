@@ -6,7 +6,7 @@ describe("typed core settings adapter", () => {
   it("sends a generated command without snapshot serialization in JavaScript", async () => {
     const invoke = vi.fn(async () => ({ revision: 1 }));
     const store = new GameBrowserSettingsStore("/unused", { invoke } as never);
-    const settings = { launchMode: "embedded" };
+    const settings = { browserEngine: "system" };
 
     await store.updateSettings(settings as never);
 

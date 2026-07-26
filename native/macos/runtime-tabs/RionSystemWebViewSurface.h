@@ -29,13 +29,10 @@ typedef void (^RionSystemWebViewEventHandler)(
 - (void)destroy;
 - (void)evaluateJavaScript:(NSString *)source requestID:(NSString *)requestID;
 - (void)focus;
-- (void)getCookiesForRequest:(NSString *)requestID;
 - (void)loadURL:(NSString *)url;
 - (BOOL)setAudioMuted:(BOOL)muted;
 - (void)setFrameFromTopLeftRect:(NSRect)rect;
 - (void)setPageZoom:(CGFloat)zoom;
-- (void)setCookiesFromJSON:(NSString *)cookiesJSON
-                 requestID:(NSString *)requestID;
 - (void)setVisible:(BOOL)visible;
 
 @end

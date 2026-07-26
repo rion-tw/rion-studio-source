@@ -308,67 +308,6 @@ export function useRoleWorkflow({
     }
   }
 
-  async function handleBrowserSessionMigration(role: Role): Promise<boolean> {
-    const targetEngine = role.browserEnginePin === "electron" ? "system" : undefined;
-    if (!targetEngine && role.browserEnginePin !== "system") return false;
-    const finishBusy = beginBusy(role.id);
-    if (!finishBusy) return false;
-    const reportError = beginErrorOperation();
-    setNotice?.(null);
-
-    try {
-      if (targetEngine === "system") {
-        const preview = await window.rionStudio.previewRoleSessionMigration(role.id, targetEngine);
-        const confirmed = await confirm({
-          title: t("confirm.migrateRoleSession.title").replace("{name}", role.name),
-          description: t("confirm.migrateRoleSession.description"),
-          details: [
-            t("confirm.migrateRoleSession.cookies")
-              .replace("{sourceCount}", String(preview.sourceCookieCount))
-              .replace("{targetCount}", String(preview.targetCookieCount)),
-            t("confirm.migrateRoleSession.scope")
-          ],
-          warning: preview.canApply
-            ? t("confirm.migrateRoleSession.warning")
-            : t("confirm.migrateRoleSession.targetNotEmpty"),
-          cancelLabel: t("confirm.cancel"),
-          confirmLabel: t("confirm.migrate"),
-          confirmDisabled: !preview.canApply
-        });
-        if (!confirmed) return false;
-        const result = await window.rionStudio.applyRoleSessionMigration(role.id, targetEngine);
-        setNotice?.(
-          t("notice.roleSessionMigrated")
-            .replace("{name}", role.name)
-            .replace("{count}", String(result.cookiesMigrated))
-        );
-      } else {
-        const confirmed = await confirm({
-          title: t("confirm.rollbackRoleSession.title").replace("{name}", role.name),
-          description: t("confirm.rollbackRoleSession.description"),
-          details: [t("confirm.rollbackRoleSession.target"), t("confirm.rollbackRoleSession.source")],
-          cancelLabel: t("confirm.cancel"),
-          confirmLabel: t("confirm.rollback")
-        });
-        if (!confirmed) return false;
-        await window.rionStudio.rollbackRoleSessionMigration(role.id);
-        setNotice?.(t("notice.roleSessionRolledBack").replace("{name}", role.name));
-      }
-      const [nextRoles, nextStatuses] = await Promise.all([
-        window.rionStudio.listRoles(),
-        window.rionStudio.listRoleStatuses()
-      ]);
-      setRoles(nextRoles);
-      setStatuses(nextStatuses);
-      return true;
-    } catch (migrationError) {
-      reportError(migrationError);
-      return false;
-    } finally {
-      finishBusy();
-    }
-  }
-
   async function handleCopy(role: Role): Promise<void> {
     const finishBusy = beginBusy(role.id);
     if (!finishBusy) {
@@ -434,7 +373,6 @@ export function useRoleWorkflow({
     activeFilter,
     busyRoleIds,
     filteredRoles,
-    handleBrowserSessionMigration,
     handleClearBrowserData,
     handleCopy,
     handleDelete,

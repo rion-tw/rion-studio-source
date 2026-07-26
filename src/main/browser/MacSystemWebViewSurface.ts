@@ -8,12 +8,8 @@ import type {
   WebSurfaceLifecycleEvent,
   WebSurfacePort
 } from "./ports/WebSurfacePort";
-import type {
-  BrowserCookieTransferRecord,
-  SystemSessionStorePort
-} from "./ElectronProfileEffectAdapter";
 
-const NATIVE_PROTOCOL_VERSION = 10;
+const NATIVE_PROTOCOL_VERSION = 11;
 const OPERATION_TIMEOUT_MS = 30_000;
 
 export interface MacSystemWebViewNativeAddon {
@@ -31,12 +27,10 @@ export interface MacSystemWebViewNativeAddon {
   destroySystemWebView(surfaceId: number): void;
   evaluateSystemWebView(surfaceId: number, requestId: string, source: string): void;
   focusSystemWebView(surfaceId: number): void;
-  getSystemWebViewCookies(surfaceId: number, requestId: string): void;
   loadSystemWebViewURL(surfaceId: number, url: string): void;
   protocolVersion: number;
   setSystemWebViewAudioMuted(surfaceId: number, muted: boolean): boolean;
   setSystemWebViewBounds(surfaceId: number, bounds: PixelBounds): void;
-  setSystemWebViewCookies(surfaceId: number, requestId: string, cookiesJson: string): void;
   setSystemWebViewVisible(surfaceId: number, visible: boolean): void;
   setSystemWebViewZoom(surfaceId: number, factor: number): void;
 }
@@ -50,8 +44,6 @@ export type MacSystemWebViewSurfaceFactory = (
   window: BaseWindow,
   options: MacSystemWebViewCreateOptions
 ) => WebSurfacePort;
-
-const sessionStores = new WeakMap<WebSurfacePort, SystemSessionStorePort>();
 
 interface PendingOperation {
   reject: (error: Error) => void;
@@ -67,8 +59,6 @@ type NativeSurfaceEvent =
   | { type: "downloadCompleted"; path?: string }
   | { type: "downloadFailed"; reason?: string }
   | { type: "downloadStarted"; filename?: string }
-  | { type: "cookiesRead"; requestId: string; cookiesJson: string }
-  | { type: "cookiesWritten"; requestId: string; count?: number; error?: string }
   | { type: "evaluationCompleted"; requestId: string; valueJson?: string; error?: string }
   | { type: "navigationCompleted"; url: string }
   | { type: "navigationFailed"; url: string; errorCode?: string }
@@ -151,19 +141,6 @@ export function createMacSystemWebViewSurfaceFactory(
         case "documentStartScriptAdded":
           settle(event.requestId, event.error, undefined);
           return;
-        case "cookiesRead": {
-          try {
-            const cookies = JSON.parse(event.cookiesJson) as unknown;
-            if (!Array.isArray(cookies)) throw new Error("Cookie payload is not an array.");
-            settle(event.requestId, undefined, cookies);
-          } catch {
-            settle(event.requestId, "WKWebView returned invalid cookie JSON.", undefined);
-          }
-          return;
-        }
-        case "cookiesWritten":
-          settle(event.requestId, event.error, event.count ?? 0);
-          return;
         case "evaluationCompleted": {
           let result: unknown;
           try {
@@ -211,13 +188,6 @@ export function createMacSystemWebViewSurfaceFactory(
       clearStorage: () => invoke<void>((requestId) => {
         addon.clearSystemWebViewData(surfaceId, requestId);
       }),
-      configureRequestRewrites: async (rules) => {
-        if (rules.length === 0) return;
-        throw surfaceError(
-          "SYSTEM_WEBVIEW_CDN_UNSUPPORTED",
-          "WKWebView cannot apply Rion Studio's complete CDN rewrite plan."
-        );
-      },
       destroy: async () => {
         if (destroyed) return;
         destroyed = true;
@@ -243,9 +213,6 @@ export function createMacSystemWebViewSurfaceFactory(
       focus: async () => {
         addon.focusSystemWebView(surfaceId);
       },
-      getCookies: () => invoke<BrowserCookieTransferRecord[]>((requestId) => {
-        addon.getSystemWebViewCookies(surfaceId, requestId);
-      }),
       loadUrl: (url: string) => {
         if (destroyed) {
           return Promise.reject(surfaceError(
@@ -282,9 +249,6 @@ export function createMacSystemWebViewSurfaceFactory(
       setBounds: async (bounds) => {
         addon.setSystemWebViewBounds(surfaceId, bounds);
       },
-      setCookies: (cookies) => invoke<number>((requestId) => {
-        addon.setSystemWebViewCookies(surfaceId, requestId, JSON.stringify(cookies));
-      }),
       setVisible: async (visible) => {
         addon.setSystemWebViewVisible(surfaceId, visible);
       },
@@ -292,28 +256,8 @@ export function createMacSystemWebViewSurfaceFactory(
         addon.setSystemWebViewZoom(surfaceId, factor);
       }
     };
-    sessionStores.set(surface, {
-      clearCookies: () => invoke<void>((requestId) => {
-        addon.clearSystemWebViewData(surfaceId, requestId);
-      }),
-      getCookies: surface.getCookies,
-      setCookies: surface.setCookies
-    });
     return surface;
   };
-}
-
-export function getMacSystemWebViewSessionStore(
-  surface: WebSurfacePort
-): SystemSessionStorePort {
-  const store = sessionStores.get(surface);
-  if (!store) {
-    throw surfaceError(
-      "SYSTEM_SESSION_STORE_UNAVAILABLE",
-      "The WKWebView surface has no session-store adapter."
-    );
-  }
-  return store;
 }
 
 export function loadMacSystemWebViewSurfaceFactory(
@@ -370,23 +314,6 @@ function parseNativeSurfaceEvent(value: unknown): NativeSurfaceEvent | undefined
         type: "downloadFailed",
         ...(typeof event.reason === "string" ? { reason: event.reason } : {})
       };
-    case "cookiesRead":
-      return typeof event.requestId === "string" && typeof event.cookiesJson === "string"
-        ? {
-            type: "cookiesRead",
-            requestId: event.requestId,
-            cookiesJson: event.cookiesJson
-          }
-        : undefined;
-    case "cookiesWritten":
-      return typeof event.requestId === "string"
-        ? {
-            type: "cookiesWritten",
-            requestId: event.requestId,
-            ...(typeof event.count === "number" ? { count: event.count } : {}),
-            ...(typeof event.error === "string" ? { error: event.error } : {})
-          }
-        : undefined;
     case "evaluationCompleted":
       return typeof event.requestId === "string"
         ? {

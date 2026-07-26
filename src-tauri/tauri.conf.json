@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": false,
     "icon": [
       "../build/icon.png",
       "../build/icon.icns",
@@ -36,6 +37,13 @@
     ],
     "macOS": {
       "minimumSystemVersion": "14.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

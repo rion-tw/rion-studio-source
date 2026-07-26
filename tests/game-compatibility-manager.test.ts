@@ -1,13 +1,20 @@
 import { EventEmitter } from "node:events";
 
-import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from "electron";
+import type { BaseWindow, BaseWindowConstructorOptions } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
-import type { CoreEvent } from "../src/shared/generated";
+import type { CoreEvent, RuntimeVersionRecord } from "../src/shared/generated";
 import type { CompatibilityCoreEffectAction } from "../src/main/core/ElectronEffectExecutor";
+import type { WebSurfaceLifecycleEvent, WebSurfacePort } from "../src/main/browser/ports/WebSurfacePort";
 import type { GameCompatibilityReport } from "../src/shared/types";
 import { GameCompatibilityManager } from "../src/main/games/GameCompatibilityManager";
-import { v1Case } from "./helpers/v1Parity";
+
+const versions: RuntimeVersionRecord = {
+  engine: "wkwebview",
+  engineVersion: "14.6",
+  shell: "electron",
+  shellVersion: "40.0.0"
+};
 
 const report: GameCompatibilityReport = {
   gameId: "game-1",
@@ -16,13 +23,12 @@ const report: GameCompatibilityReport = {
   isStale: false,
   load: { state: "available", durationMs: 10, finalOrigin: "https://example.test" },
   graphics: { webgl: "available", webgl2: "available", webgpu: "unavailable" },
-  systemChrome: { state: "available" },
-  recommendation: { reason: "embedded_available" },
+  recommendation: { reason: "system_webview_available" },
   observations: {}
 };
 
 describe("GameCompatibilityManager", () => {
-  it("sends one high-level compatibility intent to Rust", async () => {
+  it("sends one high-level compatibility intent with system runtime versions", async () => {
     const invoke = vi.fn(async (command: { type: string }) =>
       command.type === "compatibilityStatuses" ? [] : report
     );
@@ -37,21 +43,24 @@ describe("GameCompatibilityManager", () => {
     expect(invoke).toHaveBeenLastCalledWith({
       type: "compatibilityRun",
       gameId: "game-1",
-      versions: { chrome: "140.0.0", electron: "40.0.0" }
+      versions
     });
   });
 
-  it("executes create, session, load, raw probe, and cleanup Electron effects", async () => {
+  it("executes the complete compatibility flow in an isolated System WebView", async () => {
     const windows: FakeCompatibilityWindow[] = [];
-    const applyCdnCompatibility = vi.fn(async () => undefined);
-    const applyProxy = vi.fn(async () => undefined);
+    const surfaces: FakeSystemSurface[] = [];
+    const cleanup = vi.fn(async () => undefined);
     const { manager, invoke } = createManager({
-      applyCdnCompatibility,
-      applyProxy,
+      createSurface: () => {
+        const surface = new FakeSystemSurface();
+        surfaces.push(surface);
+        return { cleanup, surface: surface.asPort() };
+      },
       createWindow: (options) => {
         const window = new FakeCompatibilityWindow(options);
         windows.push(window);
-        return window.asBrowserWindow();
+        return window.asBaseWindow();
       }
     });
 
@@ -65,6 +74,7 @@ describe("GameCompatibilityManager", () => {
       }
     }));
     const created = windows[0]!;
+    const surface = surfaces[0]!;
     await manager.executeEffect(effect({
       type: "compatibilityConfigureSession",
       gameId: "game-1"
@@ -79,7 +89,7 @@ describe("GameCompatibilityManager", () => {
       gameId: "game-1",
       source: "raw-probe"
     }))).resolves.toMatchObject({ webgl: "available" });
-    created.clearCache.mockRejectedValueOnce(new Error("cleanup failed"));
+    surface.clearStorage.mockRejectedValueOnce(new Error("cleanup failed"));
     await expect(manager.executeEffect(effect({
       type: "compatibilityCleanupWindow",
       gameId: "game-1"
@@ -92,63 +102,31 @@ describe("GameCompatibilityManager", () => {
       height: 700,
       show: false
     });
-    expect(created.options.webPreferences?.partition).toMatch(/^rion-compatibility-/);
-    expect(applyProxy).toHaveBeenCalledOnce();
-    expect(applyCdnCompatibility).toHaveBeenCalledOnce();
+    expect(created.options).not.toHaveProperty("webPreferences");
     expect(created.show).toHaveBeenCalledOnce();
-    expect(created.webContents.loadURL).toHaveBeenCalledWith("https://example.test/play");
-    expect(created.webContents.executeJavaScript).toHaveBeenCalledWith("raw-probe");
+    expect(surface.addDocumentStartScript).toHaveBeenCalledWith("font-script");
+    expect(surface.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1000, height: 700 });
+    expect(surface.setVisible).toHaveBeenCalledWith(true);
+    expect(surface.loadUrl).toHaveBeenCalledWith("https://example.test/play");
+    expect(surface.evaluate).toHaveBeenCalledWith("raw-probe");
+    expect(surface.clearStorage).toHaveBeenCalledOnce();
+    expect(surface.destroy).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledOnce();
     expect(created.destroy).toHaveBeenCalledOnce();
-    expect(created.clearStorageData).toHaveBeenCalledOnce();
-    expect(created.clearCache).toHaveBeenCalledOnce();
-    expect(created.closeAllConnections).toHaveBeenCalledOnce();
     expect(invoke).not.toHaveBeenCalledWith({
       type: "compatibilityCancel",
       gameId: "game-1"
     });
-    await expect(manager.runCheck("game-1")).resolves.toMatchObject({
-      gameId: "game-1",
-      load: { state: "available", finalOrigin: "https://example.test" },
-      graphics: { webgl: "available", webgl2: "available", webgpu: "unavailable" },
-      recommendation: { reason: "embedded_available" },
-      systemChrome: { state: "available" }
-    });
-    v1Case("browser-workspace-b36d189c65c3", () => {
-      expect(created.options).toMatchObject({
-        x: 100,
-        y: 50,
-        width: 1000,
-        height: 700,
-        show: false,
-        webPreferences: {
-          backgroundThrottling: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true
-        }
-      });
-      expect(created.options.webPreferences?.partition).toMatch(/^rion-compatibility-/);
-      expect(created.options.webPreferences?.partition).not.toContain("persist:");
-      expect(created.options.webPreferences).not.toHaveProperty("preload");
-      expect(created.show).toHaveBeenCalledOnce();
-      expect(created.destroy).toHaveBeenCalledOnce();
-      expect(created.clearStorageData).toHaveBeenCalledOnce();
-      expect(created.clearCache).toHaveBeenCalledOnce();
-      expect(created.closeAllConnections).toHaveBeenCalledOnce();
-    });
-    v1Case("browser-workspace-94557ef32ede", () => {
-      expect(created.destroy).toHaveBeenCalledOnce();
-      expect(created.clearStorageData).toHaveBeenCalledOnce();
-      expect(created.closeAllConnections).toHaveBeenCalledOnce();
-    });
   });
 
-  it("reports a user-closed Electron window to the Rust cancellation state", async () => {
+  it("cancels and disposes a compatibility run when its native host closes", async () => {
     let window: FakeCompatibilityWindow | undefined;
+    const surface = new FakeSystemSurface();
     const { manager, invoke } = createManager({
+      createSurface: () => ({ surface: surface.asPort() }),
       createWindow: (options) => {
         window = new FakeCompatibilityWindow(options);
-        return window.asBrowserWindow();
+        return window.asBaseWindow();
       }
     });
     await manager.executeEffect(effect({
@@ -163,9 +141,12 @@ describe("GameCompatibilityManager", () => {
 
     window!.close();
 
-    expect(invoke).toHaveBeenCalledWith({
-      type: "compatibilityCancel",
-      gameId: "game-1"
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith({
+        type: "compatibilityCancel",
+        gameId: "game-1"
+      });
+      expect(surface.destroy).toHaveBeenCalledOnce();
     });
   });
 
@@ -197,9 +178,8 @@ describe("GameCompatibilityManager", () => {
 });
 
 function createManager(options: {
-  applyCdnCompatibility?: (session: Session) => Promise<void>;
-  applyProxy?: (session: Session) => Promise<void>;
-  createWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
+  createSurface?: ConstructorParameters<typeof GameCompatibilityManager>[0]["createSurface"];
+  createWindow?: (options: BaseWindowConstructorOptions) => BaseWindow;
   invoke?: ReturnType<typeof vi.fn>;
   subscribe?: (listener: (events: CoreEvent[]) => void) => () => void;
 } = {}) {
@@ -207,16 +187,20 @@ function createManager(options: {
     command.type === "compatibilityStatuses" ? [] : report
   );
   const manager = new GameCompatibilityManager({
-    applyCdnCompatibility: options.applyCdnCompatibility ?? (async () => undefined),
-    applyProxy: options.applyProxy ?? (async () => undefined),
     core: {
       invoke,
       subscribe: options.subscribe ?? (() => () => undefined)
     } as never,
+    createSurface: options.createSurface
+      ?? (() => ({ surface: new FakeSystemSurface().asPort() })),
     createWindow: options.createWindow
-      ?? ((windowOptions) => new FakeCompatibilityWindow(windowOptions).asBrowserWindow()),
+      ?? ((windowOptions) => new FakeCompatibilityWindow(windowOptions).asBaseWindow()),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1000, height: 700 }),
-    versions: { chrome: "140.0.0", electron: "40.0.0" } as NodeJS.ProcessVersions
+    getSessionConfiguration: async () => ({
+      documentStartScript: "font-script",
+      proxyServer: "http://proxy.example:8080"
+    }),
+    getVersions: async () => versions
   });
   return { invoke, manager };
 }
@@ -232,11 +216,8 @@ function effect<T extends CompatibilityCoreEffectAction>(action: T) {
 }
 
 class FakeCompatibilityWindow extends EventEmitter {
-  readonly clearCache = vi.fn(async () => undefined);
-  readonly clearStorageData = vi.fn(async () => undefined);
-  readonly closeAllConnections = vi.fn(async () => undefined);
   readonly show = vi.fn();
-  readonly options: BrowserWindowConstructorOptions;
+  readonly options: BaseWindowConstructorOptions;
   private destroyed = false;
 
   readonly destroy = vi.fn(() => {
@@ -244,23 +225,7 @@ class FakeCompatibilityWindow extends EventEmitter {
     this.emit("closed");
   });
 
-  readonly webContents = {
-    executeJavaScript: vi.fn(async () => ({
-      webgl: "available",
-      webgl2: "available",
-      webgpu: "unavailable"
-    })),
-    getURL: vi.fn(() => "https://example.test/play?token=private"),
-    loadURL: vi.fn(async () => undefined),
-    session: {
-      clearCache: this.clearCache,
-      clearStorageData: this.clearStorageData,
-      closeAllConnections: this.closeAllConnections
-    },
-    setWindowOpenHandler: vi.fn()
-  };
-
-  constructor(options: BrowserWindowConstructorOptions) {
+  constructor(options: BaseWindowConstructorOptions) {
     super();
     this.options = options;
   }
@@ -274,7 +239,51 @@ class FakeCompatibilityWindow extends EventEmitter {
     return this.destroyed;
   }
 
-  asBrowserWindow(): BrowserWindow {
-    return this as unknown as BrowserWindow;
+  asBaseWindow(): BaseWindow {
+    return this as unknown as BaseWindow;
+  }
+}
+
+class FakeSystemSurface {
+  private readonly listeners = new Set<(event: WebSurfaceLifecycleEvent) => void>();
+
+  readonly addDocumentStartScript = vi.fn(async () => undefined);
+  readonly clearStorage = vi.fn(async () => undefined);
+  readonly destroy = vi.fn(async () => undefined);
+  readonly evaluate = vi.fn(async (_source: string) => ({
+    webgl: "available",
+    webgl2: "available",
+    webgpu: "unavailable"
+  }));
+  readonly focus = vi.fn(async () => undefined);
+  readonly loadUrl = vi.fn(async () => {
+    this.emit({ type: "navigationCompleted", url: "https://example.test/play?token=private" });
+  });
+  readonly setAudioMuted = vi.fn(async () => undefined);
+  readonly setBounds = vi.fn(async () => undefined);
+  readonly setVisible = vi.fn(async () => undefined);
+  readonly setZoomFactor = vi.fn(async () => undefined);
+
+  asPort(): WebSurfacePort {
+    return {
+      addDocumentStartScript: this.addDocumentStartScript,
+      clearStorage: this.clearStorage,
+      destroy: this.destroy,
+      evaluate: <T = unknown>(source: string) => this.evaluate(source) as Promise<T>,
+      focus: this.focus,
+      loadUrl: this.loadUrl,
+      onLifecycleEvent: (listener) => {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+      },
+      setAudioMuted: this.setAudioMuted,
+      setBounds: this.setBounds,
+      setVisible: this.setVisible,
+      setZoomFactor: this.setZoomFactor
+    };
+  }
+
+  private emit(event: WebSurfaceLifecycleEvent): void {
+    this.listeners.forEach((listener) => listener(event));
   }
 }

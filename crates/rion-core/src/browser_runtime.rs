@@ -134,58 +134,6 @@ impl BrowserRuntime {
                 }
                 created_tab_id = Some(id);
             }
-            BrowserRuntimeCommand::CreateExternalWorkspace {
-                workspace_id,
-                name,
-                display_id,
-                exclusive_display,
-                role_ids,
-            } => {
-                if self
-                    .workspaces
-                    .get(&workspace_id)
-                    .is_some_and(|workspace| workspace.runtime != "pending")
-                {
-                    return Err(domain(
-                        "WORKSPACE_ALREADY_RUNNING",
-                        "Launch workspace is already running.",
-                    ));
-                }
-                self.ensure_workspace_roles_match(&workspace_id, &role_ids)?;
-                self.ensure_roles_available(&role_ids, Some(&workspace_id))?;
-                if exclusive_display
-                    && display_id.is_some_and(|candidate| {
-                        self.workspaces.values().any(|workspace| {
-                            workspace.workspace_id != workspace_id
-                                && workspace.exclusive_display
-                                && workspace.display_id == Some(candidate)
-                        })
-                    })
-                {
-                    return Err(domain(
-                        "WORKSPACE_DISPLAY_OCCUPIED",
-                        "Launch workspace target display is already occupied.",
-                    ));
-                }
-                let workspace = self
-                    .workspaces
-                    .entry(workspace_id.clone())
-                    .or_insert_with(|| BrowserRuntimeWorkspaceRecord {
-                        workspace_id,
-                        name: name.clone(),
-                        runtime: "external".to_owned(),
-                        display_id,
-                        exclusive_display,
-                        tab_id: None,
-                        role_ids: role_ids.clone(),
-                        state: "launching".to_owned(),
-                    });
-                workspace.name = name;
-                workspace.runtime = "external".to_owned();
-                workspace.display_id = display_id;
-                workspace.exclusive_display = exclusive_display;
-                workspace.role_ids = role_ids;
-            }
             BrowserRuntimeCommand::RemoveTab { tab_id } => self.remove_tab(&tab_id),
             BrowserRuntimeCommand::ActivateTab { tab_id } => self.activate_tab(&tab_id)?,
             BrowserRuntimeCommand::ShowDisplay { display_id } => self.show_display(display_id)?,
@@ -495,7 +443,7 @@ impl BrowserRuntime {
         state: &str,
         launched_at: Option<String>,
     ) -> CoreResult<()> {
-        if !matches!(runtime.as_str(), "embedded" | "external") {
+        if runtime != "embedded" {
             return Err(domain(
                 "RUNTIME_MODE_INVALID",
                 "Browser runtime mode is invalid.",
@@ -714,73 +662,6 @@ mod tests {
                 .code(),
             "RUNTIME_TRANSITION_INVALID"
         );
-    }
-
-    #[test]
-    fn promotes_pending_workspace_and_owns_exclusive_display_reservations() {
-        let mut runtime = BrowserRuntime::default();
-        runtime
-            .invoke(command(json!({
-                "type":"beginWorkspace","workspaceId":"w1","name":"One",
-                "displayId":2,"roleIds":["r1"]
-            })))
-            .unwrap();
-        let external = runtime
-            .invoke(command(json!({
-                "type":"createExternalWorkspace","workspaceId":"w1","name":"One",
-                "displayId":2,"exclusiveDisplay":true,"roleIds":["r1"]
-            })))
-            .unwrap();
-        crate::v1_case!("browser-workspace-834d6924d42c", {
-            let workspace = external
-                .snapshot
-                .workspaces
-                .iter()
-                .find(|workspace| workspace.workspace_id == "w1")
-                .unwrap();
-            assert_eq!(workspace.runtime, "external");
-            assert_eq!(workspace.display_id, Some(2));
-            assert!(workspace.exclusive_display);
-        });
-
-        runtime
-            .invoke(command(json!({
-                "type":"beginWorkspace","workspaceId":"w2","name":"Two",
-                "displayId":2,"roleIds":["r2"]
-            })))
-            .unwrap();
-        let occupied_error = runtime
-            .invoke(command(json!({
-                "type":"createExternalWorkspace","workspaceId":"w2","name":"Two",
-                "displayId":2,"exclusiveDisplay":true,"roleIds":["r2"]
-            })))
-            .unwrap_err();
-        assert_eq!(occupied_error.code(), "WORKSPACE_DISPLAY_OCCUPIED");
-        assert_eq!(runtime.snapshot().workspaces[1].runtime, "pending");
-
-        runtime
-            .invoke(command(
-                json!({"type":"removeWorkspace","workspaceId":"w1"}),
-            ))
-            .unwrap();
-        let released = runtime
-            .invoke(command(json!({
-                "type":"createExternalWorkspace","workspaceId":"w2","name":"Two",
-                "displayId":2,"exclusiveDisplay":true,"roleIds":["r2"]
-            })))
-            .unwrap();
-        crate::v1_case!("browser-workspace-fb693eb251e3", {
-            assert_eq!(
-                released
-                    .snapshot
-                    .workspaces
-                    .iter()
-                    .find(|workspace| workspace.workspace_id == "w2")
-                    .unwrap()
-                    .runtime,
-                "external"
-            );
-        });
     }
 
     #[test]

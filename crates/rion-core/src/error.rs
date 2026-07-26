@@ -20,8 +20,6 @@ pub enum CoreError {
     WaitCancelled,
     #[error("platform operation failed: {0}")]
     Platform(String),
-    #[error("external Chrome failed: {0}")]
-    ExternalChrome(String),
     #[error("{message}")]
     Effect { code: String, message: String },
     #[error("internal core failure: {0}")]
@@ -39,7 +37,6 @@ impl CoreError {
             Self::ShuttingDown => "CORE_SHUTTING_DOWN",
             Self::WaitCancelled => "CORE_WAIT_CANCELLED",
             Self::Platform(_) => "CORE_PLATFORM_FAILED",
-            Self::ExternalChrome(_) => "CORE_EXTERNAL_CHROME_FAILED",
             Self::Effect { code, .. } => code,
             Self::Internal(_) => "CORE_INTERNAL_FAILED",
         }

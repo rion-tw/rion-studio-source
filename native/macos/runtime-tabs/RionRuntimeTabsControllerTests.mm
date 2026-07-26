@@ -8,6 +8,48 @@
 #import "RionRuntimeTabsController.h"
 #import "RionSystemWebViewSurface.h"
 
+extern "C" bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
+                                      bool keyDown, uint64_t rawFlags,
+                                      bool repeat);
+extern "C" bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
+                                        int button, bool mouseDown);
+
+@interface RionInputProbeNavigationDelegate : NSObject <WKNavigationDelegate>
+
+@property(nonatomic) BOOL finished;
+@property(nonatomic, strong, nullable) NSError *error;
+
+@end
+
+@implementation RionInputProbeNavigationDelegate
+
+- (void)webView:(WKWebView *)webView
+    didFinishNavigation:(WKNavigation *)navigation {
+  (void)webView;
+  (void)navigation;
+  self.finished = YES;
+}
+
+- (void)webView:(WKWebView *)webView
+    didFailNavigation:(WKNavigation *)navigation
+             withError:(NSError *)error {
+  (void)webView;
+  (void)navigation;
+  self.error = error;
+  self.finished = YES;
+}
+
+- (void)webView:(WKWebView *)webView
+    didFailProvisionalNavigation:(WKNavigation *)navigation
+                        withError:(NSError *)error {
+  (void)webView;
+  (void)navigation;
+  self.error = error;
+  self.finished = YES;
+}
+
+@end
+
 @interface RionRuntimeTabsController (RionRuntimeTabsTests)
 
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
@@ -236,6 +278,38 @@ static void DrainMainQueue(void) {
       runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
 }
 
+static void DrainInputQueue(void) {
+  [NSRunLoop.mainRunLoop
+      runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+}
+
+static BOOL WaitForFlag(BOOL (^predicate)(void), NSTimeInterval timeout) {
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+  while (!predicate() && deadline.timeIntervalSinceNow > 0) {
+    [NSRunLoop.mainRunLoop
+        runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  }
+  return predicate();
+}
+
+static NSDictionary<NSString *, id> *EvaluateProbe(WKWebView *webView,
+                                                     NSString *source) {
+  __block BOOL finished = NO;
+  __block id value = nil;
+  __block NSError *error = nil;
+  [webView evaluateJavaScript:source
+            completionHandler:^(id result, NSError *evaluationError) {
+    value = result;
+    error = evaluationError;
+    finished = YES;
+  }];
+  if (!WaitForFlag(^BOOL { return finished; }, 5.0) || error ||
+      ![value isKindOfClass:NSDictionary.class]) {
+    return nil;
+  }
+  return (NSDictionary<NSString *, id> *)value;
+}
+
 static BOOL ReadTitlebarHeight(NSView *frameView, CGFloat *height) {
   if (!frameView || !height) return NO;
   SEL selector = NSSelectorFromString(@"_titlebarHeight");
@@ -456,6 +530,79 @@ int main() {
                             NSWindowStyleMaskResizable
                     backing:NSBackingStoreBuffered
                       defer:NO];
+    WKWebView *inputProbe = [[WKWebView alloc]
+        initWithFrame:NSMakeRect(0, 0, 320, 240)
+        configuration:[[WKWebViewConfiguration alloc] init]];
+    RionInputProbeNavigationDelegate *inputProbeDelegate =
+        [[RionInputProbeNavigationDelegate alloc] init];
+    inputProbe.navigationDelegate = inputProbeDelegate;
+    [window.contentView addSubview:inputProbe];
+    [inputProbe loadHTMLString:
+        @"<!doctype html><html><body tabindex='0' style='margin:0;width:100vw;height:100vh'>"
+         "<script>window.__rionInputProbe={keyDown:false,keyUp:false,mouseDown:false,mouseUp:false,keyDownCount:0,keyUpCount:0,mouseDownCount:0,mouseUpCount:0,code:''};"
+         "addEventListener('keydown',e=>{__rionInputProbe.keyDown=e.isTrusted;__rionInputProbe.keyDownCount++;__rionInputProbe.code=e.code});"
+         "addEventListener('keyup',e=>{__rionInputProbe.keyUp=e.isTrusted;__rionInputProbe.keyUpCount++});"
+         "addEventListener('mousedown',e=>{__rionInputProbe.mouseDown=e.isTrusted;__rionInputProbe.mouseDownCount++});"
+         "addEventListener('mouseup',e=>{__rionInputProbe.mouseUp=e.isTrusted;__rionInputProbe.mouseUpCount++});"
+         "document.body.focus();</script></body></html>"
+                     baseURL:nil];
+    Assert(WaitForFlag(^BOOL { return inputProbeDelegate.finished; }, 5.0) &&
+               inputProbeDelegate.error == nil,
+           "The macOS trusted-input harness must load its isolated WKWebView fixture.");
+    [window orderOut:nil];
+    BOOL keyDownDispatched = rion_wk_dispatch_key(
+        (__bridge void *)inputProbe, "KeyA", true, 0, false);
+    DrainMainQueue();
+    BOOL keyUpDispatched = rion_wk_dispatch_key(
+        (__bridge void *)inputProbe, "KeyA", false, 0, false);
+    Assert(keyDownDispatched && keyUpDispatched,
+           "The macOS adapter must accept background key down/up dispatch.");
+    BOOL mouseDownDispatched = rion_wk_dispatch_mouse(
+        (__bridge void *)inputProbe, 40, 40, 0, true);
+    DrainMainQueue();
+    BOOL mouseUpDispatched = rion_wk_dispatch_mouse(
+        (__bridge void *)inputProbe, 40, 40, 0, false);
+    Assert(mouseDownDispatched && mouseUpDispatched,
+           "The macOS adapter must accept background mouse down/up dispatch.");
+    DrainMainQueue();
+    NSDictionary<NSString *, id> *inputProbeResult = EvaluateProbe(
+        inputProbe,
+        @"({...window.__rionInputProbe,background:!document.hasFocus()})");
+    if (![inputProbeResult[@"keyDown"] boolValue] ||
+        ![inputProbeResult[@"keyUp"] boolValue] ||
+        ![inputProbeResult[@"mouseDown"] boolValue] ||
+        ![inputProbeResult[@"mouseUp"] boolValue] ||
+        ![inputProbeResult[@"code"] isEqual:@"KeyA"] ||
+        ![inputProbeResult[@"background"] boolValue]) {
+      std::cerr << "Trusted input probe: "
+                << (inputProbeResult.description.UTF8String ?: "null")
+                << std::endl;
+    }
+    Assert([inputProbeResult[@"keyDown"] boolValue] &&
+               [inputProbeResult[@"keyUp"] boolValue] &&
+               [inputProbeResult[@"mouseDown"] boolValue] &&
+               [inputProbeResult[@"mouseUp"] boolValue] &&
+               [inputProbeResult[@"code"] isEqual:@"KeyA"] &&
+               [inputProbeResult[@"background"] boolValue],
+           "WKWebView must expose trusted key/mouse DOM events while its host window is backgrounded.");
+    for (NSUInteger iteration = 0; iteration < 1000; iteration += 1) {
+      Assert(rion_wk_dispatch_key((__bridge void *)inputProbe, "KeyA", true,
+                                  0, false),
+             "The macOS adapter rejected a key down during its 1000-cycle soak.");
+      DrainInputQueue();
+      Assert(rion_wk_dispatch_key((__bridge void *)inputProbe, "KeyA", false,
+                                  0, false),
+             "The macOS adapter rejected a key up during its 1000-cycle soak.");
+      DrainInputQueue();
+    }
+    NSDictionary<NSString *, id> *inputSoakResult = EvaluateProbe(
+        inputProbe, @"({...window.__rionInputProbe})");
+    Assert([inputSoakResult[@"keyDown"] boolValue] &&
+               [inputSoakResult[@"keyUp"] boolValue] &&
+               [inputSoakResult[@"keyDownCount"] unsignedIntegerValue] == 1001 &&
+               [inputSoakResult[@"keyUpCount"] unsignedIntegerValue] == 1001,
+           "The macOS adapter must complete 1000 trusted key press/release cycles without a stuck key.");
+    [inputProbe removeFromSuperview];
     __block NSUInteger systemSurfaceEventCount = 0;
     RionSystemWebViewSurface *systemSurface =
         [[RionSystemWebViewSurface alloc]

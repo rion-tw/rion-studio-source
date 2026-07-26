@@ -17,7 +17,6 @@ import type {
 export interface NativeAppCore {
   dispatchCoreEffectResults: (resultsJson: string) => Promise<string>;
   invoke: (commandJson: string) => Promise<string>;
-  matchCdnUrl: (url: string) => string | null;
   shutdown: () => Promise<void>;
   subscribeCoreEvents: (callback: (eventsJson: string) => void) => void;
 }
@@ -138,10 +137,6 @@ export class AppCoreClient {
     }
   }
 
-  matchCdnUrl(url: string): string | undefined {
-    return this.measureSync(() => this.native.matchCdnUrl(url) ?? undefined);
-  }
-
   getPerformanceMetrics(): Promise<PerformanceTelemetryRecord> {
     return this.invoke({ type: "telemetrySnapshot" });
   }
@@ -179,21 +174,9 @@ export class AppCoreClient {
     this.recordTelemetry("menuRefresh", undefined, count);
   }
 
-  recordCdnPlan(count = 1): void {
-    this.recordTelemetry("cdnPlan", undefined, count);
-  }
-
   async shutdown(): Promise<void> {
     try {
       await this.native.shutdown();
-    } catch (error) {
-      throw normalizeNativeCoreError(error);
-    }
-  }
-
-  private measureSync<T>(operation: () => T): T {
-    try {
-      return operation();
     } catch (error) {
       throw normalizeNativeCoreError(error);
     }

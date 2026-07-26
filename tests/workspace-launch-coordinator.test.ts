@@ -7,7 +7,6 @@ const workspace: LaunchWorkspace = {
   id: "workspace-1",
   name: "Nine roles",
   template: "single",
-  browserLaunchMode: "embedded",
   browserZoomMode: "adaptive",
   browserZoomPercent: 100,
   slots: [{

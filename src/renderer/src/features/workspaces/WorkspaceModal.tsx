@@ -24,7 +24,6 @@ import { cn } from "../../lib/utils";
 import type {
   BrowserEngineOverride,
   Game,
-  InheritableBrowserLaunchMode,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
   NormalizedRect,
@@ -460,21 +459,12 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-4 min-[1200px]:grid-cols-4">
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField htmlFor="workspace-browser-mode" label={t("workspaces.browserMode")} description={t("workspaces.browserModeDescription")}>
-            <Select value={form.browserLaunchMode} disabled={isSaving} onValueChange={(value) => onChange({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}>
-              <SelectTrigger id="workspace-browser-mode"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
+      <div className="grid grid-cols-2 gap-4 min-[1200px]:grid-cols-3">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField htmlFor="workspace-browser-engine" label={t("workspaces.browserEngine")} description={t("workspaces.browserEngineDescription")}>
             <Select value={form.browserEngine ?? "inherit"} disabled={isSaving} onValueChange={(value) => onChange({ ...form, browserEngine: value as BrowserEngineOverride })}>
               <SelectTrigger id="workspace-browser-engine"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="inherit">{t("games.engine.inherit")}</SelectItem><SelectItem value="system">{t("games.engine.system")}</SelectItem><SelectItem value="electron">{t("games.engine.electron")}</SelectItem></SelectContent>
+              <SelectContent><SelectItem value="inherit">{t("games.engine.inherit")}</SelectItem><SelectItem value="system">{t("games.engine.system")}</SelectItem></SelectContent>
             </Select>
           </FormField>
         </Surface>
@@ -739,7 +729,6 @@ function WorkspaceLayoutFormEditor({
           <WorkspaceHelpSection title={t("workspaces.help.launchTitle")}>
             <li>{t("workspaces.help.launchRequirements")}</li>
             <li>{t("workspaces.help.launchDisplay")}</li>
-            <li>{t("workspaces.help.launchMode")}</li>
           </WorkspaceHelpSection>
         </HelpPanel>
 

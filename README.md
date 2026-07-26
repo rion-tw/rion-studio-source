@@ -8,8 +8,8 @@ English | [繁體中文](docs/README.zh-TW.md) | [简体中文](docs/README.zh-C
 
 Rion Studio helps web game players keep every role, browser session, and window
 layout organized in one desktop app. Create dedicated browser roles, launch the
-game screen directly, reuse imported Chrome sessions, and reduce repetitive
-manual actions while you stay actively in control of play.
+game screen directly, and reduce repetitive manual actions while you stay
+actively in control of play.
 
 ## Download
 
@@ -45,7 +45,6 @@ into a focused control desk:
 
 - Keep each game role in its own isolated browser session.
 - Return to saved window layouts instead of rebuilding your setup every time.
-- Import an existing Chrome profile session into an isolated role when needed.
 - Run small assistive macros for keys, clicks, delays, and loops under your
   supervision.
 - Keep passwords out of the app. Rion Studio stores browser session data only.
@@ -63,27 +62,11 @@ Roles and launch workspaces always open their configured game URL directly.
 Rion Studio does not track whether a role is signed in, require a re-login, or
 hold an authentication status.
 
-### Chrome Profile Sessions
-
-After Chrome is closed and the user approves the import, Rion Studio copies the
-selected profile's supported browser storage into the role and injects its
-cookies into the embedded session. Passwords, Autofill, history, bookmarks, and
-extensions remain excluded. External Chrome is retained only as a game
-compatibility mode.
-
 ### Launch Workspaces
 
 Group roles into a launch workspace and assign each one a window layout. Start a
 single role or launch a full multi-role setup into the arrangement you already
 prepared.
-
-### China CDN Compatibility
-
-Improve resource loading on networks where Google-hosted assets are unavailable.
-The optional compatibility mode can automatically detect restricted access and
-replace supported Google Fonts, hosted libraries, reCAPTCHA, Gravatar, Bootstrap,
-and jQuery resource URLs with reachable alternatives in embedded and external
-Chrome sessions. It is a targeted resource rewrite, not a VPN or proxy service.
 
 ### Human-Supervised Macros
 

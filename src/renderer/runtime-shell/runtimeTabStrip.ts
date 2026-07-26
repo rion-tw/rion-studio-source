@@ -123,7 +123,10 @@ addEventListener("keydown", (event) => {
 add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
 add.addEventListener("contextmenu", (event) => event.preventDefault());
 add.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") dispatch({ type: "openLauncher" });
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    dispatch({ type: "openLauncher" });
+  }
 });
 
 void current;

@@ -56,7 +56,7 @@ async function main() {
     console.log(
       `Attested ${report.engine} trusted background input with ` +
       `${report.report.cycles} press/release cycles, 1/3/6/9 pixel layouts, ` +
-      `popup/upload/download/recovery parity, and ` +
+      `popup/upload/download/recovery parity, a stable two-tab display host, and ` +
       `${report.report.roleParity.createDestroyCycles} create/destroy cycles using ` +
       `${basename(executable)}.`
     );
@@ -98,6 +98,7 @@ function validateReport(value, requireCompiledAttestation) {
   const roleParity = value.report?.roleParity;
   const popupDownload = roleParity?.popupDownload;
   const recovery = roleParity?.recovery;
+  const sharedDisplayHost = roleParity?.sharedDisplayHost;
   const stress = value.report?.stress;
   if (
     value.report?.cycles !== 1000 ||
@@ -143,7 +144,13 @@ function validateReport(value, requireCompiledAttestation) {
     recovery?.oldHandleReleased !== true ||
     recovery?.processTerminationObserved !== true ||
     recovery?.roleStorePreserved !== true ||
-    recovery?.inputRestored !== true
+    recovery?.inputRestored !== true ||
+    sharedDisplayHost?.contentStateStable !== true ||
+    sharedDisplayHost?.hostCount !== 1 ||
+    sharedDisplayHost?.tabCount !== 2 ||
+    sharedDisplayHost?.nativeHandleStable !== true ||
+    sharedDisplayHost?.surfaceLabelsStable !== true ||
+    sharedDisplayHost?.windowLabelStable !== true
   ) {
     throw new Error("System WebView trusted-input attestation report is incomplete.");
   }

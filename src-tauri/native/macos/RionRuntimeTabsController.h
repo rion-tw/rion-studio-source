@@ -73,7 +73,8 @@ typedef struct {
 
 typedef void (*RionRuntimeTabsCActionHandler)(
     void *context, const char *type, const char * _Nullable tabIdentifier,
-    int64_t displayID, const char * _Nullable beforeTabIdentifier);
+    int64_t sourceDisplayID, int64_t targetDisplayID,
+    const char * _Nullable beforeTabIdentifier);
 typedef void (*RionRuntimeTabsCLayoutHandler)(
     void *context, double heightInset, double yOffset, bool valid);
 
@@ -98,6 +99,7 @@ void rion_runtime_tabs_set_reveal_locked(
     void * _Nullable controller, bool locked);
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(
     void * _Nullable controller);
+bool rion_runtime_tabs_action_scope_self_test(void);
 
 #ifdef __cplusplus
 }

@@ -13,10 +13,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{CoreError, CoreResult};
+use crate::{CoreError, CoreResult, database::LEGACY_STATE_FILES};
 
 const STATE_DATABASE: &str = "rion-studio.sqlite3";
 const LOG_DATABASE: &str = "logs.sqlite3";
+const LEGACY_PERSISTENT_DIRECTORIES: &[&str] = &["images", "logs"];
+const LEGACY_ROLE_DIRECTORIES: &[&str] = &["roles", "profiles"];
+const SYSTEM_BROWSER_DIRECTORIES: &[&str] = &["system", "webview2"];
 const INSTANCE_LOCK: &str = "rion-studio.instance.lock";
 const ACTIVATION_ENDPOINT: &str = "rion-studio.activation.json";
 const COMPLETION_MARKER: &str = ".rion-tauri-data-migration.json";
@@ -308,7 +311,27 @@ fn validate_journal(
 
 fn copy_and_verify_tree(source: &Path, destination: &Path) -> CoreResult<BTreeMap<String, String>> {
     let mut manifest = BTreeMap::new();
-    copy_directory(source, destination, source, &mut manifest)?;
+    fs::create_dir_all(destination).map_err(migration_error("create copied directory"))?;
+    for name in LEGACY_STATE_FILES {
+        let source_path = source.join(name);
+        if !source_path.is_file() {
+            continue;
+        }
+        let hash = copy_hashed(&source_path, &destination.join(name))?;
+        manifest.insert((*name).to_owned(), hash);
+    }
+    for directory in LEGACY_PERSISTENT_DIRECTORIES {
+        let source_directory = source.join(directory);
+        if source_directory.is_dir() {
+            copy_directory(
+                &source_directory,
+                &destination.join(directory),
+                source,
+                &mut manifest,
+            )?;
+        }
+    }
+    copy_compatible_role_directories(source, destination, &mut manifest)?;
     for database in [STATE_DATABASE, LOG_DATABASE] {
         let source_path = source.join(database);
         if !source_path.is_file() {
@@ -333,6 +356,58 @@ fn copy_and_verify_tree(source: &Path, destination: &Path) -> CoreResult<BTreeMa
     Ok(manifest)
 }
 
+fn copy_compatible_role_directories(
+    source_root: &Path,
+    destination_root: &Path,
+    manifest: &mut BTreeMap<String, String>,
+) -> CoreResult<()> {
+    for role_root_name in LEGACY_ROLE_DIRECTORIES {
+        let source_roles = source_root.join(role_root_name);
+        if !source_roles.is_dir() {
+            continue;
+        }
+        let destination_roles = destination_root.join(role_root_name);
+        fs::create_dir_all(&destination_roles)
+            .map_err(migration_error("create copied role directory"))?;
+        for entry in
+            fs::read_dir(&source_roles).map_err(migration_error("read role directories"))?
+        {
+            let entry = entry.map_err(migration_error("read role directory"))?;
+            if !entry
+                .file_type()
+                .map_err(migration_error("inspect role directory"))?
+                .is_dir()
+            {
+                continue;
+            }
+            let source_browser = entry.path().join("browser");
+            let destination_role = destination_roles.join(entry.file_name());
+            fs::create_dir_all(&destination_role)
+                .map_err(migration_error("create copied role directory"))?;
+            if !source_browser.is_dir() {
+                continue;
+            }
+            let destination_browser = destination_role.join("browser");
+            fs::create_dir_all(&destination_browser)
+                .map_err(migration_error("create copied browser directory"))?;
+            // Direct browser payloads belong to the retired Electron profile layout.
+            // Only the current System WebView stores are compatible with this product.
+            for browser_directory in SYSTEM_BROWSER_DIRECTORIES {
+                let source_directory = source_browser.join(browser_directory);
+                if source_directory.is_dir() {
+                    copy_directory(
+                        &source_directory,
+                        &destination_browser.join(browser_directory),
+                        source_root,
+                        manifest,
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn copy_directory(
     source: &Path,
     destination: &Path,
@@ -353,9 +428,6 @@ fn copy_directory(
             .file_type()
             .map_err(migration_error("inspect source entry"))?;
         if file_type.is_dir() {
-            if source_path == source_root.join("browser-host") {
-                continue;
-            }
             copy_directory(&source_path, &destination_path, source_root, manifest)?;
         } else if file_type.is_file() {
             let relative = source_path
@@ -426,17 +498,26 @@ fn verify_manifest(root: &Path, manifest: &BTreeMap<String, String>) -> CoreResu
 }
 
 fn verify_role_directories(source: &Path, destination: &Path) -> CoreResult<()> {
-    let source_roles = source.join("roles");
-    if !source_roles.is_dir() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(&source_roles).map_err(migration_error("read role directories"))? {
-        let entry = entry.map_err(migration_error("read role directory"))?;
-        if entry.path().is_dir() && !destination.join("roles").join(entry.file_name()).is_dir() {
-            return Err(CoreError::Migration(format!(
-                "role browser directory was not migrated: {}",
-                entry.file_name().to_string_lossy()
-            )));
+    for role_root_name in LEGACY_ROLE_DIRECTORIES {
+        let source_roles = source.join(role_root_name);
+        if !source_roles.is_dir() {
+            continue;
+        }
+        for entry in
+            fs::read_dir(&source_roles).map_err(migration_error("read role directories"))?
+        {
+            let entry = entry.map_err(migration_error("read role directory"))?;
+            if entry.path().is_dir()
+                && !destination
+                    .join(role_root_name)
+                    .join(entry.file_name())
+                    .is_dir()
+            {
+                return Err(CoreError::Migration(format!(
+                    "role directory was not migrated: {}",
+                    entry.file_name().to_string_lossy()
+                )));
+            }
         }
     }
     Ok(())
@@ -535,15 +616,12 @@ fn validate_database(connection: &Connection) -> CoreResult<()> {
 }
 
 fn has_persistent_data(root: &Path) -> bool {
-    [
-        STATE_DATABASE,
-        LOG_DATABASE,
-        "roles",
-        "games.json",
-        "roles.json",
-    ]
-    .iter()
-    .any(|name| root.join(name).exists())
+    [STATE_DATABASE, LOG_DATABASE]
+        .iter()
+        .chain(LEGACY_STATE_FILES.iter())
+        .chain(LEGACY_PERSISTENT_DIRECTORIES.iter())
+        .chain(LEGACY_ROLE_DIRECTORIES.iter())
+        .any(|name| root.join(name).exists())
 }
 
 fn has_valid_completion_marker(root: &Path) -> CoreResult<bool> {
@@ -737,12 +815,28 @@ mod tests {
     }
 
     #[test]
-    fn migrates_database_profiles_and_replaces_unpublished_destination_once() {
+    fn migrates_durable_data_and_replaces_unpublished_destination_once() {
         let parent = tempdir().unwrap();
         let source = parent.path().join("rion-studio");
         let destination = parent.path().join("Rion Studio");
         fs::create_dir_all(source.join("roles/role-1/browser")).unwrap();
         fs::write(source.join("roles/role-1/browser/Cookies"), b"session").unwrap();
+        fs::create_dir_all(source.join("roles/role-1/browser/system")).unwrap();
+        fs::write(
+            source.join("roles/role-1/browser/system/locator.json"),
+            b"system session",
+        )
+        .unwrap();
+        fs::create_dir_all(source.join("roles/role-1/browser/webview2")).unwrap();
+        fs::write(
+            source.join("roles/role-1/browser/webview2/Cookies"),
+            b"webview2 session",
+        )
+        .unwrap();
+        fs::create_dir_all(source.join("Partitions/retired-role")).unwrap();
+        fs::write(source.join("Partitions/retired-role/Cookies"), b"session").unwrap();
+        fs::create_dir_all(source.join("logs")).unwrap();
+        fs::write(source.join("logs/main.log"), b"legacy log").unwrap();
         create_state_database(&source.join(STATE_DATABASE), 2);
         create_log_database(&source.join(LOG_DATABASE), 3);
         fs::create_dir_all(&destination).unwrap();
@@ -753,9 +847,20 @@ mod tests {
             DataRootMigrationOutcome::Migrated { backup: Some(path) } => path,
             other => panic!("unexpected outcome: {other:?}"),
         };
+        assert!(destination.join("roles/role-1").is_dir());
+        assert!(!destination.join("roles/role-1/browser/Cookies").exists());
         assert_eq!(
-            fs::read(destination.join("roles/role-1/browser/Cookies")).unwrap(),
-            b"session"
+            fs::read(destination.join("roles/role-1/browser/system/locator.json")).unwrap(),
+            b"system session"
+        );
+        assert_eq!(
+            fs::read(destination.join("roles/role-1/browser/webview2/Cookies")).unwrap(),
+            b"webview2 session"
+        );
+        assert!(!destination.join("Partitions").exists());
+        assert_eq!(
+            fs::read(destination.join("logs/main.log")).unwrap(),
+            b"legacy log"
         );
         assert!(backup.join("test-only").is_file());
         assert!(source.join(STATE_DATABASE).is_file());
@@ -775,7 +880,7 @@ mod tests {
     }
 
     #[test]
-    fn anonymous_legacy_fixture_preserves_roles_workspaces_macros_and_assets() {
+    fn anonymous_legacy_fixture_preserves_metadata_without_retired_browser_payloads() {
         let parent = tempdir().unwrap();
         let source = parent.path().join("rion-studio");
         let destination = parent.path().join("Rion Studio");
@@ -797,14 +902,17 @@ mod tests {
         assert_eq!(summary.counts["macros"], 6);
         assert_eq!(summary.counts["settings"], 1);
         assert_eq!(summary.counts["legal_acceptance"], 1);
-        assert_eq!(
-            hash_file(&destination.join("roles/role-0/browser/session.bin")).unwrap(),
-            hash_file(&source.join("roles/role-0/browser/session.bin")).unwrap()
+        assert!(destination.join("roles/role-0").is_dir());
+        assert!(
+            !destination
+                .join("roles/role-0/browser/session.bin")
+                .exists()
         );
         assert_eq!(
             hash_file(&destination.join("images/role-0.png")).unwrap(),
             hash_file(&source.join("images/role-0.png")).unwrap()
         );
+        assert!(source.join("roles/role-0/browser/session.bin").is_file());
         assert!(source.join(STATE_DATABASE).is_file());
     }
 

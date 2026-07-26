@@ -76,6 +76,19 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
   });
 
+  it("opens the scoped role/workspace launcher from the add button", () => {
+    const add = document.querySelector<HTMLButtonElement>("#add");
+    add?.click();
+    add?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+      action: { type: "openLauncher" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: { type: "openLauncher" }
+    });
+  });
+
   it("reveals and collapses the toolbar through bounded fullscreen actions", () => {
     window.__rionApplyRuntimeTabState?.({ ...state, fullscreen: true, toolbarVisible: false });
     document.body.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));

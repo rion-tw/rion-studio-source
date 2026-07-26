@@ -10,25 +10,10 @@ use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
 
-use super::{legacy, logs, portable_recovery, state};
+use super::{LEGACY_STATE_FILES, legacy, logs, portable_recovery, state};
 
 pub const STATE_DATABASE_FILENAME: &str = "rion-studio.sqlite3";
 pub const LOG_DATABASE_FILENAME: &str = "logs.sqlite3";
-
-const LEGACY_STATE_FILES: &[&str] = &[
-    "games.json",
-    "roles.json",
-    "profiles.json",
-    "launch-workspaces.json",
-    "macros.json",
-    "game-browser-settings.json",
-    "macro-settings.json",
-    "runtime-window-preferences.json",
-    "legal-acceptance.json",
-    "game-compatibility.json",
-    "background-activity-migration.json",
-    "portable-import-transaction.json",
-];
 
 #[derive(Debug, Clone)]
 pub struct DatabasePaths {

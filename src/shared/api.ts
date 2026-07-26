@@ -133,6 +133,7 @@ export interface RionStudioApi {
   getAppVersion: () => Promise<string>;
   getUpdateStatus: () => Promise<AppUpdateStatus>;
   checkForUpdates: () => Promise<AppUpdateStatus>;
+  setAutoUpdateEnabled: (enabled: boolean) => Promise<AppUpdateStatus>;
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;

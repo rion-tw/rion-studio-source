@@ -52,6 +52,7 @@ describe("macro badge interface settings", () => {
             onExportPortableData={async () => null}
             onGameBrowserSettingsChange={onGameBrowserSettingsChange}
             onInstallDownloadedUpdate={async () => undefined}
+            onSetAutoUpdateEnabled={async () => undefined}
             onLanguageChange={() => undefined}
             onLoadGraphicsDiagnostics={async () => {
               throw new Error("not used");

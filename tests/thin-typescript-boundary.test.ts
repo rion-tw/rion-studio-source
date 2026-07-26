@@ -26,6 +26,7 @@ const allowedNodeIoImports = new Set([
   // Native surface loaders only locate their packaged N-API addon.
   "src/main/browser/MacSystemWebViewSurface.ts:node:fs",
   "src/main/browser/SystemCompatibilitySurfaceFactory.ts:node:fs/promises",
+  "src/main/updates/AppUpdatePreferencesStore.ts:node:fs/promises",
   "src/main/browser/WindowsWebView2Surface.ts:node:fs"
 ]);
 const allowedMapProperties = new Set([
@@ -33,6 +34,7 @@ const allowedMapProperties = new Set([
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHosts",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.engineDisplayHosts",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.dividerByWebContentsId",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.runtimeTabSwitchQueues",
   // Electron-only single-flight generation state; Rust still owns layout decisions.
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.hostLayoutStates",
   // Serialized presentation dedupe for native/runtime chrome sends, not domain state.

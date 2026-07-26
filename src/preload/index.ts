@@ -101,6 +101,7 @@ const api: RionStudioApi = {
   getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.appVersion),
   getUpdateStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updatesStatus),
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updatesCheck),
+  setAutoUpdateEnabled: (enabled) => ipcRenderer.invoke(IPC_CHANNELS.updatesSetAutoUpdateEnabled, enabled),
   openUpdateDownload: () => ipcRenderer.invoke(IPC_CHANNELS.updatesOpenDownload),
   installDownloadedUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updatesInstall),
   onRoleStatusChanged: (callback) => {

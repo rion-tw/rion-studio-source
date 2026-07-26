@@ -123,6 +123,7 @@ interface SettingsViewProps {
   onDiscardPortableImport: (importId: string) => Promise<void>;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
+  onSetAutoUpdateEnabled: (enabled: boolean) => Promise<void>;
   onRestartApplication: () => Promise<void>;
   onLanguageChange: (language: Language) => void;
   onThemeModeChange: (themeMode: ThemeMode) => void;
@@ -189,6 +190,7 @@ function SettingsViewBase({
   onDiscardPortableImport,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
+  onSetAutoUpdateEnabled,
   onRestartApplication,
   onLanguageChange,
   onThemeModeChange,
@@ -219,6 +221,7 @@ function SettingsViewBase({
     isManualUpdate &&
     updateStatus?.state === "available" &&
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
+  const isAutoUpdateEnabled = updateStatus?.autoUpdateEnabled ?? true;
   const graphicsPlatform = resolveGraphicsPlatform(graphicsDiagnostics?.platform);
   const isMacosGraphics = graphicsPlatform === "darwin";
   const isWindowsGraphics = graphicsPlatform === "win32";
@@ -862,6 +865,20 @@ function SettingsViewBase({
 
         {activeSection === "updates" ? (
           <SettingsSection>
+            <SettingsRow
+              title={t("settings.autoUpdate")}
+              description={t(isAutoUpdateEnabled ? "settings.autoUpdateEnabled" : "settings.autoUpdateDisabled")}
+              control={
+                <Switch
+                  aria-label={t("settings.autoUpdate")}
+                  checked={isAutoUpdateEnabled}
+                  disabled={!updateStatus?.isPackaged || isUpdateBusy}
+                  onCheckedChange={(enabled) => {
+                    void onSetAutoUpdateEnabled(enabled);
+                  }}
+                />
+              }
+            />
             <SettingsRow
               title={t("settings.currentVersion")}
               description={t("settings.currentVersionDescription")}

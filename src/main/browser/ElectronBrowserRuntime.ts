@@ -349,6 +349,12 @@ type EmbeddedCoreEffectAction = Extract<
   }
 >;
 
+interface RuntimeTabSwitchQueueState {
+  running: boolean;
+  queued: RuntimeTabSwitchDirection[];
+  generation: number;
+}
+
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS = 200;
 const RUNTIME_TAB_CHROME_HEIGHT = 40;
@@ -477,10 +483,11 @@ export function classifyNativeZoomShortcut(
 export function classifyRuntimeTabSwitchShortcut(
   input: NativeZoomShortcutInput
 ): RuntimeTabSwitchDirection | undefined {
+  const isKeyDown = input.type === "keyDown" || input.type === "rawKeyDown";
   if (
-    input.type !== "keyDown" ||
+    !isKeyDown ||
     input.isComposing ||
-    input.code !== "Tab" ||
+    (input.code !== "Tab" && input.key !== "Tab") ||
     !input.control ||
     input.alt ||
     input.meta
@@ -545,6 +552,7 @@ export class ElectronBrowserRuntime
   private readonly workspaceTabHandleIds = new Map<string, string>();
   private readonly hostLayoutStates = new Map<string, HostLayoutState>();
   private readonly lastRuntimeChromeStateByHost = new Map<string, string>();
+  private readonly runtimeTabSwitchQueues = new Map<number, RuntimeTabSwitchQueueState>();
   private readonly preferredWindowIdsByDisplay: Record<number, string> = {};
   private readonly restoringDisplayIds = new Set<number>();
   private lastEmittedRuntimeState = "";
@@ -1686,6 +1694,7 @@ export class ElectronBrowserRuntime
       this.hideDisplayHost(displayHost);
     });
     window.once("closed", () => {
+      this.clearRuntimeTabSwitchQueue(displayHost.displayId);
       this.clearRuntimeToolbarCursorMonitor(displayHost);
       this.clearMacNativeContentLayoutUpdate(displayHost);
       displayHost.macNativeTabs?.destroy();
@@ -1874,6 +1883,7 @@ export class ElectronBrowserRuntime
       if (replacement) this.displayHosts.set(displayHost.displayId, replacement);
       else this.displayHosts.delete(displayHost.displayId);
     }
+    this.clearRuntimeTabSwitchQueue(displayHost.displayId);
     if (this.lastFocusedWindowId === displayHost.id) {
       this.lastFocusedWindowId = undefined;
     }
@@ -1887,6 +1897,13 @@ export class ElectronBrowserRuntime
       this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
     }
     if (!displayHost.window.isDestroyed()) displayHost.window.close();
+  }
+
+  private clearRuntimeTabSwitchQueue(displayId: number): void {
+    const queue = this.runtimeTabSwitchQueues.get(displayId);
+    if (!queue) return;
+    queue.generation += 1;
+    this.runtimeTabSwitchQueues.delete(displayId);
   }
 
   private sendRuntimeChromeState(displayHost: EmbeddedDisplayHost, force = false): void {
@@ -2634,13 +2651,91 @@ export class ElectronBrowserRuntime
     displayHost: EmbeddedDisplayHost,
     direction: RuntimeTabSwitchDirection
   ): void {
-    void this.options.browserRuntimeState.invoke({
-      type: "embeddedTabActivateAdjacent",
-      displayId: displayHost.displayId,
-      direction
-    }).catch((error) => {
+    this.enqueueRuntimeTabSwitch(displayHost.displayId, direction);
+  }
+
+  private enqueueRuntimeTabSwitch(
+    displayId: number,
+    direction: RuntimeTabSwitchDirection
+  ): void {
+    const queue = this.runtimeTabSwitchQueues.get(displayId) ?? {
+      running: false,
+      queued: [],
+      generation: 0
+    };
+    queue.queued.push(direction);
+    this.runtimeTabSwitchQueues.set(displayId, queue);
+    if (!queue.running) {
+      void this.drainRuntimeTabSwitchQueue(displayId);
+    }
+  }
+
+  private async drainRuntimeTabSwitchQueue(displayId: number): Promise<void> {
+    const queue = this.runtimeTabSwitchQueues.get(displayId);
+    if (!queue || queue.running) return;
+    queue.running = true;
+    const generation = queue.generation;
+
+    try {
+      while (
+        this.runtimeTabSwitchQueues.get(displayId) === queue &&
+        queue.generation === generation &&
+        queue.queued.length > 0
+      ) {
+        const direction = queue.queued.shift();
+        if (!direction) break;
+        await this.executeRuntimeTabSwitch(displayId, direction, performance.now(), generation);
+      }
+    } catch (error) {
+      console.error("Failed to drain runtime tab switches.", error);
+    } finally {
+      const queueIsCurrent = this.runtimeTabSwitchQueues.get(displayId) === queue &&
+        queue.generation === generation;
+      if (queueIsCurrent) {
+        queue.running = false;
+        if (queue.queued.length > 0) {
+          void this.drainRuntimeTabSwitchQueue(displayId);
+        } else {
+          this.runtimeTabSwitchQueues.delete(displayId);
+          const displayHost = this.displayHosts.get(displayId);
+          if (displayHost) {
+            setTimeout(() => {
+              if (this.runtimeTabSwitchQueues.has(displayId)) {
+                return;
+              }
+              this.restoreActiveGameViewFocus(displayHost);
+            });
+          }
+        }
+      }
+    }
+  }
+
+  private async executeRuntimeTabSwitch(
+    displayId: number,
+    direction: RuntimeTabSwitchDirection,
+    startedAt: number,
+    generation: number
+  ): Promise<void> {
+    const queue = this.runtimeTabSwitchQueues.get(displayId);
+    if (!queue || queue.generation !== generation) {
+      return;
+    }
+    try {
+      await this.options.browserRuntimeState.invoke({
+        type: "embeddedTabActivateAdjacent",
+        displayId,
+        direction
+      });
+    } catch (error) {
       console.error("Failed to switch embedded runtime tab.", error);
-    });
+    } finally {
+      try {
+        this.options.recordTabActivationLatency?.(performance.now() - startedAt);
+      } catch (error) {
+        console.error("Failed to record tab-activation latency.", error);
+      }
+    }
   }
 
   private layoutHost(host: GameHostWindow): Promise<void> {
@@ -2866,6 +2961,10 @@ export class ElectronBrowserRuntime
 
   private restoreActiveGameViewFocus(displayHost: EmbeddedDisplayHost): void {
     if (displayHost.closing || displayHost.window.isDestroyed()) {
+      return;
+    }
+    const queue = this.runtimeTabSwitchQueues.get(displayHost.displayId);
+    if (queue && queue.running) {
       return;
     }
     const activeHost = displayHost.activeTabId

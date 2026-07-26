@@ -10,6 +10,7 @@ const MAC_UPDATE_INSTALLER_NAME = "Rion.Studio-mac.dmg";
 interface AppUpdateManagerOptions {
   currentVersion: string;
   arch?: string;
+  autoUpdateEnabled?: boolean;
   isPackaged: boolean;
   manualUpdateRepository?: string;
   openExternal?: (url: string) => Promise<void> | void;
@@ -21,6 +22,7 @@ interface AppUpdateManagerOptions {
 export class AppUpdateManager extends EventEmitter {
   private readonly arch: string;
   private readonly installMode: AppUpdateStatus["installMode"];
+  private autoUpdateEnabled: boolean;
   private readonly manualUpdateRepository?: string;
   private readonly openExternal: (url: string) => Promise<void> | void;
   private readonly productName: string;
@@ -34,12 +36,14 @@ export class AppUpdateManager extends EventEmitter {
     manualUpdateRepository,
     openExternal = unavailableOpenExternal,
     platform = process.platform,
+    autoUpdateEnabled = true,
     productName = "Rion Studio",
     updater = electronUpdater.autoUpdater
   }: AppUpdateManagerOptions) {
     super();
     this.arch = arch;
     this.installMode = platform === "darwin" ? "manual" : "automatic";
+    this.autoUpdateEnabled = autoUpdateEnabled;
     this.manualUpdateRepository = normalizeRepository(manualUpdateRepository);
     this.openExternal = openExternal;
     this.productName = productName;
@@ -48,16 +52,28 @@ export class AppUpdateManager extends EventEmitter {
       currentVersion,
       installMode: this.installMode,
       isPackaged,
+      autoUpdateEnabled: this.autoUpdateEnabled,
       state: isPackaged ? "idle" : "unsupported"
     };
 
-    this.updater.autoDownload = this.installMode === "automatic";
-    this.updater.autoInstallOnAppQuit = this.installMode === "automatic";
+    this.updateAutoUpdateBehavior();
     this.registerUpdaterEvents();
   }
 
   getStatus(): AppUpdateStatus {
     return { ...this.status };
+  }
+
+  setAutoUpdateEnabled(enabled: boolean): AppUpdateStatus {
+    this.autoUpdateEnabled = enabled === true;
+    this.updateAutoUpdateBehavior();
+    this.setStatus({ autoUpdateEnabled: this.autoUpdateEnabled });
+    return this.getStatus();
+  }
+
+  private updateAutoUpdateBehavior(): void {
+    this.updater.autoDownload = this.installMode === "automatic" && this.autoUpdateEnabled;
+    this.updater.autoInstallOnAppQuit = this.installMode === "automatic" && this.autoUpdateEnabled;
   }
 
   async checkForUpdates(): Promise<AppUpdateStatus> {

@@ -382,6 +382,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     getAppVersion: () => invokeShell("appVersion"),
     getUpdateStatus: () => invokeShell("updateStatus"),
     checkForUpdates: () => invokeShell("checkForUpdates"),
+    setAutoUpdateEnabled: (enabled) => invokeShell("setAutoUpdateEnabled", [enabled]),
     openUpdateDownload: () => invokeShell("openUpdateDownload"),
     installDownloadedUpdate: () => invokeShell("installDownloadedUpdate"),
     onRoleStatusChanged: (callback) => on("roleStatuses", callback as Listener),

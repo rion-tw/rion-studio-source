@@ -43,7 +43,7 @@ describe("Tauri shell parity guard", () => {
       readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src-tauri/build.rs", "utf8"),
-      readFile("src-tauri/capabilities/runtime-native-chrome.json", "utf8"),
+      readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
       readFile("src-tauri/capabilities/system-role-overlay.json", "utf8")
     ]);
 
@@ -54,7 +54,7 @@ describe("Tauri shell parity guard", () => {
     expect(quickMenu).toContain("pending_workspace_launch_request");
     expect(tabs).toContain("rion-runtime-shortcut://tabs/");
     expect(tabs).toContain("LayoutResizeDivider");
-    expect(tabs).toContain("chrome_display_for_webview");
+    expect(tabs).toContain("tab_strip_display_for_webview");
     expect(shell).toContain("rion_runtime_tab_action");
     expect(tabs).toContain("runtime-divider.html");
     expect(nativeTabs).toContain("contentLayoutRect");
@@ -67,7 +67,7 @@ describe("Tauri shell parity guard", () => {
     expect(build).toContain("clang_rt.osx");
     expect(JSON.parse(capability)).toMatchObject({
       local: true,
-      webviews: ["game-tabs-chrome-*", "game-divider-*"],
+      webviews: ["game-tab-strip-*", "game-divider-*"],
       permissions: ["allow-rion-divider-pointer", "allow-rion-runtime-tab-action"]
     });
     expect(JSON.parse(roleCapability)).toMatchObject({

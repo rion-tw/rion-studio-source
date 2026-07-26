@@ -335,11 +335,11 @@ async fn rion_runtime_tab_action(
 ) -> Result<(), CoreErrorPayload> {
     let display_id = state
         .runtime
-        .chrome_display_for_webview(webview.label())
+        .tab_strip_display_for_webview(webview.label())
         .ok_or_else(|| {
             shell_error(
                 "TAURI_RUNTIME_CHROME_UNAUTHORIZED",
-                "Runtime tab actions are restricted to the local tab chrome WebView.",
+                "Runtime tab actions are restricted to the local tab-strip WebView.",
             )
         })?;
     runtime_tab_menu::handle_scoped_action(&app, &state, display_id, action)

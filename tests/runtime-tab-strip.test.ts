@@ -2,13 +2,13 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RuntimeTabChromeState } from "../src/shared/runtimeTabs";
+import type { RuntimeTabStripState } from "../src/shared/runtimeTabs";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(() => Promise.resolve()) }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const state: RuntimeTabChromeState = {
+const state: RuntimeTabStripState = {
   alwaysShowToolbarInFullScreen: false,
   displayId: 11,
   displays: [],
@@ -37,7 +37,7 @@ const state: RuntimeTabChromeState = {
 
 beforeAll(async () => {
   document.body.innerHTML = '<div id="tabs" role="tablist"></div><button id="add">+</button>';
-  await import("../src/renderer/native-chrome/runtimeTabsChrome");
+  await import("../src/renderer/runtime-shell/runtimeTabStrip");
 });
 
 beforeEach(() => {
@@ -45,7 +45,7 @@ beforeEach(() => {
   window.__rionApplyRuntimeTabState?.(state);
 });
 
-describe("Tauri-owned Windows runtime tab chrome", () => {
+describe("Tauri-owned Windows runtime tab strip", () => {
   it("renders workspace detail, audio state, and a stop control", () => {
     const tab = document.querySelector<HTMLElement>('[role="tab"]');
     expect(tab?.title).toBe("四人隊伍：米娜, 露娜");

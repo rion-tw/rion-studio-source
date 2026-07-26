@@ -22,9 +22,16 @@ and confirm the release has finished uploading assets.
 
 ### macOS Installation
 
-The macOS build is signed with Apple Developer ID, notarized, and stapled. Open
-the DMG, drag Rion Studio to Applications, then launch it normally. Do not bypass
-Gatekeeper for an artifact that fails signature or notarization validation.
+The macOS app uses an ad-hoc code signature and is not notarized. Open the DMG,
+drag Rion Studio to Applications, then launch it. macOS may block the first launch;
+use **System Settings → Privacy & Security → Open Anyway** only when the DMG came
+from the official Rion Studio GitHub release and its published checksum matches.
+
+### Windows Installation
+
+The Windows installer remains unsigned, matching the original distribution.
+Windows may show a SmartScreen warning; continue only when the installer came
+from the official Rion Studio GitHub release and its published checksum matches.
 
 ## Why Rion Studio
 

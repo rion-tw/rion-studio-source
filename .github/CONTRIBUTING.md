@@ -68,18 +68,17 @@ pnpm run verify:system-only
 `pnpm run build` links the Rust core directly into the application. Release
 CI must build on both `macos-latest` and `windows-latest`, verify the resulting
 Tauri bundle, and run the platform-aware Rust and renderer tests. macOS releases
-target 14+ and require Developer ID signing, hardened runtime, notarization and
-stapling. Windows releases require Authenticode signing and a WebView2 runtime
-presence check. Configure the repository variable
-`RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER` with the exact certificate subject used
-by the legacy Windows release; candidate builds reject both an imported
-certificate and a packaged installer whose signer subject differs.
+target 14+, use the explicit ad-hoc signing identity (`-`), and must not import a
+Developer ID certificate or submit for notarization. Windows releases remain
+unsigned, matching the legacy release, and require a WebView2 runtime presence
+check. The updater archives on both platforms still require Tauri's independent
+cryptographic signature.
 
-Signed releases use Tauri's signed `latest.json`; the two-version/90-day upgrade
+Releases use Tauri's updater-signed `latest.json`; the two-version/90-day upgrade
 window additionally publishes `latest.yml` and `latest-mac.yml` for legacy
 installations. Keep `Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`, and
 `Rion.Studio-win.exe` stable because updater manifests and README links depend on
-them. Manifests are uploaded only after the signed immutable assets verify.
+them. Manifests are uploaded only after the immutable assets and updater signatures verify.
 
 The Tauri parity ledger at `docs/tauri-parity-ledger.json` classifies every test
 removed with the legacy shell. `pnpm run verify:system-only` validates both the

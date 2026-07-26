@@ -35,6 +35,17 @@ for (const script of ["test:native:runtime-restore", "test:native:file-operation
 
 const buildEnvironment = { ...baseEnvironment };
 if (platform === "darwin") {
+  for (const name of [
+    "APPLE_API_ISSUER",
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_PATH",
+    "APPLE_ID",
+    "APPLE_PASSWORD",
+    "APPLE_SIGNING_IDENTITY",
+    "APPLE_TEAM_ID"
+  ]) {
+    delete buildEnvironment[name];
+  }
   buildEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR =
     (await capture("sw_vers", ["-productVersion"])).split(".")[0];
 } else {
@@ -43,7 +54,12 @@ if (platform === "darwin") {
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "rion-tauri-package-"));
 const configPath = join(temporaryDirectory, "tauri.package.json");
-await writeFile(configPath, JSON.stringify({ bundle: { createUpdaterArtifacts: false } }));
+await writeFile(configPath, JSON.stringify({
+  bundle: {
+    createUpdaterArtifacts: false,
+    ...(platform === "darwin" ? { macOS: { signingIdentity: "-" } } : {})
+  }
+}));
 try {
   const buildArgs = forwardedArguments();
   if (!buildArgs.some((arg) => arg === "--bundles" || arg === "-b" || arg.startsWith("--bundles="))) {

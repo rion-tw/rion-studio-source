@@ -317,7 +317,7 @@ pub async fn handle_scoped_action(
         .tabs
         .iter()
         .find(|tab| tab.id == tab_id && tab.display_id == display_id)
-        .ok_or_else(|| "runtime tab is outside this chrome WebView's display".to_owned())?;
+        .ok_or_else(|| "runtime tab is outside this tab-strip WebView's display".to_owned())?;
     if action_type == "openTabMenu" {
         return open_tab(app, tab_id);
     }
@@ -352,7 +352,7 @@ pub async fn handle_scoped_action(
                     .iter()
                     .any(|candidate| candidate.id == before && candidate.display_id == display_id)
             {
-                return Err("reorder target is outside this chrome WebView's display".to_owned());
+                return Err("reorder target is outside this tab-strip WebView's display".to_owned());
             }
             CoreCommand::EmbeddedTabReorder {
                 tab_id: tab.id.clone(),

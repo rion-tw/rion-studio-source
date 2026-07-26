@@ -1,22 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { RuntimeTabAction, RuntimeTabChromeState } from "../../shared/runtimeTabs";
+import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
 
 declare global {
   interface Window {
-    __rionApplyRuntimeTabState?: (state: RuntimeTabChromeState) => void;
+    __rionApplyRuntimeTabState?: (state: RuntimeTabStripState) => void;
   }
 }
 
 const root = document.querySelector<HTMLDivElement>("#tabs")!;
 const add = document.querySelector<HTMLButtonElement>("#add")!;
-let current: RuntimeTabChromeState | undefined;
+let current: RuntimeTabStripState | undefined;
 
 const dispatch = (action: RuntimeTabAction): void => {
   void invoke("rion_runtime_tab_action", { action }).catch(() => undefined);
 };
 
-function render(state: RuntimeTabChromeState): void {
+function render(state: RuntimeTabStripState): void {
   current = state;
   document.documentElement.lang = state.language;
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);

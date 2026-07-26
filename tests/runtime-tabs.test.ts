@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { formatRuntimeTabTooltip, isRuntimeTabAction } from "../src/shared/runtimeTabs";
 
 describe("runtime tab shell-neutral contracts", () => {
-  it("accepts only bounded runtime chrome action shapes", () => {
+  it("accepts only bounded runtime tab action shapes", () => {
     expect(isRuntimeTabAction({ type: "activate", tabId: "tab-1" })).toBe(true);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: -22 })).toBe(true);
     expect(isRuntimeTabAction({ type: "reorder", tabId: "tab-1", beforeTabId: "tab-2" })).toBe(true);

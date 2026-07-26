@@ -43,7 +43,7 @@ controls. Startup failures render a bundled local error surface instead of leavi
 a white window or exiting silently.
 
 Runtime tabs are Tauri-owned. macOS receives bounded state/actions through an
-AppKit controller attached to Tauri's `NSWindow`; Windows uses a local-only chrome
+AppKit controller attached to Tauri's `NSWindow`; Windows uses a local-only tab-strip
 WebView with scoped commands. Both preserve live per-tab System WebViews while
 activating, reordering, hiding, moving between displays and transferring
 fullscreen state. Tab menus, audio state, shortcuts, fullscreen toolbar behavior,
@@ -52,12 +52,12 @@ and never expose these capabilities to remote pages.
 
 ## Native release gates
 
-Every signed macOS and Windows candidate must pass the native trusted-input,
+Every macOS and Windows candidate must pass the native trusted-input,
 runtime-restore, and file-operation harnesses before bundling and again against
-the packaged executable. macOS candidates also require Developer ID signing,
-notarization, and stapling. Windows candidates require a valid Authenticode
-signature, a signer subject exactly matching the legacy release publisher, and a
-signed NSIS updater artifact.
+the packaged executable. macOS candidates use the explicit ad-hoc signing
+identity (`-`) and are neither Developer ID signed nor notarized. Windows
+candidates remain unsigned like the legacy release. Both platforms still require
+Tauri-signed updater artifacts.
 
 Local macOS results are not evidence for Windows. A release cannot be promoted
 until both platform jobs and the in-place upgrade matrix pass.
@@ -66,8 +66,10 @@ until both platform jobs and the in-place upgrade matrix pass.
 
 The first two Tauri Stable releases publish `latest.json` for the Tauri updater
 and the legacy `latest.yml` / `latest-mac.yml` manifests understood by existing
-Electron installations. The manifests point directly to the signed Tauri NSIS
-installer and notarized Tauri DMG; no Electron application is built or shipped.
+Electron installations. The manifests point directly to the unsigned Tauri NSIS
+installer and ad-hoc-signed Tauri macOS bundle in the DMG; no Electron application
+is built or shipped. The Tauri updater artifacts retain their independent updater
+signature on both platforms.
 
 Portable import and database migration continue to accept the historical
 `"electron"` runtime value and normalize it to the system runtime. New records,

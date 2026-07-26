@@ -17,7 +17,11 @@ Rion Studio 帮助网页游戏玩家在一个桌面 App 中整理每个角色、
 
 ### macOS 安装
 
-macOS 版本使用 Apple Developer ID 签名、notarization 与 stapling。请打开 DMG、将 Rion Studio 拖到 Applications，然后正常启动。若签名或 notarization 验证失败，请勿绕过 Gatekeeper。
+macOS App 使用 ad-hoc 代码签名，不进行 notarization。请打开 DMG、将 Rion Studio 拖到 Applications 后启动。macOS 可能阻止首次启动；只有在 DMG 来自 Rion Studio 官方 GitHub Release，且公开的 checksum 相符时，才使用“系统设置 → 隐私与安全性 → 仍要打开”。
+
+### Windows 安装
+
+Windows 安装程序维持最初发布方式，不使用 Authenticode 签名。Windows 可能显示 SmartScreen 警告；只有在安装程序来自 Rion Studio 官方 GitHub Release，且公开的 checksum 相符时才继续。
 
 ## 为什么使用 Rion Studio
 

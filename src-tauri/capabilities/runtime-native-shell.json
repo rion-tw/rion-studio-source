@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "runtime-native-shell-local-only",
+  "description": "Allows only the bundled runtime tab strip and dividers to call their bounded Tauri commands.",
+  "local": true,
+  "webviews": ["game-tab-strip-*", "game-divider-*"],
+  "permissions": [
+    "allow-rion-divider-pointer",
+    "allow-rion-runtime-tab-action"
+  ]
+}

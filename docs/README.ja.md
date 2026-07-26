@@ -17,7 +17,11 @@ Rion Studio は、Web ゲームのプレイヤーが各ロール、ブラウザ�
 
 ### macOS へのインストール
 
-macOS 版は Apple Developer ID で署名され、notarization と stapling が完了しています。DMG を開き、Rion Studio を Applications にドラッグして通常どおり起動してください。署名または notarization の検証に失敗する成果物では Gatekeeper を回避しないでください。
+macOS App は ad-hoc コード署名を使用し、notarization は行いません。DMG を開き、Rion Studio を Applications にドラッグして起動してください。初回起動がブロックされた場合は、DMG が Rion Studio 公式 GitHub Release から取得したもので、公開 checksum が一致するときに限り、「システム設定 → プライバシーとセキュリティ → このまま開く」を使用してください。
+
+### Windows へのインストール
+
+Windows インストーラーは当初の配布方式に合わせて未署名のままです。SmartScreen の警告が表示される場合があります。Rion Studio 公式 GitHub Release から取得し、公開 checksum が一致するインストーラーに限って続行してください。
 
 ## Rion Studio を使う理由
 

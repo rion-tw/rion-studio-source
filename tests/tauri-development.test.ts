@@ -32,7 +32,7 @@ describe("Tauri development and release commands", () => {
     expect(script).toContain('await write("Cargo.lock", cargoLock)');
   });
 
-  it("keeps canonical build, package, and signed distribution entry points", async () => {
+  it("keeps canonical build, package, and updater-signed distribution entry points", async () => {
     const [packageSource, packageLauncher] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile("scripts/packageTauri.mjs", "utf8")
@@ -48,14 +48,16 @@ describe("Tauri development and release commands", () => {
     expect(packageLauncher).toContain('"test:native:file-operations"');
     expect(packageLauncher).toContain('"--require-compiled-attestation"');
     expect(packageLauncher).toContain("createUpdaterArtifacts: false");
+    expect(packageLauncher).toContain('signingIdentity: "-"');
     expect(packageLauncher).toContain('if (args[0] === "--") args.shift()');
     expect(packageJson.scripts.dist).toBe("node scripts/buildTauriRelease.mjs");
     const releaseLauncher = await readFile("scripts/buildTauriRelease.mjs", "utf8");
     expect(releaseLauncher).toContain(
       'if (forwardedArguments[0] === "--") forwardedArguments.shift()'
     );
-    expect(releaseLauncher).toContain('"RION_STUDIO_WINDOWS_EXPECTED_PUBLISHER"');
-    expect(releaseLauncher).toContain("verifyWindowsCertificatePublisher");
+    expect(releaseLauncher).toContain('signingIdentity: "-"');
+    expect(releaseLauncher).not.toContain("verifyWindowsCertificatePublisher");
+    expect(releaseLauncher).not.toContain("certificateThumbprint");
     expect(packageJson.scripts).not.toHaveProperty("dev:tauri");
     expect(packageJson.scripts).not.toHaveProperty("build:tauri");
   });

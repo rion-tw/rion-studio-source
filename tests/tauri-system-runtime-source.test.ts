@@ -56,9 +56,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(shell).toContain("rion_runtime_audio_state");
     const applyRuntime = runtime.slice(
       runtime.indexOf("fn apply_runtime("),
-      runtime.indexOf("fn sync_native_tab_chrome(")
+      runtime.indexOf("fn sync_native_tab_strip(")
     );
-    expect(applyRuntime).not.toContain("sync_native_tab_chrome");
+    expect(applyRuntime).not.toContain("sync_native_tab_strip");
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');
     expect(runtime).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");

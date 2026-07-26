@@ -5,6 +5,31 @@ import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 type OverlayRequest = { type: string; macroId?: string; [key: string]: unknown };
+type OverlayController = { dispose(): void; refresh(): Promise<void> };
+type OverlayStatus = {
+  iteration: number;
+  lastClick?: { sequence: number; stepId: string };
+  macroId: string;
+  roleId: string;
+  startedAt: string;
+  state: string;
+  updatedAt: string;
+};
+
+async function overlayRuntimeSource() {
+  const [runtimeSource, guardSource] = await Promise.all([
+    readFile("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8"),
+    readFile("src/shared/browser-overlay/macroOverlayShortcutGuard.js", "utf8")
+  ]);
+  return runtimeSource
+    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), guardSource.trim())
+    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(""));
+}
+
+function overlayController() {
+  return (window as unknown as { __rionStudioMacroOverlay: OverlayController })
+    .__rionStudioMacroOverlay;
+}
 
 afterEach(() => {
   (window as unknown as { __rionStudioMacroOverlay?: { dispose(): void } })
@@ -59,14 +84,7 @@ describe("shell-neutral macro overlay runtime", () => {
     });
     (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
 
-    const [runtimeSource, guardSource] = await Promise.all([
-      readFile("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8"),
-      readFile("src/shared/browser-overlay/macroOverlayShortcutGuard.js", "utf8")
-    ]);
-    const source = runtimeSource
-      .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), guardSource.trim())
-      .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(""));
-    (0, eval)(source);
+    (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
     const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v56");
@@ -148,5 +166,119 @@ describe("shell-neutral macro overlay runtime", () => {
     });
     window.dispatchEvent(runtimeShortcut);
     expect(runtimeShortcut.defaultPrevented).toBe(false);
+  });
+
+  it("replays changed iterations and refreshes completion, click, locale, position, and open state", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+
+    const macro = {
+      activationMode: "toggle",
+      enabled: true,
+      id: "loop",
+      name: "Loop",
+      repeat: { intervalMs: 250, type: "loop" },
+      steps: [{
+        anchor: "top-left",
+        id: "click-1",
+        type: "click",
+        unit: "percent",
+        xPercent: 25,
+        yPercent: 50
+      }],
+      trigger: { alt: false, code: "KeyL", ctrl: true, meta: false, shift: false }
+    };
+    const startedAt = "2026-07-27T00:00:00.000Z";
+    let presentation: {
+      language: string;
+      macroBadgePosition: {
+        horizontalAlign: string;
+        horizontalMarginPx: number;
+        topPx: number;
+      };
+      macros: Array<Record<string, unknown>>;
+      statuses: OverlayStatus[];
+    } = {
+      language: "en",
+      macroBadgePosition: { horizontalAlign: "left", horizontalMarginPx: 8, topPx: 128 },
+      macros: [macro],
+      statuses: [{
+        iteration: 0,
+        macroId: macro.id,
+        roleId: "role-a",
+        startedAt,
+        state: "running",
+        updatedAt: startedAt
+      }]
+    };
+    const requests: OverlayRequest[] = [];
+    const binding = vi.fn(async (request: OverlayRequest) => {
+      requests.push(request);
+      return presentation;
+    });
+    (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
+
+    (0, eval)(await overlayRuntimeSource());
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
+
+    const root = document
+      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v56")
+      ?.shadowRoot;
+    expect(root).toBeTruthy();
+    const activeBadges = root?.querySelector<HTMLElement>(".active-badges");
+    const initialBadge = root?.querySelector<HTMLElement>(".active-badge");
+    expect(initialBadge?.dataset.iteration).toBe("0");
+    expect(initialBadge?.classList.contains("is-iteration-flash")).toBe(false);
+
+    presentation = {
+      ...presentation,
+      statuses: [{
+        iteration: 1,
+        macroId: macro.id,
+        roleId: "role-a",
+        startedAt,
+        state: "running",
+        updatedAt: "2026-07-27T00:00:00.250Z"
+      }]
+    };
+    await overlayController().refresh();
+    const changedBadge = root?.querySelector<HTMLElement>(".active-badge");
+    expect(changedBadge).not.toBe(initialBadge);
+    expect(changedBadge?.dataset.iteration).toBe("1");
+    expect(changedBadge?.classList.contains("is-iteration-flash")).toBe(true);
+
+    await overlayController().refresh();
+    expect(root?.querySelector(".active-badge")).toBe(changedBadge);
+
+    presentation = { ...presentation, statuses: [] };
+    await overlayController().refresh();
+    expect(root?.querySelector(".active-badge")).toBeNull();
+    expect(activeBadges?.hidden).toBe(true);
+
+    presentation = {
+      language: "zh-TW",
+      macroBadgePosition: { horizontalAlign: "right", horizontalMarginPx: 16, topPx: 64 },
+      macros: [{ ...macro, name: "點擊循環" }],
+      statuses: [{
+        iteration: 0,
+        lastClick: { sequence: 1, stepId: "click-1" },
+        macroId: macro.id,
+        roleId: "role-a",
+        startedAt: "2026-07-27T00:00:01.000Z",
+        state: "running",
+        updatedAt: "2026-07-27T00:00:01.000Z"
+      }]
+    };
+    await overlayController().refresh();
+    expect(activeBadges?.style.top).toBe("64px");
+    expect(activeBadges?.style.left).toBe("auto");
+    expect(activeBadges?.style.right).toBe("16px");
+    expect(root?.querySelector(".active-badge-name")?.textContent).toBe("點擊循環");
+    expect(root?.querySelector(".click-marker")?.classList.contains("is-click-flash")).toBe(true);
+    expect(root?.querySelector(".trigger")?.getAttribute("title"))
+      .toBe("開啟 Rion Studio 巨集 (Ctrl+Shift+M)");
+
+    root?.querySelector<HTMLElement>(".trigger")?.click();
+    await vi.waitFor(() => expect(requests.some((request) => request.type === "open")).toBe(true));
   });
 });

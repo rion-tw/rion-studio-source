@@ -15,9 +15,9 @@ import {
 } from "lucide-react";
 import {
   type ClipboardEvent,
-  type DragEvent,
   type FormEvent,
   type JSX,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
   useMemo,
@@ -43,6 +43,7 @@ import { areEditorFormsEqual, createMacroFormState, createNewMacroForm } from ".
 import { readRequestedMacroRoleId } from "../../app/editorNavigation";
 import type { MacroFormState } from "../../app/types";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
+import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import {
@@ -84,8 +85,6 @@ import {
   type MacroCommandIssue,
   type MacroCommandParseResult
 } from "./macroCommandParser";
-
-const MACRO_STEP_DRAG_MIME = "application/x-rion-macro-step";
 
 interface MacroEditorRouteProps {
   games: Game[];
@@ -288,9 +287,18 @@ function MacroForm({
     { type: "delay", label: t("macroForm.addDelay") },
     { type: "macro", label: t("macroForm.addMacro") }
   ];
-  const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
-  const [dropTargetStepId, setDropTargetStepId] = useState<string | null>(null);
   const [isCommandImportOpen, setIsCommandImportOpen] = useState(false);
+  const stepDrag = usePointerDrag<string>({
+    disabled: isSaving,
+    getScrollContainer: () => document.querySelector<HTMLElement>("#app-editor-form"),
+    getTargetId: (clientX, clientY) =>
+      getPointerDragTargetId(clientX, clientY, "data-macro-step-id"),
+    onDrop: (sourceStepId, targetStepId) => {
+      if (sourceStepId !== targetStepId) {
+        moveStepById(sourceStepId, targetStepId);
+      }
+    }
+  });
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
     onChange(updater);
@@ -349,44 +357,6 @@ function MacroForm({
 
   function removeStep(stepId: string): void {
     update((current) => ({ ...current, steps: current.steps.filter((step) => step.id !== stepId) }));
-  }
-
-  function handleStepDragStart(event: DragEvent<HTMLButtonElement>, stepId: string): void {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(MACRO_STEP_DRAG_MIME, stepId);
-    event.dataTransfer.setData("text/plain", stepId);
-    setDraggedStepId(stepId);
-    setDropTargetStepId(null);
-  }
-
-  function clearStepDragState(): void {
-    setDraggedStepId(null);
-    setDropTargetStepId(null);
-  }
-
-  function handleStepDragOver(event: DragEvent<HTMLDivElement>, targetStepId: string): void {
-    if (!draggedStepId || draggedStepId === targetStepId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDropTargetStepId(targetStepId);
-  }
-
-  function handleStepDrop(event: DragEvent<HTMLDivElement>, targetStepId: string): void {
-    event.preventDefault();
-    const sourceStepId = event.dataTransfer.getData(MACRO_STEP_DRAG_MIME) || event.dataTransfer.getData("text/plain");
-
-    if (sourceStepId && sourceStepId !== targetStepId) {
-      moveStepById(sourceStepId, targetStepId);
-    }
-
-    clearStepDragState();
-  }
-
-  function handleStepDragEnd(): void {
-    clearStepDragState();
   }
 
   return (
@@ -584,16 +554,13 @@ function MacroForm({
                         <MacroStepEditor
                           key={step.id}
                           index={index}
-                          isDragging={draggedStepId === step.id}
-                          isDropTarget={dropTargetStepId === step.id}
+                          isDragging={stepDrag.activePayload === step.id}
+                          isDropTarget={stepDrag.targetId === step.id && stepDrag.activePayload !== step.id}
                           isSaving={isSaving}
                           macroTargetOptions={macroTargetOptions}
                           step={step}
                           t={t}
-                          onDragEnd={handleStepDragEnd}
-                          onDragOver={(event) => handleStepDragOver(event, step.id)}
-                          onDragStart={(event) => handleStepDragStart(event, step.id)}
-                          onDrop={(event) => handleStepDrop(event, step.id)}
+                          onReorderPointerDown={(event) => stepDrag.start(event, step.id)}
                           onDuplicate={() => duplicateStep(step.id)}
                           onRemove={() => removeStep(step.id)}
                           onUpdate={(nextStep) => updateStep(step.id, nextStep)}
@@ -1253,11 +1220,8 @@ interface MacroStepEditorProps {
   isDropTarget: boolean;
   isSaving: boolean;
   macroTargetOptions: MacroTargetOption[];
-  onDragEnd: () => void;
   onRemove: () => void;
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onDuplicate: () => void;
   onUpdate: (step: MacroStep) => void;
   step: MacroStep;
@@ -1270,12 +1234,9 @@ function MacroStepEditor({
   isDropTarget,
   isSaving,
   macroTargetOptions,
-  onDragEnd,
   onDuplicate,
   onRemove,
-  onDragOver,
-  onDragStart,
-  onDrop,
+  onReorderPointerDown,
   onUpdate,
   step,
   t
@@ -1283,23 +1244,21 @@ function MacroStepEditor({
     return (
       <div
       data-testid={`macro-step-${step.id}`}
+      data-macro-step-id={step.id}
       className={cn(
         "glass-divider flex flex-wrap items-center gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200",
         isDragging && "opacity-50",
         isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
     >
       <Button
+        className="touch-none cursor-grab active:cursor-grabbing"
         type="button"
         variant="ghost"
         size="icon"
-        draggable
         aria-label={t("macroForm.dragStep")}
         title={t("macroForm.dragStep")}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
+        onPointerDown={onReorderPointerDown}
         disabled={isSaving}
       >
         <GripVertical size={14} />

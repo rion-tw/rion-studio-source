@@ -22,11 +22,16 @@ beforeAll(() => {
     configurable: true,
     value: () => undefined
   });
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: vi.fn()
+  });
 });
 
 afterEach(() => {
   cleanup();
   delete document.documentElement.dataset.platform;
+  vi.mocked(document.elementFromPoint).mockReset();
 });
 afterAll(() => vi.unstubAllGlobals());
 
@@ -1242,7 +1247,8 @@ describe("macro editor controls", () => {
     })));
   });
 
-  it("reorders steps by dragging", () => {
+  it.each(["darwin", "win32"] as const)("reorders steps with pointer dragging on %s", (platform) => {
+    document.documentElement.dataset.platform = platform === "darwin" ? "mac" : "windows";
     const selectedMacro = macro({
       steps: [
         { id: "step-1", type: "key", code: "F2" },
@@ -1286,14 +1292,31 @@ describe("macro editor controls", () => {
 
     const dragHandle = screen.getAllByRole("button", { name: "Drag to reorder" })[2];
     const targetRow = screen.getByTestId("macro-step-step-1");
-    const dataTransfer = createDataTransfer();
+    vi.mocked(document.elementFromPoint).mockReturnValue(targetRow);
 
-    fireEvent.dragStart(dragHandle, { dataTransfer });
-    fireEvent.dragOver(targetRow, { dataTransfer });
-    fireEvent.drop(targetRow, { dataTransfer });
+    fireEvent.pointerDown(dragHandle, {
+      button: 0,
+      clientX: 20,
+      clientY: 300,
+      isPrimary: true,
+      pointerId: 7
+    });
+    fireEvent.pointerMove(window, {
+      clientX: 20,
+      clientY: 200,
+      isPrimary: true,
+      pointerId: 7
+    });
+    fireEvent.pointerUp(window, {
+      clientX: 20,
+      clientY: 200,
+      isPrimary: true,
+      pointerId: 7
+    });
     expect(getStepTypeSelectors().map((select) =>
       select.textContent?.trim()
     )).toEqual(["Click", "Key", "Delay"]);
+    expect(dragHandle.hasAttribute("draggable")).toBe(false);
   });
 });
 
@@ -1326,37 +1349,6 @@ function getKeyStepRecordButton(): HTMLElement {
     throw new Error("Key-step record button was not found.");
   }
   return button;
-}
-
-function createDataTransfer(): DataTransfer {
-  const store: Record<string, string> = {};
-  const types: string[] = [];
-  const items: DataTransferItem[] = [];
-
-  return {
-    getData: (type: string): string => store[type] ?? "",
-    setData: (type: string, value: string): void => {
-      store[type] = value;
-      if (!types.includes(type)) {
-        types.push(type);
-      }
-      if (!items.some((item) => item.type === type)) {
-        items.push({
-          kind: "string",
-          type,
-          getAsFile: vi.fn().mockReturnValue(null),
-          getAsString: (callback: (value: string) => void) => callback(store[type])
-        } as unknown as DataTransferItem);
-      }
-    },
-    clearData: (): void => {},
-    dropEffect: "none",
-    effectAllowed: "all",
-    files: [],
-    items,
-    types,
-    setDragImage: vi.fn()
-  } as unknown as DataTransfer;
 }
 
 function game(): Game {

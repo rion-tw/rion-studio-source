@@ -17,9 +17,17 @@ beforeAll(() => {
     observe(): void {}
     unobserve(): void {}
   });
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: vi.fn()
+  });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  delete document.documentElement.dataset.platform;
+  vi.mocked(document.elementFromPoint).mockReset();
+});
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
@@ -131,7 +139,8 @@ describe("workspace editor role picker layout", () => {
     expect(roleButtons).toHaveLength(7);
     roleButtons.forEach((button) => {
       expect(button.className).toContain("h-[52px]");
-      expect(button.getAttribute("draggable")).toBe("true");
+      expect(button.className).toContain("touch-none");
+      expect(button.hasAttribute("draggable")).toBe(false);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -141,6 +150,56 @@ describe("workspace editor role picker layout", () => {
     fireEvent.click(roleButtons[2]);
 
     expect(roleButtons[2].textContent).toContain("S1");
+  });
+
+  it.each(["darwin", "win32"] as const)("assigns and swaps slots with pointer dragging on %s", async (platform) => {
+    document.documentElement.dataset.platform = platform === "darwin" ? "mac" : "windows";
+    const selectedWorkspace = workspace();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/workspaces/:id/edit",
+          element: (
+            <WorkspaceEditorRoute
+              games={[game()]}
+              isSaving={false}
+              roles={[role(1), role(2), role(3)]}
+              statusByRole={new Map()}
+              t={t}
+              workspaceDisplays={[]}
+              workspaces={[selectedWorkspace]}
+              onSave={onSave}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+    const roleButton = container.querySelector<HTMLElement>("[data-workspace-role-id='role-3']");
+    const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
+    if (!roleButton || !firstSlot) throw new Error("Expected workspace drag sources and targets.");
+
+    pointerDrag(roleButton, firstSlot, 11);
+    expect(firstSlot.getAttribute("data-workspace-assigned-role-id")).toBe("role-3");
+
+    const firstSlotHandle = firstSlot.querySelector<HTMLElement>("[data-workspace-slot-drag-handle]");
+    const secondSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='1']");
+    if (!firstSlotHandle || !secondSlot) throw new Error("Expected assigned slot drag handle.");
+    pointerDrag(firstSlotHandle, secondSlot, 12);
+
+    expect(firstSlot.getAttribute("data-workspace-assigned-role-id")).toBe("role-2");
+    expect(secondSlot.getAttribute("data-workspace-assigned-role-id")).toBe("role-3");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].slots.map((slot: LaunchWorkspace["slots"][number]) => slot.roleId))
+      .toEqual(["role-2", "role-3"]);
   });
 
   it("coalesces workspace resize moves, flushes the latest point, and cancels pending work", async () => {
@@ -320,5 +379,28 @@ function setBounds(element: HTMLElement, left: number, top: number, width: numbe
       y: top,
       toJSON: () => ({})
     })
+  });
+}
+
+function pointerDrag(source: HTMLElement, target: HTMLElement, pointerId: number): void {
+  vi.mocked(document.elementFromPoint).mockReturnValue(target);
+  fireEvent.pointerDown(source, {
+    button: 0,
+    clientX: 20,
+    clientY: 120,
+    isPrimary: true,
+    pointerId
+  });
+  fireEvent.pointerMove(window, {
+    clientX: 120,
+    clientY: 120,
+    isPrimary: true,
+    pointerId
+  });
+  fireEvent.pointerUp(window, {
+    clientX: 120,
+    clientY: 120,
+    isPrimary: true,
+    pointerId
   });
 }

@@ -15,6 +15,13 @@ export default defineConfig({
         main: resolve(__dirname, "src/renderer/index.html"),
         runtimeDivider: resolve(__dirname, "src/renderer/runtime-divider.html"),
         runtimeTabs: resolve(__dirname, "src/renderer/runtime-tabs.html")
+      },
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            return "vendor";
+          }
+        }
       }
     },
     sourcemap: false

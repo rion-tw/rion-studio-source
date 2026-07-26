@@ -80,6 +80,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("start_trusted_input_attestation");
     expect(runtime).toContain("TRUSTED_INPUT_ATTESTATION_SOURCE");
     expect(runtime).toContain("const CYCLES: u64 = 1_000");
+    expect(runtime).toContain("TRUSTED_INPUT_EVENT_INTERVAL: Duration = Duration::from_millis(25)");
+    const attestKey = runtime.slice(
+      runtime.indexOf("fn attest_key("),
+      runtime.indexOf("fn attestation_snapshot(")
+    );
+    expect(attestKey).not.toContain("sleep(Duration::from_millis(2))");
     expect(runtime).toContain("run_role_count_attestation");
     expect(runtime).toContain("verify_shared_display_host_attestation");
     expect(runtime).toContain("for count in [1_usize, 3, 6, 9]");

@@ -45,7 +45,7 @@ async function main(baseEnvironment) {
 
   if (!cachedAttestation) {
     console.log(`No native input attestation matches ${platform} ${osVersion}; running the packaged behavior harness.`);
-    console.log("The harness sends 1,000 synthetic key cycles only to a hidden System WebView; it does not read or control the physical keyboard.");
+    console.log("The harness sends 1,000 paced synthetic key cycles only to a hidden System WebView; it does not read or control the physical keyboard.");
     const untrustedEnvironment = { ...baseEnvironment };
     delete untrustedEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
     delete untrustedEnvironment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;

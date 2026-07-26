@@ -2015,6 +2015,10 @@ pub fn run() {
                                             });
                                     }
                                 }
+                                CoreEvent::OverlayChanged { role_ids } => {
+                                    effect_runtime.refresh_macro_overlays(&role_ids);
+                                    renderer_events.push(CoreEvent::OverlayChanged { role_ids });
+                                }
                                 CoreEvent::Shutdown => {
                                     shutdown = true;
                                     renderer_events.push(CoreEvent::Shutdown);

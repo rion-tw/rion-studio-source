@@ -157,4 +157,58 @@ describe("Tauri System WebView runtime source", () => {
     expect(platformProbe).not.toContain("trusted-input-unverified");
     expect(platformProbe).not.toContain("background-input-unverified");
   });
+
+  it("keeps macro overlay refresh, app activation, pending routing, and navigation release wired", async () => {
+    const [runtime, shell, app] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src/renderer/src/App.tsx", import.meta.url), "utf8")
+    ]);
+
+    const refresh = runtime.slice(
+      runtime.indexOf("pub fn refresh_macro_overlays("),
+      runtime.indexOf("pub(crate) fn evaluate_role_for_attestation(")
+    );
+    expect(refresh).toContain("should_refresh_macro_overlay(role_ids, role_id)");
+    expect(refresh).toMatch(/state\s*\.popup_roles/);
+    expect(refresh).toContain("self.app.get_webview(&label)");
+    expect(refresh).toContain("refresh_macro_overlay_handles(webviews");
+    expect(refresh).toContain("webview.eval(MACRO_OVERLAY_REFRESH_SOURCE)");
+    expect(refresh.indexOf("refresh_macro_overlay_handles(webviews")).toBeGreaterThan(
+      refresh.indexOf("(webviews, popup_labels)")
+    );
+    expect(shell).toContain("CoreEvent::OverlayChanged { role_ids } => {");
+    expect(shell).toContain("effect_runtime.refresh_macro_overlays(&role_ids);");
+    expect(shell).toContain("renderer_events.push(CoreEvent::OverlayChanged { role_ids });");
+
+    const openMacroPage = runtime.slice(
+      runtime.indexOf("CoreEffectAction::OverlayOpenMacroPage { role_id } => {"),
+      runtime.indexOf("CoreEffectAction::OverlayCopyCoordinate")
+    );
+    expect(openMacroPage.indexOf("pending_macro_page_request = Some(request.clone())"))
+      .toBeLessThan(openMacroPage.indexOf("run_on_main_thread"));
+    expect(openMacroPage).toContain("window.unminimize()");
+    expect(openMacroPage).toContain("window.show()");
+    expect(openMacroPage).toContain("window.set_focus()");
+    expect(openMacroPage.indexOf("window.set_focus()"))
+      .toBeLessThan(openMacroPage.indexOf('emit("rion://macro-page-request", request)'));
+
+    const mainNavigation = runtime.slice(
+      runtime.indexOf(".on_navigation(move |url| {"),
+      runtime.indexOf(".on_new_window(move |url, features|")
+    );
+    expect(mainNavigation).toContain("should_release_macros_for_navigation(url)");
+    expect(mainNavigation).toContain("CoreCommand::MacroReleaseRole { role_id }");
+    expect(runtime).toContain('matches!(url.scheme(), "http" | "https")');
+    expect(mainNavigation.indexOf('url.scheme() == "rion-runtime-shortcut"'))
+      .toBeLessThan(mainNavigation.indexOf("should_release_macros_for_navigation(url)"));
+
+    const pendingRoute = app.slice(
+      app.indexOf("const consumePendingPageRequest"),
+      app.indexOf("const consumePendingLaunchRequest")
+    );
+    expect(pendingRoute).toContain("consumePendingMacroPageRequest()");
+    expect(pendingRoute.indexOf("openListForRole(request.roleId)"))
+      .toBeLessThan(pendingRoute.indexOf("navigateToMacros()"));
+  });
 });

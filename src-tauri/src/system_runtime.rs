@@ -53,6 +53,7 @@ const MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/macroOverlayShortcutGuard.js");
 const MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
 const MACRO_OVERLAY_CSS_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
+const MACRO_OVERLAY_REFRESH_SOURCE: &str = "void globalThis.__rionStudioMacroOverlay?.refresh?.()";
 const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
 Object.defineProperty(window, "__rionSystemWebView", {
   configurable: false,
@@ -1537,6 +1538,37 @@ impl SystemRuntimeExecutor {
             .and_then(|mut state| state.pending_macro_page_request.take())
     }
 
+    pub fn refresh_macro_overlays(&self, role_ids: &[String]) {
+        let (mut webviews, popup_labels) = {
+            let Ok(state) = self.state.lock() else {
+                return;
+            };
+            let webviews = state
+                .tabs
+                .values()
+                .flat_map(|tab| tab.roles.iter())
+                .filter(|(role_id, _)| should_refresh_macro_overlay(role_ids, role_id))
+                .map(|(_, surface)| surface.webview.clone())
+                .collect::<Vec<_>>();
+            let popup_labels = state
+                .popup_roles
+                .iter()
+                .filter(|(_, role_id)| should_refresh_macro_overlay(role_ids, role_id))
+                .map(|(label, _)| label.clone())
+                .collect::<Vec<_>>();
+            (webviews, popup_labels)
+        };
+
+        for label in popup_labels {
+            if let Some(webview) = self.app.get_webview(&label) {
+                webviews.push(webview);
+            }
+        }
+        refresh_macro_overlay_handles(webviews, |webview| {
+            webview.eval(MACRO_OVERLAY_REFRESH_SOURCE)
+        });
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     pub(crate) fn evaluate_role_for_attestation(
         &self,
@@ -1927,8 +1959,21 @@ impl SystemRuntimeExecutor {
             }
             CoreEffectAction::OverlayOpenMacroPage { role_id } => {
                 let request = json!({ "roleId": role_id });
-                self.state()?.pending_macro_page_request = Some(request.clone());
-                let _ = self.app.emit("rion://macro-page-request", request);
+                {
+                    self.state()?.pending_macro_page_request = Some(request.clone());
+                }
+                let dispatch_app = self.app.clone();
+                let window_app = dispatch_app.clone();
+                dispatch_app
+                    .run_on_main_thread(move || {
+                        if let Some(window) = window_app.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = window_app.emit("rion://macro-page-request", request);
+                    })
+                    .map_err(RuntimeError::tauri)?;
                 Ok(None)
             }
             CoreEffectAction::OverlayCopyCoordinate { coordinate } => {
@@ -2246,7 +2291,19 @@ impl SystemRuntimeExecutor {
                     }
                     return false;
                 }
-                matches!(url.scheme(), "about" | "http" | "https")
+                let allowed = matches!(url.scheme(), "about" | "http" | "https");
+                if should_release_macros_for_navigation(url)
+                    && let Some(role_id) = shortcut_role_id.as_ref()
+                {
+                    let core = Arc::clone(&shortcut_core);
+                    let role_id = role_id.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = core
+                            .invoke_async(CoreCommand::MacroReleaseRole { role_id })
+                            .await;
+                    });
+                }
+                allowed
             })
             .on_new_window(move |url, features| {
                 let Some(role_id) = popup_role_id.as_ref() else {
@@ -5410,6 +5467,23 @@ fn macro_overlay_document_start_script() -> Result<String, String> {
     Ok(format!("{TAURI_MACRO_OVERLAY_BRIDGE_SOURCE}\n{runtime}"))
 }
 
+fn should_refresh_macro_overlay(role_ids: &[String], role_id: &str) -> bool {
+    role_ids.is_empty() || role_ids.iter().any(|candidate| candidate == role_id)
+}
+
+fn refresh_macro_overlay_handles<T, E>(
+    handles: impl IntoIterator<Item = T>,
+    mut refresh: impl FnMut(T) -> Result<(), E>,
+) {
+    for handle in handles {
+        let _ = refresh(handle);
+    }
+}
+
+fn should_release_macros_for_navigation(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+}
+
 fn replace_single_overlay_token(
     source: &str,
     token: &str,
@@ -6652,6 +6726,46 @@ mod tests {
     }
 
     #[test]
+    fn overlay_refresh_selection_supports_all_and_specific_roles() {
+        let selected = vec!["role-b".to_owned()];
+        assert!(should_refresh_macro_overlay(&[], "role-a"));
+        assert!(!should_refresh_macro_overlay(&selected, "role-a"));
+        assert!(should_refresh_macro_overlay(&selected, "role-b"));
+    }
+
+    #[test]
+    fn overlay_refresh_continues_after_an_invalid_handle() {
+        let mut attempted = Vec::new();
+        refresh_macro_overlay_handles(["role-a", "destroyed", "role-b"], |label| {
+            attempted.push(label);
+            if label == "destroyed" {
+                Err("WebView was destroyed")
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(attempted, ["role-a", "destroyed", "role-b"]);
+    }
+
+    #[test]
+    fn macro_release_is_limited_to_top_level_game_page_navigation_schemes() {
+        for url in ["https://game.example/", "http://game.example/"] {
+            assert!(should_release_macros_for_navigation(
+                &Url::parse(url).unwrap()
+            ));
+        }
+        for url in [
+            "about:blank",
+            "rion-runtime-shortcut://tabs/next",
+            "data:text/plain,internal",
+        ] {
+            assert!(!should_release_macros_for_navigation(
+                &Url::parse(url).unwrap()
+            ));
+        }
+    }
+
+    #[test]
     fn macos_and_windows_tab_activation_share_one_display_host_plan() {
         for platform in ["macos", "windows"] {
             let live = HashMap::from([("tab-a".to_owned(), 11), ("tab-b".to_owned(), 11)]);
@@ -6822,6 +6936,7 @@ mod tests {
         assert!(source.contains("rion_overlay_request"));
         assert!(source.contains("rion-studio-macro-overlay-v56"));
         assert!(source.contains("const overlayCss = \"*{box-sizing:border-box"));
+        assert!(source.contains("@media (prefers-reduced-motion:reduce)"));
         assert!(!source.contains(MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN));
         assert!(!source.contains(MACRO_OVERLAY_CSS_TOKEN));
         assert!(!source.contains("chrome.webview"));

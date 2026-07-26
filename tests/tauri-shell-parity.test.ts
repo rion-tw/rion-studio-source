@@ -35,12 +35,13 @@ describe("Tauri shell parity guard", () => {
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {
-    const [menu, quickMenu, tabs, nativeTabs, nativeTabsHeader, shell, build, capability, roleCapability] = await Promise.all([
+    const [menu, quickMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, shell, build, capability, roleCapability] = await Promise.all([
       readFile("src-tauri/src/application_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu.rs", "utf8"),
       readFile("src-tauri/src/system_runtime.rs", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.mm", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
+      readFile("src-tauri/src/runtime_tabs_macos.rs", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src-tauri/build.rs", "utf8"),
       readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
@@ -60,6 +61,10 @@ describe("Tauri shell parity guard", () => {
     expect(nativeTabs).toContain("contentLayoutRect");
     expect(nativeTabs).toContain("standardWindowButton");
     expect(nativeTabsHeader).toContain('extern "C"');
+    expect(nativeTabs).toContain('@"sourceDisplayId" : @(_displayID)');
+    expect(nativeTabsHeader).toContain("int64_t sourceDisplayID, int64_t targetDisplayID");
+    expect(nativeTabsBridge).toContain("TAURI_RUNTIME_TAB_MENU_FAILED");
+    expect(nativeTabsBridge).toContain("open_launcher(&app, source_display_id)");
     expect(shell).toContain("rion_runtime_audio_state");
     expect(build).toContain('"rion_runtime_tab_action"');
     expect(build).toContain('"rion_divider_pointer"');

@@ -59,6 +59,20 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("fn sync_native_tab_strip(")
     );
     expect(applyRuntime).not.toContain("sync_native_tab_strip");
+    expect(runtime).toContain("struct RuntimeDisplayHost");
+    expect(runtime).toContain('runtime_label("game-display"');
+    expect(runtime).not.toContain('runtime_label("game-tab", &tab.tab_id)');
+    expect(applyRuntime).toContain("surface.reparent(&window)");
+    expect(applyRuntime).toContain("surface.show()");
+    expect(applyRuntime).toContain("surface.hide()");
+    expect(applyRuntime).toContain("is_visible().unwrap_or(false)");
+    const closeRuntimeWindow = runtime.slice(
+      runtime.indexOf("pub fn handle_window_close_requested("),
+      runtime.indexOf("pub fn resize_window(")
+    );
+    expect(closeRuntimeWindow).toContain("window.hide()");
+    expect(closeRuntimeWindow).not.toContain("BrowserRoleStop");
+    expect(closeRuntimeWindow).not.toContain("BrowserWorkspaceStop");
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');
     expect(runtime).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
@@ -67,6 +81,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("TRUSTED_INPUT_ATTESTATION_SOURCE");
     expect(runtime).toContain("const CYCLES: u64 = 1_000");
     expect(runtime).toContain("run_role_count_attestation");
+    expect(runtime).toContain("verify_shared_display_host_attestation");
     expect(runtime).toContain("for count in [1_usize, 3, 6, 9]");
     expect(runtime).toContain("role_bounds_for_content");
     expect(runtime).toContain("logical_window_content_metrics");
@@ -99,6 +114,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(inputVerifier).toContain("stress?.keyDown !== 1000");
     expect(inputVerifier).toContain("JSON.stringify([1, 3, 6, 9])");
     expect(inputVerifier).toContain("roleParity?.createDestroyCycles !== 100");
+    expect(inputVerifier).toContain("sharedDisplayHost?.nativeHandleStable !== true");
+    expect(inputVerifier).toContain("sharedDisplayHost?.contentStateStable !== true");
     expect(inputVerifier).toContain("popupDownload?.popupSharedStore !== true");
     expect(inputVerifier).toContain("popupDownload?.downloadContentVerified !== true");
     expect(inputVerifier).toContain("popupDownload?.uploadContentVerified !== true");

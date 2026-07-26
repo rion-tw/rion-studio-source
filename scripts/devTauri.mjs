@@ -10,6 +10,7 @@ import { environmentWithCargoExecutable } from "./cargoExecutable.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const platform = process.platform;
+const macOsDevBundleRunner = fileURLToPath(new URL("./runMacDevBundle.mjs", import.meta.url));
 
 try {
   const environment = await environmentWithCargoExecutable();
@@ -17,6 +18,7 @@ try {
     console.warn("Starting degraded Tauri development; trusted native input remains disabled.");
     delete environment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
     delete environment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;
+    configureMacOsDevBundleRunner(environment);
     process.exitCode = await run(command("pnpm"), ["exec", "tauri", "dev"], environment);
   } else if (platform !== "darwin" && platform !== "win32") {
     console.warn("Native input attestation is available only on macOS and Windows; starting degraded Tauri development.");
@@ -43,6 +45,7 @@ async function main(baseEnvironment) {
 
   if (!cachedAttestation) {
     console.log(`No native input attestation matches ${platform} ${osVersion}; running the packaged behavior harness.`);
+    console.log("The harness sends 1,000 synthetic key cycles only to a hidden System WebView; it does not read or control the physical keyboard.");
     const untrustedEnvironment = { ...baseEnvironment };
     delete untrustedEnvironment.RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR;
     delete untrustedEnvironment.RION_STUDIO_WINDOWS_INPUT_ATTESTED;
@@ -73,7 +76,15 @@ async function main(baseEnvironment) {
   } else {
     environment.RION_STUDIO_WINDOWS_INPUT_ATTESTED = "1";
   }
+  configureMacOsDevBundleRunner(environment);
   process.exitCode = await run(command("pnpm"), ["exec", "tauri", "dev"], environment);
+}
+
+function configureMacOsDevBundleRunner(environment) {
+  if (platform !== "darwin") return;
+  const architecture = process.arch === "arm64" ? "AARCH64" : "X86_64";
+  const variable = `CARGO_TARGET_${architecture}_APPLE_DARWIN_RUNNER`;
+  environment[variable] ??= macOsDevBundleRunner;
 }
 
 async function attestationFingerprint(attestationVersion) {

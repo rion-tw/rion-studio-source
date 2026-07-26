@@ -468,6 +468,19 @@ static NSString *RionStringFromUTF8(const char *value) {
   return [NSString stringWithUTF8String:value];
 }
 
+static void RionForwardRuntimeTabsAction(
+    NSDictionary<NSString *, id> *action, void *context,
+    RionRuntimeTabsCActionHandler actionHandler) {
+  NSString *type = action[@"type"];
+  NSString *tabID = action[@"tabId"];
+  NSString *beforeTabID = action[@"beforeTabId"];
+  NSNumber *sourceDisplayID = action[@"sourceDisplayId"];
+  NSNumber *targetDisplayID = action[@"displayId"];
+  actionHandler(context, type.UTF8String, tabID.UTF8String,
+                sourceDisplayID.longLongValue,
+                targetDisplayID.longLongValue, beforeTabID.UTF8String);
+}
+
 void *rion_runtime_tabs_create(
     void *rawWindow, void *context, RionRuntimeTabsCActionHandler actionHandler,
     RionRuntimeTabsCLayoutHandler layoutHandler) {
@@ -478,12 +491,7 @@ void *rion_runtime_tabs_create(
         [[RionRuntimeTabsController alloc]
             initWithWindow:window
             actionHandler:^(NSDictionary<NSString *, id> *action) {
-              NSString *type = action[@"type"];
-              NSString *tabID = action[@"tabId"];
-              NSString *beforeTabID = action[@"beforeTabId"];
-              NSNumber *displayID = action[@"displayId"];
-              actionHandler(context, type.UTF8String, tabID.UTF8String,
-                            displayID.longLongValue, beforeTabID.UTF8String);
+              RionForwardRuntimeTabsAction(action, context, actionHandler);
             }
             contentLayoutHandler:^(RionRuntimeContentLayout layout) {
               layoutHandler(context, layout.heightInset, layout.yOffset,
@@ -560,6 +568,45 @@ void rion_runtime_tabs_set_reveal_locked(void *rawController, bool locked) {
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(void *rawController) {
   if (!rawController) return (RionRuntimeContentLayout){0, 0, NO};
   return [(__bridge RionRuntimeTabsController *)rawController contentLayout];
+}
+
+struct RionRuntimeTabsActionScopeProbe {
+  int64_t sourceDisplayID;
+  int64_t targetDisplayID;
+  bool called;
+};
+
+static void RionRuntimeTabsActionScopeProbeCallback(
+    void *context, const char *type, const char *tabIdentifier,
+    int64_t sourceDisplayID, int64_t targetDisplayID,
+    const char *beforeTabIdentifier) {
+  (void)tabIdentifier;
+  (void)beforeTabIdentifier;
+  RionRuntimeTabsActionScopeProbe *probe =
+      static_cast<RionRuntimeTabsActionScopeProbe *>(context);
+  probe->called = type && (strcmp(type, "openLauncher") == 0 ||
+                           strcmp(type, "move") == 0);
+  probe->sourceDisplayID = sourceDisplayID;
+  probe->targetDisplayID = targetDisplayID;
+}
+
+bool rion_runtime_tabs_action_scope_self_test(void) {
+  @autoreleasepool {
+    RionRuntimeTabsActionScopeProbe launcherProbe = {0, 0, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"openLauncher", @"sourceDisplayId" : @(42) },
+        &launcherProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe moveProbe = {0, 0, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"move",
+           @"sourceDisplayId" : @(-9007199254740991LL),
+           @"displayId" : @(73) },
+        &moveProbe, RionRuntimeTabsActionScopeProbeCallback);
+    return launcherProbe.called && launcherProbe.sourceDisplayID == 42 &&
+           launcherProbe.targetDisplayID == 0 && moveProbe.called &&
+           moveProbe.sourceDisplayID == -9007199254740991LL &&
+           moveProbe.targetDisplayID == 73;
+  }
 }
 
 @interface RionRuntimeBackdropView : NSVisualEffectView
@@ -2333,25 +2380,31 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)activateTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
-    _actionHandler(@{ @"type" : @"activate", @"tabId" : tabIdentifier });
+    _actionHandler(@{ @"type" : @"activate", @"tabId" : tabIdentifier,
+                      @"sourceDisplayId" : @(_displayID) });
   }
 }
 
 - (void)closeTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
-    _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier });
+    _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier,
+                      @"sourceDisplayId" : @(_displayID) });
   }
 }
 
 - (void)showTabMenu:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
-    _actionHandler(@{ @"type" : @"openTabMenu", @"tabId" : tabIdentifier });
+    _actionHandler(@{ @"type" : @"openTabMenu", @"tabId" : tabIdentifier,
+                      @"sourceDisplayId" : @(_displayID) });
   }
 }
 
 - (void)openLauncher:(id)sender {
   (void)sender;
-  if (_actionHandler) _actionHandler(@{ @"type" : @"openLauncher" });
+  if (_actionHandler) {
+    _actionHandler(@{ @"type" : @"openLauncher",
+                      @"sourceDisplayId" : @(_displayID) });
+  }
 }
 
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event {
@@ -2416,6 +2469,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     _actionHandler(@{
       @"type" : @"move",
       @"tabId" : tabIdentifier,
+      @"sourceDisplayId" : @(sourceDisplayID),
       @"displayId" : @(_displayID)
     });
     return;
@@ -2423,7 +2477,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if ([beforeIdentifier isEqualToString:tabIdentifier]) return;
   NSMutableDictionary<NSString *, id> *action = [@{
     @"type" : @"reorder",
-    @"tabId" : tabIdentifier
+    @"tabId" : tabIdentifier,
+    @"sourceDisplayId" : @(_displayID)
   } mutableCopy];
   if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
   _actionHandler(action);

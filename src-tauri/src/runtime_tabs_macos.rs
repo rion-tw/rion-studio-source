@@ -22,7 +22,7 @@ struct NativeTabInput {
 }
 
 type ActionCallback =
-    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, i64, *const c_char);
+    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, i64, i64, *const c_char);
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
 
 unsafe extern "C" {
@@ -45,6 +45,8 @@ unsafe extern "C" {
     );
     fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
+    #[cfg(test)]
+    fn rion_runtime_tabs_action_scope_self_test() -> bool;
 }
 
 struct CallbackContext {
@@ -259,7 +261,8 @@ unsafe extern "C" fn action_callback(
     context: *mut c_void,
     action_type: *const c_char,
     tab_id: *const c_char,
-    display_id: i64,
+    source_display_id: i64,
+    target_display_id: i64,
     before_tab_id: *const c_char,
 ) {
     if context.is_null() || action_type.is_null() {
@@ -275,7 +278,8 @@ unsafe extern "C" fn action_callback(
         context.app.clone(),
         action_type,
         tab_id,
-        display_id,
+        source_display_id,
+        target_display_id,
         before_tab_id,
     );
 }
@@ -317,7 +321,8 @@ fn dispatch_action(
     app: AppHandle,
     action_type: String,
     tab_id: Option<String>,
-    display_id: i64,
+    source_display_id: i64,
+    target_display_id: i64,
     before_tab_id: Option<String>,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -332,18 +337,36 @@ fn dispatch_action(
                 before_tab_id,
             }),
             "move" => tab_id.and_then(|tab_id| {
-                crate::launch_target_for_app_display(&app, display_id)
+                crate::launch_target_for_app_display(&app, target_display_id)
                     .ok()
                     .map(|target| CoreCommand::EmbeddedTabMove { tab_id, target })
             }),
             "stop" => tab_id.and_then(|tab_id| stop_command_for_tab(&state.core, &tab_id)),
             "openLauncher" => {
-                let _ = crate::runtime_tab_menu::open_launcher(&app, display_id);
+                if let Err(message) =
+                    crate::runtime_tab_menu::open_launcher(&app, source_display_id)
+                {
+                    let _ = app.emit(
+                        "rion://shell-error",
+                        serde_json::json!({
+                            "code": "TAURI_RUNTIME_TAB_MENU_FAILED",
+                            "message": message
+                        }),
+                    );
+                }
                 None
             }
             "openTabMenu" => {
-                if let Some(tab_id) = tab_id.as_deref() {
-                    let _ = crate::runtime_tab_menu::open_tab(&app, tab_id);
+                if let Some(tab_id) = tab_id.as_deref()
+                    && let Err(message) = crate::runtime_tab_menu::open_tab(&app, tab_id)
+                {
+                    let _ = app.emit(
+                        "rion://shell-error",
+                        serde_json::json!({
+                            "code": "TAURI_RUNTIME_TAB_MENU_FAILED",
+                            "message": message
+                        }),
+                    );
                 }
                 None
             }
@@ -382,4 +405,12 @@ pub fn fullscreen_preference(core: &rion_core::AppCore) -> bool {
         .ok()
         .and_then(|value| serde_json::from_value::<RuntimeWindowPreferencesRecord>(value).ok())
         .is_some_and(|preferences| preferences.always_show_toolbar_in_full_screen)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn native_action_scope_preserves_nonzero_and_safe_negative_display_ids() {
+        assert!(unsafe { super::rion_runtime_tabs_action_scope_self_test() });
+    }
 }

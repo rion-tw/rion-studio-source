@@ -13,23 +13,21 @@ describe("browser engine presentation", () => {
   it("labels every resolved runtime engine", () => {
     expect(getResolvedBrowserEngineLabel("webview2", t)).toBe("WebView2");
     expect(getResolvedBrowserEngineLabel("wkwebview", t)).toBe("WKWebView");
-    expect(getResolvedBrowserEngineLabel("electron", t)).toBe("Electron");
-    expect(getResolvedBrowserEngineLabel("external-chrome", t)).toBe("External Chrome");
   });
 
-  it("makes the preferred engine, actual engine, and fallback reason visible", () => {
+  it("makes the system engine and native runtime failure visible", () => {
     const status: RoleStatus = {
       roleId: "role-1",
       state: "running",
       runtimeMode: "embedded",
       preferredEngine: "system",
-      resolvedEngine: "electron",
-      hostKind: "electron",
-      fallbackReason: "runtime-creation-failed"
+      resolvedEngine: "wkwebview",
+      hostKind: "system-native",
+      issueReason: "runtime-creation-failed"
     };
 
     expect(getBrowserEngineStatusTitle(status, t)).toBe(
-      "Preferred System WebView; running with Electron. Reason: the System runtime is not available in this release or could not start."
+      "WKWebView reported a runtime issue: the System runtime is not available in this release or could not start."
     );
   });
 });

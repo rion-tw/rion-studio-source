@@ -31,7 +31,13 @@ describe("Tauri Preview shell", () => {
     expect(capability).toMatchObject({
       identifier: "main-local-only",
       windows: ["main"],
-      permissions: ["core:default"]
+      permissions: [
+        "core:default",
+        "allow-rion-core-invoke",
+        "allow-rion-dispatch-core-effect-results",
+        "allow-rion-shared-user-data-dir",
+        "allow-rion-shell-invoke"
+      ]
     });
     expect(capability).not.toHaveProperty("remote");
   });

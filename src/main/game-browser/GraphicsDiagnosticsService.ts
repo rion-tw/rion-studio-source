@@ -3,7 +3,7 @@ import type { App, WebContents } from "electron";
 import type {
   BrowserGraphicsSettingsRecord,
   GraphicsDiagnosticsRecord,
-  GraphicsVersionRecord
+  RuntimeVersionRecord
 } from "../../shared/generated";
 import type { AppCoreClient } from "../core/nativeCore";
 
@@ -14,9 +14,9 @@ export interface GraphicsDiagnosticsServiceOptions {
   >;
   appliedSettings: BrowserGraphicsSettingsRecord;
   core: Pick<AppCoreClient, "invoke">;
+  getVersions: () => Promise<RuntimeVersionRecord>;
   isGpuInfoReady: () => boolean;
   platform?: string;
-  versions?: NodeJS.ProcessVersions;
 }
 
 /** Collects raw Electron probes; Rust normalizes, compares, and assembles the report. */
@@ -48,16 +48,8 @@ export class GraphicsDiagnosticsService {
       gpuInfoReady,
       hardwareAccelerationEnabled,
       platform: this.options.platform ?? process.platform,
-      versions: this.versions()
+      versions: await this.options.getVersions()
     });
-  }
-
-  private versions(): GraphicsVersionRecord {
-    return {
-      chromium: this.options.versions?.chrome ?? process.versions.chrome ?? "unknown",
-      electron: this.options.versions?.electron ?? process.versions.electron ?? "unknown",
-      node: this.options.versions?.node ?? process.versions.node
-    };
   }
 }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-dispatch-core-effect-results"
+description = "Enables the rion_dispatch_core_effect_results command without any pre-configured scope."
+commands.allow = ["rion_dispatch_core_effect_results"]
+
+[[permission]]
+identifier = "deny-rion-dispatch-core-effect-results"
+description = "Denies the rion_dispatch_core_effect_results command without any pre-configured scope."
+commands.deny = ["rion_dispatch_core_effect_results"]

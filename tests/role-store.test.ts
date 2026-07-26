@@ -15,9 +15,7 @@ describe("RoleStore Rust adapter", () => {
     const baseDir = await mkdtemp(join(tmpdir(), "rion-role-adapter-"));
     const memoryCore = new MemoryStateRepository();
     invoke = vi.fn(async (command: { id?: string; type: string }) =>
-      command.type === "rolePathsResolve" ||
-      command.type === "roleBrowserDirectoryEnsure" ||
-      command.type === "roleBrowserDirectoryReset"
+      command.type === "rolePathsResolve"
         ? { browserUserDataDir: join(baseDir, "roles", command.id ?? "unknown", "browser") }
         : memoryCore.invoke(command as never)
     );
@@ -31,25 +29,18 @@ describe("RoleStore Rust adapter", () => {
     const role = await store.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ type: "roleCreate" }));
     await expect(store.updateRole(role.id, { name: "Updated" })).resolves.toMatchObject({ name: "Updated" });
-    await expect(store.updateBrowserSessionSource(role.id, "chrome-profile")).resolves.toMatchObject({
-      browserSessionSource: "chrome-profile"
-    });
     await store.deleteRole(role.id);
     expect(invoke).toHaveBeenCalledWith({ type: "roleDelete", id: role.id });
     await expect(store.getRole(role.id)).rejects.toMatchObject({ code: "ROLE_NOT_FOUND" });
   });
 
-  it("routes ensure and reset through Rust without filesystem access", async () => {
+  it("resolves System WebView paths through Rust without filesystem access", async () => {
     const role = await store.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
     invoke.mockClear();
-
-    await expect(store.ensureBrowserUserDataDir(role.id)).resolves.toContain(role.id);
-    await expect(store.resetBrowserUserDataDir(role.id)).resolves.toContain(role.id);
-
-    expect(invoke).toHaveBeenCalledWith({ type: "roleBrowserDirectoryReset", id: role.id });
     await expect(store.getRolePaths(role.id)).resolves.toMatchObject({
       browserUserDataDir: expect.stringContaining(role.id)
     });
+    expect(invoke).toHaveBeenCalledWith({ type: "rolePathsResolve", id: role.id });
   });
 
   it("reorders roles through the repository", async () => {

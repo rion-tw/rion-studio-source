@@ -10,7 +10,6 @@ import type {
   MacroSettings,
   BulkDeleteResult,
   Role,
-  RoleBrowserSessionSource,
   UpdateGameInput,
   UpdateRoleInput,
   CreateLaunchWorkspaceInput,
@@ -48,7 +47,6 @@ export class MemoryStateRepository {
           builtinKey: "flyff-universe",
           name: "Flyff Universe",
           defaultLaunchUrl: "https://universe.flyff.com/play",
-          browserLaunchMode: "inherit",
           createdAt: timestamp,
           updatedAt: timestamp
         },
@@ -58,7 +56,6 @@ export class MemoryStateRepository {
           builtinKey: "feifei-infinite-universe",
           name: "飞飞：无限宇宙",
           defaultLaunchUrl: "https://ffcli.ruiwoo.cn/",
-          browserLaunchMode: "inherit",
           createdAt: timestamp,
           updatedAt: timestamp
         }
@@ -158,7 +155,6 @@ export class MemoryStateRepository {
       source: "custom",
       name: input.name.trim(),
       defaultLaunchUrl: new URL(input.defaultLaunchUrl).toString(),
-      browserLaunchMode: input.browserLaunchMode ?? "inherit",
       ...(typeof input.iconImageDataUrl === "string" && input.iconImageDataUrl
         ? { iconImageDataUrl: input.iconImageDataUrl }
         : {}),
@@ -182,7 +178,6 @@ export class MemoryStateRepository {
       ...current,
       ...(input.name === undefined ? {} : { name: input.name.trim() }),
       ...(input.defaultLaunchUrl === undefined ? {} : { defaultLaunchUrl: new URL(input.defaultLaunchUrl).toString() }),
-      ...(input.browserLaunchMode === undefined ? {} : { browserLaunchMode: input.browserLaunchMode }),
       ...(input.iconImageDataUrl === undefined
         ? {}
         : input.iconImageDataUrl
@@ -233,7 +228,6 @@ export class MemoryStateRepository {
       name: input.name.trim(),
       launchUrl: new URL(input.launchUrl ?? "https://universe.flyff.com/play").toString(),
       notes: input.notes?.trim() ?? "",
-      browserSessionSource: "managed",
       ...(typeof input.coverImageDataUrl === "string" && input.coverImageDataUrl
         ? { coverImageDataUrl: input.coverImageDataUrl }
         : {}),
@@ -283,14 +277,6 @@ export class MemoryStateRepository {
     return this.deleteMany(ids, () => this.listRoles(), (id) => this.deleteRole(id));
   }
 
-  async setRoleBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {
-    const role = await this.updateRole(id, {});
-    const roles = await this.listRoles();
-    const updated = { ...role, browserSessionSource: source };
-    await this.replace("roles", roles.map((item) => item.id === id ? updated : item));
-    return updated;
-  }
-
   async assignRoleGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]> {
     const roles = (await this.listRoles()).map((role) => ({
       ...role,
@@ -319,7 +305,6 @@ export class MemoryStateRepository {
       id: crypto.randomUUID(),
       name: input.name.trim(),
       template,
-      browserLaunchMode: input.browserLaunchMode ?? "inherit",
       browserZoomMode: input.browserZoomMode ?? "adaptive",
       browserZoomPercent: input.browserZoomPercent ?? getDefaultWorkspaceBrowserZoomPercent(template),
       ...(input.targetDisplay ? { targetDisplay: structuredClone(input.targetDisplay) } : {}),
@@ -507,9 +492,6 @@ export class MemoryStateRepository {
         break;
       case "rolesDelete":
         result = await this.deleteRoles(command.ids);
-        break;
-      case "roleSetBrowserSessionSource":
-        result = await this.setRoleBrowserSessionSource(command.id, command.source);
         break;
       case "roleAssignGameIds":
         result = await this.assignRoleGameIds(new Map(

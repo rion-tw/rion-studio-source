@@ -1,8 +1,7 @@
 import {
   DEFAULT_LAUNCH_URL,
   type BuiltinGameKey,
-  type Game,
-  type InheritableBrowserLaunchMode
+  type Game
 } from "./types";
 
 export const FLYFF_UNIVERSE_GAME_ID = "builtin-flyff-universe";
@@ -13,7 +12,6 @@ export interface BuiltinGameDefinition {
   builtinKey: BuiltinGameKey;
   name: string;
   defaultLaunchUrl: string;
-  browserLaunchMode: InheritableBrowserLaunchMode;
 }
 
 export const BUILTIN_GAME_DEFINITIONS: readonly BuiltinGameDefinition[] = [
@@ -21,15 +19,13 @@ export const BUILTIN_GAME_DEFINITIONS: readonly BuiltinGameDefinition[] = [
     id: FLYFF_UNIVERSE_GAME_ID,
     builtinKey: "flyff-universe",
     name: "Flyff Universe",
-    defaultLaunchUrl: DEFAULT_LAUNCH_URL,
-    browserLaunchMode: "inherit"
+    defaultLaunchUrl: DEFAULT_LAUNCH_URL
   },
   {
     id: FEIFEI_INFINITE_UNIVERSE_GAME_ID,
     builtinKey: "feifei-infinite-universe",
     name: "飞飞：无限宇宙",
-    defaultLaunchUrl: "https://ffcli.ruiwoo.cn",
-    browserLaunchMode: "inherit"
+    defaultLaunchUrl: "https://ffcli.ruiwoo.cn"
   }
 ] as const;
 

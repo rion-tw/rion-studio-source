@@ -24,7 +24,7 @@ Rion Studio 會在你的裝置保存隔離瀏覽器設定檔，其中可能包�
 
 ## 6. 網路功能
 
-更新檢查會連線 GitHub Releases；自訂 Proxy 可處理瀏覽流量；CDN 相容模式可測試 Google 連線並把支援的資源請求改送第三方鏡像。這些服務不受 Rion Studio project 控制。CDN 相容模式不是 VPN，亦不保證可用性、隱私、完整性或區域存取。
+更新檢查會連線 GitHub Releases；自訂 Proxy 可處理瀏覽流量。這些服務不受 Rion Studio project 控制，亦不保證可用性、隱私、完整性或區域存取。
 
 ## 7. 可用性與變更
 

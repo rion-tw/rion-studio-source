@@ -6,4 +6,4 @@ import type { EmbeddedBrowserEngine } from "./EmbeddedBrowserEngine";
 import type { MacroBadgePositionRecord } from "./MacroBadgePositionRecord";
 import type { WorkspaceAppearanceSettingsRecord } from "./WorkspaceAppearanceSettingsRecord";
 
-export type GameBrowserSettingsRecord = { fonts: BrowserFontSettingsRecord, graphics: BrowserGraphicsSettingsRecord, launchMode: "auto" | "embedded" | "external", browserEngine?: EmbeddedBrowserEngine, macroBadgePosition: MacroBadgePositionRecord, network: BrowserNetworkSettingsRecord, workspace: WorkspaceAppearanceSettingsRecord, };
+export type GameBrowserSettingsRecord = { fonts: BrowserFontSettingsRecord, graphics: BrowserGraphicsSettingsRecord, browserEngine?: EmbeddedBrowserEngine, macroBadgePosition: MacroBadgePositionRecord, network: BrowserNetworkSettingsRecord, workspace: WorkspaceAppearanceSettingsRecord, };

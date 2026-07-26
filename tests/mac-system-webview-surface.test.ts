@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createMacSystemWebViewSurfaceFactory,
-  getMacSystemWebViewSessionStore,
   type MacSystemWebViewNativeAddon
 } from "../src/main/browser/MacSystemWebViewSurface";
 
@@ -18,12 +17,10 @@ function nativeAddon() {
     destroySystemWebView: vi.fn(),
     evaluateSystemWebView: vi.fn(),
     focusSystemWebView: vi.fn(),
-    getSystemWebViewCookies: vi.fn(),
     loadSystemWebViewURL: vi.fn(),
-    protocolVersion: 10,
+    protocolVersion: 11,
     setSystemWebViewAudioMuted: vi.fn(() => true),
     setSystemWebViewBounds: vi.fn(),
-    setSystemWebViewCookies: vi.fn(),
     setSystemWebViewVisible: vi.fn(),
     setSystemWebViewZoom: vi.fn()
   };
@@ -67,29 +64,6 @@ describe("MacSystemWebViewSurface", () => {
     const clearRequest = vi.mocked(native.addon.clearSystemWebViewData).mock.calls[0]?.[1];
     native.emit({ type: "websiteDataCleared", requestId: clearRequest });
     await clearing;
-    const sessionStore = getMacSystemWebViewSessionStore(surface);
-    const readingCookies = sessionStore.getCookies();
-    const cookieReadRequest =
-      vi.mocked(native.addon.getSystemWebViewCookies).mock.calls[0]?.[1];
-    native.emit({
-      type: "cookiesRead",
-      requestId: cookieReadRequest,
-      cookiesJson: "[{\"name\":\"sid\",\"value\":\"1\",\"url\":\"https://example.test/\"}]"
-    });
-    await expect(readingCookies).resolves.toEqual([
-      { name: "sid", value: "1", url: "https://example.test/" }
-    ]);
-    const writingCookies = sessionStore.setCookies([
-      { name: "sid", value: "1", url: "https://example.test/" }
-    ]);
-    const cookieWriteRequest =
-      vi.mocked(native.addon.setSystemWebViewCookies).mock.calls[0]?.[1];
-    native.emit({
-      type: "cookiesWritten",
-      requestId: cookieWriteRequest,
-      count: 1
-    });
-    await expect(writingCookies).resolves.toBe(1);
     native.emit({ type: "audioChanged", audible: true });
     native.emit({ type: "popupCreated", url: "https://example.test/popup" });
     native.emit({ type: "popupClosed", url: "https://example.test/popup" });
@@ -157,19 +131,11 @@ describe("MacSystemWebViewSurface", () => {
     await expect(evaluation).rejects.toMatchObject({
       code: "SYSTEM_WEBVIEW_OPERATION_FAILED"
     });
-    await expect(surface.configureRequestRewrites([{
-      id: "fixture",
-      regexFilter: "^https://example\\.test/(.*)$",
-      regexSubstitution: "https://cdn.example/\\1",
-      sourceHost: "example.test"
-    }])).rejects.toMatchObject({
-      code: "SYSTEM_WEBVIEW_CDN_UNSUPPORTED"
-    });
   });
 
   it("rejects an incompatible native protocol", () => {
     expect(() => createMacSystemWebViewSurfaceFactory({
       protocolVersion: 8
-    } as never)).toThrow("expected 9");
+    } as never)).toThrow("expected 11");
   });
 });

@@ -20,10 +20,7 @@ Local data is used to restore roles, browser sessions, browser windows, workspac
 
 - Target websites and identity providers receive normal browser requests and handle data under their own policies.
 - Packaged builds check GitHub Releases for updates. GitHub can receive an IP address, app version, platform details, and ordinary request metadata.
-- CDN compatibility Auto mode can make a short request to a Google-hosted resource to test reachability. If access fails or times out, supported resource URLs can be rewritten to third-party mirrors, which can receive IP addresses, requested URLs, headers, and other ordinary request metadata.
 - A custom proxy can receive and process traffic routed through it. Rion Studio does not verify or control a proxy selected by you.
-
-CDN compatibility is a targeted resource rewrite and not a VPN or general privacy service.
 
 ## 5. Portable export and import
 

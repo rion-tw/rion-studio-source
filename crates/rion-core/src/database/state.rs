@@ -20,8 +20,7 @@ use crate::domain::{
     create_role, create_workspace, default_game_browser_settings, default_macro_settings,
     default_runtime_window_preferences, delete_game, delete_macro, delete_macros, delete_workspace,
     normalize_game_browser_settings, normalize_macro_settings, reorder_roles, reorder_workspaces,
-    reset_builtin_game, set_role_browser_session_source, update_game, update_macro, update_role,
-    update_workspace,
+    reset_builtin_game, update_game, update_macro, update_role, update_workspace,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
@@ -29,14 +28,14 @@ use crate::model::{
     EngineCompatibilityCacheKeyRecord, EngineCompatibilityCacheRecord, GameBrowserSettingsRecord,
     GameCreateInputRecord, GameUpdateInputRecord, LogLevel, MacroBadgePositionRecord,
     MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord,
-    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
-    RoleSessionMigrationCheckpointRecord, RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
-    StateCollection, StateCompatibilityObservationsRecord, StateCompatibilityReportRecord,
-    StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateRoleRecord,
-    WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord, WorkspaceUpdateInputRecord,
+    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
+    RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityObservationsRecord,
+    StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+    StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
+    WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 8;
+pub(crate) const SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -57,7 +56,6 @@ enum Request {
     ReadScalar(String, Sender<CoreResult<Option<Value>>>),
     ReplaceScalar(String, Value, Sender<CoreResult<u64>>),
     ReplaceSnapshot(Value, Sender<CoreResult<(u64, bool)>>),
-    ApplyProfileRoles(Vec<crate::model::StateRoleRecord>, Sender<CoreResult<u64>>),
     DomainMutation(Box<StateMutation>, Sender<CoreResult<Value>>),
     Metadata(Sender<CoreResult<Value>>),
     MacroConfiguration(Sender<CoreResult<(Vec<MacroDefinition>, MacroRuntimeSettings)>>),
@@ -75,10 +73,6 @@ enum Request {
         Sender<CoreResult<EngineCompatibilityCacheRecord>>,
     ),
     EngineCompatibilityCacheDeleteGame(String, Sender<CoreResult<u32>>),
-    RoleSessionMigrationCheckpointGet(
-        String,
-        Sender<CoreResult<Option<RoleSessionMigrationCheckpointRecord>>>,
-    ),
     Shutdown(Sender<()>),
 }
 
@@ -113,29 +107,11 @@ pub(crate) enum StateMutation {
         ids: Vec<String>,
         operation_ids: HashMap<String, String>,
     },
-    RoleSetBrowserSessionSource {
-        id: String,
-        source: String,
-    },
     RoleBrowserDataReset {
         id: String,
         operation_id: String,
     },
-    RoleCommitSessionMigration {
-        id: String,
-        engine: crate::model::EmbeddedBrowserEngine,
-        checkpoint: RoleSessionMigrationCheckpointRecord,
-        operation_id: String,
-    },
-    RoleRollbackSessionMigration {
-        id: String,
-        engine: crate::model::EmbeddedBrowserEngine,
-    },
     RoleAssignGameIds(Vec<RoleGameAssignmentRecord>),
-    ProfileRolesPatch {
-        upserts: Vec<StateRoleRecord>,
-        delete_ids: Vec<String>,
-    },
     WorkspaceCreate(WorkspaceCreateInputRecord),
     WorkspaceUpdate {
         id: String,
@@ -197,12 +173,8 @@ impl StateMutation {
             Self::RoleCreate(_)
             | Self::RoleUpdate { .. }
             | Self::RoleReorder { .. }
-            | Self::RoleSetBrowserSessionSource { .. }
             | Self::RoleBrowserDataReset { .. }
-            | Self::RoleCommitSessionMigration { .. }
-            | Self::RoleRollbackSessionMigration { .. }
-            | Self::RoleAssignGameIds(_)
-            | Self::ProfileRolesPatch { .. } => vec![Roles],
+            | Self::RoleAssignGameIds(_) => vec![Roles],
             Self::RoleDelete { .. } | Self::RolesDelete { .. } => {
                 vec![Roles, LaunchWorkspaces, Macros]
             }
@@ -296,19 +268,6 @@ impl StateDatabaseWorker {
             .map_err(|_| CoreError::ShuttingDown)?
     }
 
-    pub fn apply_profile_roles(
-        &self,
-        roles: Vec<crate::model::StateRoleRecord>,
-    ) -> CoreResult<u64> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::ApplyProfileRoles(roles, response_sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
-    }
-
     pub fn replace_scalar(&self, key: String, value: Value) -> CoreResult<u64> {
         let (response_sender, response_receiver) = bounded(1);
         self.sender
@@ -367,15 +326,6 @@ impl StateDatabaseWorker {
     ) -> CoreResult<u32> {
         request(&self.sender, |response| {
             Request::EngineCompatibilityCacheDeleteGame(game_id, response)
-        })
-    }
-
-    pub(crate) fn role_session_migration_checkpoint_get(
-        &self,
-        role_id: String,
-    ) -> CoreResult<Option<RoleSessionMigrationCheckpointRecord>> {
-        request(&self.sender, |response| {
-            Request::RoleSessionMigrationCheckpointGet(role_id, response)
         })
     }
 
@@ -474,9 +424,6 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             Request::ReplaceSnapshot(snapshot, response) => {
                 let _ = response.send(replace_snapshot_if_changed(&mut connection, &snapshot));
             }
-            Request::ApplyProfileRoles(roles, response) => {
-                let _ = response.send(apply_profile_roles(&mut connection, roles));
-            }
             Request::ReplaceScalar(key, value, response) => {
                 let _ = response.send(replace_scalar(&mut connection, &key, value));
             }
@@ -517,12 +464,6 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
                     &game_id,
                 ));
             }
-            Request::RoleSessionMigrationCheckpointGet(role_id, response) => {
-                let _ = response.send(read_role_session_migration_checkpoint(
-                    &connection,
-                    &role_id,
-                ));
-            }
             Request::Shutdown(response) => {
                 let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
                 let _ = response.send(());
@@ -539,520 +480,450 @@ fn apply_domain_mutation(
     let transaction = connection
         .transaction()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let result = match mutation {
-        StateMutation::GameCreate(input) => {
-            let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let game = create_game(&mut games, input)?;
-            upsert_entity(&transaction, "games", &json_value(&game)?, games.len() - 1)?;
-            serde_json::to_value(game)
-        }
-        StateMutation::GameUpdate { id, input } => {
-            let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let game = update_game(&mut games, &id, input)?;
-            let ordinal = games.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "games", &json_value(&game)?, ordinal)?;
-            serde_json::to_value(game)
-        }
-        StateMutation::GameResetBuiltin { id } => {
-            let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let game = reset_builtin_game(&mut games, &id)?;
-            let ordinal = games.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "games", &json_value(&game)?, ordinal)?;
-            serde_json::to_value(game)
-        }
-        StateMutation::GameDelete { id } => {
-            let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            delete_game(&mut games, &roles, &id)?;
-            transaction
-                .execute("DELETE FROM games WHERE id=?1", params![id])
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            Ok(json!({ "deleted": true }))
-        }
-        StateMutation::GamesDelete { ids } => {
-            let requested = normalize_bulk_ids(ids)?;
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let mut deleted_ids = Vec::new();
-            let mut skipped = Vec::new();
-            for id in requested {
-                let Some(game) = games.iter().find(|game| game.id == id) else {
-                    skipped.push(bulk_skip(id, "not_found", Vec::new()));
-                    continue;
-                };
-                if game.source == "builtin" {
-                    skipped.push(bulk_skip(id, "protected", Vec::new()));
-                    continue;
-                }
-                let related_names = roles
-                    .iter()
-                    .filter(|role| role.game_id == id)
-                    .map(|role| role.name.clone())
-                    .collect::<Vec<_>>();
-                if !related_names.is_empty() {
-                    skipped.push(bulk_skip(id, "in_use", related_names));
-                    continue;
-                }
+    let result =
+        match mutation {
+            StateMutation::GameCreate(input) => {
+                let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let game = create_game(&mut games, input)?;
+                upsert_entity(&transaction, "games", &json_value(&game)?, games.len() - 1)?;
+                serde_json::to_value(game)
+            }
+            StateMutation::GameUpdate { id, input } => {
+                let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let game = update_game(&mut games, &id, input)?;
+                let ordinal = games.iter().position(|item| item.id == id).unwrap();
+                upsert_entity(&transaction, "games", &json_value(&game)?, ordinal)?;
+                serde_json::to_value(game)
+            }
+            StateMutation::GameResetBuiltin { id } => {
+                let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let game = reset_builtin_game(&mut games, &id)?;
+                let ordinal = games.iter().position(|item| item.id == id).unwrap();
+                upsert_entity(&transaction, "games", &json_value(&game)?, ordinal)?;
+                serde_json::to_value(game)
+            }
+            StateMutation::GameDelete { id } => {
+                let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                delete_game(&mut games, &roles, &id)?;
                 transaction
                     .execute("DELETE FROM games WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-                deleted_ids.push(id);
+                Ok(json!({ "deleted": true }))
             }
-            Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
-        }
-        StateMutation::RoleCreate(input) => {
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let role = create_role(&games, &mut roles, input)?;
-            upsert_entity(&transaction, "roles", &json_value(&role)?, roles.len() - 1)?;
-            serde_json::to_value(role)
-        }
-        StateMutation::RoleUpdate { id, input } => {
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let role = update_role(&games, &mut roles, &id, input)?;
-            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
-            serde_json::to_value(role)
-        }
-        StateMutation::RoleReorder { ordered_ids } => {
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            reorder_roles(&mut roles, &ordered_ids)?;
-            update_ordinals(&transaction, "roles", &ordered_ids)?;
-            serde_json::to_value(&roles)
-        }
-        StateMutation::RoleDelete { id, operation_id } => {
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let original_len = roles.len();
-            roles.retain(|role| role.id != id);
-            if roles.len() == original_len {
-                return Err(CoreError::Domain {
-                    code: "ROLE_NOT_FOUND",
-                    message: "Role not found.".to_owned(),
-                });
-            }
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            for workspace in &mut workspaces {
-                for slot in &mut workspace.slots {
-                    if slot.role_id.as_deref() == Some(&id) {
-                        slot.role_id = None;
+            StateMutation::GamesDelete { ids } => {
+                let requested = normalize_bulk_ids(ids)?;
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let mut deleted_ids = Vec::new();
+                let mut skipped = Vec::new();
+                for id in requested {
+                    let Some(game) = games.iter().find(|game| game.id == id) else {
+                        skipped.push(bulk_skip(id, "not_found", Vec::new()));
+                        continue;
+                    };
+                    if game.source == "builtin" {
+                        skipped.push(bulk_skip(id, "protected", Vec::new()));
+                        continue;
                     }
-                }
-            }
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            for macro_record in &mut macros {
-                macro_record.role_ids.retain(|role_id| role_id != &id);
-            }
-            transaction
-                .execute("DELETE FROM roles WHERE id=?1", params![id])
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            sync_workspaces(&transaction, &workspaces)?;
-            sync_macros(&transaction, &macros)?;
-            if let Some(operation_id) = operation_id {
-                set_operation_journal_phase(&transaction, &operation_id, "committed")?;
-            }
-            Ok(json!({ "deleted": true }))
-        }
-        StateMutation::RolesDelete { ids, operation_ids } => {
-            let requested = normalize_bulk_ids(ids)?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let existing_ids = roles
-                .iter()
-                .map(|role| role.id.as_str())
-                .collect::<std::collections::HashSet<_>>();
-            let deleted_ids = requested
-                .iter()
-                .filter(|id| existing_ids.contains(id.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            let skipped = requested
-                .iter()
-                .filter(|id| !existing_ids.contains(id.as_str()))
-                .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
-                .collect::<Vec<_>>();
-            let deleted = deleted_ids.iter().collect::<std::collections::HashSet<_>>();
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            for workspace in &mut workspaces {
-                for slot in &mut workspace.slots {
-                    if slot
-                        .role_id
-                        .as_ref()
-                        .is_some_and(|role_id| deleted.contains(role_id))
-                    {
-                        slot.role_id = None;
+                    let related_names = roles
+                        .iter()
+                        .filter(|role| role.game_id == id)
+                        .map(|role| role.name.clone())
+                        .collect::<Vec<_>>();
+                    if !related_names.is_empty() {
+                        skipped.push(bulk_skip(id, "in_use", related_names));
+                        continue;
                     }
+                    transaction
+                        .execute("DELETE FROM games WHERE id=?1", params![id])
+                        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                    deleted_ids.push(id);
                 }
+                Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
             }
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            for macro_record in &mut macros {
-                macro_record
-                    .role_ids
-                    .retain(|role_id| !deleted.contains(role_id));
+            StateMutation::RoleCreate(input) => {
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let role = create_role(&games, &mut roles, input)?;
+                upsert_entity(&transaction, "roles", &json_value(&role)?, roles.len() - 1)?;
+                serde_json::to_value(role)
             }
-            for id in &deleted_ids {
-                transaction
-                    .execute("DELETE FROM roles WHERE id=?1", params![id])
-                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-                if let Some(operation_id) = operation_ids.get(id) {
-                    set_operation_journal_phase(&transaction, operation_id, "committed")?;
+            StateMutation::RoleUpdate { id, input } => {
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let role = update_role(&games, &mut roles, &id, input)?;
+                let ordinal = roles.iter().position(|item| item.id == id).unwrap();
+                upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
+                serde_json::to_value(role)
+            }
+            StateMutation::RoleReorder { ordered_ids } => {
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                reorder_roles(&mut roles, &ordered_ids)?;
+                update_ordinals(&transaction, "roles", &ordered_ids)?;
+                serde_json::to_value(&roles)
+            }
+            StateMutation::RoleDelete { id, operation_id } => {
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let original_len = roles.len();
+                roles.retain(|role| role.id != id);
+                if roles.len() == original_len {
+                    return Err(CoreError::Domain {
+                        code: "ROLE_NOT_FOUND",
+                        message: "Role not found.".to_owned(),
+                    });
                 }
-            }
-            sync_workspaces(&transaction, &workspaces)?;
-            sync_macros(&transaction, &macros)?;
-            Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
-        }
-        StateMutation::RoleSetBrowserSessionSource { id, source } => {
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let role = set_role_browser_session_source(&mut roles, &id, &source)?;
-            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
-            serde_json::to_value(role)
-        }
-        StateMutation::RoleBrowserDataReset { id, operation_id } => {
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let role = set_role_browser_session_source(&mut roles, &id, "embedded")?;
-            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
-            set_operation_journal_phase(&transaction, &operation_id, "committed")?;
-            serde_json::to_value(role)
-        }
-        StateMutation::RoleCommitSessionMigration {
-            id,
-            engine,
-            checkpoint,
-            operation_id,
-        } => {
-            if checkpoint.role_id != id || checkpoint.target_engine != engine {
-                return Err(CoreError::InvalidInput(
-                    "Role session migration commit does not match its checkpoint.".to_owned(),
-                ));
-            }
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let role = crate::domain::set_role_browser_engine_pin(&mut roles, &id, engine)?;
-            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
-            put_role_session_migration_checkpoint(&transaction, checkpoint)?;
-            delete_operation_journal(&transaction, &operation_id)?;
-            serde_json::to_value(role)
-        }
-        StateMutation::RoleRollbackSessionMigration { id, engine } => {
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let role = crate::domain::set_role_browser_engine_pin(&mut roles, &id, engine)?;
-            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
-            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
-            delete_role_session_migration_checkpoint(&transaction, &id)?;
-            serde_json::to_value(role)
-        }
-        StateMutation::RoleAssignGameIds(assignments) => {
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            assign_role_game_ids(&games, &mut roles, &assignments)?;
-            for (ordinal, role) in roles.iter().enumerate() {
-                upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
-            }
-            serde_json::to_value(&roles)
-        }
-        StateMutation::ProfileRolesPatch {
-            upserts,
-            delete_ids,
-        } => {
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let delete_ids = delete_ids
-                .into_iter()
-                .collect::<std::collections::HashSet<_>>();
-            roles.retain(|role| !delete_ids.contains(&role.id));
-            for role in upserts {
-                if let Some(index) = roles.iter().position(|candidate| candidate.id == role.id) {
-                    roles[index] = role;
-                } else {
-                    roles.push(role);
-                }
-            }
-            validate_profile_roles(&games, &roles)?;
-            for id in &delete_ids {
-                transaction
-                    .execute("DELETE FROM roles WHERE id=?1", params![id])
-                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            }
-            for (ordinal, role) in roles.iter().enumerate() {
-                upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
-            }
-            if !delete_ids.is_empty() {
                 let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
                     &transaction,
                     "launchWorkspaces",
                 )?;
+                for workspace in &mut workspaces {
+                    for slot in &mut workspace.slots {
+                        if slot.role_id.as_deref() == Some(&id) {
+                            slot.role_id = None;
+                        }
+                    }
+                }
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-                for role_id in delete_ids {
-                    clear_workspace_role(&mut workspaces, &role_id);
-                    clear_macro_role(&mut macros, &role_id);
+                for macro_record in &mut macros {
+                    macro_record.role_ids.retain(|role_id| role_id != &id);
+                }
+                transaction
+                    .execute("DELETE FROM roles WHERE id=?1", params![id])
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                sync_workspaces(&transaction, &workspaces)?;
+                sync_macros(&transaction, &macros)?;
+                if let Some(operation_id) = operation_id {
+                    set_operation_journal_phase(&transaction, &operation_id, "committed")?;
+                }
+                Ok(json!({ "deleted": true }))
+            }
+            StateMutation::RolesDelete { ids, operation_ids } => {
+                let requested = normalize_bulk_ids(ids)?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let existing_ids = roles
+                    .iter()
+                    .map(|role| role.id.as_str())
+                    .collect::<std::collections::HashSet<_>>();
+                let deleted_ids = requested
+                    .iter()
+                    .filter(|id| existing_ids.contains(id.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let skipped = requested
+                    .iter()
+                    .filter(|id| !existing_ids.contains(id.as_str()))
+                    .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
+                    .collect::<Vec<_>>();
+                let deleted = deleted_ids.iter().collect::<std::collections::HashSet<_>>();
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                for workspace in &mut workspaces {
+                    for slot in &mut workspace.slots {
+                        if slot
+                            .role_id
+                            .as_ref()
+                            .is_some_and(|role_id| deleted.contains(role_id))
+                        {
+                            slot.role_id = None;
+                        }
+                    }
+                }
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                for macro_record in &mut macros {
+                    macro_record
+                        .role_ids
+                        .retain(|role_id| !deleted.contains(role_id));
+                }
+                for id in &deleted_ids {
+                    transaction
+                        .execute("DELETE FROM roles WHERE id=?1", params![id])
+                        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                    if let Some(operation_id) = operation_ids.get(id) {
+                        set_operation_journal_phase(&transaction, operation_id, "committed")?;
+                    }
                 }
                 sync_workspaces(&transaction, &workspaces)?;
                 sync_macros(&transaction, &macros)?;
+                Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
             }
-            serde_json::to_value(&roles)
-        }
-        StateMutation::WorkspaceCreate(input) => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let workspace = create_workspace(&mut workspaces, input)?;
-            validate_workspace_role_references(&workspace, &roles)?;
-            upsert_workspace(&transaction, &json_value(&workspace)?, workspaces.len() - 1)?;
-            serde_json::to_value(workspace)
-        }
-        StateMutation::WorkspaceUpdate { id, input } => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let workspace = update_workspace(&mut workspaces, &id, input)?;
-            validate_workspace_role_references(&workspace, &roles)?;
-            let ordinal = workspaces.iter().position(|item| item.id == id).unwrap();
-            upsert_workspace(&transaction, &json_value(&workspace)?, ordinal)?;
-            serde_json::to_value(workspace)
-        }
-        StateMutation::WorkspaceReorder { ordered_ids } => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            reorder_workspaces(&mut workspaces, &ordered_ids)?;
-            update_ordinals(&transaction, "workspaces", &ordered_ids)?;
-            serde_json::to_value(&workspaces)
-        }
-        StateMutation::WorkspaceDelete { id } => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            delete_workspace(&mut workspaces, &id)?;
-            transaction
-                .execute("DELETE FROM workspaces WHERE id=?1", params![id])
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            Ok(json!({ "deleted": true }))
-        }
-        StateMutation::WorkspacesDelete { ids } => {
-            let requested = normalize_bulk_ids(ids)?;
-            let workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            let existing_ids = workspaces
-                .iter()
-                .map(|workspace| workspace.id.as_str())
-                .collect::<std::collections::HashSet<_>>();
-            let deleted_ids = requested
-                .iter()
-                .filter(|id| existing_ids.contains(id.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            let skipped = requested
-                .iter()
-                .filter(|id| !existing_ids.contains(id.as_str()))
-                .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
-                .collect::<Vec<_>>();
-            for id in &deleted_ids {
+            StateMutation::RoleBrowserDataReset { id, operation_id } => {
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let role = roles.iter_mut().find(|role| role.id == id).ok_or_else(|| {
+                    CoreError::Domain {
+                        code: "ROLE_NOT_FOUND",
+                        message: "Role not found.".to_owned(),
+                    }
+                })?;
+                role.updated_at = chrono::Utc::now().to_rfc3339();
+                let role = role.clone();
+                let ordinal = roles.iter().position(|item| item.id == id).unwrap();
+                upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
+                set_operation_journal_phase(&transaction, &operation_id, "committed")?;
+                serde_json::to_value(role)
+            }
+            StateMutation::RoleAssignGameIds(assignments) => {
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                assign_role_game_ids(&games, &mut roles, &assignments)?;
+                for (ordinal, role) in roles.iter().enumerate() {
+                    upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
+                }
+                serde_json::to_value(&roles)
+            }
+            StateMutation::WorkspaceCreate(input) => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let workspace = create_workspace(&mut workspaces, input)?;
+                validate_workspace_role_references(&workspace, &roles)?;
+                upsert_workspace(&transaction, &json_value(&workspace)?, workspaces.len() - 1)?;
+                serde_json::to_value(workspace)
+            }
+            StateMutation::WorkspaceUpdate { id, input } => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let workspace = update_workspace(&mut workspaces, &id, input)?;
+                validate_workspace_role_references(&workspace, &roles)?;
+                let ordinal = workspaces.iter().position(|item| item.id == id).unwrap();
+                upsert_workspace(&transaction, &json_value(&workspace)?, ordinal)?;
+                serde_json::to_value(workspace)
+            }
+            StateMutation::WorkspaceReorder { ordered_ids } => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                reorder_workspaces(&mut workspaces, &ordered_ids)?;
+                update_ordinals(&transaction, "workspaces", &ordered_ids)?;
+                serde_json::to_value(&workspaces)
+            }
+            StateMutation::WorkspaceDelete { id } => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                delete_workspace(&mut workspaces, &id)?;
                 transaction
                     .execute("DELETE FROM workspaces WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                Ok(json!({ "deleted": true }))
             }
-            Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
-        }
-        StateMutation::WorkspaceClearRole { role_id } => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            clear_workspace_role(&mut workspaces, &role_id);
-            sync_workspaces(&transaction, &workspaces)?;
-            Ok(json!({ "cleared": true }))
-        }
-        StateMutation::WorkspaceSetRoleBrowserZoom {
-            workspace_id,
-            role_id,
-            browser_zoom_percent,
-        } => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            let workspace = crate::domain::set_workspace_role_browser_zoom(
-                &mut workspaces,
-                &workspace_id,
-                &role_id,
-                browser_zoom_percent,
-            )?;
-            if let Some(workspace) = &workspace {
-                let ordinal = workspaces
+            StateMutation::WorkspacesDelete { ids } => {
+                let requested = normalize_bulk_ids(ids)?;
+                let workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                let existing_ids = workspaces
                     .iter()
-                    .position(|item| item.id == workspace_id)
-                    .unwrap();
-                upsert_workspace(&transaction, &json_value(workspace)?, ordinal)?;
+                    .map(|workspace| workspace.id.as_str())
+                    .collect::<std::collections::HashSet<_>>();
+                let deleted_ids = requested
+                    .iter()
+                    .filter(|id| existing_ids.contains(id.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let skipped = requested
+                    .iter()
+                    .filter(|id| !existing_ids.contains(id.as_str()))
+                    .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
+                    .collect::<Vec<_>>();
+                for id in &deleted_ids {
+                    transaction
+                        .execute("DELETE FROM workspaces WHERE id=?1", params![id])
+                        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                }
+                Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
             }
-            serde_json::to_value(workspace)
-        }
-        StateMutation::WorkspaceReconcileDisplays(displays) => {
-            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
-                &transaction,
-                "launchWorkspaces",
-            )?;
-            crate::domain::reconcile_workspace_displays(&mut workspaces, &displays)?;
-            sync_workspaces(&transaction, &workspaces)?;
-            serde_json::to_value(&workspaces)
-        }
-        StateMutation::MacroCreate(input) => {
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let macro_record = create_macro(&mut macros, input)?;
-            validate_macro_role_references(&macro_record, &roles)?;
-            upsert_macro(&transaction, &json_value(&macro_record)?, macros.len() - 1)?;
-            serde_json::to_value(macro_record)
-        }
-        StateMutation::MacroUpdate { id, input } => {
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-            let macro_record = update_macro(&mut macros, &id, input)?;
-            validate_macro_role_references(&macro_record, &roles)?;
-            let ordinal = macros.iter().position(|item| item.id == id).unwrap();
-            upsert_macro(&transaction, &json_value(&macro_record)?, ordinal)?;
-            serde_json::to_value(macro_record)
-        }
-        StateMutation::MacroDelete { id } => {
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            delete_macro(&mut macros, &id)?;
-            transaction
-                .execute("DELETE FROM macros WHERE id=?1", params![id])
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            Ok(json!({ "deleted": true }))
-        }
-        StateMutation::MacrosDelete { ids } => {
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            let (deleted_ids, skipped) = delete_macros(&mut macros, &ids);
-            for id in &deleted_ids {
+            StateMutation::WorkspaceClearRole { role_id } => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                clear_workspace_role(&mut workspaces, &role_id);
+                sync_workspaces(&transaction, &workspaces)?;
+                Ok(json!({ "cleared": true }))
+            }
+            StateMutation::WorkspaceSetRoleBrowserZoom {
+                workspace_id,
+                role_id,
+                browser_zoom_percent,
+            } => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                let workspace = crate::domain::set_workspace_role_browser_zoom(
+                    &mut workspaces,
+                    &workspace_id,
+                    &role_id,
+                    browser_zoom_percent,
+                )?;
+                if let Some(workspace) = &workspace {
+                    let ordinal = workspaces
+                        .iter()
+                        .position(|item| item.id == workspace_id)
+                        .unwrap();
+                    upsert_workspace(&transaction, &json_value(workspace)?, ordinal)?;
+                }
+                serde_json::to_value(workspace)
+            }
+            StateMutation::WorkspaceReconcileDisplays(displays) => {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                crate::domain::reconcile_workspace_displays(&mut workspaces, &displays)?;
+                sync_workspaces(&transaction, &workspaces)?;
+                serde_json::to_value(&workspaces)
+            }
+            StateMutation::MacroCreate(input) => {
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let macro_record = create_macro(&mut macros, input)?;
+                validate_macro_role_references(&macro_record, &roles)?;
+                upsert_macro(&transaction, &json_value(&macro_record)?, macros.len() - 1)?;
+                serde_json::to_value(macro_record)
+            }
+            StateMutation::MacroUpdate { id, input } => {
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let macro_record = update_macro(&mut macros, &id, input)?;
+                validate_macro_role_references(&macro_record, &roles)?;
+                let ordinal = macros.iter().position(|item| item.id == id).unwrap();
+                upsert_macro(&transaction, &json_value(&macro_record)?, ordinal)?;
+                serde_json::to_value(macro_record)
+            }
+            StateMutation::MacroDelete { id } => {
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                delete_macro(&mut macros, &id)?;
                 transaction
                     .execute("DELETE FROM macros WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                Ok(json!({ "deleted": true }))
             }
-            Ok(json!({
-                "deletedIds": deleted_ids,
-                "skipped": skipped.into_iter().map(|(id, reason, related_names)| json!({
-                    "id": id,
-                    "reason": reason,
-                    "relatedNames": related_names
-                })).collect::<Vec<_>>()
-            }))
-        }
-        StateMutation::MacrosClearRole { role_id } => {
-            let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-            clear_macro_role(&mut macros, &role_id);
-            sync_macros(&transaction, &macros)?;
-            Ok(json!({ "cleared": true }))
-        }
-        StateMutation::CompatibilityReportSave(report) => {
-            let mut report = *report;
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            if !games.iter().any(|game| game.id == report.game_id) {
-                return Err(CoreError::Domain {
-                    code: "GAME_NOT_FOUND",
-                    message: "Game not found.".to_owned(),
-                });
+            StateMutation::MacrosDelete { ids } => {
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                let (deleted_ids, skipped) = delete_macros(&mut macros, &ids);
+                for id in &deleted_ids {
+                    transaction
+                        .execute("DELETE FROM macros WHERE id=?1", params![id])
+                        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                }
+                Ok(json!({
+                    "deletedIds": deleted_ids,
+                    "skipped": skipped.into_iter().map(|(id, reason, related_names)| json!({
+                        "id": id,
+                        "reason": reason,
+                        "relatedNames": related_names
+                    })).collect::<Vec<_>>()
+                }))
             }
-            let mut reports = read_typed_collection::<StateCompatibilityReportRecord>(
-                &transaction,
-                "compatibilityReports",
-            )?;
-            if let Some(index) = reports
-                .iter()
-                .position(|current| current.game_id == report.game_id)
-            {
-                report.observations = merge_compatibility_observations(
-                    &reports[index].observations,
-                    report.observations,
-                );
-                reports[index] = report.clone();
-            } else {
-                reports.push(report.clone());
+            StateMutation::MacrosClearRole { role_id } => {
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                clear_macro_role(&mut macros, &role_id);
+                sync_macros(&transaction, &macros)?;
+                Ok(json!({ "cleared": true }))
             }
-            let ordinal = reports
-                .iter()
-                .position(|item| item.game_id == report.game_id)
-                .unwrap();
-            upsert_compatibility(&transaction, &json_value(&report)?, ordinal)?;
-            serde_json::to_value(report)
-        }
-        StateMutation::CompatibilityReportRecordObservation {
-            game_id,
-            observation,
-        } => {
-            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-            if !games.iter().any(|game| game.id == game_id) {
-                return Err(CoreError::Domain {
-                    code: "GAME_NOT_FOUND",
-                    message: "Game not found.".to_owned(),
-                });
+            StateMutation::CompatibilityReportSave(report) => {
+                let mut report = *report;
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                if !games.iter().any(|game| game.id == report.game_id) {
+                    return Err(CoreError::Domain {
+                        code: "GAME_NOT_FOUND",
+                        message: "Game not found.".to_owned(),
+                    });
+                }
+                let mut reports = read_typed_collection::<StateCompatibilityReportRecord>(
+                    &transaction,
+                    "compatibilityReports",
+                )?;
+                if let Some(index) = reports
+                    .iter()
+                    .position(|current| current.game_id == report.game_id)
+                {
+                    report.observations = merge_compatibility_observations(
+                        &reports[index].observations,
+                        report.observations,
+                    );
+                    reports[index] = report.clone();
+                } else {
+                    reports.push(report.clone());
+                }
+                let ordinal = reports
+                    .iter()
+                    .position(|item| item.game_id == report.game_id)
+                    .unwrap();
+                upsert_compatibility(&transaction, &json_value(&report)?, ordinal)?;
+                serde_json::to_value(report)
             }
-            let mut reports = read_typed_collection::<StateCompatibilityReportRecord>(
-                &transaction,
-                "compatibilityReports",
-            )?;
-            let index = reports
-                .iter()
-                .position(|current| current.game_id == game_id);
-            let mut report = index
-                .map(|index| reports[index].clone())
-                .unwrap_or_else(|| StateCompatibilityReportRecord {
-                    game_id: game_id.clone(),
-                    checked_at: None,
-                    configuration_fingerprint: None,
-                    is_stale: false,
-                    load: None,
-                    graphics: None,
-                    system_chrome: None,
-                    recommendation: None,
-                    observations: StateCompatibilityObservationsRecord {
-                        last_embedded_success_at: None,
-                        last_external_success_at: None,
-                        last_fallback_at: None,
-                        last_launch_failure_at: None,
-                        last_launch_failure_code: None,
-                    },
-                });
-            report.observations =
-                merge_compatibility_observations(&report.observations, observation);
-            if let Some(index) = index {
-                reports[index] = report.clone();
-            } else {
-                reports.push(report.clone());
+            StateMutation::CompatibilityReportRecordObservation {
+                game_id,
+                observation,
+            } => {
+                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+                if !games.iter().any(|game| game.id == game_id) {
+                    return Err(CoreError::Domain {
+                        code: "GAME_NOT_FOUND",
+                        message: "Game not found.".to_owned(),
+                    });
+                }
+                let mut reports = read_typed_collection::<StateCompatibilityReportRecord>(
+                    &transaction,
+                    "compatibilityReports",
+                )?;
+                let index = reports
+                    .iter()
+                    .position(|current| current.game_id == game_id);
+                let mut report = index
+                    .map(|index| reports[index].clone())
+                    .unwrap_or_else(|| StateCompatibilityReportRecord {
+                        game_id: game_id.clone(),
+                        checked_at: None,
+                        configuration_fingerprint: None,
+                        is_stale: false,
+                        load: None,
+                        graphics: None,
+                        recommendation: None,
+                        observations: StateCompatibilityObservationsRecord {
+                            last_embedded_success_at: None,
+                            last_launch_failure_at: None,
+                            last_launch_failure_code: None,
+                        },
+                    });
+                report.observations =
+                    merge_compatibility_observations(&report.observations, observation);
+                if let Some(index) = index {
+                    reports[index] = report.clone();
+                } else {
+                    reports.push(report.clone());
+                }
+                let ordinal = reports
+                    .iter()
+                    .position(|item| item.game_id == game_id)
+                    .unwrap();
+                upsert_compatibility(&transaction, &json_value(&report)?, ordinal)?;
+                serde_json::to_value(report)
             }
-            let ordinal = reports
-                .iter()
-                .position(|item| item.game_id == game_id)
-                .unwrap();
-            upsert_compatibility(&transaction, &json_value(&report)?, ordinal)?;
-            serde_json::to_value(report)
+            StateMutation::CompatibilityReportDelete { game_id } => {
+                transaction
+                    .execute(
+                        "DELETE FROM compatibility_reports WHERE game_id=?1",
+                        params![game_id],
+                    )
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                Ok(json!({ "deleted": true }))
+            }
         }
-        StateMutation::CompatibilityReportDelete { game_id } => {
-            transaction
-                .execute(
-                    "DELETE FROM compatibility_reports WHERE game_id=?1",
-                    params![game_id],
-                )
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            Ok(json!({ "deleted": true }))
-        }
-    }
-    .map_err(|error| CoreError::Internal(error.to_string()))?;
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
     let revision = increment_revision(&transaction)?;
     transaction
         .commit()
@@ -1230,70 +1101,6 @@ fn delete_engine_compatibility_cache_for_game(
     Ok(u32::try_from(changed).unwrap_or(u32::MAX))
 }
 
-fn read_role_session_migration_checkpoint(
-    connection: &Connection,
-    role_id: &str,
-) -> CoreResult<Option<RoleSessionMigrationCheckpointRecord>> {
-    if role_id.trim().is_empty() {
-        return Err(CoreError::InvalidInput(
-            "Role id is required for session migration.".to_owned(),
-        ));
-    }
-    connection
-        .query_row(
-            "SELECT payload_json FROM role_session_migrations WHERE role_id=?1",
-            params![role_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-        .map(|payload| {
-            serde_json::from_str(&payload)
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))
-        })
-        .transpose()
-}
-
-fn put_role_session_migration_checkpoint(
-    connection: &Connection,
-    record: RoleSessionMigrationCheckpointRecord,
-) -> CoreResult<RoleSessionMigrationCheckpointRecord> {
-    if record.role_id.trim().is_empty()
-        || chrono::DateTime::parse_from_rfc3339(&record.completed_at).is_err()
-        || record.source_engine == record.target_engine
-    {
-        return Err(CoreError::InvalidInput(
-            "Role session migration checkpoint is invalid.".to_owned(),
-        ));
-    }
-    let payload =
-        serde_json::to_string(&record).map_err(|error| CoreError::Internal(error.to_string()))?;
-    connection
-        .execute(
-            "INSERT INTO role_session_migrations(role_id, payload_json, updated_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(role_id) DO UPDATE SET
-               payload_json=excluded.payload_json,
-               updated_at=excluded.updated_at",
-            params![record.role_id, payload, chrono::Utc::now().to_rfc3339()],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(record)
-}
-
-fn delete_role_session_migration_checkpoint(
-    connection: &Connection,
-    role_id: &str,
-) -> CoreResult<bool> {
-    let changed = connection
-        .execute(
-            "DELETE FROM role_session_migrations WHERE role_id=?1",
-            params![role_id],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(changed > 0)
-}
-
 fn engine_compatibility_cache_id(key: &EngineCompatibilityCacheKeyRecord) -> CoreResult<String> {
     validate_engine_compatibility_cache_key(key)?;
     let encoded =
@@ -1384,12 +1191,6 @@ fn merge_compatibility_observations(
         last_embedded_success_at: update
             .last_embedded_success_at
             .or_else(|| current.last_embedded_success_at.clone()),
-        last_external_success_at: update
-            .last_external_success_at
-            .or_else(|| current.last_external_success_at.clone()),
-        last_fallback_at: update
-            .last_fallback_at
-            .or_else(|| current.last_fallback_at.clone()),
         last_launch_failure_at: update
             .last_launch_failure_at
             .or_else(|| current.last_launch_failure_at.clone()),
@@ -1607,11 +1408,16 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             );
             CREATE INDEX IF NOT EXISTS engine_compatibility_cache_game_idx
               ON engine_compatibility_cache(game_id, engine);
-            CREATE TABLE IF NOT EXISTS role_session_migrations (
-              role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
+            CREATE TABLE IF NOT EXISTS operation_journal (
+              id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              phase TEXT NOT NULL,
               payload_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS operation_journal_kind_phase_idx
+              ON operation_journal(kind, phase);
             ",
         )
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -1741,7 +1547,82 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 9 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        migrate_system_only_browser_engine_contracts(&transaction)?;
+        transaction
+            .execute_batch(
+                "DELETE FROM operation_journal WHERE kind='role_session_migration_v1';
+                 DELETE FROM engine_compatibility_cache WHERE engine='electron';
+                 DROP TABLE IF EXISTS role_session_migrations;",
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (9, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn migrate_system_only_browser_engine_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
+    rewrite_entity_payloads(transaction, "games", |object| {
+        object.remove("browserLaunchMode");
+        if !matches!(
+            object.get("browserEngine").and_then(Value::as_str),
+            Some("inherit" | "system")
+        ) {
+            object.insert("browserEngine".to_owned(), json!("system"));
+        }
+    })?;
+    rewrite_entity_payloads(transaction, "roles", |object| {
+        object.remove("browserEnginePin");
+        object.remove("browserSessionSource");
+        object.remove("preferredBrowserLaunchMode");
+    })?;
+    rewrite_entity_payloads(transaction, "workspaces", |object| {
+        object.remove("browserLaunchMode");
+        if !matches!(
+            object.get("browserEngine").and_then(Value::as_str),
+            Some("inherit" | "system")
+        ) {
+            object.insert("browserEngine".to_owned(), json!("system"));
+        }
+    })?;
+
+    let payload = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if let Some(payload) = payload {
+        let mut value = parse_payload(&payload)?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
+        })?;
+        object.remove("launchMode");
+        object.insert("browserEngine".to_owned(), json!("system"));
+        if let Some(network) = object.get_mut("network").and_then(Value::as_object_mut) {
+            network.remove("cdnCompatibility");
+        }
+        transaction
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                params![serialize_payload(&value)?],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -1752,18 +1633,14 @@ fn migrate_browser_engine_contracts(transaction: &Transaction<'_>) -> CoreResult
             .or_insert_with(|| json!("inherit"));
     })?;
     rewrite_entity_payloads(transaction, "roles", |object| {
-        object
-            .entry("browserEnginePin".to_owned())
-            .or_insert_with(|| json!("electron"));
-        let session_source = object.get("browserSessionSource").and_then(Value::as_str);
-        if !matches!(session_source, Some("chrome-profile")) {
-            object.insert("browserSessionSource".to_owned(), json!("managed"));
-        }
+        object.remove("browserEnginePin");
+        object.remove("browserSessionSource");
+        object.remove("preferredBrowserLaunchMode");
     })?;
     rewrite_entity_payloads(transaction, "workspaces", |object| {
         object
             .entry("browserEngine".to_owned())
-            .or_insert_with(|| json!("electron"));
+            .or_insert_with(|| json!("system"));
     })?;
 
     let payload = transaction
@@ -2157,77 +2034,6 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
         .commit()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(revision)
-}
-
-fn apply_profile_roles(
-    connection: &mut Connection,
-    roles: Vec<crate::model::StateRoleRecord>,
-) -> CoreResult<u64> {
-    let transaction = connection
-        .transaction()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-    let previous_roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-    validate_profile_roles(&games, &roles)?;
-    let target_ids = roles
-        .iter()
-        .map(|role| role.id.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let removed_role_ids = previous_roles
-        .iter()
-        .filter(|role| !target_ids.contains(role.id.as_str()))
-        .map(|role| role.id.clone())
-        .collect::<Vec<_>>();
-    for role in &previous_roles {
-        if !target_ids.contains(role.id.as_str()) {
-            transaction
-                .execute("DELETE FROM roles WHERE id=?1", params![role.id])
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        }
-    }
-    for (ordinal, role) in roles.iter().enumerate() {
-        upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
-    }
-    if !removed_role_ids.is_empty() {
-        let mut workspaces =
-            read_typed_collection::<StateLaunchWorkspaceRecord>(&transaction, "launchWorkspaces")?;
-        let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-        for role_id in removed_role_ids {
-            clear_workspace_role(&mut workspaces, &role_id);
-            clear_macro_role(&mut macros, &role_id);
-        }
-        sync_workspaces(&transaction, &workspaces)?;
-        sync_macros(&transaction, &macros)?;
-    }
-    let revision = increment_revision(&transaction)?;
-    transaction
-        .commit()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(revision)
-}
-
-fn validate_profile_roles(games: &[StateGameRecord], roles: &[StateRoleRecord]) -> CoreResult<()> {
-    let mut identities = std::collections::HashSet::new();
-    for role in roles {
-        if !games.iter().any(|game| game.id == role.game_id) {
-            return Err(CoreError::Domain {
-                code: "ROLE_GAME_INVALID",
-                message: "Role game is invalid.".to_owned(),
-            });
-        }
-        let identity = (role.game_id.clone(), role.name.trim().to_lowercase());
-        if role.name.trim().is_empty() || !identities.insert(identity) {
-            return Err(CoreError::Domain {
-                code: "ROLE_NAME_DUPLICATE",
-                message: "A role with this name already exists.".to_owned(),
-            });
-        }
-        crate::domain::validate_collection_record(
-            crate::model::StateCollection::Roles,
-            &json_value(role)?,
-        )?;
-    }
-    Ok(())
 }
 
 fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value) -> CoreResult<()> {
@@ -3087,11 +2893,11 @@ mod tests {
         let original = json!({
             "games":[{
                 "id":"g1","source":"custom","name":"Game",
-                "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
+                "defaultLaunchUrl":"https://example.test/play","browserEngine":"inherit",
                 "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
             }],
             "roles":[],"launchWorkspaces":[],"macros":[],"compatibilityReports":[],
-            "gameBrowserSettings":{"launchMode":"embedded"}
+            "gameBrowserSettings":{"browserEngine":"system"}
         });
         replace_snapshot(&mut connection, &original).unwrap();
 
@@ -3105,7 +2911,7 @@ mod tests {
         replace_scalar(
             &mut connection,
             "gameBrowserSettings",
-            json!({"launchMode":"external"}),
+            json!({"browserEngine":"system","marker":"replacement"}),
         )
         .unwrap();
 
@@ -3113,7 +2919,7 @@ mod tests {
         assert_eq!(stored["games"], original["games"]);
         assert_eq!(
             stored["gameBrowserSettings"],
-            json!({"launchMode":"external"})
+            json!({"browserEngine":"system","marker":"replacement"})
         );
         assert!(replace_scalar(&mut connection, "games", json!([])).is_err());
 
@@ -3124,12 +2930,11 @@ mod tests {
                     "families":{"fixed":"  Courier   New  ","bad":"Ignored"}
                 },
                 "graphics":{"mode":"automatic"},
-                "launchMode":"auto",
+                "browserEngine":"system",
                 "macroBadgePosition":{
                     "horizontalAlign":"center","horizontalMarginPx":8,"topPx":128
                 },
                 "network":{
-                    "cdnCompatibility":{"mode":"auto"},
                     "proxy":{"mode":"system","server":""}
                 },
                 "workspace":{"background":"material","gap":4}
@@ -3264,7 +3069,6 @@ mod tests {
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
-                browser_launch_mode: None,
                 browser_engine: None,
             }),
         )
@@ -3272,7 +3076,8 @@ mod tests {
         let game_id = created_game["value"]["id"].as_str().unwrap().to_owned();
         crate::v1_case!("state-migration-edad5901a646", {
             assert_eq!(created_game["value"]["name"], "Custom");
-            assert_eq!(created_game["value"]["browserLaunchMode"], "inherit");
+            assert_eq!(created_game["value"]["browserEngine"], "inherit");
+            assert!(created_game["value"].get("browserLaunchMode").is_none());
             assert_eq!(
                 read_record(&connection, "games", &game_id)
                     .unwrap()
@@ -3535,7 +3340,10 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(browser.launch_mode, "auto");
+        assert_eq!(
+            browser.browser_engine,
+            Some(crate::model::EmbeddedBrowserEngine::System)
+        );
         assert_eq!(macros.key_hold_ms, 30);
         assert!(preferences.always_show_toolbar_in_full_screen);
         assert_eq!(
@@ -3817,11 +3625,12 @@ mod tests {
 
         let snapshot = read_snapshot(&connection).unwrap();
         assert_eq!(snapshot["compatibilityReports"], json!([]));
-        assert_eq!(snapshot["gameBrowserSettings"]["launchMode"], "auto");
+        assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
     }
 
     #[test]
-    fn schema_six_pins_existing_entities_to_electron_and_renames_managed_sessions() {
+    fn schema_nine_normalizes_legacy_browser_engines_and_removes_retired_fields() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         replace_snapshot(
@@ -3866,10 +3675,37 @@ mod tests {
 
         let snapshot = read_snapshot(&connection).unwrap();
         assert_eq!(snapshot["games"][0]["browserEngine"], "inherit");
-        assert_eq!(snapshot["roles"][0]["browserSessionSource"], "managed");
-        assert_eq!(snapshot["roles"][0]["browserEnginePin"], "electron");
-        assert_eq!(snapshot["launchWorkspaces"][0]["browserEngine"], "electron");
+        assert!(snapshot["games"][0].get("browserLaunchMode").is_none());
+        assert!(snapshot["roles"][0].get("browserSessionSource").is_none());
+        assert!(snapshot["roles"][0].get("browserEnginePin").is_none());
+        assert!(
+            snapshot["roles"][0]
+                .get("preferredBrowserLaunchMode")
+                .is_none()
+        );
+        assert_eq!(snapshot["launchWorkspaces"][0]["browserEngine"], "system");
+        assert!(
+            snapshot["launchWorkspaces"][0]
+                .get("browserLaunchMode")
+                .is_none()
+        );
         assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
+        assert!(
+            snapshot["gameBrowserSettings"]["network"]
+                .get("cdnCompatibility")
+                .is_none()
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='role_session_migrations'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
         assert_eq!(
             connection
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
@@ -3909,7 +3745,6 @@ mod tests {
                 trusted_input: crate::model::EngineCapabilityStatus::Unsupported,
                 background_input: crate::model::EngineCapabilityStatus::Unsupported,
                 frame_evaluation: crate::model::EngineCapabilityStatus::Supported,
-                cdn_rewrite: crate::model::EngineCapabilityStatus::Supported,
                 proxy: crate::model::EngineCapabilityStatus::Supported,
                 popup: crate::model::EngineCapabilityStatus::Supported,
                 audio_mute: crate::model::EngineCapabilityStatus::Supported,
@@ -3921,7 +3756,7 @@ mod tests {
                 dialogs: crate::model::EngineCapabilityStatus::Supported,
                 certificate_handling: crate::model::EngineCapabilityStatus::Supported,
             },
-            fallback_reason: Some(crate::model::EngineFallbackReason::CachedCompatibilityFailure),
+            issue_reason: Some(crate::model::SystemWebViewIssueReason::CachedCompatibilityFailure),
             checked_at: "2026-07-25T01:00:00Z".to_owned(),
         };
         put_engine_compatibility_cache(&connection, record.clone()).unwrap();
@@ -3942,7 +3777,7 @@ mod tests {
             .unwrap();
         replacement.key = changed_key.clone();
         replacement.compatible = true;
-        replacement.fallback_reason = None;
+        replacement.issue_reason = None;
         put_engine_compatibility_cache(&connection, replacement.clone()).unwrap();
         assert!(
             read_engine_compatibility_cache(&connection, &key)
@@ -3959,49 +3794,6 @@ mod tests {
             .unwrap();
         assert!(
             read_engine_compatibility_cache(&connection, &changed_key)
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn schema_eight_stores_only_non_sensitive_session_migration_checkpoints() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        replace_snapshot(
-            &mut connection,
-            &json!({
-                "games":[{"id":"g1","name":"Game"}],
-                "roles":[{"id":"r1","gameId":"g1","name":"Role","launchUrl":"https://example.test"}]
-            }),
-        )
-        .unwrap();
-        let checkpoint = RoleSessionMigrationCheckpointRecord {
-            role_id: "r1".to_owned(),
-            source_engine: crate::model::EmbeddedBrowserEngine::Electron,
-            target_engine: crate::model::EmbeddedBrowserEngine::System,
-            completed_at: "2026-07-25T02:00:00Z".to_owned(),
-        };
-
-        assert_eq!(
-            put_role_session_migration_checkpoint(&connection, checkpoint.clone()).unwrap(),
-            checkpoint
-        );
-        assert_eq!(
-            read_role_session_migration_checkpoint(&connection, "r1").unwrap(),
-            Some(checkpoint)
-        );
-        let payload: String = connection
-            .query_row(
-                "SELECT payload_json FROM role_session_migrations WHERE role_id='r1'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(!payload.to_ascii_lowercase().contains("cookie"));
-        assert!(delete_role_session_migration_checkpoint(&connection, "r1").unwrap());
-        assert!(
-            read_role_session_migration_checkpoint(&connection, "r1")
                 .unwrap()
                 .is_none()
         );

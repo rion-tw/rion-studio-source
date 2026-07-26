@@ -6,7 +6,6 @@ import type { WebSurfacePort } from "../src/main/browser/ports/WebSurfacePort";
 
 const paths: RolePathsRecord = {
   browserUserDataDir: "/roles/one/browser",
-  electronBrowserUserDataDir: "/roles/one/browser/electron",
   systemBrowserDataDir: "/roles/one/browser/system",
   webkitDataStoreIdentifier: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
   webkitDataStoreKey: "rion.role.one",
@@ -18,11 +17,9 @@ function surface() {
   const value: WebSurfacePort = {
     addDocumentStartScript: vi.fn(async () => undefined),
     clearStorage: vi.fn(async () => undefined),
-    configureRequestRewrites: vi.fn(async () => undefined),
     destroy: vi.fn(async () => undefined),
     evaluate: async <T>(_source: string) => undefined as T,
     focus: vi.fn(async () => undefined),
-    getCookies: vi.fn(async () => []),
     loadUrl: vi.fn(async () => undefined),
     onLifecycleEvent: vi.fn((next) => {
       listener = next as typeof listener;
@@ -30,7 +27,6 @@ function surface() {
     }),
     setAudioMuted: vi.fn(async () => undefined),
     setBounds: vi.fn(async () => undefined),
-    setCookies: vi.fn(async (cookies) => cookies.length),
     setVisible: vi.fn(async () => undefined),
     setZoomFactor: vi.fn(async () => undefined)
   };
@@ -140,5 +136,26 @@ describe("SystemWebViewRuntimePool", () => {
       "already exists"
     );
     await pool.destroyAll();
+  });
+
+  it("passes the startup graphics arguments only to WebView2", () => {
+    const native = surface();
+    const createWindowsSurface = vi.fn(() => native.value as never);
+    const pool = new SystemWebViewRuntimePool({
+      createWindowsSurface,
+      platform: "win32"
+    });
+
+    pool.create("role-1", {} as never, paths, {
+      additionalBrowserArguments: "--use-angle=d3d11on12"
+    });
+
+    expect(createWindowsSurface).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        additionalBrowserArguments: "--use-angle=d3d11on12",
+        userDataFolder: paths.webview2UserDataDir
+      }
+    );
   });
 });

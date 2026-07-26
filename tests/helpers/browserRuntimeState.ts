@@ -138,19 +138,13 @@ export function createBrowserRuntimeState() {
     publishBrowserStatuses(statuses: BrowserRoleStatusRecord[]): void {
       listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
     },
-    evaluateExternalChrome<T>(): Promise<T> {
-      return Promise.reject(new Error("External Chrome is not configured in this test harness."));
-    },
     listBrowserStatuses(): BrowserRoleStatusRecord[] {
       return snapshot().roles.map((role) => {
         return {
           roleId: role.roleId,
           state: role.state,
           ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
-          runtimeMode: role.runtime,
-          ...(role.runtime === "external"
-            ? { automationState: "ready" as const, pageHealth: "healthy" as const }
-            : {})
+          runtimeMode: role.runtime
         };
       });
     },
@@ -258,29 +252,6 @@ export function createBrowserRuntimeState() {
               state: "launching"
             });
           }
-          break;
-        }
-        case "createExternalWorkspace": {
-          const occupied = command.exclusiveDisplay && command.displayId !== undefined &&
-            [...workspaces.values()].find(
-              (workspace) => workspace.workspaceId !== command.workspaceId &&
-                workspace.exclusiveDisplay && workspace.displayId === command.displayId
-            );
-          if (occupied) {
-            const error = new Error("Launch workspace target display is already occupied.") as
-              Error & { code: string };
-            error.code = "WORKSPACE_DISPLAY_OCCUPIED";
-            throw error;
-          }
-          workspaces.set(command.workspaceId, {
-            workspaceId: command.workspaceId,
-            name: command.name,
-            runtime: "external",
-            ...(command.displayId === undefined ? {} : { displayId: command.displayId }),
-            exclusiveDisplay: command.exclusiveDisplay,
-            roleIds: [...command.roleIds],
-            state: "launching"
-          });
           break;
         }
         case "removeTab":

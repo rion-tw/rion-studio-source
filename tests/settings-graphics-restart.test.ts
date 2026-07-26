@@ -21,7 +21,6 @@ function createDiagnostics(restartRequired: boolean): GraphicsDiagnostics {
       webgl2: "available",
       webgpu: "available"
     },
-    externalRoles: [],
     featureStatus: {},
     gpuInfoReady: true,
     hardwareAccelerationEnabled: true,
@@ -31,9 +30,10 @@ function createDiagnostics(restartRequired: boolean): GraphicsDiagnostics {
       ? DEFAULT_BROWSER_GRAPHICS_SETTINGS
       : LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
     versions: {
-      chromium: "1",
-      electron: "1",
-      node: "1"
+      engine: "wkwebview",
+      engineVersion: "14.6",
+      shell: "tauri",
+      shellVersion: "2.11"
     }
   };
 }

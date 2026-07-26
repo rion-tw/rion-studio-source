@@ -117,21 +117,6 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Unable to create a unique imported name.": "error.portableNameConflict",
   "Multiple roles share a name in the same game. Rename or remove duplicates before importing.":
     "error.portableRoleNameConflict",
-  "Chrome profile import is supported on macOS and Windows only.": "error.chromeProfileImportUnsupported",
-  "Selected Chrome data path is not a folder.": "error.chromeProfileImportSourceInvalid",
-  "Selected Chrome data folder does not exist.": "error.chromeProfileImportSourceMissing",
-  "Chrome is still using the selected profile. Quit Chrome and try again.": "error.chromeProfileImportChromeRunning",
-  "Unable to ask Google Chrome to close. Close Chrome manually and try again.": "error.chromeProfileImportCloseFailed",
-  "No Chrome profiles were found in the selected folder.": "error.chromeProfileImportProfilesMissing",
-  "Consent is required before importing Chrome profile data.": "error.chromeProfileImportConsentRequired",
-  "Chrome profile import preview expired. Choose the folder again.": "error.chromeProfileImportExpired",
-  "Select at least one Chrome profile to import.": "error.chromeProfileImportSelectionEmpty",
-  "Chrome profile contains an unsupported symbolic link.": "error.chromeProfileImportProfileInvalid",
-  "Chrome profile import is not available.": "error.chromeProfileImportUnavailable",
-  "Chrome profile import input is invalid.": "error.chromeProfileImportInputInvalid",
-  "Chrome profile import id is invalid.": "error.chromeProfileImportIdInvalid",
-  "Multiple Chrome profiles or roles share a name in the selected game. Rename or remove duplicates before importing.":
-    "error.chromeProfileImportRoleNameConflict",
   "Macro is already running for this role.": "error.macroAlreadyRunning",
   "Enable this macro before running it.": "error.macroDisabled",
   "Stop the macro before editing it.": "error.macroStopBeforeEditing",
@@ -146,28 +131,10 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Launch at least one assigned role before running a macro.": "error.macroNoRunnableRoles",
   "Assign a role to this macro and every called macro before running it.":
     "error.macroUnassignedWorkflow",
-  "Macro control is unavailable for this compatibility-mode session. Restart the role and try again.":
-    "error.macroExternalRuntimeUnsupported",
-  "Macro control could not connect to compatibility mode. Restart this role to try again.":
-    "notice.externalMacroUnavailable",
-  "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.":
-    "notice.externalOverlayUnavailable",
-  "Workspace zoom could not be applied in external Chrome. Restart this role to try again.":
-    "notice.externalZoomUnavailable",
   "Launch workspace has no roles.": "error.workspaceEmpty",
-  "Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable.":
-    "error.chromeNotFound",
-  "Chrome is still using this role's browser data. Quit Chrome and try again.":
-    "error.browserUserDataLockTimeout",
   "Unable to start the hidden Rion Studio browser helper.": "error.hiddenBrowserHelperUnavailable",
   "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.":
     "error.gamePageLoadFailed",
-  "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.":
-    "notice.externalChromeFallback",
-  "China CDN compatibility mode is active in external Chrome.":
-    "notice.cdnCompatibilityExternalActive",
-  "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.":
-    "notice.cdnCompatibilityUnavailable",
 };
 
 export function createTranslator(

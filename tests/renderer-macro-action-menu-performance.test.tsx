@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("macro action menu performance", () => {
-  it("keeps the Studio run button enabled when only the Chrome overlay is unavailable", () => {
+  it("keeps the Studio run button enabled when the optional overlay is unavailable", () => {
     const onStartMacro = vi.fn();
     render(
       <MacrosRoute
@@ -34,7 +34,7 @@ describe("macro action menu performance", () => {
           {
             roleId: role.id,
             state: "running",
-            runtimeMode: "external",
+            runtimeMode: "embedded",
             automationState: "ready",
             overlayState: "unavailable"
           }

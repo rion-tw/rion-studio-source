@@ -9,7 +9,6 @@ import type {
   AppUpdateStatus,
   EmbeddedRuntimeState,
   BulkDeleteInput,
-  ChromeProfileImportInput,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -24,7 +23,6 @@ import type {
   PortableImportInput,
   ReorderItemsInput,
   DiscardSavedGameWindowsInput,
-  EmbeddedBrowserEngine,
   RestoreSavedGameWindowsInput,
   Role,
   RoleStatus,
@@ -46,10 +44,8 @@ import {
 } from "../../shared/workspaceDisplays";
 import {
   BrowserLaunchCancelledError,
-  EXTERNAL_COMPAT_NOTICE,
   type ElectronBrowserRuntime
 } from "../browser/ElectronBrowserRuntime";
-import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
 import type { RuntimeSessionManager } from "../browser/RuntimeSessionManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { RustSystemFontService } from "../game-browser/RustSystemFontService";
@@ -96,10 +92,6 @@ interface RegisterIpcHandlersOptions {
   onWorkspacesChanged?: () => void;
   onRuntimeWindowPreferencesChanged?: (preferences: RuntimeWindowPreferences) => void;
   clearRoleBrowserData?: (roleId: string) => Promise<Role>;
-  chromeProfileImportManager?: Pick<
-    ChromeProfileImportManager,
-    "applyImport" | "closeChrome" | "discardImport" | "previewImport"
-  >;
   workspaceLauncher?: Pick<WorkspaceLaunchCoordinator, "launch">;
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
@@ -108,7 +100,6 @@ interface RegisterIpcHandlersOptions {
     "applyImport" | "discardImport" | "exportData" | "previewImport"
   >;
   getGraphicsDiagnostics?: (sender: Electron.WebContents) => Promise<unknown>;
-  captureExternalRoleDiagnostics?: (roleId: string) => Promise<void>;
   quitApplication?: () => void;
   restartApplication?: () => void;
   logService?: {
@@ -436,55 +427,6 @@ export function registerIpcHandlers(
     await options.portableDataManager.discardImport(importId);
   });
 
-  handle(IPC_CHANNELS.chromeProfileImportPreview, () => {
-    if (!options.chromeProfileImportManager) {
-      throw new Error("Chrome profile import is not available.");
-    }
-
-    return options.chromeProfileImportManager.previewImport();
-  });
-
-  handle(IPC_CHANNELS.chromeProfileImportCloseChrome, () => {
-    if (!options.chromeProfileImportManager) {
-      throw new Error("Chrome profile import is not available.");
-    }
-
-    return options.chromeProfileImportManager.closeChrome();
-  });
-
-  handle(IPC_CHANNELS.chromeProfileImportApply, (event, input: ChromeProfileImportInput) => {
-    if (
-      !options.chromeProfileImportManager ||
-      !input ||
-      typeof input.importId !== "string" ||
-      !input.importId.trim() ||
-      !Array.isArray(input.profileIds) ||
-      typeof input.gameId !== "string" ||
-      !input.gameId.trim() ||
-      input.consentAccepted !== true
-    ) {
-      throw new Error("Chrome profile import input is invalid.");
-    }
-
-    return runDataMutation(options, async () => {
-      const result = await options.chromeProfileImportManager!.applyImport(input, (progress) => {
-        const sender = event?.sender;
-        if (sender && !sender.isDestroyed()) {
-          sender.send(IPC_CHANNELS.chromeProfileImportProgress, progress);
-        }
-      });
-      options.onRolesChanged?.();
-      return result;
-    });
-  });
-
-  handle(IPC_CHANNELS.chromeProfileImportDiscard, (_event, importId: string) => {
-    if (!options.chromeProfileImportManager || typeof importId !== "string" || !importId.trim()) {
-      throw new Error("Chrome profile import is not available.");
-    }
-    return options.chromeProfileImportManager.discardImport(importId);
-  });
-
   handle(IPC_CHANNELS.gameBrowserSettingsGet, () => {
     if (!options.gameBrowserSettingsStore) {
       throw new Error("Game browser settings are not available.");
@@ -669,30 +611,6 @@ export function registerIpcHandlers(
     })
   );
 
-  handle(
-    IPC_CHANNELS.rolesSessionMigrationPreview,
-    (_event, id: string, targetEngine: EmbeddedBrowserEngine) =>
-      roleStore.previewSessionMigration(id, targetEngine)
-  );
-
-  handle(
-    IPC_CHANNELS.rolesSessionMigrationApply,
-    (_event, id: string, targetEngine: EmbeddedBrowserEngine) =>
-      runDataMutation(options, async () => {
-        const result = await roleStore.applySessionMigration(id, targetEngine);
-        options.onRolesChanged?.();
-        return result;
-      })
-  );
-
-  handle(IPC_CHANNELS.rolesSessionMigrationRollback, (_event, id: string) =>
-    runDataMutation(options, async () => {
-      const result = await roleStore.rollbackSessionMigration(id);
-      options.onRolesChanged?.();
-      return result;
-    })
-  );
-
   handle(IPC_CHANNELS.rolesPaths, async (_event, id: string) => {
     await roleStore.getRole(id);
     return roleStore.getRolePaths(id);
@@ -703,27 +621,13 @@ export function registerIpcHandlers(
 
     try {
       const status = await browserManager.launch(role);
-      if (status) await recordLaunchSuccess(options, role.gameId, status);
+      if (status) await recordLaunchSuccess(options, role.gameId);
       return status;
     } catch (error) {
       if (error instanceof BrowserLaunchCancelledError) return null;
       await recordLaunchFailure(options, role.gameId, error);
       throw error;
     }
-  });
-
-  handle(IPC_CHANNELS.rolesCaptureExternalDiagnostics, async (_event, id: string) => {
-    assertRoleId(id);
-    if (options.captureExternalRoleDiagnostics) {
-      await options.captureExternalRoleDiagnostics(id);
-      return;
-    }
-    await browserManager.captureExternalRoleDiagnostics(id);
-  });
-
-  handle(IPC_CHANNELS.rolesRecoverExternal, async (_event, id: string) => {
-    assertRoleId(id);
-    return browserManager.recoverExternalRole(id);
   });
 
   handle(IPC_CHANNELS.rolesStop, async (_event, id: string) => {
@@ -1005,12 +909,6 @@ function broadcastStatusChange(statuses: RoleStatus[]): void {
   });
 }
 
-function assertRoleId(value: unknown): asserts value is string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error("Role id is invalid.");
-  }
-}
-
 function broadcastRuntimeStateChange(state: EmbeddedRuntimeState): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.runtimeStateChanged, state);
@@ -1074,19 +972,15 @@ async function broadcastGameCompatibilityChange(options: RegisterIpcHandlersOpti
 
 async function recordLaunchSuccess(
   options: RegisterIpcHandlersOptions,
-  gameId: string,
-  status: RoleStatus
+  gameId: string
 ): Promise<void> {
   if (!options.gameCompatibilityManager) {
     return;
   }
   const timestamp = new Date().toISOString();
-  await options.gameCompatibilityManager.recordObservation(gameId, status.runtimeMode === "external"
-    ? {
-        lastExternalSuccessAt: timestamp,
-        ...(status.notice?.includes(EXTERNAL_COMPAT_NOTICE) ? { lastFallbackAt: timestamp } : {})
-      }
-    : { lastEmbeddedSuccessAt: timestamp });
+  await options.gameCompatibilityManager.recordObservation(gameId, {
+    lastEmbeddedSuccessAt: timestamp
+  });
 }
 
 async function recordLaunchFailure(

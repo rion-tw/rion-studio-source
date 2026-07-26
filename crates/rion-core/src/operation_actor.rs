@@ -277,7 +277,7 @@ impl OperationActor {
                             effect_id,
                             result.operation_id,
                             "CORE_EFFECT_TIMEOUT",
-                            "The Electron effect result arrived after its deadline.",
+                            "The desktop shell effect result arrived after its deadline.",
                         ),
                     ))
                 } else {
@@ -412,7 +412,7 @@ fn run_operation(
                 failure = result.error.clone().or_else(|| {
                     Some(CoreErrorPayload {
                         code: "CORE_EFFECT_FAILED".to_owned(),
-                        message: "The Electron effect failed.".to_owned(),
+                        message: "The desktop shell effect failed.".to_owned(),
                     })
                 });
                 results.push(result);
@@ -468,7 +468,7 @@ fn execute_effect(
         if state.pending.len() >= actor.pending_capacity {
             return Err(CoreError::Domain {
                 code: "CORE_EFFECT_BACKPRESSURE",
-                message: "The Electron effect queue is full.".to_owned(),
+                message: "The desktop shell effect queue is full.".to_owned(),
             });
         }
         state.pending.insert(
@@ -515,7 +515,7 @@ fn execute_effect(
             }
             Err(CoreError::Domain {
                 code: "CORE_EFFECT_TIMEOUT",
-                message: "The Electron effect timed out.".to_owned(),
+                message: "The desktop shell effect timed out.".to_owned(),
             })
         }
     }
@@ -630,8 +630,8 @@ mod tests {
         let handle = actor
             .start(OperationPlan {
                 steps: vec![OperationStep {
-                    effect: effect(CoreEffectAction::LoadUrl {
-                        url: "https://example.test".to_owned(),
+                    effect: effect(CoreEffectAction::OverlayOpenMacroPage {
+                        role_id: "role-1".to_owned(),
                     }),
                     compensation: None,
                 }],
@@ -654,7 +654,10 @@ mod tests {
                 steps: vec![OperationStep {
                     effect: OperationEffect {
                         timeout: Duration::from_millis(20),
-                        ..effect(CoreEffectAction::Focus)
+                        ..effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: None,
+                        })
                     },
                     compensation: None,
                 }],
@@ -701,12 +704,18 @@ mod tests {
             .start(OperationPlan {
                 steps: vec![
                     OperationStep {
-                        effect: effect(CoreEffectAction::SetVisible { visible: true }),
-                        compensation: Some(effect(CoreEffectAction::SetVisible { visible: false })),
+                        effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: Some(1.2),
+                        }),
+                        compensation: Some(effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: Some(1.0),
+                        })),
                     },
                     OperationStep {
-                        effect: effect(CoreEffectAction::LoadUrl {
-                            url: "https://failure.test".to_owned(),
+                        effect: effect(CoreEffectAction::OverlayOpenMacroPage {
+                            role_id: "role-1".to_owned(),
                         }),
                         compensation: None,
                     },
@@ -729,7 +738,7 @@ mod tests {
                 ok: false,
                 value_json: None,
                 error: Some(CoreErrorPayload {
-                    code: "ELECTRON_LOAD_FAILED".to_owned(),
+                    code: "TEST_EFFECT_FAILED".to_owned(),
                     message: "load failed".to_owned(),
                 }),
             }])
@@ -740,7 +749,10 @@ mod tests {
             .remove(0);
         assert!(matches!(
             compensation.action,
-            CoreEffectAction::SetVisible { visible: false }
+            CoreEffectAction::EmbeddedFocusRole {
+                zoom_factor: Some(1.0),
+                ..
+            }
         ));
         actor
             .dispatch_results(vec![success(&compensation)])
@@ -748,7 +760,7 @@ mod tests {
         let outcome = handle.outcome.blocking_recv().unwrap();
         assert_eq!(
             outcome.error.as_ref().map(|error| error.code.as_str()),
-            Some("ELECTRON_LOAD_FAILED")
+            Some("TEST_EFFECT_FAILED")
         );
         assert_eq!(outcome.compensation_results.len(), 1);
     }
@@ -759,7 +771,10 @@ mod tests {
         let cancelled = actor
             .start(OperationPlan {
                 steps: vec![OperationStep {
-                    effect: effect(CoreEffectAction::Focus),
+                    effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: None,
+                    }),
                     compensation: None,
                 }],
             })
@@ -775,7 +790,10 @@ mod tests {
         let shutting_down = actor
             .start(OperationPlan {
                 steps: vec![OperationStep {
-                    effect: effect(CoreEffectAction::Focus),
+                    effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: None,
+                    }),
                     compensation: None,
                 }],
             })
@@ -804,7 +822,10 @@ mod tests {
         let handle = actor
             .start(OperationPlan {
                 steps: vec![OperationStep {
-                    effect: effect(CoreEffectAction::Focus),
+                    effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: None,
+                    }),
                     compensation: None,
                 }],
             })
@@ -836,11 +857,16 @@ mod tests {
             .start_launch(OperationPlan {
                 steps: vec![
                     OperationStep {
-                        effect: effect(CoreEffectAction::Focus),
+                        effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: None,
+                        }),
                         compensation: None,
                     },
                     OperationStep {
-                        effect: effect(CoreEffectAction::SetVisible { visible: true }),
+                        effect: effect(CoreEffectAction::OverlayOpenMacroPage {
+                            role_id: "role-1".to_owned(),
+                        }),
                         compensation: None,
                     },
                 ],

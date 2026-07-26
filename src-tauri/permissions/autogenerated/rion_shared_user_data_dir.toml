@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-shared-user-data-dir"
+description = "Enables the rion_shared_user_data_dir command without any pre-configured scope."
+commands.allow = ["rion_shared_user_data_dir"]
+
+[[permission]]
+identifier = "deny-rion-shared-user-data-dir"
+description = "Denies the rion_shared_user_data_dir command without any pre-configured scope."
+commands.deny = ["rion_shared_user_data_dir"]

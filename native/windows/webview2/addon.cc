@@ -13,7 +13,6 @@
 #include <functional>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -25,29 +24,11 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 6;
-
-struct CookieInput {
-  std::wstring domain;
-  std::optional<double> expiration_date;
-  bool http_only = false;
-  std::wstring name;
-  std::wstring path = L"/";
-  COREWEBVIEW2_COOKIE_SAME_SITE_KIND same_site =
-      COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE;
-  bool secure = false;
-  std::wstring value;
-};
+constexpr int32_t kProtocolVersion = 9;
 
 struct PendingReadyAction {
   std::function<void()> action;
   std::function<void(const std::string&)> failure;
-};
-
-struct RequestRewriteRule {
-  std::wregex matcher;
-  std::wstring substitution;
-  std::wstring source_host;
 };
 
 struct PopupWebView {
@@ -59,7 +40,6 @@ struct PopupWebView {
   EventRegistrationToken permission_token{};
   EventRegistrationToken process_failed_token{};
   EventRegistrationToken web_message_token{};
-  EventRegistrationToken web_resource_requested_token{};
 };
 
 class WebView2Surface;
@@ -218,20 +198,28 @@ std::wstring TakeWideString(LPWSTR value) {
 class WebView2Surface : public std::enable_shared_from_this<WebView2Surface> {
  public:
   WebView2Surface(int64_t identifier, HWND parent,
-                  std::wstring user_data_folder, std::wstring proxy_server)
+                  std::wstring user_data_folder,
+                  std::wstring additional_browser_arguments,
+                  std::wstring proxy_server)
       : identifier_(identifier),
         parent_(parent),
         user_data_folder_(std::move(user_data_folder)),
+        additional_browser_arguments_(
+            std::move(additional_browser_arguments)),
         proxy_server_(std::move(proxy_server)) {}
 
   ~WebView2Surface() { Destroy(); }
 
   HRESULT Initialize() {
-    if (!proxy_server_.empty()) {
+    if (!additional_browser_arguments_.empty() || !proxy_server_.empty()) {
       const auto options =
           Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
       if (!options) return E_OUTOFMEMORY;
-      const std::wstring arguments = L"--proxy-server=" + proxy_server_;
+      std::wstring arguments = additional_browser_arguments_;
+      if (!proxy_server_.empty()) {
+        if (!arguments.empty()) arguments += L" ";
+        arguments += L"--proxy-server=" + proxy_server_;
+      }
       const HRESULT options_result =
           options->put_AdditionalBrowserArguments(arguments.c_str());
       if (FAILED(options_result)) return options_result;
@@ -382,57 +370,11 @@ class WebView2Surface : public std::enable_shared_from_this<WebView2Surface> {
     return true;
   }
 
-  HRESULT ConfigureRequestRewrites(std::vector<RequestRewriteRule> rules) {
-    if (request_rewrites_configured_) return E_UNEXPECTED;
-    request_rewrites_ = std::move(rules);
-    const HRESULT event_result =
-        ApplyRequestRewrites(webview_.Get(), &web_resource_requested_token_);
-    if (FAILED(event_result)) {
-      request_rewrites_.clear();
-      return event_result;
-    }
-    request_rewrites_configured_ = true;
-    return S_OK;
-  }
-
   void RememberDocumentStartScript(const std::wstring& source) {
     document_start_scripts_.push_back(source);
   }
 
  private:
-  HRESULT ApplyRequestRewrites(
-      ICoreWebView2* webview, EventRegistrationToken* token) {
-    for (const auto& rule : request_rewrites_) {
-      const std::wstring filter = L"https://" + rule.source_host + L"/*";
-      const HRESULT filter_result = webview->AddWebResourceRequestedFilter(
-          filter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-      if (FAILED(filter_result)) return filter_result;
-    }
-    return webview->add_WebResourceRequested(
-        Callback<ICoreWebView2WebResourceRequestedEventHandler>(
-            [weak = weak_from_this()](
-                ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* args) {
-              const auto self = weak.lock();
-              if (!self || self->destroyed_) return S_OK;
-              ComPtr<ICoreWebView2WebResourceRequest> request;
-              if (FAILED(args->get_Request(&request)) || !request) return S_OK;
-              LPWSTR raw_uri = nullptr;
-              if (FAILED(request->get_Uri(&raw_uri)) || !raw_uri) return S_OK;
-              const std::wstring uri = TakeWideString(raw_uri);
-              for (const auto& rule : self->request_rewrites_) {
-                if (!std::regex_match(uri, rule.matcher)) continue;
-                const std::wstring rewritten = std::regex_replace(
-                    uri, rule.matcher, rule.substitution,
-                    std::regex_constants::format_first_only);
-                if (rewritten != uri) request->put_Uri(rewritten.c_str());
-                break;
-              }
-              return S_OK;
-            })
-            .Get(),
-        token);
-  }
-
   void PublishAudibleState(ICoreWebView2* webview, bool audible) {
     audible_states_[webview] = audible;
     EmitEvent(identifier_, "audioChanged", {},
@@ -552,14 +494,6 @@ class WebView2Surface : public std::enable_shared_from_this<WebView2Surface> {
                     auto record = std::make_unique<PopupWebView>();
                     record->controller = controller;
                     record->webview = popup;
-                    if (surface->request_rewrites_configured_ &&
-                        FAILED(surface->ApplyRequestRewrites(
-                            popup.Get(),
-                            &record->web_resource_requested_token))) {
-                      surface->FailPopup(arguments.Get(), deferral.Get(),
-                                         controller.Get(), url);
-                      return;
-                    }
                     popup->add_WindowCloseRequested(
                         Callback<ICoreWebView2WindowCloseRequestedEventHandler>(
                             [weak, raw = popup.Get()](ICoreWebView2*, IUnknown*) {
@@ -836,11 +770,11 @@ class WebView2Surface : public std::enable_shared_from_this<WebView2Surface> {
   int64_t identifier_;
   HWND parent_ = nullptr;
   std::wstring user_data_folder_;
+  std::wstring additional_browser_arguments_;
   std::wstring proxy_server_;
   bool destroyed_ = false;
   bool failed_ = false;
   bool ready_ = false;
-  bool request_rewrites_configured_ = false;
   bool audio_muted_ = false;
   bool visible_ = false;
   double zoom_factor_ = 1.0;
@@ -849,7 +783,6 @@ class WebView2Surface : public std::enable_shared_from_this<WebView2Surface> {
   std::vector<PendingReadyAction> pending_;
   std::vector<std::wstring> document_start_scripts_;
   std::vector<std::unique_ptr<PopupWebView>> popups_;
-  std::vector<RequestRewriteRule> request_rewrites_;
   std::unordered_map<ICoreWebView2*, bool> audible_states_;
   ComPtr<ICoreWebView2Environment> environment_;
   ComPtr<ICoreWebView2EnvironmentOptions> environment_options_;
@@ -862,7 +795,6 @@ class WebView2Surface : public std::enable_shared_from_this<WebView2Surface> {
   EventRegistrationToken audio_token_{};
   EventRegistrationToken download_token_{};
   EventRegistrationToken permission_token_{};
-  EventRegistrationToken web_resource_requested_token_{};
 };
 
 napi_value GetNamed(napi_env env, napi_value object, const char* name) {
@@ -903,61 +835,6 @@ std::optional<std::string> GetOptionalString(napi_env env, napi_value object,
     return std::nullopt;
   }
   return GetString(env, value, "Invalid WebView2 string property.");
-}
-
-std::optional<std::vector<RequestRewriteRule>> GetRequestRewriteRules(
-    napi_env env, napi_value value) {
-  bool is_array = false;
-  if (napi_is_array(env, value, &is_array) != napi_ok || !is_array) {
-    Throw(env, "WebView2 request rewrite rules must be an array.");
-    return std::nullopt;
-  }
-  uint32_t length = 0;
-  if (napi_get_array_length(env, value, &length) != napi_ok || length > 32) {
-    Throw(env, "WebView2 request rewrite rule count is invalid.");
-    return std::nullopt;
-  }
-  std::vector<RequestRewriteRule> rules;
-  rules.reserve(length);
-  try {
-    for (uint32_t index = 0; index < length; ++index) {
-      napi_value item;
-      if (napi_get_element(env, value, index, &item) != napi_ok) {
-        Throw(env, "A WebView2 request rewrite rule is invalid.");
-        return std::nullopt;
-      }
-      const std::wstring regex_filter = Wide(GetString(
-          env, GetNamed(env, item, "regexFilter"),
-          "A WebView2 request rewrite regex is required."));
-      const std::wstring substitution = Wide(GetString(
-          env, GetNamed(env, item, "regexSubstitution"),
-          "A WebView2 request rewrite substitution is required."));
-      const std::wstring source_host = Wide(GetString(
-          env, GetNamed(env, item, "sourceHost"),
-          "A WebView2 request rewrite source host is required."));
-      if (regex_filter.empty() || substitution.empty() ||
-          source_host.empty() ||
-          !std::all_of(source_host.begin(), source_host.end(), [](wchar_t ch) {
-            return (ch >= L'a' && ch <= L'z') ||
-                   (ch >= L'A' && ch <= L'Z') ||
-                   (ch >= L'0' && ch <= L'9') || ch == L'.' || ch == L'-';
-          })) {
-        Throw(env, "A WebView2 request rewrite rule is unsafe.");
-        return std::nullopt;
-      }
-      rules.push_back({
-          std::wregex(regex_filter,
-                      std::regex_constants::ECMAScript |
-                          std::regex_constants::optimize),
-          substitution,
-          source_host,
-      });
-    }
-  } catch (const std::regex_error&) {
-    Throw(env, "A WebView2 request rewrite regex is invalid.");
-    return std::nullopt;
-  }
-  return rules;
 }
 
 std::optional<bool> GetOptionalBoolean(napi_env env, napi_value object,
@@ -1023,117 +900,6 @@ HWND GetNativeWindow(napi_env env, napi_value value) {
   return reinterpret_cast<HWND>(raw);
 }
 
-std::wstring CookieDomainFromUrl(const std::string& url) {
-  const size_t scheme = url.find("://");
-  if (scheme == std::string::npos) return {};
-  const size_t start = scheme + 3;
-  const size_t end = url.find_first_of("/:?#", start);
-  return Wide(url.substr(start, end == std::string::npos ? end : end - start));
-}
-
-std::vector<CookieInput> ParseCookies(napi_env env, napi_value value) {
-  bool is_array = false;
-  if (napi_is_array(env, value, &is_array) != napi_ok || !is_array) {
-    Throw(env, "WebView2 cookies must be an array.");
-    return {};
-  }
-  uint32_t length = 0;
-  napi_get_array_length(env, value, &length);
-  std::vector<CookieInput> cookies;
-  cookies.reserve(length);
-  for (uint32_t index = 0; index < length; ++index) {
-    napi_value item;
-    if (napi_get_element(env, value, index, &item) != napi_ok) continue;
-    CookieInput cookie;
-    cookie.name = Wide(GetString(env, GetNamed(env, item, "name"),
-                                 "Cookie name is required."));
-    cookie.value = Wide(GetString(env, GetNamed(env, item, "value"),
-                                  "Cookie value is required."));
-    const auto url = GetOptionalString(env, item, "url").value_or("");
-    cookie.domain = Wide(GetOptionalString(env, item, "domain").value_or(""));
-    if (cookie.domain.empty()) cookie.domain = CookieDomainFromUrl(url);
-    cookie.path = Wide(GetOptionalString(env, item, "path").value_or("/"));
-    cookie.expiration_date = GetOptionalDouble(env, item, "expirationDate");
-    cookie.http_only = GetOptionalBoolean(env, item, "httpOnly").value_or(false);
-    cookie.secure = GetOptionalBoolean(env, item, "secure").value_or(
-        url.starts_with("https://"));
-    const auto same_site =
-        GetOptionalString(env, item, "sameSite").value_or("unspecified");
-    if (same_site == "lax") {
-      cookie.same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX;
-    } else if (same_site == "strict") {
-      cookie.same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT;
-    } else {
-      cookie.same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE;
-    }
-    if (cookie.name.empty() || cookie.domain.empty()) {
-      Throw(env, "A WebView2 cookie requires a name and domain.");
-      return {};
-    }
-    cookies.push_back(std::move(cookie));
-  }
-  return cookies;
-}
-
-std::string CookiesJson(ICoreWebView2CookieList* list) {
-  UINT32 count = 0;
-  if (!list || FAILED(list->get_Count(&count))) return "[]";
-  std::ostringstream json;
-  json << "[";
-  bool first = true;
-  for (UINT32 index = 0; index < count; ++index) {
-    ComPtr<ICoreWebView2Cookie> cookie;
-    if (FAILED(list->GetValueAtIndex(index, &cookie)) || !cookie) continue;
-    LPWSTR raw_name = nullptr;
-    LPWSTR raw_value = nullptr;
-    LPWSTR raw_domain = nullptr;
-    LPWSTR raw_path = nullptr;
-    cookie->get_Name(&raw_name);
-    cookie->get_Value(&raw_value);
-    cookie->get_Domain(&raw_domain);
-    cookie->get_Path(&raw_path);
-    const std::string name = Utf8(TakeWideString(raw_name));
-    const std::string value = Utf8(TakeWideString(raw_value));
-    const std::string domain = Utf8(TakeWideString(raw_domain));
-    const std::string path = Utf8(TakeWideString(raw_path));
-    BOOL secure = FALSE;
-    BOOL http_only = FALSE;
-    BOOL session = TRUE;
-    double expires = 0;
-    COREWEBVIEW2_COOKIE_SAME_SITE_KIND same_site =
-        COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE;
-    cookie->get_IsSecure(&secure);
-    cookie->get_IsHttpOnly(&http_only);
-    cookie->get_IsSession(&session);
-    cookie->get_Expires(&expires);
-    cookie->get_SameSite(&same_site);
-    if (!first) json << ",";
-    first = false;
-    const std::string normalized_domain =
-        !domain.empty() && domain.front() == '.' ? domain.substr(1) : domain;
-    json << "{\"name\":\"" << JsonEscape(name) << "\",\"value\":\""
-         << JsonEscape(value) << "\",\"domain\":\"" << JsonEscape(domain)
-         << "\",\"path\":\"" << JsonEscape(path)
-         << "\",\"url\":\"" << (secure ? "https" : "http") << "://"
-         << JsonEscape(normalized_domain) << JsonEscape(path)
-         << "\",\"secure\":" << (secure ? "true" : "false")
-         << ",\"httpOnly\":" << (http_only ? "true" : "false")
-         << ",\"sameSite\":\""
-         << (same_site == COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX
-                 ? "lax"
-                 : same_site == COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT
-                       ? "strict"
-                       : "unspecified")
-         << "\"";
-    if (!session && std::isfinite(expires) && expires > 0) {
-      json << ",\"expirationDate\":" << expires;
-    }
-    json << "}";
-  }
-  json << "]";
-  return json.str();
-}
-
 napi_value CreateSurface(napi_env env, napi_callback_info info) {
   const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   if (FAILED(com_result) && com_result != RPC_E_CHANGED_MODE) {
@@ -1156,6 +922,9 @@ napi_value CreateSurface(napi_env env, napi_callback_info info) {
   const std::wstring user_data_folder =
       Wide(GetString(env, GetNamed(env, args[1], "userDataFolder"),
                      "A WebView2 user-data folder is required."));
+  const std::wstring additional_browser_arguments =
+      Wide(GetString(env, GetNamed(env, args[1], "additionalBrowserArguments"),
+                     "The WebView2 browser arguments are invalid."));
   const std::wstring proxy_server =
       Wide(GetString(env, GetNamed(env, args[1], "proxyServer"),
                      "The WebView2 proxy server is invalid."));
@@ -1173,6 +942,7 @@ napi_value CreateSurface(napi_env env, napi_callback_info info) {
   }
   record->surface =
       std::make_shared<WebView2Surface>(identifier, parent, user_data_folder,
+                                        additional_browser_arguments,
                                         proxy_server);
   const auto surface = record->surface;
   surfaces.emplace(identifier, std::move(record));
@@ -1323,37 +1093,6 @@ napi_value AddDocumentStartScript(napi_env env, napi_callback_info info) {
   return Undefined(env);
 }
 
-napi_value ConfigureRequestRewrites(napi_env env, napi_callback_info info) {
-  size_t argc = 3;
-  napi_value args[3];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  const auto surface = argc == 3 ? GetSurface(env, args[0]) : nullptr;
-  if (!surface) return nullptr;
-  const int64_t identifier = GetSurfaceId(env, args[0]);
-  const std::string request_id =
-      GetString(env, args[1], "A request-rewrite request id is required.");
-  auto rules = GetRequestRewriteRules(env, args[2]);
-  if (!rules) return nullptr;
-  surface->WhenReady(
-      [surface, identifier, request_id, rules = std::move(*rules)]() mutable {
-        const HRESULT result =
-            surface->ConfigureRequestRewrites(std::move(rules));
-        EmitEvent(
-            identifier, "requestRewritesConfigured",
-            FAILED(result)
-                ? std::vector<std::pair<std::string, std::string>>{
-                      {"requestId", request_id},
-                      {"error", HResultMessage(result)}}
-                : std::vector<std::pair<std::string, std::string>>{
-                      {"requestId", request_id}});
-      },
-      [identifier, request_id](const std::string& error) {
-        EmitEvent(identifier, "requestRewritesConfigured",
-                  {{"requestId", request_id}, {"error", error}});
-      });
-  return Undefined(env);
-}
-
 napi_value CallDevTools(napi_env env, napi_callback_info info) {
   size_t argc = 4;
   napi_value args[4];
@@ -1448,123 +1187,6 @@ napi_value ClearData(napi_env env, napi_callback_info info) {
   return Undefined(env);
 }
 
-napi_value GetCookies(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_value args[2];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  const auto surface = argc == 2 ? GetSurface(env, args[0]) : nullptr;
-  if (!surface) return nullptr;
-  const int64_t identifier = GetSurfaceId(env, args[0]);
-  const std::string request_id =
-      GetString(env, args[1], "A WebView2 request id is required.");
-  surface->WhenReady(
-      [surface, identifier, request_id] {
-        ComPtr<ICoreWebView2_2> webview2;
-        ComPtr<ICoreWebView2CookieManager> manager;
-        HRESULT result =
-            surface->webview()->QueryInterface(IID_PPV_ARGS(&webview2));
-        if (SUCCEEDED(result) && webview2) {
-          result = webview2->get_CookieManager(&manager);
-        }
-        if (FAILED(result) || !manager) {
-          EmitEvent(identifier, "cookiesRead",
-                    {{"requestId", request_id},
-                     {"cookiesJson", "[]"},
-                     {"error", HResultMessage(result)}});
-          return;
-        }
-        result = manager->GetCookies(
-            nullptr,
-            Callback<ICoreWebView2GetCookiesCompletedHandler>(
-                [identifier, request_id](HRESULT error,
-                                         ICoreWebView2CookieList* cookies) {
-                  if (FAILED(error)) {
-                    EmitEvent(identifier, "cookiesRead",
-                              {{"requestId", request_id},
-                               {"cookiesJson", "[]"},
-                               {"error", HResultMessage(error)}});
-                  } else {
-                    EmitEvent(identifier, "cookiesRead",
-                              {{"requestId", request_id},
-                               {"cookiesJson", CookiesJson(cookies)}});
-                  }
-                  return S_OK;
-                })
-                .Get());
-        if (FAILED(result)) {
-          EmitEvent(identifier, "cookiesRead",
-                    {{"requestId", request_id},
-                     {"cookiesJson", "[]"},
-                     {"error", HResultMessage(result)}});
-        }
-      },
-      [identifier, request_id](const std::string& error) {
-        EmitEvent(identifier, "cookiesRead",
-                  {{"requestId", request_id},
-                   {"cookiesJson", "[]"},
-                   {"error", error}});
-      });
-  return Undefined(env);
-}
-
-napi_value SetCookies(napi_env env, napi_callback_info info) {
-  size_t argc = 3;
-  napi_value args[3];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  const auto surface = argc == 3 ? GetSurface(env, args[0]) : nullptr;
-  if (!surface) return nullptr;
-  const int64_t identifier = GetSurfaceId(env, args[0]);
-  const std::string request_id =
-      GetString(env, args[1], "A WebView2 request id is required.");
-  const std::vector<CookieInput> cookies = ParseCookies(env, args[2]);
-  bool pending_exception = false;
-  napi_is_exception_pending(env, &pending_exception);
-  if (pending_exception) return nullptr;
-  surface->WhenReady(
-      [surface, identifier, request_id, cookies] {
-        ComPtr<ICoreWebView2_2> webview2;
-        ComPtr<ICoreWebView2CookieManager> manager;
-        HRESULT result =
-            surface->webview()->QueryInterface(IID_PPV_ARGS(&webview2));
-        if (SUCCEEDED(result) && webview2) {
-          result = webview2->get_CookieManager(&manager);
-        }
-        uint32_t migrated = 0;
-        if (SUCCEEDED(result) && manager) {
-          for (const auto& input : cookies) {
-            ComPtr<ICoreWebView2Cookie> cookie;
-            result = manager->CreateCookie(
-                input.name.c_str(), input.value.c_str(), input.domain.c_str(),
-                input.path.c_str(), &cookie);
-            if (FAILED(result) || !cookie) break;
-            cookie->put_IsHttpOnly(input.http_only ? TRUE : FALSE);
-            cookie->put_IsSecure(input.secure ? TRUE : FALSE);
-            cookie->put_SameSite(input.same_site);
-            if (input.expiration_date.has_value()) {
-              cookie->put_Expires(*input.expiration_date);
-            }
-            result = manager->AddOrUpdateCookie(cookie.Get());
-            if (FAILED(result)) break;
-            ++migrated;
-          }
-        }
-        EmitEvent(
-            identifier, "cookiesWritten",
-            FAILED(result)
-                ? std::vector<std::pair<std::string, std::string>>{
-                      {"requestId", request_id},
-                      {"error", HResultMessage(result)}}
-                : std::vector<std::pair<std::string, std::string>>{
-                      {"requestId", request_id}},
-            {}, {{"count", static_cast<double>(migrated)}});
-      },
-      [identifier, request_id](const std::string& error) {
-        EmitEvent(identifier, "cookiesWritten",
-                  {{"requestId", request_id}, {"error", error}});
-      });
-  return Undefined(env);
-}
-
 napi_value SetBounds(napi_env env, napi_callback_info info) {
   size_t argc = 2;
   napi_value args[2];
@@ -1647,15 +1269,9 @@ napi_value Init(napi_env env, napi_value exports) {
        napi_default, nullptr},
       {"addWebView2DocumentStartScript", nullptr, AddDocumentStartScript,
        nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"configureWebView2RequestRewrites", nullptr, ConfigureRequestRewrites,
-       nullptr, nullptr, nullptr, napi_default, nullptr},
       {"callWebView2DevToolsMethod", nullptr, CallDevTools, nullptr, nullptr,
        nullptr, napi_default, nullptr},
       {"clearWebView2Data", nullptr, ClearData, nullptr, nullptr, nullptr,
-       napi_default, nullptr},
-      {"getWebView2Cookies", nullptr, GetCookies, nullptr, nullptr, nullptr,
-       napi_default, nullptr},
-      {"setWebView2Cookies", nullptr, SetCookies, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"setWebView2Bounds", nullptr, SetBounds, nullptr, nullptr, nullptr,
        napi_default, nullptr},

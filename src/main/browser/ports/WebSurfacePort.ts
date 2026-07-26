@@ -1,6 +1,4 @@
 import type { PixelBounds } from "../../../shared/types";
-import type { CdnRule } from "../../../shared/generated";
-import type { BrowserCookieTransferRecord } from "../ElectronProfileEffectAdapter";
 
 export type WebSurfaceLifecycleEvent =
   | { type: "audioChanged"; audible: boolean }
@@ -24,16 +22,13 @@ export type WebSurfaceLifecycleEvent =
 export interface WebSurfacePort {
   addDocumentStartScript: (source: string) => Promise<void>;
   clearStorage: (storageKinds: readonly string[]) => Promise<void>;
-  configureRequestRewrites: (rules: readonly CdnRule[]) => Promise<void>;
   destroy: () => Promise<void>;
   evaluate: <T = unknown>(source: string) => Promise<T>;
   focus: () => Promise<void>;
-  getCookies: () => Promise<BrowserCookieTransferRecord[]>;
   loadUrl: (url: string) => Promise<void>;
   onLifecycleEvent: (listener: (event: WebSurfaceLifecycleEvent) => void) => () => void;
   setAudioMuted: (muted: boolean) => Promise<void>;
   setBounds: (bounds: PixelBounds) => Promise<void>;
-  setCookies: (cookies: readonly BrowserCookieTransferRecord[]) => Promise<number>;
   setVisible: (visible: boolean) => Promise<void>;
   setZoomFactor: (factor: number) => Promise<void>;
 }

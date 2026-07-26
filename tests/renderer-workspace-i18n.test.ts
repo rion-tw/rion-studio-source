@@ -14,7 +14,6 @@ const workspaceHelpKeys = [
   "workspaces.help.launchTitle",
   "workspaces.help.launchRequirements",
   "workspaces.help.launchDisplay",
-  "workspaces.help.launchMode",
   "workspaces.help.runtimeTitle",
   "workspaces.help.runtimeZoom",
   "workspaces.help.runtimeResource"

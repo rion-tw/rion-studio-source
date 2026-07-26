@@ -1,10 +1,6 @@
 import type { BaseWindow } from "electron";
 
-import type {
-  CdnRule,
-  ResolvedBrowserEngine,
-  RolePathsRecord
-} from "../../shared/generated";
+import type { ResolvedBrowserEngine, RolePathsRecord } from "../../shared/generated";
 import type { PixelBounds } from "../../shared/types";
 import type { MacSystemWebViewSurfaceFactory } from "./MacSystemWebViewSurface";
 import type {
@@ -26,7 +22,7 @@ export interface NativeRoleSurfaceHandle {
 }
 
 export interface NativeRoleSurfaceConfiguration {
-  cdnRewriteRules?: readonly CdnRule[];
+  additionalBrowserArguments?: string;
   documentStartScript?: string;
   proxyServer?: string;
 }
@@ -125,6 +121,9 @@ export class SystemWebViewRuntimePool {
         );
       }
       const surface = factory(hostWindow, {
+        ...(configuration.additionalBrowserArguments
+          ? { additionalBrowserArguments: configuration.additionalBrowserArguments }
+          : {}),
         userDataFolder: paths.webview2UserDataDir,
         ...proxyConfiguration
       });

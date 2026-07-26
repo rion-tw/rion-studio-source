@@ -2,7 +2,7 @@
 import type { BrowserHostKind } from "./BrowserHostKind";
 import type { EmbeddedBrowserEngine } from "./EmbeddedBrowserEngine";
 import type { EngineCapabilitySnapshotRecord } from "./EngineCapabilitySnapshotRecord";
-import type { EngineFallbackReason } from "./EngineFallbackReason";
 import type { ResolvedBrowserEngine } from "./ResolvedBrowserEngine";
+import type { SystemWebViewIssueReason } from "./SystemWebViewIssueReason";
 
-export type BrowserWorkspaceStatusRecord = { workspaceId: string, state: "launching" | "running" | "stopping", preferredEngine?: EmbeddedBrowserEngine, resolvedEngine?: ResolvedBrowserEngine, hostKind?: BrowserHostKind, fallbackReason?: EngineFallbackReason, capabilitySnapshot?: EngineCapabilitySnapshotRecord, };
+export type BrowserWorkspaceStatusRecord = { workspaceId: string, state: "launching" | "running" | "stopping", preferredEngine?: EmbeddedBrowserEngine, resolvedEngine?: ResolvedBrowserEngine, hostKind?: BrowserHostKind, issueReason?: SystemWebViewIssueReason, capabilitySnapshot?: EngineCapabilitySnapshotRecord, };

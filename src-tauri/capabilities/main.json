@@ -3,5 +3,11 @@
   "identifier": "main-local-only",
   "description": "Minimum local capability for the bundled Rion Studio renderer.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-rion-core-invoke",
+    "allow-rion-dispatch-core-effect-results",
+    "allow-rion-shared-user-data-dir",
+    "allow-rion-shell-invoke"
+  ]
 }

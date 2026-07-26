@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Linux Tauri build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 
@@ -60,17 +63,23 @@ jobs:
       - name: Verify generated Rust contracts
         run: git diff --exit-code -- src/shared/generated
 
+      - name: Verify system-only product boundary
+        run: pnpm run verify:system-only
+
       - name: Build and verify Rust Node-API core
         run: pnpm run build:rust:release && pnpm run verify:rust
 
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Check Tauri shell
+        run: cargo check -p rion-tauri
+
+      - name: Build Tauri renderer
+        run: pnpm run build:tauri:renderer
+
       - name: Test
         run: pnpm run test
-
-      - name: Verify v1 Rust surface behavior parity
-        run: pnpm run verify:v1-parity
 
       - name: Lint
         run: pnpm run lint
@@ -103,7 +112,7 @@ jobs:
             echo "Concurrency soak iteration ${iteration}/20"
             cargo test -p rion-core --lib one_thousand_start_stop_cycles_drain_authoritative_runtime_state -- --test-threads=8
             cargo test -p rion-core --lib atomic_toggle_converges_without_a_phantom_invocation -- --test-threads=8
-            cargo test -p rion-core --lib external_health_lane_does_not_block_a_later_deadline_macro_effect -- --test-threads=8
+            cargo test -p rion-core --lib role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles -- --test-threads=8
           done
 
   platform-package-smoke:
@@ -116,11 +125,13 @@ jobs:
           - name: macOS arm64
             os: macos-latest
             package_args: --dir --mac --arm64
+            tauri_bundle: app
             packaged_core: release/0.0.0-development/mac-arm64/Rion Studio.app/Contents/Resources/native/rion-core.node
             packaged_executable: release/0.0.0-development/mac-arm64/Rion Studio.app/Contents/MacOS/Rion Studio
           - name: Windows x64
             os: windows-latest
             package_args: --dir --win --x64
+            tauri_bundle: nsis
             packaged_core: release/0.0.0-development/win-unpacked/resources/native/rion-core.node
             packaged_executable: release/0.0.0-development/win-unpacked/Rion Studio.exe
     steps:
@@ -203,19 +214,70 @@ jobs:
       - name: Test Rust workspace
         run: pnpm run test:rust
 
+      - name: Verify system-only product boundary
+        run: pnpm run verify:system-only
+
       - name: Build and verify Rust Node-API core
         run: pnpm run build:rust:release && pnpm run verify:rust
 
       - name: Build app
         run: pnpm run build
 
-      - name: Build and test macOS runtime tabs
+      - name: Check Tauri shell on target platform
+        run: cargo check -p rion-tauri
+
+      - name: Build Tauri renderer
+        run: pnpm run build:tauri:renderer
+
+      - name: Attest macOS System WebView input
         if: runner.os == 'macOS'
-        run: pnpm run build:native:macos && pnpm run test:native:macos
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run build:native:macos
+          pnpm run test:native:macos
+          pnpm run test:native:system-input
+          pnpm run test:native:runtime-restore
+          pnpm run test:native:file-operations
+          echo "RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR=$(sw_vers -productVersion | cut -d. -f1)" >> "${GITHUB_ENV}"
 
       - name: Build and test Windows WebView2 adapter
         if: runner.os == 'Windows'
-        run: pnpm run build:native:windows && pnpm run test:native:windows
+        shell: pwsh
+        run: |
+          pnpm run build:native:windows
+          pnpm run test:native:windows
+          pnpm run test:native:system-input
+          pnpm run test:native:runtime-restore
+          pnpm run test:native:file-operations
+          "RION_STUDIO_WINDOWS_INPUT_ATTESTED=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build target-platform Tauri bundle
+        run: pnpm exec tauri build --bundles ${{ matrix.tauri_bundle }}
+
+      - name: Verify packaged macOS System WebView input
+        if: runner.os == 'macOS'
+        run: pnpm run test:native:system-input -- --executable "target/release/bundle/macos/Rion Studio Preview.app/Contents/MacOS/rion-tauri" --require-compiled-attestation
+
+      - name: Verify packaged macOS runtime restore
+        if: runner.os == 'macOS'
+        run: pnpm run test:native:runtime-restore -- --executable "target/release/bundle/macos/Rion Studio Preview.app/Contents/MacOS/rion-tauri"
+
+      - name: Verify packaged macOS file operations
+        if: runner.os == 'macOS'
+        run: pnpm run test:native:file-operations -- --executable "target/release/bundle/macos/Rion Studio Preview.app/Contents/MacOS/rion-tauri"
+
+      - name: Verify packaged Windows System WebView input
+        if: runner.os == 'Windows'
+        run: pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe --require-compiled-attestation
+
+      - name: Verify packaged Windows runtime restore
+        if: runner.os == 'Windows'
+        run: pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
+
+      - name: Verify packaged Windows file operations
+        if: runner.os == 'Windows'
+        run: pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
 
       - name: Build unpacked application
         run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.package_args }} --publish never

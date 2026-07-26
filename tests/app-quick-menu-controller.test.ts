@@ -24,7 +24,6 @@ const workspace: LaunchWorkspace = {
   id: "workspace-1",
   name: "Party",
   template: "two_columns",
-  browserLaunchMode: "inherit",
   browserZoomMode: "fixed",
   browserZoomPercent: 90,
   slots: [{ id: "slot-1", roleId: role.id, rect: { x: 0, y: 0, width: 1, height: 1 } }],

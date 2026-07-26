@@ -16,8 +16,7 @@ describe("LegalAcceptanceStore", () => {
       isAccepted: false
     });
     expect(invoke).toHaveBeenCalledWith({
-      type: "legalAcceptanceStatus",
-      versions: CURRENT_LEGAL_DOCUMENT_VERSIONS
+      type: "legalAcceptanceStatus"
     });
   });
 
@@ -41,7 +40,6 @@ describe("LegalAcceptanceStore", () => {
     await expect(store.accept(input)).resolves.toEqual(accepted);
     expect(invoke).toHaveBeenCalledWith({
       type: "legalAcceptanceAccept",
-      versions: CURRENT_LEGAL_DOCUMENT_VERSIONS,
       input
     });
   });

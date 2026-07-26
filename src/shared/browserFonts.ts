@@ -3,10 +3,7 @@ import type {
   BrowserFontSettings,
   BrowserFontSettingsMode,
   BrowserGraphicsSettings,
-  BrowserCdnCompatibilityMode,
-  BrowserCdnCompatibilitySettings,
   EmbeddedBrowserEngine,
-  BrowserLaunchMode,
   BrowserNetworkSettings,
   BrowserProxySettings,
   BrowserProxySettingsMode,
@@ -40,12 +37,7 @@ export const DEFAULT_BROWSER_PROXY_SETTINGS: BrowserProxySettings = {
   server: ""
 };
 
-export const DEFAULT_BROWSER_CDN_COMPATIBILITY_SETTINGS: BrowserCdnCompatibilitySettings = {
-  mode: "auto"
-};
-
 export const DEFAULT_BROWSER_NETWORK_SETTINGS: BrowserNetworkSettings = {
-  cdnCompatibility: DEFAULT_BROWSER_CDN_COMPATIBILITY_SETTINGS,
   proxy: DEFAULT_BROWSER_PROXY_SETTINGS
 };
 
@@ -90,7 +82,6 @@ export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   browserEngine: "system",
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
-  launchMode: "auto",
   macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
   network: DEFAULT_BROWSER_NETWORK_SETTINGS,
   workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
@@ -106,7 +97,6 @@ export function normalizeGameBrowserSettings(
     browserEngine: normalizeEmbeddedBrowserEngine(input.browserEngine, fallback.browserEngine),
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
     graphics: normalizeBrowserGraphicsSettings(input.graphics, fallback.graphics),
-    launchMode: normalizeBrowserLaunchMode(input.launchMode, fallback.launchMode),
     macroBadgePosition: normalizeMacroBadgePositionSettings(
       input.macroBadgePosition,
       fallback.macroBadgePosition
@@ -215,21 +205,7 @@ export function normalizeBrowserNetworkSettings(
   const input = isRecord(value) ? value : {};
 
   return {
-    cdnCompatibility: normalizeBrowserCdnCompatibilitySettings(
-      input.cdnCompatibility,
-      fallback.cdnCompatibility
-    ),
     proxy: normalizeBrowserProxySettings(input.proxy, fallback.proxy)
-  };
-}
-
-export function normalizeBrowserCdnCompatibilitySettings(
-  value: unknown,
-  fallback: BrowserCdnCompatibilitySettings = DEFAULT_BROWSER_CDN_COMPATIBILITY_SETTINGS
-): BrowserCdnCompatibilitySettings {
-  const input = isRecord(value) ? value : {};
-  return {
-    mode: normalizeBrowserCdnCompatibilityMode(input.mode, fallback.mode)
   };
 }
 
@@ -341,15 +317,11 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function normalizeBrowserLaunchMode(value: unknown, fallback: BrowserLaunchMode): BrowserLaunchMode {
-  return value === "auto" || value === "embedded" || value === "external" ? value : fallback;
-}
-
 function normalizeEmbeddedBrowserEngine(
   value: unknown,
   fallback: EmbeddedBrowserEngine | undefined
 ): EmbeddedBrowserEngine {
-  return value === "system" || value === "electron" ? value : (fallback ?? "system");
+  return value === "system" ? value : (fallback ?? "system");
 }
 
 function normalizeBrowserProxySettingsMode(
@@ -357,13 +329,6 @@ function normalizeBrowserProxySettingsMode(
   fallback: BrowserProxySettingsMode
 ): BrowserProxySettingsMode {
   return value === "system" || value === "custom" ? value : fallback;
-}
-
-function normalizeBrowserCdnCompatibilityMode(
-  value: unknown,
-  fallback: BrowserCdnCompatibilityMode
-): BrowserCdnCompatibilityMode {
-  return value === "off" || value === "auto" || value === "on" ? value : fallback;
 }
 
 function normalizeWorkspaceGapSize(

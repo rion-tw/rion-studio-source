@@ -51,7 +51,6 @@ export function comparePerformanceSummaries(current, baseline) {
         : 0,
     napiCallCount: napi?.callCount,
     napiP95Ms: napi?.p95Ms,
-    cdnPlanCount: current.runtimeTelemetry?.cdnPlanCount,
     layoutPassCount: current.runtimeTelemetry?.layoutPassCount,
     menuRefreshCount: current.runtimeTelemetry?.menuRefreshCount,
     runtimePublishCount: current.runtimeTelemetry?.runtimePublishCount
@@ -107,7 +106,6 @@ export function aggregatePerformanceSummaries(summaries) {
     }
   }
   for (const metric of [
-    "cdnPlanCount",
     "layoutPassCount",
     "menuRefreshCount",
     "runtimePublishCount"

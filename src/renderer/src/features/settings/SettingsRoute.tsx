@@ -40,16 +40,13 @@ import {
 import { CURRENT_LEGAL_RELEASE, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
   AppUpdateStatus,
-  BrowserCdnCompatibilityMode,
   BrowserFontFamilyRole,
   BrowserGraphicsSettings,
   BrowserMacosGraphicsBackend,
   BrowserWindowsGraphicsBackend,
-  BrowserLaunchMode,
   EmbeddedBrowserEngine,
   EngineCapabilitySnapshot,
   GameBrowserSettings,
-  Game,
   GraphicsDiagnostics,
   MacroBadgeHorizontalAlign,
   MacroBadgePositionSettings,
@@ -99,7 +96,6 @@ interface PortableDataCounts {
 
 interface SettingsViewProps {
   gameBrowserSettings: GameBrowserSettings;
-  games?: Game[];
   hasRunningRoles: boolean;
   roleStatuses?: RoleStatus[];
   language: Language;
@@ -125,7 +121,6 @@ interface SettingsViewProps {
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
   onApplyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   onDiscardPortableImport: (importId: string) => Promise<void>;
-  onOpenChromeProfileImport?: () => void;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
   onRestartApplication: () => Promise<void>;
@@ -169,7 +164,6 @@ const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = 
 function SettingsViewBase({
   activeSection,
   gameBrowserSettings,
-  games = [],
   hasRunningRoles,
   roleStatuses = [],
   language,
@@ -193,7 +187,6 @@ function SettingsViewBase({
   onPreviewPortableImport,
   onApplyPortableImport,
   onDiscardPortableImport,
-  onOpenChromeProfileImport = () => undefined,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
   onRestartApplication,
@@ -590,38 +583,11 @@ function SettingsViewBase({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="system">{t("settings.browserEngineSystem")}</SelectItem>
-                      <SelectItem value="electron">{t("settings.browserEngineElectron")}</SelectItem>
                     </SelectContent>
                   </Select>
                 }
               />
               <BrowserEngineCapabilityMatrix roleStatuses={roleStatuses} t={t} />
-              <SettingsRow
-                title={t("settings.browserLaunchMode")}
-                description={t("settings.browserLaunchModeDescription")}
-                control={
-                  <Select
-                    value={normalizeGameBrowserSettings(gameBrowserSettings).launchMode}
-                    onValueChange={(value) =>
-                      void onGameBrowserSettingsChange(
-                        normalizeGameBrowserSettings({
-                          ...gameBrowserSettings,
-                          launchMode: value as BrowserLaunchMode
-                        })
-                      ).catch(onError)
-                    }
-                  >
-                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.browserLaunchMode")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">{t("settings.browserLaunchModeAuto")}</SelectItem>
-                      <SelectItem value="embedded">{t("settings.browserLaunchModeEmbedded")}</SelectItem>
-                      <SelectItem value="external">{t("settings.browserLaunchModeExternal")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                }
-              />
             </SettingsSection>
 
             <SettingsSection title={t("settings.graphicsPerformanceGroup")}>
@@ -832,13 +798,6 @@ function SettingsViewBase({
                 description={formatGraphicsFeatureSummary(graphicsDiagnostics, t)}
                 control={<MetadataValue value={formatGraphicsVersionSummary(graphicsDiagnostics)} />}
               />
-              {graphicsDiagnostics?.externalRoles.length ? (
-                <SettingsRow
-                  title={t("settings.graphicsExternalSessions")}
-                  description={formatExternalGraphicsSummary(graphicsDiagnostics, t)}
-                  control={<ReadOnlyValue value={String(graphicsDiagnostics.externalRoles.length)} />}
-                />
-              ) : null}
             </SettingsSection>
 
             <SettingsSection title={t("settings.gameGroupNetwork")}>
@@ -848,42 +807,6 @@ function SettingsViewBase({
                 t={t}
                 onError={onError}
                 onSave={onGameBrowserSettingsChange}
-              />
-              <SettingsRow
-                title={t("settings.cdnCompatibility")}
-                description={
-                  hasRunningRoles
-                    ? t("settings.cdnCompatibilityRestartNotice")
-                    : t("settings.cdnCompatibilityDescription")
-                }
-                control={
-                  <Select
-                    value={normalizeGameBrowserSettings(gameBrowserSettings).network.cdnCompatibility.mode}
-                    onValueChange={(value) => {
-                      const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
-                      void onGameBrowserSettingsChange(
-                        normalizeGameBrowserSettings({
-                          ...normalizedSettings,
-                          network: {
-                            ...normalizedSettings.network,
-                            cdnCompatibility: {
-                              mode: value as BrowserCdnCompatibilityMode
-                            }
-                          }
-                        })
-                      ).catch(onError);
-                    }}
-                  >
-                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.cdnCompatibility")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">{t("settings.cdnCompatibilityAuto")}</SelectItem>
-                      <SelectItem value="on">{t("settings.cdnCompatibilityOn")}</SelectItem>
-                      <SelectItem value="off">{t("settings.cdnCompatibilityOff")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                }
               />
             </SettingsSection>
           </>
@@ -912,21 +835,6 @@ function SettingsViewBase({
                 >
                   <FileJson size={14} />
                   {t("settings.exportJson")}
-                </Button>
-              }
-            />
-            <SettingsRow
-              title={t("settings.chromeProfileImport")}
-              description={t("settings.chromeProfileImportDescription")}
-              control={
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={isPortableBusy || games.length === 0}
-                  onClick={onOpenChromeProfileImport}
-                >
-                  <ShieldAlert size={14} />
-                  {t("settings.chromeProfileImportAction")}
                 </Button>
               }
             />
@@ -1072,7 +980,6 @@ const engineCapabilityLabelKeys: Record<
   trustedInput: "browserEngine.capability.trustedInput",
   backgroundInput: "browserEngine.capability.backgroundInput",
   frameEvaluation: "browserEngine.capability.frameEvaluation",
-  cdnRewrite: "browserEngine.capability.cdnRewrite",
   proxy: "browserEngine.capability.proxy",
   popup: "browserEngine.capability.popup",
   audioMute: "browserEngine.capability.audioMute",
@@ -1904,19 +1811,12 @@ function formatGraphicsFeatureSummary(diagnostics: GraphicsDiagnostics | null, t
 
 function formatGraphicsVersionSummary(diagnostics: GraphicsDiagnostics | null): string {
   return diagnostics
-    ? `Electron ${diagnostics.versions.electron} · Chromium ${diagnostics.versions.chromium}`
-    : "Electron · Chromium";
+    ? `${formatEngineName(diagnostics.versions.engine)} ${diagnostics.versions.engineVersion} · ${diagnostics.versions.shell} ${diagnostics.versions.shellVersion}`
+    : "System WebView";
 }
 
-function formatExternalGraphicsSummary(diagnostics: GraphicsDiagnostics, t: Translator): string {
-  return diagnostics.externalRoles
-    .map((role) => {
-      if (!role.probe) {
-        return `${role.roleName}: ${t("settings.graphicsUnavailable")}`;
-      }
-      return `${role.roleName}: WebGL2 ${formatAvailability(role.probe.webgl2, t)}, WebGPU ${formatAvailability(role.probe.webgpu, t)}`;
-    })
-    .join(" · ");
+function formatEngineName(engine: "webview2" | "wkwebview"): string {
+  return engine === "webview2" ? "WebView2" : "WKWebView";
 }
 
 function formatAvailability(

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-overlay-request"
+description = "Enables the rion_overlay_request command without any pre-configured scope."
+commands.allow = ["rion_overlay_request"]
+
+[[permission]]
+identifier = "deny-rion-overlay-request"
+description = "Denies the rion_overlay_request command without any pre-configured scope."
+commands.deny = ["rion_overlay_request"]

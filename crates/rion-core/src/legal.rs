@@ -8,6 +8,16 @@ use crate::{
     },
 };
 
+pub const CURRENT_LEGAL_RELEASE: &str = "2026-07-14";
+
+pub fn current_versions() -> LegalDocumentVersionsRecord {
+    LegalDocumentVersionsRecord {
+        fair_use: CURRENT_LEGAL_RELEASE.to_owned(),
+        privacy: CURRENT_LEGAL_RELEASE.to_owned(),
+        terms: CURRENT_LEGAL_RELEASE.to_owned(),
+    }
+}
+
 pub(crate) fn status(
     acceptance: Option<&LegalAcceptanceRecord>,
     versions: LegalDocumentVersionsRecord,

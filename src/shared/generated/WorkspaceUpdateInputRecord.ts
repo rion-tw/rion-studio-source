@@ -3,4 +3,4 @@ import type { BrowserEngineOverride } from "./BrowserEngineOverride";
 import type { StateWorkspaceDisplayTargetRecord } from "./StateWorkspaceDisplayTargetRecord";
 import type { WorkspaceSlotInputRecord } from "./WorkspaceSlotInputRecord";
 
-export type WorkspaceUpdateInputRecord = { name?: string, template?: string, browserLaunchMode?: string, browserEngine?: BrowserEngineOverride, browserZoomMode?: string, browserZoomPercent?: number, targetDisplay?: StateWorkspaceDisplayTargetRecord, setTargetDisplay: boolean, slots?: Array<WorkspaceSlotInputRecord>, };
+export type WorkspaceUpdateInputRecord = { name?: string, template?: string, browserEngine?: BrowserEngineOverride, browserZoomMode?: string, browserZoomPercent?: number, targetDisplay?: StateWorkspaceDisplayTargetRecord, setTargetDisplay: boolean, slots?: Array<WorkspaceSlotInputRecord>, };

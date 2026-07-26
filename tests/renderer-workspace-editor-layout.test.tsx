@@ -97,14 +97,14 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[0].textContent).toContain("roles outside the new layout are not kept");
     expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
     expect(workspaceHelps[1].textContent).toContain("Assign at least one role before launching");
-    expect(workspaceHelps[1].textContent).toContain("switches to external Chrome");
+    expect(workspaceHelps[1].textContent).toContain("choose another display when prompted");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(workspaceHelps[2].textContent).toContain("Command +/−/0 on macOS");
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
     expect(workspaceHelps[2].textContent).toContain("saved to this workspace automatically");
     expect(workspaceHelps[2].textContent).toContain("restored the next time the role launches");
     expect(workspaceHelps[2].textContent).toContain("does not apply an additional CPU speed limit");
-    expect(workspaceHelps[2].textContent).toContain("native throttling");
+    expect(workspaceHelps[2].textContent).toContain("operating-system WebView");
     workspaceHelps.forEach((workspaceHelp) => {
       expect(workspaceHelp.querySelector("svg")).toBeNull();
       expect(workspaceHelp.querySelectorAll("section")).toHaveLength(1);
@@ -273,7 +273,6 @@ function game(): Game {
     source: "custom",
     name: "Test game",
     defaultLaunchUrl: "https://example.test/play",
-    browserLaunchMode: "inherit",
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };
@@ -296,7 +295,6 @@ function workspace(): LaunchWorkspace {
     id: "workspace-1",
     name: "Party",
     template: "two_columns",
-    browserLaunchMode: "inherit",
     browserZoomMode: "adaptive",
     browserZoomPercent: 100,
     slots: [

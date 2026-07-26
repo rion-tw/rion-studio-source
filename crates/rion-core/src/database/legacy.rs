@@ -5,7 +5,6 @@ use std::{
 };
 
 use chrono::Utc;
-use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 use url::Url;
 use uuid::Uuid;
@@ -16,13 +15,8 @@ use crate::{
     model::BrowserGraphicsSettingsRecord,
 };
 
-use super::state;
-
 const DEFAULT_LAUNCH_URL: &str = "https://universe.flyff.com/play";
 const WORKSPACE_SCHEMA_VERSION: u64 = 7;
-const CHROME_IMPORT_DIRECTORY: &str = ".chrome-profile-import";
-const CHROME_IMPORT_JOURNAL: &str = "chrome-profile-import-transaction.json";
-const CHROME_IMPORT_COMMITTED_MARKER: &str = "chrome-profile-import-transaction.committed";
 
 struct BuiltinGame {
     id: &'static str,
@@ -120,90 +114,6 @@ pub(super) fn build_snapshot(user_data_dir: &Path) -> CoreResult<Value> {
     Ok(Value::Object(snapshot))
 }
 
-pub(super) fn recover_chrome_profile_import(
-    user_data_dir: &Path,
-    state_database_path: &Path,
-) -> CoreResult<bool> {
-    let journal_path = user_data_dir.join(CHROME_IMPORT_JOURNAL);
-    let committed_marker = user_data_dir.join(CHROME_IMPORT_COMMITTED_MARKER);
-    if committed_marker.is_file() {
-        remove_directory_if_present(&user_data_dir.join(CHROME_IMPORT_DIRECTORY))?;
-        remove_file_if_present(&journal_path)?;
-        remove_file_if_present(&committed_marker)?;
-        return Ok(true);
-    }
-    let raw = match fs::read_to_string(&journal_path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            remove_directory_if_present(&user_data_dir.join(CHROME_IMPORT_DIRECTORY))?;
-            return Ok(false);
-        }
-        Err(error) => return Err(migration_io(&journal_path, error)),
-    };
-    let journal: Value = serde_json::from_str(&raw).map_err(|error| {
-        CoreError::Migration(format!(
-            "Chrome profile import journal is invalid; recovery data was preserved: {error}"
-        ))
-    })?;
-    let object = journal.as_object().ok_or_else(|| {
-        CoreError::Migration("Chrome profile import journal must be an object".to_owned())
-    })?;
-    if object.get("phase").and_then(Value::as_str) == Some("committed") {
-        remove_directory_if_present(&user_data_dir.join(CHROME_IMPORT_DIRECTORY))?;
-        remove_file_if_present(&journal_path)?;
-        return Ok(true);
-    }
-    let import_id = object
-        .get("importId")
-        .and_then(Value::as_str)
-        .filter(|value| is_safe_component(value))
-        .ok_or_else(|| CoreError::Migration("Chrome profile import id is invalid".to_owned()))?;
-    if let Some(original_roles) = object.get("originalRoles") {
-        if !original_roles.is_array() {
-            return Err(CoreError::Migration(
-                "Chrome profile import original roles are invalid".to_owned(),
-            ));
-        }
-        if state_database_path.is_file() {
-            let mut connection = Connection::open(state_database_path)
-                .map_err(|error| CoreError::Migration(error.to_string()))?;
-            let mut snapshot = state::read_snapshot(&connection)?;
-            snapshot
-                .as_object_mut()
-                .ok_or_else(|| CoreError::Migration("state snapshot is invalid".to_owned()))?
-                .insert("roles".to_owned(), original_roles.clone());
-            state::replace_snapshot(&mut connection, &snapshot)?;
-        } else {
-            write_json_atomic(
-                &user_data_dir.join("roles.json"),
-                &json!({ "roles": original_roles }),
-            )?;
-        }
-    }
-    for role_id in string_array(object.get("createdRoleIds"))? {
-        ensure_safe_component(&role_id)?;
-        remove_directory_if_present(&user_data_dir.join("roles").join(role_id))?;
-    }
-    for role_id in string_array(object.get("overwrittenRoleIds"))? {
-        ensure_safe_component(&role_id)?;
-        let target = user_data_dir.join("roles").join(&role_id).join("browser");
-        let backup = user_data_dir
-            .join(CHROME_IMPORT_DIRECTORY)
-            .join(import_id)
-            .join("backups")
-            .join(&role_id);
-        remove_directory_if_present(&target)?;
-        if backup.is_dir() {
-            copy_directory(&backup, &target)?;
-        } else {
-            fs::create_dir_all(&target).map_err(|error| migration_io(&target, error))?;
-        }
-    }
-    remove_directory_if_present(&user_data_dir.join(CHROME_IMPORT_DIRECTORY))?;
-    remove_file_if_present(&journal_path)?;
-    Ok(true)
-}
-
 pub(super) fn migrate_role_directories(user_data_dir: &Path, roles: &[Value]) -> CoreResult<()> {
     let legacy_root = user_data_dir.join("profiles");
     if !legacy_root.is_dir() {
@@ -249,7 +159,7 @@ fn normalize_games(values: Vec<Value>, now: &str) -> CoreResult<Vec<Value>> {
             games.push(json!({
                 "id": builtin.id, "source": "builtin", "builtinKey": builtin.key,
                 "name": builtin.name, "defaultLaunchUrl": normalize_url(builtin.launch_url.to_owned())?,
-                "browserLaunchMode": "inherit", "browserEngine": "inherit",
+                "browserEngine": "inherit",
                 "createdAt": now, "updatedAt": now
             }));
         }
@@ -331,10 +241,6 @@ fn normalize_game(value: &Value, now: &str) -> CoreResult<Value> {
                 .unwrap_or_else(|| DEFAULT_LAUNCH_URL.to_owned())
         )?),
     );
-    output.insert(
-        "browserLaunchMode".to_owned(),
-        json!(launch_mode(source.get("browserLaunchMode"))?),
-    );
     output.insert("browserEngine".to_owned(), json!("inherit"));
     output.insert(
         "createdAt".to_owned(),
@@ -394,7 +300,7 @@ fn normalize_roles(
                 .and_then(|url| url.host_str().map(str::to_owned))
                 .unwrap_or_else(|| "Imported Game".to_owned());
             let name = unique_name(&host, &mut game_names);
-            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "browserLaunchMode": "inherit", "browserEngine": "inherit", "createdAt": now, "updatedAt": now }));
+            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "browserEngine": "inherit", "createdAt": now, "updatedAt": now }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());
             id
@@ -444,18 +350,6 @@ fn normalize_role(value: &Value, now: &str) -> CoreResult<Value> {
                 .trim()
         ),
     );
-    output.insert(
-        "browserSessionSource".to_owned(),
-        json!(
-            if source.get("browserSessionSource").and_then(Value::as_str) == Some("chrome-profile")
-            {
-                "chrome-profile"
-            } else {
-                "managed"
-            }
-        ),
-    );
-    output.insert("browserEnginePin".to_owned(), json!("electron"));
     copy_optional_string(source, &mut output, "coverImageDataUrl");
     if output.contains_key("coverImageDataUrl")
         && let Some(color) = optional_string(source.get("coverImageDominantColor"))
@@ -568,11 +462,7 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
         json!(required_string(source, "name", "workspace")?),
     );
     output.insert("template".to_owned(), json!(template));
-    output.insert(
-        "browserLaunchMode".to_owned(),
-        json!(launch_mode(source.get("browserLaunchMode"))?),
-    );
-    output.insert("browserEngine".to_owned(), json!("electron"));
+    output.insert("browserEngine".to_owned(), json!("system"));
     output.insert(
         "browserZoomMode".to_owned(),
         json!(
@@ -984,19 +874,7 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
         .filter(|value| matches!(*value, "automatic" | "high_performance" | "experimental"))
         .unwrap_or("automatic");
     let graphics = BrowserGraphicsSettingsRecord::from_legacy_mode(graphics_mode);
-    let launch = source
-        .get("launchMode")
-        .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "auto" | "embedded" | "external"))
-        .unwrap_or("auto");
     let network = source.get("network").and_then(Value::as_object);
-    let cdn = network
-        .and_then(|value| value.get("cdnCompatibility"))
-        .and_then(Value::as_object)
-        .and_then(|value| value.get("mode"))
-        .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "off" | "auto" | "on"))
-        .unwrap_or("auto");
     let proxy_input = network
         .and_then(|value| value.get("proxy"))
         .and_then(Value::as_object);
@@ -1048,14 +926,13 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
     json!({
         "fonts": { "families": families, "mode": font_mode },
         "graphics": graphics,
-        "launchMode": launch,
         "browserEngine": "system",
         "macroBadgePosition": {
             "horizontalAlign": horizontal_align,
             "horizontalMarginPx": horizontal_margin_px,
             "topPx": top_px
         },
-        "network": { "cdnCompatibility": { "mode": cdn }, "proxy": proxy },
+        "network": { "proxy": proxy },
         "workspace": { "background": background, "gap": gap }
     })
 }
@@ -1302,16 +1179,6 @@ fn normalize_url(value: String) -> CoreResult<String> {
     Ok(url.to_string())
 }
 
-fn launch_mode(value: Option<&Value>) -> CoreResult<&'static str> {
-    match value.and_then(Value::as_str).unwrap_or("inherit") {
-        "inherit" => Ok("inherit"),
-        "auto" => Ok("auto"),
-        "embedded" => Ok("embedded"),
-        "external" => Ok("external"),
-        _ => Err(invalid("legacy browser launch mode is invalid")),
-    }
-}
-
 fn copy_optional_string(source: &Map<String, Value>, target: &mut Map<String, Value>, key: &str) {
     if let Some(value) = optional_string(source.get(key)) {
         target.insert(key.to_owned(), json!(value));
@@ -1377,27 +1244,10 @@ fn ensure_unique_names(values: &[Value], label: &str) -> CoreResult<()> {
     Ok(())
 }
 
-fn string_array(value: Option<&Value>) -> CoreResult<Vec<String>> {
-    value.map_or(Ok(Vec::new()), |value| {
-        value
-            .as_array()
-            .ok_or_else(|| {
-                CoreError::Migration("Chrome profile journal role ids are invalid".to_owned())
-            })?
-            .iter()
-            .map(|value| {
-                value.as_str().map(str::to_owned).ok_or_else(|| {
-                    CoreError::Migration("Chrome profile journal role id is invalid".to_owned())
-                })
-            })
-            .collect()
-    })
-}
-
 fn ensure_safe_component(value: &str) -> CoreResult<()> {
     if !is_safe_component(value) {
         return Err(CoreError::Migration(
-            "Chrome profile journal contains an unsafe path component".to_owned(),
+            "legacy role data contains an unsafe path component".to_owned(),
         ));
     }
     Ok(())
@@ -1411,55 +1261,6 @@ fn is_safe_component(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn copy_directory(source: &Path, destination: &Path) -> CoreResult<()> {
-    fs::create_dir_all(destination).map_err(|error| migration_io(destination, error))?;
-    for entry in fs::read_dir(source).map_err(|error| migration_io(source, error))? {
-        let entry = entry.map_err(|error| migration_io(source, error))?;
-        let file_type = entry
-            .file_type()
-            .map_err(|error| migration_io(&entry.path(), error))?;
-        let target = destination.join(entry.file_name());
-        if file_type.is_symlink() {
-            return Err(CoreError::Migration(
-                "Chrome profile backup contains a symbolic link".to_owned(),
-            ));
-        }
-        if file_type.is_dir() {
-            copy_directory(&entry.path(), &target)?;
-        } else if file_type.is_file() {
-            fs::copy(entry.path(), &target).map_err(|error| migration_io(&target, error))?;
-        }
-    }
-    Ok(())
-}
-
-fn write_json_atomic(path: &Path, value: &Value) -> CoreResult<()> {
-    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-    fs::write(
-        &temporary,
-        serde_json::to_vec_pretty(value)
-            .map_err(|error| CoreError::Migration(error.to_string()))?,
-    )
-    .map_err(|error| migration_io(&temporary, error))?;
-    fs::rename(&temporary, path).map_err(|error| migration_io(path, error))
-}
-
-fn remove_directory_if_present(path: &Path) -> CoreResult<()> {
-    match fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(migration_io(path, error)),
-    }
-}
-
-fn remove_file_if_present(path: &Path) -> CoreResult<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(migration_io(path, error)),
-    }
-}
-
 fn migration_io(path: &Path, error: std::io::Error) -> CoreError {
     CoreError::Migration(format!("migration failed for {}: {error}", path.display()))
 }
@@ -1470,7 +1271,10 @@ fn invalid(message: impl Into<String>) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::Connection;
     use tempfile::tempdir;
+
+    use crate::database::state;
 
     use super::*;
 
@@ -1517,7 +1321,8 @@ mod tests {
         )
         .unwrap();
         let snapshot = build_snapshot(directory.path()).unwrap();
-        assert_eq!(snapshot["gameBrowserSettings"]["launchMode"], "auto");
+        assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
         assert_eq!(
             snapshot["gameBrowserSettings"]["macroBadgePosition"],
             json!({
@@ -1769,7 +1574,6 @@ mod tests {
                             "gameId": "legacy-missing",
                             "name": "Known",
                             "launchUrl": "https://universe.flyff.com/play",
-                            "browserSessionSource": "chrome-profile",
                             "createdAt": timestamp,
                             "updatedAt": timestamp
                         },
@@ -1800,7 +1604,8 @@ mod tests {
                 .find(|role| role["id"] == "unknown")
                 .unwrap();
             assert_eq!(known["gameId"], "builtin-flyff-universe");
-            assert_eq!(known["browserSessionSource"], "chrome-profile");
+            assert!(known.get("browserSessionSource").is_none());
+            assert!(known.get("browserEnginePin").is_none());
             assert_eq!(known["createdAt"], timestamp);
             assert_eq!(known["updatedAt"], timestamp);
             let unknown_game_id = unknown["gameId"].as_str().unwrap();
@@ -2000,7 +1805,8 @@ mod tests {
             .unwrap();
             let workspace =
                 build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
-            assert_eq!(workspace["browserLaunchMode"], "inherit");
+            assert_eq!(workspace["browserEngine"], "system");
+            assert!(workspace.get("browserLaunchMode").is_none());
             assert_eq!(workspace["browserZoomMode"], "adaptive");
             assert_eq!(workspace["browserZoomPercent"], 100);
             assert!(workspace.get("resourcePolicy").is_none());
@@ -2185,7 +1991,8 @@ mod tests {
                     })
                     .collect::<Vec<_>>()
             );
-            assert_eq!(workspace["browserLaunchMode"], "inherit");
+            assert_eq!(workspace["browserEngine"], "system");
+            assert!(workspace.get("browserLaunchMode").is_none());
         });
     }
 
@@ -2363,7 +2170,8 @@ mod tests {
                 "2026-07-24T00:00:00.000Z",
             )
             .unwrap();
-            assert_eq!(role["browserSessionSource"], "managed");
+            assert!(role.get("browserSessionSource").is_none());
+            assert!(role.get("browserEnginePin").is_none());
             assert!(role.get("preferredBrowserLaunchMode").is_none());
         });
 
@@ -2542,108 +2350,5 @@ mod tests {
             assert!(observations.get("lastAuthSuccessAt").is_none());
             assert!(observations.get("lastAuthFailureAt").is_none());
         });
-    }
-
-    #[test]
-    fn prepared_chrome_import_restores_roles_and_browser_backup() {
-        let directory = tempdir().unwrap();
-        let staging = directory
-            .path()
-            .join(CHROME_IMPORT_DIRECTORY)
-            .join("import-1")
-            .join("backups")
-            .join("r1");
-        fs::create_dir_all(&staging).unwrap();
-        fs::write(staging.join("Cookies"), "old").unwrap();
-        fs::create_dir_all(directory.path().join("roles/r1/browser")).unwrap();
-        fs::write(
-            directory.path().join(CHROME_IMPORT_JOURNAL),
-            r#"{"importId":"import-1","phase":"prepared","createdRoleIds":[],"overwrittenRoleIds":["r1"],"originalRoles":[{"id":"r1","name":"Role"}]}"#,
-        )
-        .unwrap();
-
-        assert!(
-            recover_chrome_profile_import(
-                directory.path(),
-                &directory.path().join("rion-studio.sqlite3")
-            )
-            .unwrap()
-        );
-        assert_eq!(
-            fs::read_to_string(directory.path().join("roles/r1/browser/Cookies")).unwrap(),
-            "old"
-        );
-        assert!(!directory.path().join(CHROME_IMPORT_JOURNAL).exists());
-    }
-
-    #[test]
-    fn committed_chrome_import_finishes_cleanup_without_rolling_back_browser_data() {
-        let directory = tempdir().unwrap();
-        let imported_browser = directory.path().join("roles/r1/browser");
-        fs::create_dir_all(&imported_browser).unwrap();
-        fs::write(imported_browser.join("Cookies"), "imported").unwrap();
-        fs::create_dir_all(
-            directory
-                .path()
-                .join(CHROME_IMPORT_DIRECTORY)
-                .join("import-1/backups/r1"),
-        )
-        .unwrap();
-        fs::write(
-            directory.path().join(CHROME_IMPORT_JOURNAL),
-            r#"{"importId":"import-1","phase":"prepared","createdRoleIds":[],"overwrittenRoleIds":["r1"],"originalRoles":[]}"#,
-        )
-        .unwrap();
-        fs::write(
-            directory.path().join(CHROME_IMPORT_COMMITTED_MARKER),
-            "import-1",
-        )
-        .unwrap();
-
-        assert!(
-            recover_chrome_profile_import(
-                directory.path(),
-                &directory.path().join("rion-studio.sqlite3")
-            )
-            .unwrap()
-        );
-        assert_eq!(
-            fs::read_to_string(imported_browser.join("Cookies")).unwrap(),
-            "imported"
-        );
-        assert!(!directory.path().join(CHROME_IMPORT_DIRECTORY).exists());
-        assert!(!directory.path().join(CHROME_IMPORT_JOURNAL).exists());
-        assert!(
-            !directory
-                .path()
-                .join(CHROME_IMPORT_COMMITTED_MARKER)
-                .exists()
-        );
-    }
-
-    #[test]
-    fn corrupt_chrome_import_journal_preserves_recovery_evidence() {
-        let directory = tempdir().unwrap();
-        let staging = directory
-            .path()
-            .join(CHROME_IMPORT_DIRECTORY)
-            .join("import-1/backups/r1");
-        fs::create_dir_all(&staging).unwrap();
-        fs::write(staging.join("Cookies"), "backup").unwrap();
-        let journal = directory.path().join(CHROME_IMPORT_JOURNAL);
-        fs::write(&journal, "{").unwrap();
-
-        assert!(
-            recover_chrome_profile_import(
-                directory.path(),
-                &directory.path().join("rion-studio.sqlite3")
-            )
-            .is_err()
-        );
-        assert!(journal.exists());
-        assert_eq!(
-            fs::read_to_string(staging.join("Cookies")).unwrap(),
-            "backup"
-        );
     }
 }

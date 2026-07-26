@@ -102,7 +102,7 @@ const labels: Record<AppLanguage, MacRuntimeTabsNativeState["labels"]> = {
   }
 };
 
-const NATIVE_PROTOCOL_VERSION = 10;
+const NATIVE_PROTOCOL_VERSION = 11;
 const INVALID_CONTENT_LAYOUT: MacRuntimeTabsContentLayout = {
   heightInset: 0,
   valid: false,

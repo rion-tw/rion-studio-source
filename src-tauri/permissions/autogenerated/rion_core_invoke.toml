@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-core-invoke"
+description = "Enables the rion_core_invoke command without any pre-configured scope."
+commands.allow = ["rion_core_invoke"]
+
+[[permission]]
+identifier = "deny-rion-core-invoke"
+description = "Denies the rion_core_invoke command without any pre-configured scope."
+commands.deny = ["rion_core_invoke"]

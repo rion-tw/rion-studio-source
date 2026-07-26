@@ -21,7 +21,6 @@ describe("editor form state", () => {
       source: "custom",
       name: "Example",
       defaultLaunchUrl: "https://example.test/play",
-      browserLaunchMode: "inherit",
       createdAt: "2026-07-14T00:00:00.000Z",
       updatedAt: "2026-07-14T00:00:00.000Z"
     })).toMatchObject({
@@ -113,7 +112,6 @@ function role(overrides: Partial<Role> = {}): Role {
 function workspace(): LaunchWorkspace {
   return {
     id: "workspace-1",
-    browserLaunchMode: "inherit",
     browserZoomMode: "fixed",
     name: "Party",
     template: "two_columns",

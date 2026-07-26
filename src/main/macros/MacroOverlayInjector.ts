@@ -1,7 +1,8 @@
 import type { WebContents } from "electron";
 
-import macroOverlayCss from "./overlay/macroOverlay.css?raw";
-import macroOverlayRuntimeSource from "./overlay/macroOverlayRuntime.js?raw";
+import macroOverlayCss from "../../shared/browser-overlay/macroOverlay.css?raw";
+import macroOverlayRuntimeSource from "../../shared/browser-overlay/macroOverlayRuntime.js?raw";
+import macroOverlayShortcutGuardSource from "../../shared/browser-overlay/macroOverlayShortcutGuard.js?raw";
 
 import type {
   MacroOverlayRequestRecord,
@@ -324,9 +325,7 @@ export function shouldIgnoreMacroShortcutEvent(
   return [...eventPath, event.target, activeElement].some(hasEditableContext);
 }
 
-export const MACRO_SHORTCUT_GUARD_SOURCE = `(${Function.prototype.toString.call(
-  shouldIgnoreMacroShortcutEvent
-)})`;
+export const MACRO_SHORTCUT_GUARD_SOURCE = macroOverlayShortcutGuardSource.trim();
 
 const MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
 const MACRO_OVERLAY_CSS_TOKEN = "__RION_STUDIO_MACRO_OVERLAY_CSS__";

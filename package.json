@@ -11,13 +11,13 @@
     "dev:tauri:renderer": "vite --config vite.tauri.config.ts",
     "build": "pnpm run typecheck && electron-vite build",
     "build:tauri": "tauri build",
+    "build:tauri:release": "node scripts/buildTauriRelease.mjs",
+    "release:tauri:manifest": "node scripts/createTauriUpdaterManifest.mjs",
     "build:tauri:renderer": "vite build --config vite.tauri.config.ts",
     "build:rust": "node scripts/buildRustCore.mjs",
     "build:rust:release": "node scripts/buildRustCore.mjs --release",
     "verify:rust": "node scripts/verifyRustCore.mjs",
-    "verify:v1-parity": "node scripts/verifyV1Parity.mjs",
-    "verify:v1-parity:write": "node scripts/verifyV1Parity.mjs --write-report",
-    "sync:v1-parity": "node scripts/syncV1ParityEvidence.mjs",
+    "verify:system-only": "node scripts/verifySystemOnlyProduct.mjs",
     "test:rust": "cargo test --workspace --all-targets",
     "lint:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
     "generate:rust-types": "cargo test -p rion-core export_bindings",
@@ -33,6 +33,9 @@
     "build:native:windows": "node scripts/buildWindowsWebView2.mjs",
     "verify:native:windows": "node scripts/verifyWindowsWebView2.mjs",
     "test:native:windows": "node scripts/verifyWindowsWebView2.mjs",
+    "test:native:system-input": "node scripts/verifySystemTrustedInput.mjs",
+    "test:native:runtime-restore": "node scripts/verifySystemRuntimeRestore.mjs",
+    "test:native:file-operations": "node scripts/verifySystemFileOperations.mjs",
     "package": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && pnpm run build:native:windows && pnpm run verify:native:windows && electron-builder --config electron-builder.config.mjs --dir",
     "dist": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && pnpm run build:native:windows && pnpm run verify:native:windows && electron-builder --config electron-builder.config.mjs",
     "release": "semantic-release"
@@ -51,8 +54,7 @@
   "packageManager": "pnpm@11.13.0",
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
-    "electron-updater": "^6.8.9",
-    "ws": "^8.21.0"
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@electron/osx-sign": "2.5.0",
@@ -70,7 +72,6 @@
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

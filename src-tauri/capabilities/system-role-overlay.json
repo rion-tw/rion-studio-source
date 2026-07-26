@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "system-role-overlay-remote",
+  "description": "Allows game role WebViews to call only the role-bound macro overlay endpoint.",
+  "remote": {
+    "urls": ["http://*", "https://*"]
+  },
+  "local": false,
+  "webviews": ["game-role-*"],
+  "permissions": ["allow-rion-overlay-request"]
+}

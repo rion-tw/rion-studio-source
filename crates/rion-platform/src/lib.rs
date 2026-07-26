@@ -18,37 +18,16 @@ macro_rules! v1_case {
 #[cfg(test)]
 pub(crate) use v1_case;
 
-mod process;
-pub use process::{ExternalProcessExit, ExternalProcessSupervisor};
 mod filesystem;
 pub use filesystem::atomic_replace_file;
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
 mod system;
-pub use system::{
-    SystemHostDiagnostics, collect_system_host_diagnostics, request_graceful_chrome_quit,
-};
+pub use system::{SystemHostDiagnostics, collect_system_host_diagnostics};
 mod system_webview;
 pub use system_webview::{SystemWebViewProbe, probe_system_webview};
 mod windows_events;
 pub use windows_events::query_windows_display_driver_events;
-
-mod chrome;
-pub use chrome::find_chrome_executable;
-mod chrome_profile;
-pub use chrome_profile::{
-    ChromeProfileEntry, copy_chrome_profile, default_chrome_user_data_directory,
-    discover_chrome_profiles,
-};
-mod chrome_cookie;
-pub use chrome_cookie::{decrypt_chrome_cookie, decrypt_mac_cookie_payload};
-#[cfg_attr(not(windows), allow(dead_code))]
-mod window_frame;
-#[cfg(windows)]
-pub(crate) use window_frame::{
-    WindowCandidateMetadata, WindowFrameBackend, align_visible_frame_with_backend,
-    candidate_matches_process, select_best_candidate, validate_alignment_request,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -111,6 +90,3 @@ mod tests {
         });
     }
 }
-
-#[cfg(windows)]
-pub mod windows;

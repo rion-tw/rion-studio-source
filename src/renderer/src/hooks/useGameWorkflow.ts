@@ -37,7 +37,6 @@ export function useGameWorkflow({
         iconImageDataUrl: form.source === "custom" ? form.iconImageDataUrl ?? null : undefined,
         coverImageDataUrl: form.source === "custom" ? form.coverImageDataUrl ?? null : undefined,
         defaultLaunchUrl: form.defaultLaunchUrl,
-        browserLaunchMode: form.browserLaunchMode,
         browserEngine: form.browserEngine
       };
       const saved = form.id
@@ -159,20 +158,7 @@ export function useGameWorkflow({
     }
   }
 
-  async function applyRecommendation(game: Game): Promise<Game | undefined> {
-    const reportError = beginErrorOperation();
-    try {
-      const saved = await window.rionStudio.updateGame(game.id, { browserLaunchMode: "external" });
-      setGames((current) => current.map((item) => item.id === saved.id ? saved : item));
-      return saved;
-    } catch (error) {
-      reportError(error);
-      return undefined;
-    }
-  }
-
   return {
-    applyRecommendation,
     cancelCompatibilityCheck,
     deleteGame,
     deleteGames,

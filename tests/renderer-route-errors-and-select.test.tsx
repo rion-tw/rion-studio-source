@@ -208,7 +208,6 @@ function game(overrides: Partial<Game>): Game {
     source: "custom",
     name: "Game",
     defaultLaunchUrl: "https://example.test/play",
-    browserLaunchMode: "inherit",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides

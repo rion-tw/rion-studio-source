@@ -1,4 +1,5 @@
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -10,13 +11,6 @@ pub fn pick_file(title: &str, extension: &str) -> Result<Option<PathBuf>, String
     run_dialog(DialogRequest::OpenFile {
         title,
         extension: safe_extension(extension)?,
-    })
-}
-
-pub fn pick_directory(title: &str, default_path: Option<&Path>) -> Result<Option<PathBuf>, String> {
-    run_dialog(DialogRequest::OpenDirectory {
-        title,
-        default_path,
     })
 }
 
@@ -35,10 +29,7 @@ pub fn save_file(
 
 pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     let status = if cfg!(target_os = "macos") {
-        Command::new("/usr/bin/open")
-            .arg("-R")
-            .arg(path)
-            .status()
+        Command::new("/usr/bin/open").arg("-R").arg(path).status()
     } else {
         Command::new("explorer.exe")
             .arg(format!("/select,{}", path.display()))
@@ -73,11 +64,39 @@ pub fn open_url(url: &str) -> Result<(), String> {
     }
 }
 
+pub fn copy_text(value: &str) -> Result<(), String> {
+    let mut child = if cfg!(target_os = "macos") {
+        Command::new("/usr/bin/pbcopy")
+            .stdin(Stdio::piped())
+            .spawn()
+    } else {
+        Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$input | Set-Clipboard",
+            ])
+            .stdin(Stdio::piped())
+            .spawn()
+    }
+    .map_err(|error| error.to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "Clipboard input is unavailable.".to_owned())?
+        .write_all(value.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let status = child.wait().map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("The operating system clipboard rejected the text.".to_owned())
+    }
+}
+
 enum DialogRequest<'a> {
-    OpenDirectory {
-        title: &'a str,
-        default_path: Option<&'a Path>,
-    },
     OpenFile {
         title: &'a str,
         extension: &'a str,
@@ -111,24 +130,6 @@ fn run_macos_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, Strin
                 "end try"
             ),
             extension.to_owned(),
-        ),
-        DialogRequest::OpenDirectory {
-            title,
-            default_path,
-        } => (
-            title,
-            concat!(
-                "set promptText to system attribute \"RION_STUDIO_DIALOG_TITLE\"\n",
-                "try\n",
-                "  set chosenPath to choose folder with prompt promptText\n",
-                "  return POSIX path of chosenPath\n",
-                "on error number -128\n",
-                "  return \"\"\n",
-                "end try"
-            ),
-            default_path
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_default(),
         ),
         DialogRequest::SaveFile {
             title,
@@ -172,24 +173,6 @@ fn run_windows_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, Str
             ),
             extension.to_owned(),
         ),
-        DialogRequest::OpenDirectory {
-            title,
-            default_path,
-        } => (
-            title,
-            concat!(
-                "Add-Type -AssemblyName System.Windows.Forms;",
-                "$d=New-Object System.Windows.Forms.FolderBrowserDialog;",
-                "$d.Description=$env:RION_STUDIO_DIALOG_TITLE;",
-                "if(Test-Path $env:RION_STUDIO_DIALOG_DEFAULT)",
-                "{$d.SelectedPath=$env:RION_STUDIO_DIALOG_DEFAULT};",
-                "if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)",
-                "{[Console]::Out.Write($d.SelectedPath)}"
-            ),
-            default_path
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        ),
         DialogRequest::SaveFile {
             title,
             default_name,
@@ -208,7 +191,13 @@ fn run_windows_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, Str
     };
     run_capture(
         Command::new("powershell.exe")
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-STA", "-Command"])
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-STA",
+                "-Command",
+            ])
             .arg(script)
             .env(DIALOG_TITLE_ENV, title)
             .env(DIALOG_DEFAULT_ENV, default_value),
@@ -278,7 +267,9 @@ mod tests {
     fn external_urls_are_restricted_before_launch() {
         assert!(url::Url::parse("https://rion.tw").is_ok());
         assert!(!matches!(
-            url::Url::parse("file:///private/etc/passwd").unwrap().scheme(),
+            url::Url::parse("file:///private/etc/passwd")
+                .unwrap()
+                .scheme(),
             "http" | "https"
         ));
     }

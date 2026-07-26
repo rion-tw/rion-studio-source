@@ -1,25 +1,16 @@
 import type {
   BrowserEngineOverride as RustBrowserEngineOverride,
   BrowserHostKind as RustBrowserHostKind,
-  BrowserCdnCompatibilityRecord,
   BrowserFontSettingsRecord,
   BrowserGraphicsSettingsRecord,
   BrowserNetworkSettingsRecord,
   BrowserProxySettingsRecord,
-  BrowserSessionSource as RustBrowserSessionSource,
-  ChromeProfileEntryRecord,
-  ChromeProfileImportPreviewRecord,
-  ChromeProfileImportProgressRecord,
-  ChromeProfileImportRequest,
-  ChromeProfileImportResultRecord,
-  ChromeProfileImportWarningRecord,
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
   DiagnosticExportResultRecord,
   EmbeddedBrowserEngine as RustEmbeddedBrowserEngine,
   EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
-  EngineFallbackReason as RustEngineFallbackReason,
-  ExternalGraphicsDiagnosticsRecord,
+  SystemWebViewIssueReason as RustSystemWebViewIssueReason,
   GameCreateRequest,
   GameBrowserSettingsRecord,
   GameUpdateRequest,
@@ -59,7 +50,6 @@ import type {
   PortablePreferencesRecord,
   PortableRoleRecord,
   StateGameRecord,
-  StateCompatibilityChromeRecord,
   StateCompatibilityLoadRecord,
   StateCompatibilityObservationsRecord,
   StateCompatibilityRecommendationRecord,
@@ -77,9 +67,6 @@ import type {
   WorkspaceAppearanceSettingsRecord,
   RoleCreateRequest,
   RolePathsRecord,
-  RoleSessionMigrationPreviewRecord,
-  RoleSessionMigrationResultRecord,
-  RoleSessionMigrationRollbackRecord,
   RoleUpdateRequest,
   RuntimeWindowPreferencesRecord,
   ResolvedBrowserEngine as RustResolvedBrowserEngine,
@@ -124,9 +111,6 @@ export type UpdateGameInput = GameUpdateRequest;
 
 export type Role = StateRoleRecord;
 
-/** Selects the browser storage backend; this is not an authentication state. */
-export type RoleBrowserSessionSource = RustBrowserSessionSource;
-
 export type CreateRoleInput = RoleCreateRequest;
 
 export type UpdateRoleInput = RoleUpdateRequest;
@@ -161,17 +145,15 @@ export interface RoleStatus {
   notice?: string;
   runtimeMode?: BrowserRuntimeMode;
   automationState?: "ready" | "unavailable";
-  /** Availability of the external Chrome in-page macro overlay and shortcuts. */
+  /** Availability of the native in-page macro overlay and shortcuts. */
   overlayState?: "ready" | "unavailable";
-  /** Health reported by the external Chrome page diagnostics bridge. */
+  /** Health reported by the active system WebView surface. */
   pageHealth?: "healthy" | "unresponsive";
   preferredEngine?: EmbeddedBrowserEngine;
   resolvedEngine?: ResolvedBrowserEngine;
   hostKind?: BrowserHostKind;
-  fallbackReason?: EngineFallbackReason;
+  issueReason?: SystemWebViewIssueReason;
   capabilitySnapshot?: EngineCapabilitySnapshot;
-  /** Continuity of the authenticated browser session after an engine fallback. */
-  sessionContinuity?: "verified" | "needs-login";
 }
 
 export type EmbeddedRuntimeTabType = "role" | "workspace";
@@ -296,10 +278,6 @@ export interface MacroRunStatus {
 }
 
 export type RolePaths = RolePathsRecord;
-export type RoleSessionMigrationPreview = RoleSessionMigrationPreviewRecord;
-export type RoleSessionMigrationResult = RoleSessionMigrationResultRecord;
-export type RoleSessionMigrationRollback = RoleSessionMigrationRollbackRecord;
-
 export type NormalizedRect = StateNormalizedRectRecord;
 
 export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
@@ -384,25 +362,20 @@ export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed"
 export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserMacosGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["macos"];
 export type BrowserWindowsGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["windows"];
-export type BrowserLaunchMode = "auto" | "embedded" | "external";
-export type BrowserRuntimeMode = "embedded" | "external";
-export type InheritableBrowserLaunchMode = BrowserLaunchMode | "inherit";
+export type BrowserRuntimeMode = "embedded";
 export type EmbeddedBrowserEngine = RustEmbeddedBrowserEngine;
 export type BrowserEngineOverride = RustBrowserEngineOverride;
 export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
 export type BrowserHostKind = RustBrowserHostKind;
-export type EngineFallbackReason = RustEngineFallbackReason;
+export type SystemWebViewIssueReason = RustSystemWebViewIssueReason;
 export type EngineCapabilitySnapshot = RustEngineCapabilitySnapshotRecord;
 export type BrowserProxySettingsMode = "system" | "custom";
-export type BrowserCdnCompatibilityMode = "off" | "auto" | "on";
 export type WorkspaceBackgroundStyle = "material" | "black";
 export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
 export type BrowserFontSettings = BrowserFontSettingsRecord;
 
 export type BrowserProxySettings = BrowserProxySettingsRecord;
-
-export type BrowserCdnCompatibilitySettings = BrowserCdnCompatibilityRecord;
 
 export type BrowserNetworkSettings = BrowserNetworkSettingsRecord;
 
@@ -422,8 +395,6 @@ export type WebGraphicsDiagnostics = StateWebGraphicsRecord;
 
 export type GraphicsDeviceDiagnostics = GraphicsDeviceDiagnosticsRecord;
 
-export type ExternalGraphicsDiagnostics = ExternalGraphicsDiagnosticsRecord;
-
 export type GraphicsDiagnostics = GraphicsDiagnosticsRecord;
 
 export type GameCompatibilityRunPhase = CompatibilityRunPhase;
@@ -431,8 +402,6 @@ export type GameCompatibilityRunPhase = CompatibilityRunPhase;
 export type GameCompatibilityRunStatus = CompatibilityRunStatusRecord;
 
 export type GameCompatibilityLoadResult = StateCompatibilityLoadRecord;
-
-export type GameCompatibilityChromeResult = StateCompatibilityChromeRecord;
 
 export type GameCompatibilityRecommendation = StateCompatibilityRecommendationRecord;
 
@@ -493,18 +462,6 @@ export type PortableImportWarning = PortableImportWarningRecord;
 export type PortableImportPreview = PortableImportPreviewRecord;
 
 export type PortableImportResult = PortableImportResultRecord;
-
-export type ChromeProfileEntry = ChromeProfileEntryRecord;
-
-export type ChromeProfileImportWarning = ChromeProfileImportWarningRecord;
-
-export type ChromeProfileImportPreview = ChromeProfileImportPreviewRecord;
-
-export type ChromeProfileImportInput = ChromeProfileImportRequest;
-
-export type ChromeProfileImportResult = ChromeProfileImportResultRecord;
-
-export type ChromeProfileImportProgress = ChromeProfileImportProgressRecord;
 
 export type AppUpdateState =
   | "unsupported"

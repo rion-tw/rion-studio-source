@@ -39,8 +39,11 @@ describe("generated Rust core contracts", () => {
     expect(request).toContain("effectId: string");
     expect(request).toContain("operationId: string");
     expect(request).toContain("deadlineMs: number");
-    expect(action).toContain('{ "type": "createWindow"');
-    expect(action).toContain('{ "type": "debuggerCommand"');
+    expect(action).toContain('{ "type": "embeddedCreateTab"');
+    expect(action).toContain('{ "type": "browserAction"');
+    expect(action).not.toContain('{ "type": "createWindow"');
+    expect(action).not.toContain('{ "type": "debuggerCommand"');
+    expect(action).not.toContain('{ "type": "cookieSet"');
     expect(result).toContain("error: CoreErrorPayload | null");
     expect(resultMap).toContain("export type CoreCommandResultMap");
     const metrics = await readFile("src/shared/generated/CoreEffectMetricsRecord.ts", "utf8");
@@ -120,8 +123,9 @@ describe("Rust addon build verification", () => {
     ]);
 
     expect(packaged).toContain('ELECTRON_RUN_AS_NODE: "1"');
-    expect(core).toContain("externalProcessLaunch");
-    expect(core).toContain("externalProcessExited");
+    expect(core).not.toContain("matchCdnUrl");
+    expect(core).not.toContain("externalProcessLaunch");
+    expect(core).not.toContain("externalProcessExited");
     expect(core).toContain('type: "embeddedKeyPrepare"');
     expect(core).toContain('type: "embeddedKeysHeld"');
     expect(core).not.toContain("core.connectExternalChromeCdp(");
@@ -129,20 +133,4 @@ describe("Rust addon build verification", () => {
     expect(core).toContain("dispatchCoreEffectResults");
   });
 
-  it("routes the same macro overlay runtime through external Chrome", async () => {
-    const [main, app] = await Promise.all([
-      readFile("src/main/index.ts", "utf8"),
-      readFile("crates/rion-core/src/app.rs", "utf8")
-    ]);
-
-    v1Case("overlay-25d22c28fb7e", () => {
-      expect(main).toContain('case "externalOverlaySource":');
-      expect(main).toContain("return MACRO_OVERLAY_SCRIPT;");
-      expect(app).toContain('Some(json!({"name":EXTERNAL_OVERLAY_BINDING}))');
-      expect(app).toContain("CoreEffectAction::ExternalOverlaySource");
-      expect(app).toContain("Page.addScriptToEvaluateOnNewDocument");
-      expect(app).toContain("retry_external_overlay_injection");
-      expect(app).toContain('format!("{};\\n{source}", external_overlay_bridge_source())');
-    });
-  });
 });

@@ -15,7 +15,7 @@
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 10;
+constexpr int32_t kProtocolVersion = 11;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
@@ -517,43 +517,6 @@ napi_value ClearSystemWebViewData(napi_env env, napi_callback_info info) {
   return Undefined(env);
 }
 
-napi_value GetSystemWebViewCookies(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_value args[2];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  if (argc != 2) {
-    Throw(env,
-          "getSystemWebViewCookies requires an identifier and request ID.");
-    return nullptr;
-  }
-  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
-  if (!record) return nullptr;
-  [record->surface
-      getCookiesForRequest:GetNSString(
-                               env, args[1],
-                               "The cookie-read request ID is invalid.")];
-  return Undefined(env);
-}
-
-napi_value SetSystemWebViewCookies(napi_env env, napi_callback_info info) {
-  size_t argc = 3;
-  napi_value args[3];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  if (argc != 3) {
-    Throw(env,
-          "setSystemWebViewCookies requires an identifier, request ID, and cookie JSON.");
-    return nullptr;
-  }
-  SystemSurfaceRecord *record = GetSystemSurface(env, args[0]);
-  if (!record) return nullptr;
-  NSString *request_id =
-      GetNSString(env, args[1], "The cookie-write request ID is invalid.");
-  NSString *cookies =
-      GetNSString(env, args[2], "The cookie migration JSON is invalid.");
-  [record->surface setCookiesFromJSON:cookies requestID:request_id];
-  return Undefined(env);
-}
-
 napi_value SetSystemWebViewBounds(napi_env env, napi_callback_info info) {
   size_t argc = 2;
   napi_value args[2];
@@ -811,10 +774,6 @@ napi_value Initialize(napi_env env, napi_value exports) {
        AddSystemWebViewDocumentStartScript, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"clearSystemWebViewData", nullptr, ClearSystemWebViewData, nullptr,
-       nullptr, nullptr, napi_default, nullptr},
-      {"getSystemWebViewCookies", nullptr, GetSystemWebViewCookies, nullptr,
-       nullptr, nullptr, napi_default, nullptr},
-      {"setSystemWebViewCookies", nullptr, SetSystemWebViewCookies, nullptr,
        nullptr, nullptr, napi_default, nullptr},
       {"setSystemWebViewBounds", nullptr, SetSystemWebViewBounds, nullptr,
        nullptr, nullptr, napi_default, nullptr},

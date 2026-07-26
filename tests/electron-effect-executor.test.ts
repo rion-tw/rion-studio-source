@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  ElectronEffectExecutor,
-  ElectronHandleRegistry,
-  type ElectronViewEffectHandle,
-  type ElectronWindowEffectHandle
-} from "../src/main/core/ElectronEffectExecutor";
+import { ElectronEffectExecutor } from "../src/main/core/ElectronEffectExecutor";
 import type { CoreEffectRequest, CoreEffectResult } from "../src/shared/generated";
 
 const request = (
@@ -20,19 +15,8 @@ const request = (
 });
 
 describe("ElectronEffectExecutor", () => {
-  it("creates and uses registered Electron handles without retaining operation state", async () => {
-    const loadURL = vi.fn(async () => undefined);
-    const focus = vi.fn();
-    const executeJavaScript = vi.fn(async () => ({ ready: true }));
-    const view: ElectronViewEffectHandle = {
-      setBounds: vi.fn(),
-      webContents: {
-        executeJavaScript,
-        focus,
-        loadURL,
-        setAudioMuted: vi.fn()
-      }
-    };
+  it("routes product effects without retaining Electron object handles", async () => {
+    const executeCompatibilityEffect = vi.fn(async () => ({ ready: true }));
     const dispatchResults = vi.fn(async () => ({
       accepted: [],
       duplicate: [],
@@ -40,50 +24,21 @@ describe("ElectronEffectExecutor", () => {
       unknown: [],
       operationMismatch: []
     }));
-    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
-      clearSessionStorage: vi.fn(async () => undefined),
-      createView: () => view,
-      createWindow: vi.fn(),
+    const executor = new ElectronEffectExecutor({
       dispatchResults,
-      sendDebuggerCommand: vi.fn(async () => null),
-      setCookie: vi.fn(async () => undefined)
+      executeCompatibilityEffect
     });
+    const effect = request({ type: "compatibilityConfigureSession", gameId: "game-1" });
+    const result = await executor.execute(effect);
 
-    expect((await executor.execute(request({ type: "createView", optionsJson: "{}" }))).ok).toBe(true);
-    expect((await executor.execute(request({ type: "loadUrl", url: "https://example.test" }))).ok).toBe(true);
-    expect((await executor.execute(request({ type: "focus" }))).ok).toBe(true);
-    const evaluated = await executor.execute(request({ type: "evaluate", source: "window.state" }));
-
-    expect(loadURL).toHaveBeenCalledWith("https://example.test");
-    expect(focus).toHaveBeenCalledOnce();
-    expect(evaluated).toMatchObject({
+    expect(executeCompatibilityEffect).toHaveBeenCalledWith(effect);
+    expect(result).toMatchObject({
       ok: true,
       valueJson: JSON.stringify({ ready: true })
     });
   });
 
-  it("attaches views and dispatches one result batch through the generic protocol", async () => {
-    const addChildView = vi.fn();
-    const window: ElectronWindowEffectHandle = {
-      contentView: {
-        addChildView,
-        removeChildView: vi.fn()
-      },
-      focus: vi.fn(),
-      setBounds: vi.fn()
-    };
-    const view: ElectronViewEffectHandle = {
-      setBounds: vi.fn(),
-      webContents: {
-        executeJavaScript: vi.fn(async () => null),
-        focus: vi.fn(),
-        loadURL: vi.fn(async () => undefined),
-        setAudioMuted: vi.fn()
-      }
-    };
-    const handles = new ElectronHandleRegistry();
-    handles.register("window-1", window);
-    handles.register("view-1", view);
+  it("dispatches one result batch through the generic acknowledgement protocol", async () => {
     const dispatchResults = vi.fn(async (results: CoreEffectResult[]) => ({
       accepted: results.map((result) => result.effectId),
       duplicate: [],
@@ -91,32 +46,23 @@ describe("ElectronEffectExecutor", () => {
       unknown: [],
       operationMismatch: []
     }));
-    const executor = new ElectronEffectExecutor(handles, {
-      clearSessionStorage: vi.fn(async () => undefined),
-      createView: vi.fn(),
-      createWindow: vi.fn(),
+    const executeOverlayEffect = vi.fn(async () => undefined);
+    const executor = new ElectronEffectExecutor({
       dispatchResults,
-      sendDebuggerCommand: vi.fn(async () => null),
-      setCookie: vi.fn(async () => undefined)
+      executeOverlayEffect
     });
-    const effect = request(
-      { type: "attachView", childHandleId: "view-1" },
-      "window-1"
-    );
+    const effect = request({ type: "overlayOpenMacroPage", roleId: "role-1" });
 
     const report = await executor.executeAndDispatch([effect]);
 
-    expect(addChildView).toHaveBeenCalledWith(view);
+    expect(executeOverlayEffect).toHaveBeenCalledWith(effect);
     expect(dispatchResults).toHaveBeenCalledOnce();
     expect(report.accepted).toEqual([effect.effectId]);
   });
 
-  it("returns stable typed failures for missing or incompatible handles", async () => {
+  it("returns stable typed failures when a transitional adapter is unavailable", async () => {
     const onResult = vi.fn();
-    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
-      clearSessionStorage: vi.fn(async () => undefined),
-      createView: vi.fn(),
-      createWindow: vi.fn(),
+    const executor = new ElectronEffectExecutor({
       dispatchResults: vi.fn(async () => ({
         accepted: [],
         duplicate: [],
@@ -124,22 +70,20 @@ describe("ElectronEffectExecutor", () => {
         unknown: [],
         operationMismatch: []
       })),
-      onResult,
-      sendDebuggerCommand: vi.fn(async () => null),
-      setCookie: vi.fn(async () => undefined)
+      onResult
     });
+    const effect = request({ type: "compatibilityConfigureSession", gameId: "game-1" });
 
-    await expect(executor.execute(request({ type: "focus" }, "missing"))).resolves.toMatchObject({
+    await expect(executor.execute(effect)).resolves.toMatchObject({
       ok: false,
       error: {
-        code: "ELECTRON_EFFECT_TARGET_NOT_FOUND"
+        code: "ELECTRON_EFFECT_UNSUPPORTED"
       }
     });
     expect(onResult).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { kind: "view", handleId: "missing" } }),
+      effect,
       expect.objectContaining({
-        ok: false,
-        error: expect.objectContaining({ code: "ELECTRON_EFFECT_TARGET_NOT_FOUND" })
+        error: expect.objectContaining({ code: "ELECTRON_EFFECT_UNSUPPORTED" })
       })
     );
   });
@@ -161,15 +105,11 @@ describe("ElectronEffectExecutor", () => {
     }>((resolve) => {
       resolveDispatch = resolve;
     }));
-    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
-      clearSessionStorage: vi.fn(async () => undefined),
-      createView: vi.fn(),
-      createWindow: vi.fn(),
+    const executor = new ElectronEffectExecutor({
       dispatchResults,
-      sendDebuggerCommand: vi.fn(async () => null),
-      setCookie: vi.fn(async () => undefined)
+      executeOverlayEffect: vi.fn(async () => undefined)
     });
-    const effect = request({ type: "focus" }, "missing");
+    const effect = request({ type: "overlayOpenMacroPage", roleId: "role-1" });
     const execution = executor.executeAndDispatch([effect]);
     await vi.waitFor(() => expect(dispatchResults).toHaveBeenCalledOnce());
 
@@ -195,51 +135,9 @@ describe("ElectronEffectExecutor", () => {
     });
   });
 
-  it("routes external browser effects without requiring an Electron handle", async () => {
-    const executeExternalEffect = vi.fn(async () => ({
-      proxyServer: "http://127.0.0.1:4010"
-    }));
-    const dispatchResults = vi.fn(async (results: CoreEffectResult[]) => ({
-      accepted: results.map((result) => result.effectId),
-      duplicate: [],
-      late: [],
-      unknown: [],
-      operationMismatch: []
-    }));
-    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
-      clearSessionStorage: vi.fn(async () => undefined),
-      createView: vi.fn(),
-      createWindow: vi.fn(),
-      dispatchResults,
-      executeExternalEffect,
-      sendDebuggerCommand: vi.fn(async () => null),
-      setCookie: vi.fn(async () => undefined)
-    });
-    const effect = request({
-      type: "externalPrepareSession",
-      roleId: "role-1",
-      cdnMode: "auto"
-    });
-
-    const report = await executor.executeAndDispatch([effect]);
-
-    expect(executeExternalEffect).toHaveBeenCalledWith(effect);
-    expect(dispatchResults).toHaveBeenCalledWith([
-      expect.objectContaining({
-        effectId: effect.effectId,
-        ok: true,
-        valueJson: JSON.stringify({ proxyServer: "http://127.0.0.1:4010" })
-      })
-    ]);
-    expect(report.accepted).toEqual([effect.effectId]);
-  });
-
   it("routes overlay presentation effects without retaining overlay state", async () => {
     const executeOverlayEffect = vi.fn(async () => undefined);
-    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
-      clearSessionStorage: vi.fn(async () => undefined),
-      createView: vi.fn(),
-      createWindow: vi.fn(),
+    const executor = new ElectronEffectExecutor({
       dispatchResults: vi.fn(async () => ({
         accepted: [],
         duplicate: [],
@@ -247,9 +145,7 @@ describe("ElectronEffectExecutor", () => {
         unknown: [],
         operationMismatch: []
       })),
-      executeOverlayEffect,
-      sendDebuggerCommand: vi.fn(async () => null),
-      setCookie: vi.fn(async () => undefined)
+      executeOverlayEffect
     });
     const openEffect = request({
       type: "overlayOpenMacroPage",

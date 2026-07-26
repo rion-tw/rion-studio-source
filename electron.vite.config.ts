@@ -13,8 +13,7 @@ export default defineConfig({
       },
       rollupOptions: {
         input: {
-          index: resolve(__dirname, "src/main/index.ts"),
-          "runtime-helper": resolve(__dirname, "src/main/helper/ElectronRuntimeHelper.ts")
+          index: resolve(__dirname, "src/main/index.ts")
         }
       }
     }

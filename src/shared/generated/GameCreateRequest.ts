@@ -6,4 +6,4 @@ import type { BrowserEngineOverride } from "./BrowserEngineOverride";
  * types below are private command payloads and may contain presence flags used
  * to preserve `undefined` versus `null` across Node-API.
  */
-export type GameCreateRequest = { name: string, iconImageDataUrl?: string | null, coverImageDataUrl?: string | null, defaultLaunchUrl: string, browserLaunchMode?: "auto" | "embedded" | "external" | "inherit", browserEngine?: BrowserEngineOverride, };
+export type GameCreateRequest = { name: string, iconImageDataUrl?: string | null, coverImageDataUrl?: string | null, defaultLaunchUrl: string, browserEngine?: BrowserEngineOverride, };

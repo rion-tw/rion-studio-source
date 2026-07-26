@@ -39,14 +39,18 @@ function createDiagnostics(platform: GraphicsDiagnostics["platform"] = "win32"):
     appliedSwitches: ["--force-high-performance-gpu"],
     collectedAt: "2026-07-23T00:00:00.000Z",
     embedded: { webgl: "available", webgl2: "available", webgpu: "available" },
-    externalRoles: [],
     featureStatus: {},
     gpuInfoReady: true,
     hardwareAccelerationEnabled: true,
     platform,
     restartRequired: false,
     savedSettings: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
-    versions: { chromium: "1", electron: "1", node: "1" }
+    versions: {
+      engine: "wkwebview",
+      engineVersion: "14.6",
+      shell: "tauri",
+      shellVersion: "2.11"
+    }
   };
 }
 
@@ -142,7 +146,7 @@ describe("flattened graphics settings", () => {
       )
     ).toBe("checked");
     expect(
-      screen.getByText("Fixed on: occluded windows and hidden tabs continue using Chromium/Electron resource throttling.")
+      screen.getByText("Managed by the operating-system WebView for occluded windows and hidden tabs.")
     ).toBeTruthy();
     expect(await screen.findByRole("combobox", { name: "Graphics API backend" })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Graphics acceleration" })).toBeNull();
@@ -160,14 +164,13 @@ describe("flattened graphics settings", () => {
           runtimeMode: "embedded",
           preferredEngine: "system",
           resolvedEngine: "wkwebview",
-          hostKind: "system",
+          hostKind: "system-native",
           capabilitySnapshot: {
             navigation: "supported",
             persistentSession: "supported",
             trustedInput: "unsupported",
             backgroundInput: "unsupported",
             frameEvaluation: "degraded",
-            cdnRewrite: "unsupported",
             proxy: "supported",
             popup: "unsupported",
             audioMute: "supported",
@@ -186,7 +189,7 @@ describe("flattened graphics settings", () => {
     expect(screen.getByText("Active engine capabilities")).toBeTruthy();
     expect(screen.getByText("Resolved engine")).toBeTruthy();
     expect(screen.getByText("WKWebView")).toBeTruthy();
-    expect(screen.getAllByText("Fallback").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unsupported").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Partial").length).toBeGreaterThan(0);
     expect(screen.getByText("Disabled")).toBeTruthy();
   });

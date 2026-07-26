@@ -2,7 +2,7 @@
 import type { BrowserHostKind } from "./BrowserHostKind";
 import type { EmbeddedBrowserEngine } from "./EmbeddedBrowserEngine";
 import type { EngineCapabilitySnapshotRecord } from "./EngineCapabilitySnapshotRecord";
-import type { EngineFallbackReason } from "./EngineFallbackReason";
 import type { ResolvedBrowserEngine } from "./ResolvedBrowserEngine";
+import type { SystemWebViewIssueReason } from "./SystemWebViewIssueReason";
 
-export type BrowserRoleStatusRecord = { roleId: string, state: "launching" | "running" | "stopping", launchedAt?: string, notice?: string, runtimeMode: "embedded" | "external", automationState?: "ready" | "unavailable", overlayState?: "ready" | "unavailable", pageHealth?: "healthy" | "unresponsive", preferredEngine?: EmbeddedBrowserEngine, resolvedEngine?: ResolvedBrowserEngine, hostKind?: BrowserHostKind, fallbackReason?: EngineFallbackReason, capabilitySnapshot?: EngineCapabilitySnapshotRecord, sessionContinuity?: "verified" | "needs-login", };
+export type BrowserRoleStatusRecord = { roleId: string, state: "launching" | "running" | "stopping", launchedAt?: string, notice?: string, runtimeMode: "embedded", automationState?: "ready" | "unavailable", overlayState?: "ready" | "unavailable", pageHealth?: "healthy" | "unresponsive", preferredEngine?: EmbeddedBrowserEngine, resolvedEngine?: ResolvedBrowserEngine, hostKind?: BrowserHostKind, issueReason?: SystemWebViewIssueReason, capabilitySnapshot?: EngineCapabilitySnapshotRecord, };

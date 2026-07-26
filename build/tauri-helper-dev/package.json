@@ -1,6 +1,0 @@
-{
-  "name": "rion-studio-runtime-helper-dev",
-  "private": true,
-  "main": "../../out/main/runtime-helper.js",
-  "type": "module"
-}

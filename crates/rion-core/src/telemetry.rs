@@ -125,7 +125,6 @@ fn run_worker(receiver: Receiver<Request>, output_path: Option<PathBuf>) {
 
 struct Metrics {
     browser_result_count: u64,
-    cdn_plan_count: u64,
     cdp: LatencySampler,
     cdp_count: u64,
     core_event_batch_count: u64,
@@ -150,7 +149,6 @@ impl Metrics {
     fn new() -> Self {
         Self {
             browser_result_count: 0,
-            cdn_plan_count: 0,
             cdp: LatencySampler::default(),
             cdp_count: 0,
             core_event_batch_count: 0,
@@ -232,16 +230,12 @@ impl Metrics {
             TelemetryMetric::MenuRefresh => {
                 self.menu_refresh_count = self.menu_refresh_count.saturating_add(count);
             }
-            TelemetryMetric::CdnPlan => {
-                self.cdn_plan_count = self.cdn_plan_count.saturating_add(count);
-            }
         }
     }
 
     fn snapshot(&self) -> PerformanceTelemetryRecord {
         PerformanceTelemetryRecord {
             browser_result_count: self.browser_result_count,
-            cdn_plan_count: self.cdn_plan_count,
             cdp: CountedLatencySummaryRecord {
                 message_count: self.cdp_count,
                 latency: self.cdp.summary(),

@@ -54,26 +54,16 @@ describe("browser font settings normalization", () => {
         mode: "custom"
       },
       graphics: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
-      launchMode: "auto",
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       network: DEFAULT_BROWSER_NETWORK_SETTINGS,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
   });
 
-  it("normalizes browser launch mode", () => {
-    expect(normalizeGameBrowserSettings({ launchMode: "external" }).launchMode).toBe("external");
-    expect(normalizeGameBrowserSettings({ launchMode: "turbo" }).launchMode).toBe("auto");
-    expect(
-      normalizeGameBrowserSettings({ launchMode: "turbo" }, { ...DEFAULT_GAME_BROWSER_SETTINGS, launchMode: "embedded" })
-        .launchMode
-    ).toBe("embedded");
-  });
-
-  it("normalizes the default browser engine and preserves an explicit Electron choice", () => {
+  it("normalizes legacy and unknown browser engines to System", () => {
     expect(normalizeGameBrowserSettings({}).browserEngine).toBe("system");
     expect(normalizeGameBrowserSettings({ browserEngine: "electron" }).browserEngine).toBe(
-      "electron"
+      "system"
     );
     expect(normalizeGameBrowserSettings({ browserEngine: "webkit" }).browserEngine).toBe(
       "system"
@@ -188,30 +178,6 @@ describe("browser font settings normalization", () => {
       "http://127.0.0.1:7890"
     );
     expect(normalizeBrowserProxyServer("http://127.0.0.1:7890/path")).toBe("");
-  });
-
-  it("defaults legacy network settings to automatic CDN compatibility and validates modes", () => {
-    expect(
-      normalizeGameBrowserSettings({
-        network: {
-          proxy: { mode: "system", server: "" }
-        }
-      }).network.cdnCompatibility
-    ).toEqual({ mode: "auto" });
-    expect(
-      normalizeGameBrowserSettings({
-        network: {
-          cdnCompatibility: { mode: "on" }
-        }
-      }).network.cdnCompatibility
-    ).toEqual({ mode: "on" });
-    expect(
-      normalizeGameBrowserSettings({
-        network: {
-          cdnCompatibility: { mode: "invalid" }
-        }
-      }).network.cdnCompatibility
-    ).toEqual({ mode: "auto" });
   });
 
   it("defaults workspace appearance and validates backgrounds and fixed gap sizes", () => {

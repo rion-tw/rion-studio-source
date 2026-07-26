@@ -1,8 +1,6 @@
 import {
-  AlertCircle,
   Copy,
   Eraser,
-  FileWarning,
   Globe2,
   Loader2,
   MoreHorizontal,
@@ -11,10 +9,7 @@ import {
   Plus,
   Search,
   Square,
-  Trash2,
-  Upload,
-  RotateCcw,
-  ArrowRightLeft
+  Trash2
 } from "lucide-react";
 import {
   type DragEvent,
@@ -66,7 +61,6 @@ interface RolesViewProps {
   busyRoleIds: ReadonlySet<string>;
   filteredRoles: Role[];
   games: Game[];
-  isChromeProfileImportOpen?: boolean;
   isReordering: boolean;
   language?: Language;
   roleStats: AppStats;
@@ -76,8 +70,6 @@ interface RolesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   onClearQuery: () => void;
-  onCaptureExternalDiagnostics?: (roleId: string) => void;
-  onBrowserSessionMigration?: (role: Role) => void;
   onClearBrowserData: (role: Role) => void;
   onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
@@ -85,8 +77,6 @@ interface RolesViewProps {
   onEdit: (role: Role) => void;
   onFilterChange: (filter: SidebarFilter) => void;
   onLaunch: (roleId: string) => void;
-  onOpenChromeProfileImport?: () => void;
-  onRecoverExternalRole?: (roleId: string) => void;
   onNewRole: () => void;
   onQueryChange: (query: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -98,7 +88,6 @@ function RolesView({
   busyRoleIds,
   filteredRoles,
   games,
-  isChromeProfileImportOpen = false,
   isReordering,
   roleStats,
   roles,
@@ -107,8 +96,6 @@ function RolesView({
   statusByRole,
   t,
   onClearQuery,
-  onCaptureExternalDiagnostics = () => undefined,
-  onBrowserSessionMigration = () => undefined,
   onClearBrowserData,
   onCopy,
   onDelete,
@@ -116,8 +103,6 @@ function RolesView({
   onEdit,
   onFilterChange,
   onLaunch,
-  onOpenChromeProfileImport = () => undefined,
-  onRecoverExternalRole = () => undefined,
   onNewRole,
   onQueryChange,
   onReorder,
@@ -196,9 +181,6 @@ function RolesView({
           description={t("roles.empty.description")}
           actionLabel={t("roles.empty.action")}
           onAction={onNewRole}
-          onSecondaryAction={onOpenChromeProfileImport}
-          secondaryActionDisabled={isChromeProfileImportOpen || games.length === 0}
-          secondaryActionLabel={t("roles.importChromeProfiles")}
         />
       </PageFrame>
     );
@@ -218,16 +200,6 @@ function RolesView({
               value={query}
               onChange={onQueryChange}
             />
-            <Button
-              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
-              type="button"
-              variant="outline"
-              disabled={isChromeProfileImportOpen || games.length === 0}
-              onClick={onOpenChromeProfileImport}
-            >
-              <Upload size={14} />
-              {t("roles.importChromeProfiles")}
-            </Button>
             <Button
               className="flex-1 gap-1.5 px-2.5 sm:flex-none"
               type="button"
@@ -298,13 +270,10 @@ function RolesView({
                 selectionRef={selection.registerItem(role.id)}
                 t={t}
                 onCopy={() => onCopy(role)}
-                onBrowserSessionMigration={() => onBrowserSessionMigration(role)}
                 onClearBrowserData={() => onClearBrowserData(role)}
-                onCaptureExternalDiagnostics={() => onCaptureExternalDiagnostics(role.id)}
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
-                onRecoverExternalRole={() => onRecoverExternalRole(role.id)}
                 onDragEnd={clearDragState}
                 onDragOver={(event) => handleDragOver(event, role.id)}
                 onDragStart={(event) => handleDragStart(event, role.id)}
@@ -352,9 +321,7 @@ interface RoleCardProps {
   isDropTarget: boolean;
   isSelected: boolean;
   onCopy: () => void;
-  onBrowserSessionMigration: () => void;
   onClearBrowserData: () => void;
-  onCaptureExternalDiagnostics: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onDragEnd: () => void;
@@ -362,7 +329,6 @@ interface RoleCardProps {
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
-  onRecoverExternalRole: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   role: Role;
@@ -379,9 +345,7 @@ function RoleCard({
   isDropTarget,
   isSelected,
   onCopy,
-  onBrowserSessionMigration,
   onClearBrowserData,
-  onCaptureExternalDiagnostics,
   onDelete,
   onEdit,
   onDragEnd,
@@ -389,7 +353,6 @@ function RoleCard({
   onDragStart,
   onDrop,
   onLaunch,
-  onRecoverExternalRole,
   onStop,
   onSelectionClick,
   role,
@@ -398,8 +361,6 @@ function RoleCard({
   t
 }: RoleCardProps): JSX.Element {
   const isActive = Boolean(status);
-  const isExternalCompatibilitySession = status?.runtimeMode === "external" && status.state === "running";
-  const isPageUnresponsive = isExternalCompatibilitySession && status.pageHealth === "unresponsive";
   const coverImageUrl = role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
   const canUsePrimaryOverlayAction = true;
   const hasBottomAction = false;
@@ -438,16 +399,8 @@ function RoleCard({
           isDragging={isDragging}
           isBusy={isBusy}
           isOnCover
-          roleSessionMigrationLabel={
-            role.browserEnginePin === "electron"
-              ? t("role.migrateToSystem")
-              : role.browserEnginePin === "system"
-                ? t("role.rollbackToElectron")
-                : undefined
-          }
           t={t}
           onCopy={onCopy}
-          onBrowserSessionMigration={onBrowserSessionMigration}
           onClearBrowserData={onClearBrowserData}
           onDelete={onDelete}
           onEdit={onEdit}
@@ -486,43 +439,6 @@ function RoleCard({
 
       <div className="relative z-10 flex h-full flex-col justify-end p-3">
         <div className="relative isolate grid gap-2">
-          {isExternalCompatibilitySession ? (
-            <div className={cn(
-              "flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-1.5 text-[10px] font-medium backdrop-blur-md",
-              isPageUnresponsive
-                ? "border-warning-foreground/35 bg-warning/20 text-white"
-                : "border-white/20 bg-black/20 text-white/85"
-            )}>
-              {isPageUnresponsive ? <AlertCircle aria-hidden="true" size={13} /> : null}
-              <span className="min-w-0 flex-1">
-                {isPageUnresponsive ? t("roles.externalUnresponsive") : t("roles.externalDiagnosticsReady")}
-              </span>
-              <Button
-                className="h-6 gap-1 rounded-full px-1.5 text-[10px] text-white shadow-none hover:text-white"
-                type="button"
-                variant="secondary"
-                size="sm"
-                title={t("roles.reportGameFreeze")}
-                onClick={onCaptureExternalDiagnostics}
-              >
-                <FileWarning aria-hidden="true" size={12} />
-                {t("roles.reportShort")}
-              </Button>
-              {isPageUnresponsive ? (
-                <Button
-                  className="h-6 gap-1 rounded-full px-1.5 text-[10px] text-white shadow-none hover:text-white"
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={onRecoverExternalRole}
-                >
-                  <RotateCcw aria-hidden="true" size={12} />
-                  {t("roles.recoverExternal")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-
           <div
             className={cn(
               "grid items-center gap-2 pt-1",
@@ -552,11 +468,6 @@ function RoleCard({
                       {getResolvedBrowserEngineLabel(status.resolvedEngine, t)}
                     </span>
                   ) : null}
-                  {role.browserEnginePin === "electron" ? (
-                    <span className="shrink-0 rounded-full border border-white/25 bg-black/25 px-1.5 py-0.5 text-[9px] font-semibold text-white/85 backdrop-blur-sm">
-                      {t("role.legacyElectron")}
-                    </span>
-                  ) : null}
                 </div>
                 <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
                   {game?.name ?? role.launchUrl}
@@ -576,9 +487,7 @@ interface RoleActionMenuProps {
   isBusy: boolean;
   isDragging: boolean;
   isOnCover?: boolean;
-  roleSessionMigrationLabel?: string;
   onCopy: () => void;
-  onBrowserSessionMigration: () => void;
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -592,9 +501,7 @@ function RoleActionMenu({
   isBusy,
   isDragging,
   isOnCover = false,
-  roleSessionMigrationLabel,
   onCopy,
-  onBrowserSessionMigration,
   onClearBrowserData,
   onDelete,
   onEdit,
@@ -652,11 +559,6 @@ function RoleActionMenu({
   function handleClearBrowserData(): void {
     setIsOpen(false);
     onClearBrowserData();
-  }
-
-  function handleBrowserSessionMigration(): void {
-    setIsOpen(false);
-    onBrowserSessionMigration();
   }
 
   function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
@@ -727,18 +629,6 @@ function RoleActionMenu({
             <span>{t("role.copy")}</span>
           </button>
           <div className="my-1 border-t border-border/60" role="separator" />
-          {roleSessionMigrationLabel ? (
-            <button
-              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              type="button"
-              role="menuitem"
-              onClick={handleBrowserSessionMigration}
-              disabled={isBusy}
-            >
-              <ArrowRightLeft size={14} />
-              <span>{roleSessionMigrationLabel}</span>
-            </button>
-          ) : null}
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             type="button"

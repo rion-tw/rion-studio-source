@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -73,6 +75,18 @@ const state: RuntimeTabChromeState = {
 };
 
 describe("MacRuntimeTabsController", () => {
+  it("keeps the addon, wrapper, and verifier on protocol version 11", async () => {
+    const [native, wrapper, verifier] = await Promise.all([
+      readFile("native/macos/runtime-tabs/addon.mm", "utf8"),
+      readFile("src/main/browser/MacRuntimeTabsController.ts", "utf8"),
+      readFile("scripts/verifyMacRuntimeTabs.mjs", "utf8")
+    ]);
+
+    expect(native).toContain("kProtocolVersion = 11");
+    expect(wrapper).toContain("NATIVE_PROTOCOL_VERSION = 11");
+    expect(verifier).toContain("addon.protocolVersion !== 11");
+  });
+
   it("maps only visible tabs on the target display into native system chrome", () => {
     expect(toMacRuntimeTabsNativeState(state)).toEqual({
       displayId: 11,
@@ -123,7 +137,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 8
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 10,
+      protocolVersion: 11,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -201,7 +215,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 1
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 10,
+      protocolVersion: 11,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()

@@ -5,7 +5,6 @@ import {
   type JSX,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState
 } from "react";
@@ -19,7 +18,6 @@ import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { WorkspaceDisplayPickerDialog } from "./features/workspaces/WorkspaceDisplayPickerDialog";
-import { ChromeProfileImportFlow } from "./features/chrome-profile-import/ChromeProfileImportFlow";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { toMessage } from "./app/errorUtils";
@@ -38,10 +36,6 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type {
   GameBrowserSettings,
-  ChromeProfileImportInput,
-  ChromeProfileImportProgress,
-  ChromeProfileImportPreview,
-  ChromeProfileImportResult,
   GraphicsDiagnostics,
   MacroSettings,
   PortableExportInput,
@@ -80,9 +74,7 @@ export function App(): JSX.Element {
       restoreGameWindowsOnStartup: true
     });
   const [notice, setNotice] = useState<string | null>(null);
-  const notifiedEngineFallbacks = useRef(new Map<string, string>());
-  const [busyExternalRoleIds, setBusyExternalRoleIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [isChromeProfileImportOpen, setIsChromeProfileImportOpen] = useState(false);
+  const notifiedEngineIssues = useRef(new Map<string, string>());
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
     enabled: hasBridge,
@@ -231,39 +223,6 @@ export function App(): JSX.Element {
     },
     [data, preferences]
   );
-  const previewChromeProfileImport = useCallback(async (): Promise<ChromeProfileImportPreview | null> => {
-    if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
-    }
-    return window.rionStudio.previewChromeProfileImport();
-  }, []);
-  const applyChromeProfileImport = useCallback(async (input: ChromeProfileImportInput): Promise<ChromeProfileImportResult> => {
-    if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
-    }
-    const result = await window.rionStudio.applyChromeProfileImport(input);
-    await data.loadData();
-    return result;
-  }, [data]);
-  const discardChromeProfileImport = useCallback(async (importId: string): Promise<void> => {
-    if (!window.rionStudio) {
-      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
-    }
-    await window.rionStudio.discardChromeProfileImport(importId);
-  }, []);
-  const subscribeChromeProfileImportProgress = useCallback(
-    (callback: (progress: ChromeProfileImportProgress) => void): (() => void) => {
-      if (!window.rionStudio) return () => undefined;
-      return window.rionStudio.onChromeProfileImportProgress(callback);
-    },
-    []
-  );
-  const openChromeProfileImport = useCallback(() => {
-    if (data.games.length > 0) {
-      setIsChromeProfileImportOpen(true);
-    }
-  }, [data.games.length]);
-
   useEffect(() => {
     if (!hasBridge || data.initialLoadState !== "ready") {
       return;
@@ -330,37 +289,7 @@ export function App(): JSX.Element {
     setNotice,
     t: preferences.t
   });
-  const busyRoleIds = useMemo(
-    () => new Set([...roleWorkflow.busyRoleIds, ...busyExternalRoleIds]),
-    [busyExternalRoleIds, roleWorkflow.busyRoleIds]
-  );
-  const runExternalRoleAction = useCallback(async (roleId: string, action: () => Promise<void>): Promise<void> => {
-    setBusyExternalRoleIds((current) => new Set(current).add(roleId));
-    try {
-      await action();
-    } finally {
-      setBusyExternalRoleIds((current) => {
-        const next = new Set(current);
-        next.delete(roleId);
-        return next;
-      });
-    }
-  }, []);
-  const handleCaptureExternalDiagnostics = useCallback((roleId: string): void => {
-    if (!window.rionStudio) return;
-    void runExternalRoleAction(roleId, async () => {
-      await window.rionStudio.captureExternalRoleDiagnostics(roleId);
-      setNotice(preferences.t("roles.freezeReportCaptured"));
-    }).catch(data.setError);
-  }, [data, preferences, runExternalRoleAction]);
-  const handleRecoverExternalRole = useCallback((roleId: string): void => {
-    if (!window.rionStudio) return;
-    void runExternalRoleAction(roleId, async () => {
-      const status = await window.rionStudio.recoverExternalRole(roleId);
-      data.setStatuses((current) => [...current.filter((item) => item.roleId !== roleId), status]);
-      setNotice(preferences.t("roles.externalRecoveryStarted"));
-    }).catch(data.setError);
-  }, [data, preferences, runExternalRoleAction]);
+  const busyRoleIds = roleWorkflow.busyRoleIds;
   const { openListForRole } = macroWorkflow;
   const { initialLoadState, setError } = data;
 
@@ -384,26 +313,24 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (initialLoadState !== "ready") return;
-    const fallback = [...data.statuses].reverse().find((status) => {
+    const engineIssue = [...data.statuses].reverse().find((status) => {
       if (
-        status.preferredEngine !== "system" ||
-        status.resolvedEngine !== "electron" ||
-        !status.fallbackReason
+        status.preferredEngine !== "system" || !status.issueReason
       ) {
         return false;
       }
-      const key = `${status.fallbackReason}:${status.sessionContinuity ?? ""}`;
-      if (notifiedEngineFallbacks.current.get(status.roleId) === key) return false;
-      notifiedEngineFallbacks.current.set(status.roleId, key);
+      const key = status.issueReason;
+      if (notifiedEngineIssues.current.get(status.roleId) === key) return false;
+      notifiedEngineIssues.current.set(status.roleId, key);
       return true;
     });
-    for (const roleId of notifiedEngineFallbacks.current.keys()) {
+    for (const roleId of notifiedEngineIssues.current.keys()) {
       if (!data.statuses.some((status) => status.roleId === roleId)) {
-        notifiedEngineFallbacks.current.delete(roleId);
+        notifiedEngineIssues.current.delete(roleId);
       }
     }
-    if (fallback) {
-      setNotice(getBrowserEngineStatusTitle(fallback, preferences.t));
+    if (engineIssue) {
+      setNotice(getBrowserEngineStatusTitle(engineIssue, preferences.t));
     }
   }, [data.statuses, initialLoadState, preferences.t]);
 
@@ -562,7 +489,6 @@ export function App(): JSX.Element {
       reports={data.gameCompatibilityReports}
       runStatuses={data.gameCompatibilityStatuses}
       t={preferences.t}
-      onApplyRecommendation={gameWorkflow.applyRecommendation}
       onCancelCheck={(gameId) => void gameWorkflow.cancelCompatibilityCheck(gameId)}
       onError={data.setError}
       onOpenGraphicsSettings={(gameId) => navigate("/settings?section=game", { state: { returnTo: `/games/${gameId}/edit` } })}
@@ -681,7 +607,6 @@ export function App(): JSX.Element {
                     workspaces={data.workspaces}
                     workspaceDisplays={data.workspaceDisplays}
                     onCreateWorkspace={navigateToNewWorkspace}
-                    onCaptureExternalDiagnostics={handleCaptureExternalDiagnostics}
                     onShowGameWindows={(displayId) => void window.rionStudio.showEmbeddedRuntimeWindows(displayId)}
                     onRestoreSavedGameWindows={(input) =>
                       void window.rionStudio.restoreSavedGameWindows(input)
@@ -702,7 +627,6 @@ export function App(): JSX.Element {
                       navigate("/roles");
                     }}
                     onNavigateWorkspaces={() => navigate("/workspaces")}
-                    onRecoverExternalRole={handleRecoverExternalRole}
                     onNewMacro={() => navigateToNewMacro()}
                     onNewRole={navigateToNewRole}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
@@ -724,7 +648,6 @@ export function App(): JSX.Element {
                     busyRoleIds={busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
                     games={data.games}
-                    isChromeProfileImportOpen={isChromeProfileImportOpen}
                     roleStats={data.roleStats}
                     roles={data.roles}
                     scrollPositionRef={roleWorkflow.listScrollTopRef}
@@ -732,19 +655,13 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     onClearBrowserData={(role) => void roleWorkflow.handleClearBrowserData(role)}
-                    onBrowserSessionMigration={(role) =>
-                      void roleWorkflow.handleBrowserSessionMigration(role)
-                    }
                     onClearQuery={() => roleWorkflow.setQuery("")}
-                    onCaptureExternalDiagnostics={handleCaptureExternalDiagnostics}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}
                     onDeleteMany={roleWorkflow.handleDeleteMany}
                     onEdit={(role) => navigateToEditRole(role.id)}
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
-                    onOpenChromeProfileImport={openChromeProfileImport}
-                    onRecoverExternalRole={handleRecoverExternalRole}
                     onNewRole={navigateToNewRole}
                     onQueryChange={roleWorkflow.setQuery}
                     onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}
@@ -831,7 +748,6 @@ export function App(): JSX.Element {
               element={
                 <SettingsRoute
                   gameBrowserSettings={gameBrowserSettings}
-                  games={data.games}
                   hasRunningRoles={data.statuses.some(
                     (status) => status.state === "launching" || status.state === "running"
                   )}
@@ -862,7 +778,6 @@ export function App(): JSX.Element {
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
                   onDiscardPortableImport={discardPortableImport}
-                  onOpenChromeProfileImport={openChromeProfileImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onRestartApplication={restartApplication}
@@ -875,18 +790,6 @@ export function App(): JSX.Element {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Suspense>
-        <ChromeProfileImportFlow
-          games={data.games}
-          isOpen={isChromeProfileImportOpen}
-          t={preferences.t}
-          onApply={applyChromeProfileImport}
-          onCloseChrome={() => window.rionStudio.closeChromeForImport()}
-          onDiscard={discardChromeProfileImport}
-          onError={data.setError}
-          onOpenChange={setIsChromeProfileImportOpen}
-          onPreview={previewChromeProfileImport}
-          onProgress={subscribeChromeProfileImportProgress}
-        />
       </main>
       <WorkspaceDisplayPickerDialog
         request={workspaceWorkflow.displaySelectionRequest}

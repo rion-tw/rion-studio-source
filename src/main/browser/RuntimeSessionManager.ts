@@ -294,11 +294,6 @@ export class RuntimeSessionManager {
       for (const tab of savedWindow.tabs) {
         const refreshed = this.refreshTab(tab, catalog);
         if (!refreshed) continue;
-        if (this.resolveLaunchMode(refreshed, catalog) === "external") {
-          remaining.push(refreshed);
-          failureMessage = "Configured for External Chrome; start it manually.";
-          continue;
-        }
         try {
           const restored = await this.options.browserManager.launchEmbeddedRestoreTab(
             {
@@ -439,21 +434,6 @@ export class RuntimeSessionManager {
       slot.roleId && catalog.roles.has(slot.roleId) ? [slot.roleId] : []
     );
     return { ...tab, name: workspace.name, roleIds };
-  }
-
-  private resolveLaunchMode(
-    tab: RuntimeRestoreTabRecord,
-    catalog: RestoreCatalog
-  ): "auto" | "embedded" | "external" {
-    if (tab.tabType === "workspace") {
-      const mode = catalog.workspaces.get(tab.sourceId)?.browserLaunchMode ?? "inherit";
-      return mode === "inherit" ? catalog.settings.launchMode : mode;
-    }
-    const role = catalog.roles.get(tab.sourceId);
-    const mode = role
-      ? catalog.games.get(role.gameId)?.browserLaunchMode ?? "inherit"
-      : "inherit";
-    return mode === "inherit" ? catalog.settings.launchMode : mode;
   }
 
   private toSummary(window: RuntimeRestoreWindowRecord): SavedEmbeddedRuntimeWindowSummary {

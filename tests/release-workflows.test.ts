@@ -18,9 +18,9 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("pnpm run test:native:system-input");
     expect(workflow).toContain("pnpm run test:native:runtime-restore");
     expect(workflow).toContain("pnpm run test:native:file-operations");
-    expect(workflow).toContain("--require-compiled-attestation");
-    expect(workflow).toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED=1");
-    expect(workflow).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
+    expect(workflow).not.toContain("--require-compiled-attestation");
+    expect(workflow).not.toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED");
+    expect(workflow).not.toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
     expect(workflow).toContain("rust-concurrency-sanitizer:");
     expect(workflow.toLowerCase()).not.toContain("electron");
     expect(workflow).not.toContain("Node-API");

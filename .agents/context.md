@@ -90,17 +90,18 @@ Important runtime pieces:
 - `CoreEffectAction` contains only current product effects. Do not reintroduce
   shell window/view attachment, cookie/session, or generic debugger effects;
   browser automation belongs in the typed `BrowserAction` union.
-- Trusted/background input is fail-closed. macOS builds promote it to supported
-  only when the native and packaged Tauri `isTrusted`/1000-cycle harness supplies
-  an attested OS major at compile time; the runtime major must match. The same
-  packaged harness exercises 1/3/6/9 pixel layouts, isolated storage, audio mute,
-  same-store popup, byte-exact upload/download, actual web-content process
-  termination and same-engine recovery, plus 100 create/destroy cycles. On macOS
-  upload attestation must observe WKWebView's native open-panel delegate. The
-  Windows automated path uses WebView2 CDP only to inject the diagnostic file and
-  does not replace a manual native chooser UI candidate smoke. Windows CI uses the same
-  Tauri/WebView2 harness and only injects its compile-time attestation after it
-  passes; local macOS results are not evidence that the Windows gate passed.
+- Trusted/background macro input is classified from the supported platform and
+  installed System WebView runtime, not from cached or compile-time attestation.
+  macOS 14+ dispatches native events through the app-owned WKWebView responder
+  chain; Windows dispatches per-WebView input through WebView2. Neither path needs
+  Accessibility, Input Monitoring, or another user system permission. The explicit
+  package and CI parity harness still verifies `isTrusted`, 1,000 paced input cycles,
+  1/3/6/9 pixel layouts, isolated storage, audio mute, same-store popup, byte-exact
+  upload/download, actual web-content process termination and same-engine recovery,
+  plus 100 create/destroy cycles. On macOS upload parity must observe WKWebView's
+  native open-panel delegate. The Windows automated path uses WebView2 CDP only to
+  inject the diagnostic file and does not replace a manual native chooser UI
+  candidate smoke. Local macOS results are not evidence that the Windows gate passed.
 - macOS layout and mouse coordinates must use `NSWindow.contentLayoutRect`, not
   full-size content-view bounds. The titlebar inset otherwise clips role surfaces
   and offsets trusted mouse events even when the normalized layout math is right.

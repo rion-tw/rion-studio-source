@@ -12,6 +12,7 @@ const resolvedEngineLabelKeys: Record<ResolvedBrowserEngine, TranslationKey> = {
 
 const engineIssueLabelKeys: Record<SystemWebViewIssueReason, TranslationKey> = {
   "webkit-spi-unavailable": "browserEngine.issueReason.webkitSpiUnavailable",
+  "macro-input-unavailable": "browserEngine.issueReason.macroInputUnavailable",
   "cached-compatibility-failure": "browserEngine.issueReason.cachedCompatibilityFailure",
   "runtime-creation-failed": "browserEngine.issueReason.runtimeCreationFailed",
   "runtime-crashed": "browserEngine.issueReason.runtimeCrashed"

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri development and release commands", () => {
-  it("uses an attested Tauri dev launcher with an explicit degraded mode", async () => {
+  it("starts Tauri development directly without native parity or attestation gates", async () => {
     const [packageSource, launcher, macRunner, tauriSource, viteSource] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile("scripts/devTauri.mjs", "utf8"),
@@ -18,7 +18,7 @@ describe("Tauri development and release commands", () => {
     };
 
     expect(packageJson.scripts.dev).toBe("node scripts/devTauri.mjs");
-    expect(packageJson.scripts["dev:degraded"]).toBe("node scripts/devTauri.mjs --degraded");
+    expect(packageJson.scripts).not.toHaveProperty("dev:degraded");
     expect(tauriConfig.build.devUrl).toBe("http://127.0.0.1:5173");
     expect(tauriConfig.app.security.csp).toContain("script-src 'self';");
     expect(tauriConfig.app.security.csp).not.toContain("script-src 'self' 'unsafe-inline'");
@@ -29,21 +29,16 @@ describe("Tauri development and release commands", () => {
     expect(viteSource).toContain("manualChunks");
     expect(viteSource).toContain('return "vendor"');
     expect(launcher).toContain("environmentWithCargoExecutable");
-    expect(launcher).toContain("target\", \"rion-attestation");
-    expect(launcher).toContain("attestationFingerprint(attestationVersion)");
-    expect(launcher).toContain("readAttestation(attestationPath");
-    expect(launcher).toContain("1,000 paced synthetic key cycles only to a hidden System WebView");
-    expect(launcher).toContain('platform === "darwin" ? osVersion.split(".")[0] : osVersion');
-    expect(launcher).toContain('RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR = osVersion.split(".")[0]');
-    expect(launcher).toContain('RION_STUDIO_WINDOWS_INPUT_ATTESTED = "1"');
     expect(launcher).toContain("configureMacOsDevBundleRunner(environment)");
     expect(launcher).toContain("CARGO_TARGET_${architecture}_APPLE_DARWIN_RUNNER");
     expect(macRunner).toContain('"Rion Studio Dev.app"');
     expect(macRunner).toContain("com.rionstudio.launcher.dev");
     expect(macRunner).toContain("NSAllowsLocalNetworking");
     expect(macRunner).toContain("process.execve(bundledExecutable");
-    expect(launcher).toContain('["run", "test:native:system-input"]');
     expect(launcher).toContain('["exec", "tauri", "dev"]');
+    expect(launcher).not.toContain("test:native:system-input");
+    expect(launcher).not.toContain("rion-attestation");
+    expect(launcher).not.toContain("INPUT_ATTESTED");
   });
 
   it("uses semantic release version synchronization for every public version source", async () => {
@@ -69,7 +64,7 @@ describe("Tauri development and release commands", () => {
     expect(packageLauncher).toContain('"test:native:system-input"');
     expect(packageLauncher).toContain('"test:native:runtime-restore"');
     expect(packageLauncher).toContain('"test:native:file-operations"');
-    expect(packageLauncher).toContain('"--require-compiled-attestation"');
+    expect(packageLauncher).not.toContain("--require-compiled-attestation");
     expect(packageLauncher).toContain("createUpdaterArtifacts: false");
     expect(packageLauncher).toContain('signingIdentity: "-"');
     expect(packageLauncher).toContain('if (args[0] === "--") args.shift()');

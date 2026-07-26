@@ -75,8 +75,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(closeRuntimeWindow).not.toContain("BrowserWorkspaceStop");
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');
-    expect(runtime).toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
-    expect(runtime).toContain("+trusted-input-attested");
+    expect(runtime).not.toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
+    expect(runtime).not.toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED");
+    expect(runtime).not.toContain("+trusted-input-attested");
     expect(runtime).toContain("start_trusted_input_attestation");
     expect(runtime).toContain("TRUSTED_INPUT_ATTESTATION_SOURCE");
     expect(runtime).toContain("const CYCLES: u64 = 1_000");
@@ -133,7 +134,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(inputVerifier).toContain("recovery?.nativeHandleReplaced !== true");
     expect(inputVerifier).toContain("recovery?.processTerminationObserved !== true");
     expect(inputVerifier).toContain("recovery?.inputRestored !== true");
-    expect(inputVerifier).toContain("--require-compiled-attestation");
+    expect(inputVerifier).not.toContain("--require-compiled-attestation");
     expect(inputVerifier).toContain('backgroundInput !== "supported"');
     expect(shell).toContain("RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_STAGE");
     expect(shell).toContain("start_runtime_restore_attestation");
@@ -152,5 +153,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain('b"_setMuted:\\0"');
     expect(platformProbe).toContain('has_instance_selector(webview, "_setPageMuted:")');
     expect(platformProbe).not.toContain('has_instance_selector(webview, "_setMuted:")');
+    expect(platformProbe).toContain("macro_input_available");
+    expect(platformProbe).not.toContain("trusted-input-unverified");
+    expect(platformProbe).not.toContain("background-input-unverified");
   });
 });

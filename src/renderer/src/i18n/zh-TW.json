@@ -534,6 +534,7 @@
   "browserEngine.actualTitle": "目前使用 {engine} 執行。",
   "browserEngine.issueTitle": "{resolved} 回報執行問題：{reason}。",
   "browserEngine.issueReason.webkitSpiUnavailable": "必要的 WebKit 自動化能力不可用",
+  "browserEngine.issueReason.macroInputUnavailable": "此作業系統或 WebView runtime 無法使用巨集輸入",
   "browserEngine.issueReason.cachedCompatibilityFailure": "先前的相容性檢查失敗",
   "browserEngine.issueReason.runtimeCreationFailed": "此版本尚未啟用 System runtime，或 runtime 無法啟動",
   "browserEngine.issueReason.runtimeCrashed": "System runtime 已異常終止",

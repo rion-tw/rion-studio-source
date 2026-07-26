@@ -94,5 +94,5 @@ pnpm run build
 pnpm run package
 ```
 
-`pnpm run dev` performs cached native input attestation before starting Tauri.
-Use `pnpm run dev:degraded` only for explicit UI-only development.
+`pnpm run dev` starts Tauri directly. Native System WebView parity harnesses are
+explicit package and CI gates; they must not be added to the development launcher.

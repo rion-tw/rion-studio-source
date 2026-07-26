@@ -537,6 +537,7 @@
   "browserEngine.actualTitle": "Running with {engine}.",
   "browserEngine.issueTitle": "{resolved} reported a runtime issue: {reason}.",
   "browserEngine.issueReason.webkitSpiUnavailable": "the required WebKit automation capability is unavailable",
+  "browserEngine.issueReason.macroInputUnavailable": "macro input is unavailable on this operating system or WebView runtime",
   "browserEngine.issueReason.cachedCompatibilityFailure": "a previous compatibility check failed",
   "browserEngine.issueReason.runtimeCreationFailed": "the System runtime is not available in this release or could not start",
   "browserEngine.issueReason.runtimeCrashed": "the System runtime crashed",

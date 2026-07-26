@@ -19,7 +19,6 @@ async function main() {
   }
 
   const requestedExecutable = optionValue("--executable");
-  const requireCompiledAttestation = process.argv.includes("--require-compiled-attestation");
   const executable = requestedExecutable
     ? resolve(repositoryRoot, requestedExecutable)
     : join(
@@ -47,7 +46,7 @@ async function main() {
       RION_STUDIO_USER_DATA_DIR: userData
     }, timeoutMs);
     const report = JSON.parse(await readFile(output, "utf8"));
-    validateReport(report, requireCompiledAttestation);
+    validateReport(report);
     if (result.code !== 0) {
       throw new Error(
         `System WebView trusted-input attestation exited with code ${result.code}.`
@@ -75,7 +74,7 @@ function optionValue(name) {
   return value;
 }
 
-function validateReport(value, requireCompiledAttestation) {
+function validateReport(value) {
   const expectedPlatform = process.platform === "win32" ? "windows" : "macos";
   const expectedEngine = process.platform === "win32" ? "webview2" : "wkwebview";
   if (!value || typeof value !== "object") {
@@ -155,14 +154,10 @@ function validateReport(value, requireCompiledAttestation) {
     throw new Error("System WebView trusted-input attestation report is incomplete.");
   }
   if (
-    requireCompiledAttestation &&
-    (
-      !registration?.adapterVersion?.includes("+trusted-input-attested") ||
-      registration?.capabilitySnapshot?.trustedInput !== "supported" ||
-      registration?.capabilitySnapshot?.backgroundInput !== "supported"
-    )
+    registration?.capabilitySnapshot?.trustedInput !== "supported" ||
+    registration?.capabilitySnapshot?.backgroundInput !== "supported"
   ) {
-    throw new Error("The packaged System WebView binary lacks compiled input attestation.");
+    throw new Error("The System WebView runtime does not report macro input support.");
   }
 }
 

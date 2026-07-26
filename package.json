@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/devTauri.mjs",
-    "dev:degraded": "node scripts/devTauri.mjs --degraded",
     "dev:renderer": "vite --config vite.tauri.config.ts",
     "build": "pnpm run typecheck && pnpm run build:renderer && cargo build -p rion-tauri",
     "build:renderer": "vite build --config vite.tauri.config.ts",

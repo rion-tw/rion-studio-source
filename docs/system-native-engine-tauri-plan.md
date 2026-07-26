@@ -86,11 +86,11 @@ a higher-version hotfix; signed assets are never overwritten after publication.
 
 ## Developer workflow
 
-`pnpm dev` computes a fingerprint from the OS version and native runtime sources.
-When no matching local attestation exists, it runs the native behavior harness and
-stores a non-versioned stamp below `target/rion-attestation` before starting Tauri.
-`pnpm dev:degraded` is reserved for UI-only work and leaves trusted/background
-input unavailable.
+`pnpm dev` starts Tauri directly and does not run native parity harnesses. Macro
+input capability is classified from the supported OS and installed System WebView
+runtime. The native input, restore, and file-operation harnesses remain explicit
+package and CI gates and never promote capability through a cached or compile-time
+attestation flag. Use `pnpm run dev:renderer` for renderer-only UI development.
 
 `pnpm run verify:system-only` is the negative architecture gate. It rejects retired
 source roots, build configs, direct package dependencies, and runtime tokens outside

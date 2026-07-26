@@ -11,7 +11,8 @@ describe("Tauri development and release commands", () => {
     const packageJson = JSON.parse(packageSource) as { scripts: Record<string, string> };
 
     expect(packageJson.scripts.dev).toBe("node scripts/devTauri.mjs");
-    expect(packageJson.scripts["dev:degraded"]).toBe("tauri dev");
+    expect(packageJson.scripts["dev:degraded"]).toBe("node scripts/devTauri.mjs --degraded");
+    expect(launcher).toContain("environmentWithCargoExecutable");
     expect(launcher).toContain("target\", \"rion-attestation");
     expect(launcher).toContain("attestationFingerprint(attestationVersion)");
     expect(launcher).toContain("readAttestation(attestationPath");

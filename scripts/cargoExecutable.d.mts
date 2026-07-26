@@ -8,3 +8,7 @@ export interface CargoExecutableOptions {
 export declare function resolveCargoExecutable(
   options?: CargoExecutableOptions
 ): Promise<string>;
+
+export declare function environmentWithCargoExecutable(
+  options?: CargoExecutableOptions
+): Promise<Record<string, string | undefined>>;

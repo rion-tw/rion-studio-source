@@ -26,11 +26,13 @@ describe("Tauri development and release commands", () => {
     expect(tauriConfig.app.security.devCsp).toContain("script-src 'self' 'unsafe-inline'");
     expect(tauriConfig.app.security.devCsp).toContain("ws://127.0.0.1:5173");
     expect(viteSource).toContain('host: "127.0.0.1"');
+    expect(viteSource).toContain("manualChunks");
+    expect(viteSource).toContain('return "vendor"');
     expect(launcher).toContain("environmentWithCargoExecutable");
     expect(launcher).toContain("target\", \"rion-attestation");
     expect(launcher).toContain("attestationFingerprint(attestationVersion)");
     expect(launcher).toContain("readAttestation(attestationPath");
-    expect(launcher).toContain("1,000 synthetic key cycles only to a hidden System WebView");
+    expect(launcher).toContain("1,000 paced synthetic key cycles only to a hidden System WebView");
     expect(launcher).toContain('platform === "darwin" ? osVersion.split(".")[0] : osVersion');
     expect(launcher).toContain('RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR = osVersion.split(".")[0]');
     expect(launcher).toContain('RION_STUDIO_WINDOWS_INPUT_ATTESTED = "1"');

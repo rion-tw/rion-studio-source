@@ -38,6 +38,8 @@ const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
+#[cfg(any(windows, target_os = "macos"))]
+const TRUSTED_INPUT_EVENT_INTERVAL: Duration = Duration::from_millis(25);
 static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(any(windows, target_os = "macos"))]
@@ -5228,7 +5230,9 @@ fn attest_key(
             suppress_shortcut: false,
         },
     )?;
-    std::thread::sleep(Duration::from_millis(2));
+    // Pace the bounded native probe so its synthetic events cannot resemble a
+    // stuck key or overwhelm the focused System WebView during dev startup.
+    std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
     Ok(())
 }
 

@@ -2088,9 +2088,8 @@ impl SystemRuntimeExecutor {
     ) -> Result<Value, String> {
         let webview = self.role_webview(role_id).map_err(|error| error.message)?;
         let url = Url::parse(url).map_err(|error| error.to_string())?;
-        let cookie = webview
-            .cookies_for_url(url)
-            .map_err(|error| error.to_string())?
+        let cookie = cookies_for_launch(&webview, &url)
+            .map_err(|error| error.message)?
             .into_iter()
             .find(|cookie| cookie.name() == name);
         Ok(cookie.map_or(Value::Null, |cookie| {
@@ -3125,9 +3124,7 @@ impl SystemRuntimeExecutor {
         let (cookie_backup, storage_backup) = if let Some(backup) = existing_backup {
             (backup.cookies, backup.local_storage)
         } else {
-            let cookies = snapshot_webview
-                .cookies_for_url(launch.clone())
-                .map_err(RuntimeError::tauri)?;
+            let cookies = cookies_for_launch(&snapshot_webview, &launch)?;
             let local_storage = if replace_existing {
                 match (|| {
                     snapshot_navigation.reset();
@@ -3190,9 +3187,7 @@ impl SystemRuntimeExecutor {
                     .set_cookie(cookie.clone())
                     .map_err(RuntimeError::tauri)?;
             }
-            let readback = snapshot_webview
-                .cookies_for_url(launch.clone())
-                .map_err(RuntimeError::tauri)?;
+            let readback = cookies_for_launch(&snapshot_webview, &launch)?;
             verify_cookie_readback(&import_cookies, &readback)
         })();
         if let Err(error) = cookie_apply_result {
@@ -3281,9 +3276,7 @@ impl SystemRuntimeExecutor {
         let (window, webview, navigation) =
             self.create_session_transfer_surface(role_id, &paths, None)?;
         let result = (|| {
-            let cookies = webview
-                .cookies_for_url(launch.clone())
-                .map_err(RuntimeError::tauri)?;
+            let cookies = cookies_for_launch(&webview, &launch)?;
             let local_storage = if replace_existing {
                 navigation.reset();
                 webview
@@ -6911,6 +6904,36 @@ fn normalized_cookie_domain(value: Option<&str>) -> String {
         .to_ascii_lowercase()
 }
 
+fn cookies_for_launch(webview: &Webview, launch: &Url) -> RuntimeResult<Vec<Cookie<'static>>> {
+    Ok(webview
+        .cookies()
+        .map_err(RuntimeError::tauri)?
+        .into_iter()
+        .filter(|cookie| native_cookie_matches_launch(cookie, launch))
+        .collect())
+}
+
+fn native_cookie_matches_launch(cookie: &Cookie<'_>, launch: &Url) -> bool {
+    let Some(host) = launch.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    let domain = normalized_cookie_domain(cookie.domain());
+    let domain_matches =
+        host == domain || (!domain.is_empty() && host.ends_with(&format!(".{domain}")));
+    let cookie_path = cookie.path().unwrap_or("/");
+    domain_matches
+        && native_cookie_path_matches(launch.path(), cookie_path)
+        && (!cookie.secure().unwrap_or(false) || launch.scheme() == "https")
+}
+
+fn native_cookie_path_matches(request_path: &str, cookie_path: &str) -> bool {
+    request_path == cookie_path
+        || (request_path.starts_with(cookie_path)
+            && (cookie_path.ends_with('/')
+                || request_path.as_bytes().get(cookie_path.len()) == Some(&b'/')))
+}
+
 fn native_cookie_key(cookie: &Cookie<'_>) -> (String, String, String) {
     (
         normalized_cookie_domain(cookie.domain()),
@@ -6996,7 +7019,7 @@ fn verify_cookie_readback(
                 && candidate.value() == cookie.value()
                 && candidate.secure().unwrap_or(false) == cookie.secure().unwrap_or(false)
                 && candidate.http_only().unwrap_or(false) == cookie.http_only().unwrap_or(false)
-                && candidate.same_site() == cookie.same_site()
+                && native_cookie_same_site_matches(cookie.same_site(), candidate.same_site())
         });
         if !matches {
             return Err(RuntimeError::new(
@@ -7011,14 +7034,20 @@ fn verify_cookie_readback(
     Ok(())
 }
 
+fn native_cookie_same_site_matches(expected: Option<SameSite>, actual: Option<SameSite>) -> bool {
+    expected == actual
+        || matches!(
+            (expected, actual),
+            (None, Some(SameSite::None)) | (Some(SameSite::None), None)
+        )
+}
+
 fn restore_url_cookies(
     webview: &Webview,
     launch: &Url,
     backup: &[Cookie<'static>],
 ) -> RuntimeResult<()> {
-    let current = webview
-        .cookies_for_url(launch.clone())
-        .map_err(RuntimeError::tauri)?;
+    let current = cookies_for_launch(webview, launch)?;
     for cookie in current {
         webview.delete_cookie(cookie).map_err(RuntimeError::tauri)?;
     }
@@ -7027,9 +7056,7 @@ fn restore_url_cookies(
             .set_cookie(cookie.clone())
             .map_err(RuntimeError::tauri)?;
     }
-    let readback = webview
-        .cookies_for_url(launch.clone())
-        .map_err(RuntimeError::tauri)?;
+    let readback = cookies_for_launch(webview, launch)?;
     verify_cookie_readback(backup, &readback)
 }
 
@@ -8738,6 +8765,63 @@ mod tests {
         .unwrap();
         assert_eq!(protected.secure(), Some(true));
         assert_eq!(protected.http_only(), Some(true));
+    }
+
+    #[test]
+    fn session_transfer_cookie_scope_includes_parent_domains_and_valid_paths() {
+        let launch = Url::parse("https://universe.flyff.com/play/character").unwrap();
+        for domain in [".flyff.com", "flyff.com", "universe.flyff.com"] {
+            let cookie = Cookie::build(("session", "value"))
+                .domain(domain)
+                .path("/play")
+                .secure(true)
+                .build();
+            assert!(
+                native_cookie_matches_launch(&cookie, &launch),
+                "expected {domain} to match the launch URL"
+            );
+        }
+
+        for (domain, path) in [
+            ("account.flyff.com", "/play"),
+            ("notflyff.com", "/play"),
+            (".flyff.com", "/player"),
+        ] {
+            let cookie = Cookie::build(("session", "value"))
+                .domain(domain)
+                .path(path)
+                .build();
+            assert!(
+                !native_cookie_matches_launch(&cookie, &launch),
+                "did not expect {domain}{path} to match the launch URL"
+            );
+        }
+
+        let secure_cookie = Cookie::build(("session", "value"))
+            .domain(".flyff.com")
+            .path("/")
+            .secure(true)
+            .build();
+        let insecure_launch = Url::parse("http://universe.flyff.com/play").unwrap();
+        assert!(!native_cookie_matches_launch(
+            &secure_cookie,
+            &insecure_launch
+        ));
+    }
+
+    #[test]
+    fn session_transfer_cookie_verification_normalizes_unspecified_same_site() {
+        let unspecified = Cookie::build(("session", "value"))
+            .domain("universe.flyff.com")
+            .path("/")
+            .build();
+        let native_readback = Cookie::build(("session", "value"))
+            .domain("universe.flyff.com")
+            .path("/")
+            .same_site(SameSite::None)
+            .build();
+
+        verify_cookie_readback(&[unspecified], &[native_readback]).unwrap();
     }
 
     #[cfg(target_os = "macos")]

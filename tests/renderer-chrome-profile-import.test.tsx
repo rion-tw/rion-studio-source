@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -62,6 +62,16 @@ describe("Chrome profile import flow", () => {
     expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe("false");
   });
 
+  it("renders import dialogs directly under the document body", async () => {
+    const user = userEvent.setup();
+    installApi({});
+    renderFlow();
+
+    await user.click(screen.getByRole("button", { name: "Import from Chrome" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+  });
+
   it("blocks apply while Chrome is running and confirms a graceful quit", async () => {
     const user = userEvent.setup();
     const requestChromeQuitForImport = vi.fn().mockResolvedValue(preview(false));
@@ -75,7 +85,7 @@ describe("Chrome profile import flow", () => {
     expect(screen.getByText(/Preview is available, but applying is blocked/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Close all Chrome" }));
     expect(screen.getByText("Close all Chrome windows?")).toBeTruthy();
-    await user.click(screen.getAllByRole("button", { name: "Close all Chrome" }).at(-1)!);
+    await user.click(within(screen.getByRole("dialog", { name: "Close all Chrome windows?" })).getByRole("button", { name: "Close all Chrome" }));
     expect(requestChromeQuitForImport).toHaveBeenCalledWith("import-1");
   });
 
@@ -130,7 +140,7 @@ describe("Chrome profile import flow", () => {
     expect(screen.getByText("Writing and verifying · 0/1")).toBeTruthy();
     await user.click(apply);
     expect(screen.getByText("Replace selected role sessions?")).toBeTruthy();
-    await user.click(screen.getAllByRole("button", { name: "Apply import" }).at(-1)!);
+    await user.click(within(screen.getByRole("dialog", { name: "Replace selected role sessions?" })).getByRole("button", { name: "Apply import" }));
 
     expect(applyChromeProfileImport).toHaveBeenCalledWith({
       importId: "import-1",
@@ -174,7 +184,7 @@ describe("Chrome profile import flow", () => {
     await user.click(screen.getByRole("combobox", { name: "Game" }));
     await user.click(screen.getByRole("option", { name: "Example" }));
     await user.click(screen.getByRole("button", { name: "Apply import" }));
-    await user.click(screen.getAllByRole("button", { name: "Apply import" }).at(-1)!);
+    await user.click(within(screen.getByRole("dialog", { name: "Replace selected role sessions?" })).getByRole("button", { name: "Apply import" }));
     await user.click(screen.getByRole("button", { name: "Open role to finish sign-in" }));
     expect(launchRole).toHaveBeenCalledWith("role-1");
   });

@@ -9,9 +9,12 @@ import {
   Plus,
   Search,
   Square,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
 import {
+  lazy,
+  Suspense,
   type JSX,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
@@ -57,6 +60,12 @@ const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
 
 const filterOrder: SidebarFilter[] = ["all", "running", "stopped"];
 
+const LazyChromeProfileImportFlow = lazy(() =>
+  import("../settings/ChromeProfileImportFlow").then(({ ChromeProfileImportFlow }) => ({
+    default: ChromeProfileImportFlow
+  }))
+);
+
 interface RolesViewProps {
   activeFilter: SidebarFilter;
   busyRoleIds: ReadonlySet<string>;
@@ -70,6 +79,7 @@ interface RolesViewProps {
   query: string;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
+  onError: (error: unknown) => void;
   onClearQuery: () => void;
   onClearBrowserData: (role: Role) => void;
   onCopy: (role: Role) => void;
@@ -102,6 +112,7 @@ function RolesView({
   onDelete,
   onDeleteMany,
   onEdit,
+  onError,
   onFilterChange,
   onLaunch,
   onNewRole,
@@ -110,6 +121,7 @@ function RolesView({
   onStop
 }: RolesViewProps): JSX.Element {
   const [gameFilterId, setGameFilterId] = useState("all");
+  const [chromeImportOpen, setChromeImportOpen] = useState(false);
   const pageRef = useRef<HTMLElement | null>(null);
   const visibleRoles = gameFilterId === "all" ? filteredRoles : filteredRoles.filter((role) => role.gameId === gameFilterId);
   const selection = useListSelection({
@@ -145,6 +157,20 @@ function RolesView({
     }
   }
 
+  const chromeImportFlow = chromeImportOpen ? (
+    <Suspense fallback={null}>
+      <LazyChromeProfileImportFlow
+        games={games}
+        onClose={() => setChromeImportOpen(false)}
+        onError={onError}
+        openOnMount
+        roles={roles}
+        showTrigger={false}
+        t={t}
+      />
+    </Suspense>
+  ) : null;
+
   if (roles.length === 0) {
     return (
       <PageFrame containerRef={pageRef} contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
@@ -155,7 +181,10 @@ function RolesView({
           description={t("roles.empty.description")}
           actionLabel={t("roles.empty.action")}
           onAction={onNewRole}
+          onSecondaryAction={() => setChromeImportOpen(true)}
+          secondaryActionLabel={t("roles.chromeImport")}
         />
+        {chromeImportFlow}
       </PageFrame>
     );
   }
@@ -182,6 +211,15 @@ function RolesView({
             >
               <Plus size={14} />
               {t("roles.newRole")}
+            </Button>
+            <Button
+              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              type="button"
+              variant="outline"
+              onClick={() => setChromeImportOpen(true)}
+            >
+              <Upload size={14} />
+              {t("roles.chromeImport")}
             </Button>
           </>
         }
@@ -258,6 +296,7 @@ function RolesView({
         </div>
       )}
       <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
+      {chromeImportFlow}
     </PageFrame>
   );
 }

@@ -110,6 +110,7 @@ describe("list select filters", () => {
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}
         onEdit={vi.fn()}
+        onError={vi.fn()}
         onFilterChange={vi.fn()}
         onLaunch={vi.fn()}
         onNewRole={vi.fn()}

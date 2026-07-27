@@ -1,4 +1,5 @@
 import { Loader2, LogIn, Upload } from "lucide-react";
+import { createPortal } from "react-dom";
 import { type JSX, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import type {
@@ -18,19 +19,25 @@ import { Surface } from "../../components/ui/patterns";
 
 interface ChromeProfileImportFlowProps {
   games: Game[];
+  onClose?: () => void;
+  openOnMount?: boolean;
   roles: Role[];
+  showTrigger?: boolean;
   t: Translator;
   onError: (error: unknown) => void;
 }
 
 export function ChromeProfileImportFlow({
   games,
+  onClose,
+  openOnMount = false,
   roles,
+  showTrigger = true,
   t,
   onError
 }: ChromeProfileImportFlowProps): JSX.Element {
   const confirm = useConfirmation();
-  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(openOnMount);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [preview, setPreview] = useState<ChromeProfileImportPreview | null>(null);
   const [selectedGameId, setSelectedGameId] = useState("");
@@ -211,6 +218,7 @@ export function ChromeProfileImportFlow({
       setCancelRequested(true);
       try {
         await window.rionStudio.discardChromeProfileImport(current.importId);
+        onClose?.();
       } catch (error) {
         setCancelRequested(false);
         onError(error);
@@ -220,9 +228,13 @@ export function ChromeProfileImportFlow({
     setPreview(null);
     setResult(null);
     setProgress(null);
-    if (!current || !window.rionStudio || result) return;
+    if (!current || !window.rionStudio || result) {
+      onClose?.();
+      return;
+    }
     try {
       await window.rionStudio.discardChromeProfileImport(current.importId);
+      onClose?.();
     } catch (error) {
       onError(error);
     }
@@ -230,16 +242,18 @@ export function ChromeProfileImportFlow({
 
   return (
     <>
-      <Button
-        type="button"
-        onClick={() => {
-          setConsentAccepted(false);
-          setConsentOpen(true);
-        }}
-      >
-        <Upload size={14} />
-        {t("settings.chromeImportAction")}
-      </Button>
+      {showTrigger ? (
+        <Button
+          type="button"
+          onClick={() => {
+            setConsentAccepted(false);
+            setConsentOpen(true);
+          }}
+        >
+          <Upload size={14} />
+          {t("settings.chromeImportAction")}
+        </Button>
+      ) : null}
 
       {consentOpen ? (
         <Modal title={t("settings.chromeImportConsentTitle")} description={t("settings.chromeImportConsentDescription")}>
@@ -253,7 +267,7 @@ export function ChromeProfileImportFlow({
             <span>{t("settings.chromeImportConsentCheckbox")}</span>
           </label>
           <ModalActions>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setConsentOpen(false)}>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => { setConsentOpen(false); onClose?.(); }}>
               {t("settings.importCancel")}
             </Button>
             <Button type="button" disabled={busy || !consentAccepted} onClick={() => void chooseChromeFolder()}>
@@ -420,7 +434,7 @@ function Modal({
   title: string;
   wide?: boolean;
 }): JSX.Element {
-  return (
+  return createPortal(
     <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
       <Surface
         className={`flex max-h-[calc(100vh-2.5rem)] w-full ${wide ? "max-w-[680px]" : "max-w-[520px]"} flex-col overflow-hidden`}
@@ -435,7 +449,8 @@ function Modal({
         </div>
         <div className="grid gap-4 overflow-y-auto px-5 py-4">{children}</div>
       </Surface>
-    </div>
+    </div>,
+    document.body
   );
 }
 

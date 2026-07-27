@@ -132,6 +132,7 @@
   "roles.searchPlaceholder": "ロールを検索",
   "roles.refresh": "更新",
   "roles.newRole": "新規ロール",
+  "roles.chromeImport": "Chrome からインポート",
   "roles.summary.total": "Total roles",
   "roles.summary.running": "Active now",
   "roles.summary.stopped": "Ready",

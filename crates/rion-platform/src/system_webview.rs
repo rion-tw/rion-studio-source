@@ -61,6 +61,7 @@ fn classify_probe(platform: Platform, mut raw: RawSystemWebViewProbe) -> SystemW
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn macos_macro_input_available(runtime_version: Option<&str>, public_api_available: bool) -> bool {
     public_api_available
         && runtime_version

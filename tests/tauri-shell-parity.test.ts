@@ -22,7 +22,7 @@ describe("Tauri shell parity guard", () => {
       visible: false
     });
     expect(mac.app.windows[0]).toMatchObject({
-      title: "",
+      title: "Rion Studio",
       titleBarStyle: "Overlay",
       trafficLightPosition: { x: 18, y: 18 },
       transparent: true
@@ -63,7 +63,7 @@ describe("Tauri shell parity guard", () => {
     expect(quickMenu).toContain("restore_saved_game_windows");
     expect(quickMenu).not.toContain("targetDisplay");
     expect(tabs).toContain("rion-runtime-shortcut://tabs/");
-    expect(tabs).toContain('unwrap_or("")');
+    expect(tabs).toContain('unwrap_or(RION_STUDIO_APP_NAME)');
     expect(tabs).toContain("LayoutResizeDivider");
     expect(tabs).toContain("tab_strip_window_for_webview");
     expect(shell).toContain("rion_runtime_tab_action");

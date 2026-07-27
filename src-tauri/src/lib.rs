@@ -1044,7 +1044,9 @@ async fn rion_shell_invoke(
                 })?;
             if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
                 runtime_window
-                    .set_title(&updated.name)
+                    .set_title(crate::system_runtime::native_runtime_window_title(
+                        &updated.name,
+                    ))
                     .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
                 if should_relocate {
                     let target = launch_target_for_game_window(&app, &window_id)?;

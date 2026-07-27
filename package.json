@@ -16,7 +16,7 @@
     "verify:parity-ledger": "node scripts/verifyTauriParityLedger.mjs",
     "verify:parity-ledger:write": "node scripts/verifyTauriParityLedger.mjs --write-report",
     "test:rust": "cargo test --workspace --all-targets",
-    "lint:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
+    "lint:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets --no-deps -- -D warnings",
     "generate:rust-types": "cargo test -p rion-core export_bindings",
     "performance:measure": "node scripts/benchmarkProcessTree.mjs",
     "performance:aggregate": "node scripts/aggregatePerformanceRuns.mjs",

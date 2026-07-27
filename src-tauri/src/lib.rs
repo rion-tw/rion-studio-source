@@ -2115,6 +2115,19 @@ async fn run_runtime_restore_attestation(
                     "The restore attestation could not seed the role store: {stored}."
                 ));
             }
+            let live_tab_count = state.runtime.restore_state_for_attestation()?["liveTabCount"]
+                .as_u64()
+                .unwrap_or(0);
+            if live_tab_count != 1 {
+                return Err(format!(
+                    "The restore attestation seeded an unexpected live tab count: {live_tab_count}."
+                ));
+            }
+            // The native window move callbacks used by the hotplug exercise can arrive after
+            // the synthetic missing-display write and persist the real monitor again. Close
+            // the temporary runtime surfaces before recording the deliberately unavailable
+            // target, while retaining the live-tab observation above for the seed report.
+            state.runtime.close_all();
             state.runtime.persist_restore_session(false)?;
             // -1 is a reserved "no display" sentinel in the shared domain.
             let unavailable_display_id = if available_display_id == -2 { -3 } else { -2 };
@@ -2131,7 +2144,6 @@ async fn run_runtime_restore_attestation(
                 .map_err(|error| format!("{}: {}", error.code, error.message))?;
             let game_windows = invoke_core_sync(&state, json!({ "type": "gameWindowsList" }))
                 .map_err(|error| format!("{}: {}", error.code, error.message))?;
-            let runtime = state.runtime.restore_state_for_attestation()?;
             let saved_window_count = game_windows
                 .as_array()
                 .map(|windows| {
@@ -2147,17 +2159,17 @@ async fn run_runtime_restore_attestation(
                 .unwrap_or(0);
             if session["cleanExit"].as_bool() != Some(false)
                 || saved_window_count == 0
-                || runtime["liveTabCount"].as_u64() != Some(1)
+                || live_tab_count != 1
             {
                 return Err(format!(
-                    "The unclean restore seed was incomplete: session={session}, runtime={runtime}."
+                    "The unclean restore seed was incomplete: session={session}, liveTabCount={live_tab_count}."
                 ));
             }
             Ok(json!({
                 "cleanExit": false,
                 "availableDisplayId": available_display_id,
                 "hotplugDisplayRemovalApplied": true,
-                "liveTabCount": 1,
+                "liveTabCount": live_tab_count,
                 "roleId": role_id,
                 "roleStoreSeeded": true,
                 "savedTargetDisplayId": unavailable_display_id,

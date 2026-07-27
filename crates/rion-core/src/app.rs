@@ -80,7 +80,12 @@ fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
             ))
         })?;
     file.try_lock_exclusive().map_err(|error| {
-        if error.kind() == ErrorKind::WouldBlock {
+        // Windows reports a conflicting LockFileEx range as PermissionDenied,
+        // while Unix uses WouldBlock for the same contention. Preserve one
+        // stable domain error for both native file-lock implementations.
+        if error.kind() == ErrorKind::WouldBlock
+            || (cfg!(windows) && error.kind() == ErrorKind::PermissionDenied)
+        {
             CoreError::Domain {
                 code: "APP_INSTANCE_LOCKED",
                 message: "Rion Studio data is already in use by another application shell."

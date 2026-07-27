@@ -39,7 +39,7 @@ use crate::model::{
     WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 14;
+pub(crate) const SCHEMA_VERSION: u32 = 15;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1875,8 +1875,30 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 15 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        remove_workspace_browser_zoom_contracts(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (15, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
     Ok(())
+}
+
+fn remove_workspace_browser_zoom_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
+    rewrite_entity_payloads(transaction, "workspaces", |object| {
+        object.remove("browserZoomMode");
+        object.remove("browserZoomPercent");
+    })
 }
 
 fn remove_retired_graphics_settings(transaction: &Transaction<'_>) -> CoreResult<()> {
@@ -3248,7 +3270,10 @@ mod tests {
             )
             .unwrap();
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=14", [])
+            .execute(
+                "DELETE FROM schema_migrations WHERE version IN (14, 15)",
+                [],
+            )
             .unwrap();
 
         create_schema(&connection, false).unwrap();
@@ -3268,7 +3293,10 @@ mod tests {
         assert_eq!(migrated["workspace"], legacy["workspace"]);
 
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=14", [])
+            .execute(
+                "DELETE FROM schema_migrations WHERE version IN (14, 15)",
+                [],
+            )
             .unwrap();
         connection
             .execute(
@@ -3297,6 +3325,76 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn schema_fifteen_removes_only_workspace_zoom_and_preserves_slot_override() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        connection
+            .execute(
+                "INSERT INTO workspaces(id, ordinal, name, payload_json) VALUES (?1, 0, ?2, ?3)",
+                params![
+                    "workspace-zoom",
+                    "Zoom",
+                    json!({
+                        "id":"workspace-zoom",
+                        "name":"Zoom",
+                        "template":"single",
+                        "browserZoomMode":"fixed",
+                        "browserZoomPercent":90,
+                        "marker":"preserved",
+                        "createdAt":"2026-01-01T00:00:00Z",
+                        "updatedAt":"2026-01-01T00:00:00Z"
+                    })
+                    .to_string()
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workspace_slots(workspace_id, ordinal, role_id, payload_json) VALUES (?1, 0, NULL, ?2)",
+                params![
+                    "workspace-zoom",
+                    json!({
+                        "id":"slot-1",
+                        "browserZoomPercent":120,
+                        "rect":{"x":0,"y":0,"width":1,"height":1}
+                    })
+                    .to_string()
+                ],
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=15", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let workspace: Value = serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM workspaces WHERE id='workspace-zoom'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let slot: Value = serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM workspace_slots WHERE workspace_id='workspace-zoom'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(workspace.get("browserZoomMode").is_none());
+        assert!(workspace.get("browserZoomPercent").is_none());
+        assert_eq!(workspace["marker"], "preserved");
+        assert_eq!(slot["browserZoomPercent"], 120);
     }
 
     #[test]

@@ -951,10 +951,6 @@ pub struct PortableLaunchWorkspaceRecord {
         type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
     )]
     pub template: String,
-    #[ts(type = "\"adaptive\" | \"fixed\"")]
-    pub browser_zoom_mode: String,
-    #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
-    pub browser_zoom_percent: f64,
     pub slots: Vec<StateWorkspaceSlotRecord>,
 }
 
@@ -996,7 +992,7 @@ pub struct PortableMacroRecord {
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "10")]
+    #[ts(type = "11")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -1260,12 +1256,6 @@ pub struct WorkspaceCreateRequest {
     )]
     pub template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
-    pub browser_zoom_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
-    pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotRequest>>,
 }
@@ -1283,12 +1273,6 @@ pub struct WorkspaceUpdateRequest {
         type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
     )]
     pub template: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
-    pub browser_zoom_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
-    pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotRequest>>,
@@ -1475,12 +1459,6 @@ pub struct WorkspaceCreateInputRecord {
     pub template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub browser_zoom_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotInputRecord>>,
 }
 
@@ -1494,12 +1472,6 @@ pub struct WorkspaceUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub template: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_zoom_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotInputRecord>>,
@@ -1728,10 +1700,6 @@ pub struct StateLaunchWorkspaceRecord {
         type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
     )]
     pub template: String,
-    #[ts(type = "\"adaptive\" | \"fixed\"")]
-    pub browser_zoom_mode: String,
-    #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
-    pub browser_zoom_percent: f64,
     pub slots: Vec<StateWorkspaceSlotRecord>,
     pub created_at: String,
     pub updated_at: String,

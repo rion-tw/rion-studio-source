@@ -38,10 +38,10 @@ describe("editor form state", () => {
   it("creates workspace forms with defaults and copies saved slot state", () => {
     const newForm = createNewWorkspaceForm([], t);
     expect(newForm).toMatchObject({
-      template: "two_columns",
-      browserZoomMode: "adaptive",
-      browserZoomPercent: 100
+      template: "two_columns"
     });
+    expect(newForm).not.toHaveProperty("browserZoomMode");
+    expect(newForm).not.toHaveProperty("browserZoomPercent");
     expect(newForm).not.toHaveProperty("resourcePolicy");
     expect(newForm).not.toHaveProperty("targetDisplay");
     expect(newForm.slots).toHaveLength(2);
@@ -113,10 +113,8 @@ function role(overrides: Partial<Role> = {}): Role {
 function workspace(): LaunchWorkspace {
   return {
     id: "workspace-1",
-    browserZoomMode: "fixed",
     name: "Party",
     template: "two_columns",
-    browserZoomPercent: 100,
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       { id: "slot-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }

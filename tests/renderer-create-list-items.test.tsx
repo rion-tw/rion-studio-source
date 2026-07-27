@@ -236,8 +236,6 @@ function workspace(): LaunchWorkspace {
     id: "workspace-1",
     name: "Workspace one",
     template: "single",
-    browserZoomMode: "fixed",
-    browserZoomPercent: 90,
     slots: [{ id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"

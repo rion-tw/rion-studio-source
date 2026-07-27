@@ -454,13 +454,6 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
             )
         })
         .collect::<CoreResult<Vec<_>>>()?;
-    let zoom = source
-        .get("browserZoomPercent")
-        .and_then(Value::as_u64)
-        .unwrap_or(100);
-    if !matches!(zoom, 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125) {
-        return Err(invalid("legacy workspace browser zoom is invalid"));
-    }
     let mut output = Map::new();
     output.insert(
         "id".to_owned(),
@@ -471,17 +464,6 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
         json!(required_string(source, "name", "workspace")?),
     );
     output.insert("template".to_owned(), json!(template));
-    output.insert(
-        "browserZoomMode".to_owned(),
-        json!(
-            match source.get("browserZoomMode").and_then(Value::as_str) {
-                None | Some("adaptive") => "adaptive",
-                Some("fixed") => "fixed",
-                _ => return Err(invalid("legacy workspace browser zoom mode is invalid")),
-            }
-        ),
-    );
-    output.insert("browserZoomPercent".to_owned(), json!(zoom));
     if let Some(target) = normalize_target_display(source)? {
         output.insert("targetDisplay".to_owned(), target);
     }
@@ -539,7 +521,7 @@ fn normalize_workspace_slot(
             .and_then(|source| source.get("browserZoomPercent"))
             .and_then(Value::as_u64)
         {
-            if !(50..=300).contains(&zoom) {
+            if !(25..=300).contains(&zoom) {
                 return Err(invalid("legacy workspace slot zoom is invalid"));
             }
             output.insert("browserZoomPercent".to_owned(), json!(zoom));
@@ -1792,8 +1774,8 @@ mod tests {
                 build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
             assert!(workspace.get("browserEngine").is_none());
             assert!(workspace.get("browserLaunchMode").is_none());
-            assert_eq!(workspace["browserZoomMode"], "adaptive");
-            assert_eq!(workspace["browserZoomPercent"], 100);
+            assert!(workspace.get("browserZoomMode").is_none());
+            assert!(workspace.get("browserZoomPercent").is_none());
             assert!(workspace.get("resourcePolicy").is_none());
             assert_eq!(
                 workspace["slots"],
@@ -1911,7 +1893,7 @@ mod tests {
                 build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
             assert_eq!(workspace["id"], "workspace-centered");
             assert_eq!(workspace["name"], "Centered main");
-            assert_eq!(workspace["browserZoomPercent"], 80);
+            assert!(workspace.get("browserZoomPercent").is_none());
             assert_eq!(workspace["targetDisplay"], json!({"id":22}));
             assert_eq!(workspace["createdAt"], timestamp_created);
             assert_eq!(workspace["updatedAt"], timestamp_updated);

@@ -32,7 +32,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-const CURRENT_SCHEMA: u64 = 10;
+const CURRENT_SCHEMA: u64 = 11;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -403,11 +403,6 @@ fn normalize_workspace(value: &Value) -> CoreResult<Value> {
     ) {
         return Err(invalid("portable workspace template is invalid"));
     }
-    let zoom = source
-        .get("browserZoomPercent")
-        .and_then(Value::as_f64)
-        .filter(|zoom| (25.0..=125.0).contains(zoom))
-        .ok_or_else(|| invalid("portable workspace zoom is invalid"))?;
     let slots = source
         .get("slots")
         .and_then(Value::as_array)
@@ -423,12 +418,6 @@ fn normalize_workspace(value: &Value) -> CoreResult<Value> {
         "id": required_string(source, "id", "workspace")?,
         "name": required_string(source, "name", "workspace")?,
         "template": template,
-        "browserZoomMode": match source.get("browserZoomMode").and_then(Value::as_str) {
-            Some("fixed") => "fixed",
-            Some("adaptive") | None => "adaptive",
-            _ => return Err(invalid("portable workspace zoom mode is invalid")),
-        },
-        "browserZoomPercent": zoom,
         "slots": slots
     }))
 }
@@ -480,7 +469,7 @@ fn normalize_slot(
     if let Some(role_id) = role_id {
         slot.insert("roleId".to_owned(), json!(role_id));
         if let Some(zoom) = source.get("browserZoomPercent").and_then(Value::as_f64) {
-            if !(10.0..=300.0).contains(&zoom) {
+            if !(25.0..=300.0).contains(&zoom) || zoom.fract() != 0.0 {
                 return Err(invalid("portable slot zoom is invalid"));
             }
             slot.insert("browserZoomPercent".to_owned(), json!(zoom));
@@ -1560,8 +1549,6 @@ fn build_import_plan(
                     .unwrap_or_else(|| Uuid::new_v4().to_string()),
                 name,
                 template: workspace.template.clone(),
-                browser_zoom_mode: workspace.browser_zoom_mode.clone(),
-                browser_zoom_percent: workspace.browser_zoom_percent,
                 slots,
                 created_at: existing
                     .as_ref()
@@ -2190,8 +2177,6 @@ fn portable_workspace(workspace: &StateLaunchWorkspaceRecord) -> PortableLaunchW
         id: workspace.id.clone(),
         name: workspace.name.clone(),
         template: workspace.template.clone(),
-        browser_zoom_mode: workspace.browser_zoom_mode.clone(),
-        browser_zoom_percent: workspace.browser_zoom_percent,
         slots: workspace.slots.clone(),
     }
 }
@@ -2579,20 +2564,30 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_every_supported_portable_schema_to_v10() {
-        for schema in 1..=10 {
+    fn normalizes_every_supported_portable_schema_to_v11() {
+        for schema in 1..=11 {
             let value = normalize(&fixture(schema)).unwrap();
-            assert_eq!(value["schemaVersion"], 10);
+            assert_eq!(value["schemaVersion"], 11);
             assert!(!value["roles"][0]["gameId"].as_str().unwrap().is_empty());
             assert_eq!(value["macros"][0]["enabled"], true);
             assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
+            assert!(
+                value["launchWorkspaces"][0]
+                    .get("browserZoomMode")
+                    .is_none()
+            );
+            assert!(
+                value["launchWorkspaces"][0]
+                    .get("browserZoomPercent")
+                    .is_none()
+            );
         }
     }
 
     // Historical parity evidence retained after the portable schema advanced to v10.
     #[test]
     fn normalizes_every_supported_portable_schema_to_v7() {
-        normalizes_every_supported_portable_schema_to_v10();
+        normalizes_every_supported_portable_schema_to_v11();
     }
 
     #[test]
@@ -2734,7 +2729,7 @@ mod tests {
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         });
-        let future = fixture(10).replace("\"schemaVersion\":10", "\"schemaVersion\":11");
+        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":12");
         assert!(normalize(&future).is_err());
     }
 
@@ -3122,7 +3117,7 @@ mod tests {
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 10);
+            assert_eq!(exported.schema_version, 11);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);
@@ -3508,7 +3503,9 @@ mod tests {
                     .get("resourcePolicy")
                     .is_none()
             );
-            assert_eq!(workspace.browser_zoom_mode, "fixed");
+            let workspace_value = serde_json::to_value(workspace).unwrap();
+            assert!(workspace_value.get("browserZoomMode").is_none());
+            assert!(workspace_value.get("browserZoomPercent").is_none());
             assert_eq!(workspace.slots[0].browser_zoom_percent, Some(120.0));
             source["launchWorkspaces"][0]["slots"][0]["browserZoomPercent"] = json!(301);
             assert!(normalize(&source.to_string()).is_err());
@@ -4213,7 +4210,7 @@ mod tests {
     }
 
     #[test]
-    fn export_is_v10_and_never_emits_internal_timestamps_or_browser_session_source() {
+    fn export_is_v11_and_never_emits_internal_timestamps_or_browser_session_source() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -4229,7 +4226,17 @@ mod tests {
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         crate::v1_case!("portable-profile-3dc36f8d51a0", {
-            assert_eq!(value["schemaVersion"], 10);
+            assert_eq!(value["schemaVersion"], 11);
+            assert!(
+                value["launchWorkspaces"][0]
+                    .get("browserZoomMode")
+                    .is_none()
+            );
+            assert!(
+                value["launchWorkspaces"][0]
+                    .get("browserZoomPercent")
+                    .is_none()
+            );
             assert_eq!(value["appVersion"], "2.0.0");
             for field in [
                 "authState",

@@ -2971,6 +2971,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-updater",
  "tempfile",
+ "tokio",
  "url",
  "uuid",
  "webview2-com",

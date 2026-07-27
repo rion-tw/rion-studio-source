@@ -87,9 +87,7 @@ describe("workspace editor role picker layout", () => {
     const verticalResizeHandle = container.querySelector<HTMLElement>("button.cursor-col-resize");
     const workspaceHelps = container.querySelectorAll<HTMLElement>("[data-workspace-help]");
 
-    expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
-      "Adaptive (recommended)"
-    );
+    expect(screen.queryByRole("combobox", { name: "Browser zoom" })).toBeNull();
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
     expect(screen.queryByText("96%")).toBeNull();
@@ -106,10 +104,11 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[1].textContent).toContain("Assign at least one role before launching");
     expect(workspaceHelps[1].textContent).toContain("most recently focused game window");
     expect(workspaceHelps[2].textContent).toContain("While running");
+    expect(workspaceHelps[2].textContent).toContain("Each role viewport adapts independently");
     expect(workspaceHelps[2].textContent).toContain("Command +/−/0 on macOS");
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
-    expect(workspaceHelps[2].textContent).toContain("saved to this workspace automatically");
-    expect(workspaceHelps[2].textContent).toContain("restored the next time the role launches");
+    expect(workspaceHelps[2].textContent).toContain("View menu zoom controls the whole game window");
+    expect(workspaceHelps[2].textContent).toContain("current scale appears briefly");
     expect(workspaceHelps[2].textContent).toContain("native background throttling");
     expect(workspaceHelps[2].textContent).toContain("does not inject an additional CPU limiter");
     workspaceHelps.forEach((workspaceHelp) => {
@@ -351,8 +350,6 @@ function workspace(): LaunchWorkspace {
     id: "workspace-1",
     name: "Party",
     template: "two_columns",
-    browserZoomMode: "adaptive",
-    browserZoomPercent: 100,
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }

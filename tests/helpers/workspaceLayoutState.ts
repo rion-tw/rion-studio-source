@@ -1,14 +1,16 @@
-import type { NormalizedRect, WorkspaceBrowserZoomPercent } from "../../src/shared/types";
+import type { NormalizedRect } from "../../src/shared/types";
 
-const thresholds: ReadonlyArray<[number, WorkspaceBrowserZoomPercent]> = [
+type AdaptiveZoomPercent = 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125;
+
+const thresholds: ReadonlyArray<[number, AdaptiveZoomPercent]> = [
   [0, 25], [372, 33], [532, 50], [749, 67], [909, 75],
   [992, 80], [1_088, 90], [1_216, 100], [1_344, 110], [1_504, 125]
 ];
 
 export function resolveTestAdaptiveZoom(
   viewportWidth: number,
-  currentPercent?: WorkspaceBrowserZoomPercent
-): WorkspaceBrowserZoomPercent {
+  currentPercent?: AdaptiveZoomPercent
+): AdaptiveZoomPercent {
   if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return currentPercent ?? 100;
   let targetIndex = 0;
   for (let index = thresholds.length - 1; index >= 0; index -= 1) {

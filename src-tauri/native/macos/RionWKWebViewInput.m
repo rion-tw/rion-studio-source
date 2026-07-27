@@ -6,7 +6,116 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 #include <unistd.h>
+
+typedef void (*RionRoleZoomShortcutHandler)(void *context,
+                                            const char *action);
+typedef void (*RionRoleZoomShortcutDestructor)(void *context);
+
+@interface RionRoleZoomShortcutBinding : NSObject
+@property(nonatomic, assign) void *context;
+@property(nonatomic, assign) RionRoleZoomShortcutHandler handler;
+@property(nonatomic, assign) RionRoleZoomShortcutDestructor destructor;
+@end
+
+@implementation RionRoleZoomShortcutBinding
+- (void)dealloc {
+  if (_context && _destructor) _destructor(_context);
+}
+@end
+
+static char RionRoleZoomShortcutBindingKey;
+
+static const char *RionRoleZoomActionForKeyCode(
+    unsigned short keyCode, NSEventModifierFlags modifierFlags) {
+  NSEventModifierFlags flags = modifierFlags &
+      NSEventModifierFlagDeviceIndependentFlagsMask;
+  if ((flags & NSEventModifierFlagCommand) == 0 ||
+      (flags & (NSEventModifierFlagControl | NSEventModifierFlagOption |
+                NSEventModifierFlagFunction)) != 0) {
+    return NULL;
+  }
+  BOOL shift = (flags & NSEventModifierFlagShift) != 0;
+  switch (keyCode) {
+    case 29:  // Number-row 0.
+    case 82:  // Keypad 0.
+      return shift ? NULL : "reset";
+    case 27:  // Number-row minus.
+    case 78:  // Keypad minus.
+      return shift ? NULL : "out";
+    case 24:  // Number-row equals/plus; Shift is valid for the plus glyph.
+      return "in";
+    case 69:  // Keypad plus.
+      return shift ? NULL : "in";
+    default:
+      return NULL;
+  }
+}
+
+static RionRoleZoomShortcutBinding *
+RionRoleZoomBindingForResponder(NSResponder *responder) {
+  if (![responder isKindOfClass:NSView.class]) return nil;
+  for (NSView *view = (NSView *)responder; view; view = view.superview) {
+    RionRoleZoomShortcutBinding *binding =
+        objc_getAssociatedObject(view, &RionRoleZoomShortcutBindingKey);
+    if (binding) return binding;
+  }
+  return nil;
+}
+
+static void RionInstallRoleZoomShortcutMonitor(void) {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                          handler:^NSEvent *(NSEvent *event) {
+      RionRoleZoomShortcutBinding *binding =
+          RionRoleZoomBindingForResponder(event.window.firstResponder);
+      if (!binding || !binding.context || !binding.handler) return event;
+      const char *action =
+          RionRoleZoomActionForKeyCode(event.keyCode, event.modifierFlags);
+      if (!action) return event;
+      binding.handler(binding.context, action);
+      return nil;
+    }];
+  });
+}
+
+bool rion_wk_install_role_zoom_shortcut(
+    void *rawWebView, void *context, RionRoleZoomShortcutHandler handler,
+    RionRoleZoomShortcutDestructor destructor) {
+  @autoreleasepool {
+    if (!rawWebView || !context || !handler || !destructor) return false;
+    WKWebView *webView = (__bridge WKWebView *)rawWebView;
+    RionRoleZoomShortcutBinding *binding =
+        [[RionRoleZoomShortcutBinding alloc] init];
+    binding.context = context;
+    binding.handler = handler;
+    binding.destructor = destructor;
+    objc_setAssociatedObject(webView, &RionRoleZoomShortcutBindingKey, binding,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    RionInstallRoleZoomShortcutMonitor();
+    return true;
+  }
+}
+
+bool rion_wk_role_zoom_shortcut_self_test(void) {
+  NSEventModifierFlags command = NSEventModifierFlagCommand;
+  const char *reset = RionRoleZoomActionForKeyCode(29, command);
+  const char *zoomIn = RionRoleZoomActionForKeyCode(
+      24, command | NSEventModifierFlagShift);
+  const char *keypadIn = RionRoleZoomActionForKeyCode(
+      69, command | NSEventModifierFlagNumericPad);
+  const char *zoomOut = RionRoleZoomActionForKeyCode(78, command);
+  return reset && strcmp(reset, "reset") == 0 && zoomIn &&
+      strcmp(zoomIn, "in") == 0 && keypadIn &&
+      strcmp(keypadIn, "in") == 0 && zoomOut &&
+      strcmp(zoomOut, "out") == 0 &&
+      !RionRoleZoomActionForKeyCode(29, command | NSEventModifierFlagShift) &&
+      !RionRoleZoomActionForKeyCode(69, command | NSEventModifierFlagShift) &&
+      !RionRoleZoomActionForKeyCode(27, command | NSEventModifierFlagControl) &&
+      !RionRoleZoomActionForKeyCode(24, NSEventModifierFlagControl);
+}
 
 bool rion_wk_window_content_layout_metrics(void *rawWindow, double *width,
                                            double *height,

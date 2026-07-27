@@ -5,15 +5,15 @@ use uuid::Uuid;
 use crate::{
     error::{CoreError, CoreResult},
     model::{
-        BrowserRuntimeCommand, BrowserRuntimeDisplayRecord, BrowserRuntimeResult,
-        BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot, BrowserRuntimeTabRecord,
+        BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleRecord,
+        BrowserRuntimeSnapshot, BrowserRuntimeTabRecord, BrowserRuntimeWindowRecord,
         BrowserRuntimeWorkspaceRecord,
     },
 };
 
 #[derive(Clone, Default)]
 pub struct BrowserRuntime {
-    displays: HashMap<i64, BrowserRuntimeDisplayRecord>,
+    windows: HashMap<String, BrowserRuntimeWindowRecord>,
     roles: HashMap<String, BrowserRuntimeRoleRecord>,
     tabs: HashMap<String, BrowserRuntimeTabRecord>,
     workspaces: HashMap<String, BrowserRuntimeWorkspaceRecord>,
@@ -38,7 +38,7 @@ impl BrowserRuntime {
             BrowserRuntimeCommand::BeginWorkspace {
                 workspace_id,
                 name,
-                display_id,
+                window_id,
                 role_ids,
             } => {
                 if self.workspaces.contains_key(&workspace_id) {
@@ -54,32 +54,45 @@ impl BrowserRuntime {
                         workspace_id,
                         name,
                         runtime: "pending".to_owned(),
-                        display_id,
-                        exclusive_display: false,
+                        window_id,
                         tab_id: None,
                         role_ids,
                         state: "launching".to_owned(),
                     },
                 );
             }
-            BrowserRuntimeCommand::RegisterDisplay { display_id } => {
-                self.displays
-                    .entry(display_id)
-                    .or_insert(BrowserRuntimeDisplayRecord {
-                        display_id,
+            BrowserRuntimeCommand::RegisterWindow { window_id } => {
+                self.windows
+                    .entry(window_id.clone())
+                    .or_insert(BrowserRuntimeWindowRecord {
+                        window_id,
                         active_tab_id: None,
                         tab_ids: Vec::new(),
                     });
             }
+            BrowserRuntimeCommand::RemoveWindow { window_id } => {
+                if self
+                    .windows
+                    .get(&window_id)
+                    .is_some_and(|window| !window.tab_ids.is_empty())
+                {
+                    return Err(domain(
+                        "RUNTIME_WINDOW_NOT_EMPTY",
+                        "Stop all tabs before deleting a game window.",
+                    ));
+                }
+                self.windows.remove(&window_id);
+            }
             BrowserRuntimeCommand::CreateTab {
+                tab_id,
                 source_id,
                 name,
-                display_id,
+                window_id,
                 tab_type,
                 workspace_id,
                 role_ids,
             } => {
-                self.register_display(display_id);
+                self.register_window(&window_id);
                 if let Some(workspace_id) = &workspace_id {
                     if self
                         .workspaces
@@ -94,21 +107,27 @@ impl BrowserRuntime {
                     self.ensure_workspace_roles_match(workspace_id, &role_ids)?;
                 }
                 self.ensure_roles_available(&role_ids, workspace_id.as_deref())?;
-                let id = Uuid::new_v4().to_string();
+                let id = tab_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+                if Uuid::parse_str(&id).is_err() || self.tabs.contains_key(&id) {
+                    return Err(domain(
+                        "RUNTIME_TAB_ID_INVALID",
+                        "Runtime tab id is invalid or already in use.",
+                    ));
+                }
                 let tab = BrowserRuntimeTabRecord {
                     id: id.clone(),
                     source_id,
                     name,
-                    display_id,
+                    window_id: window_id.clone(),
                     tab_type,
                     workspace_id: workspace_id.clone(),
                     role_ids: role_ids.clone(),
                     hidden: true,
                 };
                 self.tabs.insert(id.clone(), tab);
-                self.displays
-                    .get_mut(&display_id)
-                    .expect("display was registered")
+                self.windows
+                    .get_mut(&window_id)
+                    .expect("window was registered")
                     .tab_ids
                     .push(id.clone());
                 if let Some(workspace_id) = workspace_id {
@@ -119,16 +138,14 @@ impl BrowserRuntime {
                                 workspace_id,
                                 name: self.tabs[&id].name.clone(),
                                 runtime: "embedded".to_owned(),
-                                display_id: Some(display_id),
-                                exclusive_display: false,
+                                window_id: Some(window_id.clone()),
                                 tab_id: None,
                                 role_ids: role_ids.clone(),
                                 state: "launching".to_owned(),
                             });
                     workspace.name = self.tabs[&id].name.clone();
                     workspace.runtime = "embedded".to_owned();
-                    workspace.display_id = Some(display_id);
-                    workspace.exclusive_display = false;
+                    workspace.window_id = Some(window_id);
                     workspace.tab_id = Some(id.clone());
                     workspace.role_ids = role_ids;
                 }
@@ -136,23 +153,23 @@ impl BrowserRuntime {
             }
             BrowserRuntimeCommand::RemoveTab { tab_id } => self.remove_tab(&tab_id),
             BrowserRuntimeCommand::ActivateTab { tab_id } => self.activate_tab(&tab_id)?,
-            BrowserRuntimeCommand::ShowDisplay { display_id } => self.show_display(display_id)?,
+            BrowserRuntimeCommand::ShowWindow { window_id } => self.show_window(&window_id)?,
             BrowserRuntimeCommand::ActivateAdjacentTab {
-                display_id,
+                window_id,
                 direction,
-            } => self.activate_adjacent_tab(display_id, &direction)?,
+            } => self.activate_adjacent_tab(&window_id, &direction)?,
             BrowserRuntimeCommand::HideTab { tab_id } => self.hide_tab(&tab_id)?,
             BrowserRuntimeCommand::ReorderTab {
                 tab_id,
                 before_tab_id,
             } => self.reorder_tab(&tab_id, before_tab_id.as_deref())?,
-            BrowserRuntimeCommand::MoveTab { tab_id, display_id } => {
-                self.move_tab(&tab_id, display_id)?;
+            BrowserRuntimeCommand::MoveTab { tab_id, window_id } => {
+                self.move_tab(&tab_id, &window_id)?;
             }
-            BrowserRuntimeCommand::MoveDisplayTabs {
-                source_display_id,
-                target_display_id,
-            } => self.move_display_tabs(source_display_id, target_display_id)?,
+            BrowserRuntimeCommand::MoveWindowTabs {
+                source_window_id,
+                target_window_id,
+            } => self.move_window_tabs(&source_window_id, &target_window_id)?,
             BrowserRuntimeCommand::RoleTransition {
                 role_id,
                 runtime,
@@ -188,11 +205,11 @@ impl BrowserRuntime {
         })
     }
 
-    fn register_display(&mut self, display_id: i64) {
-        self.displays
-            .entry(display_id)
-            .or_insert(BrowserRuntimeDisplayRecord {
-                display_id,
+    fn register_window(&mut self, window_id: &str) {
+        self.windows
+            .entry(window_id.to_owned())
+            .or_insert(BrowserRuntimeWindowRecord {
+                window_id: window_id.to_owned(),
                 active_tab_id: None,
                 tab_ids: Vec::new(),
             });
@@ -249,17 +266,14 @@ impl BrowserRuntime {
         let Some(tab) = self.tabs.remove(tab_id) else {
             return;
         };
-        if let Some(display) = self.displays.get_mut(&tab.display_id) {
-            display.tab_ids.retain(|id| id != tab_id);
-            if display.active_tab_id.as_deref() == Some(tab_id) {
-                display.active_tab_id = display
+        if let Some(window) = self.windows.get_mut(&tab.window_id) {
+            window.tab_ids.retain(|id| id != tab_id);
+            if window.active_tab_id.as_deref() == Some(tab_id) {
+                window.active_tab_id = window
                     .tab_ids
                     .iter()
                     .find(|id| self.tabs.get(*id).is_some_and(|tab| !tab.hidden))
                     .cloned();
-            }
-            if display.tab_ids.is_empty() {
-                self.displays.remove(&tab.display_id);
             }
         }
         if let Some(workspace_id) = tab.workspace_id {
@@ -273,51 +287,42 @@ impl BrowserRuntime {
             .get_mut(tab_id)
             .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
         tab.hidden = false;
-        self.displays
-            .get_mut(&tab.display_id)
-            .ok_or_else(|| {
-                domain(
-                    "RUNTIME_DISPLAY_NOT_FOUND",
-                    "Runtime display was not found.",
-                )
-            })?
+        self.windows
+            .get_mut(&tab.window_id)
+            .ok_or_else(|| domain("RUNTIME_WINDOW_NOT_FOUND", "Runtime window was not found."))?
             .active_tab_id = Some(tab_id.to_owned());
         Ok(())
     }
 
-    fn show_display(&mut self, display_id: i64) -> CoreResult<()> {
-        let display = self.displays.get(&display_id).ok_or_else(|| {
-            domain(
-                "RUNTIME_DISPLAY_NOT_FOUND",
-                "Runtime display was not found.",
-            )
-        })?;
-        let selected = display
+    fn show_window(&mut self, window_id: &str) -> CoreResult<()> {
+        let window = self
+            .windows
+            .get(window_id)
+            .ok_or_else(|| domain("RUNTIME_WINDOW_NOT_FOUND", "Runtime window was not found."))?;
+        let selected = window
             .active_tab_id
             .as_ref()
             .filter(|tab_id| self.tabs.get(*tab_id).is_some_and(|tab| !tab.hidden))
             .cloned()
-            .or_else(|| display.tab_ids.first().cloned());
+            .or_else(|| window.tab_ids.first().cloned());
         if let Some(tab_id) = selected {
             self.activate_tab(&tab_id)?;
         }
         Ok(())
     }
 
-    fn activate_adjacent_tab(&mut self, display_id: i64, direction: &str) -> CoreResult<()> {
+    fn activate_adjacent_tab(&mut self, window_id: &str, direction: &str) -> CoreResult<()> {
         if !matches!(direction, "next" | "previous") {
             return Err(domain(
                 "RUNTIME_TAB_DIRECTION_INVALID",
                 "Runtime tab direction is invalid.",
             ));
         }
-        let display = self.displays.get(&display_id).ok_or_else(|| {
-            domain(
-                "RUNTIME_DISPLAY_NOT_FOUND",
-                "Runtime display was not found.",
-            )
-        })?;
-        let visible = display
+        let window = self
+            .windows
+            .get(window_id)
+            .ok_or_else(|| domain("RUNTIME_WINDOW_NOT_FOUND", "Runtime window was not found."))?;
+        let visible = window
             .tab_ids
             .iter()
             .filter(|tab_id| self.tabs.get(*tab_id).is_some_and(|tab| !tab.hidden))
@@ -326,7 +331,7 @@ impl BrowserRuntime {
         if visible.len() < 2 {
             return Ok(());
         }
-        let current = display
+        let current = window
             .active_tab_id
             .as_ref()
             .and_then(|active| visible.iter().position(|tab_id| tab_id == active));
@@ -339,15 +344,15 @@ impl BrowserRuntime {
     }
 
     fn hide_tab(&mut self, tab_id: &str) -> CoreResult<()> {
-        let display_id = self
+        let window_id = self
             .tabs
             .get(tab_id)
-            .map(|tab| tab.display_id)
+            .map(|tab| tab.window_id.clone())
             .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
         self.tabs.get_mut(tab_id).expect("tab exists").hidden = true;
-        let display = self.displays.get_mut(&display_id).expect("display exists");
-        if display.active_tab_id.as_deref() == Some(tab_id) {
-            display.active_tab_id = display
+        let window = self.windows.get_mut(&window_id).expect("window exists");
+        if window.active_tab_id.as_deref() == Some(tab_id) {
+            window.active_tab_id = window
                 .tab_ids
                 .iter()
                 .find(|id| self.tabs.get(*id).is_some_and(|tab| !tab.hidden))
@@ -357,13 +362,13 @@ impl BrowserRuntime {
     }
 
     fn reorder_tab(&mut self, tab_id: &str, before_tab_id: Option<&str>) -> CoreResult<()> {
-        let display_id = self
+        let window_id = self
             .tabs
             .get(tab_id)
-            .map(|tab| tab.display_id)
+            .map(|tab| tab.window_id.clone())
             .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
-        let display = self.displays.get_mut(&display_id).expect("display exists");
-        let mut ids = display
+        let window = self.windows.get_mut(&window_id).expect("window exists");
+        let mut ids = window
             .tab_ids
             .iter()
             .filter(|id| id.as_str() != tab_id)
@@ -373,63 +378,59 @@ impl BrowserRuntime {
             .and_then(|before| ids.iter().position(|id| id == before))
             .unwrap_or(ids.len());
         ids.insert(index, tab_id.to_owned());
-        display.tab_ids = ids;
+        window.tab_ids = ids;
         Ok(())
     }
 
-    fn move_tab(&mut self, tab_id: &str, display_id: i64) -> CoreResult<()> {
+    fn move_tab(&mut self, tab_id: &str, window_id: &str) -> CoreResult<()> {
         let source_id = self
             .tabs
             .get(tab_id)
-            .map(|tab| tab.display_id)
+            .map(|tab| tab.window_id.clone())
             .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
-        if source_id == display_id {
+        if source_id == window_id {
             return Ok(());
         }
-        self.register_display(display_id);
-        let source_empty = if let Some(source) = self.displays.get_mut(&source_id) {
+        self.register_window(window_id);
+        if let Some(source) = self.windows.get_mut(&source_id) {
             source.tab_ids.retain(|id| id != tab_id);
             if source.active_tab_id.as_deref() == Some(tab_id) {
                 source.active_tab_id = source.tab_ids.first().cloned();
             }
-            source.tab_ids.is_empty()
-        } else {
-            false
-        };
-        if source_empty {
-            self.displays.remove(&source_id);
         }
-        let target = self.displays.get_mut(&display_id).expect("display exists");
+        let target = self.windows.get_mut(window_id).expect("window exists");
         target.tab_ids.push(tab_id.to_owned());
         target.active_tab_id = Some(tab_id.to_owned());
-        self.tabs.get_mut(tab_id).expect("tab exists").display_id = display_id;
+        self.tabs.get_mut(tab_id).expect("tab exists").window_id = window_id.to_owned();
         if let Some(workspace_id) = self.tabs[tab_id].workspace_id.as_ref()
             && let Some(workspace) = self.workspaces.get_mut(workspace_id)
         {
-            workspace.display_id = Some(display_id);
+            workspace.window_id = Some(window_id.to_owned());
         }
         Ok(())
     }
 
-    fn move_display_tabs(&mut self, source: i64, target: i64) -> CoreResult<()> {
-        if source == target || !self.displays.contains_key(&source) {
+    fn move_window_tabs(&mut self, source: &str, target: &str) -> CoreResult<()> {
+        if source == target || !self.windows.contains_key(source) {
             return Ok(());
         }
-        self.register_display(target);
-        let source_record = self.displays.remove(&source).expect("source exists");
-        let target_record = self.displays.get_mut(&target).expect("target exists");
+        self.register_window(target);
+        let source_record = self.windows.get_mut(source).expect("source exists");
+        let source_tab_ids = std::mem::take(&mut source_record.tab_ids);
+        let source_active_tab_id = source_record.active_tab_id.take();
+        let target_record = self.windows.get_mut(target).expect("target exists");
         let target_had_active = target_record.active_tab_id.is_some();
-        for tab_id in &source_record.tab_ids {
-            self.tabs.get_mut(tab_id).expect("tab exists").display_id = target;
+        for tab_id in &source_tab_ids {
+            self.tabs.get_mut(tab_id).expect("tab exists").window_id = target.to_owned();
             if let Some(workspace_id) = self.tabs[tab_id].workspace_id.as_ref()
                 && let Some(workspace) = self.workspaces.get_mut(workspace_id)
             {
-                workspace.display_id = Some(target);
+                workspace.window_id = Some(target.to_owned());
             }
         }
-        target_record.tab_ids.extend(source_record.tab_ids);
+        target_record.tab_ids.extend(source_tab_ids);
         if !target_had_active {
-            target_record.active_tab_id = source_record.active_tab_id;
+            target_record.active_tab_id = source_active_tab_id;
         }
         Ok(())
     }
@@ -526,18 +527,18 @@ impl BrowserRuntime {
 
     fn validate(&self) -> CoreResult<()> {
         let mut tab_ids = HashSet::new();
-        for display in self.displays.values() {
-            for tab_id in &display.tab_ids {
+        for window in self.windows.values() {
+            for tab_id in &window.tab_ids {
                 if !tab_ids.insert(tab_id) || !self.tabs.contains_key(tab_id) {
                     return Err(CoreError::Internal(
                         "browser runtime tab ownership is inconsistent".to_owned(),
                     ));
                 }
             }
-            if display
+            if window
                 .active_tab_id
                 .as_ref()
-                .is_some_and(|id| !display.tab_ids.contains(id))
+                .is_some_and(|id| !window.tab_ids.contains(id))
             {
                 return Err(CoreError::Internal(
                     "browser runtime active tab is inconsistent".to_owned(),
@@ -564,8 +565,8 @@ impl BrowserRuntime {
     }
 
     pub(crate) fn snapshot(&self) -> BrowserRuntimeSnapshot {
-        let mut displays = self.displays.values().cloned().collect::<Vec<_>>();
-        displays.sort_by_key(|display| display.display_id);
+        let mut windows = self.windows.values().cloned().collect::<Vec<_>>();
+        windows.sort_by(|left, right| left.window_id.cmp(&right.window_id));
         let mut roles = self.roles.values().cloned().collect::<Vec<_>>();
         roles.sort_by(|left, right| left.role_id.cmp(&right.role_id));
         let mut tabs = self.tabs.values().cloned().collect::<Vec<_>>();
@@ -573,7 +574,7 @@ impl BrowserRuntime {
         let mut workspaces = self.workspaces.values().cloned().collect::<Vec<_>>();
         workspaces.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));
         BrowserRuntimeSnapshot {
-            displays,
+            windows,
             roles,
             tabs,
             workspaces,
@@ -602,7 +603,7 @@ mod tests {
         let mut runtime = BrowserRuntime::default();
         let created = runtime
             .invoke(command(json!({
-                "type":"createTab","sourceId":"w1","name":"Party","displayId":1,
+                "type":"createTab","sourceId":"w1","name":"Party","windowId":"window-1",
                 "tabType":"workspace","workspaceId":"w1","roleIds":["r1","r2"]
             })))
             .unwrap();
@@ -626,12 +627,15 @@ mod tests {
             .unwrap();
         let moved = runtime
             .invoke(command(
-                json!({"type":"moveTab","tabId":tab_id,"displayId":2}),
+                json!({"type":"moveTab","tabId":tab_id,"windowId":"window-2"}),
             ))
             .unwrap();
-        assert_eq!(moved.snapshot.displays[0].display_id, 2);
+        assert_eq!(moved.snapshot.windows[0].window_id, "window-1");
         assert_eq!(moved.snapshot.workspaces[0].state, "running");
-        assert_eq!(moved.snapshot.workspaces[0].display_id, Some(2));
+        assert_eq!(
+            moved.snapshot.workspaces[0].window_id.as_deref(),
+            Some("window-2")
+        );
     }
 
     #[test]
@@ -639,14 +643,14 @@ mod tests {
         let mut runtime = BrowserRuntime::default();
         runtime
             .invoke(command(json!({
-                "type":"createTab","sourceId":"w1","name":"One","displayId":1,
+                "type":"createTab","sourceId":"w1","name":"One","windowId":"window-1",
                 "tabType":"workspace","workspaceId":"w1","roleIds":["r1"]
             })))
             .unwrap();
         assert_eq!(
             runtime
                 .invoke(command(json!({
-                    "type":"createTab","sourceId":"w2","name":"Two","displayId":2,
+                    "type":"createTab","sourceId":"w2","name":"Two","windowId":"window-2",
                     "tabType":"workspace","workspaceId":"w2","roleIds":["r1"]
                 })))
                 .unwrap_err()
@@ -665,11 +669,11 @@ mod tests {
     }
 
     #[test]
-    fn owns_display_show_and_adjacent_tab_selection() {
+    fn owns_window_show_and_adjacent_tab_selection() {
         let mut runtime = BrowserRuntime::default();
         let first = runtime
             .invoke(command(json!({
-                "type":"createTab","sourceId":"r1","name":"One","displayId":1,
+                "type":"createTab","sourceId":"r1","name":"One","windowId":"window-1",
                 "tabType":"role","roleIds":["r1"]
             })))
             .unwrap()
@@ -677,19 +681,16 @@ mod tests {
             .unwrap();
         let second = runtime
             .invoke(command(json!({
-                "type":"createTab","sourceId":"r2","name":"Two","displayId":1,
+                "type":"createTab","sourceId":"r2","name":"Two","windowId":"window-1",
                 "tabType":"role","roleIds":["r2"]
             })))
             .unwrap()
             .created_tab_id
             .unwrap();
         let shown = runtime
-            .invoke(command(json!({"type":"showDisplay","displayId":1})))
+            .invoke(command(json!({"type":"showWindow","windowId":"window-1"})))
             .unwrap();
-        assert_eq!(
-            shown.snapshot.displays[0].active_tab_id,
-            Some(first.clone())
-        );
+        assert_eq!(shown.snapshot.windows[0].active_tab_id, Some(first.clone()));
         assert!(
             !shown
                 .snapshot
@@ -704,9 +705,9 @@ mod tests {
             .unwrap();
         let adjacent = runtime
             .invoke(command(json!({
-                "type":"activateAdjacentTab","displayId":1,"direction":"previous"
+                "type":"activateAdjacentTab","windowId":"window-1","direction":"previous"
             })))
             .unwrap();
-        assert_eq!(adjacent.snapshot.displays[0].active_tab_id, Some(first));
+        assert_eq!(adjacent.snapshot.windows[0].active_tab_id, Some(first));
     }
 }

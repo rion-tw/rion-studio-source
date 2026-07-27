@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 const state: RuntimeTabStripState = {
   alwaysShowToolbarInFullScreen: false,
   displayId: 11,
+  windowId: "window-1",
   displays: [],
   fullscreen: false,
   language: "zh-TW",
@@ -21,7 +22,7 @@ const state: RuntimeTabStripState = {
     active: true,
     audible: true,
     audioMuted: false,
-    displayId: 11,
+    windowId: "window-1",
     hidden: false,
     id: "tab-1",
     name: "四人隊伍",

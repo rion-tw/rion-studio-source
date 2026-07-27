@@ -10,6 +10,9 @@ import type {
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
   DiagnosticExportResultRecord,
+  DisplayFingerprintRecord,
+  DisplayInfoRecord,
+  DisplayTargetRecord,
   EmbeddedBrowserEngine as RustEmbeddedBrowserEngine,
   EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
   SystemWebViewIssueReason as RustSystemWebViewIssueReason,
@@ -18,6 +21,10 @@ import type {
   GameUpdateRequest,
   GraphicsDeviceDiagnosticsRecord,
   GraphicsDiagnosticsRecord,
+  GameWindowCreateInputRecord,
+  GameWindowPlacementRecord,
+  GameWindowTabRecord,
+  GameWindowUpdateInputRecord,
   LegalAcceptDocumentsInputRecord,
   LegalAcceptanceStatusRecord,
   LegalDocumentVersionsRecord,
@@ -53,6 +60,7 @@ import type {
   PortablePreferencesRecord,
   PortableRoleRecord,
   StateGameRecord,
+  StateGameWindowRecord,
   StateCompatibilityLoadRecord,
   StateCompatibilityObservationsRecord,
   StateCompatibilityRecommendationRecord,
@@ -62,8 +70,6 @@ import type {
   StateNormalizedRectRecord,
   StatePixelBoundsRecord,
   StateRoleRecord,
-  StateWorkspaceDisplayFingerprintRecord,
-  StateWorkspaceDisplayTargetRecord,
   StateWorkspaceSlotRecord,
   StateWebGraphicsRecord,
   SystemFontFamilyRecord,
@@ -166,7 +172,7 @@ export interface EmbeddedRuntimeTabSummary {
   type: EmbeddedRuntimeTabType;
   sourceId: string;
   name: string;
-  displayId: number;
+  windowId: string;
   roleIds: string[];
   /** Role names in the same order as roleIds, present for workspace tabs. */
   roleNames?: string[];
@@ -179,13 +185,15 @@ export interface EmbeddedRuntimeTabSummary {
 }
 
 export interface EmbeddedRuntimeWindowSummary {
-  id?: string;
+  id: string;
+  windowId: string;
   displayId: number;
   bounds: PixelBounds;
   visible: boolean;
   focused?: boolean;
   activeTabId?: string;
   tabCount: number;
+  presentation?: GameWindowPresentation;
 }
 
 export type SavedGameWindowState = "saved" | "restoring" | "failed";
@@ -287,9 +295,24 @@ export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
 
 export type PixelBounds = StatePixelBoundsRecord;
 
-export type WorkspaceDisplayFingerprint = StateWorkspaceDisplayFingerprintRecord;
+export type DisplayFingerprint = DisplayFingerprintRecord;
 
-export type WorkspaceDisplayTarget = StateWorkspaceDisplayTargetRecord;
+export type DisplayTarget = DisplayTargetRecord;
+
+export type GameWindowPresentation = GameWindowPlacementRecord["presentation"];
+
+export type GameWindowPlacement = GameWindowPlacementRecord;
+
+export type GameWindowTab = GameWindowTabRecord;
+
+export type GameWindow = StateGameWindowRecord;
+
+export type CreateGameWindowInput = GameWindowCreateInputRecord;
+
+export type UpdateGameWindowInput = Pick<
+  GameWindowUpdateInputRecord,
+  "name" | "targetDisplay" | "placement"
+>;
 
 export type LaunchWorkspace = StateLaunchWorkspaceRecord;
 
@@ -297,64 +320,54 @@ export type CreateLaunchWorkspaceInput = WorkspaceCreateRequest;
 
 export type UpdateLaunchWorkspaceInput = WorkspaceUpdateRequest;
 
-export interface WorkspaceDisplayInfo {
-  id: number;
-  label: string;
-  /** Display bounds in device-independent pixels (DIP). */
-  bounds: PixelBounds;
-  /** Available work area in device-independent pixels (DIP). */
-  workArea: PixelBounds;
-  /** Backing resolution in physical pixels after applying the display scale factor. */
-  resolution: {
-    width: number;
-    height: number;
-  };
-  scaleFactor: number;
-  isPrimary: boolean;
-  isInternal: boolean;
-}
-
+export type DisplayInfo = DisplayInfoRecord;
+// Transitional public alias for callers that only consume the monitor inventory.
 export interface AppSnapshot {
   embeddedRuntimeState: EmbeddedRuntimeState;
   games: Game[];
   gameCompatibilityReports: GameCompatibilityReport[];
   gameCompatibilityStatuses: GameCompatibilityRunStatus[];
+  gameWindows: GameWindow[];
   roles: Role[];
   roleStatuses: RoleStatus[];
   launchWorkspaces: LaunchWorkspace[];
-  workspaceDisplays: WorkspaceDisplayInfo[];
+  displays: DisplayInfo[];
   macros: Macro[];
   macroStatuses: MacroRunStatus[];
 }
 
-export interface WorkspaceDisplayLaunchOption extends WorkspaceDisplayInfo {
-  occupiedByWorkspace?: {
-    id: string;
-    name: string;
-  };
+export interface RoleLaunchInput {
+  windowId?: string;
 }
 
 export interface WorkspaceLaunchInput {
-  displayId?: number;
+  windowId?: string;
+  stopConflicts?: boolean;
 }
 
-export type WorkspaceLaunchResult =
-  | {
-      kind: "launched";
-      displayId: number;
-      statuses: RoleStatus[];
-    }
-  | {
-      kind: "display_selection_required";
-      reason: "target_occupied" | "target_unavailable";
-      displays: WorkspaceDisplayLaunchOption[];
-    };
-
-export interface PendingWorkspaceLaunchRequest {
-  workspaceId: string;
-  workspaceName: string;
-  result: Extract<WorkspaceLaunchResult, { kind: "display_selection_required" }>;
+export interface RoleLaunchResult {
+  windowId: string;
+  status: RoleStatus | null;
 }
+
+export interface WorkspaceLaunchConflict {
+  roleIds: string[];
+  roleNames: string[];
+  tabId: string;
+  tabName: string;
+  windowId: string;
+  windowName: string;
+}
+
+export type WorkspaceLaunchResult = {
+  kind: "launched";
+  windowId: string;
+  statuses: RoleStatus[];
+} | {
+  kind: "conflict";
+  windowId: string;
+  conflicts: WorkspaceLaunchConflict[];
+};
 
 export interface AppErrorPayload {
   code: string;
@@ -448,7 +461,7 @@ export type PortableGame = PortableGameRecord;
 
 export type PortableMacro = PortableMacroRecord;
 
-export type RionPortableDataV6 = PortableDataRecord;
+export type RionPortableDataV8 = PortableDataRecord;
 export type RionPortableData = PortableDataRecord;
 
 export type PortableExportResult = PortableExportResultRecord;

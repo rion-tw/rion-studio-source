@@ -1,8 +1,8 @@
 import type {
   AppLanguage,
+  DisplayInfo,
   EmbeddedRuntimeState,
   EmbeddedRuntimeTabSummary,
-  WorkspaceDisplayInfo,
   WorkspaceLayoutTemplate
 } from "./types";
 
@@ -19,7 +19,8 @@ export type RuntimeTabAction =
   | { type: "activate"; tabId: string }
   | { type: "hide"; tabId: string }
   | { type: "stop"; tabId: string }
-  | { type: "move"; tabId: string; displayId: number }
+  | { type: "move"; tabId: string; windowId: string }
+  | { type: "tearOut"; tabId: string; screenX: number; screenY: number }
   | { type: "reorder"; tabId: string; beforeTabId?: string }
   | { type: "openLauncher" }
   | { type: "openTabMenu"; tabId: string }
@@ -34,7 +35,8 @@ export type RuntimeTabAction =
 export interface RuntimeTabStripState extends EmbeddedRuntimeState {
   alwaysShowToolbarInFullScreen: boolean;
   displayId: number;
-  displays: WorkspaceDisplayInfo[];
+  windowId: string;
+  displays: DisplayInfo[];
   fullscreen: boolean;
   language: AppLanguage;
   tabIconDataUrls: Record<string, string>;
@@ -54,7 +56,14 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
   }
   if (action.type === "move") {
     return typeof action.tabId === "string" && action.tabId.length > 0 &&
-      Number.isSafeInteger(action.displayId) && Object.keys(action).length === 3;
+      typeof action.windowId === "string" && action.windowId.length > 0 &&
+      Object.keys(action).length === 3;
+  }
+  if (action.type === "tearOut") {
+    return typeof action.tabId === "string" && action.tabId.length > 0 &&
+      typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
+      typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
+      Object.keys(action).length === 4;
   }
   if (action.type === "reorder") {
     return typeof action.tabId === "string" && action.tabId.length > 0 &&

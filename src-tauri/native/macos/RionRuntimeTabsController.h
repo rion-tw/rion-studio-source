@@ -31,7 +31,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 
 @interface RionRuntimeTabsState : NSObject
 
-@property(nonatomic) NSInteger displayID;
+@property(nonatomic, copy) NSString *windowID;
 @property(nonatomic, copy) NSString *addLabel;
 @property(nonatomic, copy) NSString *audioMutedLabel;
 @property(nonatomic, copy) NSString *audioPlayingLabel;
@@ -73,8 +73,10 @@ typedef struct {
 
 typedef void (*RionRuntimeTabsCActionHandler)(
     void *context, const char *type, const char * _Nullable tabIdentifier,
-    int64_t sourceDisplayID, int64_t targetDisplayID,
-    const char * _Nullable beforeTabIdentifier);
+    const char * _Nullable sourceWindowID,
+    const char * _Nullable targetWindowID,
+    const char * _Nullable beforeTabIdentifier, double screenX,
+    double screenY);
 typedef void (*RionRuntimeTabsCLayoutHandler)(
     void *context, double heightInset, double yOffset, bool valid);
 
@@ -87,7 +89,7 @@ void * _Nullable rion_runtime_tabs_create(
     RionRuntimeTabsCLayoutHandler layoutHandler);
 void rion_runtime_tabs_destroy(void * _Nullable controller);
 void rion_runtime_tabs_update(
-    void * _Nullable controller, int64_t displayID,
+    void * _Nullable controller, const char *windowID,
     const RionRuntimeTabInput *tabs, size_t tabCount,
     const char *addLabel, const char *audioMutedLabel,
     const char *audioPlayingLabel, const char *closeLabel);

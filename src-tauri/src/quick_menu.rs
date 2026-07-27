@@ -1,9 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use rion_core::{
-    AppCore, BrowserRuntimeSnapshot, CoreCommand, EmbeddedLaunchTargetRecord,
-    StatePixelBoundsRecord,
-};
+use rion_core::{AppCore, BrowserRuntimeSnapshot, CoreCommand};
 use tauri::{
     AppHandle, Emitter, Manager,
     menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
@@ -182,7 +179,9 @@ fn menu(
             .map_err(|error| error.to_string())?;
         menu = menu.item(&header);
         for window in windows {
-            let Some(display_id) = window["displayId"].as_i64() else {
+            let (Some(window_id), Some(display_id)) =
+                (window["windowId"].as_str(), window["displayId"].as_i64())
+            else {
                 continue;
             };
             let count = window["tabCount"].as_u64().unwrap_or(0);
@@ -192,7 +191,7 @@ fn menu(
                 labels.hidden
             };
             menu = menu.text(
-                format!("{SHOW_DISPLAY_PREFIX}{display_id}"),
+                format!("{SHOW_DISPLAY_PREFIX}{window_id}"),
                 format!(
                     "{} · {count} {} · {visibility}",
                     display_label(app, display_id),
@@ -245,14 +244,13 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let _ = app.emit("rion://quick-menu-restore", ());
         }
         _ if id.starts_with(SHOW_DISPLAY_PREFIX) => {
-            let display_id = id
-                .trim_start_matches(SHOW_DISPLAY_PREFIX)
-                .parse::<i64>()
-                .ok();
+            let window_id = id.trim_start_matches(SHOW_DISPLAY_PREFIX).to_owned();
             let core = Arc::clone(core);
             tauri::async_runtime::spawn(async move {
                 let _ = core
-                    .invoke_async(CoreCommand::EmbeddedWindowsShow { display_id })
+                    .invoke_async(CoreCommand::EmbeddedWindowsShow {
+                        window_id: Some(window_id),
+                    })
                     .await;
             });
         }
@@ -278,7 +276,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let core = Arc::clone(core);
             tauri::async_runtime::spawn(async move {
                 let _ = core
-                    .invoke_async(CoreCommand::EmbeddedWindowsShow { display_id: None })
+                    .invoke_async(CoreCommand::EmbeddedWindowsShow { window_id: None })
                     .await;
             });
         }
@@ -318,49 +316,15 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 return;
             }
             let workspace = id.starts_with(WORKSPACE_PREFIX);
-            let workspace_record = workspace
-                .then(|| {
-                    core.invoke(CoreCommand::WorkspacesList)
-                        .ok()
-                        .and_then(|value| value.as_array().cloned())
-                        .and_then(|items| {
-                            items
-                                .into_iter()
-                                .find(|item| item["id"].as_str() == Some(&source_id))
-                        })
-                })
-                .flatten();
-            let requested_display_id = workspace_record
-                .as_ref()
-                .and_then(|item| item["targetDisplay"]["id"].as_i64());
-            let Some(target) = launch_target(app, requested_display_id) else {
-                if workspace {
-                    let workspace_name = workspace_record
-                        .as_ref()
-                        .and_then(|item| item["name"].as_str())
-                        .unwrap_or(&source_id)
-                        .to_owned();
-                    let displays = app
-                        .get_webview_window("main")
-                        .and_then(|window| super::workspace_displays(&window).ok())
-                        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
-                    let request = serde_json::json!({
-                        "workspaceId": source_id,
-                        "workspaceName": workspace_name,
-                        "result": {
-                            "kind": "display_selection_required",
-                            "reason": "target_unavailable",
-                            "displays": displays
-                        }
-                    });
-                    if let Some(state) = app.try_state::<crate::CoreState>()
-                        && let Ok(mut pending) = state.pending_workspace_launch_request.lock()
-                    {
-                        *pending = Some(request.clone());
-                    }
-                    show_main_window(app);
-                    let _ = app.emit("rion://workspace-launch-request", request);
-                }
+            let Some(state) = app.try_state::<crate::CoreState>() else {
+                return;
+            };
+            let Some(main_window) = app.get_webview_window("main") else {
+                return;
+            };
+            let Ok(target) = crate::game_window_launch_target(app, &state, &main_window, None)
+            else {
+                show_main_window(app);
                 return;
             };
             let core = Arc::clone(core);
@@ -418,37 +382,6 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
-}
-
-fn launch_target(
-    app: &AppHandle,
-    requested_display_id: Option<i64>,
-) -> Option<EmbeddedLaunchTargetRecord> {
-    let window = app.get_webview_window("main")?;
-    let monitor = if let Some(display_id) = requested_display_id {
-        window
-            .available_monitors()
-            .ok()?
-            .into_iter()
-            .find(|monitor| super::monitor_id(monitor) == display_id)
-    } else {
-        window
-            .current_monitor()
-            .ok()
-            .flatten()
-            .or_else(|| window.primary_monitor().ok().flatten())
-    }?;
-    let scale = monitor.scale_factor();
-    let work_area = monitor.work_area();
-    Some(EmbeddedLaunchTargetRecord {
-        display_id: super::monitor_id(&monitor),
-        work_area: StatePixelBoundsRecord {
-            x: (work_area.position.x as f64 / scale).round() as i32,
-            y: (work_area.position.y as f64 / scale).round() as i32,
-            width: (work_area.size.width as f64 / scale).round() as i32,
-            height: (work_area.size.height as f64 / scale).round() as i32,
-        },
-    })
 }
 
 fn display_label(app: &AppHandle, display_id: i64) -> String {

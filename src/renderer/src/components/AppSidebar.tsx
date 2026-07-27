@@ -1,4 +1,4 @@
-import { Gamepad2, Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Gamepad2, Keyboard, LayoutDashboard, PanelsTopLeft, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -10,13 +10,14 @@ import { NavItem } from "./ui/patterns";
 interface AppSidebarProps {
   hasUpdateBadge: boolean;
   gameCount: number;
+  gameWindowCount: number;
   macroCount: number;
   roleCount: number;
   t: Translator;
   workspaceCount: number;
 }
 
-export function AppSidebar({ gameCount, hasUpdateBadge, macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -62,6 +63,14 @@ export function AppSidebar({ gameCount, hasUpdateBadge, macroCount, roleCount, t
             label={t("app.workspaces")}
             noDrag
             onClick={() => navigate("/workspaces")}
+          />
+          <NavItem
+            active={location.pathname.startsWith("/game-windows")}
+            count={gameWindowCount}
+            icon={PanelsTopLeft}
+            label={t("app.gameWindows")}
+            noDrag
+            onClick={() => navigate("/game-windows")}
           />
           <NavItem
             active={location.pathname.startsWith("/macros")}

@@ -12,13 +12,14 @@ use std::{
 use rion_core::{
     AppCore, BrowserAction, BrowserActionRequest, BrowserRuntimeSnapshot,
     CompatibilityCheckPlanRecord, CoreCommand, CoreEffectAction, CoreEffectRequest,
-    CoreEffectResult, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
+    CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
     EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
     EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsRecord, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
-    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
-    StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceDisplayTargetRecord,
+    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
+    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, ResolvedBrowserEngine,
+    RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
+    SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
+    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
     WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -282,7 +283,7 @@ struct RuntimeTab {
     active_divider_resize: Option<ActiveDividerResize>,
     audio_muted: bool,
     dividers: Vec<RuntimeDivider>,
-    display_id: i64,
+    window_id: String,
     roles: HashMap<String, RoleSurface>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
     workspace_template: Option<String>,
@@ -302,7 +303,7 @@ struct RuntimeDisplayHost {
 #[derive(Debug, PartialEq, Eq)]
 struct RuntimeTabHostPlan {
     active: bool,
-    display_id: i64,
+    window_id: String,
     focus: bool,
     moved: bool,
     tab_id: String,
@@ -310,33 +311,33 @@ struct RuntimeTabHostPlan {
 
 fn resolve_runtime_tab_host_plan(
     snapshot: &BrowserRuntimeSnapshot,
-    live_displays: &HashMap<String, i64>,
-    focus_window_display_ids: &[i64],
+    live_windows: &HashMap<String, String>,
+    focus_window_ids: &[String],
     focus_tab_id: Option<&str>,
 ) -> Vec<RuntimeTabHostPlan> {
     let active_tabs = snapshot
-        .displays
+        .windows
         .iter()
-        .filter_map(|display| {
-            display
+        .filter_map(|window| {
+            window
                 .active_tab_id
                 .as_ref()
-                .map(|tab_id| (display.display_id, tab_id.as_str()))
+                .map(|tab_id| (window.window_id.as_str(), tab_id.as_str()))
         })
         .collect::<HashMap<_, _>>();
     snapshot
         .tabs
         .iter()
         .filter_map(|tab| {
-            let live_display_id = *live_displays.get(&tab.id)?;
-            let active =
-                !tab.hidden && active_tabs.get(&tab.display_id).copied() == Some(tab.id.as_str());
+            let live_window_id = live_windows.get(&tab.id)?;
+            let active = !tab.hidden
+                && active_tabs.get(tab.window_id.as_str()).copied() == Some(tab.id.as_str());
             Some(RuntimeTabHostPlan {
                 active,
-                display_id: tab.display_id,
+                window_id: tab.window_id.clone(),
                 focus: focus_tab_id == Some(tab.id.as_str())
-                    || (active && focus_window_display_ids.contains(&tab.display_id)),
-                moved: live_display_id != tab.display_id,
+                    || (active && focus_window_ids.contains(&tab.window_id)),
+                moved: live_window_id != &tab.window_id,
                 tab_id: tab.id.clone(),
             })
         })
@@ -419,7 +420,7 @@ struct RuntimeState {
     recovering_roles: HashSet<String>,
     role_tabs: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
-    display_hosts: HashMap<i64, RuntimeDisplayHost>,
+    display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
 }
 
@@ -606,12 +607,55 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
                     .map_err(|error| error.to_string())
             })?;
-        let recovery_required =
-            !stored_restore_session.clean_exit && !stored_restore_session.windows.is_empty();
-        let dormant_windows = stored_restore_session.windows.clone();
+        let game_windows = core
+            .invoke(CoreCommand::GameWindowsList)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let dormant_windows = game_windows
+            .iter()
+            .filter(|window| !window.tabs.is_empty())
+            .map(|window| {
+                let active_source_id = window.active_tab_id.as_ref().and_then(|active_tab_id| {
+                    window
+                        .tabs
+                        .iter()
+                        .find(|tab| &tab.id == active_tab_id)
+                        .map(|tab| tab.source_id.clone())
+                });
+                RuntimeRestoreWindowRecord {
+                    id: window.id.clone(),
+                    target_display: window.target_display.clone(),
+                    // Visibility is runtime state and intentionally is not duplicated in
+                    // the lifecycle journal. All persistent windows reopen after a clean
+                    // launch, including windows that were manually hidden.
+                    was_visible: true,
+                    active_source_id,
+                    tabs: window
+                        .tabs
+                        .iter()
+                        .map(|tab| RuntimeRestoreTabRecord {
+                            tab_type: tab.tab_type.clone(),
+                            source_id: tab.source_id.clone(),
+                            name: tab.name.clone(),
+                            role_ids: tab.role_ids.clone(),
+                            hidden: tab.hidden,
+                            audio_muted: tab.audio_muted,
+                        })
+                        .collect(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let recovery_required = !stored_restore_session.clean_exit && !dormant_windows.is_empty();
         let mut unclean_session = stored_restore_session;
+        unclean_session.schema_version = 2;
+        unclean_session.session_generation = unclean_session.session_generation.saturating_add(1);
         unclean_session.clean_exit = false;
         unclean_session.updated_at = chrono::Utc::now().to_rfc3339();
+        unclean_session.restore_in_progress_window_ids.clear();
+        unclean_session.windows.clear();
         core.invoke(CoreCommand::RuntimeRestoreSessionReplace {
             session: unclean_session,
         })
@@ -708,34 +752,42 @@ impl SystemRuntimeExecutor {
 
     pub fn window_for_tab(&self, tab_id: &str) -> Option<Window> {
         self.state.lock().ok().and_then(|state| {
-            let display_id = state.tabs.get(tab_id)?.display_id;
+            let window_id = &state.tabs.get(tab_id)?.window_id;
             state
                 .display_hosts
-                .get(&display_id)
+                .get(window_id)
                 .map(|host| host.window.clone())
         })
     }
 
-    pub fn window_for_display(&self, display_id: i64) -> Option<Window> {
+    pub fn window_for_id(&self, window_id: &str) -> Option<Window> {
         self.state.lock().ok().and_then(|state| {
             state
                 .display_hosts
-                .get(&display_id)
+                .get(window_id)
                 .map(|host| host.window.clone())
+        })
+    }
+
+    pub fn window_id_for_label(&self, label: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|state| {
+            state.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label).then(|| window_id.clone())
+            })
         })
     }
 
     #[cfg(windows)]
-    pub fn tab_strip_display_for_webview(&self, webview_label: &str) -> Option<i64> {
+    pub fn tab_strip_window_for_webview(&self, webview_label: &str) -> Option<String> {
         self.state.lock().ok().and_then(|state| {
             state.display_hosts.values().find_map(|host| {
-                (host.tab_strip.label() == webview_label).then_some(host.target.display_id)
+                (host.tab_strip.label() == webview_label).then(|| host.target.window_id.clone())
             })
         })
     }
 
     #[cfg(not(windows))]
-    pub fn tab_strip_display_for_webview(&self, _webview_label: &str) -> Option<i64> {
+    pub fn tab_strip_window_for_webview(&self, _webview_label: &str) -> Option<String> {
         None
     }
 
@@ -755,6 +807,32 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
         self.set_role_audio_muted(&role_id, muted)
             .map_err(|error| error.message)?;
+        let mut game_windows = self
+            .core
+            .invoke(CoreCommand::GameWindowsList)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        if let Some(game_window) = game_windows
+            .iter_mut()
+            .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
+        {
+            if let Some(tab) = game_window.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                tab.audio_muted = muted;
+            }
+            self.core
+                .invoke(CoreCommand::GameWindowUpdate {
+                    id: game_window.id.clone(),
+                    input: GameWindowUpdateInputRecord {
+                        tabs: Some(game_window.tabs.clone()),
+                        active_tab_id: Some(game_window.active_tab_id.clone()),
+                        ..GameWindowUpdateInputRecord::default()
+                    },
+                })
+                .map_err(|error| error.to_string())?;
+        }
         self.publish_projection();
         Ok(())
     }
@@ -762,22 +840,20 @@ impl SystemRuntimeExecutor {
     #[cfg(windows)]
     pub fn set_windows_toolbar_revealed(
         &self,
-        display_id: i64,
+        window_id: &str,
         revealed: bool,
     ) -> Result<(), String> {
         let tab_ids = {
             let mut state = self.state().map_err(|error| error.message)?;
             let host = state
                 .display_hosts
-                .get_mut(&display_id)
+                .get_mut(window_id)
                 .ok_or_else(|| "Runtime display host was not found".to_owned())?;
             host.toolbar_revealed = revealed;
             state
                 .tabs
                 .iter()
-                .filter_map(|(tab_id, tab)| {
-                    (tab.display_id == display_id).then_some(tab_id.clone())
-                })
+                .filter_map(|(tab_id, tab)| (tab.window_id == window_id).then_some(tab_id.clone()))
                 .collect::<Vec<_>>()
         };
         for tab_id in tab_ids {
@@ -791,7 +867,7 @@ impl SystemRuntimeExecutor {
     #[cfg(not(windows))]
     pub fn set_windows_toolbar_revealed(
         &self,
-        _display_id: i64,
+        _window_id: &str,
         _revealed: bool,
     ) -> Result<(), String> {
         Err("Windows runtime tab strip is unavailable on this platform".to_owned())
@@ -851,7 +927,7 @@ impl SystemRuntimeExecutor {
                         },
                     })
                     .collect::<Vec<_>>(),
-                tab.display_id,
+                tab.window_id.clone(),
                 previous,
             );
             let host = state.display_hosts.get(&tab_context.5).ok_or_else(|| {
@@ -1010,15 +1086,15 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn zoom_focused_runtime(&self, action: &str) -> Result<bool, String> {
-        let display_id = {
+        let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
                 .display_hosts
                 .values()
                 .find(|host| host.window.is_focused().unwrap_or(false))
-                .map(|host| host.target.display_id)
+                .map(|host| host.target.window_id.clone())
         };
-        let Some(display_id) = display_id else {
+        let Some(window_id) = window_id else {
             return Ok(false);
         };
         let snapshot = self
@@ -1030,10 +1106,10 @@ impl SystemRuntimeExecutor {
                     .map_err(|error| error.to_string())
             })?;
         let Some(tab_id) = snapshot
-            .displays
+            .windows
             .iter()
-            .find(|display| display.display_id == display_id)
-            .and_then(|display| display.active_tab_id.as_deref())
+            .find(|window| window.window_id == window_id)
+            .and_then(|window| window.active_tab_id.as_deref())
         else {
             return Ok(false);
         };
@@ -1153,8 +1229,8 @@ impl SystemRuntimeExecutor {
                 .tabs
                 .iter()
                 .map(|tab| {
-                    let active = snapshot.displays.iter().any(|display| {
-                        display.active_tab_id.as_deref() == Some(tab.id.as_str())
+                    let active = snapshot.windows.iter().any(|window| {
+                        window.active_tab_id.as_deref() == Some(tab.id.as_str())
                     });
                     let audio_muted = state
                         .tabs
@@ -1169,7 +1245,7 @@ impl SystemRuntimeExecutor {
                         "type": if tab.tab_type == "workspace" { "workspace" } else { "role" },
                         "sourceId": tab.source_id,
                         "name": tab.name,
-                        "displayId": tab.display_id,
+                        "windowId": tab.window_id,
                         "roleIds": tab.role_ids,
                         "roleNames": tab.role_ids.iter().filter_map(|role_id| role_names.get(role_id).cloned()).collect::<Vec<_>>(),
                         "hidden": tab.hidden,
@@ -1180,18 +1256,18 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Vec<_>>();
             let window_inputs = snapshot
-                .displays
+                .windows
                 .iter()
-                .filter_map(|display| {
-                    let tab_id = display.active_tab_id.as_ref()?;
-                    let host = state.display_hosts.get(&display.display_id)?;
+                .filter_map(|runtime_window| {
+                    let host = state.display_hosts.get(&runtime_window.window_id)?;
                     Some((
                         host.window.label().to_owned(),
-                        display.display_id,
+                        runtime_window.window_id.clone(),
+                        host.target.display_id,
                         host.target.work_area.clone(),
                         host.window.clone(),
-                        tab_id.clone(),
-                        display.tab_ids.len(),
+                        runtime_window.active_tab_id.clone(),
+                        runtime_window.tab_ids.len(),
                     ))
                 })
                 .collect::<Vec<_>>();
@@ -1237,17 +1313,20 @@ impl SystemRuntimeExecutor {
         };
         let windows = window_inputs
             .into_iter()
-            .map(|(id, display_id, bounds, window, tab_id, tab_count)| {
-                json!({
-                    "id": id,
-                    "displayId": display_id,
-                    "bounds": bounds,
-                    "visible": window.is_visible().unwrap_or(false),
-                    "focused": window.is_focused().unwrap_or(false),
-                    "activeTabId": tab_id,
-                    "tabCount": tab_count
-                })
-            })
+            .map(
+                |(_label, window_id, display_id, bounds, window, tab_id, tab_count)| {
+                    json!({
+                        "id": window_id,
+                        "windowId": window_id,
+                        "displayId": display_id,
+                        "bounds": bounds,
+                        "visible": window.is_visible().unwrap_or(false),
+                        "focused": window.is_focused().unwrap_or(false),
+                        "activeTabId": tab_id,
+                        "tabCount": tab_count
+                    })
+                },
+            )
             .collect::<Vec<_>>();
         json!({
             "windows": windows,
@@ -1269,6 +1348,13 @@ impl SystemRuntimeExecutor {
         }
         state.auto_restore_attempted = true;
         true
+    }
+
+    pub fn recovery_required(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| state.recovery_required)
+            .unwrap_or(false)
     }
 
     pub fn replace_dormant_windows(
@@ -1319,6 +1405,7 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn handle_window_close_requested(&self, label: &str) -> bool {
+        let _ = self.persist_game_window_placement(label);
         let window = {
             let Ok(mut state) = self.state.lock() else {
                 return false;
@@ -1344,23 +1431,27 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) {
-        let Some((display_id, window)) = self.state.lock().ok().and_then(|state| {
+        let Some((window_id, window)) = self.state.lock().ok().and_then(|state| {
             state
                 .display_hosts
                 .iter()
                 .find(|(_, host)| host.window.label() == label)
-                .map(|(display_id, host)| (*display_id, host.window.clone()))
+                .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
         }) else {
             return;
         };
         let scale_factor = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
         let width = (physical_width as f64 / scale_factor).max(1.0);
         let height = (physical_height as f64 / scale_factor).max(1.0);
-        if let Ok(mut state) = self.state.lock()
-            && let Some(host) = state.display_hosts.get_mut(&display_id)
+        let normal_state = !window.is_maximized().unwrap_or(false)
+            && !window.is_fullscreen().unwrap_or(false)
+            && !window.is_minimized().unwrap_or(false);
+        if normal_state
+            && let Ok(mut state) = self.state.lock()
+            && let Some(host) = state.display_hosts.get_mut(&window_id)
         {
-            host.target.work_area.width = width.round() as i32;
-            host.target.work_area.height = height.round() as i32;
+            host.target.bounds.width = width.round() as i32;
+            host.target.bounds.height = height.round() as i32;
         }
         let tab_ids = self
             .state
@@ -1371,7 +1462,7 @@ impl SystemRuntimeExecutor {
                     .tabs
                     .iter()
                     .filter_map(|(tab_id, tab)| {
-                        (tab.display_id == display_id).then_some(tab_id.clone())
+                        (tab.window_id == window_id).then_some(tab_id.clone())
                     })
                     .collect::<Vec<_>>()
             })
@@ -1380,6 +1471,192 @@ impl SystemRuntimeExecutor {
             let _ = self.layout_runtime_tab(&tab_id);
         }
         self.publish_projection();
+        let _ = self.persist_game_window_placement(label);
+    }
+
+    pub fn move_window(&self, label: &str, physical_x: i32, physical_y: i32) {
+        let target = self.state.lock().ok().and_then(|mut state| {
+            let host = state
+                .display_hosts
+                .values_mut()
+                .find(|host| host.window.label() == label)?;
+            if host.window.is_maximized().unwrap_or(false)
+                || host.window.is_fullscreen().unwrap_or(false)
+                || host.window.is_minimized().unwrap_or(false)
+            {
+                return None;
+            }
+            let scale = host.window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+            host.target.bounds.x = (physical_x as f64 / scale).round() as i32;
+            host.target.bounds.y = (physical_y as f64 / scale).round() as i32;
+            host.window.current_monitor().ok().flatten().map(|monitor| {
+                let scale = monitor.scale_factor();
+                let work_area = monitor.work_area();
+                (
+                    host.target.window_id.clone(),
+                    super::monitor_id(&monitor),
+                    StatePixelBoundsRecord {
+                        x: (work_area.position.x as f64 / scale).round() as i32,
+                        y: (work_area.position.y as f64 / scale).round() as i32,
+                        width: (work_area.size.width as f64 / scale).round() as i32,
+                        height: (work_area.size.height as f64 / scale).round() as i32,
+                    },
+                )
+            })
+        });
+        if let Some((window_id, display_id, work_area)) = target
+            && let Ok(mut state) = self.state.lock()
+            && let Some(host) = state.display_hosts.get_mut(&window_id)
+        {
+            host.target.display_id = display_id;
+            host.target.work_area = work_area;
+        }
+        let _ = self.persist_game_window_placement(label);
+    }
+
+    pub fn relocate_game_window(&self, target: EmbeddedLaunchTargetRecord) -> Result<(), String> {
+        let Some(window) = self.window_for_id(&target.window_id) else {
+            return Ok(());
+        };
+        if window.is_fullscreen().unwrap_or(false) {
+            window
+                .set_fullscreen(false)
+                .map_err(|error| error.to_string())?;
+        }
+        if window.is_maximized().unwrap_or(false) {
+            window.unmaximize().map_err(|error| error.to_string())?;
+        }
+        window
+            .set_position(LogicalPosition::new(
+                target.bounds.x as f64,
+                target.bounds.y as f64,
+            ))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(LogicalSize::new(
+                target.bounds.width.max(1) as f64,
+                target.bounds.height.max(1) as f64,
+            ))
+            .map_err(|error| error.to_string())?;
+        let tab_ids = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            if let Some(host) = state.display_hosts.get_mut(&target.window_id) {
+                host.target = target.clone();
+            }
+            state
+                .tabs
+                .iter()
+                .filter_map(|(tab_id, tab)| {
+                    (tab.window_id == target.window_id).then_some(tab_id.clone())
+                })
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tab_ids {
+            self.layout_runtime_tab(&tab_id)
+                .map_err(|error| error.message)?;
+        }
+        match target.presentation.as_str() {
+            "fullscreen" => window
+                .set_fullscreen(true)
+                .map_err(|error| error.to_string())?,
+            "maximized" => window.maximize().map_err(|error| error.to_string())?,
+            _ => {}
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    pub fn focus_window(&self, label: &str) {
+        let Some(window_id) = self.window_id_for_label(label) else {
+            return;
+        };
+        if let Ok(mut session) = self
+            .core
+            .invoke(CoreCommand::RuntimeRestoreSessionGet)
+            .and_then(|value| {
+                serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
+                    .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
+            })
+        {
+            session.last_focused_window_id = Some(window_id);
+            session.updated_at = chrono::Utc::now().to_rfc3339();
+            let _ = self
+                .core
+                .invoke(CoreCommand::RuntimeRestoreSessionReplace { session });
+        }
+        let _ = self.persist_game_window_placement(label);
+    }
+
+    pub fn persist_all_game_window_placements(&self) -> Result<(), String> {
+        let labels = self
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .display_hosts
+                    .values()
+                    .map(|host| host.window.label().to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for label in labels {
+            self.persist_game_window_placement(&label)?;
+        }
+        Ok(())
+    }
+
+    fn persist_game_window_placement(&self, label: &str) -> Result<(), String> {
+        let primary_id = self
+            .app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(super::monitor_id);
+        let target = self.state.lock().ok().and_then(|state| {
+            state
+                .display_hosts
+                .values()
+                .find(|host| host.window.label() == label)
+                .map(|host| {
+                    let presentation = if host.window.is_fullscreen().unwrap_or(false) {
+                        "fullscreen"
+                    } else if host.window.is_maximized().unwrap_or(false) {
+                        "maximized"
+                    } else {
+                        "normal"
+                    };
+                    let display_target = host
+                        .window
+                        .current_monitor()
+                        .ok()
+                        .flatten()
+                        .map(|monitor| super::display_target_and_work_area(&monitor, primary_id).0)
+                        .unwrap_or(DisplayTargetRecord {
+                            id: host.target.display_id,
+                            fingerprint: None,
+                        });
+                    (host.target.clone(), display_target, presentation.to_owned())
+                })
+        });
+        let Some((target, display_target, presentation)) = target else {
+            return Ok(());
+        };
+        self.core
+            .invoke(CoreCommand::GameWindowUpdate {
+                id: target.window_id,
+                input: GameWindowUpdateInputRecord {
+                    target_display: Some(display_target),
+                    placement: Some(GameWindowPlacementRecord {
+                        normal_bounds: target.bounds,
+                        saved_work_area: target.work_area,
+                        presentation,
+                    }),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
 
     pub fn schedule_resize_window(
@@ -1439,115 +1716,21 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn persist_restore_session(&self, clean_exit: bool) -> Result<(), String> {
-        let snapshot = self
+        let mut session = self
             .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .invoke(CoreCommand::RuntimeRestoreSessionGet)
             .map_err(|error| error.to_string())
             .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
                     .map_err(|error| error.to_string())
             })?;
-        let (live_windows, dormant_windows) = {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-            let mut live_sources = HashSet::new();
-            let mut live_role_ids = HashSet::new();
-            let mut live_windows = Vec::new();
-            for display in &snapshot.displays {
-                let tabs = snapshot
-                    .tabs
-                    .iter()
-                    .filter(|tab| tab.display_id == display.display_id)
-                    .filter_map(|tab| {
-                        let runtime_tab = state.tabs.get(&tab.id)?;
-                        live_sources.insert(format!("{}:{}", tab.tab_type, tab.source_id));
-                        live_role_ids.extend(tab.role_ids.iter().cloned());
-                        Some(RuntimeRestoreTabRecord {
-                            tab_type: tab.tab_type.clone(),
-                            source_id: tab.source_id.clone(),
-                            name: tab.name.clone(),
-                            role_ids: tab.role_ids.clone(),
-                            hidden: tab.hidden,
-                            audio_muted: runtime_tab.audio_muted,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                if tabs.is_empty() {
-                    continue;
-                }
-                let active_tab = display
-                    .active_tab_id
-                    .as_ref()
-                    .and_then(|tab_id| snapshot.tabs.iter().find(|tab| &tab.id == tab_id));
-                let active_runtime = display
-                    .active_tab_id
-                    .as_ref()
-                    .and_then(|_| state.display_hosts.get(&display.display_id));
-                let id = format!("display-{}", display.display_id);
-                live_windows.push((
-                    RuntimeRestoreWindowRecord {
-                        id,
-                        target_display: StateWorkspaceDisplayTargetRecord {
-                            id: display.display_id,
-                            fingerprint: None,
-                        },
-                        was_visible: false,
-                        active_source_id: active_tab.map(|tab| tab.source_id.clone()),
-                        tabs,
-                    },
-                    active_runtime.map(|host| host.window.clone()),
-                ));
-            }
-            let dormant_windows = state
-                .dormant_windows
-                .iter()
-                .filter_map(|window| {
-                    let tabs = window
-                        .tabs
-                        .iter()
-                        .filter(|tab| {
-                            !live_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
-                                && !tab
-                                    .role_ids
-                                    .iter()
-                                    .any(|role_id| live_role_ids.contains(role_id))
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    (!tabs.is_empty()).then(|| RuntimeRestoreWindowRecord {
-                        tabs,
-                        ..window.clone()
-                    })
-                })
-                .collect::<Vec<_>>();
-            (live_windows, dormant_windows)
-        };
-        let mut last_focused_window_id = None;
-        let mut windows = live_windows
-            .into_iter()
-            .map(|(mut record, window)| {
-                if let Some(window) = window {
-                    if window.is_focused().unwrap_or(false) {
-                        last_focused_window_id = Some(record.id.clone());
-                    }
-                    record.was_visible = window.is_visible().unwrap_or(false);
-                }
-                record
-            })
-            .collect::<Vec<_>>();
-        windows.extend(dormant_windows);
+        session.schema_version = 2;
+        session.updated_at = chrono::Utc::now().to_rfc3339();
+        session.clean_exit = clean_exit;
+        session.restore_in_progress_window_ids.clear();
+        session.windows.clear();
         self.core
-            .invoke(CoreCommand::RuntimeRestoreSessionReplace {
-                session: RuntimeRestoreSessionRecord {
-                    schema_version: 1,
-                    updated_at: chrono::Utc::now().to_rfc3339(),
-                    clean_exit,
-                    last_focused_window_id,
-                    windows,
-                },
-            })
+            .invoke(CoreCommand::RuntimeRestoreSessionReplace { session })
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
@@ -1808,7 +1991,7 @@ impl SystemRuntimeExecutor {
                     "Runtime role was not found during System WebView recovery.",
                 )
             })?;
-            let (display_id, old_webview, rect, current_url, zoom_factor, audio_muted) = {
+            let (window_id, old_webview, rect, current_url, zoom_factor, audio_muted) = {
                 let tab = state.tabs.get(&tab_id).ok_or_else(|| {
                     RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
                 })?;
@@ -1825,7 +2008,7 @@ impl SystemRuntimeExecutor {
                     )
                 })?;
                 (
-                    tab.display_id,
+                    tab.window_id.clone(),
                     role.webview.clone(),
                     role.rect.clone(),
                     current_url,
@@ -1835,7 +2018,7 @@ impl SystemRuntimeExecutor {
             };
             let window = state
                 .display_hosts
-                .get(&display_id)
+                .get(&window_id)
                 .map(|host| host.window.clone())
                 .ok_or_else(|| {
                     RuntimeError::new(
@@ -1961,15 +2144,15 @@ impl SystemRuntimeExecutor {
             CoreEffectAction::EmbeddedApplyRuntime {
                 snapshot,
                 target,
-                reveal_display_ids,
-                focus_window_display_ids,
+                reveal_window_ids,
+                focus_window_ids,
                 focus_tab_id,
             } => {
                 self.apply_runtime(
                     snapshot,
                     target,
-                    &reveal_display_ids,
-                    &focus_window_display_ids,
+                    &reveal_window_ids,
+                    &focus_window_ids,
                     focus_tab_id.as_deref(),
                 )?;
                 Ok(None)
@@ -2386,17 +2569,17 @@ impl SystemRuntimeExecutor {
                                     |error| rion_core::CoreError::Internal(error.to_string()),
                                 )
                             })
-                            && let Some(display_id) = snapshot
+                            && let Some(window_id) = snapshot
                                 .tabs
                                 .iter()
                                 .find(|tab| tab.role_ids.iter().any(|id| id == role_id))
-                                .map(|tab| tab.display_id)
+                                .map(|tab| tab.window_id.clone())
                         {
                             let core = Arc::clone(&shortcut_core);
                             tauri::async_runtime::spawn(async move {
                                 let _ = core
                                     .invoke_async(CoreCommand::EmbeddedTabActivateAdjacent {
-                                        display_id,
+                                        window_id,
                                         direction,
                                     })
                                     .await;
@@ -3312,7 +3495,7 @@ impl SystemRuntimeExecutor {
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
-            let host = state.display_hosts.get(&tab.display_id).ok_or_else(|| {
+            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",
@@ -3408,7 +3591,7 @@ impl SystemRuntimeExecutor {
         if let Some(window) = self
             .state()?
             .display_hosts
-            .get(&target.display_id)
+            .get(&target.window_id)
             .map(|host| host.window.clone())
         {
             return Ok((window, false));
@@ -3418,15 +3601,16 @@ impl SystemRuntimeExecutor {
         // display that loses its final tab from colliding with that retiring window while still
         // preserving one stable host for the full lifetime of the next tab group.
         let host_generation = DISPLAY_HOST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let host_id = format!("{}:{host_generation}", target.display_id);
+        let host_id = format!("{}:{host_generation}", target.window_id);
         let window_label = runtime_label("game-display", &host_id);
         let window = WindowBuilder::new(&self.app, window_label)
             .title(title)
-            .position(target.work_area.x as f64, target.work_area.y as f64)
+            .position(target.bounds.x as f64, target.bounds.y as f64)
             .inner_size(
-                target.work_area.width.max(1) as f64,
-                target.work_area.height.max(1) as f64,
+                target.bounds.width.max(1) as f64,
+                target.bounds.height.max(1) as f64,
             )
+            .min_inner_size(640.0, 480.0)
             .visible(false)
             .build()
             .map_err(RuntimeError::tauri)?;
@@ -3446,10 +3630,7 @@ impl SystemRuntimeExecutor {
                 WebviewUrl::App("runtime-tabs.html".into()),
             ),
             LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(
-                target.work_area.width.max(1) as f64,
-                WINDOWS_TAB_STRIP_HEIGHT,
-            ),
+            LogicalSize::new(target.bounds.width.max(1) as f64, WINDOWS_TAB_STRIP_HEIGHT),
         ) {
             Ok(tab_strip) => tab_strip,
             Err(error) => {
@@ -3459,14 +3640,14 @@ impl SystemRuntimeExecutor {
         };
 
         let mut state = self.state()?;
-        if let Some(existing) = state.display_hosts.get(&target.display_id) {
+        if let Some(existing) = state.display_hosts.get(&target.window_id) {
             let existing = existing.window.clone();
             drop(state);
             let _ = window.close();
             return Ok((existing, false));
         }
         state.display_hosts.insert(
-            target.display_id,
+            target.window_id.clone(),
             RuntimeDisplayHost {
                 target: target.clone(),
                 window: window.clone(),
@@ -3481,16 +3662,16 @@ impl SystemRuntimeExecutor {
         Ok((window, true))
     }
 
-    fn remove_empty_display_host(&self, display_id: i64, created_for_operation: bool) {
+    fn remove_empty_display_host(&self, window_id: &str, created_for_operation: bool) {
         if !created_for_operation {
             return;
         }
         let host = self.state.lock().ok().and_then(|mut state| {
-            let has_tabs = state.tabs.values().any(|tab| tab.display_id == display_id);
+            let has_tabs = state.tabs.values().any(|tab| tab.window_id == window_id);
             if has_tabs {
                 return None;
             }
-            let host = state.display_hosts.remove(&display_id)?;
+            let host = state.display_hosts.remove(window_id)?;
             state
                 .allow_window_close_labels
                 .insert(host.window.label().to_owned());
@@ -3635,7 +3816,7 @@ impl SystemRuntimeExecutor {
                     active_divider_resize: None,
                     audio_muted: false,
                     dividers,
-                    display_id: target.display_id,
+                    window_id: target.window_id.clone(),
                     roles: surfaces,
                     workspace_appearance: tab.workspace_appearance,
                     workspace_template: tab.workspace_template,
@@ -3647,7 +3828,7 @@ impl SystemRuntimeExecutor {
             for webview in created_webviews {
                 let _ = webview.close();
             }
-            self.remove_empty_display_host(target.display_id, host_created);
+            self.remove_empty_display_host(&target.window_id, host_created);
         }
         result
     }
@@ -3772,7 +3953,7 @@ impl SystemRuntimeExecutor {
             })?;
             let window = state
                 .display_hosts
-                .get(&tab.display_id)
+                .get(&tab.window_id)
                 .map(|host| host.window.clone())
                 .ok_or_else(|| {
                     RuntimeError::new(
@@ -3803,8 +3984,8 @@ impl SystemRuntimeExecutor {
         &self,
         snapshot: BrowserRuntimeSnapshot,
         target: Option<EmbeddedLaunchTargetRecord>,
-        reveal_display_ids: &[i64],
-        focus_window_display_ids: &[i64],
+        reveal_window_ids: &[String],
+        focus_window_ids: &[String],
         focus_tab_id: Option<&str>,
     ) -> RuntimeResult<()> {
         let trace_restore =
@@ -3816,16 +3997,17 @@ impl SystemRuntimeExecutor {
         };
         struct TabUpdate {
             active: bool,
-            display_id: i64,
+            window_id: String,
             focus: bool,
             moved: bool,
-            source_display_id: i64,
+            source_window_id: String,
             surfaces: Vec<Webview>,
             tab_id: String,
         }
         struct HostUpdate {
             active_webview: Option<Webview>,
             focus: bool,
+            presentation: String,
             title: Option<String>,
             visible: bool,
             window: Window,
@@ -3833,46 +4015,57 @@ impl SystemRuntimeExecutor {
 
         let ensured_target_host = if let Some(target) = target.as_ref() {
             let title = snapshot
-                .displays
+                .windows
                 .iter()
-                .find(|display| display.display_id == target.display_id)
-                .and_then(|display| display.active_tab_id.as_deref())
+                .find(|window| window.window_id == target.window_id)
+                .and_then(|window| window.active_tab_id.as_deref())
                 .and_then(|tab_id| snapshot.tabs.iter().find(|tab| tab.id == tab_id))
                 .map(|tab| tab.name.as_str())
                 .unwrap_or("");
             let (_, created) = self.ensure_display_host(target, title)?;
-            Some((target.display_id, created))
+            Some((target.window_id.clone(), created))
         } else {
             None
         };
 
         let active_tabs = snapshot
-            .displays
+            .windows
             .iter()
-            .filter_map(|display| {
-                display
+            .filter_map(|window| {
+                window
                     .active_tab_id
                     .as_ref()
-                    .map(|tab_id| (display.display_id, tab_id.as_str()))
+                    .map(|tab_id| (window.window_id.as_str(), tab_id.as_str()))
             })
             .collect::<HashMap<_, _>>();
-        let desired_displays = snapshot
-            .tabs
-            .iter()
-            .map(|tab| (tab.id.as_str(), tab.display_id))
+        let suppress_focus = self
+            .core
+            .invoke(CoreCommand::RuntimeRestoreSessionGet)
+            .ok()
+            .and_then(|value| serde_json::from_value::<RuntimeRestoreSessionRecord>(value).ok())
+            .is_some_and(|session| !session.restore_in_progress_window_ids.is_empty());
+        let game_window_names = self
+            .core
+            .invoke(CoreCommand::GameWindowsList)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Vec<StateGameWindowRecord>>(value).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|window| (window.id, window.name))
             .collect::<HashMap<_, _>>();
-        let live_displays = self
+        let desired_windows = snapshot
+            .windows
+            .iter()
+            .map(|window| window.window_id.as_str())
+            .collect::<HashSet<_>>();
+        let live_windows = self
             .state()?
             .tabs
             .iter()
-            .map(|(tab_id, tab)| (tab_id.clone(), tab.display_id))
+            .map(|(tab_id, tab)| (tab_id.clone(), tab.window_id.clone()))
             .collect::<HashMap<_, _>>();
-        let host_plan = resolve_runtime_tab_host_plan(
-            &snapshot,
-            &live_displays,
-            focus_window_display_ids,
-            focus_tab_id,
-        );
+        let host_plan =
+            resolve_runtime_tab_host_plan(&snapshot, &live_windows, focus_window_ids, focus_tab_id);
         let tab_updates = {
             let state = self.state()?;
             host_plan
@@ -3892,10 +4085,10 @@ impl SystemRuntimeExecutor {
                     );
                     Some(TabUpdate {
                         active: plan.active,
-                        display_id: plan.display_id,
+                        window_id: plan.window_id.clone(),
                         focus: plan.focus,
                         moved: plan.moved,
-                        source_display_id: runtime_tab.display_id,
+                        source_window_id: runtime_tab.window_id.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
                     })
@@ -3907,27 +4100,27 @@ impl SystemRuntimeExecutor {
         let mut reparented_surfaces = Vec::<(Webview, Window)>::new();
         for update in &tab_updates {
             if update.moved {
-                let window = self.window_for_display(update.display_id).ok_or_else(|| {
+                let window = self.window_for_id(&update.window_id).ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                         "The target runtime display host was not found.",
                     )
                 })?;
-                let source_window = self
-                    .window_for_display(update.source_display_id)
-                    .ok_or_else(|| {
-                        RuntimeError::new(
-                            "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
-                            "The source runtime display host was not found.",
-                        )
-                    })?;
+                let source_window =
+                    self.window_for_id(&update.source_window_id)
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                                "The source runtime display host was not found.",
+                            )
+                        })?;
                 for surface in &update.surfaces {
                     if let Err(error) = surface.hide() {
                         for (moved_surface, original_window) in reparented_surfaces.iter().rev() {
                             let _ = moved_surface.reparent(original_window);
                         }
-                        if let Some((display_id, created)) = ensured_target_host {
-                            self.remove_empty_display_host(display_id, created);
+                        if let Some((window_id, created)) = &ensured_target_host {
+                            self.remove_empty_display_host(window_id, *created);
                         }
                         return Err(RuntimeError::tauri(error));
                     }
@@ -3935,8 +4128,8 @@ impl SystemRuntimeExecutor {
                         for (moved_surface, original_window) in reparented_surfaces.iter().rev() {
                             let _ = moved_surface.reparent(original_window);
                         }
-                        if let Some((display_id, created)) = ensured_target_host {
-                            self.remove_empty_display_host(display_id, created);
+                        if let Some((window_id, created)) = &ensured_target_host {
+                            self.remove_empty_display_host(window_id, *created);
                         }
                         return Err(RuntimeError::tauri(error));
                     }
@@ -3946,45 +4139,47 @@ impl SystemRuntimeExecutor {
         }
 
         trace("updating runtime state");
-        let obsolete_display_ids = {
+        let obsolete_window_ids = {
             let mut state = self.state()?;
             if let Some(target) = target.as_ref()
-                && let Some(host) = state.display_hosts.get_mut(&target.display_id)
+                && let Some(host) = state.display_hosts.get_mut(&target.window_id)
             {
                 host.target = target.clone();
             }
             for update in &tab_updates {
                 if let Some(runtime_tab) = state.tabs.get_mut(&update.tab_id) {
-                    runtime_tab.display_id = update.display_id;
+                    runtime_tab.window_id = update.window_id.clone();
                 }
             }
             state
                 .display_hosts
                 .keys()
-                .copied()
-                .filter(|display_id| {
-                    !desired_displays
-                        .values()
-                        .any(|desired| desired == display_id)
-                })
+                .filter(|window_id| !desired_windows.contains(window_id.as_str()))
+                .cloned()
                 .collect::<Vec<_>>()
         };
 
         if let Some(target) = target.as_ref()
-            && let Some(window) = self.window_for_display(target.display_id)
+            && let Some(window) = self.window_for_id(&target.window_id)
         {
+            if window.is_fullscreen().unwrap_or(false) {
+                window.set_fullscreen(false).map_err(RuntimeError::tauri)?;
+            }
+            if window.is_maximized().unwrap_or(false) {
+                window.unmaximize().map_err(RuntimeError::tauri)?;
+            }
             trace("setting display host position");
             window
                 .set_position(LogicalPosition::new(
-                    target.work_area.x as f64,
-                    target.work_area.y as f64,
+                    target.bounds.x as f64,
+                    target.bounds.y as f64,
                 ))
                 .map_err(RuntimeError::tauri)?;
             trace("setting display host size");
             window
                 .set_size(LogicalSize::new(
-                    target.work_area.width.max(1) as f64,
-                    target.work_area.height.max(1) as f64,
+                    target.bounds.width.max(1) as f64,
+                    target.bounds.height.max(1) as f64,
                 ))
                 .map_err(RuntimeError::tauri)?;
         }
@@ -3993,7 +4188,7 @@ impl SystemRuntimeExecutor {
             if update.moved
                 || target
                     .as_ref()
-                    .is_some_and(|target| target.display_id == update.display_id)
+                    .is_some_and(|target| target.window_id == update.window_id)
             {
                 self.layout_runtime_tab(&update.tab_id)?;
             }
@@ -4012,8 +4207,8 @@ impl SystemRuntimeExecutor {
                 .display_hosts
                 .values()
                 .map(|host| {
-                    let display_id = host.target.display_id;
-                    let active_tab = active_tabs.get(&display_id).copied();
+                    let window_id = &host.target.window_id;
+                    let active_tab = active_tabs.get(window_id.as_str()).copied();
                     let active_webview = active_tab.and_then(|tab_id| {
                         state
                             .tabs
@@ -4021,12 +4216,14 @@ impl SystemRuntimeExecutor {
                             .and_then(|tab| tab.roles.values().next())
                             .map(|surface| surface.webview.clone())
                     });
-                    let title = active_tab.and_then(|tab_id| {
-                        snapshot
-                            .tabs
-                            .iter()
-                            .find(|tab| tab.id == tab_id)
-                            .map(|tab| tab.name.clone())
+                    let title = game_window_names.get(window_id).cloned().or_else(|| {
+                        active_tab.and_then(|tab_id| {
+                            snapshot
+                                .tabs
+                                .iter()
+                                .find(|tab| tab.id == tab_id)
+                                .map(|tab| tab.name.clone())
+                        })
                     });
                     let has_visible_active = active_tab.is_some_and(|tab_id| {
                         snapshot
@@ -4036,14 +4233,16 @@ impl SystemRuntimeExecutor {
                     });
                     HostUpdate {
                         active_webview,
-                        focus: focus_window_display_ids.contains(&display_id)
-                            || tab_updates
-                                .iter()
-                                .any(|update| update.display_id == display_id && update.focus),
+                        focus: !suppress_focus
+                            && (focus_window_ids.contains(window_id)
+                                || tab_updates
+                                    .iter()
+                                    .any(|update| &update.window_id == window_id && update.focus)),
+                        presentation: host.target.presentation.clone(),
                         title,
-                        visible: has_visible_active
-                            && (reveal_display_ids.is_empty()
-                                || reveal_display_ids.contains(&display_id)),
+                        visible: reveal_window_ids.contains(window_id)
+                            || (host.window.is_visible().unwrap_or(false)
+                                && (has_visible_active || active_tab.is_none())),
                         window: host.window.clone(),
                     }
                 })
@@ -4061,6 +4260,18 @@ impl SystemRuntimeExecutor {
                 trace("hiding display host");
                 update.window.hide().map_err(RuntimeError::tauri)?;
             }
+            match update.presentation.as_str() {
+                "fullscreen" if !update.window.is_fullscreen().unwrap_or(false) => {
+                    update
+                        .window
+                        .set_fullscreen(true)
+                        .map_err(RuntimeError::tauri)?;
+                }
+                "maximized" if !update.window.is_maximized().unwrap_or(false) => {
+                    update.window.maximize().map_err(RuntimeError::tauri)?;
+                }
+                _ => {}
+            }
             if update.focus {
                 trace("focusing display host");
                 update.window.set_focus().map_err(RuntimeError::tauri)?;
@@ -4071,10 +4282,10 @@ impl SystemRuntimeExecutor {
         }
         let obsolete_hosts = {
             let mut state = self.state()?;
-            obsolete_display_ids
+            obsolete_window_ids
                 .into_iter()
-                .filter_map(|display_id| {
-                    let host = state.display_hosts.remove(&display_id)?;
+                .filter_map(|window_id| {
+                    let host = state.display_hosts.remove(&window_id)?;
                     state
                         .allow_window_close_labels
                         .insert(host.window.label().to_owned());
@@ -4132,16 +4343,16 @@ impl SystemRuntimeExecutor {
             .display_hosts
             .values()
             .map(|host| {
-                let display_id = host.target.display_id;
+                let window_id = &host.target.window_id;
                 let active_id = snapshot
-                    .displays
+                    .windows
                     .iter()
-                    .find(|display| display.display_id == display_id)
-                    .and_then(|display| display.active_tab_id.as_deref());
+                    .find(|window| &window.window_id == window_id)
+                    .and_then(|window| window.active_tab_id.as_deref());
                 let tabs = snapshot
                     .tabs
                     .iter()
-                    .filter(|tab| tab.display_id == display_id && !tab.hidden)
+                    .filter(|tab| &tab.window_id == window_id && !tab.hidden)
                     .filter_map(|tab| {
                         let live = state.tabs.get(&tab.id)?;
                         let names = tab
@@ -4178,12 +4389,12 @@ impl SystemRuntimeExecutor {
                         })
                     })
                     .collect::<Vec<_>>();
-                (host.tabs_controller.clone(), display_id, tabs)
+                (host.tabs_controller.clone(), window_id.clone(), tabs)
             })
             .collect::<Vec<_>>();
         drop(state);
-        for (controller, display_id, tabs) in updates {
-            let _ = controller.update(display_id, tabs, always_show, &language);
+        for (controller, window_id, tabs) in updates {
+            let _ = controller.update(&window_id, tabs, always_show, &language);
         }
     }
 
@@ -4267,6 +4478,7 @@ impl SystemRuntimeExecutor {
                                 json!(always_show),
                             );
                             object.insert("displayId".to_owned(), json!(host.target.display_id));
+                            object.insert("windowId".to_owned(), json!(host.target.window_id));
                             object.insert("displays".to_owned(), displays.clone());
                             object.insert("fullscreen".to_owned(), json!(fullscreen));
                             object.insert("language".to_owned(), json!(language));
@@ -4370,21 +4582,6 @@ impl SystemRuntimeExecutor {
         for surface in tab.roles.values() {
             state.audible_webviews.remove(surface.webview.label());
         }
-        let host = if state
-            .tabs
-            .values()
-            .any(|candidate| candidate.display_id == tab.display_id)
-        {
-            None
-        } else {
-            let host = state.display_hosts.remove(&tab.display_id);
-            if let Some(host) = host.as_ref() {
-                let window_label = host.window.label().to_owned();
-                state.pending_window_close_labels.remove(&window_label);
-                state.allow_window_close_labels.insert(window_label);
-            }
-            host
-        };
         drop(state);
         for role_id in tab.roles.keys() {
             self.clear_role_keys(role_id);
@@ -4394,9 +4591,6 @@ impl SystemRuntimeExecutor {
         }
         for divider in &tab.dividers {
             let _ = divider.webview.close();
-        }
-        if let Some(host) = host {
-            host.window.close().map_err(RuntimeError::tauri)?;
         }
         for label in popup_labels {
             if let Some(window) = self.app.get_webview_window(&label) {
@@ -4412,8 +4606,8 @@ impl SystemRuntimeExecutor {
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
-            let display_id = tab.display_id;
-            let host = state.display_hosts.get(&display_id).ok_or_else(|| {
+            let window_id = &tab.window_id;
+            let host = state.display_hosts.get(window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",
@@ -4422,7 +4616,7 @@ impl SystemRuntimeExecutor {
             let updates = state
                 .tabs
                 .iter()
-                .filter(|(_, candidate)| candidate.display_id == display_id)
+                .filter(|(_, candidate)| candidate.window_id == *window_id)
                 .map(|(candidate_id, candidate)| {
                     let mut surfaces = candidate
                         .roles
@@ -4949,6 +5143,7 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
                 gap: 2,
             },
             target: EmbeddedLaunchTargetRecord {
+                window_id: format!("attestation-layout-{count}"),
                 display_id: -9_999,
                 work_area: rion_core::StatePixelBoundsRecord {
                     x: 0,
@@ -4956,6 +5151,13 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
                     width: 960,
                     height: 640,
                 },
+                bounds: rion_core::StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 960,
+                    height: 640,
+                },
+                presentation: "normal".to_owned(),
             },
             roles,
         })?;
@@ -4984,7 +5186,9 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
         cleanup?;
         let state = runtime.state()?;
         if state.tabs.contains_key(&tab_id)
-            || state.display_hosts.contains_key(&-9_999)
+            || state
+                .display_hosts
+                .contains_key(&format!("attestation-layout-{count}"))
             || state
                 .role_tabs
                 .keys()
@@ -5103,7 +5307,9 @@ fn verify_shared_display_host_attestation(
     server: &AttestationServer,
 ) -> RuntimeResult<Value> {
     const DISPLAY_ID: i64 = -9_998;
+    const WINDOW_ID: &str = "attestation-shared-window";
     let target = EmbeddedLaunchTargetRecord {
+        window_id: WINDOW_ID.to_owned(),
         display_id: DISPLAY_ID,
         work_area: rion_core::StatePixelBoundsRecord {
             x: 0,
@@ -5111,6 +5317,13 @@ fn verify_shared_display_host_attestation(
             width: 640,
             height: 480,
         },
+        bounds: rion_core::StatePixelBoundsRecord {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        },
+        presentation: "normal".to_owned(),
     };
     let make_tab = |tab_id: &str, role_id: &str| {
         let mut role = attestation_role(1, 0);
@@ -5140,8 +5353,8 @@ fn verify_shared_display_host_attestation(
     let result = (|| -> RuntimeResult<Value> {
         let snapshot = |active_tab_id: &str| -> RuntimeResult<BrowserRuntimeSnapshot> {
             serde_json::from_value(json!({
-                "displays": [{
-                    "displayId": DISPLAY_ID,
+                "windows": [{
+                    "windowId": WINDOW_ID,
                     "activeTabId": active_tab_id,
                     "tabIds": [first_tab_id, second_tab_id]
                 }],
@@ -5151,7 +5364,7 @@ fn verify_shared_display_host_attestation(
                         "id": first_tab_id,
                         "sourceId": "attestation-shared-role-a",
                         "name": first_tab_id,
-                        "displayId": DISPLAY_ID,
+                        "windowId": WINDOW_ID,
                         "tabType": "role",
                         "roleIds": ["attestation-shared-role-a"],
                         "hidden": false
@@ -5160,7 +5373,7 @@ fn verify_shared_display_host_attestation(
                         "id": second_tab_id,
                         "sourceId": "attestation-shared-role-b",
                         "name": second_tab_id,
-                        "displayId": DISPLAY_ID,
+                        "windowId": WINDOW_ID,
                         "tabType": "role",
                         "roleIds": ["attestation-shared-role-b"],
                         "hidden": false
@@ -5173,19 +5386,19 @@ fn verify_shared_display_host_attestation(
         runtime.apply_runtime(
             snapshot(first_tab_id)?,
             Some(target.clone()),
-            &[DISPLAY_ID],
+            &[WINDOW_ID.to_owned()],
             &[],
             None,
         )?;
         let (window_label, native_handle, surface_labels, first_webview, first_navigation) = {
             let state = runtime.state()?;
-            let host = state.display_hosts.get(&DISPLAY_ID).ok_or_else(|| {
+            let host = state.display_hosts.get(WINDOW_ID).ok_or_else(|| {
                 input_attestation_error("The shared display host was not created.")
             })?;
             if state
                 .tabs
                 .values()
-                .filter(|tab| tab.display_id == DISPLAY_ID)
+                .filter(|tab| tab.window_id == WINDOW_ID)
                 .count()
                 != 2
             {
@@ -5238,9 +5451,15 @@ fn verify_shared_display_host_attestation(
                 "The shared-host content marker could not be installed before tab activation.",
             ));
         }
-        runtime.apply_runtime(snapshot(second_tab_id)?, None, &[DISPLAY_ID], &[], None)?;
+        runtime.apply_runtime(
+            snapshot(second_tab_id)?,
+            None,
+            &[WINDOW_ID.to_owned()],
+            &[],
+            None,
+        )?;
         let state = runtime.state()?;
-        let host = state.display_hosts.get(&DISPLAY_ID).ok_or_else(|| {
+        let host = state.display_hosts.get(WINDOW_ID).ok_or_else(|| {
             input_attestation_error("The shared display host disappeared after tab activation.")
         })?;
         let next_surface_labels = state
@@ -5683,6 +5902,7 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
                 gap: 2,
             },
             target: EmbeddedLaunchTargetRecord {
+                window_id: format!("attestation-soak-window-{cycle}"),
                 display_id: -9_999,
                 work_area: rion_core::StatePixelBoundsRecord {
                     x: 0,
@@ -5690,6 +5910,13 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
                     width: 320,
                     height: 240,
                 },
+                bounds: rion_core::StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 640,
+                    height: 480,
+                },
+                presentation: "normal".to_owned(),
             },
             roles: vec![role],
         })?;
@@ -5697,7 +5924,9 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
         let state = runtime.state()?;
         if state.tabs.contains_key(&tab_id)
             || state.role_tabs.contains_key(&role_id)
-            || state.display_hosts.contains_key(&-9_999)
+            || state
+                .display_hosts
+                .contains_key(&format!("attestation-soak-window-{cycle}"))
         {
             return Err(input_attestation_error(format!(
                 "System WebView create/destroy soak cycle {cycle} leaked runtime handles."
@@ -5759,7 +5988,7 @@ fn verify_attestation_tab(
                 "The {count}-role System WebView tab was not created."
             ))
         })?;
-        let host = state.display_hosts.get(&tab.display_id).ok_or_else(|| {
+        let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
             input_attestation_error(format!(
                 "The {count}-role System WebView display host was not created."
             ))
@@ -7840,8 +8069,8 @@ mod tests {
 
     fn runtime_tab_host_snapshot(active_tab_id: &str) -> BrowserRuntimeSnapshot {
         serde_json::from_value(json!({
-            "displays": [{
-                "displayId": 11,
+            "windows": [{
+                "windowId": "window-11",
                 "activeTabId": active_tab_id,
                 "tabIds": ["tab-a", "tab-b"]
             }],
@@ -7851,7 +8080,7 @@ mod tests {
                     "id": "tab-a",
                     "sourceId": "role-a",
                     "name": "Role A",
-                    "displayId": 11,
+                    "windowId": "window-11",
                     "tabType": "role",
                     "roleIds": ["role-a"],
                     "hidden": false
@@ -7860,7 +8089,7 @@ mod tests {
                     "id": "tab-b",
                     "sourceId": "role-b",
                     "name": "Role B",
-                    "displayId": 11,
+                    "windowId": "window-11",
                     "tabType": "role",
                     "roleIds": ["role-b"],
                     "hidden": false
@@ -7914,19 +8143,22 @@ mod tests {
     #[test]
     fn macos_and_windows_tab_activation_share_one_display_host_plan() {
         for platform in ["macos", "windows"] {
-            let live = HashMap::from([("tab-a".to_owned(), 11), ("tab-b".to_owned(), 11)]);
+            let live = HashMap::from([
+                ("tab-a".to_owned(), "window-11".to_owned()),
+                ("tab-b".to_owned(), "window-11".to_owned()),
+            ]);
             let plan = resolve_runtime_tab_host_plan(
                 &runtime_tab_host_snapshot("tab-b"),
                 &live,
-                &[11],
+                &["window-11".to_owned()],
                 Some("tab-b"),
             );
             assert_eq!(
                 plan.iter()
-                    .map(|entry| entry.display_id)
+                    .map(|entry| entry.window_id.clone())
                     .collect::<HashSet<_>>(),
-                HashSet::from([11]),
-                "{platform} must retain one display host"
+                HashSet::from(["window-11".to_owned()]),
+                "{platform} must retain one window host"
             );
             assert_eq!(
                 plan.iter().filter(|entry| entry.active).count(),
@@ -7946,24 +8178,27 @@ mod tests {
     #[test]
     fn display_host_plan_marks_only_cross_display_tabs_for_reparenting() {
         let mut snapshot = runtime_tab_host_snapshot("tab-b");
-        snapshot.tabs[1].display_id = -9_007_199_254_740_991;
-        snapshot.displays = vec![
-            rion_core::BrowserRuntimeDisplayRecord {
-                display_id: 11,
+        snapshot.tabs[1].window_id = "window-b".to_owned();
+        snapshot.windows = vec![
+            rion_core::BrowserRuntimeWindowRecord {
+                window_id: "window-11".to_owned(),
                 active_tab_id: Some("tab-a".to_owned()),
                 tab_ids: vec!["tab-a".to_owned()],
             },
-            rion_core::BrowserRuntimeDisplayRecord {
-                display_id: -9_007_199_254_740_991,
+            rion_core::BrowserRuntimeWindowRecord {
+                window_id: "window-b".to_owned(),
                 active_tab_id: Some("tab-b".to_owned()),
                 tab_ids: vec!["tab-b".to_owned()],
             },
         ];
-        let live = HashMap::from([("tab-a".to_owned(), 11), ("tab-b".to_owned(), 11)]);
+        let live = HashMap::from([
+            ("tab-a".to_owned(), "window-11".to_owned()),
+            ("tab-b".to_owned(), "window-11".to_owned()),
+        ]);
         let plan = resolve_runtime_tab_host_plan(
             &snapshot,
             &live,
-            &[-9_007_199_254_740_991],
+            &["window-b".to_owned()],
             Some("tab-b"),
         );
         assert!(
@@ -8090,6 +8325,7 @@ mod tests {
     #[test]
     fn role_bounds_are_relative_to_the_host_work_area() {
         let target = EmbeddedLaunchTargetRecord {
+            window_id: "window-7".to_owned(),
             display_id: 7,
             work_area: rion_core::StatePixelBoundsRecord {
                 x: 100,
@@ -8097,6 +8333,13 @@ mod tests {
                 width: 1_200,
                 height: 800,
             },
+            bounds: rion_core::StatePixelBoundsRecord {
+                x: 100,
+                y: 50,
+                width: 1_200,
+                height: 800,
+            },
+            presentation: "normal".to_owned(),
         };
         let bounds = role_bounds_for_size(
             target.work_area.width as f64,

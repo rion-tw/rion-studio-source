@@ -16,26 +16,30 @@ use crate::database::{
     portable_recovery::{self, StorageKind},
 };
 use crate::domain::{
-    assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_macro,
-    create_role, create_workspace, default_game_browser_settings, default_macro_settings,
-    default_runtime_window_preferences, delete_game, delete_macro, delete_macros, delete_workspace,
-    normalize_game_browser_settings, normalize_macro_settings, reorder_roles, reorder_workspaces,
-    reset_builtin_game, update_game, update_macro, update_role, update_workspace,
+    assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
+    create_macro, create_role, create_workspace, default_game_browser_settings,
+    default_macro_settings, default_runtime_window_preferences, delete_game, delete_game_window,
+    delete_macro, delete_macros, delete_workspace, normalize_game_browser_settings,
+    normalize_macro_settings, reorder_game_windows, reorder_roles, reorder_workspaces,
+    reset_builtin_game, update_game, update_game_window, update_macro, update_role,
+    update_workspace, validate_game_window_collection,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
     EngineCompatibilityCacheKeyRecord, EngineCompatibilityCacheRecord, GameBrowserSettingsRecord,
-    GameCreateInputRecord, GameUpdateInputRecord, LogLevel, MacroBadgePositionRecord,
-    MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord,
-    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
-    RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityObservationsRecord,
-    StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
-    StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
+    GameCreateInputRecord, GameUpdateInputRecord, GameWindowCreateInputRecord,
+    GameWindowPlacementRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogLevel,
+    MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings,
+    MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
+    RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord,
+    StateCollection, StateCompatibilityObservationsRecord, StateCompatibilityReportRecord,
+    StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+    StatePixelBoundsRecord, StateRoleRecord, WorkspaceCreateInputRecord,
     WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 10;
+pub(crate) const SCHEMA_VERSION: u32 = 11;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -151,7 +155,20 @@ pub(crate) enum StateMutation {
         role_id: String,
         browser_zoom_percent: f64,
     },
-    WorkspaceReconcileDisplays(Vec<WorkspaceDisplayInfoRecord>),
+    GameWindowCreate(GameWindowCreateInputRecord),
+    GameWindowUpdate {
+        id: String,
+        input: GameWindowUpdateInputRecord,
+    },
+    GameWindowReorder {
+        ordered_ids: Vec<String>,
+    },
+    GameWindowDelete {
+        id: String,
+    },
+    GameWindowsSync {
+        windows: Vec<StateGameWindowRecord>,
+    },
     MacroCreate(MacroCreateInputRecord),
     MacroUpdate {
         id: String,
@@ -178,7 +195,9 @@ pub(crate) enum StateMutation {
 
 impl StateMutation {
     pub(crate) fn changed_collections(&self) -> Vec<StateCollection> {
-        use StateCollection::{CompatibilityReports, Games, LaunchWorkspaces, Macros, Roles};
+        use StateCollection::{
+            CompatibilityReports, GameWindows, Games, LaunchWorkspaces, Macros, Roles,
+        };
 
         match self {
             Self::GameCreate(_) | Self::GameUpdate { .. } | Self::GameResetBuiltin { .. } => {
@@ -202,8 +221,12 @@ impl StateMutation {
             | Self::WorkspaceDelete { .. }
             | Self::WorkspacesDelete { .. }
             | Self::WorkspaceClearRole { .. }
-            | Self::WorkspaceSetRoleBrowserZoom { .. }
-            | Self::WorkspaceReconcileDisplays(_) => vec![LaunchWorkspaces],
+            | Self::WorkspaceSetRoleBrowserZoom { .. } => vec![LaunchWorkspaces],
+            Self::GameWindowCreate(_)
+            | Self::GameWindowUpdate { .. }
+            | Self::GameWindowReorder { .. }
+            | Self::GameWindowDelete { .. }
+            | Self::GameWindowsSync { .. } => vec![GameWindows],
             Self::MacroCreate(_)
             | Self::MacroUpdate { .. }
             | Self::MacroDelete { .. }
@@ -837,14 +860,57 @@ fn apply_domain_mutation(
                 }
                 serde_json::to_value(workspace)
             }
-            StateMutation::WorkspaceReconcileDisplays(displays) => {
-                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+            StateMutation::GameWindowCreate(input) => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let game_window = create_game_window(&mut game_windows, input)?;
+                upsert_game_window(
                     &transaction,
-                    "launchWorkspaces",
+                    &json_value(&game_window)?,
+                    game_windows.len() - 1,
                 )?;
-                crate::domain::reconcile_workspace_displays(&mut workspaces, &displays)?;
-                sync_workspaces(&transaction, &workspaces)?;
-                serde_json::to_value(&workspaces)
+                serde_json::to_value(game_window)
+            }
+            StateMutation::GameWindowUpdate { id, input } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let game_window = update_game_window(&mut game_windows, &id, input)?;
+                let ordinal = game_windows
+                    .iter()
+                    .position(|window| window.id == id)
+                    .unwrap();
+                upsert_game_window(&transaction, &json_value(&game_window)?, ordinal)?;
+                serde_json::to_value(game_window)
+            }
+            StateMutation::GameWindowReorder { ordered_ids } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                reorder_game_windows(&mut game_windows, &ordered_ids)?;
+                update_ordinals(&transaction, "game_windows", &ordered_ids)?;
+                serde_json::to_value(game_windows)
+            }
+            StateMutation::GameWindowDelete { id } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                delete_game_window(&mut game_windows, &id)?;
+                transaction
+                    .execute("DELETE FROM game_windows WHERE id=?1", params![id])
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                Ok(json!({ "deleted": true }))
+            }
+            StateMutation::GameWindowsSync { windows } => {
+                validate_game_window_collection(&windows)?;
+                transaction
+                    .execute("DELETE FROM game_windows", [])
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                insert_game_windows(
+                    &transaction,
+                    &windows
+                        .iter()
+                        .map(json_value)
+                        .collect::<CoreResult<Vec<_>>>()?,
+                )?;
+                serde_json::to_value(windows)
             }
             StateMutation::MacroCreate(input) => {
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
@@ -1490,6 +1556,14 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
               PRIMARY KEY(workspace_id, ordinal)
             );
             CREATE INDEX IF NOT EXISTS workspace_slots_role_idx ON workspace_slots(role_id);
+            CREATE TABLE IF NOT EXISTS game_windows (
+              id TEXT PRIMARY KEY,
+              ordinal INTEGER NOT NULL,
+              name TEXT NOT NULL COLLATE NOCASE,
+              payload_json TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS game_windows_name_unique_idx
+              ON game_windows(name COLLATE NOCASE);
             CREATE TABLE IF NOT EXISTS macros (
               id TEXT PRIMARY KEY,
               ordinal INTEGER NOT NULL,
@@ -1720,6 +1794,22 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 11 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        strip_workspace_target_displays(&transaction)?;
+        migrate_runtime_restore_to_game_windows(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (11, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
     Ok(())
 }
@@ -1911,6 +2001,121 @@ fn strip_workspace_resource_policies(connection: &Connection) -> CoreResult<()> 
     Ok(())
 }
 
+fn strip_workspace_target_displays(connection: &Transaction<'_>) -> CoreResult<()> {
+    rewrite_entity_payloads(connection, "workspaces", |object| {
+        object.remove("targetDisplay");
+    })
+}
+
+fn migrate_runtime_restore_to_game_windows(transaction: &Transaction<'_>) -> CoreResult<()> {
+    let existing = transaction
+        .query_row("SELECT COUNT(*) FROM game_windows", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if existing > 0 {
+        return Ok(());
+    }
+    let Some(payload) = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='runtimeRestoreSession'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+    else {
+        return Ok(());
+    };
+    let mut session =
+        serde_json::from_str::<RuntimeRestoreSessionRecord>(&payload).map_err(|error| {
+            CoreError::Migration(format!("runtime restore session is invalid: {error}"))
+        })?;
+    if session.windows.is_empty() {
+        return Ok(());
+    }
+    let mut game_windows = Vec::new();
+    let mut migrated_ids = HashMap::new();
+    for (ordinal, saved) in session.windows.drain(..).enumerate() {
+        let id = uuid::Uuid::new_v4().to_string();
+        migrated_ids.insert(saved.id.clone(), id.clone());
+        let work_area = saved
+            .target_display
+            .fingerprint
+            .as_ref()
+            .map(|fingerprint| fingerprint.bounds.clone())
+            .unwrap_or(StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            });
+        let width = ((work_area.width as f64 * 0.8).round() as i32).max(640);
+        let height = ((work_area.height as f64 * 0.8).round() as i32).max(480);
+        let mut tabs = saved
+            .tabs
+            .into_iter()
+            .map(|tab| GameWindowTabRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                tab_type: tab.tab_type,
+                source_id: tab.source_id,
+                name: tab.name,
+                role_ids: tab.role_ids,
+                hidden: tab.hidden,
+                audio_muted: tab.audio_muted,
+                role_views: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let active_tab_id = saved.active_source_id.as_ref().and_then(|source_id| {
+            tabs.iter()
+                .find(|tab| &tab.source_id == source_id)
+                .map(|tab| tab.id.clone())
+        });
+        let now = chrono::Utc::now().to_rfc3339();
+        game_windows.push(StateGameWindowRecord {
+            id,
+            name: format!("Game Window {}", ordinal + 1),
+            target_display: saved.target_display,
+            placement: GameWindowPlacementRecord {
+                normal_bounds: StatePixelBoundsRecord {
+                    x: work_area.x + (work_area.width - width) / 2,
+                    y: work_area.y + (work_area.height - height) / 2,
+                    width,
+                    height,
+                },
+                saved_work_area: work_area,
+                presentation: "normal".to_owned(),
+            },
+            tabs: std::mem::take(&mut tabs),
+            active_tab_id,
+            created_at: now.clone(),
+            updated_at: now,
+        });
+    }
+    validate_game_window_collection(&game_windows)?;
+    insert_game_windows(
+        transaction,
+        &game_windows
+            .iter()
+            .map(json_value)
+            .collect::<CoreResult<Vec<_>>>()?,
+    )?;
+    session.last_focused_window_id = session
+        .last_focused_window_id
+        .as_ref()
+        .and_then(|id| migrated_ids.get(id))
+        .cloned();
+    session.schema_version = 2;
+    session.updated_at = chrono::Utc::now().to_rfc3339();
+    transaction
+        .execute(
+            "UPDATE settings SET payload_json=?1 WHERE key='runtimeRestoreSession'",
+            params![serialize_payload(&json_value(&session)?)?],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    Ok(())
+}
+
 fn repair_required_settings(connection: &Connection) -> CoreResult<()> {
     let browser_settings = connection
         .query_row(
@@ -1998,6 +2203,10 @@ pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
     );
     object.insert("macros".to_owned(), read_payloads(connection, "macros")?);
     object.insert(
+        "gameWindows".to_owned(),
+        read_payloads(connection, "game_windows")?,
+    );
+    object.insert(
         "compatibilityReports".to_owned(),
         read_payloads(connection, "compatibility_reports")?,
     );
@@ -2065,6 +2274,7 @@ fn collection_table(collection: &str) -> CoreResult<(&'static str, &'static str)
         "games" => Ok(("games", "id")),
         "roles" => Ok(("roles", "id")),
         "launchWorkspaces" => Ok(("workspaces", "id")),
+        "gameWindows" => Ok(("game_windows", "id")),
         "macros" => Ok(("macros", "id")),
         "compatibilityReports" => Ok(("compatibility_reports", "game_id")),
         _ => Err(CoreError::InvalidInput(format!(
@@ -2197,6 +2407,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
             "
             DELETE FROM workspace_slots;
             DELETE FROM workspaces;
+            DELETE FROM game_windows;
             DELETE FROM macro_steps;
             DELETE FROM macro_roles;
             DELETE FROM macros;
@@ -2213,6 +2424,20 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
     insert_entities(transaction, "games", array_field(object, "games")?)?;
     insert_entities(transaction, "roles", array_field(object, "roles")?)?;
     insert_workspaces(transaction, array_field(object, "launchWorkspaces")?)?;
+    let game_windows = object
+        .get("gameWindows")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    validate_game_window_collection(
+        &game_windows
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<Vec<StateGameWindowRecord>, _>>()
+            .map_err(|error| CoreError::InvalidInput(format!("invalid game windows: {error}")))?,
+    )?;
+    insert_game_windows(transaction, game_windows)?;
     insert_macros(transaction, array_field(object, "macros")?)?;
     insert_compatibility(transaction, array_field(object, "compatibilityReports")?)?;
     for key in [
@@ -2244,6 +2469,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         "games",
         "roles",
         "launchWorkspaces",
+        "gameWindows",
         "macros",
         "compatibilityReports",
     ]
@@ -2462,6 +2688,32 @@ fn insert_workspaces(transaction: &Transaction<'_>, values: &[Value]) -> CoreRes
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
         }
     }
+    Ok(())
+}
+
+fn insert_game_windows(transaction: &Transaction<'_>, values: &[Value]) -> CoreResult<()> {
+    for (ordinal, value) in values.iter().enumerate() {
+        upsert_game_window(transaction, value, ordinal)?;
+    }
+    Ok(())
+}
+
+fn upsert_game_window(
+    transaction: &Transaction<'_>,
+    value: &Value,
+    ordinal: usize,
+) -> CoreResult<()> {
+    let object = entity_object(value, "game window")?;
+    let id = required_string(object, "id", "game window")?;
+    let name = required_string(object, "name", "game window")?;
+    transaction
+        .execute(
+            "INSERT INTO game_windows(id, ordinal, name, payload_json) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET ordinal=excluded.ordinal, name=excluded.name,
+               payload_json=excluded.payload_json",
+            params![id, ordinal as i64, name, serialize_payload(value)?],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(())
 }
 
@@ -2700,7 +2952,7 @@ fn sync_macros(transaction: &Transaction<'_>, macros: &[StateMacroRecord]) -> Co
 }
 
 fn update_ordinals(transaction: &Transaction<'_>, table: &str, ids: &[String]) -> CoreResult<()> {
-    if !matches!(table, "roles" | "workspaces") {
+    if !matches!(table, "roles" | "workspaces" | "game_windows") {
         return Err(CoreError::Internal("invalid ordinal table".to_owned()));
     }
     let sql = format!("UPDATE {table} SET ordinal=?1 WHERE id=?2");
@@ -2925,6 +3177,7 @@ mod tests {
           "games": [{"id":"g1","name":"Game"}],
           "roles": [{"id":"r1","gameId":"g1","name":"Role"}],
           "launchWorkspaces": [{"id":"w1","name":"Workspace","slots":[{"id":"s1","roleId":"r1"}]}],
+          "gameWindows": [],
           "macros": [{"id":"m1","name":"Macro","roleIds":["r1"],"steps":[]}],
           "compatibilityReports": [],
           "logLevel": "debug"
@@ -3940,7 +4193,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            10
+            11
         );
     }
 

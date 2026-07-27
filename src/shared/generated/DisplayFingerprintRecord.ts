@@ -2,4 +2,4 @@
 import type { StatePixelBoundsRecord } from "./StatePixelBoundsRecord";
 import type { StateResolutionRecord } from "./StateResolutionRecord";
 
-export type WorkspaceDisplayInfoRecord = { id: number, label: string, bounds: StatePixelBoundsRecord, resolution: StateResolutionRecord, scaleFactor: number, isPrimary: boolean, isInternal: boolean, };
+export type DisplayFingerprintRecord = { label: string, bounds: StatePixelBoundsRecord, resolution: StateResolutionRecord, scaleFactor: number, isPrimary: boolean, isInternal: boolean, };

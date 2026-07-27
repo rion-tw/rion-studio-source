@@ -53,20 +53,23 @@ describe("Tauri shell parity guard", () => {
     expect(menu).toContain(".copy()");
     expect(menu).toContain("TOGGLE_FULLSCREEN_ITEM");
     expect(quickMenu).toContain("restore_saved_game_windows");
-    expect(quickMenu).toContain("pending_workspace_launch_request");
+    expect(quickMenu).not.toContain("targetDisplay");
     expect(tabs).toContain("rion-runtime-shortcut://tabs/");
     expect(tabs).toContain('unwrap_or("")');
     expect(tabs).toContain("LayoutResizeDivider");
-    expect(tabs).toContain("tab_strip_display_for_webview");
+    expect(tabs).toContain("tab_strip_window_for_webview");
     expect(shell).toContain("rion_runtime_tab_action");
     expect(tabs).toContain("runtime-divider.html");
     expect(nativeTabs).toContain("contentLayoutRect");
     expect(nativeTabs).toContain("standardWindowButton");
     expect(nativeTabsHeader).toContain('extern "C"');
-    expect(nativeTabs).toContain('@"sourceDisplayId" : @(_displayID)');
-    expect(nativeTabsHeader).toContain("int64_t sourceDisplayID, int64_t targetDisplayID");
+    expect(nativeTabs).toContain('@"sourceWindowId"');
+    expect(nativeTabsHeader).toContain("sourceWindowID");
     expect(nativeTabsBridge).toContain("TAURI_RUNTIME_TAB_MENU_FAILED");
-    expect(nativeTabsBridge).toContain("open_launcher(&app, source_display_id)");
+    expect(nativeTabsBridge).toContain("target_window_id.or(host_window_id)");
+    expect(nativeTabsBridge).toContain("open_launcher(&app, window_id)");
+    expect(nativeTabs).toContain('@"type" : @"tearOut"');
+    expect(nativeTabsBridge).toContain("move_game_window_tab_to_new_window");
     expect(shell).toContain("rion_runtime_audio_state");
     expect(build).toContain('"rion_runtime_tab_action"');
     expect(build).toContain('"rion_divider_pointer"');
@@ -82,8 +85,8 @@ describe("Tauri shell parity guard", () => {
       webviews: ["game-role-*"],
       permissions: ["allow-rion-overlay-request", "allow-rion-runtime-audio-state"]
     });
-    expect(shell).toContain('"consumePendingWorkspaceLaunchRequest"');
-    expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest" => Ok(Value::Null)');
+    expect(shell).toContain('"moveGameWindowTabToNewWindow"');
+    expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');
   });
 
   it("runs legacy-root migration before opening AppCore", async () => {

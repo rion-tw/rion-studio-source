@@ -10,17 +10,18 @@ use crate::{
     model::StateCollection,
     model::{
         BrowserEngineOverride, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
-        EmbeddedBrowserEngine, GameBrowserSettingsRecord, GameCreateInputRecord,
-        GameUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
-        MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
-        MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord, RoleCreateInputRecord,
-        RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeRestoreSessionRecord,
-        RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord,
-        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
-        StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
-        WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
-        WorkspaceSlotInputRecord, WorkspaceUpdateInputRecord,
+        DisplayTargetRecord, EmbeddedBrowserEngine, GameBrowserSettingsRecord,
+        GameCreateInputRecord, GameUpdateInputRecord, GameWindowCreateInputRecord,
+        GameWindowPlacementRecord, GameWindowUpdateInputRecord, LegalAcceptanceRecord,
+        MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord,
+        MacroStepDefinition, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
+        RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
+        RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
+        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
+        StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
+        WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceSlotInputRecord,
+        WorkspaceUpdateInputRecord,
     },
 };
 
@@ -66,10 +67,12 @@ pub fn default_runtime_window_preferences() -> RuntimeWindowPreferencesRecord {
 
 pub fn default_runtime_restore_session() -> RuntimeRestoreSessionRecord {
     RuntimeRestoreSessionRecord {
-        schema_version: 1,
+        schema_version: 2,
+        session_generation: 0,
         updated_at: chrono::Utc::now().to_rfc3339(),
         clean_exit: true,
         last_focused_window_id: None,
+        restore_in_progress_window_ids: Vec::new(),
         windows: Vec::new(),
     }
 }
@@ -93,7 +96,7 @@ pub fn normalize_runtime_restore_session(
         {
             continue;
         }
-        let target_display = validate_workspace_target_display(window.target_display)?;
+        let target_display = validate_display_target(window.target_display)?;
 
         let mut tabs = Vec::new();
         for tab in window.tabs {
@@ -170,16 +173,24 @@ pub fn normalize_runtime_restore_session(
 
     let last_focused_window_id = session.last_focused_window_id.and_then(|window_id| {
         let window_id = window_id.trim().to_owned();
-        windows
-            .iter()
-            .any(|window| window.id == window_id)
-            .then_some(window_id)
+        (!window_id.is_empty() && window_id.len() <= 128).then_some(window_id)
     });
+    let mut restore_in_progress_window_ids = session
+        .restore_in_progress_window_ids
+        .into_iter()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty() && id.len() <= 128)
+        .collect::<Vec<_>>();
+    restore_in_progress_window_ids.sort();
+    restore_in_progress_window_ids.dedup();
+    restore_in_progress_window_ids.truncate(MAX_WINDOWS);
     Ok(RuntimeRestoreSessionRecord {
-        schema_version: 1,
+        schema_version: 2,
+        session_generation: session.session_generation,
         updated_at: chrono::Utc::now().to_rfc3339(),
         clean_exit: session.clean_exit,
         last_focused_window_id,
+        restore_in_progress_window_ids,
         windows,
     })
 }
@@ -500,10 +511,6 @@ pub fn create_workspace(
     ensure_unique_workspace_name(workspaces, &name, None)?;
     let template = normalize_workspace_template(input.template.as_deref())?;
     let slots = normalize_workspace_slots(&template, input.slots.unwrap_or_default())?;
-    let target_display = input
-        .target_display
-        .map(validate_workspace_target_display)
-        .transpose()?;
     let now = chrono::Utc::now().to_rfc3339();
     let workspace = StateLaunchWorkspaceRecord {
         id: Uuid::new_v4().to_string(),
@@ -515,7 +522,6 @@ pub fn create_workspace(
             input.browser_zoom_percent,
             default_workspace_zoom_percent(&template),
         )?,
-        target_display,
         slots,
         created_at: now.clone(),
         updated_at: now,
@@ -563,14 +569,6 @@ pub fn update_workspace(
     } else {
         current.slots.clone()
     };
-    let target_display = if input.set_target_display {
-        input
-            .target_display
-            .map(validate_workspace_target_display)
-            .transpose()?
-    } else {
-        current.target_display.clone()
-    };
     let workspace = StateLaunchWorkspaceRecord {
         id: current.id.clone(),
         name,
@@ -586,7 +584,6 @@ pub fn update_workspace(
             input.browser_zoom_percent,
             current.browser_zoom_percent,
         )?,
-        target_display,
         slots,
         created_at: current.created_at,
         updated_at: chrono::Utc::now().to_rfc3339(),
@@ -633,6 +630,309 @@ pub fn delete_workspace(
     Ok(())
 }
 
+pub fn create_game_window(
+    game_windows: &mut Vec<StateGameWindowRecord>,
+    input: GameWindowCreateInputRecord,
+) -> CoreResult<StateGameWindowRecord> {
+    if game_windows.len() >= 32 {
+        return Err(domain(
+            "GAME_WINDOW_LIMIT_REACHED",
+            "No more than 32 game windows can be saved.",
+        ));
+    }
+    let name = normalize_name(
+        &input.name,
+        "GAME_WINDOW_NAME_REQUIRED",
+        "GAME_WINDOW_NAME_TOO_LONG",
+    )?;
+    ensure_unique_game_window_name(game_windows, &name, None)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let game_window = normalize_game_window(StateGameWindowRecord {
+        id: Uuid::new_v4().to_string(),
+        name,
+        target_display: input.target_display,
+        placement: input.placement,
+        tabs: Vec::new(),
+        active_tab_id: None,
+        created_at: now.clone(),
+        updated_at: now,
+    })?;
+    let mut candidate = game_windows.clone();
+    candidate.push(game_window.clone());
+    validate_game_window_collection(&candidate)?;
+    game_windows.push(game_window.clone());
+    Ok(game_window)
+}
+
+pub fn update_game_window(
+    game_windows: &mut [StateGameWindowRecord],
+    id: &str,
+    input: GameWindowUpdateInputRecord,
+) -> CoreResult<StateGameWindowRecord> {
+    let index = game_windows
+        .iter()
+        .position(|window| window.id == id)
+        .ok_or_else(|| domain("GAME_WINDOW_NOT_FOUND", "Game window not found."))?;
+    let current = game_windows[index].clone();
+    let name = input
+        .name
+        .as_deref()
+        .map(|name| {
+            normalize_name(
+                name,
+                "GAME_WINDOW_NAME_REQUIRED",
+                "GAME_WINDOW_NAME_TOO_LONG",
+            )
+        })
+        .transpose()?
+        .unwrap_or_else(|| current.name.clone());
+    ensure_unique_game_window_name(game_windows, &name, Some(id))?;
+    let tabs = input.tabs.unwrap_or_else(|| current.tabs.clone());
+    let active_tab_id = input.active_tab_id.unwrap_or_else(|| {
+        current
+            .active_tab_id
+            .filter(|active| tabs.iter().any(|tab| &tab.id == active))
+    });
+    let game_window = normalize_game_window(StateGameWindowRecord {
+        id: current.id,
+        name,
+        target_display: input.target_display.unwrap_or(current.target_display),
+        placement: input.placement.unwrap_or(current.placement),
+        tabs,
+        active_tab_id,
+        created_at: current.created_at,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    })?;
+    let mut candidate = game_windows.to_vec();
+    candidate[index] = game_window.clone();
+    validate_game_window_collection(&candidate)?;
+    game_windows[index] = game_window.clone();
+    Ok(game_window)
+}
+
+pub fn reorder_game_windows(
+    game_windows: &mut Vec<StateGameWindowRecord>,
+    ordered_ids: &[String],
+) -> CoreResult<()> {
+    if ordered_ids.len() != game_windows.len()
+        || ordered_ids.iter().collect::<HashSet<_>>().len() != game_windows.len()
+        || ordered_ids
+            .iter()
+            .any(|id| !game_windows.iter().any(|window| &window.id == id))
+    {
+        return Err(domain(
+            "GAME_WINDOW_ORDER_INVALID",
+            "Game window order is invalid.",
+        ));
+    }
+    let by_id = game_windows
+        .drain(..)
+        .map(|window| (window.id.clone(), window))
+        .collect::<HashMap<_, _>>();
+    *game_windows = ordered_ids
+        .iter()
+        .filter_map(|id| by_id.get(id).cloned())
+        .collect();
+    Ok(())
+}
+
+pub fn delete_game_window(
+    game_windows: &mut Vec<StateGameWindowRecord>,
+    id: &str,
+) -> CoreResult<()> {
+    let original_len = game_windows.len();
+    game_windows.retain(|window| window.id != id);
+    if original_len == game_windows.len() {
+        return Err(domain("GAME_WINDOW_NOT_FOUND", "Game window not found."));
+    }
+    Ok(())
+}
+
+pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -> CoreResult<()> {
+    if game_windows.len() > 32 {
+        return Err(domain(
+            "GAME_WINDOW_LIMIT_REACHED",
+            "No more than 32 game windows can be saved.",
+        ));
+    }
+    let mut names = HashSet::new();
+    let mut window_ids = HashSet::new();
+    let mut source_keys = HashSet::new();
+    let mut claimed_role_ids = HashSet::new();
+    let mut tab_count = 0usize;
+    for window in game_windows {
+        normalize_game_window(window.clone())?;
+        if !window_ids.insert(window.id.clone()) {
+            return Err(domain(
+                "GAME_WINDOW_ID_DUPLICATE",
+                "Game window id is already in use.",
+            ));
+        }
+        if !names.insert(window.name.to_lowercase()) {
+            return Err(domain(
+                "GAME_WINDOW_NAME_DUPLICATE",
+                "A game window with this name already exists.",
+            ));
+        }
+        for tab in &window.tabs {
+            tab_count += 1;
+            let source_key = format!("{}:{}", tab.tab_type, tab.source_id);
+            if !source_keys.insert(source_key)
+                || tab
+                    .role_ids
+                    .iter()
+                    .any(|role_id| !claimed_role_ids.insert(role_id.clone()))
+            {
+                return Err(domain(
+                    "GAME_WINDOW_TAB_CONFLICT",
+                    "A role or source can belong to only one saved game-window tab.",
+                ));
+            }
+        }
+    }
+    if tab_count > 256 {
+        return Err(domain(
+            "GAME_WINDOW_TAB_LIMIT_REACHED",
+            "No more than 256 game-window tabs can be saved.",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_unique_game_window_name(
+    game_windows: &[StateGameWindowRecord],
+    name: &str,
+    except_id: Option<&str>,
+) -> CoreResult<()> {
+    if game_windows.iter().any(|window| {
+        Some(window.id.as_str()) != except_id && window.name.eq_ignore_ascii_case(name)
+    }) {
+        return Err(domain(
+            "GAME_WINDOW_NAME_DUPLICATE",
+            "A game window with this name already exists.",
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_game_window(mut window: StateGameWindowRecord) -> CoreResult<StateGameWindowRecord> {
+    window.id = Uuid::parse_str(window.id.trim())
+        .map_err(|_| domain("GAME_WINDOW_ID_INVALID", "Game window id is invalid."))?
+        .to_string();
+    window.name = normalize_name(
+        &window.name,
+        "GAME_WINDOW_NAME_REQUIRED",
+        "GAME_WINDOW_NAME_TOO_LONG",
+    )?;
+    window.target_display = validate_display_target(window.target_display)?;
+    window.placement = normalize_game_window_placement(window.placement)?;
+    let mut tab_ids = HashSet::new();
+    for tab in &mut window.tabs {
+        tab.id = Uuid::parse_str(tab.id.trim())
+            .map_err(|_| domain("GAME_WINDOW_TAB_INVALID", "Game window tab is invalid."))?
+            .to_string();
+        if !tab_ids.insert(tab.id.clone())
+            || !matches!(tab.tab_type.as_str(), "role" | "workspace")
+            || tab.source_id.trim().is_empty()
+            || tab.source_id.len() > 128
+        {
+            return Err(domain(
+                "GAME_WINDOW_TAB_INVALID",
+                "Game window tab is invalid.",
+            ));
+        }
+        tab.source_id = tab.source_id.trim().to_owned();
+        tab.name = tab.name.trim().chars().take(256).collect();
+        if tab.name.is_empty() {
+            tab.name = tab.source_id.clone();
+        }
+        let mut role_ids = HashSet::new();
+        tab.role_ids = tab
+            .role_ids
+            .drain(..)
+            .map(|role_id| role_id.trim().to_owned())
+            .filter(|role_id| !role_id.is_empty() && role_id.len() <= 128)
+            .filter(|role_id| role_ids.insert(role_id.clone()))
+            .collect();
+        if tab.tab_type == "role" && tab.role_ids != [tab.source_id.clone()] {
+            return Err(domain(
+                "GAME_WINDOW_TAB_INVALID",
+                "A role tab must contain exactly its source role.",
+            ));
+        }
+        for view in &tab.role_views {
+            let rect = &view.rect;
+            if view.role_id.trim().is_empty()
+                || !rect.x.is_finite()
+                || !rect.y.is_finite()
+                || !rect.width.is_finite()
+                || !rect.height.is_finite()
+                || rect.x < 0.0
+                || rect.y < 0.0
+                || rect.width <= 0.0
+                || rect.height <= 0.0
+                || rect.x + rect.width > 1.000_001
+                || rect.y + rect.height > 1.000_001
+                || !view.browser_zoom_percent.is_finite()
+                || !(25.0..=500.0).contains(&view.browser_zoom_percent)
+            {
+                return Err(domain(
+                    "GAME_WINDOW_TAB_LAYOUT_INVALID",
+                    "Game window tab layout is invalid.",
+                ));
+            }
+        }
+    }
+    window.active_tab_id = if window.tabs.is_empty() {
+        None
+    } else {
+        window
+            .active_tab_id
+            .filter(|active| window.tabs.iter().any(|tab| &tab.id == active))
+            .or_else(|| window.tabs.first().map(|tab| tab.id.clone()))
+    };
+    Ok(window)
+}
+
+fn normalize_game_window_placement(
+    mut placement: GameWindowPlacementRecord,
+) -> CoreResult<GameWindowPlacementRecord> {
+    if placement.saved_work_area.width <= 0
+        || placement.saved_work_area.height <= 0
+        || placement.normal_bounds.width <= 0
+        || placement.normal_bounds.height <= 0
+        || !matches!(
+            placement.presentation.as_str(),
+            "normal" | "maximized" | "fullscreen"
+        )
+    {
+        return Err(domain(
+            "GAME_WINDOW_PLACEMENT_INVALID",
+            "Game window placement is invalid.",
+        ));
+    }
+    let area = &placement.saved_work_area;
+    placement.normal_bounds.width = placement
+        .normal_bounds
+        .width
+        .max(640.min(area.width))
+        .min(area.width);
+    placement.normal_bounds.height = placement
+        .normal_bounds
+        .height
+        .max(480.min(area.height))
+        .min(area.height);
+    let max_x = area
+        .x
+        .saturating_add(area.width.saturating_sub(placement.normal_bounds.width));
+    let max_y = area
+        .y
+        .saturating_add(area.height.saturating_sub(placement.normal_bounds.height));
+    placement.normal_bounds.x = placement.normal_bounds.x.clamp(area.x, max_x);
+    placement.normal_bounds.y = placement.normal_bounds.y.clamp(area.y, max_y);
+    Ok(placement)
+}
+
 pub fn clear_workspace_role(workspaces: &mut [StateLaunchWorkspaceRecord], role_id: &str) {
     let now = chrono::Utc::now().to_rfc3339();
     for workspace in workspaces {
@@ -674,69 +974,6 @@ pub fn set_workspace_role_browser_zoom(
         workspace.updated_at = chrono::Utc::now().to_rfc3339();
     }
     Ok(Some(workspace.clone()))
-}
-
-pub fn reconcile_workspace_displays(
-    workspaces: &mut [StateLaunchWorkspaceRecord],
-    displays: &[WorkspaceDisplayInfoRecord],
-) -> CoreResult<()> {
-    for display in displays {
-        validate_workspace_target_display(workspace_display_target(display))?;
-    }
-    for workspace in workspaces {
-        let Some(target) = &workspace.target_display else {
-            continue;
-        };
-        let resolved = if let Some(fingerprint) = &target.fingerprint {
-            let matches = displays
-                .iter()
-                .filter(|display| display_matches_fingerprint(display, fingerprint))
-                .collect::<Vec<_>>();
-            match matches.as_slice() {
-                [display] => Some(*display),
-                _ => None,
-            }
-        } else {
-            displays.iter().find(|display| display.id == target.id)
-        };
-        let Some(resolved) = resolved else { continue };
-        if target.id != resolved.id || target.fingerprint.is_none() {
-            workspace.target_display = Some(workspace_display_target(resolved));
-        }
-    }
-    Ok(())
-}
-
-fn workspace_display_target(
-    display: &WorkspaceDisplayInfoRecord,
-) -> StateWorkspaceDisplayTargetRecord {
-    StateWorkspaceDisplayTargetRecord {
-        id: display.id,
-        fingerprint: Some(crate::model::StateWorkspaceDisplayFingerprintRecord {
-            label: display.label.clone(),
-            bounds: display.bounds.clone(),
-            resolution: display.resolution.clone(),
-            scale_factor: display.scale_factor,
-            is_primary: display.is_primary,
-            is_internal: display.is_internal,
-        }),
-    }
-}
-
-fn display_matches_fingerprint(
-    display: &WorkspaceDisplayInfoRecord,
-    fingerprint: &crate::model::StateWorkspaceDisplayFingerprintRecord,
-) -> bool {
-    display.label == fingerprint.label
-        && display.bounds.x == fingerprint.bounds.x
-        && display.bounds.y == fingerprint.bounds.y
-        && display.bounds.width == fingerprint.bounds.width
-        && display.bounds.height == fingerprint.bounds.height
-        && display.resolution.width == fingerprint.resolution.width
-        && display.resolution.height == fingerprint.resolution.height
-        && display.scale_factor == fingerprint.scale_factor
-        && display.is_primary == fingerprint.is_primary
-        && display.is_internal == fingerprint.is_internal
 }
 
 pub fn create_macro(
@@ -982,12 +1219,10 @@ fn normalize_workspace_zoom_percent(value: Option<f64>, fallback: f64) -> CoreRe
     }
 }
 
-fn validate_workspace_target_display(
-    mut target: StateWorkspaceDisplayTargetRecord,
-) -> CoreResult<StateWorkspaceDisplayTargetRecord> {
+pub fn validate_display_target(mut target: DisplayTargetRecord) -> CoreResult<DisplayTargetRecord> {
     const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
     if target.id == -1 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&target.id) {
-        return Err(workspace_target_display_error());
+        return Err(display_target_error());
     }
     if let Some(fingerprint) = &mut target.fingerprint {
         fingerprint.label = fingerprint.label.trim().to_owned();
@@ -999,17 +1234,14 @@ fn validate_workspace_target_display(
             || !fingerprint.scale_factor.is_finite()
             || fingerprint.scale_factor <= 0.0
         {
-            return Err(workspace_target_display_error());
+            return Err(display_target_error());
         }
     }
     Ok(target)
 }
 
-fn workspace_target_display_error() -> CoreError {
-    domain(
-        "WORKSPACE_TARGET_DISPLAY_INVALID",
-        "Launch workspace target display is invalid.",
-    )
+fn display_target_error() -> CoreError {
+    domain("DISPLAY_TARGET_INVALID", "Display target is invalid.")
 }
 
 fn workspace_slot_to_input(slot: StateWorkspaceSlotRecord) -> WorkspaceSlotInputRecord {
@@ -2147,6 +2379,9 @@ pub fn validate_collection_record(collection: StateCollection, value: &Value) ->
         StateCollection::Games => validate_game(decode(value, "game")?),
         StateCollection::Roles => validate_role(decode(value, "role")?),
         StateCollection::LaunchWorkspaces => validate_workspace(decode(value, "workspace")?),
+        StateCollection::GameWindows => {
+            normalize_game_window(decode(value, "game window")?).map(|_| ())
+        }
         StateCollection::Macros => validate_macro(decode(value, "macro")?),
         StateCollection::CompatibilityReports => {
             validate_compatibility_report(decode(value, "compatibility report")?)
@@ -2460,6 +2695,19 @@ mod tests {
         serde_json::from_value(value).unwrap()
     }
 
+    fn game_window_input(name: &str) -> GameWindowCreateInputRecord {
+        serde_json::from_value(json!({
+            "name": name,
+            "targetDisplay": { "id": 7 },
+            "placement": {
+                "normalBounds": { "x": 900, "y": 600, "width": 100, "height": 100 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1000, "height": 700 },
+                "presentation": "normal"
+            }
+        }))
+        .unwrap()
+    }
+
     fn game_record(value: Value) -> StateGameRecord {
         serde_json::from_value(value).unwrap()
     }
@@ -2499,58 +2747,100 @@ mod tests {
     }
 
     #[test]
-    fn keeps_workspace_target_when_fingerprint_match_is_missing_or_ambiguous() {
-        let mut workspaces = Vec::new();
-        let target = json!({
-            "id":42,
-            "fingerprint":{
-                "label":"Expected Display",
-                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-                "resolution":{"width":1920,"height":1080},
-                "scaleFactor":1,
-                "isPrimary":true,
-                "isInternal":false
-            }
-        });
-        create_workspace(
-            &mut workspaces,
-            workspace_input(json!({"name":"Display","targetDisplay":target})),
-        )
-        .unwrap();
-        let original_target = serde_json::to_value(&workspaces[0].target_display).unwrap();
-
-        let missing_match: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([{
-            "id":7,"label":"Different Display",
-            "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-            "resolution":{"width":1920,"height":1080},
-            "scaleFactor":1,"isPrimary":true,"isInternal":false
-        }]))
-        .unwrap();
-        reconcile_workspace_displays(&mut workspaces, &missing_match).unwrap();
+    fn game_windows_normalize_geometry_enforce_limits_and_reject_role_conflicts() {
+        let mut windows = Vec::new();
+        let first = create_game_window(&mut windows, game_window_input("  Main  ")).unwrap();
+        assert_eq!(first.name, "Main");
+        assert_eq!(first.placement.normal_bounds.width, 640);
+        assert_eq!(first.placement.normal_bounds.height, 480);
+        assert_eq!(first.placement.normal_bounds.x, 360);
+        assert_eq!(first.placement.normal_bounds.y, 220);
         assert_eq!(
-            serde_json::to_value(&workspaces[0].target_display).unwrap(),
-            original_target
+            create_game_window(&mut windows, game_window_input("main"))
+                .unwrap_err()
+                .code(),
+            "GAME_WINDOW_NAME_DUPLICATE"
         );
 
-        let ambiguous_match: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([
-            {
-                "id":8,"label":"Expected Display",
-                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-                "resolution":{"width":1920,"height":1080},
-                "scaleFactor":1,"isPrimary":true,"isInternal":false
+        let second = create_game_window(&mut windows, game_window_input("Second")).unwrap();
+        let role_tab = |id: String| {
+            serde_json::from_value(json!({
+                "id": id,
+                "tabType": "role",
+                "sourceId": "role-1",
+                "name": "Role 1",
+                "roleIds": ["role-1"],
+                "hidden": false,
+                "audioMuted": false,
+                "roleViews": []
+            }))
+            .unwrap()
+        };
+        update_game_window(
+            &mut windows,
+            &first.id,
+            GameWindowUpdateInputRecord {
+                tabs: Some(vec![role_tab(Uuid::new_v4().to_string())]),
+                ..GameWindowUpdateInputRecord::default()
             },
-            {
-                "id":9,"label":"Expected Display",
-                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-                "resolution":{"width":1920,"height":1080},
-                "scaleFactor":1,"isPrimary":true,"isInternal":false
-            }
-        ]))
+        )
         .unwrap();
-        reconcile_workspace_displays(&mut workspaces, &ambiguous_match).unwrap();
         assert_eq!(
-            serde_json::to_value(&workspaces[0].target_display).unwrap(),
-            original_target
+            update_game_window(
+                &mut windows,
+                &second.id,
+                GameWindowUpdateInputRecord {
+                    tabs: Some(vec![role_tab(Uuid::new_v4().to_string())]),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "GAME_WINDOW_TAB_CONFLICT"
+        );
+
+        for number in 3..=32 {
+            create_game_window(&mut windows, game_window_input(&format!("Window {number}")))
+                .unwrap();
+        }
+        assert_eq!(
+            create_game_window(&mut windows, game_window_input("Window 33"))
+                .unwrap_err()
+                .code(),
+            "GAME_WINDOW_LIMIT_REACHED"
+        );
+
+        let mut tab_windows = Vec::new();
+        let tab_window =
+            create_game_window(&mut tab_windows, game_window_input("Tab limit")).unwrap();
+        let tabs = (0..257)
+            .map(|index| {
+                let role_id = format!("role-{index}");
+                serde_json::from_value(json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "tabType": "role",
+                    "sourceId": role_id,
+                    "name": format!("Role {index}"),
+                    "roleIds": [role_id],
+                    "hidden": false,
+                    "audioMuted": false,
+                    "roleViews": []
+                }))
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            update_game_window(
+                &mut tab_windows,
+                &tab_window.id,
+                GameWindowUpdateInputRecord {
+                    tabs: Some(tabs),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            )
+            .unwrap_err()
+            .code(),
+            "GAME_WINDOW_TAB_LIMIT_REACHED"
         );
     }
 
@@ -2680,7 +2970,7 @@ mod tests {
 
         let normalized = normalize_runtime_restore_session(session).unwrap();
 
-        assert_eq!(normalized.schema_version, 1);
+        assert_eq!(normalized.schema_version, 2);
         assert!(!normalized.clean_exit);
         assert_eq!(
             normalized.last_focused_window_id.as_deref(),
@@ -3747,88 +4037,6 @@ mod tests {
                 )
                 .is_err()
             );
-        });
-
-        crate::v1_case!("state-migration-82e2254438d6", {
-            let mut workspaces = Vec::new();
-            let target = json!({
-                "id":42,
-                "fingerprint":{
-                    "label":"Display",
-                    "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-                    "resolution":{"width":1920,"height":1080},
-                    "scaleFactor":1,
-                    "isPrimary":true,
-                    "isInternal":false
-                }
-            });
-            let created = create_workspace(
-                &mut workspaces,
-                workspace_input(json!({"name":"Display","targetDisplay":target})),
-            )
-            .unwrap();
-            assert_eq!(created.target_display.as_ref().unwrap().id, 42);
-            let cleared = update_workspace(
-                &mut workspaces,
-                &created.id,
-                serde_json::from_value(json!({
-                    "setTargetDisplay":true,"targetDisplay":null
-                }))
-                .unwrap(),
-            )
-            .unwrap();
-            assert!(cleared.target_display.is_none());
-            assert!(
-                create_workspace(
-                    &mut workspaces,
-                    workspace_input(json!({
-                        "name":"Invalid display","targetDisplay":{"id":-1}
-                    }))
-                )
-                .is_err()
-            );
-        });
-
-        crate::v1_case!("state-migration-b1ac59de22ad", {
-            let mut workspaces = Vec::new();
-            let created = create_workspace(
-                &mut workspaces,
-                workspace_input(json!({
-                    "name":"Legacy target","targetDisplay":{"id":7}
-                })),
-            )
-            .unwrap();
-            let original_updated_at = created.updated_at.clone();
-            let displays: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([{
-                "id":7,"label":"Display",
-                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-                "resolution":{"width":1920,"height":1080},
-                "scaleFactor":1,"isPrimary":true,"isInternal":false
-            }]))
-            .unwrap();
-            reconcile_workspace_displays(&mut workspaces, &displays).unwrap();
-            let fingerprint = workspaces[0]
-                .target_display
-                .as_ref()
-                .unwrap()
-                .fingerprint
-                .clone()
-                .unwrap();
-            assert_eq!(fingerprint.label, "Display");
-            let stable_updated_at = workspaces[0].updated_at.clone();
-            reconcile_workspace_displays(&mut workspaces, &displays).unwrap();
-            assert_eq!(workspaces[0].updated_at, stable_updated_at);
-            assert_eq!(workspaces[0].updated_at, original_updated_at);
-            let changed: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([{
-                "id":99,"label":"Display",
-                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
-                "resolution":{"width":1920,"height":1080},
-                "scaleFactor":1,"isPrimary":true,"isInternal":false
-            }]))
-            .unwrap();
-            reconcile_workspace_displays(&mut workspaces, &changed).unwrap();
-            assert_eq!(workspaces[0].target_display.as_ref().unwrap().id, 99);
-            assert_eq!(workspaces[0].updated_at, original_updated_at);
         });
 
         crate::v1_case!("state-migration-ebaa1c20914a", {

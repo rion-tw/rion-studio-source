@@ -5,11 +5,8 @@ import { formatBulkDeleteResult } from "../app/bulkDelete";
 import { mergeStatuses } from "../app/statusUtils";
 import type { WorkspaceFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
-import type { WorkspaceDisplaySelectionRequest } from "../features/workspaces/WorkspaceDisplayPickerDialog";
-import { runWorkspaceLaunch } from "../features/workspaces/workspaceLaunchUtils";
 import type { Translator } from "../i18n";
-import type { LaunchWorkspace, Role, RoleStatus, WorkspaceLaunchResult } from "../../../shared/types";
-import { cloneWorkspaceDisplayTarget } from "../../../shared/workspaceDisplays";
+import type { LaunchWorkspace, Role, RoleStatus } from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseWorkspaceWorkflowOptions {
@@ -35,9 +32,7 @@ export function useWorkspaceWorkflow({
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
   const { beginBusy, beginBusyMany, busyIds: busyWorkspaceIds } = useBusyIds();
   const [isReorderingWorkspaces, setIsReorderingWorkspaces] = useState(false);
-  const [displaySelectionRequest, setDisplaySelectionRequest] = useState<WorkspaceDisplaySelectionRequest | null>(null);
   const [query, setQuery] = useState("");
-  const displaySelectionResolverRef = useRef<((displayId: number | undefined) => void) | null>(null);
   const isReorderingWorkspacesRef = useRef(false);
   const isSavingWorkspaceRef = useRef(false);
   const launchInProgressRef = useRef(false);
@@ -59,7 +54,6 @@ export function useWorkspaceWorkflow({
         browserEngine: form.browserEngine,
         browserZoomMode: form.browserZoomMode,
         browserZoomPercent: form.browserZoomPercent,
-        targetDisplay: form.targetDisplay ?? null,
         slots: form.slots
       };
       const savedWorkspace = form.id
@@ -162,9 +156,6 @@ export function useWorkspaceWorkflow({
         browserEngine: workspace.browserEngine ?? "inherit",
         browserZoomMode: workspace.browserZoomMode,
         browserZoomPercent: workspace.browserZoomPercent,
-        targetDisplay: workspace.targetDisplay
-          ? cloneWorkspaceDisplayTarget(workspace.targetDisplay)
-          : null,
         slots: workspace.slots.map((slot) => ({
           ...slot,
           rect: { ...slot.rect }
@@ -215,10 +206,7 @@ export function useWorkspaceWorkflow({
     }
   }
 
-  async function handleLaunchWorkspace(
-    workspace: LaunchWorkspace,
-    initialResult?: Extract<WorkspaceLaunchResult, { kind: "display_selection_required" }>
-  ): Promise<void> {
+  async function handleLaunchWorkspace(workspace: LaunchWorkspace): Promise<void> {
     if (launchInProgressRef.current) {
       return;
     }
@@ -234,14 +222,27 @@ export function useWorkspaceWorkflow({
     setNotice?.(null);
 
     try {
-      const nextStatuses = await runWorkspaceLaunch({
-        initialResult,
-        launch: (input) => window.rionStudio.launchWorkspace(workspace.id, input),
-        selectDisplay: (result) => requestWorkspaceDisplaySelection(workspace, result)
-      });
-      if (!nextStatuses) {
-        return;
+      let result = await window.rionStudio.launchWorkspace(workspace.id);
+      if (result.kind === "conflict") {
+        const conflictSummary = result.conflicts
+          .map((conflict) => `${conflict.windowName}: ${conflict.roleNames.join(", ")}`)
+          .join("; ");
+        const accepted = await confirm({
+          title: t("workspaces.launchConflict.title"),
+          description: t("workspaces.launchConflict.description")
+            .replace("{conflicts}", conflictSummary),
+          cancelLabel: t("confirm.cancel"),
+          confirmLabel: t("workspaces.launchConflict.confirm"),
+          tone: "destructive"
+        });
+        if (!accepted) return;
+        result = await window.rionStudio.launchWorkspace(workspace.id, {
+          windowId: result.windowId,
+          stopConflicts: true
+        });
       }
+      if (result.kind !== "launched") return;
+      const nextStatuses = result.statuses;
 
       setStatuses((current) => mergeStatuses(current, nextStatuses));
       const notice = nextStatuses.find((status) => status.notice)?.notice;
@@ -261,31 +262,9 @@ export function useWorkspaceWorkflow({
         reportError(recoveryError);
       }
     } finally {
-      settleWorkspaceDisplaySelection(undefined);
       launchInProgressRef.current = false;
       finishBusy();
     }
-  }
-
-  function requestWorkspaceDisplaySelection(
-    workspace: LaunchWorkspace,
-    result: Extract<WorkspaceLaunchResult, { kind: "display_selection_required" }>
-  ): Promise<number | undefined> {
-    return new Promise((resolve) => {
-      displaySelectionResolverRef.current = resolve;
-      setDisplaySelectionRequest({
-        displays: result.displays,
-        reason: result.reason,
-        workspaceName: workspace.name
-      });
-    });
-  }
-
-  function settleWorkspaceDisplaySelection(displayId: number | undefined): void {
-    const resolve = displaySelectionResolverRef.current;
-    displaySelectionResolverRef.current = null;
-    setDisplaySelectionRequest(null);
-    resolve?.(displayId);
   }
 
   async function handleStopWorkspace(workspace: LaunchWorkspace): Promise<void> {
@@ -309,9 +288,6 @@ export function useWorkspaceWorkflow({
 
   return {
     busyWorkspaceIds,
-    displaySelectionRequest,
-    handleDisplaySelectionCancel: () => settleWorkspaceDisplaySelection(undefined),
-    handleDisplaySelectionSelect: (displayId: number) => settleWorkspaceDisplaySelection(displayId),
     handleCopyWorkspace,
     handleDeleteWorkspace,
     handleDeleteWorkspaces,

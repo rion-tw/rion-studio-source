@@ -13,9 +13,11 @@ use std::{
 use std::fs;
 
 use rion_core::{
-    AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
-    CoreEffectResult, CoreErrorPayload, CoreEvent, EmbeddedLaunchTargetRecord, StateCollection,
-    StatePixelBoundsRecord, WorkspaceDisplayInfoRecord, migrate_legacy_data_root,
+    AppCore, AppCoreOptions, CoreCommand, CoreEffectAction, CoreEffectResult, CoreErrorPayload,
+    CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord, EmbeddedLaunchTargetRecord,
+    GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
+    StateCollection, StateGameWindowRecord, StatePixelBoundsRecord, StateResolutionRecord,
+    migrate_legacy_data_root,
 };
 #[cfg(any(windows, target_os = "macos"))]
 use rusty_leveldb::{DB, Options};
@@ -107,7 +109,6 @@ struct CoreState {
     core: Arc<AppCore>,
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
-    pending_workspace_launch_request: Mutex<Option<Value>>,
     renderer_ready: Arc<AtomicBool>,
     runtime: Arc<SystemRuntimeExecutor>,
     updates: Arc<update_manager::UpdateManager>,
@@ -437,16 +438,16 @@ async fn rion_runtime_tab_action(
     state: State<'_, CoreState>,
     action: Value,
 ) -> Result<(), CoreErrorPayload> {
-    let display_id = state
+    let window_id = state
         .runtime
-        .tab_strip_display_for_webview(webview.label())
+        .tab_strip_window_for_webview(webview.label())
         .ok_or_else(|| {
             shell_error(
                 "TAURI_RUNTIME_CHROME_UNAUTHORIZED",
                 "Runtime tab actions are restricted to the local tab-strip WebView.",
             )
         })?;
-    runtime_tab_menu::handle_scoped_action(&app, &state, display_id, action)
+    runtime_tab_menu::handle_scoped_action(&app, &state, window_id, action)
         .await
         .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))
 }
@@ -494,7 +495,7 @@ fn safe_display_id(hash: u64) -> i64 {
     (hash % MAX_SAFE_INTEGER) as i64
 }
 
-fn workspace_displays(window: &WebviewWindow) -> Result<Value, CoreErrorPayload> {
+fn display_inventory(window: &WebviewWindow) -> Result<Value, CoreErrorPayload> {
     let primary = window
         .primary_monitor()
         .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
@@ -541,17 +542,6 @@ fn workspace_displays(window: &WebviewWindow) -> Result<Value, CoreErrorPayload>
     ))
 }
 
-fn removed_display_ids(runtime_ids: &[i64], available_ids: &HashSet<i64>) -> Vec<i64> {
-    let mut removed = runtime_ids
-        .iter()
-        .copied()
-        .filter(|id| !available_ids.contains(id))
-        .collect::<Vec<_>>();
-    removed.sort_unstable();
-    removed.dedup();
-    removed
-}
-
 fn start_display_watcher(app: AppHandle) -> Result<(), String> {
     thread::Builder::new()
         .name("rion-tauri-display-watcher".to_owned())
@@ -562,7 +552,7 @@ fn start_display_watcher(app: AppHandle) -> Result<(), String> {
                 let Some(window) = app.get_webview_window("main") else {
                     break;
                 };
-                let Ok(displays) = workspace_displays(&window) else {
+                let Ok(displays) = display_inventory(&window) else {
                     continue;
                 };
                 if previous.as_ref() == Some(&displays) {
@@ -571,7 +561,7 @@ fn start_display_watcher(app: AppHandle) -> Result<(), String> {
                 let Some(state) = app.try_state::<CoreState>() else {
                     break;
                 };
-                let records = match serde_json::from_value::<Vec<WorkspaceDisplayInfoRecord>>(
+                let records = match serde_json::from_value::<Vec<rion_core::DisplayInfoRecord>>(
                     displays.clone(),
                 ) {
                     Ok(records) => records,
@@ -590,50 +580,26 @@ fn start_display_watcher(app: AppHandle) -> Result<(), String> {
                     .iter()
                     .map(|display| display.id)
                     .collect::<HashSet<_>>();
-                let snapshot = state
-                    .core
-                    .invoke(CoreCommand::BrowserRuntimeSnapshot)
-                    .ok()
-                    .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok());
-                if let (Some(snapshot), Ok(fallback)) =
-                    (snapshot, workspace_launch_target(&window, None))
+                if let Ok(game_windows) =
+                    state
+                        .core
+                        .invoke(CoreCommand::GameWindowsList)
+                        .and_then(|value| {
+                            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                                .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
+                        })
                 {
-                    let runtime_ids = snapshot
-                        .displays
-                        .iter()
-                        .map(|display| display.display_id)
-                        .collect::<Vec<_>>();
-                    for display_id in removed_display_ids(&runtime_ids, &available_ids) {
-                        if display_id == fallback.display_id {
-                            continue;
-                        }
-                        if let Err(error) = state.core.invoke(CoreCommand::EmbeddedDisplayRemove {
-                            display_id,
-                            fallback: fallback.clone(),
-                        }) {
-                            let _ = app.emit(
-                                "rion://shell-error",
-                                json!({
-                                    "code": error.code(),
-                                    "message": error.to_string(),
-                                    "displayId": display_id
-                                }),
-                            );
+                    for game_window in game_windows.iter().filter(|game_window| {
+                        !available_ids.contains(&game_window.target_display.id)
+                    }) {
+                        if let Ok(target) = launch_target_for_game_window(&app, &game_window.id) {
+                            let _ = state.runtime.relocate_game_window(target);
                         }
                     }
                 }
-                if let Err(error) = state
-                    .core
-                    .invoke(CoreCommand::WorkspaceReconcileDisplays { displays: records })
-                {
-                    let _ = app.emit(
-                        "rion://shell-error",
-                        json!({ "code": error.code(), "message": error.to_string() }),
-                    );
-                }
                 let _ = state.runtime.persist_restore_session(false);
                 state.runtime.publish_projection();
-                let _ = app.emit("rion://workspace-displays", &displays);
+                let _ = app.emit("rion://displays", &displays);
                 previous = Some(displays);
             }
         })
@@ -673,10 +639,11 @@ fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, Core
         "games": snapshot["games"].clone(),
         "gameCompatibilityReports": snapshot["compatibilityReports"].clone(),
         "gameCompatibilityStatuses": compatibility_statuses,
+        "gameWindows": snapshot["gameWindows"].clone(),
         "roles": snapshot["roles"].clone(),
         "roleStatuses": role_statuses,
         "launchWorkspaces": snapshot["launchWorkspaces"].clone(),
-        "workspaceDisplays": workspace_displays(window)?,
+        "displays": display_inventory(window)?,
         "macros": snapshot["macros"].clone(),
         "macroStatuses": macro_statuses
     }))
@@ -738,113 +705,354 @@ async fn rion_shell_invoke(
             }
             app.restart();
         }
-        "workspaceDisplays" => workspace_displays(&window),
+        "displays" => display_inventory(&window),
         "launchRole" => {
             let role_id = string_argument(&args, 0, "Role ID")?;
-            let target = workspace_launch_target(&window, None)?;
+            let requested_window_id = args
+                .get(1)
+                .and_then(|value| value.get("windowId"))
+                .and_then(Value::as_str);
+            let target = game_window_launch_target(&app, &state, &window, requested_window_id)?;
+            let requested_window_id = target.window_id.clone();
             let statuses = Arc::clone(&state.core)
                 .invoke_async(CoreCommand::BrowserRoleLaunch {
-                    role_id,
+                    role_id: role_id.clone(),
                     target,
                     zoom_factor: None,
                 })
                 .await
                 .map_err(error_payload)?;
-            Ok(statuses
+            let status = statuses
                 .as_array()
                 .and_then(|statuses| statuses.first())
                 .cloned()
-                .unwrap_or(Value::Null))
+                .unwrap_or(Value::Null);
+            let runtime = state
+                .core
+                .invoke(CoreCommand::BrowserRuntimeSnapshot)
+                .map_err(error_payload)?;
+            let window_id = runtime["tabs"]
+                .as_array()
+                .and_then(|tabs| {
+                    tabs.iter()
+                        .find(|tab| tab["sourceId"].as_str() == Some(role_id.as_str()))
+                })
+                .and_then(|tab| tab["windowId"].as_str())
+                .unwrap_or(&requested_window_id);
+            Ok(json!({ "windowId": window_id, "status": status }))
         }
         "launchWorkspace" => {
             let workspace_id = string_argument(&args, 0, "Workspace ID")?;
-            let workspace_name = state
+            let input = args.get(1);
+            let requested_window_id = input
+                .and_then(|value| value.get("windowId"))
+                .and_then(Value::as_str);
+            let stop_conflicts = input
+                .and_then(|value| value.get("stopConflicts"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let target = game_window_launch_target(&app, &state, &window, requested_window_id)?;
+            let requested_window_id = target.window_id.clone();
+            let workspace = state
                 .core
-                .invoke(CoreCommand::WorkspacesList)
-                .ok()
-                .and_then(|value| value.as_array().cloned())
-                .and_then(|workspaces| {
-                    workspaces.into_iter().find_map(|workspace| {
-                        (workspace["id"].as_str() == Some(workspace_id.as_str()))
-                            .then(|| workspace["name"].as_str().map(str::to_owned))
-                            .flatten()
-                    })
+                .invoke(CoreCommand::WorkspaceGet {
+                    id: workspace_id.clone(),
                 })
-                .unwrap_or_else(|| workspace_id.clone());
-            let requested_display_id = args
-                .get(1)
-                .and_then(|value| value.get("displayId"))
-                .and_then(Value::as_i64);
-            let target = match workspace_launch_target(&window, requested_display_id) {
-                Ok(target) => target,
-                Err(_) => {
-                    let result = json!({
-                        "kind": "display_selection_required",
-                        "reason": "target_unavailable",
-                        "displays": workspace_displays(&window)?
-                    });
-                    if let Ok(mut pending) = state.pending_workspace_launch_request.lock() {
-                        *pending = Some(json!({
-                            "workspaceId": workspace_id,
-                            "workspaceName": workspace_name,
-                            "result": result
-                        }));
-                    }
-                    return Ok(result);
-                }
+                .map_err(error_payload)?;
+            let workspace_role_ids = workspace["slots"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|slot| slot["roleId"].as_str().map(str::to_owned))
+                .collect::<HashSet<_>>();
+            let runtime = invoke_core_sync(&state, json!({ "type": "browserRuntimeSnapshot" }))?;
+            let already_running = runtime["tabs"].as_array().is_some_and(|tabs| {
+                tabs.iter().any(|tab| {
+                    tab["tabType"].as_str() == Some("workspace")
+                        && tab["sourceId"].as_str() == Some(workspace_id.as_str())
+                })
+            });
+            let game_windows = state
+                .core
+                .invoke(CoreCommand::GameWindowsList)
+                .map_err(error_payload)?;
+            let roles = state
+                .core
+                .invoke(CoreCommand::RolesList)
+                .map_err(error_payload)?;
+            let conflicting_tabs = if already_running {
+                Vec::new()
+            } else {
+                runtime["tabs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|tab| {
+                        tab["roleIds"].as_array().is_some_and(|role_ids| {
+                            role_ids.iter().any(|role_id| {
+                                role_id
+                                    .as_str()
+                                    .is_some_and(|role_id| workspace_role_ids.contains(role_id))
+                            })
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
             };
-            let display_id = target.display_id;
+            if !conflicting_tabs.is_empty() && !stop_conflicts {
+                let conflicts = conflicting_tabs
+                    .iter()
+                    .map(|tab| {
+                        let role_ids = tab["roleIds"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .filter(|role_id| workspace_role_ids.contains(*role_id))
+                            .map(str::to_owned)
+                            .collect::<Vec<_>>();
+                        let role_names = role_ids
+                            .iter()
+                            .filter_map(|role_id| {
+                                roles.as_array()?.iter().find(|role| {
+                                    role["id"].as_str() == Some(role_id.as_str())
+                                })?["name"]
+                                    .as_str()
+                                    .map(str::to_owned)
+                            })
+                            .collect::<Vec<_>>();
+                        let source_window_id = tab["windowId"].as_str().unwrap_or_default();
+                        let window_name = game_windows
+                            .as_array()
+                            .and_then(|windows| {
+                                windows
+                                    .iter()
+                                    .find(|window| window["id"].as_str() == Some(source_window_id))
+                            })
+                            .and_then(|window| window["name"].as_str())
+                            .unwrap_or(source_window_id);
+                        json!({
+                            "roleIds": role_ids,
+                            "roleNames": role_names,
+                            "tabId": tab["id"],
+                            "tabName": tab["name"],
+                            "windowId": source_window_id,
+                            "windowName": window_name
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                return Ok(json!({
+                    "kind": "conflict",
+                    "windowId": requested_window_id,
+                    "conflicts": conflicts
+                }));
+            }
+            if stop_conflicts {
+                for tab in &conflicting_tabs {
+                    let Some(source_id) = tab["sourceId"].as_str() else {
+                        continue;
+                    };
+                    let command = if tab["tabType"].as_str() == Some("workspace") {
+                        CoreCommand::BrowserWorkspaceStop {
+                            workspace_id: source_id.to_owned(),
+                        }
+                    } else {
+                        CoreCommand::BrowserRoleStop {
+                            role_id: source_id.to_owned(),
+                        }
+                    };
+                    Arc::clone(&state.core)
+                        .invoke_async(command)
+                        .await
+                        .map_err(error_payload)?;
+                }
+            }
             let statuses = Arc::clone(&state.core)
                 .invoke_async(CoreCommand::BrowserWorkspaceLaunch {
-                    workspace_id,
+                    workspace_id: workspace_id.clone(),
                     target,
                 })
                 .await
                 .map_err(error_payload)?;
+            let runtime = state
+                .core
+                .invoke(CoreCommand::BrowserRuntimeSnapshot)
+                .map_err(error_payload)?;
+            let window_id = runtime["tabs"]
+                .as_array()
+                .and_then(|tabs| {
+                    tabs.iter()
+                        .find(|tab| tab["sourceId"].as_str() == Some(workspace_id.as_str()))
+                })
+                .and_then(|tab| tab["windowId"].as_str())
+                .unwrap_or(&requested_window_id);
             Ok(json!({
                 "kind": "launched",
-                "displayId": display_id,
+                "windowId": window_id,
                 "statuses": statuses
             }))
         }
-        "showEmbeddedRuntimeWindows" => {
-            let display_id = args.first().and_then(Value::as_i64);
+        "showGameWindow" => {
+            let window_id = string_argument(&args, 0, "Game window ID")?;
+            let target = launch_target_for_game_window(&app, &window_id)?;
             Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedWindowsShow { display_id })
+                .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
                 .await
                 .map_err(error_payload)
         }
-        "showEmbeddedRuntimeTab" => {
+        "updateGameWindow" => {
+            let window_id = string_argument(&args, 0, "Game window ID")?;
+            let input = args
+                .get(1)
+                .cloned()
+                .ok_or_else(|| {
+                    shell_error(
+                        "TAURI_SHELL_INPUT_INVALID",
+                        "Game window update input is required.",
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value::<GameWindowUpdateInputRecord>(value).map_err(|error| {
+                        shell_error("TAURI_SHELL_INPUT_INVALID", error.to_string())
+                    })
+                })?;
+            let should_relocate = input.target_display.is_some() || input.placement.is_some();
+            let updated = state
+                .core
+                .invoke(CoreCommand::GameWindowUpdate {
+                    id: window_id.clone(),
+                    input,
+                })
+                .map_err(error_payload)
+                .and_then(|value| {
+                    serde_json::from_value::<StateGameWindowRecord>(value).map_err(|error| {
+                        shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
+                    })
+                })?;
+            if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
+                runtime_window
+                    .set_title(&updated.name)
+                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+                if should_relocate {
+                    let target = launch_target_for_game_window(&app, &window_id)?;
+                    state
+                        .runtime
+                        .relocate_game_window(target)
+                        .map_err(|error| shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", error))?;
+                }
+            }
+            serde_json::to_value(updated)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        }
+        "closeGameWindow" => {
+            let window_id = string_argument(&args, 0, "Game window ID")?;
+            if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
+                runtime_window
+                    .hide()
+                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            }
+            state.runtime.publish_projection();
+            Ok(Value::Null)
+        }
+        "stopGameWindow" => {
+            let window_id = string_argument(&args, 0, "Game window ID")?;
+            stop_runtime_display(&state, &window_id).await
+        }
+        "deleteGameWindow" => {
+            let window_id = string_argument(&args, 0, "Game window ID")?;
+            stop_runtime_display(&state, &window_id).await?;
+            Arc::clone(&state.core)
+                .invoke_async(CoreCommand::EmbeddedWindowDelete {
+                    window_id: window_id.clone(),
+                })
+                .await
+                .map_err(error_payload)?;
+            Arc::clone(&state.core)
+                .invoke_async(CoreCommand::GameWindowDelete { id: window_id })
+                .await
+                .map_err(error_payload)
+        }
+        "showGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
             Arc::clone(&state.core)
                 .invoke_async(CoreCommand::EmbeddedTabActivate { tab_id })
                 .await
                 .map_err(error_payload)
         }
-        "moveEmbeddedRuntimeTab" => {
+        "moveGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            let display_id = args.get(1).and_then(Value::as_i64).ok_or_else(|| {
-                shell_error("TAURI_SHELL_INPUT_INVALID", "Display ID is required.")
-            })?;
-            let target = workspace_launch_target(&window, Some(display_id))?;
+            let window_id = string_argument(&args, 1, "Game window ID")?;
+            let target = launch_target_for_game_window(&app, &window_id)?;
             Arc::clone(&state.core)
                 .invoke_async(CoreCommand::EmbeddedTabMove { tab_id, target })
                 .await
                 .map_err(error_payload)
+        }
+        "moveGameWindowTabToNewWindow" => {
+            let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            let created = move_game_window_tab_to_new_window(&app, &state, &tab_id, None).await?;
+            serde_json::to_value(created)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        }
+        "setGameWindowTabMuted" => {
+            let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            let muted = args.get(1).and_then(Value::as_bool).ok_or_else(|| {
+                shell_error("TAURI_SHELL_INPUT_INVALID", "Muted state is required.")
+            })?;
+            state
+                .runtime
+                .set_tab_audio_muted(&tab_id, muted)
+                .map_err(|error| shell_error("TAURI_RUNTIME_AUDIO_FAILED", error))?;
+            Ok(Value::Null)
+        }
+        "setGameWindowTabHidden" => {
+            let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            let hidden = args.get(1).and_then(Value::as_bool).ok_or_else(|| {
+                shell_error("TAURI_SHELL_INPUT_INVALID", "Hidden state is required.")
+            })?;
+            let command = if hidden {
+                CoreCommand::EmbeddedTabHide { tab_id }
+            } else {
+                CoreCommand::EmbeddedTabActivate { tab_id }
+            };
+            Arc::clone(&state.core)
+                .invoke_async(command)
+                .await
+                .map_err(error_payload)
+        }
+        "stopGameWindowTab" => {
+            let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            let snapshot = invoke_core_sync(&state, json!({ "type": "browserRuntimeSnapshot" }))?;
+            let tab = snapshot["tabs"]
+                .as_array()
+                .and_then(|tabs| tabs.iter().find(|tab| tab["id"].as_str() == Some(&tab_id)))
+                .ok_or_else(|| {
+                    shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
+                })?;
+            let source_id = tab["sourceId"].as_str().ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_INVALID",
+                    "Runtime tab source is invalid.",
+                )
+            })?;
+            let command = if tab["tabType"].as_str() == Some("workspace") {
+                json!({ "type": "browserWorkspaceStop", "workspaceId": source_id })
+            } else {
+                json!({ "type": "browserRoleStop", "roleId": source_id })
+            };
+            invoke_core_async(&state, command).await
         }
         "restoreSavedGameWindows" => restore_saved_game_windows(&state, &window, &args).await,
         "autoRestoreSavedGameWindows" => {
             if !state.runtime.begin_auto_restore() {
                 return Ok(Value::Null);
             }
-            restore_saved_game_windows(&state, &window, &[json!({ "scope": "last-visible" })]).await
+            restore_saved_game_windows(&state, &window, &[json!({ "scope": "all" })]).await
         }
         "discardSavedGameWindows" => discard_saved_game_windows(&state, &args),
         "stopEmbeddedRuntimeWindow" => {
-            let display_id = args.first().and_then(Value::as_i64).ok_or_else(|| {
-                shell_error("TAURI_SHELL_INPUT_INVALID", "Display ID is required.")
-            })?;
-            stop_runtime_display(&state, display_id).await
+            let window_id = string_argument(&args, 0, "Game window ID")?;
+            stop_runtime_display(&state, &window_id).await
         }
         "embeddedRuntimeState" => embedded_runtime_state(&state),
         "runGameCompatibilityCheck" => {
@@ -873,6 +1081,39 @@ async fn rion_shell_invoke(
         }
         "exportPortableData" => export_portable_data(&state, &args).await,
         "previewPortableImport" => preview_portable_import(&state).await,
+        "applyPortableImport" => {
+            let input = args.first().cloned().ok_or_else(|| {
+                shell_error(
+                    "TAURI_SHELL_INPUT_INVALID",
+                    "Portable import input is required.",
+                )
+            })?;
+            let result = invoke_core_async(
+                &state,
+                json!({
+                    "type": "portableApply",
+                    "importId": input["importId"],
+                    "selection": input["selection"],
+                    "resolutions": input.get("resolutions").cloned().unwrap_or_else(|| json!([]))
+                }),
+            )
+            .await?;
+            if input["selection"]["gameWindows"].as_bool() == Some(true) {
+                let windows = state
+                    .core
+                    .invoke(CoreCommand::GameWindowsList)
+                    .map_err(error_payload)
+                    .and_then(|value| {
+                        serde_json::from_value::<Vec<StateGameWindowRecord>>(value).map_err(
+                            |error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()),
+                        )
+                    })?;
+                for game_window in windows {
+                    launch_target_for_game_window(&app, &game_window.id)?;
+                }
+            }
+            Ok(result)
+        }
         "previewChromeProfileImport" => preview_chrome_profile_import(&state).await,
         "getGraphicsDiagnostics" => graphics_diagnostics(&app, &state).await,
         "revealLogs" => reveal_logs(&state).await,
@@ -911,12 +1152,6 @@ async fn rion_shell_invoke(
                 .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))?;
             app.restart();
         }
-        "consumePendingWorkspaceLaunchRequest" => Ok(state
-            .pending_workspace_launch_request
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.take())
-            .unwrap_or(Value::Null)),
         "consumePendingMacroPageRequest" => Ok(state
             .runtime
             .take_macro_page_request()
@@ -950,6 +1185,10 @@ async fn export_portable_data(
     state: &CoreState,
     args: &[Value],
 ) -> Result<Value, CoreErrorPayload> {
+    state
+        .runtime
+        .persist_all_game_window_placements()
+        .map_err(|error| shell_error("TAURI_GAME_WINDOW_FLUSH_FAILED", error))?;
     let default_name = "rion-studio-export.json".to_owned();
     let path = tauri::async_runtime::spawn_blocking(move || {
         native_shell::save_file("Export Rion Studio JSON", &default_name, "json")
@@ -966,6 +1205,7 @@ async fn export_portable_data(
             "games": true,
             "roles": true,
             "launchWorkspaces": true,
+            "gameWindows": true,
             "macros": true,
             "preferences": true
         })
@@ -1080,7 +1320,7 @@ async fn export_diagnostics(
     let Some(path) = path else {
         return Ok(Value::Null);
     };
-    let displays = workspace_displays(window)?
+    let displays = display_inventory(window)?
         .as_array()
         .cloned()
         .unwrap_or_default()
@@ -1130,12 +1370,12 @@ fn runtime_versions(_app: &tauri::AppHandle, state: &CoreState) -> Result<Value,
 
 async fn stop_runtime_display(
     state: &CoreState,
-    display_id: i64,
+    window_id: &str,
 ) -> Result<Value, CoreErrorPayload> {
     let snapshot = invoke_core_sync(state, json!({ "type": "browserRuntimeSnapshot" }))?;
     let tabs = snapshot["tabs"].as_array().cloned().unwrap_or_default();
     for tab in tabs {
-        if tab["displayId"].as_i64() != Some(display_id) {
+        if tab["windowId"].as_str() != Some(window_id) {
             continue;
         }
         let source_id = tab["sourceId"].as_str().unwrap_or_default();
@@ -1170,119 +1410,252 @@ async fn restore_saved_game_windows(
             "Saved Game Window restore scope is invalid.",
         ));
     }
-    let mut session = invoke_core_sync(state, json!({ "type": "runtimeRestoreSessionGet" }))?;
-    let windows = session["windows"].as_array().cloned().unwrap_or_default();
-    let selected = windows
+    let game_windows = state
+        .core
+        .invoke(CoreCommand::GameWindowsList)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
+        })?;
+    let selected = game_windows
         .iter()
         .filter(|saved| match scope {
-            "window" => saved["id"].as_str() == input["windowId"].as_str(),
-            "last-visible" => saved["wasVisible"].as_bool() == Some(true),
-            _ => true,
+            "window" => Some(saved.id.as_str()) == input["windowId"].as_str(),
+            // Visibility is deliberately not duplicated in the lifecycle
+            // journal. Every permanent window reopens after a clean launch.
+            "last-visible" | "all" => true,
+            _ => false,
         })
         .cloned()
         .collect::<Vec<_>>();
+    let recovery_flow = state.runtime.recovery_required();
+    replace_restore_progress(
+        state,
+        selected.iter().map(|saved| saved.id.clone()).collect(),
+    )?;
     let mut restored_ids = Vec::new();
+    let mut failures = Vec::new();
     for saved in selected {
-        let requested_display = saved["targetDisplay"]["id"].as_i64();
-        let target = workspace_launch_target(window, requested_display)
-            .or_else(|_| workspace_launch_target(window, None))?;
-        let window_was_visible = saved["wasVisible"].as_bool() == Some(true);
-        for tab in saved["tabs"].as_array().cloned().unwrap_or_default() {
-            let source_id = tab["sourceId"].as_str().ok_or_else(|| {
-                shell_error(
-                    "TAURI_RESTORE_INVALID",
-                    "A saved Game Window tab is invalid.",
-                )
-            })?;
-            if tab["tabType"].as_str() == Some("workspace") {
+        let target = match launch_target_for_game_window(window.app_handle(), &saved.id) {
+            Ok(target) => target,
+            Err(error) => {
+                failures.push(json!({
+                    "windowId": saved.id,
+                    "code": error.code,
+                    "message": error.message
+                }));
+                continue;
+            }
+        };
+        let mut window_failed = false;
+        if saved.tabs.is_empty()
+            && let Err(error) = Arc::clone(&state.core)
+                .invoke_async(CoreCommand::EmbeddedWindowRegister {
+                    target: target.clone(),
+                })
+                .await
+        {
+            failures.push(json!({
+                "windowId": saved.id,
+                "code": "TAURI_RESTORE_WINDOW_FAILED",
+                "message": error.to_string()
+            }));
+            window_failed = true;
+        }
+        for tab in &saved.tabs {
+            let launch_result = if tab.tab_type == "workspace" {
                 invoke_core_async(
                     state,
                     json!({
                         "type": "browserWorkspaceLaunch",
-                        "workspaceId": source_id,
+                        "workspaceId": tab.source_id,
                         "target": target
                     }),
                 )
-                .await?;
+                .await
             } else {
                 invoke_core_async(
                     state,
                     json!({
                         "type": "browserRoleLaunch",
-                        "roleId": source_id,
+                        "roleId": tab.source_id,
                         "target": target
                     }),
                 )
-                .await?;
+                .await
+            };
+            if let Err(error) = launch_result {
+                failures.push(json!({
+                    "windowId": saved.id,
+                    "tabId": tab.id,
+                    "sourceId": tab.source_id,
+                    "code": error.code,
+                    "message": error.message
+                }));
+                window_failed = true;
             }
+
+            // A launch publishes a partial runtime snapshot. Reapply the full
+            // saved list until every tab is materialized so later tabs retain
+            // their stable IDs and a failed tab stays retryable.
+            state
+                .core
+                .invoke(CoreCommand::GameWindowUpdate {
+                    id: saved.id.clone(),
+                    input: rion_core::GameWindowUpdateInputRecord {
+                        tabs: Some(saved.tabs.clone()),
+                        active_tab_id: Some(saved.active_tab_id.clone()),
+                        ..rion_core::GameWindowUpdateInputRecord::default()
+                    },
+                })
+                .map_err(error_payload)?;
             let snapshot = invoke_core_sync(state, json!({ "type": "browserRuntimeSnapshot" }))?;
             let restored_tab_id = snapshot["tabs"]
                 .as_array()
                 .and_then(|tabs| {
                     tabs.iter()
-                        .find(|candidate| candidate["sourceId"].as_str() == Some(source_id))
+                        .find(|candidate| candidate["sourceId"].as_str() == Some(&tab.source_id))
                 })
                 .and_then(|candidate| candidate["id"].as_str())
                 .map(str::to_owned);
-            if tab["audioMuted"].as_bool() == Some(true) {
-                state
-                    .runtime
-                    .restore_tab_audio_muted(source_id, true)
-                    .map_err(|error| shell_error("TAURI_RESTORE_AUDIO_FAILED", error))?;
+            if tab.audio_muted
+                && let Err(error) = state.runtime.restore_tab_audio_muted(&tab.source_id, true)
+            {
+                failures.push(json!({
+                    "windowId": saved.id,
+                    "tabId": tab.id,
+                    "sourceId": tab.source_id,
+                    "code": "TAURI_RESTORE_AUDIO_FAILED",
+                    "message": error
+                }));
+                window_failed = true;
             }
-            if (tab["hidden"].as_bool() == Some(true) || !window_was_visible)
+            if tab.hidden
+                && saved.active_tab_id.as_deref() != Some(tab.id.as_str())
                 && let Some(tab_id) = restored_tab_id.as_deref()
+                && let Err(error) =
+                    invoke_core_async(state, json!({ "type": "embeddedTabHide", "tabId": tab_id }))
+                        .await
             {
-                invoke_core_async(state, json!({ "type": "embeddedTabHide", "tabId": tab_id }))
-                    .await?;
+                failures.push(json!({
+                    "windowId": saved.id,
+                    "tabId": tab.id,
+                    "sourceId": tab.source_id,
+                    "code": error.code,
+                    "message": error.message
+                }));
+                window_failed = true;
             }
         }
-        if window_was_visible && let Some(active_source_id) = saved["activeSourceId"].as_str() {
-            let snapshot = invoke_core_sync(state, json!({ "type": "browserRuntimeSnapshot" }))?;
-            if let Some(tab_id) = snapshot["tabs"]
-                .as_array()
-                .and_then(|tabs| {
-                    tabs.iter()
-                        .find(|candidate| candidate["sourceId"].as_str() == Some(active_source_id))
-                })
-                .and_then(|candidate| candidate["id"].as_str())
-            {
-                invoke_core_async(
-                    state,
-                    json!({ "type": "embeddedTabActivate", "tabId": tab_id }),
-                )
-                .await?;
-            }
+        if let Some(active_tab_id) = saved.active_tab_id.as_deref()
+            && let Err(error) = invoke_core_async(
+                state,
+                json!({ "type": "embeddedTabActivate", "tabId": active_tab_id }),
+            )
+            .await
+        {
+            failures.push(json!({
+                "windowId": saved.id,
+                "tabId": active_tab_id,
+                "code": error.code,
+                "message": error.message
+            }));
+            window_failed = true;
         }
-        if let Some(id) = saved["id"].as_str() {
-            restored_ids.push(id.to_owned());
+        if !window_failed {
+            restored_ids.push(saved.id.clone());
         }
     }
-    if let Some(stored_windows) = session["windows"].as_array_mut() {
-        stored_windows.retain(|saved| {
-            saved["id"]
-                .as_str()
-                .is_none_or(|id| !restored_ids.iter().any(|restored| restored == id))
-        });
-    }
-    session["updatedAt"] = Value::String(chrono::Utc::now().to_rfc3339());
-    session["cleanExit"] = Value::Bool(false);
-    let dormant_windows = serde_json::from_value::<Vec<rion_core::RuntimeRestoreWindowRecord>>(
-        session["windows"].clone(),
-    )
-    .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))?;
-    invoke_core_sync(
-        state,
-        json!({ "type": "runtimeRestoreSessionReplace", "session": session }),
-    )?;
-    state
-        .runtime
-        .replace_dormant_windows(dormant_windows, false);
+    let remaining_windows = game_windows
+        .iter()
+        .filter(|saved| {
+            !saved.tabs.is_empty() && !restored_ids.iter().any(|restored| restored == &saved.id)
+        })
+        .map(game_window_restore_record)
+        .collect::<Vec<_>>();
+    let focus_window_id = state
+        .core
+        .invoke(CoreCommand::RuntimeRestoreSessionGet)
+        .ok()
+        .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned))
+        .filter(|window_id| restored_ids.contains(window_id))
+        .or_else(|| restored_ids.last().cloned());
+    replace_restore_progress(state, Vec::new())?;
+    state.runtime.replace_dormant_windows(
+        remaining_windows.clone(),
+        recovery_flow && !remaining_windows.is_empty(),
+    );
     state
         .runtime
         .persist_restore_session(false)
         .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
-    Ok(Value::Null)
+    if let Some(window_id) = focus_window_id {
+        Arc::clone(&state.core)
+            .invoke_async(CoreCommand::EmbeddedWindowsShow {
+                window_id: Some(window_id),
+            })
+            .await
+            .map_err(error_payload)?;
+    }
+    Ok(json!({
+        "restoredWindowIds": restored_ids,
+        "failures": failures
+    }))
+}
+
+fn game_window_restore_record(
+    window: &StateGameWindowRecord,
+) -> rion_core::RuntimeRestoreWindowRecord {
+    let active_source_id = window.active_tab_id.as_ref().and_then(|active_tab_id| {
+        window
+            .tabs
+            .iter()
+            .find(|tab| &tab.id == active_tab_id)
+            .map(|tab| tab.source_id.clone())
+    });
+    rion_core::RuntimeRestoreWindowRecord {
+        id: window.id.clone(),
+        target_display: window.target_display.clone(),
+        was_visible: true,
+        active_source_id,
+        tabs: window
+            .tabs
+            .iter()
+            .map(|tab| rion_core::RuntimeRestoreTabRecord {
+                tab_type: tab.tab_type.clone(),
+                source_id: tab.source_id.clone(),
+                name: tab.name.clone(),
+                role_ids: tab.role_ids.clone(),
+                hidden: tab.hidden,
+                audio_muted: tab.audio_muted,
+            })
+            .collect(),
+    }
+}
+
+fn replace_restore_progress(
+    state: &CoreState,
+    window_ids: Vec<String>,
+) -> Result<(), CoreErrorPayload> {
+    let mut session = state
+        .core
+        .invoke(CoreCommand::RuntimeRestoreSessionGet)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<rion_core::RuntimeRestoreSessionRecord>(value)
+                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
+        })?;
+    session.schema_version = 2;
+    session.updated_at = chrono::Utc::now().to_rfc3339();
+    session.clean_exit = false;
+    session.restore_in_progress_window_ids = window_ids;
+    session.windows.clear();
+    state
+        .core
+        .invoke(CoreCommand::RuntimeRestoreSessionReplace { session })
+        .map(|_| ())
+        .map_err(error_payload)
 }
 
 fn discard_saved_game_windows(
@@ -1305,38 +1678,59 @@ fn discard_saved_game_windows(
             "Saved Game Window discard scope is invalid.",
         ));
     }
-    let mut session = invoke_core_sync(state, json!({ "type": "runtimeRestoreSessionGet" }))?;
-    if scope == "all" {
-        session["windows"] = Value::Array(Vec::new());
-    } else {
-        let window_id = input["windowId"].as_str().ok_or_else(|| {
+    let requested_window_id = if scope == "window" {
+        Some(input["windowId"].as_str().ok_or_else(|| {
             shell_error(
                 "TAURI_SHELL_INPUT_INVALID",
                 "Saved Game Window ID is required.",
             )
+        })?)
+    } else {
+        None
+    };
+    let game_windows = state
+        .core
+        .invoke(CoreCommand::GameWindowsList)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
         })?;
-        if let Some(windows) = session["windows"].as_array_mut() {
-            windows.retain(|saved| saved["id"].as_str() != Some(window_id));
-        }
+    let selected = game_windows
+        .iter()
+        .filter(|window| requested_window_id.is_none_or(|id| id == window.id))
+        .collect::<Vec<_>>();
+    for window in &selected {
+        state
+            .core
+            .invoke(CoreCommand::GameWindowUpdate {
+                id: window.id.clone(),
+                input: rion_core::GameWindowUpdateInputRecord {
+                    tabs: Some(Vec::new()),
+                    active_tab_id: Some(None),
+                    ..rion_core::GameWindowUpdateInputRecord::default()
+                },
+            })
+            .map_err(error_payload)?;
     }
-    session["updatedAt"] = Value::String(chrono::Utc::now().to_rfc3339());
-    session["cleanExit"] = Value::Bool(false);
-    let dormant_windows = serde_json::from_value::<Vec<rion_core::RuntimeRestoreWindowRecord>>(
-        session["windows"].clone(),
-    )
-    .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))?;
-    invoke_core_sync(
-        state,
-        json!({ "type": "runtimeRestoreSessionReplace", "session": session }),
-    )?;
+    replace_restore_progress(state, Vec::new())?;
+    let remaining_windows = game_windows
+        .iter()
+        .filter(|window| {
+            !window.tabs.is_empty() && !selected.iter().any(|item| item.id == window.id)
+        })
+        .map(game_window_restore_record)
+        .collect::<Vec<_>>();
     state
         .runtime
-        .replace_dormant_windows(dormant_windows, false);
+        .replace_dormant_windows(remaining_windows, false);
     state
         .runtime
         .persist_restore_session(false)
         .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
-    Ok(Value::Null)
+    Ok(json!({
+        "discardedWindowIds": selected.iter().map(|window| window.id.clone()).collect::<Vec<_>>()
+    }))
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -1419,16 +1813,6 @@ async fn run_runtime_restore_attestation(
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "The Tauri main window is unavailable.".to_owned())?;
-    if matches!(request.stage.as_str(), "seed" | "restore") {
-        let displays = workspace_displays(&window)
-            .map_err(|error| format!("{}: {}", error.code, error.message))?;
-        let records = serde_json::from_value::<Vec<WorkspaceDisplayInfoRecord>>(displays)
-            .map_err(|error| error.to_string())?;
-        state
-            .core
-            .invoke(CoreCommand::WorkspaceReconcileDisplays { displays: records })
-            .map_err(|error| format!("{}: {}", error.code(), error))?;
-    }
     match request.stage.as_str() {
         "seed" => {
             let games = invoke_core_sync(&state, json!({ "type": "gamesList" }))
@@ -1454,7 +1838,7 @@ async fn run_runtime_restore_attestation(
                 .as_str()
                 .ok_or_else(|| "The restore attestation role has no ID.".to_owned())?
                 .to_owned();
-            let target = workspace_launch_target(&window, None)
+            let target = default_display_launch_target(&window, None)
                 .map_err(|error| format!("{}: {}", error.code, error.message))?;
             let available_display_id = target.display_id;
             let synthetic_display_id = if available_display_id == -9_999 {
@@ -1462,9 +1846,32 @@ async fn run_runtime_restore_attestation(
             } else {
                 -9_999
             };
+            let created_window = invoke_core_sync(
+                &state,
+                json!({
+                    "type": "gameWindowCreate",
+                    "input": {
+                        "name": "Runtime restore attestation window",
+                        "targetDisplay": { "id": synthetic_display_id },
+                        "placement": {
+                            "normalBounds": target.bounds,
+                            "savedWorkArea": target.work_area,
+                            "presentation": "normal"
+                        }
+                    }
+                }),
+            )
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let game_window_id = created_window["id"]
+                .as_str()
+                .ok_or_else(|| "The restore attestation Game Window has no ID.".to_owned())?
+                .to_owned();
             let synthetic_target = EmbeddedLaunchTargetRecord {
+                window_id: game_window_id.clone(),
                 display_id: synthetic_display_id,
                 work_area: target.work_area.clone(),
+                bounds: target.bounds.clone(),
+                presentation: "normal".to_owned(),
             };
             invoke_core_async(
                 &state,
@@ -1476,27 +1883,41 @@ async fn run_runtime_restore_attestation(
             )
             .await
             .map_err(|error| format!("{}: {}", error.code, error.message))?;
-            invoke_core_async(
+            let fallback = EmbeddedLaunchTargetRecord {
+                window_id: game_window_id.clone(),
+                ..target.clone()
+            };
+            state.runtime.relocate_game_window(fallback.clone())?;
+            invoke_core_sync(
                 &state,
                 json!({
-                    "type": "embeddedDisplayRemove",
-                    "displayId": synthetic_display_id,
-                    "fallback": target
+                    "type": "gameWindowUpdate",
+                    "id": game_window_id,
+                    "input": {
+                        "targetDisplay": { "id": available_display_id },
+                        "placement": {
+                            "normalBounds": fallback.bounds,
+                            "savedWorkArea": fallback.work_area,
+                            "presentation": "normal"
+                        }
+                    }
                 }),
             )
-            .await
             .map_err(|error| format!("{}: {}", error.code, error.message))?;
-            let hotplug_snapshot =
-                invoke_core_sync(&state, json!({ "type": "browserRuntimeSnapshot" }))
-                    .map_err(|error| format!("{}: {}", error.code, error.message))?;
-            if hotplug_snapshot["tabs"]
+            let hotplug_projection = embedded_runtime_state(&state)
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            if hotplug_projection["windows"]
                 .as_array()
-                .and_then(|tabs| tabs.first())
-                .and_then(|tab| tab["displayId"].as_i64())
+                .and_then(|windows| {
+                    windows
+                        .iter()
+                        .find(|window| window["windowId"].as_str() == Some(game_window_id.as_str()))
+                })
+                .and_then(|window| window["displayId"].as_i64())
                 != Some(available_display_id)
             {
                 return Err(format!(
-                    "The synthetic display removal did not move the live System WebView to the fallback display: {hotplug_snapshot}."
+                    "The synthetic display removal did not move the live Game Window to the fallback display: {hotplug_projection}."
                 ));
             }
             let stored = state.runtime.evaluate_role_for_attestation(
@@ -1509,28 +1930,35 @@ async fn run_runtime_restore_attestation(
                 ));
             }
             state.runtime.persist_restore_session(false)?;
-            let mut session =
-                invoke_core_sync(&state, json!({ "type": "runtimeRestoreSessionGet" }))
-                    .map_err(|error| format!("{}: {}", error.code, error.message))?;
             // -1 is a reserved "no display" sentinel in the shared domain.
             let unavailable_display_id = if available_display_id == -2 { -3 } else { -2 };
-            let saved_target = session["windows"]
-                .as_array_mut()
-                .and_then(|windows| windows.first_mut())
-                .and_then(|window| window["targetDisplay"].as_object_mut())
-                .ok_or_else(|| {
-                    "The restore attestation could not locate its saved display target.".to_owned()
-                })?;
-            saved_target.insert("id".to_owned(), json!(unavailable_display_id));
             invoke_core_sync(
                 &state,
-                json!({ "type": "runtimeRestoreSessionReplace", "session": session }),
+                json!({
+                    "type": "gameWindowUpdate",
+                    "id": game_window_id,
+                    "input": { "targetDisplay": { "id": unavailable_display_id } }
+                }),
             )
             .map_err(|error| format!("{}: {}", error.code, error.message))?;
             let session = invoke_core_sync(&state, json!({ "type": "runtimeRestoreSessionGet" }))
                 .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let game_windows = invoke_core_sync(&state, json!({ "type": "gameWindowsList" }))
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
             let runtime = state.runtime.restore_state_for_attestation()?;
-            let saved_window_count = session["windows"].as_array().map(Vec::len).unwrap_or(0);
+            let saved_window_count = game_windows
+                .as_array()
+                .map(|windows| {
+                    windows
+                        .iter()
+                        .filter(|window| {
+                            window["tabs"]
+                                .as_array()
+                                .is_some_and(|tabs| !tabs.is_empty())
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
             if session["cleanExit"].as_bool() != Some(false)
                 || saved_window_count == 0
                 || runtime["liveTabCount"].as_u64() != Some(1)
@@ -1555,22 +1983,29 @@ async fn run_runtime_restore_attestation(
             let session_before =
                 invoke_core_sync(&state, json!({ "type": "runtimeRestoreSessionGet" }))
                     .map_err(|error| format!("{}: {}", error.code, error.message))?;
-            let role_id = session_before["windows"]
+            let game_windows_before =
+                invoke_core_sync(&state, json!({ "type": "gameWindowsList" }))
+                    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let saved_window = game_windows_before
                 .as_array()
                 .and_then(|windows| windows.first())
-                .and_then(|window| window["tabs"].as_array())
+                .ok_or_else(|| "The unclean restore has no persistent Game Window.".to_owned())?;
+            let game_window_id = saved_window["id"]
+                .as_str()
+                .ok_or_else(|| "The unclean restore Game Window has no ID.".to_owned())?
+                .to_owned();
+            let role_id = saved_window["tabs"]
+                .as_array()
                 .and_then(|tabs| tabs.first())
                 .and_then(|tab| tab["roleIds"].as_array())
                 .and_then(|roles| roles.first())
                 .and_then(Value::as_str)
                 .ok_or_else(|| "The unclean restore session has no role ID.".to_owned())?
                 .to_owned();
-            let saved_target_display_id = session_before["windows"]
-                .as_array()
-                .and_then(|windows| windows.first())
-                .and_then(|window| window["targetDisplay"]["id"].as_i64())
+            let saved_target_display_id = saved_window["targetDisplay"]["id"]
+                .as_i64()
                 .ok_or_else(|| "The unclean restore session has no display ID.".to_owned())?;
-            let current_display_id = workspace_launch_target(&window, None)
+            let current_display_id = default_display_launch_target(&window, None)
                 .map_err(|error| format!("{}: {}", error.code, error.message))?
                 .display_id;
             if saved_target_display_id == current_display_id {
@@ -1579,16 +2014,26 @@ async fn run_runtime_restore_attestation(
                 );
             }
             let runtime_before = state.runtime.restore_state_for_attestation()?;
-            if runtime_before["recoveryRequired"].as_bool() != Some(true)
+            if session_before["cleanExit"].as_bool() != Some(false)
+                || runtime_before["recoveryRequired"].as_bool() != Some(true)
                 || runtime_before["dormantWindowCount"].as_u64() == Some(0)
             {
                 return Err(format!(
                     "The second process did not classify the saved session as unclean: {runtime_before}."
                 ));
             }
-            restore_saved_game_windows(&state, &window, &[json!({ "scope": "all" })])
-                .await
-                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let restore_result =
+                restore_saved_game_windows(&state, &window, &[json!({ "scope": "all" })])
+                    .await
+                    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            if restore_result["failures"]
+                .as_array()
+                .is_some_and(|failures| !failures.is_empty())
+            {
+                return Err(format!(
+                    "The restore attestation could not launch every saved tab: {restore_result}."
+                ));
+            }
             let stored = state.runtime.evaluate_role_for_attestation(
                 &role_id,
                 "JSON.stringify({ value: localStorage.getItem('rion-runtime-restore-attestation') })",
@@ -1597,16 +2042,31 @@ async fn run_runtime_restore_attestation(
                 invoke_core_sync(&state, json!({ "type": "runtimeRestoreSessionGet" }))
                     .map_err(|error| format!("{}: {}", error.code, error.message))?;
             let runtime_after = state.runtime.restore_state_for_attestation()?;
-            let restored_display_id =
-                invoke_core_sync(&state, json!({ "type": "browserRuntimeSnapshot" }))
-                    .map_err(|error| format!("{}: {}", error.code, error.message))?["tabs"]
-                    .as_array()
-                    .and_then(|tabs| tabs.first())
-                    .and_then(|tab| tab["displayId"].as_i64())
-                    .ok_or_else(|| "The restored runtime has no display target.".to_owned())?;
-            let persisted_window_count = session_after["windows"]
+            let restored_projection = embedded_runtime_state(&state)
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let restored_display_id = restored_projection["windows"]
                 .as_array()
-                .map(Vec::len)
+                .and_then(|windows| {
+                    windows
+                        .iter()
+                        .find(|window| window["windowId"].as_str() == Some(game_window_id.as_str()))
+                })
+                .and_then(|window| window["displayId"].as_i64())
+                .ok_or_else(|| "The restored Game Window has no display target.".to_owned())?;
+            let persisted_windows = invoke_core_sync(&state, json!({ "type": "gameWindowsList" }))
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let persisted_window_count = persisted_windows
+                .as_array()
+                .map(|windows| {
+                    windows
+                        .iter()
+                        .filter(|window| {
+                            window["tabs"]
+                                .as_array()
+                                .is_some_and(|tabs| !tabs.is_empty())
+                        })
+                        .count()
+                })
                 .unwrap_or(0);
             if stored["value"] != json!("seeded")
                 || persisted_window_count != 1
@@ -1717,7 +2177,7 @@ async fn run_macro_game_attestation(
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "The Tauri main window is unavailable.".to_owned())?;
-    let target = workspace_launch_target(&window, None)
+    let target = default_display_launch_target(&window, None)
         .map_err(|error| format!("{}: {}", error.code, error.message))?;
     let game = invoke_core_sync(
         &state,
@@ -2134,7 +2594,7 @@ async fn run_session_import_attestation(
             let window = app
                 .get_webview_window("main")
                 .ok_or_else(|| "The Tauri main window is unavailable.".to_owned())?;
-            let target = workspace_launch_target(&window, None)
+            let target = default_display_launch_target(&window, None)
                 .map_err(|error| format!("{}: {}", error.code, error.message))?;
             invoke_core_async(
                 &state,
@@ -2501,7 +2961,139 @@ fn string_argument(args: &[Value], index: usize, label: &str) -> Result<String, 
         .ok_or_else(|| shell_error("TAURI_SHELL_INPUT_INVALID", format!("{label} is required.")))
 }
 
-fn workspace_launch_target(
+pub(crate) fn game_window_launch_target(
+    app: &AppHandle,
+    state: &CoreState,
+    main_window: &WebviewWindow,
+    requested_window_id: Option<&str>,
+) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
+    game_window_launch_target_internal(app, state, main_window, requested_window_id, false)
+}
+
+pub(crate) fn new_game_window_launch_target(
+    app: &AppHandle,
+    state: &CoreState,
+    main_window: &WebviewWindow,
+) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
+    game_window_launch_target_internal(app, state, main_window, None, true)
+}
+
+fn game_window_launch_target_internal(
+    app: &AppHandle,
+    state: &CoreState,
+    main_window: &WebviewWindow,
+    requested_window_id: Option<&str>,
+    force_new: bool,
+) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
+    let mut game_windows = state
+        .core
+        .invoke(CoreCommand::GameWindowsList)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })?;
+    let last_focused = state
+        .core
+        .invoke(CoreCommand::RuntimeRestoreSessionGet)
+        .ok()
+        .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned));
+    let selected_id = (!force_new)
+        .then(|| {
+            requested_window_id
+                .filter(|id| game_windows.iter().any(|window| window.id == *id))
+                .map(str::to_owned)
+                .or_else(|| {
+                    last_focused.filter(|id| game_windows.iter().any(|window| &window.id == id))
+                })
+                .or_else(|| game_windows.first().map(|window| window.id.clone()))
+        })
+        .flatten();
+    let selected_id = if let Some(id) = selected_id {
+        id
+    } else {
+        let base_target = default_display_launch_target(main_window, None)?;
+        let display_id = base_target.display_id;
+        let work_area = base_target.work_area;
+        let existing_on_display = game_windows
+            .iter()
+            .filter(|window| window.target_display.id == display_id)
+            .count() as i32;
+        let width = if work_area.width >= 960 {
+            ((work_area.width as f64 * 0.8).round() as i32).max(960)
+        } else {
+            work_area.width
+        }
+        .min(work_area.width)
+        .max(640.min(work_area.width));
+        let height = if work_area.height >= 640 {
+            ((work_area.height as f64 * 0.8).round() as i32).max(640)
+        } else {
+            work_area.height
+        }
+        .min(work_area.height)
+        .max(480.min(work_area.height));
+        let cascade = (existing_on_display * 24).min(240);
+        let max_x = work_area.x + (work_area.width - width).max(0);
+        let max_y = work_area.y + (work_area.height - height).max(0);
+        let x = (work_area.x + (work_area.width - width) / 2 + cascade).min(max_x);
+        let y = (work_area.y + (work_area.height - height) / 2 + cascade).min(max_y);
+        let language = state
+            .menu_language
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        let name = next_game_window_name(&game_windows, &language);
+        let primary_id = app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(monitor_id);
+        let target_display = app
+            .available_monitors()
+            .ok()
+            .and_then(|monitors| {
+                monitors
+                    .into_iter()
+                    .find(|monitor| monitor_id(monitor) == display_id)
+            })
+            .map(|monitor| display_target_and_work_area(&monitor, primary_id).0)
+            .unwrap_or(DisplayTargetRecord {
+                id: display_id,
+                fingerprint: None,
+            });
+        let created = state
+            .core
+            .invoke(CoreCommand::GameWindowCreate {
+                input: GameWindowCreateInputRecord {
+                    name,
+                    target_display,
+                    placement: GameWindowPlacementRecord {
+                        normal_bounds: StatePixelBoundsRecord {
+                            x,
+                            y,
+                            width,
+                            height,
+                        },
+                        saved_work_area: work_area,
+                        presentation: "normal".to_owned(),
+                    },
+                },
+            })
+            .map_err(error_payload)
+            .and_then(|value| {
+                serde_json::from_value::<StateGameWindowRecord>(value)
+                    .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+            })?;
+        let id = created.id.clone();
+        game_windows.push(created);
+        id
+    };
+    launch_target_for_game_window(app, &selected_id)
+}
+
+fn default_display_launch_target(
     window: &WebviewWindow,
     requested_display_id: Option<i64>,
 ) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
@@ -2524,6 +3116,7 @@ fn workspace_launch_target(
     let scale_factor = monitor.scale_factor();
     let work_area = monitor.work_area();
     Ok(EmbeddedLaunchTargetRecord {
+        window_id: uuid::Uuid::new_v4().to_string(),
         display_id: monitor_id(&monitor),
         work_area: StatePixelBoundsRecord {
             x: (work_area.position.x as f64 / scale_factor).round() as i32,
@@ -2531,30 +3124,426 @@ fn workspace_launch_target(
             width: (work_area.size.width as f64 / scale_factor).round() as i32,
             height: (work_area.size.height as f64 / scale_factor).round() as i32,
         },
+        bounds: StatePixelBoundsRecord {
+            x: (work_area.position.x as f64 / scale_factor).round() as i32,
+            y: (work_area.position.y as f64 / scale_factor).round() as i32,
+            width: (work_area.size.width as f64 / scale_factor).round() as i32,
+            height: (work_area.size.height as f64 / scale_factor).round() as i32,
+        },
+        presentation: "normal".to_owned(),
     })
 }
 
-pub(crate) fn launch_target_for_app_display(
-    app: &AppHandle,
-    display_id: i64,
-) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
-    let monitor = app
-        .available_monitors()
-        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?
-        .into_iter()
-        .find(|monitor| monitor_id(monitor) == display_id)
-        .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
+fn embedded_target_for_monitor(monitor: &tauri::Monitor) -> EmbeddedLaunchTargetRecord {
     let scale_factor = monitor.scale_factor();
     let work_area = monitor.work_area();
-    Ok(EmbeddedLaunchTargetRecord {
-        display_id: monitor_id(&monitor),
+    EmbeddedLaunchTargetRecord {
+        window_id: uuid::Uuid::new_v4().to_string(),
+        display_id: monitor_id(monitor),
         work_area: StatePixelBoundsRecord {
             x: (work_area.position.x as f64 / scale_factor).round() as i32,
             y: (work_area.position.y as f64 / scale_factor).round() as i32,
             width: (work_area.size.width as f64 / scale_factor).round() as i32,
             height: (work_area.size.height as f64 / scale_factor).round() as i32,
         },
-    })
+        bounds: StatePixelBoundsRecord {
+            x: (work_area.position.x as f64 / scale_factor).round() as i32,
+            y: (work_area.position.y as f64 / scale_factor).round() as i32,
+            width: (work_area.size.width as f64 / scale_factor).round() as i32,
+            height: (work_area.size.height as f64 / scale_factor).round() as i32,
+        },
+        presentation: "normal".to_owned(),
+    }
+}
+
+pub(crate) fn launch_target_for_game_window(
+    app: &AppHandle,
+    window_id: &str,
+) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
+    let state = app
+        .try_state::<CoreState>()
+        .ok_or_else(|| shell_error("SHELL_STATE_UNAVAILABLE", "App state is unavailable."))?;
+    let record = state
+        .core
+        .invoke(CoreCommand::GameWindowGet {
+            id: window_id.to_owned(),
+        })
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<StateGameWindowRecord>(value)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })?;
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
+    let primary_monitor = app
+        .primary_monitor()
+        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
+    let primary_id = primary_monitor.as_ref().map(monitor_id);
+    let current_monitor = app
+        .get_webview_window("main")
+        .and_then(|window| window.current_monitor().ok().flatten());
+    let exact = monitors.iter().find(|monitor| {
+        monitor_id(monitor) == record.target_display.id
+            && record
+                .target_display
+                .fingerprint
+                .as_ref()
+                .is_none_or(|saved| {
+                    display_fingerprint_matches(
+                        saved,
+                        &display_target_and_work_area(monitor, primary_id)
+                            .0
+                            .fingerprint
+                            .expect("native monitor targets include fingerprints"),
+                    )
+                })
+    });
+    let selected = exact
+        .cloned()
+        .or_else(|| {
+            record
+                .target_display
+                .fingerprint
+                .as_ref()
+                .and_then(|saved| {
+                    monitors
+                        .iter()
+                        .max_by_key(|monitor| {
+                            let current = display_target_and_work_area(monitor, primary_id)
+                                .0
+                                .fingerprint
+                                .expect("native monitor targets include fingerprints");
+                            display_fingerprint_score(saved, &current)
+                        })
+                        .cloned()
+                })
+        })
+        .or_else(|| {
+            monitors
+                .iter()
+                .find(|monitor| primary_id == Some(monitor_id(monitor)))
+                .cloned()
+        })
+        .or(primary_monitor)
+        .or(current_monitor)
+        .or_else(|| monitors.first().cloned())
+        .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
+    let remapped = exact.is_none();
+    let mut target = embedded_target_for_monitor(&selected);
+    target.window_id = window_id.to_owned();
+    target.presentation = record.placement.presentation.clone();
+    if remapped {
+        target.bounds = remap_window_bounds(
+            &record.placement.normal_bounds,
+            &record.placement.saved_work_area,
+            &target.work_area,
+        );
+        state
+            .core
+            .invoke(CoreCommand::GameWindowUpdate {
+                id: window_id.to_owned(),
+                input: rion_core::GameWindowUpdateInputRecord {
+                    target_display: Some(DisplayTargetRecord {
+                        id: target.display_id,
+                        fingerprint: display_target_and_work_area(&selected, primary_id)
+                            .0
+                            .fingerprint,
+                    }),
+                    placement: Some(GameWindowPlacementRecord {
+                        normal_bounds: target.bounds.clone(),
+                        saved_work_area: target.work_area.clone(),
+                        presentation: target.presentation.clone(),
+                    }),
+                    ..rion_core::GameWindowUpdateInputRecord::default()
+                },
+            })
+            .map_err(error_payload)?;
+        let _ = app.emit(
+            "rion://game-window-display-remapped",
+            json!({ "windowId": window_id, "displayId": target.display_id }),
+        );
+    } else {
+        target.bounds = clamp_window_bounds(&record.placement.normal_bounds, &target.work_area);
+    }
+    Ok(target)
+}
+
+fn display_fingerprint_matches(
+    saved: &DisplayFingerprintRecord,
+    current: &DisplayFingerprintRecord,
+) -> bool {
+    saved.label == current.label
+        && saved.bounds.x == current.bounds.x
+        && saved.bounds.y == current.bounds.y
+        && saved.bounds.width == current.bounds.width
+        && saved.bounds.height == current.bounds.height
+        && saved.resolution.width == current.resolution.width
+        && saved.resolution.height == current.resolution.height
+        && (saved.scale_factor - current.scale_factor).abs() < 0.001
+        && saved.is_primary == current.is_primary
+        && saved.is_internal == current.is_internal
+}
+
+fn display_fingerprint_score(
+    saved: &DisplayFingerprintRecord,
+    current: &DisplayFingerprintRecord,
+) -> u16 {
+    u16::from(saved.is_internal == current.is_internal) * 100
+        + u16::from(saved.is_primary == current.is_primary) * 80
+        + u16::from(
+            saved.resolution.width == current.resolution.width
+                && saved.resolution.height == current.resolution.height,
+        ) * 60
+        + u16::from((saved.scale_factor - current.scale_factor).abs() < 0.001) * 30
+        + u16::from(saved.label == current.label) * 20
+        + u16::from(
+            saved.bounds.width == current.bounds.width
+                && saved.bounds.height == current.bounds.height,
+        ) * 10
+}
+
+pub(crate) async fn move_game_window_tab_to_new_window(
+    app: &AppHandle,
+    state: &CoreState,
+    tab_id: &str,
+    screen_point: Option<(f64, f64)>,
+) -> Result<StateGameWindowRecord, CoreErrorPayload> {
+    let runtime = state
+        .core
+        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .map_err(error_payload)?;
+    let source_window_id = runtime["tabs"]
+        .as_array()
+        .and_then(|tabs| tabs.iter().find(|tab| tab["id"].as_str() == Some(tab_id)))
+        .and_then(|tab| tab["windowId"].as_str())
+        .ok_or_else(|| shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
+    let source = state
+        .core
+        .invoke(CoreCommand::GameWindowGet {
+            id: source_window_id.to_owned(),
+        })
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<StateGameWindowRecord>(value)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })?;
+    let windows = state
+        .core
+        .invoke(CoreCommand::GameWindowsList)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })?;
+    let language = state
+        .menu_language
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_else(|_| "en".to_owned());
+    let name = next_game_window_name(&windows, &language);
+
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
+    let primary_id = app
+        .primary_monitor()
+        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?
+        .as_ref()
+        .map(monitor_id);
+    let monitor = screen_point
+        .and_then(|(x, y)| monitor_near_screen_point(&monitors, x, y))
+        .or_else(|| {
+            monitors
+                .iter()
+                .find(|monitor| monitor_id(monitor) == source.target_display.id)
+                .cloned()
+        })
+        .or_else(|| monitors.first().cloned())
+        .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
+    let (target_display, work_area) = display_target_and_work_area(&monitor, primary_id);
+    let mut bounds = source.placement.normal_bounds.clone();
+    if let Some((x, y)) = screen_point {
+        bounds.x = (x - f64::from(bounds.width) / 2.0).round() as i32;
+        bounds.y = (y - 28.0).round() as i32;
+    } else {
+        bounds.x = bounds.x.saturating_add(24);
+        bounds.y = bounds.y.saturating_add(24);
+    }
+    bounds = clamp_window_bounds(&bounds, &work_area);
+
+    let created = state
+        .core
+        .invoke(CoreCommand::GameWindowCreate {
+            input: GameWindowCreateInputRecord {
+                name,
+                target_display,
+                placement: GameWindowPlacementRecord {
+                    normal_bounds: bounds,
+                    saved_work_area: work_area,
+                    presentation: "normal".to_owned(),
+                },
+            },
+        })
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<StateGameWindowRecord>(value)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })?;
+    let target = launch_target_for_game_window(app, &created.id)?;
+    if let Err(error) = Arc::clone(&state.core)
+        .invoke_async(CoreCommand::EmbeddedTabMove {
+            tab_id: tab_id.to_owned(),
+            target,
+        })
+        .await
+    {
+        let _ = state.core.invoke(CoreCommand::GameWindowDelete {
+            id: created.id.clone(),
+        });
+        return Err(error_payload(error));
+    }
+    Ok(created)
+}
+
+fn next_game_window_name(windows: &[StateGameWindowRecord], language: &str) -> String {
+    let stem = match language {
+        "zh-TW" => "遊戲視窗",
+        "zh-CN" => "游戏窗口",
+        "ja" => "ゲームウィンドウ",
+        _ => "Game Window",
+    };
+    let existing = windows
+        .iter()
+        .map(|window| window.name.to_lowercase())
+        .collect::<HashSet<_>>();
+    (1..)
+        .map(|number| format!("{stem} {number}"))
+        .find(|candidate| !existing.contains(&candidate.to_lowercase()))
+        .expect("a finite Game Window collection always has a free numeric name")
+}
+
+fn monitor_near_screen_point(
+    monitors: &[tauri::Monitor],
+    x: f64,
+    y: f64,
+) -> Option<tauri::Monitor> {
+    let logical_rect = |monitor: &tauri::Monitor| {
+        let scale = monitor.scale_factor();
+        let position = monitor.position();
+        let size = monitor.size();
+        (
+            position.x as f64 / scale,
+            position.y as f64 / scale,
+            size.width as f64 / scale,
+            size.height as f64 / scale,
+        )
+    };
+    monitors
+        .iter()
+        .find(|monitor| {
+            let (left, top, width, height) = logical_rect(monitor);
+            x >= left && x < left + width && y >= top && y < top + height
+        })
+        .cloned()
+        .or_else(|| {
+            monitors
+                .iter()
+                .min_by(|left, right| {
+                    let distance = |monitor: &tauri::Monitor| {
+                        let (left, top, width, height) = logical_rect(monitor);
+                        (x - (left + width / 2.0)).powi(2) + (y - (top + height / 2.0)).powi(2)
+                    };
+                    distance(left).total_cmp(&distance(right))
+                })
+                .cloned()
+        })
+}
+
+fn display_target_and_work_area(
+    monitor: &tauri::Monitor,
+    primary_id: Option<i64>,
+) -> (DisplayTargetRecord, StatePixelBoundsRecord) {
+    let id = monitor_id(monitor);
+    let scale = monitor.scale_factor();
+    let position = monitor.position();
+    let size = monitor.size();
+    let work_area = monitor.work_area();
+    (
+        DisplayTargetRecord {
+            id,
+            fingerprint: Some(DisplayFingerprintRecord {
+                label: monitor
+                    .name()
+                    .cloned()
+                    .unwrap_or_else(|| format!("Display {id}")),
+                bounds: StatePixelBoundsRecord {
+                    x: (position.x as f64 / scale).round() as i32,
+                    y: (position.y as f64 / scale).round() as i32,
+                    width: (size.width as f64 / scale).round() as i32,
+                    height: (size.height as f64 / scale).round() as i32,
+                },
+                resolution: StateResolutionRecord {
+                    width: size.width,
+                    height: size.height,
+                },
+                scale_factor: scale,
+                is_primary: primary_id == Some(id),
+                is_internal: false,
+            }),
+        },
+        StatePixelBoundsRecord {
+            x: (work_area.position.x as f64 / scale).round() as i32,
+            y: (work_area.position.y as f64 / scale).round() as i32,
+            width: (work_area.size.width as f64 / scale).round() as i32,
+            height: (work_area.size.height as f64 / scale).round() as i32,
+        },
+    )
+}
+
+fn remap_window_bounds(
+    bounds: &StatePixelBoundsRecord,
+    old_work_area: &StatePixelBoundsRecord,
+    new_work_area: &StatePixelBoundsRecord,
+) -> StatePixelBoundsRecord {
+    if old_work_area.width <= 0 || old_work_area.height <= 0 {
+        return clamp_window_bounds(bounds, new_work_area);
+    }
+    let relative_x = (bounds.x - old_work_area.x) as f64 / old_work_area.width as f64;
+    let relative_y = (bounds.y - old_work_area.y) as f64 / old_work_area.height as f64;
+    let relative_width = bounds.width as f64 / old_work_area.width as f64;
+    let relative_height = bounds.height as f64 / old_work_area.height as f64;
+    clamp_window_bounds(
+        &StatePixelBoundsRecord {
+            x: new_work_area.x + (relative_x * new_work_area.width as f64).round() as i32,
+            y: new_work_area.y + (relative_y * new_work_area.height as f64).round() as i32,
+            width: (relative_width * new_work_area.width as f64).round() as i32,
+            height: (relative_height * new_work_area.height as f64).round() as i32,
+        },
+        new_work_area,
+    )
+}
+
+fn clamp_window_bounds(
+    bounds: &StatePixelBoundsRecord,
+    work_area: &StatePixelBoundsRecord,
+) -> StatePixelBoundsRecord {
+    let width = bounds
+        .width
+        .max(640.min(work_area.width))
+        .min(work_area.width.max(1));
+    let height = bounds
+        .height
+        .max(480.min(work_area.height))
+        .min(work_area.height.max(1));
+    let max_x = work_area.x + (work_area.width - width).max(0);
+    let max_y = work_area.y + (work_area.height - height).max(0);
+    StatePixelBoundsRecord {
+        x: bounds.x.clamp(work_area.x, max_x),
+        y: bounds.y.clamp(work_area.y, max_y),
+        width,
+        height,
+    }
 }
 
 pub fn run() {
@@ -2763,8 +3752,9 @@ pub fn run() {
                                             if changed_collections.iter().any(|collection| {
                                                 matches!(
                                                     collection,
-                                                    StateCollection::Roles
+                                                     StateCollection::Roles
                                                         | StateCollection::LaunchWorkspaces
+                                                        | StateCollection::GameWindows
                                                 )
                                             })
                                     )
@@ -2811,7 +3801,6 @@ pub fn run() {
                 core,
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
-                pending_workspace_launch_request: Mutex::new(None),
                 renderer_ready: Arc::clone(&renderer_ready),
                 runtime,
                 updates,
@@ -2911,6 +3900,7 @@ pub fn run() {
                     let Some(state) = app_handle.try_state::<CoreState>() else {
                         return;
                     };
+                    let _ = state.runtime.persist_all_game_window_placements();
                     if let Err(error) = state.runtime.persist_restore_session(true) {
                         let _ = app_handle.emit(
                             "rion://shell-error",
@@ -2960,8 +3950,8 @@ pub fn run() {
                             if label == "main"
                                 && let Some(window) = app_handle.get_webview_window("main")
                             {
-                                if let Ok(displays) = workspace_displays(&window) {
-                                    let _ = app_handle.emit("rion://workspace-displays", displays);
+                                if let Ok(displays) = display_inventory(&window) {
+                                    let _ = app_handle.emit("rion://displays", displays);
                                 }
                                 if let Ok(fullscreen) = window.is_fullscreen() {
                                     let _ = app_handle.emit(
@@ -2971,16 +3961,19 @@ pub fn run() {
                                 }
                             }
                         }
+                        tauri::WindowEvent::Moved(position) if label != "main" => {
+                            state.runtime.move_window(&label, position.x, position.y);
+                        }
                         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
-                            if label == "main" =>
-                        {
+                            if label == "main" => {
                             if let Some(window) = app_handle.get_webview_window("main")
-                                && let Ok(displays) = workspace_displays(&window)
+                                && let Ok(displays) = display_inventory(&window)
                             {
-                                let _ = app_handle.emit("rion://workspace-displays", displays);
+                                let _ = app_handle.emit("rion://displays", displays);
                             }
                         }
                         tauri::WindowEvent::Focused(true) if label != "main" => {
+                            state.runtime.focus_window(&label);
                             let runtime = Arc::clone(&state.runtime);
                             let _ = thread::Builder::new()
                                 .name("rion-runtime-focus-persist".to_owned())
@@ -2996,7 +3989,27 @@ pub fn run() {
                 }
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
-                    if let Some(window) = app_handle.get_webview_window("main") {
+                    let last_focused = app_handle
+                        .try_state::<CoreState>()
+                        .and_then(|state| {
+                            state
+                                .core
+                                .invoke(CoreCommand::RuntimeRestoreSessionGet)
+                                .ok()
+                                .and_then(|value| {
+                                    value["lastFocusedWindowId"].as_str().map(str::to_owned)
+                                })
+                                .map(|window_id| (Arc::clone(&state.core), window_id))
+                        });
+                    if let Some((core, window_id)) = last_focused {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = core
+                                .invoke_async(CoreCommand::EmbeddedWindowsShow {
+                                    window_id: Some(window_id),
+                                })
+                                .await;
+                        });
+                    } else if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.unminimize();
                         let _ = window.show();
                         let _ = window.set_focus();
@@ -3023,12 +4036,6 @@ mod tests {
         assert_eq!(platform_name().unwrap(), "darwin");
         #[cfg(target_os = "windows")]
         assert_eq!(platform_name().unwrap(), "win32");
-    }
-
-    #[test]
-    fn display_reconciliation_reports_each_missing_runtime_display_once() {
-        let available = HashSet::from([2_i64, 3_i64]);
-        assert_eq!(removed_display_ids(&[4, 1, 4, 2], &available), vec![1, 4]);
     }
 
     #[test]

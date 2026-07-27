@@ -168,7 +168,6 @@ describe("bulk selection UI", () => {
         statusByRole={new Map()}
         t={t}
         workspaces={[item]}
-        workspaceDisplays={[]}
         onCopyWorkspace={vi.fn()}
         onCreateWorkspace={vi.fn()}
         onDeleteWorkspace={vi.fn()}

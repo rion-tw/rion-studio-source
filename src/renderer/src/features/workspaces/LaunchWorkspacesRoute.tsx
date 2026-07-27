@@ -2,7 +2,6 @@ import {
   Copy,
   LayoutDashboard,
   Loader2,
-  Monitor,
   MoreHorizontal,
   Pencil,
   Play,
@@ -46,10 +45,8 @@ import type {
   LaunchWorkspaceSlot,
   Role,
   RoleStatus,
-  WorkspaceDisplayInfo,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
-import { getWorkspaceTargetDisplayPresentation } from "./workspaceDisplayUtils";
 import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
@@ -65,7 +62,6 @@ interface LaunchWorkspacesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
-  workspaceDisplays: WorkspaceDisplayInfo[];
   onCopyWorkspace: (workspace: LaunchWorkspace) => void;
   onCreateWorkspace: () => void;
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
@@ -87,7 +83,6 @@ function LaunchWorkspacesView({
   statusByRole,
   t,
   workspaces,
-  workspaceDisplays,
   onCopyWorkspace,
   onCreateWorkspace,
   onDeleteWorkspace,
@@ -223,7 +218,6 @@ function LaunchWorkspacesView({
               statusByRole={statusByRole}
               t={t}
               workspace={workspace}
-              workspaceDisplays={workspaceDisplays}
               selectionRef={selection.registerItem(workspace.id)}
               onCopy={() => onCopyWorkspace(workspace)}
               onDelete={() => onDeleteWorkspace(workspace)}
@@ -261,7 +255,6 @@ interface WorkspaceCardProps {
   t: Translator;
   selectionRef: RefCallback<HTMLElement>;
   workspace: LaunchWorkspace;
-  workspaceDisplays: WorkspaceDisplayInfo[];
 }
 
 function WorkspaceCard({
@@ -282,8 +275,7 @@ function WorkspaceCard({
   statusByRole,
   t,
   selectionRef,
-  workspace,
-  workspaceDisplays
+  workspace
 }: WorkspaceCardProps): JSX.Element {
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
   const runningCount = workspace.slots.filter((slot) => slot.roleId && statusByRole.has(slot.roleId)).length;
@@ -296,7 +288,6 @@ function WorkspaceCard({
     ? t("workspaces.browserZoomAdaptive")
     : `${workspace.browserZoomPercent}%`;
   const zoomTitle = `${t("workspaces.browserZoom")}: ${zoomLabel}`;
-  const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplay, workspaceDisplays, t);
 
   return (
     <Card
@@ -383,17 +374,6 @@ function WorkspaceCard({
             <ZoomIn size={12} aria-hidden="true" />
             <span>{zoomLabel}</span>
           </Badge>
-          {workspace.targetDisplay !== undefined ? (
-            <Badge
-              aria-label={targetDisplay.title}
-              className="min-w-0 max-w-full gap-1.5"
-              title={targetDisplay.title}
-              variant={targetDisplay.isUnavailable ? "warning" : "secondary"}
-            >
-              <Monitor className="shrink-0" size={12} aria-hidden="true" />
-              <span className="min-w-0 truncate">{targetDisplay.label}</span>
-            </Badge>
-          ) : null}
         </div>
       </div>
     </Card>

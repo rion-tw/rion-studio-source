@@ -19,8 +19,7 @@ describe("Game Window recovery dashboard", () => {
   it("offers recovery, one-window restore, show-all, stop, and discard actions", () => {
     const onDiscard = vi.fn<(input: DiscardSavedGameWindowsInput) => void>();
     const onRestore = vi.fn<(input: RestoreSavedGameWindowsInput) => void>();
-    const onShow = vi.fn<(displayId?: number) => void>();
-    const onStop = vi.fn<(displayId: number) => void>();
+    const onNavigateGameWindows = vi.fn();
 
     render(
       <DashboardRoute
@@ -42,7 +41,7 @@ describe("Game Window recovery dashboard", () => {
             type: "role",
             sourceId: "role-live",
             name: "Live",
-            displayId: 1,
+            windowId: "live-window",
             roleIds: ["role-live"],
             hidden: false,
             active: true,
@@ -51,6 +50,7 @@ describe("Game Window recovery dashboard", () => {
           }],
           windows: [{
             id: "live-window",
+            windowId: "live-window",
             displayId: 1,
             bounds: { x: 0, y: 0, width: 1920, height: 1040 },
             visible: false,
@@ -70,21 +70,19 @@ describe("Game Window recovery dashboard", () => {
         statusByRole={new Map()}
         t={t}
         workspaces={[]}
-        workspaceDisplays={[]}
         onCreateWorkspace={vi.fn()}
         onDiscardSavedGameWindows={onDiscard}
         onLaunchRole={vi.fn()}
         onLaunchWorkspace={vi.fn()}
         onNavigateGames={vi.fn()}
+        onNavigateGameWindows={onNavigateGameWindows}
         onNavigateMacros={vi.fn()}
         onNavigateRoles={vi.fn()}
         onNavigateWorkspaces={vi.fn()}
         onNewMacro={vi.fn()}
         onNewRole={vi.fn()}
         onRestoreSavedGameWindows={onRestore}
-        onShowGameWindows={onShow}
         onStartMacro={vi.fn()}
-        onStopGameWindow={onStop}
         onStopMacro={vi.fn()}
         onStopRole={vi.fn()}
         onStopWorkspace={vi.fn()}
@@ -94,22 +92,10 @@ describe("Game Window recovery dashboard", () => {
     expect(screen.getByText("Rion Studio did not close normally")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Restore session" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-    fireEvent.click(screen.getByRole("button", { name: /Studio Display/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Forget saved window" }));
-    fireEvent.click(screen.getByRole("button", { name: "Stop all tabs in this window" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Show all" })[0]);
 
     expect(onRestore).toHaveBeenNthCalledWith(1, { scope: "last-visible" });
-    expect(onRestore).toHaveBeenNthCalledWith(2, {
-      scope: "window",
-      windowId: "saved-window"
-    });
     expect(onDiscard).toHaveBeenNthCalledWith(1, { scope: "all" });
-    expect(onDiscard).toHaveBeenNthCalledWith(2, {
-      scope: "window",
-      windowId: "saved-window"
-    });
-    expect(onStop).toHaveBeenCalledWith(1);
-    expect(onShow).toHaveBeenCalledWith();
+    expect(onNavigateGameWindows).toHaveBeenCalled();
   });
 });

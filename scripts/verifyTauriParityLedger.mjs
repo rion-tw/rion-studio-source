@@ -7,7 +7,8 @@ const shellLedgerPath = join(root, "docs/tauri-parity-ledger.json");
 const behaviorManifestPath = join(root, "tests/parity/v1.37.0-browser-workspace.json");
 const legacyInventoryPath = join(root, "tests/parity/b11b526-legacy-test-inventory.json");
 const refactorLedgerPath = join(root, "tests/parity/refactor-behavior-ledger-v2.json");
-const reportPath = join(root, "docs/v1.37-browser-workspace-parity.md");
+const reportPath = process.env.RION_STUDIO_PARITY_REPORT_PATH
+  ?? join(root, "docs/v1.37-browser-workspace-parity.md");
 const shellLedger = JSON.parse(await readFile(shellLedgerPath, "utf8"));
 const behaviorManifest = JSON.parse(await readFile(behaviorManifestPath, "utf8"));
 const legacyInventory = JSON.parse(await readFile(legacyInventoryPath, "utf8"));
@@ -30,7 +31,10 @@ if (process.argv.includes("--write-report")) {
   } catch {
     failures.push("Browser/Workspace parity report is missing");
   }
-  if (current !== undefined && current !== report) {
+  if (
+    current !== undefined
+    && normalizeLineEndings(current) !== normalizeLineEndings(report)
+  ) {
     failures.push("Browser/Workspace parity report is stale; run verify:parity-ledger:write");
   }
 }
@@ -48,6 +52,10 @@ console.log(
   `${weakFanoutCount} weak fanout; parity v2 maps ${refactorLedger.mappings.length} source cases ` +
   `to ${refactorLedger.behaviors.length} canonical behaviors.`
 );
+
+function normalizeLineEndings(value) {
+  return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
 
 async function validateRefactorLedgerV2() {
   if (legacyInventory.schemaVersion !== 1 || legacyInventory.expectedDeclarationCount !== 245) {

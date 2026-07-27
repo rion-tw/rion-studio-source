@@ -476,6 +476,8 @@
   "settings.macroSettingsSaved": "已儲存，新啟動的巨集會使用這組時序。",
   "settings.workspace": "工作區",
   "settings.gameWindows": "遊戲視窗",
+  "settings.alwaysHideTabCloseButton": "始終隱藏分頁關閉按鈕",
+  "settings.alwaysHideTabCloseButtonDescription": "隱藏所有遊戲視窗分頁列上的關閉按鈕；仍可從分頁右鍵選單或遊戲視窗管理頁停止分頁。",
   "settings.restoreGameWindowsOnStartup": "啟動時恢復遊戲視窗",
   "settings.restoreGameWindowsOnStartupDescription": "Rion Studio 正常結束後，自動重開退出前可見的遊戲視窗；已隱藏的視窗會保留到你手動開啟。",
   "settings.macroBadges": "巨集徽章",

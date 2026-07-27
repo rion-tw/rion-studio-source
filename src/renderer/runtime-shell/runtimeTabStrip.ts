@@ -10,18 +10,26 @@ declare global {
 
 const root = document.querySelector<HTMLDivElement>("#tabs")!;
 const add = document.querySelector<HTMLButtonElement>("#add")!;
+const scrollLeftButton = document.querySelector<HTMLButtonElement>("#scroll-left")!;
+const scrollRightButton = document.querySelector<HTMLButtonElement>("#scroll-right")!;
 let current: RuntimeTabStripState | undefined;
 let draggingTabId: string | undefined;
 let dragSessionId: string | undefined;
 let dragCancelled = false;
 let dragMoveFrame: number | undefined;
 let pendingDragPoint: { screenX: number; screenY: number } | undefined;
+let renderRevision = 0;
+let activeTabId: string | undefined;
+
+const OVERFLOW_EPSILON = 1;
 
 const dispatch = (action: RuntimeTabAction): void => {
   void invoke("rion_runtime_tab_action", { action }).catch(() => undefined);
 };
 
 function render(state: RuntimeTabStripState): void {
+  const revision = ++renderRevision;
+  const previousScrollLeft = root.scrollLeft;
   current = state;
   document.documentElement.lang = state.language;
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);
@@ -64,25 +72,27 @@ function render(state: RuntimeTabStripState): void {
         dispatch({ type: "openTabMenu", tabId: tab.id });
       });
       button.append(more);
-      const close = document.createElement("span");
-      close.className = "close";
-      close.textContent = "×";
-      close.role = "button";
-      close.tabIndex = 0;
-      close.ariaLabel = state.language === "zh-TW" ? "停止並關閉分頁" : state.language === "zh-CN"
-        ? "停止并关闭标签页" : state.language === "ja" ? "停止してタブを閉じる" : "Stop and close tab";
-      close.addEventListener("click", (event) => {
-        event.stopPropagation();
-        dispatch({ type: "stop", tabId: tab.id });
-      });
-      close.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
+      if (!state.alwaysHideTabCloseButton) {
+        const close = document.createElement("span");
+        close.className = "close";
+        close.textContent = "×";
+        close.role = "button";
+        close.tabIndex = 0;
+        close.ariaLabel = state.language === "zh-TW" ? "停止並關閉分頁" : state.language === "zh-CN"
+          ? "停止并关闭标签页" : state.language === "ja" ? "停止してタブを閉じる" : "Stop and close tab";
+        close.addEventListener("click", (event) => {
           event.stopPropagation();
           dispatch({ type: "stop", tabId: tab.id });
-        }
-      });
-      button.append(close);
+        });
+        close.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            dispatch({ type: "stop", tabId: tab.id });
+          }
+        });
+        button.append(close);
+      }
       button.addEventListener("click", () => dispatch({ type: "activate", tabId: tab.id }));
       button.addEventListener("auxclick", (event) => {
         if (event.button === 1) dispatch({ type: "stop", tabId: tab.id });
@@ -156,9 +166,27 @@ function render(state: RuntimeTabStripState): void {
       });
       return button;
     }));
+  const nextActiveTabId = state.tabs.find((tab) =>
+    tab.windowId === state.windowId && !tab.hidden && tab.active
+  )?.id;
+  root.scrollLeft = previousScrollLeft;
+  requestAnimationFrame(() => {
+    if (revision !== renderRevision) return;
+    updateScrollControls();
+    if (nextActiveTabId !== activeTabId) {
+      ensureTabVisible(nextActiveTabId);
+    }
+    activeTabId = nextActiveTabId;
+  });
   add.title = state.language === "zh-TW" ? "開啟角色或工作區" : state.language === "zh-CN"
     ? "打开角色或工作区" : state.language === "ja" ? "ロールまたはワークスペースを開く"
       : "Open role or workspace";
+  scrollLeftButton.ariaLabel = state.language === "zh-TW" ? "向左捲動分頁" : state.language === "zh-CN"
+    ? "向左滚动标签页" : state.language === "ja" ? "タブを左へスクロール" : "Scroll tabs left";
+  scrollRightButton.ariaLabel = state.language === "zh-TW" ? "向右捲動分頁" : state.language === "zh-CN"
+    ? "向右滚动标签页" : state.language === "ja" ? "タブを右へスクロール" : "Scroll tabs right";
+  scrollLeftButton.title = scrollLeftButton.ariaLabel;
+  scrollRightButton.title = scrollRightButton.ariaLabel;
 }
 
 window.__rionApplyRuntimeTabState = render;
@@ -185,6 +213,7 @@ addEventListener("keydown", (event) => {
 root.addEventListener("dragover", (event) => {
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  scrollForDragPoint(event.clientX);
 });
 root.addEventListener("drop", (event) => {
   event.preventDefault();
@@ -204,6 +233,19 @@ add.addEventListener("keydown", (event) => {
     dispatch({ type: "openLauncher" });
   }
 });
+root.addEventListener("scroll", updateScrollControls);
+root.addEventListener("wheel", (event) => {
+  if (!hasTabOverflow() || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  event.preventDefault();
+  root.scrollLeft += event.deltaY;
+  updateScrollControls();
+}, { passive: false });
+scrollLeftButton.addEventListener("click", () => scrollToAdjacentHiddenTab("left"));
+scrollRightButton.addEventListener("click", () => scrollToAdjacentHiddenTab("right"));
+addEventListener("resize", updateScrollControls);
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(updateScrollControls).observe(root);
+}
 
 void current;
 
@@ -219,4 +261,90 @@ function runtimeTabDragPayload(
   } catch {
     return undefined;
   }
+}
+
+function tabElements(): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(".tab"));
+}
+
+function visibleWidthWithoutScrollControls(): number {
+  if (scrollLeftButton.hidden) return root.clientWidth;
+  const bodyGap = Number.parseFloat(getComputedStyle(document.body).columnGap) || 0;
+  return root.clientWidth + scrollLeftButton.offsetWidth + scrollRightButton.offsetWidth + bodyGap * 2;
+}
+
+function hasTabOverflow(): boolean {
+  return root.scrollWidth - visibleWidthWithoutScrollControls() > OVERFLOW_EPSILON;
+}
+
+function updateScrollControls(): void {
+  const overflowing = hasTabOverflow();
+  scrollLeftButton.hidden = !overflowing;
+  scrollRightButton.hidden = !overflowing;
+  if (!overflowing) {
+    scrollLeftButton.disabled = true;
+    scrollRightButton.disabled = true;
+    if (root.scrollLeft !== 0) root.scrollLeft = 0;
+    return;
+  }
+  const maximum = Math.max(0, root.scrollWidth - root.clientWidth);
+  scrollLeftButton.disabled = root.scrollLeft <= OVERFLOW_EPSILON;
+  scrollRightButton.disabled = root.scrollLeft >= maximum - OVERFLOW_EPSILON;
+}
+
+function scrollTo(left: number, behavior: ScrollBehavior): void {
+  const clamped = Math.max(0, Math.min(left, root.scrollWidth - root.clientWidth));
+  if (typeof root.scrollTo === "function") {
+    root.scrollTo({ behavior, left: clamped });
+  } else {
+    root.scrollLeft = clamped;
+  }
+  requestAnimationFrame(updateScrollControls);
+}
+
+function ensureTabVisible(tabId: string | undefined): void {
+  if (!tabId) return;
+  const tab = tabElements().find((candidate) => candidate.dataset.tabId === tabId);
+  if (!tab) return;
+  const visibleStart = root.scrollLeft;
+  const visibleEnd = visibleStart + root.clientWidth;
+  const tabStart = tab.offsetLeft;
+  const tabEnd = tabStart + tab.offsetWidth;
+  if (tabStart < visibleStart + OVERFLOW_EPSILON) {
+    scrollTo(tabStart, "auto");
+  } else if (tabEnd > visibleEnd - OVERFLOW_EPSILON) {
+    scrollTo(tabEnd - root.clientWidth, "auto");
+  }
+}
+
+function scrollToAdjacentHiddenTab(direction: "left" | "right"): void {
+  const tabs = tabElements();
+  const visibleStart = root.scrollLeft;
+  const visibleEnd = visibleStart + root.clientWidth;
+  if (direction === "left") {
+    const target = tabs.filter((tab) => tab.offsetLeft < visibleStart - OVERFLOW_EPSILON).at(-1);
+    scrollTo(target?.offsetLeft ?? 0, "smooth");
+    return;
+  }
+  const target = tabs.find((tab) =>
+    tab.offsetLeft + tab.offsetWidth > visibleEnd + OVERFLOW_EPSILON
+  );
+  scrollTo(
+    target ? target.offsetLeft + target.offsetWidth - root.clientWidth : root.scrollWidth,
+    "smooth"
+  );
+}
+
+function scrollForDragPoint(clientX: number): void {
+  if (!hasTabOverflow()) return;
+  const bounds = root.getBoundingClientRect();
+  const edge = Math.min(36, bounds.width / 4);
+  if (clientX < bounds.left + edge) {
+    root.scrollLeft -= 16;
+  } else if (clientX > bounds.right - edge) {
+    root.scrollLeft += 16;
+  } else {
+    return;
+  }
+  updateScrollControls();
 }

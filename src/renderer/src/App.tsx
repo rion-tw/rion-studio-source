@@ -72,6 +72,7 @@ export function App(): JSX.Element {
   const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
   const [runtimeWindowPreferences, setRuntimeWindowPreferences] =
     useState<RuntimeWindowPreferences>({
+      alwaysHideTabCloseButton: false,
       alwaysShowToolbarInFullScreen: false,
       restoreGameWindowsOnStartup: true
     });

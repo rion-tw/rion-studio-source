@@ -23,6 +23,8 @@ static const CGFloat kRionTabAccessorySpacing = 4.0;
 static const CGFloat kRionTabAudioIconSize = 14.0;
 static const CGFloat kRionTabMoreButtonWidth = 20.0;
 static const CGFloat kRionTabTrailingPadding = 8.0;
+static const CGFloat kRionTabScrollButtonWidth = 22.0;
+static const CGFloat kRionTabScrollButtonSpacing = 3.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
 static const CGFloat kRionRootTrailingDraggableWidth = 12.0;
@@ -41,6 +43,41 @@ static std::mutex RionRuntimeTitlebarWidgetInsetHookMutex;
 static std::unordered_map<Class, IMP>
     RionRuntimeOriginalTitlebarWidgetInsetIMPs;
 static char RionRuntimeFullscreenPresentationPolicyAssociationKey;
+
+static BOOL RionRuntimeTabsOverflow(CGFloat contentWidth,
+                                    CGFloat availableWidth) {
+  return contentWidth - availableWidth > 1.0;
+}
+
+static CGFloat RionRuntimeClampScrollOrigin(CGFloat origin,
+                                            CGFloat contentWidth,
+                                            CGFloat viewportWidth) {
+  return MIN(MAX(0, contentWidth - viewportWidth), MAX(0, origin));
+}
+
+static CGFloat RionRuntimePreferredTabWidth(CGFloat labelWidth,
+                                            BOOL hideTabCloseButton) {
+  CGFloat fixedWidth = kRionTabLeadingPadding + kRionTabIconSize +
+      kRionTabIconTitleSpacing + kRionTabAccessorySpacing +
+      kRionTabAudioIconSize + kRionTabTrailingPadding;
+  if (!hideTabCloseButton) {
+    fixedWidth += kRionTabAccessorySpacing + kRionTabMoreButtonWidth;
+  }
+  return MIN(kRionTabMaximumWidth,
+             MAX(kRionTabMinimumWidth, ceil(labelWidth) + fixedWidth));
+}
+
+static CGFloat RionRuntimeRevealScrollOrigin(
+    CGFloat itemMinimumX, CGFloat itemMaximumX, CGFloat visibleOrigin,
+    CGFloat viewportWidth, CGFloat contentWidth) {
+  CGFloat origin = visibleOrigin;
+  if (itemMinimumX < visibleOrigin) {
+    origin = itemMinimumX;
+  } else if (itemMaximumX > visibleOrigin + viewportWidth) {
+    origin = itemMaximumX - viewportWidth;
+  }
+  return RionRuntimeClampScrollOrigin(origin, contentWidth, viewportWidth);
+}
 
 static void RionDisableToolbarBaselineSeparator(NSToolbar *toolbar) {
 #pragma clang diagnostic push
@@ -527,8 +564,10 @@ void rion_runtime_tabs_destroy(void *rawController) {
 
 void rion_runtime_tabs_update(
     void *rawController, const char *windowID, const RionRuntimeTabInput *tabs,
-    size_t tabCount, const char *addLabel, const char *audioMutedLabel,
-    const char *audioPlayingLabel, const char *closeLabel) {
+    size_t tabCount, bool alwaysHideTabCloseButton, const char *addLabel,
+    const char *audioMutedLabel, const char *audioPlayingLabel,
+    const char *closeLabel, const char *scrollLeftLabel,
+    const char *scrollRightLabel) {
   @autoreleasepool {
     if (!rawController) return;
     RionRuntimeTabsController *controller =
@@ -550,11 +589,14 @@ void rion_runtime_tabs_update(
       [models addObject:model];
     }
     RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
+    state.alwaysHideTabCloseButton = alwaysHideTabCloseButton;
     state.windowID = RionStringFromUTF8(windowID) ?: @"";
     state.addLabel = RionStringFromUTF8(addLabel) ?: @"Open role or workspace";
     state.audioMutedLabel = RionStringFromUTF8(audioMutedLabel) ?: @"Tab muted";
     state.audioPlayingLabel = RionStringFromUTF8(audioPlayingLabel) ?: @"Playing audio";
     state.closeLabel = RionStringFromUTF8(closeLabel) ?: @"Stop and close tab";
+    state.scrollLeftLabel = RionStringFromUTF8(scrollLeftLabel) ?: @"Scroll tabs left";
+    state.scrollRightLabel = RionStringFromUTF8(scrollRightLabel) ?: @"Scroll tabs right";
     state.tabs = models;
     [controller updateState:state];
   }
@@ -630,10 +672,27 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
   }
 }
 
+bool rion_runtime_tabs_overflow_layout_self_test(void) {
+  @autoreleasepool {
+    CGFloat visibleWidth = RionRuntimePreferredTabWidth(160.0, NO);
+    CGFloat hiddenWidth = RionRuntimePreferredTabWidth(160.0, YES);
+    return !RionRuntimeTabsOverflow(400.5, 400.0) &&
+           RionRuntimeTabsOverflow(402.0, 400.0) &&
+           RionRuntimeClampScrollOrigin(-20.0, 900.0, 400.0) == 0.0 &&
+           RionRuntimeClampScrollOrigin(700.0, 900.0, 400.0) == 500.0 &&
+           RionRuntimeRevealScrollOrigin(620.0, 760.0, 100.0, 400.0,
+                                         900.0) == 360.0 &&
+           hiddenWidth < visibleWidth;
+  }
+}
+
 @interface RionRuntimeBackdropView : NSVisualEffectView
 @end
 
 @interface RionRuntimeVerticallyCenteredTextFieldCell : NSTextFieldCell
+@end
+
+@interface RionRuntimeHorizontalScrollView : NSScrollView
 @end
 
 @interface RionRuntimeSurfaceView : NSView
@@ -661,6 +720,7 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
 
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
+      hideTabCloseButton:(BOOL)hideTabCloseButton
                closeLabel:(NSString *)closeLabel
         audioPlayingLabel:(NSString *)audioPlayingLabel
            audioMutedLabel:(NSString *)audioMutedLabel
@@ -718,6 +778,10 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
 - (void)endTabDrag:(RionRuntimeTabItemView *)item cancelled:(BOOL)cancelled;
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view;
 - (void)hideInsertionIndicator;
+- (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view;
+- (void)scrollTabsLeft:(id)sender;
+- (void)scrollTabsRight:(id)sender;
+- (void)updateTabScrollButtonState;
 - (void)hideResidualFullScreenTrafficLightOverlay;
 - (void)installPreparedToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
@@ -809,6 +873,26 @@ static void *RionRuntimeContentLayoutObservationContext =
                        inView:(NSView *)controlView {
   [super drawInteriorWithFrame:[self titleRectForBounds:cellFrame]
                         inView:controlView];
+}
+
+@end
+
+@implementation RionRuntimeHorizontalScrollView
+
+- (void)scrollWheel:(NSEvent *)event {
+  if (std::fabs(event.scrollingDeltaX) >= std::fabs(event.scrollingDeltaY)) {
+    [super scrollWheel:event];
+    return;
+  }
+  NSClipView *clipView = self.contentView;
+  CGFloat scale = event.hasPreciseScrollingDeltas ? 1.0 : 14.0;
+  CGFloat maximumOrigin =
+      MAX(0, self.documentView.frame.size.width - clipView.bounds.size.width);
+  CGFloat originX = MIN(
+      maximumOrigin,
+      MAX(0, clipView.bounds.origin.x - event.scrollingDeltaY * scale));
+  [clipView scrollToPoint:NSMakePoint(originX, clipView.bounds.origin.y)];
+  [self reflectScrolledClipView:clipView];
 }
 
 @end
@@ -982,6 +1066,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 @end
 
 @implementation RionRuntimeTabItemView {
+  BOOL _hideTabCloseButton;
   BOOL _hovered;
   NSImageView *_audioView;
   NSImageView *_iconView;
@@ -1052,12 +1137,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   CGFloat labelWidth = [_titleField.stringValue sizeWithAttributes:@{
     NSFontAttributeName : [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
   }].width;
-  CGFloat fixedWidth = kRionTabLeadingPadding + kRionTabIconSize +
-      kRionTabIconTitleSpacing + kRionTabAccessorySpacing +
-      kRionTabAudioIconSize + kRionTabAccessorySpacing +
-      kRionTabMoreButtonWidth + kRionTabTrailingPadding;
-  return MIN(kRionTabMaximumWidth,
-             MAX(kRionTabMinimumWidth, ceil(labelWidth) + fixedWidth));
+  return RionRuntimePreferredTabWidth(labelWidth, _hideTabCloseButton);
 }
 
 - (NSSize)intrinsicContentSize {
@@ -1066,6 +1146,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
+      hideTabCloseButton:(BOOL)hideTabCloseButton
                closeLabel:(NSString *)closeLabel
         audioPlayingLabel:(NSString *)audioPlayingLabel
            audioMutedLabel:(NSString *)audioMutedLabel
@@ -1073,6 +1154,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _windowActive = windowActive;
   self.tabIdentifier = tab.identifier;
   self.activeTab = tab.active;
+  _hideTabCloseButton = hideTabCloseButton;
   _iconView.image = image;
   _titleField.stringValue = tab.name;
   NSString *audioLabel = tab.audioMuted ? audioMutedLabel : audioPlayingLabel;
@@ -1085,8 +1167,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _audioView.hidden = !tab.audioMuted && !tab.audible;
   _audioView.toolTip = _audioView.hidden ? @"" : audioLabel;
   _moreButton.identifier = tab.identifier;
-  _moreButton.toolTip = closeLabel;
-  _moreButton.accessibilityLabel = closeLabel;
+  _moreButton.hidden = hideTabCloseButton;
+  _moreButton.toolTip = hideTabCloseButton ? @"" : closeLabel;
+  _moreButton.accessibilityLabel = hideTabCloseButton ? @"" : closeLabel;
+  _moreButton.accessibilityElement = !hideTabCloseButton;
   self.toolTip = tab.tooltip.length > 0 ? tab.tooltip : tab.name;
   self.accessibilityLabel = _audioView.hidden
       ? tab.name
@@ -1107,11 +1191,17 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                  kRionTabIconSize, kRionTabIconSize);
   x += kRionTabIconSize + kRionTabIconTitleSpacing;
 
-  CGFloat moreX = MAX(
-      x, width - kRionTabTrailingPadding - kRionTabMoreButtonWidth);
-  _moreButton.frame =
-      NSMakeRect(moreX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
-  CGFloat audioX = moreX - kRionTabAccessorySpacing - kRionTabAudioIconSize;
+  CGFloat trailingX = width - kRionTabTrailingPadding;
+  CGFloat audioX = 0;
+  if (_hideTabCloseButton) {
+    _moreButton.frame = NSZeroRect;
+    audioX = trailingX - kRionTabAudioIconSize;
+  } else {
+    CGFloat moreX = MAX(x, trailingX - kRionTabMoreButtonWidth);
+    _moreButton.frame =
+        NSMakeRect(moreX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
+    audioX = moreX - kRionTabAccessorySpacing - kRionTabAudioIconSize;
+  }
   _audioView.frame =
       NSMakeRect(audioX, (kRionTabHeight - kRionTabAudioIconSize) / 2.0,
                  kRionTabAudioIconSize, kRionTabAudioIconSize);
@@ -1161,7 +1251,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                               ? (_windowActive ? NSColor.labelColor
                                                : NSColor.secondaryLabelColor)
                               : NSColor.secondaryLabelColor;
-  CGFloat moreAlpha = self.activeTab ? 0.46 : _hovered ? 0.76 : 0.0;
+  CGFloat moreAlpha = _hideTabCloseButton
+                          ? 0.0
+                          : self.activeTab ? 0.46 : _hovered ? 0.76 : 0.0;
   BOOL reduceMotion =
       NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
   if (animate && !reduceMotion) {
@@ -1176,7 +1268,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (NSView *)hitTest:(NSPoint)point {
   NSView *hit = [super hitTest:point];
-  if (hit == _moreButton && _moreButton.alphaValue > 0.05) return hit;
+  if (hit == _moreButton && !_hideTabCloseButton &&
+      _moreButton.alphaValue > 0.05) return hit;
   return hit ? self : nil;
 }
 
@@ -1302,6 +1395,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     return NSDragOperationNone;
   }
   NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
+  [self.tabsController scrollTabStripForDragPoint:point inView:self];
   NSString *identifier =
       [self.tabsController tabIdentifierBeforePoint:point inView:self];
   [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
@@ -1349,6 +1443,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   RionRuntimeTitlebarAccessoryViewController *_accessoryController;
   RionRuntimeSurfaceView *_addSurface;
   RionRuntimeAddButton *_addButton;
+  RionRuntimeSurfaceView *_scrollLeftSurface;
+  RionRuntimeAddButton *_scrollLeftButton;
+  RionRuntimeSurfaceView *_scrollRightSurface;
+  RionRuntimeAddButton *_scrollRightButton;
   NSView *_clusterContainer;
   RionRuntimeDraggableView *_clusterContent;
   NSString *_windowID;
@@ -1468,7 +1566,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }
   [root addSubview:_clusterContainer];
 
-  _tabScrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+  _tabScrollView = [[RionRuntimeHorizontalScrollView alloc] initWithFrame:NSZeroRect];
   _tabScrollView.autohidesScrollers = YES;
   _tabScrollView.borderType = NSNoBorder;
   _tabScrollView.drawsBackground = NO;
@@ -1479,6 +1577,39 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _tabCanvas = [[RionRuntimeDraggableView alloc] initWithFrame:NSZeroRect];
   _tabCanvas.accessibilityRole = NSAccessibilityTabGroupRole;
   _tabScrollView.documentView = _tabCanvas;
+  _tabScrollView.contentView.postsBoundsChangedNotifications = YES;
+
+  NSImage *scrollLeft = [NSImage imageWithSystemSymbolName:@"chevron.left"
+                                  accessibilityDescription:nil];
+  scrollLeft = [scrollLeft imageWithSymbolConfiguration:
+      [NSImageSymbolConfiguration configurationWithPointSize:9.0
+                                                      weight:NSFontWeightSemibold]];
+  _scrollLeftButton = [RionRuntimeAddButton buttonWithImage:scrollLeft
+                                                     target:self
+                                                     action:@selector(scrollTabsLeft:)];
+  _scrollLeftButton.bordered = NO;
+  _scrollLeftButton.imageScaling = NSImageScaleProportionallyDown;
+  _scrollLeftButton.contentTintColor = NSColor.secondaryLabelColor;
+  _scrollLeftSurface = [[RionRuntimeSurfaceView alloc]
+      initWithContentView:_scrollLeftButton cornerRadius:7.0];
+  _scrollLeftButton.surfaceView = _scrollLeftSurface;
+  _scrollLeftSurface.hidden = YES;
+
+  NSImage *scrollRight = [NSImage imageWithSystemSymbolName:@"chevron.right"
+                                   accessibilityDescription:nil];
+  scrollRight = [scrollRight imageWithSymbolConfiguration:
+      [NSImageSymbolConfiguration configurationWithPointSize:9.0
+                                                      weight:NSFontWeightSemibold]];
+  _scrollRightButton = [RionRuntimeAddButton buttonWithImage:scrollRight
+                                                      target:self
+                                                      action:@selector(scrollTabsRight:)];
+  _scrollRightButton.bordered = NO;
+  _scrollRightButton.imageScaling = NSImageScaleProportionallyDown;
+  _scrollRightButton.contentTintColor = NSColor.secondaryLabelColor;
+  _scrollRightSurface = [[RionRuntimeSurfaceView alloc]
+      initWithContentView:_scrollRightButton cornerRadius:7.0];
+  _scrollRightButton.surfaceView = _scrollRightSurface;
+  _scrollRightSurface.hidden = YES;
 
   NSImage *plus = [NSImage imageWithSystemSymbolName:@"plus"
                            accessibilityDescription:nil];
@@ -1496,8 +1627,20 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                        cornerRadius:14.0];
   _addButton.surfaceView = _addSurface;
 
+  [_clusterContent addSubview:_scrollLeftSurface];
   [_clusterContent addSubview:_tabScrollView];
+  [_clusterContent addSubview:_scrollRightSurface];
   [_clusterContent addSubview:_addSurface];
+
+  __weak RionRuntimeTabsController *weakScrollSelf = self;
+  id scrollObserver = [NSNotificationCenter.defaultCenter
+      addObserverForName:NSViewBoundsDidChangeNotification
+                  object:_tabScrollView.contentView
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(__unused NSNotification *notification) {
+                [weakScrollSelf updateTabScrollButtonState];
+              }];
+  [_windowObservers addObject:scrollObserver];
 
   _insertionIndicator = [[NSView alloc] initWithFrame:NSZeroRect];
   _insertionIndicator.wantsLayer = YES;
@@ -2282,13 +2425,33 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   CGFloat leadingInset = [self trafficLightReserveWidth] + kRionRootLeadingInset;
   CGFloat tabsWidth = [self tabsContentWidth];
-  CGFloat maximumViewportWidth = MAX(
+  CGFloat availableWithoutScrollControls = MAX(
       0,
       rootWidth - leadingInset - kRionRootTrailingDraggableWidth -
           kRionTabHeight - kRionAddButtonSpacing);
+  BOOL overflowing =
+      RionRuntimeTabsOverflow(tabsWidth, availableWithoutScrollControls);
+  CGFloat scrollControlsWidth = overflowing
+      ? 2.0 * (kRionTabScrollButtonWidth + kRionTabScrollButtonSpacing)
+      : 0.0;
+  CGFloat maximumViewportWidth =
+      MAX(0, availableWithoutScrollControls - scrollControlsWidth);
   CGFloat viewportWidth = MIN(tabsWidth, maximumViewportWidth);
   CGFloat verticalInset = MAX(0, (rootHeight - kRionTabHeight) / 2.0);
-  _tabScrollView.frame = NSMakeRect(leadingInset, verticalInset,
+  CGFloat scrollViewX = leadingInset;
+  _scrollLeftSurface.hidden = !overflowing;
+  _scrollRightSurface.hidden = !overflowing;
+  if (overflowing) {
+    _scrollLeftSurface.frame =
+        NSMakeRect(leadingInset, verticalInset, kRionTabScrollButtonWidth,
+                   kRionTabHeight);
+    _scrollLeftButton.frame = _scrollLeftSurface.bounds;
+    scrollViewX += kRionTabScrollButtonWidth + kRionTabScrollButtonSpacing;
+  } else {
+    _scrollLeftSurface.frame = NSZeroRect;
+    _scrollRightSurface.frame = NSZeroRect;
+  }
+  _tabScrollView.frame = NSMakeRect(scrollViewX, verticalInset,
                                     viewportWidth, kRionTabHeight);
   _tabCanvas.frame = NSMakeRect(0, 0, MAX(tabsWidth, viewportWidth), kRionTabHeight);
 
@@ -2303,17 +2466,29 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [item layoutSubtreeIfNeeded];
     x += width + kRionTabSpacing;
   }
-  _addSurface.frame = NSMakeRect(leadingInset + viewportWidth +
-                                     kRionAddButtonSpacing,
+  CGFloat tabsEndX = scrollViewX + viewportWidth;
+  if (overflowing) {
+    _scrollRightSurface.frame =
+        NSMakeRect(tabsEndX + kRionTabScrollButtonSpacing, verticalInset,
+                   kRionTabScrollButtonWidth, kRionTabHeight);
+    _scrollRightButton.frame = _scrollRightSurface.bounds;
+    tabsEndX = NSMaxX(_scrollRightSurface.frame);
+  }
+  _addSurface.frame = NSMakeRect(tabsEndX + kRionAddButtonSpacing,
                                  verticalInset, kRionTabHeight, kRionTabHeight);
   _addButton.frame = _addSurface.bounds;
 
   [self scrollActiveTabIntoView];
+  [self updateTabScrollButtonState];
 }
 
 - (void)updateState:(RionRuntimeTabsState *)state {
   if (_destroyed) return;
   _windowID = state.windowID;
+  _scrollLeftButton.toolTip = state.scrollLeftLabel;
+  _scrollLeftButton.accessibilityLabel = state.scrollLeftLabel;
+  _scrollRightButton.toolTip = state.scrollRightLabel;
+  _scrollRightButton.accessibilityLabel = state.scrollRightLabel;
   _addButton.toolTip = state.addLabel;
   _addButton.accessibilityLabel = state.addLabel;
 
@@ -2343,6 +2518,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     item.sourceWindowID = state.windowID;
     [item configureWithTab:tab
                      image:[self imageForTab:tab]
+        hideTabCloseButton:state.alwaysHideTabCloseButton
                 closeLabel:state.closeLabel
          audioPlayingLabel:state.audioPlayingLabel
             audioMutedLabel:state.audioMutedLabel
@@ -2399,6 +2575,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [item updateWindowActive:windowActive];
   }
   [_addSurface updateActive:NO hovered:NO windowActive:windowActive animate:YES];
+  [_scrollLeftSurface updateActive:NO hovered:NO windowActive:windowActive animate:YES];
+  [_scrollRightSurface updateActive:NO hovered:NO windowActive:windowActive animate:YES];
 }
 
 - (void)scrollActiveTabIntoView {
@@ -2412,16 +2590,69 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (activeIndex == NSNotFound) return;
   NSRect activeFrame = _tabSurfaces[activeIndex].frame;
   NSRect visible = _tabScrollView.contentView.bounds;
-  CGFloat originX = visible.origin.x;
-  if (NSMinX(activeFrame) < NSMinX(visible)) {
-    originX = NSMinX(activeFrame);
-  } else if (NSMaxX(activeFrame) > NSMaxX(visible)) {
-    originX = NSMaxX(activeFrame) - visible.size.width;
-  }
-  CGFloat maximumOrigin = MAX(0, _tabCanvas.frame.size.width - visible.size.width);
-  originX = MIN(maximumOrigin, MAX(0, originX));
+  CGFloat originX = RionRuntimeRevealScrollOrigin(
+      NSMinX(activeFrame), NSMaxX(activeFrame), visible.origin.x,
+      visible.size.width, _tabCanvas.frame.size.width);
   [_tabScrollView.contentView scrollToPoint:NSMakePoint(originX, 0)];
   [_tabScrollView reflectScrolledClipView:_tabScrollView.contentView];
+}
+
+- (void)updateTabScrollButtonState {
+  if (_destroyed) return;
+  NSClipView *clipView = _tabScrollView.contentView;
+  CGFloat maximumOrigin =
+      MAX(0, _tabCanvas.frame.size.width - clipView.bounds.size.width);
+  BOOL overflowing =
+      RionRuntimeTabsOverflow(_tabCanvas.frame.size.width,
+                              clipView.bounds.size.width);
+  _scrollLeftButton.enabled =
+      overflowing && clipView.bounds.origin.x > 1.0;
+  _scrollRightButton.enabled =
+      overflowing && clipView.bounds.origin.x < maximumOrigin - 1.0;
+  _scrollLeftButton.contentTintColor = _scrollLeftButton.enabled
+      ? NSColor.secondaryLabelColor
+      : NSColor.tertiaryLabelColor;
+  _scrollRightButton.contentTintColor = _scrollRightButton.enabled
+      ? NSColor.secondaryLabelColor
+      : NSColor.tertiaryLabelColor;
+  if (!overflowing && clipView.bounds.origin.x != 0) {
+    [clipView scrollToPoint:NSMakePoint(0, 0)];
+    [_tabScrollView reflectScrolledClipView:clipView];
+  }
+}
+
+- (void)scrollTabsLeft:(id)sender {
+  (void)sender;
+  NSRect visible = _tabScrollView.contentView.bounds;
+  CGFloat targetX = 0;
+  for (NSView *surface in _tabSurfaces) {
+    if (NSMinX(surface.frame) < NSMinX(visible) - 1.0) {
+      targetX = NSMinX(surface.frame);
+    } else {
+      break;
+    }
+  }
+  [_tabScrollView.contentView scrollToPoint:NSMakePoint(targetX, 0)];
+  [_tabScrollView reflectScrolledClipView:_tabScrollView.contentView];
+  [self updateTabScrollButtonState];
+}
+
+- (void)scrollTabsRight:(id)sender {
+  (void)sender;
+  NSRect visible = _tabScrollView.contentView.bounds;
+  CGFloat maximumOrigin =
+      MAX(0, _tabCanvas.frame.size.width - visible.size.width);
+  CGFloat targetX = maximumOrigin;
+  for (NSView *surface in _tabSurfaces) {
+    if (NSMaxX(surface.frame) > NSMaxX(visible) + 1.0) {
+      targetX = NSMaxX(surface.frame) - visible.size.width;
+      break;
+    }
+  }
+  targetX = MIN(maximumOrigin, MAX(0, targetX));
+  [_tabScrollView.contentView scrollToPoint:NSMakePoint(targetX, 0)];
+  [_tabScrollView reflectScrolledClipView:_tabScrollView.contentView];
+  [self updateTabScrollButtonState];
 }
 
 - (void)tabPressed:(RionRuntimeTabItemView *)sender {
@@ -2491,6 +2722,29 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     }
   }
   return nil;
+}
+
+- (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view {
+  if (_tabScrollView.bounds.size.width <= 0) return;
+  NSPoint rootPoint = [_accessoryController.view convertPoint:point fromView:view];
+  NSRect frame = _tabScrollView.frame;
+  CGFloat edgeWidth = MIN(36.0, frame.size.width / 4.0);
+  CGFloat delta = 0;
+  if (rootPoint.x < NSMinX(frame) + edgeWidth) {
+    delta = -16.0;
+  } else if (rootPoint.x > NSMaxX(frame) - edgeWidth) {
+    delta = 16.0;
+  }
+  if (delta == 0) return;
+  NSClipView *clipView = _tabScrollView.contentView;
+  CGFloat maximumOrigin =
+      MAX(0, _tabCanvas.frame.size.width - clipView.bounds.size.width);
+  CGFloat originX = MIN(
+      maximumOrigin,
+      MAX(0, clipView.bounds.origin.x + delta));
+  [clipView scrollToPoint:NSMakePoint(originX, 0)];
+  [_tabScrollView reflectScrolledClipView:clipView];
+  [self updateTabScrollButtonState];
 }
 
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier {

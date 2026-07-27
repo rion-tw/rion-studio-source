@@ -3449,7 +3449,10 @@ mod tests {
             replace_scalar(
                 &mut connection,
                 "runtimeWindowPreferences",
-                json!({"alwaysShowToolbarInFullScreen":true}),
+                json!({
+                    "alwaysHideTabCloseButton": true,
+                    "alwaysShowToolbarInFullScreen": true
+                }),
             )
             .unwrap();
             let reloaded: RuntimeWindowPreferencesRecord = serde_json::from_value(
@@ -3458,6 +3461,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
+            assert!(reloaded.always_hide_tab_close_button);
             assert!(reloaded.always_show_toolbar_in_full_screen);
             assert!(reloaded.restore_game_windows_on_startup);
         });
@@ -3781,6 +3785,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(macros.key_hold_ms, 30);
+        assert!(!preferences.always_hide_tab_close_button);
         assert!(preferences.always_show_toolbar_in_full_screen);
         assert_eq!(
             connection

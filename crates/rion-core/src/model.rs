@@ -2729,6 +2729,8 @@ pub struct MacroSettingsRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RuntimeWindowPreferencesRecord {
+    #[serde(default)]
+    pub always_hide_tab_close_button: bool,
     pub always_show_toolbar_in_full_screen: bool,
     #[serde(default = "default_true")]
     pub restore_game_windows_on_startup: bool,

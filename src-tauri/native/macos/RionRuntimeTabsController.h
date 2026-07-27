@@ -31,11 +31,14 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 
 @interface RionRuntimeTabsState : NSObject
 
+@property(nonatomic) BOOL alwaysHideTabCloseButton;
 @property(nonatomic, copy) NSString *windowID;
 @property(nonatomic, copy) NSString *addLabel;
 @property(nonatomic, copy) NSString *audioMutedLabel;
 @property(nonatomic, copy) NSString *audioPlayingLabel;
 @property(nonatomic, copy) NSString *closeLabel;
+@property(nonatomic, copy) NSString *scrollLeftLabel;
+@property(nonatomic, copy) NSString *scrollRightLabel;
 @property(nonatomic, copy) NSArray<RionRuntimeTabModel *> *tabs;
 
 @end
@@ -92,8 +95,10 @@ void rion_runtime_tabs_destroy(void * _Nullable controller);
 void rion_runtime_tabs_update(
     void * _Nullable controller, const char *windowID,
     const RionRuntimeTabInput *tabs, size_t tabCount,
-    const char *addLabel, const char *audioMutedLabel,
-    const char *audioPlayingLabel, const char *closeLabel);
+    bool alwaysHideTabCloseButton, const char *addLabel,
+    const char *audioMutedLabel, const char *audioPlayingLabel,
+    const char *closeLabel, const char *scrollLeftLabel,
+    const char *scrollRightLabel);
 void rion_runtime_tabs_prepare_fullscreen(
     void * _Nullable controller, bool fullscreen);
 void rion_runtime_tabs_set_fullscreen_policy(
@@ -103,6 +108,7 @@ void rion_runtime_tabs_set_reveal_locked(
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(
     void * _Nullable controller);
 bool rion_runtime_tabs_action_scope_self_test(void);
+bool rion_runtime_tabs_overflow_layout_self_test(void);
 
 #ifdef __cplusplus
 }

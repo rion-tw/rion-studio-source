@@ -478,6 +478,26 @@ function SettingsViewBase({
 
             <SettingsSection title={t("settings.gameWindows")}>
               <SettingsRow
+                title={t("settings.alwaysHideTabCloseButton")}
+                description={t("settings.alwaysHideTabCloseButtonDescription")}
+                control={
+                  <Switch
+                    aria-label={t("settings.alwaysHideTabCloseButton")}
+                    checked={runtimeWindowPreferences.alwaysHideTabCloseButton}
+                    disabled={isRuntimeWindowPreferencesSaving}
+                    onCheckedChange={(alwaysHideTabCloseButton) => {
+                      setIsRuntimeWindowPreferencesSaving(true);
+                      void onRuntimeWindowPreferencesChange({
+                        ...runtimeWindowPreferences,
+                        alwaysHideTabCloseButton
+                      })
+                        .catch(onError)
+                        .finally(() => setIsRuntimeWindowPreferencesSaving(false));
+                    }}
+                  />
+                }
+              />
+              <SettingsRow
                 showDivider={false}
                 title={t("settings.restoreGameWindowsOnStartup")}
                 description={t("settings.restoreGameWindowsOnStartupDescription")}

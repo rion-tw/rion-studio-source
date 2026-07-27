@@ -14,6 +14,10 @@
       body[data-toolbar-visible="false"] > * { visibility: hidden; }
       #tabs { min-width: 0; flex: 1; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
       #tabs::-webkit-scrollbar { display: none; }
+      .scroll { width: 24px; height: 31px; flex: none; border: 0; border-radius: 6px; padding: 0; background: transparent; color: #c7c9cf; font-size: 18px; line-height: 1; }
+      .scroll:hover:not(:disabled) { background: rgba(255,255,255,.08); color: white; }
+      .scroll:disabled { color: #666970; opacity: .45; }
+      .scroll[hidden] { display: none; }
       .tab { height: 31px; min-width: 138px; max-width: 260px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aeb1b8; cursor: default; }
       .tab:hover { background: rgba(255,255,255,.06); color: #f4f4f5; }
       .tab.active { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.1); color: white; }
@@ -30,5 +34,5 @@
       #add:hover { background: rgba(255,255,255,.08); color: white; }
     </style>
   </head>
-  <body><div id="tabs" role="tablist"></div><button id="add" type="button" aria-label="Open role or workspace">+</button><script type="module" src="/runtime-shell/runtimeTabStrip.ts"></script></body>
+  <body><button id="scroll-left" class="scroll" type="button" aria-controls="tabs" hidden>‹</button><div id="tabs" role="tablist"></div><button id="scroll-right" class="scroll" type="button" aria-controls="tabs" hidden>›</button><button id="add" type="button" aria-label="Open role or workspace">+</button><script type="module" src="/runtime-shell/runtimeTabStrip.ts"></script></body>
 </html>

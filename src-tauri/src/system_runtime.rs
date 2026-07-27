@@ -7314,6 +7314,15 @@ fn verify_attestation_tab(
         )?
         .0;
 
+    // macOS 26 can suspend a WKWebView that is created inside a hidden host before it
+    // dispatches its first page-load callback. The real launch sequence reveals the role
+    // surfaces and their host before loading, so mirror that sequence here after asserting
+    // that create_tab initially kept the native surfaces hidden.
+    for (_, webview, _, _) in &surfaces {
+        webview.show().map_err(RuntimeError::tauri)?;
+    }
+    window.show().map_err(RuntimeError::tauri)?;
+
     for (role_id, webview, navigation, rect) in &surfaces {
         eprintln!("System WebView parity: loading {role_id}.");
         let url = checked_web_url(&server.url(role_id))?;

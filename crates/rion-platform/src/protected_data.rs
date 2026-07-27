@@ -1,7 +1,10 @@
 use crate::{Platform, PlatformError};
 
+#[cfg(target_os = "macos")]
 const MAC_KEYCHAIN_ACCOUNT: &str = "Rion Studio";
+#[cfg(target_os = "macos")]
 const MAC_KEYCHAIN_SERVICE: &str = "com.rionstudio.launcher.session-transfer";
+#[cfg(target_os = "macos")]
 const MAC_ENVELOPE_PREFIX: &[u8] = b"RSP1";
 
 pub fn protect_session_transfer(

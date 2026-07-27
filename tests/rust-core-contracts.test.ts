@@ -11,11 +11,28 @@ describe("generated Rust core contracts", () => {
     ]);
 
     expect(action).toContain('{ "type": "focus" }');
-    expect(action).toContain('{ "type": "debugger"');
-    expect(action).toContain("paramsJson: string");
+    expect(action).toContain('{ "type": "key"');
+    expect(action).toContain('{ "type": "click"');
+    expect(action).not.toContain('{ "type": "evaluate"');
+    expect(action).not.toContain('{ "type": "cookies"');
+    expect(action).not.toContain('{ "type": "session"');
+    expect(action).not.toContain('{ "type": "debugger"');
     expect(request).toContain("action: BrowserAction");
     expect(request).not.toContain("payload_json");
     expect(index).toContain('export type { BrowserAction } from "./BrowserAction";');
+  });
+
+  it("restricts generic core effects to app and role web-content targets", async () => {
+    const [target, kind] = await Promise.all([
+      readFile("src/shared/generated/CoreEffectTarget.ts", "utf8"),
+      readFile("src/shared/generated/CoreEffectTargetKind.ts", "utf8")
+    ]);
+
+    expect(target).toContain("kind: CoreEffectTargetKind");
+    expect(kind).toContain('"app" | "webContents"');
+    for (const retired of ["window", "view", "session"]) {
+      expect(kind).not.toContain(`"${retired}"`);
+    }
   });
 
   it("carries bounded browser action batches through the generated core event union", async () => {

@@ -3154,27 +3154,6 @@ pub enum BrowserAction {
         #[ts(type = "\"left\" | \"middle\" | \"right\"")]
         button: String,
     },
-    Evaluate {
-        source: String,
-    },
-    Cookies {
-        operation: String,
-        #[serde(rename = "payloadJson")]
-        #[ts(rename = "payloadJson")]
-        payload_json: String,
-    },
-    Session {
-        operation: String,
-        #[serde(rename = "payloadJson")]
-        #[ts(rename = "payloadJson")]
-        payload_json: String,
-    },
-    Debugger {
-        method: String,
-        #[serde(rename = "paramsJson")]
-        #[ts(rename = "paramsJson")]
-        params_json: String,
-    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3188,12 +3167,19 @@ pub struct BrowserActionResult {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum CoreEffectTargetKind {
+    App,
+    WebContents,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct CoreEffectTarget {
-    #[ts(type = "\"app\" | \"window\" | \"view\" | \"webContents\" | \"session\"")]
-    pub kind: String,
+    pub kind: CoreEffectTargetKind,
     pub handle_id: String,
 }
 

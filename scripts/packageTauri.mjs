@@ -21,10 +21,15 @@ await run(command("pnpm"), ["run", "test:native:system-input"], baseEnvironment)
 const debugExecutable = platform === "win32"
   ? "target/debug/rion-tauri.exe"
   : "target/debug/rion-tauri";
-for (const script of ["test:native:runtime-restore", "test:native:file-operations"]) {
+for (const [script, extraArguments] of [
+  ["test:native:macro-game", ["--skip-system-input"]],
+  ["test:native:session-import", ["--skip-system-input"]],
+  ["test:native:runtime-restore", []],
+  ["test:native:file-operations", []]
+]) {
   await run(
     command("pnpm"),
-    ["run", script, "--", "--executable", debugExecutable],
+    ["run", script, "--", "--executable", debugExecutable, ...extraArguments],
     baseEnvironment
   );
 }
@@ -76,13 +81,19 @@ await run(command("pnpm"), [
   "--executable",
   packagedExecutable
 ], buildEnvironment);
-for (const script of ["test:native:runtime-restore", "test:native:file-operations"]) {
+for (const [script, extraArguments] of [
+  ["test:native:macro-game", ["--skip-system-input"]],
+  ["test:native:session-import", ["--skip-system-input"]],
+  ["test:native:runtime-restore", []],
+  ["test:native:file-operations", []]
+]) {
   await run(command("pnpm"), [
     "run",
     script,
     "--",
     "--executable",
-    packagedExecutable
+    packagedExecutable,
+    ...extraArguments
   ], buildEnvironment);
 }
 

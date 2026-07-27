@@ -17,6 +17,8 @@ use rion_core::{
     CoreEffectResult, CoreErrorPayload, CoreEvent, EmbeddedLaunchTargetRecord, StateCollection,
     StatePixelBoundsRecord, WorkspaceDisplayInfoRecord, migrate_legacy_data_root,
 };
+#[cfg(any(windows, target_os = "macos"))]
+use rusty_leveldb::{DB, Options};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State, Webview, WebviewWindow};
 
@@ -38,12 +40,20 @@ const OVERLAY_REQUEST_MAX_BYTES: usize = 64 * 1024;
 const SHARED_DATA_DIRECTORY_NAME: &str = "Rion Studio";
 const LEGACY_DATA_DIRECTORY_NAME: &str = "rion-studio";
 const INPUT_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_INPUT_ATTESTATION_OUTPUT";
+const MACRO_GAME_ATTESTATION_FIXTURE_URL_ENV: &str =
+    "RION_STUDIO_MACRO_GAME_ATTESTATION_FIXTURE_URL";
+const MACRO_GAME_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_MACRO_GAME_ATTESTATION_OUTPUT";
 const FILE_OPERATIONS_ATTESTATION_OUTPUT_ENV: &str =
     "RION_STUDIO_FILE_OPERATIONS_ATTESTATION_OUTPUT";
 const RESTORE_ATTESTATION_FIXTURE_URL_ENV: &str =
     "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_FIXTURE_URL";
 const RESTORE_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT";
 const RESTORE_ATTESTATION_STAGE_ENV: &str = "RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_STAGE";
+const SESSION_IMPORT_ATTESTATION_FIXTURE_URL_ENV: &str =
+    "RION_STUDIO_SESSION_IMPORT_ATTESTATION_FIXTURE_URL";
+const SESSION_IMPORT_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_SESSION_IMPORT_ATTESTATION_OUTPUT";
+const SESSION_IMPORT_ATTESTATION_SOURCE_ENV: &str = "RION_STUDIO_SESSION_IMPORT_ATTESTATION_SOURCE";
+const SESSION_IMPORT_ATTESTATION_STAGE_ENV: &str = "RION_STUDIO_SESSION_IMPORT_ATTESTATION_STAGE";
 const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
@@ -77,6 +87,18 @@ struct RuntimeRestoreAttestationRequest {
     fixture_url: String,
     output_path: PathBuf,
     stage: String,
+}
+
+struct SessionImportAttestationRequest {
+    fixture_url: String,
+    output_path: PathBuf,
+    source_path: PathBuf,
+    stage: String,
+}
+
+struct MacroGameAttestationRequest {
+    fixture_url: String,
+    output_path: PathBuf,
 }
 
 struct CoreState {
@@ -144,8 +166,10 @@ fn user_data_override_allowed() -> bool {
     cfg!(debug_assertions)
         || [
             INPUT_ATTESTATION_OUTPUT_ENV,
+            MACRO_GAME_ATTESTATION_OUTPUT_ENV,
             FILE_OPERATIONS_ATTESTATION_OUTPUT_ENV,
             RESTORE_ATTESTATION_OUTPUT_ENV,
+            SESSION_IMPORT_ATTESTATION_OUTPUT_ENV,
         ]
         .iter()
         .any(|name| std::env::var_os(name).is_some())
@@ -156,6 +180,37 @@ fn input_attestation_output_path() -> Result<Option<PathBuf>, String> {
         return Ok(None);
     };
     validate_input_attestation_output_path(PathBuf::from(path)).map(Some)
+}
+
+fn macro_game_attestation_request() -> Result<Option<MacroGameAttestationRequest>, String> {
+    let output = std::env::var_os(MACRO_GAME_ATTESTATION_OUTPUT_ENV);
+    let fixture_url = std::env::var(MACRO_GAME_ATTESTATION_FIXTURE_URL_ENV).ok();
+    if output.is_none() && fixture_url.is_none() {
+        return Ok(None);
+    }
+    let output_path = output
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{MACRO_GAME_ATTESTATION_OUTPUT_ENV} is required."))?;
+    if !output_path.is_absolute() {
+        return Err(format!(
+            "{MACRO_GAME_ATTESTATION_OUTPUT_ENV} must be absolute."
+        ));
+    }
+    let fixture_url = fixture_url
+        .ok_or_else(|| format!("{MACRO_GAME_ATTESTATION_FIXTURE_URL_ENV} is required."))?;
+    let parsed = tauri::Url::parse(&fixture_url)
+        .map_err(|_| format!("{MACRO_GAME_ATTESTATION_FIXTURE_URL_ENV} is invalid."))?;
+    if parsed.scheme() != "http"
+        || !matches!(parsed.host_str(), Some("127.0.0.1" | "::1" | "localhost"))
+    {
+        return Err(format!(
+            "{MACRO_GAME_ATTESTATION_FIXTURE_URL_ENV} must be a loopback HTTP URL."
+        ));
+    }
+    Ok(Some(MacroGameAttestationRequest {
+        fixture_url,
+        output_path,
+    }))
 }
 
 fn file_operations_attestation_output_path() -> Result<Option<PathBuf>, String> {
@@ -216,6 +271,50 @@ fn runtime_restore_attestation_request() -> Result<Option<RuntimeRestoreAttestat
     Ok(Some(RuntimeRestoreAttestationRequest {
         fixture_url,
         output_path,
+        stage,
+    }))
+}
+
+fn session_import_attestation_request() -> Result<Option<SessionImportAttestationRequest>, String> {
+    let stage = std::env::var(SESSION_IMPORT_ATTESTATION_STAGE_ENV).ok();
+    let output = std::env::var_os(SESSION_IMPORT_ATTESTATION_OUTPUT_ENV);
+    let source = std::env::var_os(SESSION_IMPORT_ATTESTATION_SOURCE_ENV);
+    let fixture_url = std::env::var(SESSION_IMPORT_ATTESTATION_FIXTURE_URL_ENV).ok();
+    if stage.is_none() && output.is_none() && source.is_none() && fixture_url.is_none() {
+        return Ok(None);
+    }
+    let stage =
+        stage.ok_or_else(|| format!("{SESSION_IMPORT_ATTESTATION_STAGE_ENV} is required."))?;
+    if !matches!(stage.as_str(), "import" | "readback") {
+        return Err(format!(
+            "{SESSION_IMPORT_ATTESTATION_STAGE_ENV} must be import or readback."
+        ));
+    }
+    let output_path = output
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{SESSION_IMPORT_ATTESTATION_OUTPUT_ENV} is required."))?;
+    let source_path = source
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{SESSION_IMPORT_ATTESTATION_SOURCE_ENV} is required."))?;
+    if !output_path.is_absolute() || !source_path.is_absolute() {
+        return Err("Session-import attestation paths must be absolute.".to_owned());
+    }
+    let fixture_url = fixture_url
+        .ok_or_else(|| format!("{SESSION_IMPORT_ATTESTATION_FIXTURE_URL_ENV} is required."))?;
+    let parsed = tauri::Url::parse(&fixture_url)
+        .map_err(|_| format!("{SESSION_IMPORT_ATTESTATION_FIXTURE_URL_ENV} is invalid."))?;
+    let loopback_host = parsed.host_str().is_some_and(|host| {
+        matches!(host, "127.0.0.1" | "::1" | "localhost") || host.ends_with(".localhost")
+    });
+    if parsed.scheme() != "http" || !loopback_host {
+        return Err(format!(
+            "{SESSION_IMPORT_ATTESTATION_FIXTURE_URL_ENV} must be a loopback HTTP URL."
+        ));
+    }
+    Ok(Some(SessionImportAttestationRequest {
+        fixture_url,
+        output_path,
+        source_path,
         stage,
     }))
 }
@@ -1568,6 +1667,596 @@ fn write_runtime_restore_attestation(path: &std::path::Path, value: &Value) -> R
 }
 
 #[cfg(any(windows, target_os = "macos"))]
+fn start_macro_game_attestation(
+    app: AppHandle,
+    request: MacroGameAttestationRequest,
+) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    thread::Builder::new()
+        .name("rion-macro-game-attestation".to_owned())
+        .spawn(move || {
+            let outcome =
+                tauri::async_runtime::block_on(run_macro_game_attestation(&app, &request));
+            let (document, exit_code) = match outcome {
+                Ok(report) => (
+                    json!({ "schemaVersion": 1, "ok": true, "report": report }),
+                    0,
+                ),
+                Err(message) => (
+                    json!({
+                        "schemaVersion": 1,
+                        "ok": false,
+                        "error": {
+                            "code": "SYSTEM_MACRO_GAME_ATTESTATION_FAILED",
+                            "message": message
+                        }
+                    }),
+                    13,
+                ),
+            };
+            if let Err(error) = write_runtime_restore_attestation(&request.output_path, &document) {
+                eprintln!("Macro-game attestation output failed: {error}");
+                app.exit(14);
+            } else {
+                app.exit(exit_code);
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+async fn run_macro_game_attestation(
+    app: &AppHandle,
+    request: &MacroGameAttestationRequest,
+) -> Result<Value, String> {
+    wait_for_tauri_main_loop(app)?;
+    let state = app.state::<CoreState>();
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The Tauri main window is unavailable.".to_owned())?;
+    let target = workspace_launch_target(&window, None)
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let game = invoke_core_sync(
+        &state,
+        json!({
+            "type": "gameCreate",
+            "input": {
+                "name": "Macro game attestation",
+                "defaultLaunchUrl": request.fixture_url
+            }
+        }),
+    )
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let game_id = game["id"]
+        .as_str()
+        .ok_or_else(|| "The macro-game fixture has no game ID.".to_owned())?;
+    let mut role_ids = Vec::new();
+    for name in ["Macro game role A", "Macro game role B"] {
+        let role = invoke_core_sync(
+            &state,
+            json!({
+                "type": "roleCreate",
+                "input": {
+                    "gameId": game_id,
+                    "name": name,
+                    "launchUrl": request.fixture_url
+                }
+            }),
+        )
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        let role_id = role["id"]
+            .as_str()
+            .ok_or_else(|| "The macro-game role has no ID.".to_owned())?
+            .to_owned();
+        invoke_core_async(
+            &state,
+            json!({ "type": "browserRoleLaunch", "roleId": role_id, "target": target }),
+        )
+        .await
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        role_ids.push(role_id);
+    }
+    for role_id in &role_ids {
+        let ready = state.runtime.evaluate_role_for_attestation(
+            role_id,
+            "JSON.stringify(globalThis.__rionMacroGame?.snapshot?.() ?? null)",
+        )?;
+        if ready["ready"] != json!(true) {
+            return Err(format!(
+                "The macro-game fixture did not initialize for {role_id}."
+            ));
+        }
+    }
+
+    let once = invoke_core_async(
+        &state,
+        json!({
+            "type": "macroCreate",
+            "input": {
+                "enabled": true,
+                "activationMode": "toggle",
+                "name": "[測試] native ordered multi-role",
+                "roleIds": role_ids,
+                "repeat": { "type": "once" },
+                "steps": [
+                    { "type": "key", "code": "ArrowLeft", "modifiers": [], "action": "tap" },
+                    { "type": "delay", "ms": 40 },
+                    { "type": "key", "code": "ArrowRight", "modifiers": [], "action": "tap" },
+                    { "type": "click", "unit": "percent", "xPercent": 50, "yPercent": 50 }
+                ]
+            }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let once_id = once["id"]
+        .as_str()
+        .ok_or_else(|| "The once macro has no ID.".to_owned())?;
+    invoke_core_async(
+        &state,
+        json!({
+            "type": "macroStart",
+            "request": { "macroId": once_id, "sourceRoleId": null }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let ordered = wait_for_macro_game_snapshots(&state, &role_ids, |snapshots| {
+        snapshots.iter().all(|snapshot| {
+            snapshot["events"]
+                .as_array()
+                .is_some_and(|events| events.len() >= 4)
+                && snapshot["clicks"].as_u64().unwrap_or(0) >= 1
+        })
+    })?;
+    let expected = json!([
+        "down:ArrowLeft",
+        "up:ArrowLeft",
+        "down:ArrowRight",
+        "up:ArrowRight"
+    ]);
+    for snapshot in &ordered {
+        if snapshot["events"] != expected
+            || snapshot["heldCount"] != json!(0)
+            || snapshot["untrusted"] != json!(0)
+        {
+            return Err(format!("Ordered multi-role macro diverged: {snapshot}."));
+        }
+    }
+
+    let loop_macro = invoke_core_async(
+        &state,
+        json!({
+            "type": "macroCreate",
+            "input": {
+                "enabled": true,
+                "activationMode": "toggle",
+                "name": "[測試] native loop cancel",
+                "roleIds": role_ids,
+                "repeat": { "type": "loop", "intervalMs": 50 },
+                "steps": [
+                    { "type": "key", "code": "KeyH", "modifiers": [], "action": "tap" },
+                    { "type": "delay", "ms": 40 }
+                ]
+            }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let loop_id = loop_macro["id"]
+        .as_str()
+        .ok_or_else(|| "The loop macro has no ID.".to_owned())?;
+    invoke_core_async(
+        &state,
+        json!({
+            "type": "macroStart",
+            "request": { "macroId": loop_id, "sourceRoleId": null }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    wait_for_macro_game_snapshots(&state, &role_ids, |snapshots| {
+        snapshots
+            .iter()
+            .all(|snapshot| snapshot["keyHDown"].as_u64().unwrap_or(0) >= 2)
+    })?;
+    invoke_core_async(&state, json!({ "type": "macroStop", "macroId": loop_id }))
+        .await
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    thread::sleep(Duration::from_millis(100));
+    let stopped = macro_game_snapshots(&state, &role_ids)?;
+    thread::sleep(Duration::from_millis(300));
+    let after_cancel = macro_game_snapshots(&state, &role_ids)?;
+    for (stopped, after) in stopped.iter().zip(&after_cancel) {
+        if stopped["keyHDown"] != after["keyHDown"] || after["heldCount"] != json!(0) {
+            return Err(format!(
+                "Loop cancellation left activity or a held key: {after}."
+            ));
+        }
+    }
+    let statuses = invoke_core_sync(&state, json!({ "type": "macroStatuses" }))
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    if statuses
+        .as_array()
+        .is_some_and(|statuses| !statuses.is_empty())
+    {
+        return Err(format!(
+            "Macro statuses remained active after cancellation: {statuses}."
+        ));
+    }
+    for role_id in &role_ids {
+        let _ = invoke_core_async(
+            &state,
+            json!({ "type": "macroReleaseRole", "roleId": role_id }),
+        )
+        .await;
+        invoke_core_async(
+            &state,
+            json!({ "type": "browserRoleStop", "roleId": role_id }),
+        )
+        .await
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    }
+    Ok(json!({
+        "cancelStoppedDispatch": true,
+        "clickDelivered": true,
+        "heldKeysReleased": true,
+        "multiRoleSequenceMatched": true,
+        "productionMacroStart": true,
+        "roleCount": 2,
+        "trustedEventsOnly": true
+    }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn macro_game_snapshots(state: &CoreState, role_ids: &[String]) -> Result<Vec<Value>, String> {
+    role_ids
+        .iter()
+        .map(|role_id| {
+            state.runtime.evaluate_role_for_attestation(
+                role_id,
+                "JSON.stringify(globalThis.__rionMacroGame?.snapshot?.() ?? null)",
+            )
+        })
+        .collect()
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn wait_for_macro_game_snapshots(
+    state: &CoreState,
+    role_ids: &[String],
+    complete: impl Fn(&[Value]) -> bool,
+) -> Result<Vec<Value>, String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshots = macro_game_snapshots(state, role_ids)?;
+        if complete(&snapshots) {
+            return Ok(snapshots);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!(
+                "The production macro chain timed out: {snapshots:?}."
+            ));
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn start_session_import_attestation(
+    app: AppHandle,
+    request: SessionImportAttestationRequest,
+) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    thread::Builder::new()
+        .name("rion-session-import-attestation".to_owned())
+        .spawn(move || {
+            let outcome =
+                tauri::async_runtime::block_on(run_session_import_attestation(&app, &request));
+            let (document, exit_code) = match outcome {
+                Ok(report) => (
+                    json!({
+                        "schemaVersion": 1,
+                        "ok": true,
+                        "stage": request.stage,
+                        "report": report
+                    }),
+                    0,
+                ),
+                Err(message) => (
+                    json!({
+                        "schemaVersion": 1,
+                        "ok": false,
+                        "stage": request.stage,
+                        "error": {
+                            "code": "SYSTEM_SESSION_IMPORT_ATTESTATION_FAILED",
+                            "message": message
+                        }
+                    }),
+                    11,
+                ),
+            };
+            if let Err(error) = write_runtime_restore_attestation(&request.output_path, &document) {
+                eprintln!("Session-import attestation output failed: {error}");
+                app.exit(12);
+            } else {
+                app.exit(exit_code);
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+async fn run_session_import_attestation(
+    app: &AppHandle,
+    request: &SessionImportAttestationRequest,
+) -> Result<Value, String> {
+    wait_for_tauri_main_loop(app)?;
+    let state = app.state::<CoreState>();
+    match request.stage.as_str() {
+        "import" => {
+            create_session_import_chrome_fixture(&request.source_path, &request.fixture_url)?;
+            let source_fingerprint =
+                rion_platform::chrome_profile_source_fingerprint(&request.source_path, "Default")
+                    .map_err(|error| error.to_string())?;
+            let game = invoke_core_sync(
+                &state,
+                json!({
+                    "type": "gameCreate",
+                    "input": {
+                        "name": "Session import attestation game",
+                        "defaultLaunchUrl": request.fixture_url
+                    }
+                }),
+            )
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let game_id = game["id"]
+                .as_str()
+                .ok_or_else(|| "The session-import game has no ID.".to_owned())?;
+            let preview = invoke_core_sync(
+                &state,
+                json!({
+                    "type": "chromeProfilePreview",
+                    "sourceUserDataDir": request.source_path
+                }),
+            )
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let import_id = preview["importId"]
+                .as_str()
+                .ok_or_else(|| "The Chrome preview has no import ID.".to_owned())?;
+            let profile_id = preview["profiles"]
+                .as_array()
+                .filter(|profiles| profiles.len() == 1)
+                .and_then(|profiles| profiles.first())
+                .and_then(|profile| profile["id"].as_str())
+                .ok_or_else(|| {
+                    "The Chrome preview did not resolve exactly one profile.".to_owned()
+                })?;
+            let result = invoke_core_async(
+                &state,
+                json!({
+                    "type": "chromeProfileApply",
+                    "importId": import_id,
+                    "gameId": game_id,
+                    "consentAccepted": true,
+                    "resolutions": [{ "action": "create", "profileId": profile_id }]
+                }),
+            )
+            .await
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let item = result["items"]
+                .as_array()
+                .and_then(|items| items.first())
+                .ok_or_else(|| "The Chrome import returned no item.".to_owned())?;
+            if item["status"] != json!("imported")
+                || item["cookieCount"] != json!(1)
+                || item["localStorageCount"] != json!(1)
+            {
+                return Err(format!("The Chrome import result is incomplete: {item}."));
+            }
+            let role_id = item["roleId"]
+                .as_str()
+                .ok_or_else(|| "The imported item has no role ID.".to_owned())?;
+            let transfer_root = state.core.user_data_dir().join(".session-transfers");
+            let raw_staging_absent = !state
+                .core
+                .user_data_dir()
+                .join(".chrome-profile-import-work")
+                .exists();
+            let encrypted_staging_cleaned = !transfer_root.exists()
+                || fs::read_dir(&transfer_root)
+                    .map_err(|error| error.to_string())?
+                    .next()
+                    .is_none();
+            if !raw_staging_absent || !encrypted_staging_cleaned {
+                return Err("Session-import staging was not cleaned after commit.".to_owned());
+            }
+            Ok(json!({
+                "cookieCount": 1,
+                "createdRole": true,
+                "encryptedStagingCleaned": true,
+                "localStorageCount": 1,
+                "publicCommandApplied": true,
+                "rawStagingAbsent": true,
+                "roleIdPresent": !role_id.is_empty(),
+                "sourceFingerprintStable": rion_platform::chrome_profile_source_fingerprint(
+                    &request.source_path,
+                    "Default"
+                ).map_err(|error| error.to_string())? == source_fingerprint
+            }))
+        }
+        "readback" => {
+            let games = invoke_core_sync(&state, json!({ "type": "gamesList" }))
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let game_id = unique_named_id(&games, "Session import attestation game")?;
+            let roles = invoke_core_sync(&state, json!({ "type": "rolesList" }))
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let role_id = unique_named_id(&roles, "Session import attestation profile")?;
+            let preview = invoke_core_sync(
+                &state,
+                json!({
+                    "type": "chromeProfilePreview",
+                    "sourceUserDataDir": request.source_path
+                }),
+            )
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let import_id = preview["importId"]
+                .as_str()
+                .ok_or_else(|| "The restart Chrome preview has no import ID.".to_owned())?;
+            let profile_id = preview["profiles"][0]["id"]
+                .as_str()
+                .ok_or_else(|| "The restart Chrome preview has no profile ID.".to_owned())?;
+            let replace = invoke_core_async(
+                &state,
+                json!({
+                    "type": "chromeProfileApply",
+                    "importId": import_id,
+                    "gameId": game_id,
+                    "consentAccepted": true,
+                    "resolutions": [{
+                        "action": "replace",
+                        "profileId": profile_id,
+                        "targetRoleId": role_id
+                    }]
+                }),
+            )
+            .await
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            if replace["items"][0]["status"] != json!("imported") {
+                return Err(format!("The replacement import failed: {replace}."));
+            }
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| "The Tauri main window is unavailable.".to_owned())?;
+            let target = workspace_launch_target(&window, None)
+                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            invoke_core_async(
+                &state,
+                json!({ "type": "browserRoleLaunch", "roleId": role_id, "target": target }),
+            )
+            .await
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            let readback = state.runtime.evaluate_role_for_attestation(
+                &role_id,
+                "JSON.stringify({ cookie: document.cookie.includes('rion_session='), cookieNames: document.cookie.split(';').map((item) => item.split('=')[0].trim()).filter(Boolean), localStorage: localStorage.getItem('rion-session-import') === 'present' })",
+            )?;
+            let native_cookie = state.runtime.role_cookie_for_attestation(
+                &role_id,
+                &request.fixture_url,
+                "rion_session",
+            )?;
+            invoke_core_async(
+                &state,
+                json!({ "type": "browserRoleStop", "roleId": role_id }),
+            )
+            .await
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            if native_cookie.is_null()
+                || readback["cookie"] != json!(true)
+                || readback["localStorage"] != json!(true)
+            {
+                return Err(format!(
+                    "The imported session did not survive process restart: page={readback}, nativeCookie={native_cookie}."
+                ));
+            }
+            Ok(json!({
+                "cookieReadback": true,
+                "localStorageReadback": true,
+                "replacementApplied": true,
+                "roleResolvedExactlyOnce": true,
+                "systemWebViewReadback": true
+            }))
+        }
+        _ => Err("Unknown session-import attestation stage.".to_owned()),
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn unique_named_id(records: &Value, name: &str) -> Result<String, String> {
+    let matches = records
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|record| record["name"].as_str() == Some(name))
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(format!("Expected exactly one record named {name}."));
+    }
+    matches[0]["id"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("Record {name} has no ID."))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn create_session_import_chrome_fixture(
+    source: &std::path::Path,
+    fixture_url: &str,
+) -> Result<(), String> {
+    let parsed = url::Url::parse(fixture_url).map_err(|error| error.to_string())?;
+    let origin = parsed.origin().ascii_serialization();
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "The session-import fixture has no host.".to_owned())?;
+    let profile = source.join("Default");
+    let cookie_path = profile.join("Network/Cookies");
+    let leveldb_path = profile.join("Local Storage/leveldb");
+    fs::create_dir_all(cookie_path.parent().expect("cookie parent"))
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(leveldb_path.parent().expect("LevelDB parent"))
+        .map_err(|error| error.to_string())?;
+    fs::write(
+        source.join("Local State"),
+        br#"{"profile":{"info_cache":{"Default":{"name":"Session import attestation profile"}}}}"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let connection = rusqlite::Connection::open(&cookie_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);\
+             INSERT INTO meta(key, value) VALUES ('version', '23');\
+             CREATE TABLE cookies(\
+               host_key TEXT, name TEXT, value TEXT, path TEXT, expires_utc INTEGER,\
+               is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,\
+               encrypted_value BLOB, top_frame_site_key TEXT\
+             );",
+        )
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            "INSERT INTO cookies VALUES (?1,'rion_session','present','/',?2,0,0,1,X'','')",
+            rusqlite::params![
+                host,
+                (chrono::Utc::now().timestamp() + 86_400 + 11_644_473_600) * 1_000_000
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    drop(connection);
+    let options = Options {
+        create_if_missing: true,
+        ..Options::default()
+    };
+    let mut database = DB::open(&leveldb_path, options).map_err(|error| error.to_string())?;
+    let key = [
+        b"_".as_slice(),
+        origin.as_bytes(),
+        &[0, 1],
+        b"rion-session-import".as_slice(),
+    ]
+    .concat();
+    database
+        .put(&key, b"\x01present")
+        .map_err(|error| error.to_string())?;
+    database.flush().map_err(|error| error.to_string())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
 fn start_file_operations_attestation(app: AppHandle, output_path: PathBuf) -> Result<(), String> {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
@@ -1917,13 +2606,19 @@ pub fn run() {
             let setup_result = (|| -> Result<(), Box<dyn std::error::Error>> {
             let input_attestation_output = input_attestation_output_path()
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let macro_game_attestation = macro_game_attestation_request()
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let file_operations_attestation_output = file_operations_attestation_output_path()
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let restore_attestation = runtime_restore_attestation_request()
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let session_import_attestation = session_import_attestation_request()
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let attestation_mode_count = usize::from(input_attestation_output.is_some())
+                + usize::from(macro_game_attestation.is_some())
                 + usize::from(file_operations_attestation_output.is_some())
-                + usize::from(restore_attestation.is_some());
+                + usize::from(restore_attestation.is_some())
+                + usize::from(session_import_attestation.is_some());
             if attestation_mode_count > 1 {
                 return Err("Only one System WebView attestation mode can run at a time.".into());
             }
@@ -2134,6 +2829,16 @@ pub fn run() {
                 start_runtime_restore_attestation(app.handle().clone(), request)?;
                 #[cfg(not(any(windows, target_os = "macos")))]
                 return Err("Runtime restore attestation supports only macOS and Windows.".into());
+            } else if let Some(request) = macro_game_attestation {
+                #[cfg(any(windows, target_os = "macos"))]
+                start_macro_game_attestation(app.handle().clone(), request)?;
+                #[cfg(not(any(windows, target_os = "macos")))]
+                return Err("Macro-game attestation supports only macOS and Windows.".into());
+            } else if let Some(request) = session_import_attestation {
+                #[cfg(any(windows, target_os = "macos"))]
+                start_session_import_attestation(app.handle().clone(), request)?;
+                #[cfg(not(any(windows, target_os = "macos")))]
+                return Err("Session-import attestation supports only macOS and Windows.".into());
             } else if let Some(output_path) = file_operations_attestation_output {
                 #[cfg(any(windows, target_os = "macos"))]
                 start_file_operations_attestation(app.handle().clone(), output_path)?;

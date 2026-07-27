@@ -23,7 +23,7 @@ pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
 mod chrome_profile;
 pub use chrome_profile::{
     ChromeProfileEntry, chrome_profile_source_fingerprint, chrome_user_data_in_use,
-    default_chrome_user_data_directory, discover_chrome_profiles, stage_chrome_profile,
+    default_chrome_user_data_directory, discover_chrome_profiles,
 };
 mod chrome_cookie;
 pub use chrome_cookie::{

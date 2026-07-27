@@ -88,19 +88,33 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs",
     "crates/rion-core/src/model.rs",
     "crates/rion-core/src/portable.rs",
+    "scripts/generateRefactorParityLedger.mjs",
     "scripts/verifyTauriParityLedger.mjs",
     "src-tauri/windows/installer-hooks.nsh"
   ])],
   ["custom proxy", new Set([
     "crates/rion-core/src/database/legacy.rs",
     "crates/rion-core/src/database/state.rs",
+    "scripts/generateRefactorParityLedger.mjs",
     "scripts/verifyTauriParityLedger.mjs"
   ])],
   ['"proxy"', new Set([
     "crates/rion-core/src/database/legacy.rs",
-    "crates/rion-core/src/database/state.rs"
+    "crates/rion-core/src/database/state.rs",
+    "scripts/generateRefactorParityLedger.mjs"
   ])]
 ]);
+
+const probePath = optionValue("--probe");
+if (probePath) {
+  const source = await readFile(probePath, "utf8");
+  const findings = inspectSource("tests/system-only-negative-fixture.ts", source);
+  if (findings.length > 0) {
+    throw new Error(`System-only product gate failed:\n- ${findings.join("\n- ")}`);
+  }
+  console.log("System-only probe contains no retired capability tokens.");
+  process.exit(0);
+}
 
 const failures = [];
 for (const path of removedPaths) {
@@ -112,16 +126,8 @@ for (const path of removedPaths) {
 for (const root of sourceRoots) {
   for (const path of await sourceFiles(join(repositoryRoot, root))) {
     const repositoryPath = relative(repositoryRoot, path).replaceAll("\\", "/");
-    if (repositoryPath === "scripts/verifySystemOnlyProduct.mjs") continue;
     const source = await readFile(path, "utf8");
-    for (const token of forbiddenTokens) {
-      if (source.includes(token)) failures.push(`${repositoryPath} contains ${token}`);
-    }
-    for (const [token, allowlist] of migrationOnlyTokens) {
-      if (source.toLowerCase().includes(token.toLowerCase()) && !allowlist.has(repositoryPath)) {
-        failures.push(`${repositoryPath} contains migration-only token ${token}`);
-      }
-    }
+    failures.push(...inspectSource(repositoryPath, source));
   }
 }
 
@@ -233,6 +239,37 @@ const transferSource = await readFile(
 if (!transferSource.includes(".session-transfers") || !transferSource.includes("session-transfer.enc")) {
   failures.push("ChromeProfileImport must remain a bounded encrypted one-time transfer.");
 }
+if (
+  transferSource.includes(".chrome-profile-import-work") ||
+  transferSource.includes("create_private_snapshot_root")
+) {
+  failures.push("ChromeProfileImport still exposes raw profile staging.");
+}
+const sessionImportSource = await readFile(
+  join(repositoryRoot, "crates/rion-core/src/session_import.rs"),
+  "utf8"
+);
+for (const required of ["Connection::open_in_memory", "MemEnv", "read_chrome_session_transfer"]) {
+  if (!sessionImportSource.includes(required)) {
+    failures.push(`ChromeProfileImport memory snapshot is missing ${required}.`);
+  }
+}
+const browserActions = await readFile(
+  join(repositoryRoot, "src/shared/generated/BrowserAction.ts"),
+  "utf8"
+);
+for (const retiredAction of ["evaluate", "cookies", "session", "debugger"]) {
+  if (browserActions.includes(`"type": "${retiredAction}"`)) {
+    failures.push(`BrowserAction still exposes retired ${retiredAction} automation.`);
+  }
+}
+const effectTargets = await readFile(
+  join(repositoryRoot, "src/shared/generated/CoreEffectTargetKind.ts"),
+  "utf8"
+);
+if (!effectTargets.includes('"app" | "webContents"')) {
+  failures.push("CoreEffectTargetKind must be restricted to app and webContents.");
+}
 
 if (failures.length > 0) {
   throw new Error(`System-only product gate failed:\n- ${failures.join("\n- ")}`);
@@ -259,4 +296,26 @@ async function sourceFiles(root) {
     }
   }
   return files;
+}
+
+function inspectSource(repositoryPath, source) {
+  if (repositoryPath === "scripts/verifySystemOnlyProduct.mjs") return [];
+  const findings = [];
+  for (const token of forbiddenTokens) {
+    if (source.includes(token)) findings.push(`${repositoryPath} contains ${token}`);
+  }
+  for (const [token, allowlist] of migrationOnlyTokens) {
+    if (source.toLowerCase().includes(token.toLowerCase()) && !allowlist.has(repositoryPath)) {
+      findings.push(`${repositoryPath} contains migration-only token ${token}`);
+    }
+  }
+  return findings;
+}
+
+function optionValue(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value.`);
+  return value;
 }

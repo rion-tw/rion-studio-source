@@ -125,6 +125,8 @@ jobs:
         run: |
           set -euo pipefail
           pnpm run test:native:system-input
+          pnpm run test:native:macro-game -- --skip-system-input
+          pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
           pnpm run test:native:file-operations
 
@@ -133,6 +135,8 @@ jobs:
         shell: pwsh
         run: |
           pnpm run test:native:system-input
+          pnpm run test:native:macro-game -- --skip-system-input
+          pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
           pnpm run test:native:file-operations
 
@@ -147,6 +151,8 @@ jobs:
           app_path="target/release/bundle/macos/Rion Studio.app"
           executable="${app_path}/Contents/MacOS/rion-tauri"
           pnpm run test:native:system-input -- --executable "${executable}"
+          pnpm run test:native:macro-game -- --executable "${executable}" --skip-system-input
+          pnpm run test:native:session-import -- --executable "${executable}" --skip-system-input
           pnpm run test:native:runtime-restore -- --executable "${executable}"
           pnpm run test:native:file-operations -- --executable "${executable}"
           codesign --verify --deep --strict --verbose=2 "${app_path}"
@@ -161,6 +167,8 @@ jobs:
         shell: pwsh
         run: |
           pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe
+          pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
+          pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
           pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
           $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1

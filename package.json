@@ -25,6 +25,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:native:system-input": "node scripts/verifySystemTrustedInput.mjs",
+    "test:native:macro-game": "node scripts/verifySystemMacroGame.mjs",
+    "test:native:session-import": "node scripts/verifySystemSessionImport.mjs",
     "test:native:runtime-restore": "node scripts/verifySystemRuntimeRestore.mjs",
     "test:native:file-operations": "node scripts/verifySystemFileOperations.mjs",
     "release": "semantic-release"

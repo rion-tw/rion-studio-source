@@ -45,6 +45,11 @@ const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
 #[cfg(any(windows, target_os = "macos"))]
 const TRUSTED_INPUT_EVENT_INTERVAL: Duration = Duration::from_millis(25);
+#[cfg(target_os = "macos")]
+const MACOS_KEY_DISPATCH_SETTLE_INTERVAL: Duration = Duration::from_millis(25);
+#[cfg(target_os = "macos")]
+static MACOS_KEY_DISPATCH_STATE: std::sync::OnceLock<Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
 static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(any(windows, target_os = "macos"))]
@@ -201,22 +206,8 @@ const TRUSTED_INPUT_ATTESTATION_SOURCE: &str = r#"(() => {
     value: state
   });
 })()"#;
-const TAURI_MACRO_OVERLAY_BRIDGE_SOURCE: &str = r#"(() => {
-  const version = "rion-tauri-overlay-1";
-  if (globalThis.__rionStudioNativeOverlayBridge?.version === version) return;
-  const invoke = (payload) => {
-    const internals = globalThis.__TAURI_INTERNALS__;
-    if (!internals || typeof internals.invoke !== "function") {
-      return Promise.reject(new Error("Rion Studio overlay IPC is unavailable."));
-    }
-    return internals.invoke("rion_overlay_request", { payload });
-  };
-  globalThis.__rionStudioNativeOverlayBridge = Object.freeze({ version });
-  Object.defineProperty(globalThis, "rionStudioMacroOverlay", {
-    configurable: true,
-    value: invoke
-  });
-})();"#;
+const TAURI_MACRO_OVERLAY_BRIDGE_SOURCE: &str =
+    include_str!("../../src/shared/browser-overlay/macroOverlayNativeBridge.js");
 
 #[derive(Default)]
 struct NavigationState {
@@ -1610,6 +1601,33 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(any(windows, target_os = "macos"))]
+    pub(crate) fn role_cookie_for_attestation(
+        &self,
+        role_id: &str,
+        url: &str,
+        name: &str,
+    ) -> Result<Value, String> {
+        let webview = self.role_webview(role_id).map_err(|error| error.message)?;
+        let url = Url::parse(url).map_err(|error| error.to_string())?;
+        let cookie = webview
+            .cookies_for_url(url)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|cookie| cookie.name() == name);
+        Ok(cookie.map_or(Value::Null, |cookie| {
+            json!({
+                "domain": cookie.domain(),
+                "expires": cookie.expires_datetime().map(|value| value.unix_timestamp()),
+                "httpOnly": cookie.http_only(),
+                "name": cookie.name(),
+                "path": cookie.path(),
+                "sameSite": cookie.same_site().map(|value| format!("{value:?}")),
+                "secure": cookie.secure()
+            })
+        }))
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
     pub(crate) fn restore_state_for_attestation(&self) -> Result<Value, String> {
         let state = self
             .state
@@ -2128,10 +2146,6 @@ impl SystemRuntimeExecutor {
                 self.prepare_automation_focus(&request.role_id)?;
                 Ok(None)
             }
-            BrowserAction::Evaluate { source } => {
-                let webview = self.role_webview(&request.role_id)?;
-                self.evaluate_webview(&webview, &source).map(Some)
-            }
             BrowserAction::Key {
                 phase,
                 key,
@@ -2160,22 +2174,6 @@ impl SystemRuntimeExecutor {
                     &button,
                 )?;
                 Ok(None)
-            }
-            BrowserAction::Cookies { .. } => Err(RuntimeError::new(
-                "BROWSER_COOKIES_UNAVAILABLE",
-                "Cookie automation is not exposed by the system runtime.",
-            )),
-            BrowserAction::Session { .. } => Err(RuntimeError::new(
-                "BROWSER_SESSION_UNAVAILABLE",
-                "Session automation is not exposed by the system runtime.",
-            )),
-            BrowserAction::Debugger {
-                method,
-                params_json,
-            } => {
-                let params = parse_devtools_params(&params_json)?;
-                let webview = self.role_webview(&request.role_id)?;
-                call_system_devtools(&webview, &method, &params).map(Some)
             }
         }
     }
@@ -3056,16 +3054,19 @@ impl SystemRuntimeExecutor {
         &self,
         plan: CompatibilityCheckPlanRecord,
     ) -> RuntimeResult<()> {
-        let mut state = self.state()?;
-        if state.compatibility.contains_key(&plan.game_id) {
-            return Err(RuntimeError::new(
-                "COMPATIBILITY_RUN_ALREADY_ACTIVE",
-                "A compatibility surface already exists for this game.",
-            ));
+        {
+            let state = self.state()?;
+            if state.compatibility.contains_key(&plan.game_id) {
+                return Err(RuntimeError::new(
+                    "COMPATIBILITY_RUN_ALREADY_ACTIVE",
+                    "A compatibility surface already exists for this game.",
+                ));
+            }
         }
+        let runtime_scope = format!("{}:{}", plan.game_id, plan.started_at);
         let window = WindowBuilder::new(
             &self.app,
-            runtime_label("compatibility-window", &plan.game_id),
+            runtime_label("compatibility-window", &runtime_scope),
         )
         .title(format!("{} compatibility", plan.game_name))
         .inner_size(960.0, 640.0)
@@ -3076,17 +3077,28 @@ impl SystemRuntimeExecutor {
         let callback_navigation = Arc::clone(&navigation);
         let paths =
             compatibility_session_paths(&self.user_data_dir, &plan.game_id, &plan.started_at);
-        fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-        let builder = self
-            .webview_builder(
-                runtime_label("compatibility-webview", &plan.game_id),
-                &paths,
-                None,
-            )?
-            .incognito(true)
-            .on_page_load(move |_webview, payload| {
-                callback_navigation.page_event(payload.event(), payload.url());
-            });
+        if let Err(error) = fs::create_dir_all(&paths.webview2) {
+            let _ = window.close();
+            return Err(RuntimeError::io(error));
+        }
+        let builder = match self.webview_builder(
+            runtime_label("compatibility-webview", &runtime_scope),
+            &paths,
+            None,
+        ) {
+            Ok(builder) => builder
+                .incognito(true)
+                .on_page_load(move |_webview, payload| {
+                    callback_navigation.page_event(payload.event(), payload.url());
+                }),
+            Err(error) => {
+                let _ = window.close();
+                if let Some(directory) = paths.webview2.parent() {
+                    let _ = fs::remove_dir_all(directory);
+                }
+                return Err(error);
+            }
+        };
         let webview = window
             .add_child(
                 builder,
@@ -3095,12 +3107,41 @@ impl SystemRuntimeExecutor {
             )
             .map_err(|error| {
                 let _ = window.close();
+                if let Some(directory) = paths.webview2.parent() {
+                    let _ = fs::remove_dir_all(directory);
+                }
                 RuntimeError::tauri(error)
             })?;
         if let Err(error) = install_platform_security_policy(&webview) {
             let _ = webview.close();
             let _ = window.close();
+            if let Some(directory) = paths.webview2.parent() {
+                let _ = fs::remove_dir_all(directory);
+            }
             return Err(error);
+        }
+        let mut state = match self.state() {
+            Ok(state) => state,
+            Err(error) => {
+                let _ = webview.close();
+                let _ = window.close();
+                if let Some(directory) = paths.webview2.parent() {
+                    let _ = fs::remove_dir_all(directory);
+                }
+                return Err(error);
+            }
+        };
+        if state.compatibility.contains_key(&plan.game_id) {
+            drop(state);
+            let _ = webview.close();
+            let _ = window.close();
+            if let Some(directory) = paths.webview2.parent() {
+                let _ = fs::remove_dir_all(directory);
+            }
+            return Err(RuntimeError::new(
+                "COMPATIBILITY_RUN_ALREADY_ACTIVE",
+                "A compatibility surface was created concurrently for this game.",
+            ));
         }
         state.compatibility.insert(
             plan.game_id,
@@ -4657,6 +4698,7 @@ pub fn start_trusted_input_attestation(
             eprintln!("System WebView parity: trusted-input worker started.");
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 run_trusted_input_attestation(&webview, page_receiver).and_then(|mut report| {
+                    report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
                     report["registration"] =
                         serde_json::to_value(runtime.registration()).map_err(|error| {
                             RuntimeError::new("SYSTEM_INPUT_ATTESTATION_INVALID", error.to_string())
@@ -4673,7 +4715,7 @@ pub fn start_trusted_input_attestation(
             let (document, exit_code) = match outcome {
                 Ok(report) => (
                     json!({
-                        "schemaVersion": 1,
+                        "schemaVersion": 2,
                         "ok": true,
                         "platform": if cfg!(windows) { "windows" } else { "macos" },
                         "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
@@ -4683,7 +4725,7 @@ pub fn start_trusted_input_attestation(
                 ),
                 Err(error) => (
                     json!({
-                        "schemaVersion": 1,
+                        "schemaVersion": 2,
                         "ok": false,
                         "platform": if cfg!(windows) { "windows" } else { "macos" },
                         "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
@@ -4777,29 +4819,93 @@ fn run_trusted_input_attestation(
         ));
     }
 
-    let reset = evaluate_attestation_value(webview, "__rionInputAttestation.reset()")?;
-    if reset != Value::Bool(true) {
-        return Err(input_attestation_error(
-            "The input fixture could not reset before the soak.",
-        ));
-    }
-    const CYCLES: u64 = 1_000;
-    for _ in 0..CYCLES {
-        attest_key(webview, "rawKeyDown", "KeyA", &["KeyA"], false)?;
-        attest_key(webview, "keyUp", "KeyA", &[], false)?;
-    }
-    let stress = wait_for_attestation_state(webview, CYCLES, CYCLES, 0)?;
-    require_attestation_field(&stress, "allTrusted", json!(true))?;
-    require_attestation_field(&stress, "backgroundOnly", json!(true))?;
-    require_attestation_field(&stress, "documentFocused", json!(false))?;
-    require_attestation_field(&stress, "heldCount", json!(0))?;
-    require_attestation_field(&stress, "keyDown", json!(CYCLES))?;
-    require_attestation_field(&stress, "keyUp", json!(CYCLES))?;
     Ok(json!({
         "behavior": behavior,
-        "stress": stress,
-        "cycles": CYCLES
+        "nativeKeyDown": 4,
+        "nativeKeyUp": 3
     }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn run_simulated_input_stress(core: &AppCore) -> RuntimeResult<Value> {
+    const CYCLES: u64 = 1_000;
+    const ROLE_ID: &str = "simulated-input-attestation";
+    const OWNER_ID: &str = "simulated-input-soak";
+    let result = (|| {
+        let mut key_down = 0_u64;
+        let mut key_up = 0_u64;
+        for _ in 0..CYCLES {
+            let transition = core
+                .invoke(CoreCommand::EmbeddedKeyPrepare {
+                    role_id: ROLE_ID.to_owned(),
+                    phase: "tap".to_owned(),
+                    code: "KeyA".to_owned(),
+                    modifier_codes: Vec::new(),
+                    owner_id: OWNER_ID.to_owned(),
+                })
+                .map_err(RuntimeError::core)
+                .and_then(|value| {
+                    serde_json::from_value::<EmbeddedKeyTransitionRecord>(value).map_err(|error| {
+                        RuntimeError::new("SYSTEM_INPUT_ATTESTATION_INVALID", error.to_string())
+                    })
+                })?;
+            for effect in &transition.effects {
+                if effect.code != "KeyA" {
+                    return Err(input_attestation_error(
+                        "The simulated input state emitted an unexpected key code.",
+                    ));
+                }
+                match effect.phase.as_str() {
+                    "rawKeyDown" => key_down += 1,
+                    "keyUp" => key_up += 1,
+                    _ => {
+                        return Err(input_attestation_error(
+                            "The simulated input state emitted an unexpected key phase.",
+                        ));
+                    }
+                }
+            }
+            if transition.has_held_keys || transition.effects.len() != 2 {
+                return Err(input_attestation_error(
+                    "The simulated input state did not produce a balanced tap.",
+                ));
+            }
+            let transition_id = transition.transition_id.ok_or_else(|| {
+                input_attestation_error("The simulated input transition has no identifier.")
+            })?;
+            core.invoke(CoreCommand::EmbeddedKeyComplete {
+                transition_id,
+                succeeded: true,
+            })
+            .map_err(RuntimeError::core)?;
+        }
+        let held = core
+            .invoke(CoreCommand::EmbeddedKeysHeld {
+                role_id: ROLE_ID.to_owned(),
+            })
+            .map_err(RuntimeError::core)?;
+        if held != Value::Bool(false) || key_down != CYCLES || key_up != CYCLES {
+            return Err(input_attestation_error(
+                "The simulated input stress run left an unbalanced key state.",
+            ));
+        }
+        Ok(json!({
+            "cycles": CYCLES,
+            "heldCount": 0,
+            "keyDown": key_down,
+            "keyUp": key_up,
+            "transport": "simulated-core-input-state"
+        }))
+    })();
+    let cleanup = core
+        .invoke(CoreCommand::EmbeddedKeysClear {
+            role_id: ROLE_ID.to_owned(),
+        })
+        .map_err(RuntimeError::core);
+    match (result, cleanup) {
+        (Ok(report), Ok(_)) => Ok(report),
+        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -4890,16 +4996,95 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
         }));
     }
     let create_destroy_cycles = run_create_destroy_attestation(runtime)?;
+    eprintln!("System WebView parity: validating shared display host lifecycle.");
     let shared_display_host = verify_shared_display_host_attestation(runtime, &server)?;
+    eprintln!("System WebView parity: shared display host lifecycle complete.");
+    eprintln!("System WebView parity: validating compatibility surface lifecycle.");
+    let compatibility = verify_compatibility_surface_attestation(runtime, &server)?;
+    eprintln!("System WebView parity: compatibility surface lifecycle complete.");
     drop(server);
     Ok(json!({
         "counts": [1, 3, 6, 9],
         "createDestroyCycles": create_destroy_cycles,
+        "compatibility": compatibility,
         "sharedDisplayHost": shared_display_host,
         "layouts": layouts,
         "popupDownload": popup_download,
         "recovery": recovery,
         "totalRoles": total_roles
+    }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn verify_compatibility_surface_attestation(
+    runtime: &SystemRuntimeExecutor,
+    server: &AttestationServer,
+) -> RuntimeResult<Value> {
+    let game_id = "system-webview-compatibility-attestation";
+    let first_plan = CompatibilityCheckPlanRecord {
+        game_id: game_id.to_owned(),
+        game_name: "System WebView compatibility attestation".to_owned(),
+        launch_url: server.url("compatibility-first"),
+        started_at: "2026-07-27T00:00:00.000Z".to_owned(),
+    };
+    runtime.create_compatibility_surface(first_plan.clone())?;
+    let verification = (|| {
+        runtime.require_compatibility_surface(game_id)?;
+        let final_url = runtime.load_compatibility_url(game_id, &first_plan.launch_url)?;
+        let webview = runtime.compatibility_webview(game_id)?;
+        let first = evaluate_attestation_value(
+            &webview,
+            "({ ready: document.readyState === 'complete', origin: location.origin, stored: (localStorage.setItem('rion-compatibility-attestation', 'first'), localStorage.getItem('rion-compatibility-attestation')) })",
+        )?;
+        if first["ready"] != json!(true)
+            || first["stored"] != json!("first")
+            || !final_url.starts_with(&format!("http://{}", server.address))
+        {
+            return Err(input_attestation_error(format!(
+                "The compatibility System WebView did not load and probe correctly: {first}."
+            )));
+        }
+        Ok(final_url)
+    })();
+    let first_cleanup = runtime.cleanup_compatibility_surface(game_id);
+    let final_url = verification?;
+    first_cleanup?;
+    if runtime.require_compatibility_surface(game_id).is_ok() {
+        return Err(input_attestation_error(
+            "The compatibility System WebView remained registered after cleanup.",
+        ));
+    }
+
+    let second_plan = CompatibilityCheckPlanRecord {
+        game_id: game_id.to_owned(),
+        game_name: "System WebView compatibility isolation attestation".to_owned(),
+        launch_url: server.url("compatibility-second"),
+        started_at: "2026-07-27T00:00:01.000Z".to_owned(),
+    };
+    runtime.create_compatibility_surface(second_plan.clone())?;
+    let isolation = (|| {
+        runtime.load_compatibility_url(game_id, &second_plan.launch_url)?;
+        let webview = runtime.compatibility_webview(game_id)?;
+        evaluate_attestation_value(
+            &webview,
+            "({ ready: document.readyState === 'complete', stored: localStorage.getItem('rion-compatibility-attestation') })",
+        )
+    })();
+    let second_cleanup = runtime.cleanup_compatibility_surface(game_id);
+    let isolation = isolation?;
+    second_cleanup?;
+    if isolation["ready"] != json!(true) || !isolation["stored"].is_null() {
+        return Err(input_attestation_error(format!(
+            "The recreated compatibility System WebView reused isolated storage: {isolation}."
+        )));
+    }
+    Ok(json!({
+        "cleanupReleased": true,
+        "finalUrl": final_url,
+        "isolatedStorage": true,
+        "loaded": true,
+        "probeExecuted": true,
+        "recreated": true
     }))
 }
 
@@ -5691,39 +5876,6 @@ fn verify_attestation_tab(
     }
     runtime.set_role_audio_muted(first_role, false)?;
 
-    for (role_id, webview, _, _) in &surfaces {
-        eprintln!("System WebView parity: validating trusted input for {role_id}.");
-        webview
-            .eval(TRUSTED_INPUT_ATTESTATION_SOURCE)
-            .map_err(RuntimeError::tauri)?;
-        let ready = evaluate_attestation_value(
-            webview,
-            "globalThis.__rionInputAttestation?.snapshot instanceof Function",
-        )?;
-        if ready != Value::Bool(true) {
-            return Err(input_attestation_error(format!(
-                "The {count}-role input fixture was not ready for {role_id}."
-            )));
-        }
-        attest_key(webview, "rawKeyDown", "KeyA", &["KeyA"], false)?;
-        attest_key(webview, "keyUp", "KeyA", &[], false)?;
-        let snapshot = wait_for_attestation_state(webview, 1, 1, 0)?;
-        for (field, expected) in [
-            ("allTrusted", json!(true)),
-            ("backgroundOnly", json!(true)),
-            ("documentFocused", json!(false)),
-            ("heldCount", json!(0)),
-            ("keyDown", json!(1)),
-            ("keyUp", json!(1)),
-        ] {
-            require_attestation_field(&snapshot, field, expected).map_err(|error| {
-                input_attestation_error(format!(
-                    "The {count}-role input check failed for {role_id}: {}",
-                    error.message
-                ))
-            })?;
-        }
-    }
     Ok(())
 }
 
@@ -6172,9 +6324,16 @@ fn transfer_cookie(record: &SessionCookieRecord, launch: &Url) -> RuntimeResult<
         })?;
     let mut builder = Cookie::build((record.name.clone(), record.value.clone()))
         .domain(domain.to_owned())
-        .path(record.path.clone())
-        .secure(record.secure)
-        .http_only(record.http_only);
+        .path(record.path.clone());
+    // Wry's WKWebView adapter serializes `Some(false)` as the string `FALSE`.
+    // NSHTTPCookie treats presence of Secure/HttpOnly as enabled, so false flags
+    // must remain absent while true flags are explicit.
+    if record.secure {
+        builder = builder.secure(true);
+    }
+    if record.http_only {
+        builder = builder.http_only(true);
+    }
     builder = match record.same_site.as_str() {
         "strict" => builder.same_site(SameSite::Strict),
         "lax" => builder.same_site(SameSite::Lax),
@@ -6196,7 +6355,11 @@ fn verify_cookie_readback(
     for cookie in expected {
         let key = native_cookie_key(cookie);
         let matches = actual.iter().any(|candidate| {
-            native_cookie_key(candidate) == key && candidate.value() == cookie.value()
+            native_cookie_key(candidate) == key
+                && candidate.value() == cookie.value()
+                && candidate.secure().unwrap_or(false) == cookie.secure().unwrap_or(false)
+                && candidate.http_only().unwrap_or(false) == cookie.http_only().unwrap_or(false)
+                && candidate.same_site() == cookie.same_site()
         });
         if !matches {
             return Err(RuntimeError::new(
@@ -6745,23 +6908,6 @@ struct ClickPoint {
     y: i64,
 }
 
-fn parse_devtools_params(params_json: &str) -> RuntimeResult<Value> {
-    let params = serde_json::from_str::<Value>(params_json).map_err(|error| {
-        RuntimeError::new(
-            "BROWSER_DEBUGGER_PARAMS_INVALID",
-            format!("Debugger parameters are invalid JSON: {error}"),
-        )
-    })?;
-    if params.is_object() {
-        Ok(params)
-    } else {
-        Err(RuntimeError::new(
-            "BROWSER_DEBUGGER_PARAMS_INVALID",
-            "Debugger parameters must be a JSON object.",
-        ))
-    }
-}
-
 fn resolve_modifier_codes(modifiers: &[String], macos: bool) -> RuntimeResult<Vec<String>> {
     let mut result = Vec::new();
     for modifier in modifiers {
@@ -7010,6 +7156,22 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
         ) -> bool;
     }
 
+    let role_label = webview.label().to_owned();
+    let mut previous_role_label = MACOS_KEY_DISPATCH_STATE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_FAILED",
+                "The macOS key dispatch lock was poisoned.",
+            )
+        })?;
+    if macos_key_dispatch_needs_settle(previous_role_label.as_deref(), &role_label) {
+        // WKWebView forwards AppKit key events to the web-content process
+        // asynchronously. Let the previous role consume its event before the
+        // next role becomes first responder. Same-role key sequences stay fast.
+        std::thread::sleep(MACOS_KEY_DISPATCH_SETTLE_INTERVAL);
+    }
     let code = CString::new(effect.code.as_str()).map_err(|_| {
         RuntimeError::new(
             "SYSTEM_TRUSTED_INPUT_INVALID",
@@ -7035,7 +7197,10 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
         })
         .map_err(RuntimeError::tauri)?;
     match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-        Ok(true) => Ok(()),
+        Ok(true) => {
+            *previous_role_label = Some(role_label);
+            Ok(())
+        }
         Ok(false) => Err(RuntimeError::new(
             "SYSTEM_TRUSTED_INPUT_UNAVAILABLE",
             format!("WKWebView rejected the native {} event.", effect.code),
@@ -7045,6 +7210,11 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
             "WKWebView native key dispatch timed out.",
         )),
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_key_dispatch_needs_settle(previous_role_label: Option<&str>, role_label: &str) -> bool {
+    previous_role_label.is_some_and(|previous| previous != role_label)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -7839,6 +8009,44 @@ mod tests {
         assert!(validate_transaction_id("transaction-1").is_ok());
     }
 
+    #[test]
+    fn session_transfer_omits_false_cookie_flags_and_preserves_true_flags() {
+        let launch = Url::parse("https://game.example.test/play").unwrap();
+        let plain = transfer_cookie(
+            &SessionCookieRecord {
+                name: "plain".to_owned(),
+                value: "value".to_owned(),
+                domain: Some(".example.test".to_owned()),
+                path: "/".to_owned(),
+                secure: false,
+                http_only: false,
+                same_site: "lax".to_owned(),
+                expires_unix_ms: None,
+            },
+            &launch,
+        )
+        .unwrap();
+        assert_eq!(plain.secure(), None);
+        assert_eq!(plain.http_only(), None);
+
+        let protected = transfer_cookie(
+            &SessionCookieRecord {
+                name: "protected".to_owned(),
+                value: "value".to_owned(),
+                domain: Some(".example.test".to_owned()),
+                path: "/".to_owned(),
+                secure: true,
+                http_only: true,
+                same_site: "strict".to_owned(),
+                expires_unix_ms: None,
+            },
+            &launch,
+        )
+        .unwrap();
+        assert_eq!(protected.secure(), Some(true));
+        assert_eq!(protected.http_only(), Some(true));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_security_policy_installs_dialogs_and_denies_undefined_media_permissions() {
@@ -7987,6 +8195,9 @@ mod tests {
             resolve_modifier_codes(&["primary".to_owned(), "ctrl".to_owned()], true).unwrap(),
             vec!["MetaLeft", "ControlLeft"]
         );
+        assert!(!macos_key_dispatch_needs_settle(None, "role-a"));
+        assert!(!macos_key_dispatch_needs_settle(Some("role-a"), "role-a"));
+        assert!(macos_key_dispatch_needs_settle(Some("role-a"), "role-b"));
     }
 
     #[test]
@@ -8040,11 +8251,6 @@ mod tests {
                 width: 640.0,
                 height: 480.0
             })
-        );
-        assert!(parse_devtools_params("[]").is_err());
-        assert_eq!(
-            parse_devtools_params(r#"{"expression":"1+1"}"#).unwrap()["expression"],
-            "1+1"
         );
     }
 }

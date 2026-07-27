@@ -286,12 +286,26 @@ for (const retiredGraphicsArgument of [
   "disable-frame-rate-limit",
   "disable-gpu-vsync",
   "disable-gpu-driver-bug-workarounds",
+  "disable-background-timer-throttling",
   "use-angle",
   "use-vulkan",
   "UseEcoQoSForBackgroundProcess"
 ]) {
   if (productionBootstrapSettings.includes(retiredGraphicsArgument)) {
     failures.push(`System WebView bootstrap still applies retired graphics argument ${retiredGraphicsArgument}.`);
+  }
+}
+const productionSystemRuntime = await readFile(
+  join(repositoryRoot, "src-tauri/src/system_runtime.rs"),
+  "utf8"
+).then((source) => source.split("#[cfg(test)]", 1)[0]);
+for (const customBackgroundMechanism of [
+  "MemoryUsageTargetLevel",
+  "PreferredBackgroundTimerWakeInterval",
+  "TrySuspend"
+]) {
+  if (productionSystemRuntime.includes(customBackgroundMechanism)) {
+    failures.push(`System WebView runtime uses forbidden custom background mechanism ${customBackgroundMechanism}.`);
   }
 }
 for (const [path, retiredContract] of [

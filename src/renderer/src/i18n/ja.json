@@ -190,7 +190,7 @@
   "workspaces.help.launchWindow": "ワークスペースは最後にフォーカスしたゲームウィンドウで開きます。ウィンドウメニューから別の移動先も選べます。",
   "workspaces.help.runtimeTitle": "実行中",
   "workspaces.help.runtimeZoom": "ロールを起動した後、埋め込みロールのビューポートをクリックし、macOS では Command +／−／0、Windows では Ctrl +／−／0 を使用して、そのロールのゲーム画面を拡大・縮小できます。ズーム設定はこのワークスペースに自動保存され、次回そのロールを起動したときに復元されます。",
-  "workspaces.help.runtimeResource": "Rion は追加の CPU 速度制限を適用しません。バックグラウンド内容とリソース使用は OS の WebView が管理します。",
+  "workspaces.help.runtimeResource": "非表示の非アクティブなタブには、OS の WebView が提供するネイティブのバックグラウンドスロットリングが適用されます。Rion が追加の CPU 制限を挿入することはありません。",
   "workspaces.slot": "Slot {index}",
   "workspaces.slotShort": "S{index}",
   "workspaces.emptySlot": "Empty",

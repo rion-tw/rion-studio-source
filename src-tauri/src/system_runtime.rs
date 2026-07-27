@@ -8168,11 +8168,23 @@ fn read_scoped_local_storage_entries(
 }
 
 fn require_exact_local_storage_sync_origin(webview: &Webview, expected: &str) -> RuntimeResult<()> {
-    let actual = webview
-        .url()
-        .map_err(RuntimeError::tauri)?
-        .origin()
-        .ascii_serialization();
+    // WKWebView can briefly expose a nil native URL while a page transition or
+    // renderer teardown is in flight. Wry 0.55 unwraps that value internally,
+    // so use the document's origin for this capability check instead of calling
+    // WebView::url() across that native transition boundary.
+    let document = evaluate_json_value(
+        webview,
+        "JSON.stringify({ origin: globalThis.location?.origin ?? null })",
+    )?;
+    let actual = document
+        .get("origin")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_ORIGIN_MISMATCH",
+                "The localStorage synchronization WebView has no document origin.",
+            )
+        })?;
     if actual == expected {
         Ok(())
     } else {

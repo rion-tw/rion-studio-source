@@ -540,6 +540,8 @@
   "settings.chromeImportFailed": "Failed",
   "settings.chromeImportCancelled": "Cancelled",
   "settings.chromeImportCancelling": "Cancelling…",
+  "settings.chromeImportWorking": "Keep Rion Studio open. Several System WebView checks run for each profile, so importing multiple profiles can take a few minutes.",
+  "settings.chromeImportCancelNotice": "Finishing a safe rollback for the current role before cancellation completes.",
   "settings.chromeImportCounts": "{cookies} cookies · {storage} LocalStorage entries",
   "settings.chromeImportUnsupportedCounts": "Skipped: {partitioned} partitioned · {appBound} app-bound · {decrypt} undecryptable · {storage} storage read failures",
   "settings.chromeImportOpenLogin": "Open role to finish sign-in",

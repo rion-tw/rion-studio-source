@@ -50,6 +50,10 @@ use crate::{
 
 const EVENT_QUEUE_CAPACITY: usize = 64;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
+// Native System WebView session effects may spend up to 40 seconds waiting for
+// one navigation. Keep the core deadline above that bound so the shell can
+// close its hidden surface and return an authoritative result.
+const CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
     fs::create_dir_all(user_data_dir).map_err(|error| {
@@ -1743,7 +1747,7 @@ impl AppCore {
                             webview2_user_data_dir: paths.webview2_user_data_dir,
                             webkit_data_store_identifier: paths.webkit_data_store_identifier,
                         },
-                        Duration::from_secs(30),
+                        CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
                     )
                     .await
                     .is_err()
@@ -2237,7 +2241,7 @@ impl AppCore {
                     webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
                     replace_existing,
                 },
-                Duration::from_secs(30),
+                CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
             .await
         {
@@ -2268,7 +2272,7 @@ impl AppCore {
                     webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
                     replace_existing,
                 },
-                Duration::from_secs(45),
+                CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
             .await;
         if let Err(error) = effect {
@@ -2372,7 +2376,7 @@ impl AppCore {
                     webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
                     webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
                 },
-                Duration::from_secs(45),
+                CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
             .await;
         match effect.and_then(|result| effect_value::<ChromeImportAuthProbeResult>(&result)) {
@@ -2396,7 +2400,7 @@ impl AppCore {
                     webview2_user_data_dir: context.webview2_user_data_dir.clone(),
                     webkit_data_store_identifier: context.webkit_data_store_identifier.clone(),
                 },
-                Duration::from_secs(30),
+                CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
             .await
             .is_err()
@@ -8595,6 +8599,14 @@ mod tests {
         ] {
             assert_eq!(chrome_import_status(auth_state), expected);
         }
+    }
+
+    #[test]
+    fn chrome_import_effect_timeout_exceeds_the_native_navigation_bound() {
+        assert!(
+            CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT > Duration::from_secs(40),
+            "the core must not time out while the native System WebView is still within its navigation deadline"
+        );
     }
 
     #[test]

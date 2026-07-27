@@ -1,6 +1,6 @@
 import { Loader2, LogIn, Upload } from "lucide-react";
 import { createPortal } from "react-dom";
-import { type JSX, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type JSX, type ReactNode, useEffect, useId, useMemo, useState } from "react";
 
 import type {
   ChromeProfileImportPreview,
@@ -182,6 +182,13 @@ export function ChromeProfileImportFlow({
     setBusy(true);
     setApplyInProgress(true);
     setCancelRequested(false);
+    setProgress({
+      importId: preview.importId,
+      profileId: resolutions[0]?.profileId,
+      phase: "copying",
+      completed: 0,
+      total: resolutions.length
+    });
     try {
       const next = await window.rionStudio.applyChromeProfileImport({
         importId: preview.importId,
@@ -218,7 +225,6 @@ export function ChromeProfileImportFlow({
       setCancelRequested(true);
       try {
         await window.rionStudio.discardChromeProfileImport(current.importId);
-        onClose?.();
       } catch (error) {
         setCancelRequested(false);
         onError(error);
@@ -256,7 +262,21 @@ export function ChromeProfileImportFlow({
       ) : null}
 
       {consentOpen ? (
-        <Modal title={t("settings.chromeImportConsentTitle")} description={t("settings.chromeImportConsentDescription")}>
+        <Modal
+          title={t("settings.chromeImportConsentTitle")}
+          description={t("settings.chromeImportConsentDescription")}
+          actions={(
+            <>
+              <Button type="button" variant="outline" disabled={busy} onClick={() => { setConsentOpen(false); onClose?.(); }}>
+                {t("settings.importCancel")}
+              </Button>
+              <Button type="button" disabled={busy || !consentAccepted} onClick={() => void chooseChromeFolder()}>
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                {t("settings.chromeImportChooseFolder")}
+              </Button>
+            </>
+          )}
+        >
           <label className="flex items-start gap-3 rounded-md border border-border/45 bg-background/25 p-3 text-xs leading-5 text-muted-foreground">
             <Checkbox
               className="mt-0.5"
@@ -266,20 +286,38 @@ export function ChromeProfileImportFlow({
             />
             <span>{t("settings.chromeImportConsentCheckbox")}</span>
           </label>
-          <ModalActions>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => { setConsentOpen(false); onClose?.(); }}>
-              {t("settings.importCancel")}
-            </Button>
-            <Button type="button" disabled={busy || !consentAccepted} onClick={() => void chooseChromeFolder()}>
-              {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              {t("settings.chromeImportChooseFolder")}
-            </Button>
-          </ModalActions>
         </Modal>
       ) : null}
 
       {preview ? (
-        <Modal title={t("settings.chromeImportTitle")} description={t("settings.chromeImportDescription")} wide>
+        <Modal
+          title={t("settings.chromeImportTitle")}
+          description={t("settings.chromeImportDescription")}
+          wide
+          actions={(
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={(busy && !applyInProgress) || cancelRequested}
+                onClick={() => void closePreview()}
+              >
+                {cancelRequested ? <Loader2 size={14} className="animate-spin" /> : null}
+                {t(cancelRequested ? "settings.chromeImportCancelling" : result ? "common.close" : "settings.importCancel")}
+              </Button>
+              {!result && !applyInProgress ? (
+                <Button
+                  type="button"
+                  disabled={busy || preview.sourceInUse || !selectedGameId || selectedProfiles.length === 0 || unresolved}
+                  onClick={() => void applyImport()}
+                >
+                  {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {t("settings.chromeImportApply")}
+                </Button>
+              ) : null}
+            </>
+          )}
+        >
           {preview.sourceInUse ? (
             <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.chromeImportRunning")}</p>
@@ -291,7 +329,11 @@ export function ChromeProfileImportFlow({
 
           {result ? (
             <div className="grid gap-2">
-              {result.items.map((item) => (
+              {result.items.length === 0 ? (
+                <div className="rounded-md border border-border/45 bg-background/25 p-4 text-center text-xs font-semibold text-muted-foreground">
+                  {t("settings.chromeImportCancelled")}
+                </div>
+              ) : result.items.map((item) => (
                 <div key={item.profileId} className="rounded-md border border-border/45 bg-background/25 p-3 text-xs leading-5">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-foreground">{item.roleName}</span>
@@ -335,6 +377,14 @@ export function ChromeProfileImportFlow({
                 </div>
               ))}
             </div>
+          ) : applyInProgress ? (
+            <ChromeImportProgressPanel
+              cancelRequested={cancelRequested}
+              preview={preview}
+              progress={progress}
+              selectedCount={selectedProfiles.length}
+              t={t}
+            />
           ) : (
             <>
               <label className="grid gap-1.5 text-xs font-semibold text-foreground">
@@ -386,37 +436,8 @@ export function ChromeProfileImportFlow({
                   );
                 })}
               </div>
-              {progress ? (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t("settings.chromeImportProgress")
-                    .replace("{phase}", chromeImportPhaseLabel(progress.phase, t))
-                    .replace("{completed}", String(progress.completed))
-                    .replace("{total}", String(progress.total))}
-                </p>
-              ) : null}
             </>
           )}
-
-          <ModalActions>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={(busy && !applyInProgress) || cancelRequested}
-              onClick={() => void closePreview()}
-            >
-              {t(cancelRequested ? "settings.chromeImportCancelling" : result ? "common.close" : "settings.importCancel")}
-            </Button>
-            {!result ? (
-              <Button
-                type="button"
-                disabled={busy || preview.sourceInUse || !selectedGameId || selectedProfiles.length === 0 || unresolved}
-                onClick={() => void applyImport()}
-              >
-                {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                {t("settings.chromeImportApply")}
-              </Button>
-            ) : null}
-          </ModalActions>
         </Modal>
       ) : null}
     </>
@@ -424,16 +445,21 @@ export function ChromeProfileImportFlow({
 }
 
 function Modal({
+  actions,
   children,
   description,
   title,
   wide = false
 }: {
+  actions?: ReactNode;
   children: ReactNode;
   description: string;
   title: string;
   wide?: boolean;
 }): JSX.Element {
+  const titleId = useId();
+  const descriptionId = useId();
+
   return createPortal(
     <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
       <Surface
@@ -442,20 +468,101 @@ function Modal({
         variant="modal"
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
       >
         <div className="glass-divider border-b px-5 py-4">
-          <h2 className="text-[15px] font-semibold leading-6 text-foreground">{title}</h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+          <h2 id={titleId} className="text-[15px] font-semibold leading-6 text-foreground">{title}</h2>
+          <p id={descriptionId} className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
         </div>
-        <div className="grid gap-4 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 py-4">{children}</div>
+        {actions ? (
+          <div className="glass-divider flex shrink-0 justify-end gap-2 border-t px-5 py-4">
+            {actions}
+          </div>
+        ) : null}
       </Surface>
     </div>,
     document.body
   );
 }
 
-function ModalActions({ children }: { children: ReactNode }): JSX.Element {
-  return <div className="glass-divider -mx-5 -mb-4 flex justify-end gap-2 border-t px-5 py-4">{children}</div>;
+function ChromeImportProgressPanel({
+  cancelRequested,
+  preview,
+  progress,
+  selectedCount,
+  t
+}: {
+  cancelRequested: boolean;
+  preview: ChromeProfileImportPreview;
+  progress: ChromeProfileImportProgress | null;
+  selectedCount: number;
+  t: Translator;
+}): JSX.Element {
+  const total = progress?.total || selectedCount;
+  const completed = Math.min(progress?.completed ?? 0, total);
+  const phase = progress?.phase ?? "copying";
+  const profileName = preview.profiles.find((profile) => profile.id === progress?.profileId)?.name;
+  const percent = chromeImportProgressPercent(completed, total, phase);
+
+  return (
+    <div
+      className="grid min-h-56 place-items-center rounded-lg border border-border/45 bg-background/25 p-6 text-center"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="grid w-full max-w-md gap-4">
+        <div className="mx-auto grid size-11 place-items-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+          <Loader2 size={20} className="animate-spin" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {profileName ?? t("settings.chromeImportApply")}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("settings.chromeImportProgress")
+              .replace("{phase}", chromeImportPhaseLabel(phase, t))
+              .replace("{completed}", String(completed))
+              .replace("{total}", String(total))}
+          </p>
+        </div>
+        <div
+          className="h-1.5 overflow-hidden rounded-full bg-border/60"
+          role="progressbar"
+          aria-label={t("settings.chromeImportApply")}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-300"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {t(cancelRequested
+            ? "settings.chromeImportCancelNotice"
+            : "settings.chromeImportWorking")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function chromeImportProgressPercent(completed: number, total: number, phase: string): number {
+  if (total <= 0) return 0;
+  const phaseProgress: Record<string, number> = {
+    copying: 0.1,
+    backingUp: 0.3,
+    applying: 0.6,
+    verifying: 0.85,
+    complete: 0
+  };
+  return Math.min(
+    100,
+    Math.max(0, Math.round(((completed + (phaseProgress[phase] ?? 0)) / total) * 100))
+  );
 }
 
 function chromeImportPhaseLabel(phase: string, t: Translator): string {

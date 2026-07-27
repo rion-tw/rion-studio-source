@@ -267,10 +267,13 @@
     [role="button"],
     [role="checkbox"],
     [role="switch"],
-    [contenteditable]:not([contenteditable="false"]),
     .control-hit-target
   ) {
     position: relative;
+  }
+
+  :where([contenteditable]) {
+    cursor: text;
   }
 
   :where(
@@ -278,7 +281,6 @@
     [role="button"],
     [role="checkbox"],
     [role="switch"],
-    [contenteditable]:not([contenteditable="false"]),
     .control-hit-target
   )::before {
     position: absolute;

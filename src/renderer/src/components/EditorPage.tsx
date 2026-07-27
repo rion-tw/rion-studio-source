@@ -10,11 +10,7 @@ import {
 
 import { Button } from "./ui/button";
 import { Surface } from "./ui/patterns";
-import {
-  focusEditorTitle,
-  normalizeEditorTitle,
-  syncEditorTitle
-} from "../app/editorTitle";
+import { normalizeEditorTitle, syncEditorTitle } from "../app/editorTitle";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
@@ -157,20 +153,12 @@ function EditableEditorTitle({
   value: string;
 }): JSX.Element {
   const titleRef = useRef<HTMLSpanElement>(null);
-  const hasFocusedRef = useRef(false);
 
   useLayoutEffect(() => {
     if (titleRef.current) {
       syncEditorTitle(titleRef.current, value);
     }
   }, [value]);
-
-  useLayoutEffect(() => {
-    if (!disabled && !hasFocusedRef.current && titleRef.current) {
-      hasFocusedRef.current = true;
-      focusEditorTitle(titleRef.current);
-    }
-  }, [disabled]);
 
   return (
     <span className="relative inline-block min-w-48 max-w-full align-bottom">

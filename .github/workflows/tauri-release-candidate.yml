@@ -128,6 +128,7 @@ jobs:
           pnpm run test:native:macro-game -- --skip-system-input
           pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
+          pnpm run test:native:local-storage-sync
           pnpm run test:native:file-operations
 
       - name: Verify Windows System WebView parity
@@ -138,6 +139,7 @@ jobs:
           pnpm run test:native:macro-game -- --skip-system-input
           pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
+          pnpm run test:native:local-storage-sync
           pnpm run test:native:file-operations
 
       - name: Build Tauri release candidate
@@ -154,6 +156,7 @@ jobs:
           pnpm run test:native:macro-game -- --executable "${executable}" --skip-system-input
           pnpm run test:native:session-import -- --executable "${executable}" --skip-system-input
           pnpm run test:native:runtime-restore -- --executable "${executable}"
+          pnpm run test:native:local-storage-sync -- --executable "${executable}"
           pnpm run test:native:file-operations -- --executable "${executable}"
           codesign --verify --deep --strict --verbose=2 "${app_path}"
           codesign_details="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
@@ -170,6 +173,7 @@ jobs:
           pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
+          pnpm run test:native:local-storage-sync -- --executable target/release/rion-tauri.exe
           pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
           $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
           if ($null -eq $installer) { throw "NSIS installer is missing." }

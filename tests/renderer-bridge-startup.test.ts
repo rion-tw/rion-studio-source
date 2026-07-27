@@ -1,12 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { registerBridgeListeners } from "../src/renderer/src/tauri/installTauriBridge";
+import {
+  gameCreateInput,
+  registerBridgeListeners,
+  roleUpdateInput
+} from "../src/renderer/src/tauri/installTauriBridge";
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe("Tauri bridge listener startup", () => {
+  it("preserves managed game keys and distinguishes binding clear from no change", () => {
+    expect(gameCreateInput({
+      name: "Flyff",
+      defaultLaunchUrl: "https://example.test/play",
+      localStorageSyncKeys: ["game_client_settings"]
+    })).toMatchObject({ localStorageSyncKeys: ["game_client_settings"] });
+    expect(roleUpdateInput({ localStorageSourceRoleId: null })).toMatchObject({
+      setLocalStorageSourceRoleId: true
+    });
+    expect(roleUpdateInput({ localStorageSourceRoleId: null })).not.toHaveProperty("localStorageSourceRoleId");
+    expect(roleUpdateInput({})).toMatchObject({ setLocalStorageSourceRoleId: false });
+    expect(roleUpdateInput({ localStorageSourceRoleId: "source" })).toMatchObject({
+      localStorageSourceRoleId: "source",
+      setLocalStorageSourceRoleId: true
+    });
+  });
   it("starts every listener registration in parallel and returns one cleanup", async () => {
     const starts: string[] = [];
     const cleanups = [vi.fn(), vi.fn(), vi.fn()];

@@ -30,6 +30,7 @@ interface RoleEditorRouteProps {
 interface RoleFormProps {
   form: RoleFormState;
   games: Game[];
+  roles: Role[];
   isGameLocked: boolean;
   isSaving: boolean;
   selectedRole?: Role;
@@ -64,6 +65,7 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
 
 function RoleEditor({
   games,
+  roles,
   initialForm,
   isGameLocked,
   isSaving,
@@ -120,6 +122,7 @@ function RoleEditor({
       <RoleForm
         form={form}
         games={games}
+        roles={roles}
         isGameLocked={isGameLocked}
         isSaving={isSaving}
         selectedRole={selectedRole}
@@ -135,6 +138,7 @@ function RoleEditor({
 function RoleForm({
   form,
   games,
+  roles,
   isGameLocked,
   isSaving,
   selectedRole,
@@ -151,6 +155,21 @@ function RoleForm({
     isActive: false
   });
   const gameChanged = Boolean(selectedRole && selectedRole.gameId !== form.gameId);
+  const selectedGame = games.find((game) => game.id === form.gameId);
+  const formOrigin = safeLaunchOrigin(form.launchUrl);
+  const dependentRoles = selectedRole
+    ? roles.filter((role) => role.localStorageSourceRoleId === selectedRole.id)
+    : [];
+  const eligibleSourceRoles = roles.filter((role) =>
+    role.id !== selectedRole?.id
+    && role.gameId === form.gameId
+    && !role.localStorageSourceRoleId
+    && formOrigin !== undefined
+    && safeLaunchOrigin(role.launchUrl) === formOrigin
+  );
+  const bindingDisabled = !selectedGame?.localStorageSyncKeys.length
+    || dependentRoles.length > 0
+    || eligibleSourceRoles.length === 0;
 
   async function handleCoverImageChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.currentTarget.files?.[0];
@@ -197,7 +216,8 @@ function RoleForm({
                       onChange((current) => ({
                         ...current,
                         gameId,
-                        launchUrl: game.defaultLaunchUrl
+                        launchUrl: game.defaultLaunchUrl,
+                        localStorageSourceRoleId: undefined
                       }));
                     }}
                     required
@@ -212,9 +232,50 @@ function RoleForm({
                   label={t("roleForm.launchUrl")}
                   description={t("roleForm.launchUrlDescription")}
                 >
-                  <Input id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
+                  <Input id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => {
+                    const launchUrl = event.target.value;
+                    return {
+                      ...current,
+                      launchUrl,
+                      localStorageSourceRoleId: safeLaunchOrigin(launchUrl) === safeLaunchOrigin(current.launchUrl)
+                        ? current.localStorageSourceRoleId
+                        : undefined
+                    };
+                  })} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
                 </FormField>
               </FormGrid>
+            </Surface>
+
+            <Surface className="grid gap-3 p-4" padding="none" variant="inset">
+              <FieldHeader
+                title={t("roleForm.localStorageBinding")}
+                description={t("roleForm.localStorageBindingDescription")}
+              />
+              <FormField htmlFor="role-local-storage-source" label={t("roleForm.localStorageSource")}>
+                <Select
+                  value={form.localStorageSourceRoleId ?? "none"}
+                  disabled={bindingDisabled && !form.localStorageSourceRoleId}
+                  onValueChange={(value) => onChange((current) => ({
+                    ...current,
+                    localStorageSourceRoleId: value === "none" ? undefined : value
+                  }))}
+                >
+                  <SelectTrigger id="role-local-storage-source"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("roleForm.localStorageSourceNone")}</SelectItem>
+                    {eligibleSourceRoles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FormField>
+              {form.localStorageSourceRoleId ? (
+                <div className="rounded-md bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  <p>{t("roleForm.localStorageDirection").replace("{source}", eligibleSourceRoles.find((role) => role.id === form.localStorageSourceRoleId)?.name ?? t("roleForm.localStorageUnknownSource"))}</p>
+                  <p className="break-all">{t("roleForm.localStorageManagedKeys").replace("{keys}", selectedGame?.localStorageSyncKeys.join(", ") ?? "")}</p>
+                </div>
+              ) : null}
+              {!selectedGame?.localStorageSyncKeys.length ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageNoKeys")}</p> : null}
+              {dependentRoles.length > 0 ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageHasDependents").replace("{names}", dependentRoles.map((role) => role.name).join(", "))}</p> : null}
+              {selectedGame?.localStorageSyncKeys.length && dependentRoles.length === 0 && eligibleSourceRoles.length === 0 ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageNoSources")}</p> : null}
             </Surface>
 
             {selectedRole ? (
@@ -304,3 +365,12 @@ function RoleForm({
 }
 
 export default RoleEditorRoute;
+
+function safeLaunchOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}

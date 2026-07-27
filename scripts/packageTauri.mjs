@@ -25,6 +25,7 @@ for (const [script, extraArguments] of [
   ["test:native:macro-game", ["--skip-system-input"]],
   ["test:native:session-import", ["--skip-system-input"]],
   ["test:native:runtime-restore", []],
+  ["test:native:local-storage-sync", []],
   ["test:native:file-operations", []]
 ]) {
   await run(
@@ -85,6 +86,7 @@ for (const [script, extraArguments] of [
   ["test:native:macro-game", ["--skip-system-input"]],
   ["test:native:session-import", ["--skip-system-input"]],
   ["test:native:runtime-restore", []],
+  ["test:native:local-storage-sync", []],
   ["test:native:file-operations", []]
 ]) {
   await run(command("pnpm"), [

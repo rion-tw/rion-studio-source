@@ -36,7 +36,8 @@ export function useGameWorkflow({
         name: form.name,
         iconImageDataUrl: form.source === "custom" ? form.iconImageDataUrl ?? null : undefined,
         coverImageDataUrl: form.source === "custom" ? form.coverImageDataUrl ?? null : undefined,
-        defaultLaunchUrl: form.defaultLaunchUrl
+        defaultLaunchUrl: form.defaultLaunchUrl,
+        localStorageSyncKeys: form.localStorageSyncKeys
       };
       const saved = form.id
         ? await window.rionStudio.updateGame(form.id, input)

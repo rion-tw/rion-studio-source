@@ -23,6 +23,7 @@ struct BuiltinGame {
     key: &'static str,
     name: &'static str,
     launch_url: &'static str,
+    local_storage_sync_keys: &'static [&'static str],
 }
 
 const BUILTIN_GAMES: &[BuiltinGame] = &[
@@ -31,12 +32,14 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
         key: "flyff-universe",
         name: "Flyff Universe",
         launch_url: DEFAULT_LAUNCH_URL,
+        local_storage_sync_keys: &["game_client_settings"],
     },
     BuiltinGame {
         id: "builtin-feifei-infinite-universe",
         key: "feifei-infinite-universe",
         name: "飞飞：无限宇宙",
         launch_url: "https://ffcli.ruiwoo.cn",
+        local_storage_sync_keys: &[],
     },
 ];
 
@@ -153,12 +156,17 @@ fn normalize_games(values: Vec<Value>, now: &str) -> CoreResult<Vec<Value>> {
             object.insert("source".to_owned(), json!("builtin"));
             object.insert("builtinKey".to_owned(), json!(builtin.key));
             object.insert("name".to_owned(), json!(builtin.name));
+            object.insert(
+                "localStorageSyncKeys".to_owned(),
+                json!(builtin.local_storage_sync_keys),
+            );
             object.remove("iconImageDataUrl");
             object.remove("coverImageDataUrl");
         } else {
             games.push(json!({
                 "id": builtin.id, "source": "builtin", "builtinKey": builtin.key,
                 "name": builtin.name, "defaultLaunchUrl": normalize_url(builtin.launch_url.to_owned())?,
+                "localStorageSyncKeys": builtin.local_storage_sync_keys,
                 "createdAt": now, "updatedAt": now
             }));
         }
@@ -241,6 +249,10 @@ fn normalize_game(value: &Value, now: &str) -> CoreResult<Value> {
         )?),
     );
     output.insert(
+        "localStorageSyncKeys".to_owned(),
+        json!(builtin.map_or(&[][..], |game| game.local_storage_sync_keys)),
+    );
+    output.insert(
         "createdAt".to_owned(),
         json!(timestamp(source.get("createdAt"), now)),
     );
@@ -298,7 +310,7 @@ fn normalize_roles(
                 .and_then(|url| url.host_str().map(str::to_owned))
                 .unwrap_or_else(|| "Imported Game".to_owned());
             let name = unique_name(&host, &mut game_names);
-            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "createdAt": now, "updatedAt": now }));
+            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "localStorageSyncKeys": [], "createdAt": now, "updatedAt": now }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());
             id

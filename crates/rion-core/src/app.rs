@@ -1286,6 +1286,21 @@ impl AppCore {
 
     pub async fn invoke_async(self: &Arc<Self>, command: CoreCommand) -> CoreResult<Value> {
         match command {
+            CoreCommand::RoleCreate { input } => {
+                let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
+                let mut roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
+                let candidate = crate::domain::create_role(&games, &mut roles, input.clone())?;
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || {
+                    core.refresh_local_storage_source_before_binding(&candidate)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.invoke(CoreCommand::RoleCreate { input }))
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))?
+            }
             CoreCommand::RoleBrowserDataClear { role_id } => {
                 self.clear_role_browser_data(role_id).await
             }
@@ -2305,6 +2320,7 @@ impl AppCore {
                     notes: Some("Imported from a local Chrome profile.".to_owned()),
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             });
             match created {
@@ -2475,6 +2491,15 @@ impl AppCore {
                 message: "Role not found.".to_owned(),
             })?;
         let candidate = crate::domain::update_role(&games, &mut roles, &id, input.clone())?;
+        if candidate.local_storage_source_role_id != current.local_storage_source_role_id {
+            let core = Arc::clone(self);
+            let binding_candidate = candidate.clone();
+            tokio::task::spawn_blocking(move || {
+                core.refresh_local_storage_source_before_binding(&binding_candidate)
+            })
+            .await
+            .map_err(|error| CoreError::Internal(error.to_string()))??;
+        }
         if candidate.game_id != current.game_id || candidate.launch_url != current.launch_url {
             self.stop_role_runtime(&id).await?;
         }
@@ -2484,6 +2509,36 @@ impl AppCore {
         })
         .await
         .map_err(|error| CoreError::Internal(error.to_string()))?
+    }
+
+    fn refresh_local_storage_source_before_binding(
+        &self,
+        candidate: &StateRoleRecord,
+    ) -> CoreResult<()> {
+        let Some(source_id) = candidate.local_storage_source_role_id.as_deref() else {
+            return Ok(());
+        };
+        let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
+        let source = roles
+            .iter()
+            .find(|role| role.id == source_id)
+            .ok_or_else(|| CoreError::Domain {
+                code: "ROLE_LOCAL_STORAGE_SOURCE_NOT_FOUND",
+                message: "The localStorage source role was not found.".to_owned(),
+            })?;
+        let game = self.state_game(&candidate.game_id)?;
+        self.run_effect_plan(vec![effect_step(
+            source_id,
+            CoreEffectAction::LocalStorageSyncRefresh {
+                source_role_id: source.id.clone(),
+                source_launch_url: source.launch_url.clone(),
+                origin: crate::domain::launch_origin(&source.launch_url)?,
+                keys: game.local_storage_sync_keys,
+            },
+            Duration::from_secs(45),
+            None,
+        )])?;
+        Ok(())
     }
 
     async fn delete_role_runtime_aware(self: &Arc<Self>, id: String) -> CoreResult<Value> {
@@ -2804,7 +2859,16 @@ impl AppCore {
     }
 
     async fn clear_role_browser_data(self: &Arc<Self>, role_id: String) -> CoreResult<Value> {
-        self.ensure_role_exists(&role_id)?;
+        let role = self
+            .read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .find(|role| role.id == role_id)
+            .ok_or_else(|| CoreError::Domain {
+                code: "ROLE_NOT_FOUND",
+                message: "Role not found.".to_owned(),
+            })?;
+        let game = self.state_game(&role.game_id)?;
+        let local_storage_sync_origin = crate::domain::launch_origin(&role.launch_url)?;
         self.stop_role_runtime(&role_id).await?;
         self.macro_runtime.stop_role(&role_id)?;
         let lease = self
@@ -2881,6 +2945,8 @@ impl AppCore {
                 &role_id,
                 CoreEffectAction::RoleBrowserDataClearSession {
                     role_id: role_id.clone(),
+                    origin: local_storage_sync_origin,
+                    local_storage_sync_keys: game.local_storage_sync_keys,
                     webview2_user_data_dir: role_paths.webview2_user_data_dir,
                     webkit_data_store_identifier: role_paths.webkit_data_store_identifier,
                 },
@@ -3924,6 +3990,7 @@ impl AppCore {
             "game browser settings are missing",
         )?;
         let game = self.state_game(&role.game_id)?;
+        let available_roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
         self.reset_system_launch_retry_state(std::slice::from_ref(&role))?;
         let resolution = self.resolve_role_browser_engine(&role, &game, &settings)?;
         require_system_resolution(&resolution)?;
@@ -3963,6 +4030,11 @@ impl AppCore {
             target,
             roles: vec![EmbeddedRoleViewEffectRecord {
                 role: role.clone(),
+                local_storage_sync: local_storage_sync_role_effect(
+                    &role,
+                    &available_roles,
+                    std::slice::from_ref(&game),
+                )?,
                 resolved_engine,
                 rect: full_window_rect(),
                 zoom_factor,
@@ -4135,6 +4207,8 @@ impl AppCore {
             .into_iter()
             .map(|game| (game.id.clone(), game))
             .collect::<std::collections::HashMap<_, _>>();
+        let all_roles = available_roles.values().cloned().collect::<Vec<_>>();
+        let all_games = available_games.values().cloned().collect::<Vec<_>>();
         self.reset_system_launch_retry_state(&roles)?;
         let workspace_resolution =
             self.resolve_workspace_browser_engine(&roles, &available_games, &settings)?;
@@ -4184,7 +4258,13 @@ impl AppCore {
             .filter_map(|slot| {
                 let role_id = slot.role_id.as_ref()?;
                 let role = roles.iter().find(|role| &role.id == role_id)?.clone();
-                Some(EmbeddedRoleViewEffectRecord {
+                Some((slot, role))
+            })
+            .map(|(slot, role)| {
+                Ok(EmbeddedRoleViewEffectRecord {
+                    local_storage_sync: local_storage_sync_role_effect(
+                        &role, &all_roles, &all_games,
+                    )?,
                     role,
                     resolved_engine: workspace_resolved_engine,
                     rect: slot.rect.clone(),
@@ -4199,7 +4279,7 @@ impl AppCore {
                     },
                 })
             })
-            .collect::<Vec<_>>();
+            .collect::<CoreResult<Vec<_>>>()?;
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             source_id: workspace.id.clone(),
@@ -5595,6 +5675,54 @@ impl AppCore {
     fn emit(&self, events: Vec<CoreEvent>) {
         broadcast_events(&self.subscribers, events);
     }
+}
+
+fn local_storage_sync_role_effect(
+    role: &StateRoleRecord,
+    roles: &[StateRoleRecord],
+    games: &[StateGameRecord],
+) -> CoreResult<Option<crate::model::LocalStorageSyncRoleEffectRecord>> {
+    let game = games
+        .iter()
+        .find(|game| game.id == role.game_id)
+        .ok_or_else(|| CoreError::Domain {
+            code: "GAME_NOT_FOUND",
+            message: "Game not found.".to_owned(),
+        })?;
+    if game.local_storage_sync_keys.is_empty() {
+        return Ok(None);
+    }
+    let origin = crate::domain::launch_origin(&role.launch_url)?;
+    let source = role
+        .local_storage_source_role_id
+        .as_deref()
+        .map(|source_id| {
+            roles
+                .iter()
+                .find(|candidate| candidate.id == source_id)
+                .map(|source| crate::model::LocalStorageSyncSourceEffectRecord {
+                    role_id: source.id.clone(),
+                    launch_url: source.launch_url.clone(),
+                })
+                .ok_or_else(|| CoreError::Domain {
+                    code: "ROLE_LOCAL_STORAGE_SOURCE_NOT_FOUND",
+                    message: "The localStorage source role was not found.".to_owned(),
+                })
+        })
+        .transpose()?;
+    let dependent_role_ids = roles
+        .iter()
+        .filter(|candidate| {
+            candidate.local_storage_source_role_id.as_deref() == Some(role.id.as_str())
+        })
+        .map(|candidate| candidate.id.clone())
+        .collect();
+    Ok(Some(crate::model::LocalStorageSyncRoleEffectRecord {
+        origin,
+        keys: game.local_storage_sync_keys.clone(),
+        source,
+        dependent_role_ids,
+    }))
 }
 
 fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserRoleStatusRecord {

@@ -18,6 +18,7 @@ export interface RoleFormState {
   notes: string;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
+  localStorageSourceRoleId?: string;
 }
 
 export interface WorkspaceFormState {
@@ -36,6 +37,7 @@ export interface GameFormState {
   iconImageDataUrl?: string;
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
+  localStorageSyncKeys: string[];
 }
 
 export interface MacroFormState {

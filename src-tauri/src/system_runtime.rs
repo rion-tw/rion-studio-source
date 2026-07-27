@@ -46,6 +46,7 @@ const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
+const LOCAL_STORAGE_SYNC_MAX_BYTES: usize = 10 * 1024 * 1024;
 #[cfg(any(windows, target_os = "macos"))]
 const TRUSTED_INPUT_EVENT_INTERVAL: Duration = Duration::from_millis(25);
 #[cfg(target_os = "macos")]
@@ -275,10 +276,29 @@ impl NavigationTracker {
 
 struct RoleSurface {
     current_url: Option<Url>,
+    local_storage_sync: Option<LocalStorageRuntimeConfig>,
     navigation: Arc<NavigationTracker>,
     rect: rion_core::StateNormalizedRectRecord,
     webview: Webview,
     zoom_factor: f64,
+}
+
+#[derive(Clone)]
+struct LocalStorageRuntimeConfig {
+    dependent_role_ids: Vec<String>,
+    keys: Vec<String>,
+    origin: String,
+    source_role_id: Option<String>,
+    token: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedLocalStorageSyncSnapshot {
+    schema_version: u8,
+    source_role_id: String,
+    origin: String,
+    entries: Vec<(String, Option<String>)>,
 }
 
 struct RuntimeTab {
@@ -2391,6 +2411,7 @@ impl SystemRuntimeExecutor {
                 role_id.to_owned(),
                 RoleSurface {
                     current_url: Some(current_url),
+                    local_storage_sync: None,
                     navigation,
                     rect,
                     webview,
@@ -2404,6 +2425,20 @@ impl SystemRuntimeExecutor {
 
     fn apply(&self, effect: CoreEffectRequest) -> RuntimeResult<Option<String>> {
         match effect.action {
+            CoreEffectAction::LocalStorageSyncRefresh {
+                source_role_id,
+                source_launch_url,
+                origin,
+                keys,
+            } => {
+                self.refresh_local_storage_sync_source(
+                    &source_role_id,
+                    &source_launch_url,
+                    &origin,
+                    &keys,
+                )?;
+                Ok(None)
+            }
             CoreEffectAction::EmbeddedCreateTab { tab } => self.create_tab(*tab).map(|()| None),
             CoreEffectAction::EmbeddedConfigureRoleSessions { role_ids } => {
                 self.require_roles(&role_ids)?;
@@ -2456,6 +2491,8 @@ impl SystemRuntimeExecutor {
             }
             CoreEffectAction::RoleBrowserDataClearSession {
                 role_id,
+                origin,
+                local_storage_sync_keys,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
             } => {
@@ -2463,6 +2500,11 @@ impl SystemRuntimeExecutor {
                     &role_id,
                     &webview2_user_data_dir,
                     &webkit_data_store_identifier,
+                )?;
+                self.local_storage_sync_source_cleared(
+                    &role_id,
+                    &origin,
+                    &local_storage_sync_keys,
                 )?;
                 Ok(None)
             }
@@ -3742,6 +3784,366 @@ impl SystemRuntimeExecutor {
         evaluate_system_webview(webview, source)
     }
 
+    fn refresh_local_storage_sync_source(
+        &self,
+        source_role_id: &str,
+        source_launch_url: &str,
+        origin: &str,
+        keys: &[String],
+    ) -> RuntimeResult<()> {
+        validate_local_storage_sync_contract(origin, keys)?;
+        let live = {
+            let state = self.state()?;
+            state
+                .role_tabs
+                .get(source_role_id)
+                .and_then(|tab_id| state.tabs.get(tab_id))
+                .and_then(|tab| tab.roles.get(source_role_id))
+                .map(|surface| surface.webview.clone())
+        };
+        let entries = if let Some(webview) = live {
+            require_exact_local_storage_sync_origin(&webview, origin)?;
+            read_scoped_local_storage_entries(&webview, keys)?
+        } else {
+            let launch = checked_web_url(source_launch_url)?;
+            if launch.origin().ascii_serialization() != origin {
+                return Err(RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_ORIGIN_MISMATCH",
+                    "The localStorage source launch origin changed.",
+                ));
+            }
+            let paths = role_session_paths(&self.user_data_dir, source_role_id)?;
+            fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
+            let (window, webview, navigation) =
+                self.create_session_transfer_surface(source_role_id, &paths, None)?;
+            let result = (|| {
+                navigation.reset();
+                webview.navigate(launch).map_err(RuntimeError::tauri)?;
+                navigation.wait().map_err(|message| {
+                    RuntimeError::new("LOCAL_STORAGE_SYNC_SNAPSHOT_LOAD_FAILED", message)
+                })?;
+                require_exact_local_storage_sync_origin(&webview, origin)?;
+                read_scoped_local_storage_entries(&webview, keys)
+            })();
+            close_hidden_surface(window, webview);
+            result?
+        };
+        self.persist_local_storage_sync_snapshot(PersistedLocalStorageSyncSnapshot {
+            schema_version: 1,
+            source_role_id: source_role_id.to_owned(),
+            origin: origin.to_owned(),
+            entries,
+        })
+    }
+
+    fn persist_local_storage_sync_snapshot(
+        &self,
+        snapshot: PersistedLocalStorageSyncSnapshot,
+    ) -> RuntimeResult<()> {
+        let serialized = serde_json::to_vec(&snapshot).map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CACHE_INVALID",
+                "The localStorage synchronization snapshot could not be encoded.",
+            )
+        })?;
+        if serialized.len() > LOCAL_STORAGE_SYNC_MAX_BYTES {
+            return Err(RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CACHE_TOO_LARGE",
+                "The localStorage synchronization snapshot exceeds 10 MiB.",
+            ));
+        }
+        role_session_paths(&self.user_data_dir, &snapshot.source_role_id)?;
+        let protected = rion_platform::protect_local_storage_sync(current_platform(), &serialized)
+            .map_err(|error| {
+                RuntimeError::new("LOCAL_STORAGE_SYNC_CACHE_PROTECT_FAILED", error.to_string())
+            })?;
+        let directory = self
+            .user_data_dir
+            .join("roles")
+            .join(&snapshot.source_role_id)
+            .join("browser")
+            .join("system");
+        fs::create_dir_all(&directory).map_err(RuntimeError::io)?;
+        rion_platform::restrict_directory_to_current_user(&directory).map_err(|error| {
+            RuntimeError::new("LOCAL_STORAGE_SYNC_CACHE_WRITE_FAILED", error.to_string())
+        })?;
+        let temporary = directory.join(format!(".local-storage-sync-{}.tmp", uuid::Uuid::new_v4()));
+        fs::write(&temporary, protected).map_err(RuntimeError::io)?;
+        let destination = directory.join("local-storage-sync-v1.enc");
+        if let Err(error) = rion_platform::atomic_replace_file(&temporary, &destination) {
+            let _ = fs::remove_file(&temporary);
+            return Err(RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CACHE_WRITE_FAILED",
+                error.to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn load_local_storage_sync_snapshot(
+        &self,
+        source_role_id: &str,
+        origin: &str,
+        keys: &[String],
+    ) -> RuntimeResult<PersistedLocalStorageSyncSnapshot> {
+        validate_local_storage_sync_contract(origin, keys)?;
+        role_session_paths(&self.user_data_dir, source_role_id)?;
+        let path = self
+            .user_data_dir
+            .join("roles")
+            .join(source_role_id)
+            .join("browser")
+            .join("system")
+            .join("local-storage-sync-v1.enc");
+        let protected = fs::read(path).map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CACHE_UNAVAILABLE",
+                "The encrypted localStorage synchronization snapshot is unavailable.",
+            )
+        })?;
+        let plaintext = rion_platform::unprotect_local_storage_sync(current_platform(), &protected)
+            .map_err(|_| {
+                RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_CACHE_INVALID",
+                    "The encrypted localStorage synchronization snapshot is invalid.",
+                )
+            })?;
+        if plaintext.len() > LOCAL_STORAGE_SYNC_MAX_BYTES {
+            return Err(RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CACHE_TOO_LARGE",
+                "The localStorage synchronization snapshot exceeds 10 MiB.",
+            ));
+        }
+        let snapshot: PersistedLocalStorageSyncSnapshot = serde_json::from_slice(&plaintext)
+            .map_err(|_| {
+                RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_CACHE_INVALID",
+                    "The encrypted localStorage synchronization snapshot is invalid.",
+                )
+            })?;
+        let snapshot_keys = snapshot
+            .entries
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>();
+        if snapshot.schema_version != 1
+            || snapshot.source_role_id != source_role_id
+            || snapshot.origin != origin
+            || snapshot_keys != keys.iter().map(String::as_str).collect::<Vec<_>>()
+        {
+            return Err(RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CACHE_INVALID",
+                "The encrypted localStorage synchronization snapshot does not match its binding.",
+            ));
+        }
+        Ok(snapshot)
+    }
+
+    pub fn local_storage_sync_changed(
+        &self,
+        webview_label: &str,
+        token: &str,
+        entries: Vec<(String, Option<String>)>,
+    ) -> Result<(), String> {
+        let role_id = self.role_id_for_webview(webview_label)?;
+        let (config, webview) = {
+            let state = self.state().map_err(|error| error.message)?;
+            let tab_id = state
+                .role_tabs
+                .get(&role_id)
+                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
+            let surface = state
+                .tabs
+                .get(tab_id)
+                .and_then(|tab| tab.roles.get(&role_id))
+                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
+            let config = surface.local_storage_sync.clone().ok_or_else(|| {
+                "This role has no localStorage synchronization capability.".to_owned()
+            })?;
+            (config, surface.webview.clone())
+        };
+        if config.token != token {
+            return Err("The localStorage synchronization capability is invalid.".to_owned());
+        }
+        require_exact_local_storage_sync_origin(&webview, &config.origin)
+            .map_err(|error| error.message)?;
+        if entries.len() != config.keys.len()
+            || entries
+                .iter()
+                .zip(&config.keys)
+                .any(|((key, _), expected)| key != expected)
+        {
+            return Err("The localStorage synchronization key set is invalid.".to_owned());
+        }
+        if let Some(source_role_id) = config.source_role_id.as_deref() {
+            let snapshot = self
+                .load_local_storage_sync_snapshot(source_role_id, &config.origin, &config.keys)
+                .map_err(|error| error.message)?;
+            webview
+                .eval(local_storage_sync_apply_script(&snapshot).map_err(|error| error.message)?)
+                .map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+        if config.dependent_role_ids.is_empty() {
+            return Ok(());
+        }
+        let snapshot = PersistedLocalStorageSyncSnapshot {
+            schema_version: 1,
+            source_role_id: role_id.clone(),
+            origin: config.origin.clone(),
+            entries,
+        };
+        self.persist_local_storage_sync_snapshot(snapshot.clone())
+            .map_err(|error| error.message)?;
+        self.apply_local_storage_sync_to_running_dependents(&role_id, &snapshot)
+            .map_err(|error| error.message)
+    }
+
+    pub fn refresh_local_storage_sync_metadata(
+        &self,
+        roles: &[StateRoleRecord],
+        games: &[StateGameRecord],
+    ) -> Result<(), String> {
+        let roles_by_id = roles
+            .iter()
+            .map(|role| (role.id.as_str(), role))
+            .collect::<HashMap<_, _>>();
+        let games_by_id = games
+            .iter()
+            .map(|game| (game.id.as_str(), game))
+            .collect::<HashMap<_, _>>();
+        let mut updates = Vec::new();
+        {
+            let mut state = self.state().map_err(|error| error.message)?;
+            for tab in state.tabs.values_mut() {
+                for (role_id, surface) in &mut tab.roles {
+                    let old_source = surface
+                        .local_storage_sync
+                        .as_ref()
+                        .and_then(|config| config.source_role_id.clone());
+                    let next = roles_by_id.get(role_id.as_str()).and_then(|role| {
+                        let game = games_by_id.get(role.game_id.as_str())?;
+                        if game.local_storage_sync_keys.is_empty() {
+                            return None;
+                        }
+                        let origin = checked_web_url(&role.launch_url)
+                            .ok()?
+                            .origin()
+                            .ascii_serialization();
+                        let token = surface
+                            .local_storage_sync
+                            .as_ref()
+                            .map(|config| config.token.clone())
+                            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                        Some(LocalStorageRuntimeConfig {
+                            dependent_role_ids: roles
+                                .iter()
+                                .filter(|candidate| {
+                                    candidate.local_storage_source_role_id.as_deref()
+                                        == Some(role.id.as_str())
+                                })
+                                .map(|candidate| candidate.id.clone())
+                                .collect(),
+                            keys: game.local_storage_sync_keys.clone(),
+                            origin,
+                            source_role_id: role.local_storage_source_role_id.clone(),
+                            token,
+                        })
+                    });
+                    surface.local_storage_sync = next.clone();
+                    if let Some(config) = next {
+                        updates.push((
+                            surface.webview.clone(),
+                            config.clone(),
+                            old_source != config.source_role_id,
+                        ));
+                    }
+                }
+            }
+        }
+        for (webview, config, source_changed) in updates {
+            let observer =
+                local_storage_sync_observer_script(&config).map_err(|error| error.message)?;
+            let configuration = json!({
+                "token": config.token,
+                "origin": config.origin,
+                "keys": config.keys,
+            });
+            webview
+                .eval(format!(
+                    "{observer}\nglobalThis.__rionLocalStorageSyncObserver?.configure?.({configuration});"
+                ))
+                .map_err(|error| error.to_string())?;
+            if source_changed && let Some(source_role_id) = config.source_role_id.as_deref() {
+                let snapshot = self
+                    .load_local_storage_sync_snapshot(source_role_id, &config.origin, &config.keys)
+                    .map_err(|error| error.message)?;
+                require_exact_local_storage_sync_origin(&webview, &config.origin)
+                    .map_err(|error| error.message)?;
+                webview
+                    .eval(
+                        local_storage_sync_apply_script(&snapshot)
+                            .map_err(|error| error.message)?,
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_local_storage_sync_to_running_dependents(
+        &self,
+        source_role_id: &str,
+        snapshot: &PersistedLocalStorageSyncSnapshot,
+    ) -> RuntimeResult<()> {
+        let targets = {
+            let state = self.state()?;
+            state
+                .tabs
+                .values()
+                .flat_map(|tab| tab.roles.values())
+                .filter_map(|surface| {
+                    let config = surface.local_storage_sync.as_ref()?;
+                    (config.source_role_id.as_deref() == Some(source_role_id)
+                        && config.origin == snapshot.origin)
+                        .then(|| (surface.webview.clone(), config.origin.clone()))
+                })
+                .collect::<Vec<_>>()
+        };
+        let script = local_storage_sync_apply_script(snapshot)?;
+        let mut first_error = None;
+        for (webview, origin) in targets {
+            let result = require_exact_local_storage_sync_origin(&webview, &origin)
+                .and_then(|()| webview.eval(&script).map_err(RuntimeError::tauri));
+            if first_error.is_none()
+                && let Err(error) = result
+            {
+                first_error = Some(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn local_storage_sync_source_cleared(
+        &self,
+        source_role_id: &str,
+        origin: &str,
+        keys: &[String],
+    ) -> RuntimeResult<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        validate_local_storage_sync_contract(origin, keys)?;
+        let snapshot = PersistedLocalStorageSyncSnapshot {
+            schema_version: 1,
+            source_role_id: source_role_id.to_owned(),
+            origin: origin.to_owned(),
+            entries: keys.iter().map(|key| (key.clone(), None)).collect(),
+        };
+        self.persist_local_storage_sync_snapshot(snapshot.clone())?;
+        self.apply_local_storage_sync_to_running_dependents(source_role_id, &snapshot)
+    }
+
     fn load_compatibility_url(&self, game_id: &str, url: &str) -> RuntimeResult<String> {
         let (webview, navigation) = {
             let state = self.state()?;
@@ -4078,6 +4480,30 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
+        let mut refreshed_sources = HashSet::new();
+        for role in &tab.roles {
+            if let Some(source) = role
+                .local_storage_sync
+                .as_ref()
+                .and_then(|sync| sync.source.as_ref())
+                && refreshed_sources.insert(source.role_id.clone())
+            {
+                self.refresh_local_storage_sync_source(
+                    &source.role_id,
+                    &source.launch_url,
+                    &role
+                        .local_storage_sync
+                        .as_ref()
+                        .expect("checked above")
+                        .origin,
+                    &role
+                        .local_storage_sync
+                        .as_ref()
+                        .expect("checked above")
+                        .keys,
+                )?;
+            }
+        }
         let target = tab.target.clone();
         let (window, host_created) = self.ensure_display_host(&target, &tab.name)?;
         let mut created_webviews = Vec::new();
@@ -4105,16 +4531,44 @@ impl SystemRuntimeExecutor {
             let mut role_ids = Vec::with_capacity(tab.roles.len());
             for role in &tab.roles {
                 let role_id = role.role.id.clone();
+                let sync_config =
+                    role.local_storage_sync
+                        .as_ref()
+                        .map(|sync| LocalStorageRuntimeConfig {
+                            dependent_role_ids: sync.dependent_role_ids.clone(),
+                            keys: sync.keys.clone(),
+                            origin: sync.origin.clone(),
+                            source_role_id: sync
+                                .source
+                                .as_ref()
+                                .map(|source| source.role_id.clone()),
+                            token: uuid::Uuid::new_v4().to_string(),
+                        });
                 let navigation = Arc::new(NavigationTracker::default());
                 let callback_navigation = Arc::clone(&navigation);
                 let role_label = runtime_label("game-role", &role_id);
                 let paths = role_session_paths(&self.user_data_dir, &role_id)?;
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-                let builder = self
+                let mut builder = self
                     .webview_builder(role_label, &paths, Some(&role_id))?
                     .on_page_load(move |_webview, payload| {
                         callback_navigation.page_event(payload.event(), payload.url());
                     });
+                if let Some(config) = sync_config.as_ref() {
+                    builder = builder.initialization_script_for_all_frames(
+                        &local_storage_sync_observer_script(config)?,
+                    );
+                    if let Some(source_role_id) = config.source_role_id.as_deref() {
+                        let snapshot = self.load_local_storage_sync_snapshot(
+                            source_role_id,
+                            &config.origin,
+                            &config.keys,
+                        )?;
+                        builder = builder.initialization_script_for_all_frames(
+                            &local_storage_sync_apply_script(&snapshot)?,
+                        );
+                    }
+                }
                 let bounds = resolved_role_bounds
                     .get(&role_id)
                     .copied()
@@ -4142,6 +4596,7 @@ impl SystemRuntimeExecutor {
                     role_id,
                     RoleSurface {
                         current_url: None,
+                        local_storage_sync: sync_config,
                         navigation,
                         rect: role.rect.clone(),
                         webview,
@@ -6345,6 +6800,7 @@ fn attestation_role(count: usize, index: usize) -> EmbeddedRoleViewEffectRecord 
     let row = index / columns;
     let role_id = format!("attestation-{count}-{index}");
     EmbeddedRoleViewEffectRecord {
+        local_storage_sync: None,
         role: StateRoleRecord {
             id: role_id.clone(),
             game_id: "attestation-game".to_owned(),
@@ -6353,6 +6809,7 @@ fn attestation_role(count: usize, index: usize) -> EmbeddedRoleViewEffectRecord 
             notes: String::new(),
             cover_image_data_url: None,
             cover_image_dominant_color: None,
+            local_storage_source_role_id: None,
             created_at: "1970-01-01T00:00:00Z".to_owned(),
             updated_at: "1970-01-01T00:00:00Z".to_owned(),
         },
@@ -7090,6 +7547,189 @@ fn local_storage_document_start_script(
   }});
 }})();"#,
     ))
+}
+
+fn validate_local_storage_sync_contract(origin: &str, keys: &[String]) -> RuntimeResult<()> {
+    let parsed = checked_web_url(origin)?;
+    if parsed.origin().ascii_serialization() != origin
+        || keys.is_empty()
+        || keys.len() > 32
+        || keys.iter().collect::<HashSet<_>>().len() != keys.len()
+        || keys
+            .iter()
+            .any(|key| key.is_empty() || key.len() > 256 || key.trim() != key)
+    {
+        return Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
+            "The localStorage synchronization contract is invalid.",
+        ));
+    }
+    Ok(())
+}
+
+fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> RuntimeResult<String> {
+    validate_local_storage_sync_contract(&config.origin, &config.keys)?;
+    let token = serde_json::to_string(&config.token).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization observer could not be encoded.",
+        )
+    })?;
+    let origin = serde_json::to_string(&config.origin).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization observer could not be encoded.",
+        )
+    })?;
+    let keys = serde_json::to_string(&config.keys).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization observer could not be encoded.",
+        )
+    })?;
+    Ok(format!(
+        r#"(() => {{
+  if (globalThis.top !== globalThis || globalThis.__rionLocalStorageSyncObserver) return;
+  const state = {{ token: {token}, origin: {origin}, keys: {keys}, lastError: null, pending: null, previous: null, timer: 0 }};
+  const capture = () => state.keys.map((key) => [key, localStorage.getItem(key)]);
+  const publish = () => {{
+    state.timer = 0;
+    if (location.origin !== state.origin) return;
+    const entries = capture();
+    const serialized = JSON.stringify(entries);
+    if (serialized === state.previous || serialized === state.pending) return;
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== "function") return;
+    state.pending = serialized;
+    void internals.invoke("rion_local_storage_sync_changed", {{ token: state.token, entries }})
+      .then(() => {{ if (state.pending === serialized) {{ state.lastError = null; state.previous = serialized; state.pending = null; }} }})
+      .catch((error) => {{ state.lastError = String(error); if (state.pending === serialized) state.pending = null; schedule(); }});
+  }};
+  const schedule = () => {{
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(publish, 100);
+  }};
+  for (const name of ["storage", "pageshow", "visibilitychange"]) addEventListener(name, schedule, true);
+  setInterval(schedule, 250);
+  globalThis.__rionLocalStorageSyncObserver = Object.freeze({{
+    configure(next) {{
+      if (!next || next.token !== state.token) return false;
+      state.origin = next.origin;
+      state.keys = [...next.keys];
+      state.pending = null;
+      state.previous = null;
+      schedule();
+      return true;
+    }},
+    snapshot() {{ return {{ hasPrevious: state.previous !== null, lastError: state.lastError, pending: state.pending !== null }}; }}
+  }});
+  schedule();
+}})();"#,
+    ))
+}
+
+fn local_storage_sync_apply_script(
+    snapshot: &PersistedLocalStorageSyncSnapshot,
+) -> RuntimeResult<String> {
+    let origin = serde_json::to_string(&snapshot.origin).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization bootstrap could not be encoded.",
+        )
+    })?;
+    let entries = serde_json::to_string(&snapshot.entries).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization bootstrap could not be encoded.",
+        )
+    })?;
+    Ok(format!(
+        r#"(() => {{
+  if (globalThis.top !== globalThis || location.origin !== {origin}) return;
+  for (const [key, value] of {entries}) {{
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  }}
+}})();"#,
+    ))
+}
+
+fn read_scoped_local_storage_entries(
+    webview: &Webview,
+    keys: &[String],
+) -> RuntimeResult<Vec<(String, Option<String>)>> {
+    let keys_json = serde_json::to_string(keys).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+            "The localStorage synchronization key set could not be encoded.",
+        )
+    })?;
+    let value = evaluate_json_value(
+        webview,
+        &format!(
+            "(() => {{ const keys = {keys_json}; return {{ values: keys.map((key) => [key, localStorage.getItem(key)]) }}; }})()"
+        ),
+    )?;
+    let values = value
+        .get("values")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                "The System WebView returned an invalid localStorage synchronization snapshot.",
+            )
+        })?;
+    if values.len() != keys.len() {
+        return Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+            "The System WebView returned an incomplete localStorage synchronization snapshot.",
+        ));
+    }
+    values
+        .iter()
+        .zip(keys)
+        .map(|(entry, expected)| {
+            let pair = entry.as_array().filter(|pair| pair.len() == 2).ok_or_else(|| {
+                RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                    "The System WebView returned a malformed localStorage synchronization entry.",
+                )
+            })?;
+            if pair[0].as_str() != Some(expected) {
+                return Err(RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                    "The System WebView returned an unexpected localStorage synchronization key.",
+                ));
+            }
+            let value = if pair[1].is_null() {
+                None
+            } else {
+                Some(pair[1].as_str().ok_or_else(|| {
+                    RuntimeError::new(
+                        "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                        "The System WebView returned a non-string localStorage synchronization value.",
+                    )
+                })?.to_owned())
+            };
+            Ok((expected.clone(), value))
+        })
+        .collect()
+}
+
+fn require_exact_local_storage_sync_origin(webview: &Webview, expected: &str) -> RuntimeResult<()> {
+    let actual = webview
+        .url()
+        .map_err(RuntimeError::tauri)?
+        .origin()
+        .ascii_serialization();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_ORIGIN_MISMATCH",
+            "The localStorage synchronization WebView origin does not match its binding.",
+        ))
+    }
 }
 
 fn local_storage_restore_script(
@@ -8584,6 +9224,63 @@ mod tests {
         assert!(auth_probe_path_matches("/profile/security", "/profile"));
         assert!(!auth_probe_path_matches("/profiles", "/profile"));
         assert!(auth_probe_path_matches("/", "/"));
+    }
+
+    #[test]
+    fn local_storage_sync_scripts_are_top_frame_origin_scoped_and_mirror_deletions() {
+        let config = LocalStorageRuntimeConfig {
+            dependent_role_ids: vec!["follower".to_owned()],
+            keys: vec!["game_client_settings".to_owned()],
+            origin: "https://example.test".to_owned(),
+            source_role_id: None,
+            token: "capability".to_owned(),
+        };
+        let observer = local_storage_sync_observer_script(&config).unwrap();
+        assert!(observer.contains("globalThis.top !== globalThis"));
+        assert!(observer.contains("location.origin !== state.origin"));
+        assert!(observer.contains("rion_local_storage_sync_changed"));
+        assert!(observer.contains("setInterval(schedule, 250)"));
+        assert!(observer.contains("setTimeout(publish, 100)"));
+
+        let script = local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
+            schema_version: 1,
+            source_role_id: "source".to_owned(),
+            origin: "https://example.test".to_owned(),
+            entries: vec![
+                ("game_client_settings".to_owned(), Some("{}".to_owned())),
+                ("removed".to_owned(), None),
+            ],
+        })
+        .unwrap();
+        assert!(script.contains("globalThis.top !== globalThis"));
+        assert!(script.contains("localStorage.removeItem(key)"));
+        assert!(script.contains("localStorage.setItem(key, value)"));
+        assert!(!script.contains("localStorage.clear()"));
+    }
+
+    #[test]
+    fn local_storage_sync_contract_rejects_unbounded_or_non_origin_inputs() {
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://example.test",
+                &["game_client_settings".to_owned()]
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://example.test/path",
+                &["game_client_settings".to_owned()]
+            )
+            .is_err()
+        );
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://example.test",
+                &vec!["key".to_owned(); 33]
+            )
+            .is_err()
+        );
     }
 
     #[test]

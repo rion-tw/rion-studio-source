@@ -66,6 +66,7 @@ describe("Tauri development and release commands", () => {
     expect(packageLauncher).toContain('"verify:system-only"');
     expect(packageLauncher).toContain('"test:native:system-input"');
     expect(packageLauncher).toContain('"test:native:runtime-restore"');
+    expect(packageLauncher).toContain('"test:native:local-storage-sync"');
     expect(packageLauncher).toContain('"test:native:file-operations"');
     expect(packageLauncher).not.toContain("--require-compiled-attestation");
     expect(packageLauncher).toContain("createUpdaterArtifacts: false");

@@ -21,6 +21,7 @@ describe("editor form state", () => {
       source: "custom",
       name: "Example",
       defaultLaunchUrl: "https://example.test/play",
+      localStorageSyncKeys: [],
       createdAt: "2026-07-14T00:00:00.000Z",
       updatedAt: "2026-07-14T00:00:00.000Z"
     })).toMatchObject({

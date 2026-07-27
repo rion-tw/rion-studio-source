@@ -12,6 +12,7 @@ export interface BuiltinGameDefinition {
   builtinKey: BuiltinGameKey;
   name: string;
   defaultLaunchUrl: string;
+  localStorageSyncKeys: string[];
 }
 
 export const BUILTIN_GAME_DEFINITIONS: readonly BuiltinGameDefinition[] = [
@@ -19,13 +20,15 @@ export const BUILTIN_GAME_DEFINITIONS: readonly BuiltinGameDefinition[] = [
     id: FLYFF_UNIVERSE_GAME_ID,
     builtinKey: "flyff-universe",
     name: "Flyff Universe",
-    defaultLaunchUrl: DEFAULT_LAUNCH_URL
+    defaultLaunchUrl: DEFAULT_LAUNCH_URL,
+    localStorageSyncKeys: ["game_client_settings"]
   },
   {
     id: FEIFEI_INFINITE_UNIVERSE_GAME_ID,
     builtinKey: "feifei-infinite-universe",
     name: "飞飞：无限宇宙",
-    defaultLaunchUrl: "https://ffcli.ruiwoo.cn"
+    defaultLaunchUrl: "https://ffcli.ruiwoo.cn",
+    localStorageSyncKeys: []
   }
 ] as const;
 

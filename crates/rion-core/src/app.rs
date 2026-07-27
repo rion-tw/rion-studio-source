@@ -80,11 +80,11 @@ fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
             ))
         })?;
     file.try_lock_exclusive().map_err(|error| {
-        // Windows reports a conflicting LockFileEx range as PermissionDenied,
-        // while Unix uses WouldBlock for the same contention. Preserve one
-        // stable domain error for both native file-lock implementations.
-        if error.kind() == ErrorKind::WouldBlock
-            || (cfg!(windows) && error.kind() == ErrorKind::PermissionDenied)
+        // fs2 exposes the platform-specific contention error so callers do not
+        // have to guess how each native file-lock API maps its OS status into
+        // std::io::ErrorKind (Windows LockFileEx is not stable across toolchains).
+        if error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
+            || error.kind() == ErrorKind::WouldBlock
         {
             CoreError::Domain {
                 code: "APP_INSTANCE_LOCKED",

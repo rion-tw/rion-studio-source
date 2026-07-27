@@ -91,12 +91,14 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .item(&toggle_fullscreen)
         .build()
         .map_err(|error| error.to_string())?;
-    let mut window_menu = SubmenuBuilder::new(app, labels.window)
+    let window_menu = SubmenuBuilder::new(app, labels.window)
         .item(&new_game_window)
         .separator()
         .minimize()
         .maximize()
         .close_window();
+    #[cfg(target_os = "macos")]
+    let mut window_menu = window_menu;
     #[cfg(target_os = "macos")]
     {
         window_menu = window_menu.separator().bring_all_to_front();

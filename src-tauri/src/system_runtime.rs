@@ -14,16 +14,18 @@ use rion_core::{
     BrowserRuntimeWindowRecord, CompatibilityCheckPlanRecord, CoreCommand, CoreEffectAction,
     CoreEffectRequest, CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord,
     EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-    EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
-    EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
-    GameWindowUpdateInputRecord, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
-    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
-    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
+    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
+    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, ResolvedBrowserEngine,
+    RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
+    SessionCookieRecord, SessionTransferPayloadRecord, StateGameWindowRecord,
+    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
     WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
+#[cfg(any(windows, target_os = "macos"))]
+use rion_core::{EmbeddedRoleViewEffectRecord, StateGameRecord};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

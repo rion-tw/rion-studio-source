@@ -197,11 +197,12 @@ function EditableEditorTitle({
         tabIndex={disabled ? -1 : 0}
         onInput={(event) => {
           const element = event.currentTarget;
+          const caretOffset = getCaretOffset(element);
           const nextValue = normalizeEditorTitle(element.textContent ?? "");
 
           if (element.textContent !== nextValue) {
             element.textContent = nextValue;
-            moveCaretToEnd(element);
+            setCaretOffset(element, Math.min(caretOffset, nextValue.length));
           }
 
           onChange(nextValue);
@@ -216,13 +217,78 @@ function EditableEditorTitle({
   );
 }
 
-function moveCaretToEnd(element: HTMLElement): void {
+function getCaretOffset(element: HTMLElement): number {
+  const selection = window.getSelection();
+  if (!selection) {
+    return element.textContent?.length ?? 0;
+  }
+
+  if (selection.rangeCount === 0) {
+    return element.textContent?.length ?? 0;
+  }
+
+  const range = selection.getRangeAt(0);
+  const startContainer = range.startContainer;
+  const startOffset = range.startOffset;
+
+  if (!element.contains(startContainer)) {
+    return element.textContent?.length ?? 0;
+  }
+
+  if (startContainer.nodeType === Node.TEXT_NODE) {
+    let offset = 0;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+
+    let node = walker.nextNode();
+    while (node) {
+      if (node === startContainer) {
+        return offset + startOffset;
+      }
+      offset += node.textContent?.length ?? 0;
+      node = walker.nextNode();
+    }
+
+    return element.textContent?.length ?? 0;
+  }
+
+  const treeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let totalOffset = 0;
+  let node: Node | null = treeWalker.nextNode();
+  while (node) {
+    totalOffset += node.textContent?.length ?? 0;
+    node = treeWalker.nextNode();
+  }
+
+  return totalOffset;
+}
+
+function setCaretOffset(element: HTMLElement, offset: number): void {
   const selection = window.getSelection();
   if (!selection) {
     return;
   }
 
+  const text = element.textContent ?? "";
+  const safeOffset = Math.max(0, Math.min(text.length, offset));
+
   const range = document.createRange();
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let node: Node | null = walker.nextNode();
+
+  let remaining = safeOffset;
+  while (node) {
+    const currentText = node.textContent ?? "";
+    if (remaining <= currentText.length) {
+      range.setStart(node, remaining);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    remaining -= currentText.length;
+    node = walker.nextNode();
+  }
+
   range.selectNodeContents(element);
   range.collapse(false);
   selection.removeAllRanges();

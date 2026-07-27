@@ -300,6 +300,17 @@
 
   .spin {
     animation: spin 0.9s linear infinite;
+    transform: translate3d(0, 0, 0);
+    will-change: transform;
+  }
+
+  .game-motion-transform {
+    transform: translate3d(0, 0, 0);
+    will-change: transform;
+  }
+
+  .game-motion-opacity {
+    will-change: opacity;
   }
 
   .app-drag {
@@ -1039,14 +1050,25 @@
 }
 
 @keyframes spin {
+  from {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
   to {
-    transform: rotate(360deg);
+    transform: translate3d(0, 0, 0) rotate(360deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spin {
     animation: none;
+    transform: none;
+    will-change: auto;
+  }
+
+  .game-motion-transform,
+  .game-motion-opacity {
+    will-change: auto;
   }
 }
 

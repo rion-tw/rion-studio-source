@@ -108,13 +108,18 @@ Important runtime pieces:
   macOS 14+ dispatches native events through the app-owned WKWebView responder
   chain; Windows dispatches per-WebView input through WebView2. Neither path needs
   Accessibility, Input Monitoring, or another user system permission. The explicit
-  package and CI parity harness still verifies `isTrusted`, 1,000 paced input cycles,
-  1/3/6/9 pixel layouts, isolated storage, audio mute, same-store popup, byte-exact
-  upload/download, actual web-content process termination and same-engine recovery,
-  plus 100 create/destroy cycles. On macOS upload parity must observe WKWebView's
-  native open-panel delegate. The Windows automated path uses WebView2 CDP only to
-  inject the diagnostic file and does not replace a manual native chooser UI
-  candidate smoke. Local macOS results are not evidence that the Windows gate passed.
+  package and CI parity harness verifies `isTrusted` with a bounded representative
+  native key/mouse sequence, then runs 1,000 silent cycles through the production
+  Rust input-state machine. Stress coverage must not emit 1,000 operating-system
+  key events. On macOS the 25 ms input settle applies only when dispatch hands off
+  from one role WebView to another, never to every event for the same role. The
+  harness also verifies 1/3/6/9 pixel layouts, isolated storage, audio mute,
+  same-store popup, byte-exact upload/download, actual web-content process
+  termination and same-engine recovery, plus 100 create/destroy cycles. On macOS
+  upload parity must observe WKWebView's native open-panel delegate. The Windows
+  automated path uses WebView2 CDP only to inject the diagnostic file and does not
+  replace a manual native chooser UI candidate smoke. Local macOS results are not
+  evidence that the Windows gate passed.
 - macOS layout and mouse coordinates must use `NSWindow.contentLayoutRect`, not
   full-size content-view bounds. The titlebar inset otherwise clips role surfaces
   and offsets trusted mouse events even when the normalized layout math is right.

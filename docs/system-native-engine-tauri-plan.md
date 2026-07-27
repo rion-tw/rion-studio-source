@@ -52,12 +52,21 @@ and never expose these capabilities to remote pages.
 
 ## Native release gates
 
-Every macOS and Windows candidate must pass the native trusted-input,
-runtime-restore, and file-operation harnesses before bundling and again against
-the packaged executable. macOS candidates use the explicit ad-hoc signing
-identity (`-`) and are neither Developer ID signed nor notarized. Windows
-candidates remain unsigned like the legacy release. Both platforms still require
-Tauri-signed updater artifacts.
+Every macOS and Windows candidate must pass all five native harnesses before
+bundling and again against the packaged executable:
+
+- `test:native:system-input`
+- `test:native:macro-game`
+- `test:native:session-import`
+- `test:native:runtime-restore`
+- `test:native:file-operations`
+
+The trusted-input harness uses only a bounded representative native event
+sequence. Its 1,000-cycle stress portion exercises the production Rust input-state
+machine without emitting operating-system key events. macOS candidates use the
+explicit ad-hoc signing identity (`-`) and are neither Developer ID signed nor
+notarized. Windows candidates remain unsigned like the legacy release. Both
+platforms still require Tauri-signed updater artifacts.
 
 Local macOS results are not evidence for Windows. A release cannot be promoted
 until both platform jobs and the in-place upgrade matrix pass.
@@ -88,12 +97,17 @@ a higher-version hotfix; signed assets are never overwritten after publication.
 
 `pnpm dev` starts Tauri directly and does not run native parity harnesses. Macro
 input capability is classified from the supported OS and installed System WebView
-runtime. The native input, restore, and file-operation harnesses remain explicit
-package and CI gates and never promote capability through a cached or compile-time
-attestation flag. Use `pnpm run dev:renderer` for renderer-only UI development.
+runtime. The five native harnesses remain explicit package and CI gates and never
+promote capability through a cached or compile-time attestation flag. Use
+`pnpm run dev:renderer` for renderer-only UI development.
 
 `pnpm run verify:system-only` is the negative architecture gate. It rejects retired
 source roots, build configs, direct package dependencies, and runtime tokens outside
 the explicit migration allowlist. It also validates the 57-entry parity ledger at
 `docs/tauri-parity-ledger.json`; every legacy-shell test must identify either a
 retired behavior, an existing Rust/Tauri equivalent, or a concrete replacement test.
+
+The current cross-baseline audit status and remaining external validation are
+recorded in `docs/refactor-regression-audit.md`. The machine-readable v2 ledger at
+`tests/parity/refactor-behavior-ledger-v2.json` remains authoritative for individual
+preserved and retired behaviors.

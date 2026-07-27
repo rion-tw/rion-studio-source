@@ -46,8 +46,11 @@ The app stores browser session data only. It does not store login passwords.
 ### Browser Session Architecture
 
 Roles always launch their configured game URL directly in an isolated System
-WebView store: WebView2 on Windows and WKWebView on macOS. Browser data is never
-read from or written to an installed third-party browser profile.
+WebView store: WebView2 on Windows and WKWebView on macOS. The runtime never uses
+an installed third-party browser profile directly. The user-consented one-time
+Chrome transfer reads only the approved Cookies and exact launch-origin Local
+Storage inputs, snapshots them in memory, filters them before persistence, and
+never mutates the source profile.
 
 ### Packaging Notes
 
@@ -84,6 +87,11 @@ The Tauri parity ledger at `docs/tauri-parity-ledger.json` classifies every test
 removed with the legacy shell. `pnpm run verify:system-only` validates both the
 negative architecture boundary and this ledger; a deleted behavior test may not
 remain unclassified or point to missing replacement evidence.
+
+The cross-baseline behavior ledger is
+`tests/parity/refactor-behavior-ledger-v2.json`; its human-readable audit status is
+summarized in `docs/refactor-regression-audit.md`. Do not replace executable
+evidence with source strings or documentation-only claims.
 
 ### Windows Multi-Display Release Check
 

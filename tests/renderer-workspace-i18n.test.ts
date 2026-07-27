@@ -32,4 +32,11 @@ describe("workspace help translations", () => {
       expect(dictionary).not.toHaveProperty("workspaces.roleZoomShortcutHint");
     }
   });
+
+  it("describes native hidden-tab throttling without promising a custom CPU limiter", () => {
+    expect(en["workspaces.help.runtimeResource"]).toContain("native background throttling");
+    expect(zhTW["workspaces.help.runtimeResource"]).toContain("原生背景節流");
+    expect(zhCN["workspaces.help.runtimeResource"]).toContain("原生后台节流");
+    expect(ja["workspaces.help.runtimeResource"]).toContain("ネイティブのバックグラウンドスロットリング");
+  });
 });

@@ -196,7 +196,7 @@
   "workspaces.help.launchWindow": "The workspace opens in the most recently focused game window; use a window menu to choose another destination.",
   "workspaces.help.runtimeTitle": "While running",
   "workspaces.help.runtimeZoom": "After launching a role, click its embedded viewport and use Command +/−/0 on macOS or Ctrl +/−/0 on Windows to adjust that role's game zoom. The zoom is saved to this workspace automatically and restored the next time the role launches.",
-  "workspaces.help.runtimeResource": "Rion does not apply an additional CPU speed limit. The operating-system WebView manages background content and resource use.",
+  "workspaces.help.runtimeResource": "Hidden inactive tabs use the operating-system WebView's native background throttling. Rion does not inject an additional CPU limiter.",
   "workspaces.slot": "Slot {index}",
   "workspaces.slotShort": "S{index}",
   "workspaces.emptySlot": "Empty",

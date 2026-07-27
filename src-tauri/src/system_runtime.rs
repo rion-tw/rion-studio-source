@@ -29,6 +29,8 @@ use rion_core::{EmbeddedRoleViewEffectRecord, StateGameRecord};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+#[cfg(target_os = "macos")]
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl,
     WebviewWindowBuilder, Window,
@@ -2978,6 +2980,9 @@ impl SystemRuntimeExecutor {
                         event,
                     )
                 });
+                #[cfg(target_os = "macos")]
+                let popup_builder =
+                    popup_builder.background_throttling(BackgroundThrottlingPolicy::Throttle);
                 #[cfg(windows)]
                 let popup_builder =
                     popup_builder.additional_browser_args(&popup_additional_browser_arguments);
@@ -3046,6 +3051,13 @@ impl SystemRuntimeExecutor {
             builder = builder.initialization_script_for_all_frames(
                 &self.configuration.overlay_document_start_script,
             );
+            #[cfg(target_os = "macos")]
+            {
+                // Match browser-like background tabs: keep hidden game pages throttled instead
+                // of accepting WebKit's default full suspension. Role-less utility WebViews keep
+                // the system default so imports and compatibility probes are not delayed.
+                builder = builder.background_throttling(BackgroundThrottlingPolicy::Throttle);
+            }
         }
         #[cfg(windows)]
         {
@@ -5008,6 +5020,8 @@ impl SystemRuntimeExecutor {
                 self.layout_runtime_tab(&update.tab_id)?;
             }
             for surface in &update.surfaces {
+                // On Windows, WRY maps this visibility boundary to WebView2 IsVisible. Chromium
+                // then applies its own native background throttling to inactive tab surfaces.
                 if update.active {
                     surface.show().map_err(RuntimeError::tauri)?;
                 } else {
@@ -5266,7 +5280,7 @@ impl SystemRuntimeExecutor {
         let displays = self
             .app
             .get_webview_window("main")
-            .and_then(|window| crate::workspace_displays(&window).ok())
+            .and_then(|window| crate::display_inventory(&window).ok())
             .unwrap_or_else(|| Value::Array(Vec::new()));
         let updates = self
             .state
@@ -5285,7 +5299,9 @@ impl SystemRuntimeExecutor {
                                     .role_ids
                                     .first()
                                     .and_then(|role_id| icons.get(role_id.as_str()))
-                                    .map(|icon| (snapshot_tab.id.clone(), icon.clone()))
+                                    .map(|icon| {
+                                        (snapshot_tab.id.clone(), Value::String(icon.clone()))
+                                    })
                             })
                             .collect::<serde_json::Map<_, _>>();
                         let templates = snapshot
@@ -5819,7 +5835,16 @@ fn run_trusted_input_attestation(
     }
 
     attest_key(webview, "rawKeyDown", "KeyA", &[], false)?;
-    let held = wait_for_attestation_state(webview, 1, 0, 1)?;
+    let held = wait_for_attestation_state(
+        webview,
+        AttestationInputCounts {
+            key_down: 1,
+            key_up: 0,
+            held: 1,
+            mouse_down: 0,
+            mouse_up: 0,
+        },
+    )?;
     require_attestation_field(&held, "keyDown", json!(1))?;
     require_attestation_field(&held, "keyUp", json!(0))?;
     require_attestation_field(&held, "heldCount", json!(1))?;
@@ -5831,10 +5856,27 @@ fn run_trusted_input_attestation(
     attest_key(webview, "keyUp", "KeyA", &["ShiftLeft"], false)?;
     attest_key(webview, "keyUp", "ShiftLeft", &[], false)?;
     dispatch_mouse_effect(webview, ClickPoint { x: 32, y: 32 }, "left", true)?;
-    std::thread::sleep(Duration::from_millis(2));
+    wait_for_attestation_state(
+        webview,
+        AttestationInputCounts {
+            key_down: 4,
+            key_up: 3,
+            held: 0,
+            mouse_down: 1,
+            mouse_up: 0,
+        },
+    )?;
     dispatch_mouse_effect(webview, ClickPoint { x: 32, y: 32 }, "left", false)?;
-    std::thread::sleep(Duration::from_millis(2));
-    let behavior = wait_for_attestation_state(webview, 4, 3, 0)?;
+    let behavior = wait_for_attestation_state(
+        webview,
+        AttestationInputCounts {
+            key_down: 4,
+            key_up: 3,
+            held: 0,
+            mouse_down: 1,
+            mouse_up: 1,
+        },
+    )?;
     require_attestation_field(&behavior, "allTrusted", json!(true))?;
     require_attestation_field(&behavior, "backgroundOnly", json!(true))?;
     require_attestation_field(&behavior, "documentFocused", json!(false))?;
@@ -6407,7 +6449,16 @@ fn verify_surface_recovery_attestation(
         .map_err(RuntimeError::tauri)?;
     attest_key(&recovered, "rawKeyDown", "KeyA", &["KeyA"], false)?;
     attest_key(&recovered, "keyUp", "KeyA", &[], false)?;
-    let input = wait_for_attestation_state(&recovered, 1, 1, 0)?;
+    let input = wait_for_attestation_state(
+        &recovered,
+        AttestationInputCounts {
+            key_down: 1,
+            key_up: 1,
+            held: 0,
+            mouse_down: 0,
+            mouse_up: 0,
+        },
+    )?;
     for (field, expected) in [
         ("allTrusted", json!(true)),
         ("backgroundOnly", json!(true)),
@@ -7122,24 +7173,40 @@ fn attestation_snapshot(webview: &Webview) -> RuntimeResult<Value> {
 }
 
 #[cfg(any(windows, target_os = "macos"))]
+#[derive(Clone, Copy, Debug)]
+struct AttestationInputCounts {
+    key_down: u64,
+    key_up: u64,
+    held: u64,
+    mouse_down: u64,
+    mouse_up: u64,
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+impl AttestationInputCounts {
+    fn matches(self, snapshot: &Value) -> bool {
+        snapshot.get("keyDown").and_then(Value::as_u64) == Some(self.key_down)
+            && snapshot.get("keyUp").and_then(Value::as_u64) == Some(self.key_up)
+            && snapshot.get("heldCount").and_then(Value::as_u64) == Some(self.held)
+            && snapshot.get("mouseDown").and_then(Value::as_u64) == Some(self.mouse_down)
+            && snapshot.get("mouseUp").and_then(Value::as_u64) == Some(self.mouse_up)
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
 fn wait_for_attestation_state(
     webview: &Webview,
-    expected_key_down: u64,
-    expected_key_up: u64,
-    expected_held_count: u64,
+    expected: AttestationInputCounts,
 ) -> RuntimeResult<Value> {
     let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
     loop {
         let snapshot = attestation_snapshot(webview)?;
-        let matches = snapshot.get("keyDown").and_then(Value::as_u64) == Some(expected_key_down)
-            && snapshot.get("keyUp").and_then(Value::as_u64) == Some(expected_key_up)
-            && snapshot.get("heldCount").and_then(Value::as_u64) == Some(expected_held_count);
-        if matches {
+        if expected.matches(&snapshot) {
             return Ok(snapshot);
         }
         if Instant::now() >= deadline {
             return Err(input_attestation_error(format!(
-                "System WebView input delivery did not converge to keyDown={expected_key_down}, keyUp={expected_key_up}, heldCount={expected_held_count}; snapshot: {snapshot}."
+                "System WebView input delivery did not converge to {expected:?}; snapshot: {snapshot}."
             )));
         }
         std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
@@ -9717,6 +9784,35 @@ mod tests {
         assert!(!macos_key_dispatch_needs_settle(None, "role-a"));
         assert!(!macos_key_dispatch_needs_settle(Some("role-a"), "role-a"));
         assert!(macos_key_dispatch_needs_settle(Some("role-a"), "role-b"));
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn attestation_input_counts_wait_for_mouse_release() {
+        let expected = AttestationInputCounts {
+            key_down: 4,
+            key_up: 3,
+            held: 0,
+            mouse_down: 1,
+            mouse_up: 1,
+        };
+        let pending_release = json!({
+            "keyDown": 4,
+            "keyUp": 3,
+            "heldCount": 0,
+            "mouseDown": 1,
+            "mouseUp": 0
+        });
+        let completed_release = json!({
+            "keyDown": 4,
+            "keyUp": 3,
+            "heldCount": 0,
+            "mouseDown": 1,
+            "mouseUp": 1
+        });
+
+        assert!(!expected.matches(&pending_release));
+        assert!(expected.matches(&completed_release));
     }
 
     #[test]

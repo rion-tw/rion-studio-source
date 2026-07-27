@@ -80,6 +80,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("struct RuntimeDisplayHost");
     expect(runtime).toContain('runtime_label("game-display"');
     expect(runtime).not.toContain('runtime_label("game-tab", &tab.tab_id)');
+    const windowsTabStrip = runtime.slice(
+      runtime.indexOf("fn sync_windows_tab_strip("),
+      runtime.indexOf("fn windows_tab_strip_height(")
+    );
+    expect(windowsTabStrip).toContain("crate::display_inventory(&window)");
+    expect(windowsTabStrip).not.toContain("crate::workspace_displays(&window)");
+    expect(windowsTabStrip).toContain("Value::String(icon.clone())");
     expect(applyRuntime).toContain("surface.reparent(&window)");
     expect(applyRuntime).toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");
@@ -105,6 +112,36 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("fn attestation_snapshot(")
     );
     expect(attestKey).not.toContain("sleep(Duration::from_millis(2))");
+    const trustedInputAttestation = runtime.slice(
+      runtime.indexOf("fn run_trusted_input_attestation("),
+      runtime.indexOf("fn run_simulated_input_stress(")
+    );
+    expect(trustedInputAttestation).not.toContain("sleep(Duration::from_millis(2))");
+    const mouseDown = trustedInputAttestation.indexOf(
+      'dispatch_mouse_effect(webview, ClickPoint { x: 32, y: 32 }, "left", true)'
+    );
+    const pressedBarrier = trustedInputAttestation.indexOf(
+      "mouse_down: 1,\n            mouse_up: 0",
+      mouseDown
+    );
+    const mouseUp = trustedInputAttestation.indexOf(
+      'dispatch_mouse_effect(webview, ClickPoint { x: 32, y: 32 }, "left", false)',
+      pressedBarrier
+    );
+    const releasedBarrier = trustedInputAttestation.indexOf(
+      "mouse_down: 1,\n            mouse_up: 1",
+      mouseUp
+    );
+    expect(mouseDown).toBeGreaterThan(-1);
+    expect(pressedBarrier).toBeGreaterThan(mouseDown);
+    expect(mouseUp).toBeGreaterThan(pressedBarrier);
+    expect(releasedBarrier).toBeGreaterThan(mouseUp);
+    const inputCountMatcher = runtime.slice(
+      runtime.indexOf("impl AttestationInputCounts"),
+      runtime.indexOf("fn wait_for_attestation_state(")
+    );
+    expect(inputCountMatcher).toContain('snapshot.get("mouseDown")');
+    expect(inputCountMatcher).toContain('snapshot.get("mouseUp")');
     expect(runtime).toContain("run_role_count_attestation");
     expect(runtime).toContain("verify_shared_display_host_attestation");
     const destroyAttestationTab = runtime.slice(

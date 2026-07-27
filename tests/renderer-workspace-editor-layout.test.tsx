@@ -110,8 +110,8 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
     expect(workspaceHelps[2].textContent).toContain("saved to this workspace automatically");
     expect(workspaceHelps[2].textContent).toContain("restored the next time the role launches");
-    expect(workspaceHelps[2].textContent).toContain("does not apply an additional CPU speed limit");
-    expect(workspaceHelps[2].textContent).toContain("operating-system WebView");
+    expect(workspaceHelps[2].textContent).toContain("native background throttling");
+    expect(workspaceHelps[2].textContent).toContain("does not inject an additional CPU limiter");
     workspaceHelps.forEach((workspaceHelp) => {
       expect(workspaceHelp.querySelector("svg")).toBeNull();
       expect(workspaceHelp.querySelectorAll("section")).toHaveLength(1);

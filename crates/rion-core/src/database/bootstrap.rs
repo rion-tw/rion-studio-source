@@ -389,7 +389,11 @@ mod tests {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "Windows only clears FILE_ATTRIBUTE_READONLY; Unix restores owner-only mode"
+    )]
     fn make_writable(path: &Path) {
         let mut permissions = fs::metadata(path).unwrap().permissions();
         permissions.set_readonly(false);

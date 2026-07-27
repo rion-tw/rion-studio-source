@@ -190,7 +190,7 @@
   "workspaces.help.launchWindow": "工作区会在最近聚焦的游戏窗口中打开；也可从窗口菜单指定其他目标。",
   "workspaces.help.runtimeTitle": "运行中",
   "workspaces.help.runtimeZoom": "角色启动后，点击内嵌角色视口，使用 Command +／−／0（macOS）或 Ctrl +／−／0（Windows）调整该角色的游戏画面缩放。缩放结果会自动保存到此工作区，并在下次启动该角色时恢复。",
-  "workspaces.help.runtimeResource": "Rion 不会额外限制 CPU 速度；后台内容和资源使用由操作系统 WebView 管理。",
+  "workspaces.help.runtimeResource": "隐藏的非活动标签页会使用操作系统 WebView 的原生后台节流；Rion 不会注入额外的 CPU 限速器。",
   "workspaces.slot": "区块 {index}",
   "workspaces.slotShort": "#{index}",
   "workspaces.emptySlot": "空白",

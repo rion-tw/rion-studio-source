@@ -1,20 +1,20 @@
 import { getEditorParentPath } from "../../app/editorNavigation";
 
-export const settingsSectionIds = ["interface", "game", "macros", "data", "updates", "diagnostics", "aboutLegal"] as const;
+export const settingsSectionIds = ["interface", "macros", "data", "updates", "diagnostics", "aboutLegal"] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
 const legacySectionAliases: Partial<Record<string, SettingsSectionId>> = {
   appearance: "interface",
+  game: "interface",
   portability: "data",
   preferences: "interface",
-  "role-defaults": "game"
+  "role-defaults": "interface"
 };
 
 export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
   aboutLegal: "about-legal",
   data: "data",
-  game: "game",
   interface: "interface",
   macros: "macros",
   updates: "updates",

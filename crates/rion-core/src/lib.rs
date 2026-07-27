@@ -12,7 +12,6 @@ mod domain;
 mod embedded_input;
 mod engine_resolution;
 mod error;
-mod graphics_diagnostics;
 mod layout;
 mod legal;
 mod log_capture;
@@ -28,6 +27,7 @@ mod scheduler;
 mod session_import;
 mod system_fonts;
 mod telemetry;
+mod web_graphics_probe;
 mod windows_graphics_events;
 
 #[cfg(test)]
@@ -46,35 +46,33 @@ macro_rules! v1_case {
 pub(crate) use v1_case;
 
 pub use app::AppCore;
-pub use bootstrap_settings::read_plan as read_bootstrap_plan;
+pub use bootstrap_settings::additional_browser_arguments;
 pub use data_root_migration::{DataRootMigrationOutcome, migrate_legacy_data_root};
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
 pub use model::{
-    AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BootstrapPlanRecord, BrowserAction,
-    BrowserActionRequest, BrowserActionResult, BrowserEngineResolutionRecord,
-    BrowserFontSettingsRecord, BrowserGraphicsBackendSettingsRecord, BrowserGraphicsSettingsRecord,
-    BrowserHostKind, BrowserOperationLease, BrowserOperationRequest, BrowserRoleStatusRecord,
-    BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot,
+    AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BrowserAction, BrowserActionRequest,
+    BrowserActionResult, BrowserEngineResolutionRecord, BrowserFontSettingsRecord, BrowserHostKind,
+    BrowserOperationLease, BrowserOperationRequest, BrowserRoleStatusRecord, BrowserRuntimeCommand,
+    BrowserRuntimeResult, BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot,
     BrowserRuntimeTabRecord, BrowserRuntimeWindowRecord, BrowserRuntimeWorkspaceRecord,
     BrowserWorkspaceStatusRecord, BulkDeleteResultRecord, BulkDeleteSkippedItemRecord,
     ChromeProfileEntryRecord, ChromeProfileImportAuthStateRecord,
     ChromeProfileImportItemResultRecord, ChromeProfileImportPreviewRecord,
     ChromeProfileImportProgressRecord, ChromeProfileImportResolutionRecord,
     ChromeProfileImportResultRecord, ChromeProfileImportUnsupportedCountsRecord,
-    ChromiumSwitchRecord, CompatibilityCheckOutcome, CompatibilityCheckPlanRecord,
-    CompatibilityRunPhase, CompatibilityRunStatusRecord, CoreCommand, CoreEffectAction,
-    CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest, CoreEffectResult,
-    CoreEffectTarget, CoreEffectTargetKind, CoreEvent, CoreStateSnapshotRecord,
-    CountedLatencySummaryRecord, DiagnosticDisplayRecord, DiagnosticExportResultRecord,
-    DisplayFingerprintRecord, DisplayInfoRecord, DisplayTargetRecord, EmbeddedKeyEffectRecord,
-    EmbeddedKeyTransitionRecord, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
-    EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
-    EngineCapabilitySnapshotRecord, EngineCapabilityStatus, EngineCompatibilityCacheKeyRecord,
-    EngineCompatibilityCacheRecord, GameBrowserSettingsRecord, GameCreateInputRecord,
-    GameCreateRequest, GameUpdateInputRecord, GameUpdateRequest, GameWindowCreateInputRecord,
-    GameWindowPlacementRecord, GameWindowRoleViewRecord, GameWindowTabRecord,
-    GameWindowUpdateInputRecord, GraphicsDeviceDiagnosticsRecord, GraphicsDiagnosticsRecord,
+    CompatibilityCheckOutcome, CompatibilityCheckPlanRecord, CompatibilityRunPhase,
+    CompatibilityRunStatusRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+    CoreEffectMetricsRecord, CoreEffectRequest, CoreEffectResult, CoreEffectTarget,
+    CoreEffectTargetKind, CoreEvent, CoreStateSnapshotRecord, CountedLatencySummaryRecord,
+    DiagnosticDisplayRecord, DiagnosticExportResultRecord, DisplayFingerprintRecord,
+    DisplayInfoRecord, DisplayTargetRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
+    EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+    EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
+    EngineCapabilityStatus, EngineCompatibilityCacheKeyRecord, EngineCompatibilityCacheRecord,
+    GameBrowserSettingsRecord, GameCreateInputRecord, GameCreateRequest, GameUpdateInputRecord,
+    GameUpdateRequest, GameWindowCreateInputRecord, GameWindowPlacementRecord,
+    GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord,
     LatencySummaryRecord, LayoutBounds, LayoutDividerBounds, LayoutDividerInput, LayoutRect,
     LayoutRoleBounds, LayoutRoleInput, LegacySessionRestoreRecord, LegalAcceptDocumentsInputRecord,
     LegalAcceptanceRecord, LegalAcceptanceStatusRecord, LegalDocumentVersionsRecord,
@@ -132,8 +130,6 @@ mod generated_contract_tests {
                 "export type { BrowserOperationRequest } from \"./BrowserOperationRequest\";\n",
                 "export type { BrowserEngineResolutionRecord } from \"./BrowserEngineResolutionRecord\";\n",
                 "export type { BrowserFontSettingsRecord } from \"./BrowserFontSettingsRecord\";\n",
-                "export type { BrowserGraphicsBackendSettingsRecord } from \"./BrowserGraphicsBackendSettingsRecord\";\n",
-                "export type { BrowserGraphicsSettingsRecord } from \"./BrowserGraphicsSettingsRecord\";\n",
                 "export type { BrowserHostKind } from \"./BrowserHostKind\";\n",
                 "export type { BrowserRoleStatusRecord } from \"./BrowserRoleStatusRecord\";\n",
                 "export type { BrowserRuntimeCommand } from \"./BrowserRuntimeCommand\";\n",
@@ -144,7 +140,6 @@ mod generated_contract_tests {
                 "export type { BrowserRuntimeTabRecord } from \"./BrowserRuntimeTabRecord\";\n",
                 "export type { BrowserRuntimeWorkspaceRecord } from \"./BrowserRuntimeWorkspaceRecord\";\n",
                 "export type { BrowserWorkspaceStatusRecord } from \"./BrowserWorkspaceStatusRecord\";\n",
-                "export type { BootstrapPlanRecord } from \"./BootstrapPlanRecord\";\n",
                 "export type { BulkDeleteResultRecord } from \"./BulkDeleteResultRecord\";\n",
                 "export type { BulkDeleteSkippedItemRecord } from \"./BulkDeleteSkippedItemRecord\";\n",
                 "export type { ChromeProfileEntryRecord } from \"./ChromeProfileEntryRecord\";\n",
@@ -155,7 +150,6 @@ mod generated_contract_tests {
                 "export type { ChromeProfileImportResolutionRecord } from \"./ChromeProfileImportResolutionRecord\";\n",
                 "export type { ChromeProfileImportResultRecord } from \"./ChromeProfileImportResultRecord\";\n",
                 "export type { ChromeProfileImportUnsupportedCountsRecord } from \"./ChromeProfileImportUnsupportedCountsRecord\";\n",
-                "export type { ChromiumSwitchRecord } from \"./ChromiumSwitchRecord\";\n",
                 "export type { CompatibilityCheckOutcome } from \"./CompatibilityCheckOutcome\";\n",
                 "export type { CompatibilityCheckPlanRecord } from \"./CompatibilityCheckPlanRecord\";\n",
                 "export type { CompatibilityRunPhase } from \"./CompatibilityRunPhase\";\n",
@@ -202,8 +196,6 @@ mod generated_contract_tests {
                 "export type { GameWindowRoleViewRecord } from \"./GameWindowRoleViewRecord\";\n",
                 "export type { GameWindowTabRecord } from \"./GameWindowTabRecord\";\n",
                 "export type { GameWindowUpdateInputRecord } from \"./GameWindowUpdateInputRecord\";\n",
-                "export type { GraphicsDeviceDiagnosticsRecord } from \"./GraphicsDeviceDiagnosticsRecord\";\n",
-                "export type { GraphicsDiagnosticsRecord } from \"./GraphicsDiagnosticsRecord\";\n",
                 "export type { LayoutBounds } from \"./LayoutBounds\";\n",
                 "export type { LayoutDividerBounds } from \"./LayoutDividerBounds\";\n",
                 "export type { LayoutDividerInput } from \"./LayoutDividerInput\";\n",
@@ -336,7 +328,6 @@ mod generated_contract_tests {
                 "import type { EmbeddedLaunchResultRecord } from \"./EmbeddedLaunchResultRecord\";\n",
                 "import type { EngineCompatibilityCacheRecord } from \"./EngineCompatibilityCacheRecord\";\n",
                 "import type { GameBrowserSettingsRecord } from \"./GameBrowserSettingsRecord\";\n",
-                "import type { GraphicsDiagnosticsRecord } from \"./GraphicsDiagnosticsRecord\";\n",
                 "import type { LegalAcceptanceStatusRecord } from \"./LegalAcceptanceStatusRecord\";\n",
                 "import type { LayoutRect } from \"./LayoutRect\";\n",
                 "import type { LogPageRecord } from \"./LogPageRecord\";\n",
@@ -460,7 +451,6 @@ mod generated_contract_tests {
                 "  browserStatuses: BrowserRoleStatusRecord[];\n",
                 "  browserWorkspaceStatuses: BrowserWorkspaceStatusRecord[];\n",
                 "  browserRuntimeSnapshot: BrowserRuntimeSnapshot;\n",
-                "  graphicsDiagnosticsAssemble: GraphicsDiagnosticsRecord;\n",
                 "  logsQuery: LogPageRecord;\n",
                 "  logsStatus: LogStorageStatusRecord;\n",
                 "  diagnosticsExport: DiagnosticExportResultRecord;\n",

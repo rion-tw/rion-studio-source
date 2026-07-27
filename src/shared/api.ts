@@ -19,7 +19,6 @@ import type {
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
-  GraphicsDiagnostics,
   DiagnosticExportResult,
   DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
@@ -69,7 +68,6 @@ export interface RionStudioApi {
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
   requestCurrentWindowClose: () => void;
-  restartApplication: () => Promise<void>;
   getEmbeddedRuntimeState: () => Promise<EmbeddedRuntimeState>;
   listGameWindows: () => Promise<GameWindow[]>;
   createGameWindow: (input: CreateGameWindowInput) => Promise<GameWindow>;
@@ -140,7 +138,6 @@ export interface RionStudioApi {
   discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
-  getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   getLogStatus: () => Promise<LogStorageStatus>;
   queryLogs: (query?: LogQuery) => Promise<LogPage>;
   setLogLevel: (level: LogLevel) => Promise<LogStorageStatus>;

@@ -235,14 +235,14 @@
     },
     {
       "id": "behavior-28bc323d328a",
-      "deduplicationKey": "shell\u0000crates/rion-core/src/database/state.rs\u0000seeds_recommended_graphics_defaults_and_preserves_explicit_settings_on_restart",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/database/state.rs\u0000replaces_one_scalar_state_field_without_rewriting_domain_tables",
       "status": "preserved",
-      "contract": "Update preferences remain in the Rust state repository and renderer contract.",
+      "contract": "Rust-owned state repositories retain normalized scalar settings and entity CRUD without renderer filesystem access.",
       "evidence": [
         {
           "kind": "executable-test",
           "file": "crates/rion-core/src/database/state.rs",
-          "test": "seeds_recommended_graphics_defaults_and_preserves_explicit_settings_on_restart"
+          "test": "replaces_one_scalar_state_field_without_rewriting_domain_tables"
         }
       ],
       "runtimeCritical": true,
@@ -1353,19 +1353,20 @@
     {
       "id": "behavior-9c782fcc06d9",
       "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000preserves_disabled_features_and_applies_safe_high_performance_switches",
-      "status": "preserved",
-      "contract": "preserves existing disabled features and applies the safe high-performance switches",
+      "status": "retired",
+      "contract": "Application-owned safe high-performance Chromium graphics switches are retired.",
       "evidence": [
         {
           "kind": "executable-test",
           "file": "crates/rion-core/src/bootstrap_settings.rs",
-          "test": "preserves_disabled_features_and_applies_safe_high_performance_switches"
+          "test": "windows_arguments_keep_non_graphics_defaults_and_merge_disabled_features"
         }
       ],
       "runtimeCritical": false,
       "sourceCaseIds": [
         "browser-workspace-ec8bf4e43acc"
-      ]
+      ],
+      "retirementClause": "Retired clause: Chromium GPU tuning modes and their high-performance startup switches are no longer part of the System WebView product."
     },
     {
       "id": "behavior-a07d6db8feae",
@@ -1423,19 +1424,20 @@
     {
       "id": "behavior-a2db9e2355f4",
       "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000limits_unsafe_switches_to_explicit_experimental_mode",
-      "status": "preserved",
-      "contract": "limits unsafe switches to explicitly selected experimental mode",
+      "status": "retired",
+      "contract": "Experimental and backend-specific Chromium GPU switches are retired.",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/bootstrap_settings.rs",
-          "test": "limits_unsafe_switches_to_explicit_experimental_mode"
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
         }
       ],
       "runtimeCritical": false,
       "sourceCaseIds": [
         "browser-workspace-cc817a22dbcc"
-      ]
+      ],
+      "retirementClause": "Retired clause: unsafe Chromium GPU, ANGLE, Vulkan, WebGPU, VSync, and frame-rate tuning switches cannot be selected or persisted."
     },
     {
       "id": "behavior-a3be59d1f8f9",
@@ -1576,19 +1578,20 @@
     {
       "id": "behavior-b391a67d5a08",
       "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000reads_legacy_before_first_migration_and_defaults_invalid_values",
-      "status": "preserved",
-      "contract": "reads the persisted mode synchronously before Electron becomes ready",
+      "status": "retired",
+      "contract": "Persisted Chromium graphics startup modes and pre-ready reads are retired.",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/bootstrap_settings.rs",
-          "test": "reads_legacy_before_first_migration_and_defaults_invalid_values"
+          "file": "crates/rion-core/src/database/state.rs",
+          "test": "schema_fourteen_removes_only_graphics_and_rolls_back_invalid_payloads"
         }
       ],
       "runtimeCritical": false,
       "sourceCaseIds": [
         "browser-workspace-b4ce96870a1a"
-      ]
+      ],
+      "retirementClause": "Retired clause: graphics startup modes are removed by schema v14 and no longer influence the Tauri or System WebView startup sequence."
     },
     {
       "id": "behavior-b41791e81be2",
@@ -1992,20 +1995,21 @@
     {
       "id": "behavior-cf2c9223de3b",
       "deduplicationKey": "shell\u0000tests/settings-graphics-restart.test.ts\u0000does not require a restart when the saved settings are already applied",
-      "status": "preserved",
-      "contract": "Restart-required settings and native relaunch behavior remain shell-neutral.",
+      "status": "retired",
+      "contract": "Graphics-driven restart prompts and renderer relaunch APIs are retired.",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "tests/settings-graphics-restart.test.ts",
-          "test": "does not require a restart when the saved settings are already applied"
+          "file": "tests/renderer-system-webview-compatibility.test.tsx",
+          "test": "routes legacy graphics settings links to Interface without a Game settings item"
         }
       ],
       "runtimeCritical": false,
       "sourceCaseIds": [
         "legacy-ca95f26c1ff7",
         "legacy-e8e92a8e0663"
-      ]
+      ],
+      "retirementClause": "Retired clause: changing graphics settings can no longer produce applied-flags comparisons, restart-required state, dialogs, or application relaunch calls."
     },
     {
       "id": "behavior-d5dd03413092",

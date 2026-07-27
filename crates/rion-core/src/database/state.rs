@@ -39,7 +39,7 @@ use crate::model::{
     WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 13;
+pub(crate) const SCHEMA_VERSION: u32 = 14;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1039,6 +1039,7 @@ fn apply_domain_mutation(
                         load: None,
                         graphics: None,
                         recommendation: None,
+                        runtime: None,
                         observations: StateCompatibilityObservationsRecord {
                             last_embedded_success_at: None,
                             last_launch_failure_at: None,
@@ -1859,7 +1860,47 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 14 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        remove_retired_graphics_settings(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (14, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn remove_retired_graphics_settings(transaction: &Transaction<'_>) -> CoreResult<()> {
+    let payload = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if let Some(payload) = payload {
+        let mut value = parse_payload(&payload)?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
+        })?;
+        object.remove("graphics");
+        transaction
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                params![serialize_payload(&value)?],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -3175,95 +3216,87 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seeds_recommended_graphics_defaults_and_preserves_explicit_settings_on_restart() {
+    fn browser_settings_no_longer_persist_retired_graphics_fields() {
         let directory = tempdir().unwrap();
         let database_path = directory.path().join("rion-studio.sqlite3");
-        let recommended = serde_json::to_value(default_game_browser_settings()).unwrap();
-
-        let first_plan = crate::bootstrap_settings::read_plan(
-            directory.path(),
-            rion_platform::Platform::Macos,
-            "",
-            "",
-        );
-        assert_eq!(
-            first_plan.applied_graphics_settings,
-            crate::model::BrowserGraphicsSettingsRecord::recommended_default()
-        );
-
-        {
-            let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
-            assert_eq!(
-                worker
-                    .read_scalar("gameBrowserSettings".to_owned())
-                    .unwrap(),
-                Some(recommended.clone())
-            );
-        }
-
-        let second_plan = crate::bootstrap_settings::read_plan(
-            directory.path(),
-            rion_platform::Platform::Macos,
-            "",
-            "",
-        );
-        assert_eq!(
-            second_plan.applied_graphics_settings,
-            crate::model::BrowserGraphicsSettingsRecord::recommended_default()
-        );
-
-        let mut settings_without_eco_qos = recommended.clone();
-        settings_without_eco_qos["graphics"]
-            .as_object_mut()
+        let worker = StateDatabaseWorker::start(database_path).unwrap();
+        let stored = worker
+            .read_scalar("gameBrowserSettings".to_owned())
             .unwrap()
-            .remove("windowsEcoQosEnabled");
-        {
-            let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
-            worker
-                .replace_scalar("gameBrowserSettings".to_owned(), settings_without_eco_qos)
-                .unwrap();
-        }
-        let migrated_plan = crate::bootstrap_settings::read_plan(
-            directory.path(),
-            rion_platform::Platform::Windows,
-            "",
-            "",
+            .unwrap();
+        assert!(stored.get("graphics").is_none());
+        assert_eq!(
+            stored,
+            serde_json::to_value(default_game_browser_settings()).unwrap()
         );
-        assert!(
-            migrated_plan
-                .applied_graphics_settings
-                .windows_eco_qos_enabled
-        );
+    }
 
-        let mut explicit = default_game_browser_settings();
-        explicit.graphics =
-            crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
-        explicit.graphics.windows_eco_qos_enabled = false;
-        let expected_graphics = explicit.graphics.clone();
-        let explicit = serde_json::to_value(explicit).unwrap();
-        {
-            let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
-            worker
-                .replace_scalar("gameBrowserSettings".to_owned(), explicit.clone())
-                .unwrap();
-        }
-        {
-            let worker = StateDatabaseWorker::start(database_path).unwrap();
-            assert_eq!(
-                worker
-                    .read_scalar("gameBrowserSettings".to_owned())
-                    .unwrap(),
-                Some(explicit)
-            );
-        }
+    #[test]
+    fn schema_fourteen_removes_only_graphics_and_rolls_back_invalid_payloads() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let legacy = json!({
+            "fonts":{"mode":"custom","families":{"standard":"Inter"}},
+            "graphics":{"mode":"experimental","backend":{"windows":"vulkan"}},
+            "macroBadgePosition":{"horizontalAlign":"left","horizontalMarginPx":16,"topPx":64},
+            "workspace":{"background":"black","gap":8}
+        });
+        connection
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                [serde_json::to_string(&legacy).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=14", [])
+            .unwrap();
 
-        let preserved_plan = crate::bootstrap_settings::read_plan(
-            directory.path(),
-            rion_platform::Platform::Windows,
-            "",
-            "",
+        create_schema(&connection, false).unwrap();
+        let migrated: Value = serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(migrated.get("graphics").is_none());
+        assert_eq!(migrated["fonts"], legacy["fonts"]);
+        assert_eq!(migrated["macroBadgePosition"], legacy["macroBadgePosition"]);
+        assert_eq!(migrated["workspace"], legacy["workspace"]);
+
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=14", [])
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE settings SET payload_json='not-json' WHERE key='gameBrowserSettings'",
+                [],
+            )
+            .unwrap();
+        assert!(create_schema(&connection, false).is_err());
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "not-json"
         );
-        assert_eq!(preserved_plan.applied_graphics_settings, expected_graphics);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version=14",
+                    [],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -4044,7 +4077,7 @@ mod tests {
                 .unwrap();
         }
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=13", [])
+            .execute("DELETE FROM schema_migrations WHERE version>=13", [])
             .unwrap();
 
         create_schema(&connection, false).unwrap();
@@ -4205,7 +4238,6 @@ mod tests {
                 "compatibilityReports":[],
                 "gameBrowserSettings":{
                     "fonts":{"mode":"default","families":{}},
-                    "graphics": crate::model::BrowserGraphicsSettingsRecord::recommended_default(),
                     "launchMode":"auto",
                     "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
                     "network":{"cdnCompatibility":{"mode":"auto"},"proxy":{"mode":"system","server":""}},
@@ -4383,7 +4415,6 @@ mod tests {
                 popup: crate::model::EngineCapabilityStatus::Supported,
                 audio_mute: crate::model::EngineCapabilityStatus::Supported,
                 custom_fonts: crate::model::EngineCapabilityStatus::Degraded,
-                graphics_tuning: crate::model::EngineCapabilityStatus::Degraded,
                 downloads: crate::model::EngineCapabilityStatus::Supported,
                 file_upload: crate::model::EngineCapabilityStatus::Supported,
                 permissions: crate::model::EngineCapabilityStatus::Degraded,

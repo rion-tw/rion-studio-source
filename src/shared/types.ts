@@ -1,7 +1,6 @@
 import type {
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
-  BrowserGraphicsSettingsRecord,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
   ChromeProfileImportResolutionRecord,
@@ -17,8 +16,6 @@ import type {
   GameCreateRequest,
   GameBrowserSettingsRecord,
   GameUpdateRequest,
-  GraphicsDeviceDiagnosticsRecord,
-  GraphicsDiagnosticsRecord,
   GameWindowCreateInputRecord,
   GameWindowPlacementRecord,
   GameWindowTabRecord,
@@ -69,7 +66,6 @@ import type {
   StatePixelBoundsRecord,
   StateRoleRecord,
   StateWorkspaceSlotRecord,
-  StateWebGraphicsRecord,
   SystemFontFamilyRecord,
   WorkspaceAppearanceSettingsRecord,
   RoleCreateRequest,
@@ -372,8 +368,6 @@ export interface AppErrorPayload {
 
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
-export type BrowserMacosGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["macos"];
-export type BrowserWindowsGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["windows"];
 export type BrowserRuntimeMode = "embedded";
 export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
 export type BrowserHostKind = RustBrowserHostKind;
@@ -384,8 +378,6 @@ export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
 export type BrowserFontSettings = BrowserFontSettingsRecord;
 
-export type BrowserGraphicsSettings = BrowserGraphicsSettingsRecord;
-
 export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 
 export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
@@ -395,12 +387,6 @@ export type MacroBadgePositionSettings = MacroBadgePositionRecord;
 export type GameBrowserSettings = GameBrowserSettingsRecord;
 
 export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
-
-export type WebGraphicsDiagnostics = StateWebGraphicsRecord;
-
-export type GraphicsDeviceDiagnostics = GraphicsDeviceDiagnosticsRecord;
-
-export type GraphicsDiagnostics = GraphicsDiagnosticsRecord;
 
 export type GameCompatibilityRunPhase = CompatibilityRunPhase;
 

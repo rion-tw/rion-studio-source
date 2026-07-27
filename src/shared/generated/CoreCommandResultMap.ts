@@ -14,7 +14,6 @@ import type { EmbeddedKeyTransitionRecord } from "./EmbeddedKeyTransitionRecord"
 import type { EmbeddedLaunchResultRecord } from "./EmbeddedLaunchResultRecord";
 import type { EngineCompatibilityCacheRecord } from "./EngineCompatibilityCacheRecord";
 import type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
-import type { GraphicsDiagnosticsRecord } from "./GraphicsDiagnosticsRecord";
 import type { LegalAcceptanceStatusRecord } from "./LegalAcceptanceStatusRecord";
 import type { LayoutRect } from "./LayoutRect";
 import type { LogPageRecord } from "./LogPageRecord";
@@ -142,7 +141,6 @@ type TypedCoreCommandResultMap = {
   browserStatuses: BrowserRoleStatusRecord[];
   browserWorkspaceStatuses: BrowserWorkspaceStatusRecord[];
   browserRuntimeSnapshot: BrowserRuntimeSnapshot;
-  graphicsDiagnosticsAssemble: GraphicsDiagnosticsRecord;
   logsQuery: LogPageRecord;
   logsStatus: LogStorageStatusRecord;
   diagnosticsExport: DiagnosticExportResultRecord;

@@ -8,15 +8,16 @@ use crate::{
     error::{CoreError, CoreResult},
     model::{
         CompatibilityCheckOutcome, CompatibilityCheckPlanRecord, CompatibilityRunPhase,
-        CompatibilityRunStatusRecord, GameBrowserSettingsRecord, RuntimeVersionRecord,
-        StateCompatibilityLoadRecord, StateCompatibilityObservationsRecord,
-        StateCompatibilityRecommendationRecord, StateCompatibilityReportRecord, StateGameRecord,
+        CompatibilityRunStatusRecord, RuntimeVersionRecord, StateCompatibilityLoadRecord,
+        StateCompatibilityObservationsRecord, StateCompatibilityRecommendationRecord,
+        StateCompatibilityReportRecord, StateGameRecord,
     },
 };
 
 #[derive(Debug, Clone)]
 struct ActiveCheck {
     configuration_fingerprint: String,
+    runtime: RuntimeVersionRecord,
     status: CompatibilityRunStatusRecord,
     cancel_requested: bool,
     effect_operation_id: Option<String>,
@@ -38,7 +39,6 @@ impl CompatibilityRuntime {
     pub fn prepare(
         &mut self,
         games: &[StateGameRecord],
-        settings: &GameBrowserSettingsRecord,
         game_id: &str,
         versions: &RuntimeVersionRecord,
     ) -> CoreResult<CompatibilityCheckPlanRecord> {
@@ -65,7 +65,8 @@ impl CompatibilityRuntime {
         self.active.insert(
             game.id.clone(),
             ActiveCheck {
-                configuration_fingerprint: configuration_fingerprint(game, settings, versions)?,
+                configuration_fingerprint: configuration_fingerprint(game, versions)?,
+                runtime: versions.clone(),
                 status,
                 cancel_requested: false,
                 effect_operation_id: None,
@@ -186,6 +187,7 @@ impl CompatibilityRuntime {
             load: Some(load),
             graphics,
             recommendation,
+            runtime: Some(active.runtime.clone()),
             observations: StateCompatibilityObservationsRecord {
                 last_embedded_success_at: None,
                 last_launch_failure_at: None,
@@ -201,7 +203,6 @@ impl CompatibilityRuntime {
     pub fn current_reports(
         games: &[StateGameRecord],
         reports: &[StateCompatibilityReportRecord],
-        settings: &GameBrowserSettingsRecord,
         versions: &RuntimeVersionRecord,
     ) -> CoreResult<Vec<StateCompatibilityReportRecord>> {
         reports
@@ -214,10 +215,10 @@ impl CompatibilityRuntime {
             })
             .map(|(report, game)| {
                 let mut report = report.clone();
-                if let Some(previous) = report.configuration_fingerprint.as_deref() {
-                    report.is_stale =
-                        previous != configuration_fingerprint(game, settings, versions)?;
-                }
+                let current_fingerprint = configuration_fingerprint(game, versions)?;
+                report.is_stale = report.runtime.is_none()
+                    || report.configuration_fingerprint.as_deref()
+                        != Some(current_fingerprint.as_str());
                 Ok(report)
             })
             .collect()
@@ -234,8 +235,8 @@ fn inactive(game_id: &str) -> CoreError {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FingerprintInput<'a> {
+    probe_schema_version: u32,
     default_launch_url: &'a str,
-    graphics: &'a crate::model::BrowserGraphicsSettingsRecord,
     engine: crate::model::ResolvedBrowserEngine,
     engine_version: &'a str,
     shell: &'a str,
@@ -244,12 +245,11 @@ struct FingerprintInput<'a> {
 
 fn configuration_fingerprint(
     game: &StateGameRecord,
-    settings: &GameBrowserSettingsRecord,
     versions: &RuntimeVersionRecord,
 ) -> CoreResult<String> {
     let encoded = serde_json::to_vec(&FingerprintInput {
+        probe_schema_version: crate::web_graphics_probe::PROBE_SCHEMA_VERSION,
         default_launch_url: &game.default_launch_url,
-        graphics: &settings.graphics,
         engine: versions.engine,
         engine_version: &versions.engine_version,
         shell: &versions.shell,
@@ -297,12 +297,7 @@ mod tests {
         runtime: &mut CompatibilityRuntime,
         state: &CoreStateSnapshotRecord,
     ) -> CoreResult<CompatibilityCheckPlanRecord> {
-        runtime.prepare(
-            &state.games,
-            state.game_browser_settings.as_ref().unwrap(),
-            "game-1",
-            &versions(),
-        )
+        runtime.prepare(&state.games, "game-1", &versions())
     }
 
     #[test]
@@ -382,27 +377,43 @@ mod tests {
             !CompatibilityRuntime::current_reports(
                 &state.games,
                 &state.compatibility_reports,
-                state.game_browser_settings.as_ref().unwrap(),
                 &versions(),
             )
             .unwrap()[0]
                 .is_stale
         );
-        state
-            .game_browser_settings
-            .as_mut()
-            .unwrap()
-            .graphics
-            .unsafe_web_gpu_enabled = true;
+        state.games[0].default_launch_url = "https://example.test/changed".to_owned();
         let changed = CompatibilityRuntime::current_reports(
             &state.games,
             &state.compatibility_reports,
-            state.game_browser_settings.as_ref().unwrap(),
             &versions(),
         )
         .unwrap();
         crate::v1_case!("browser-workspace-f1d3460084ea", {
             assert!(changed[0].is_stale);
         });
+    }
+
+    #[test]
+    fn new_reports_record_runtime_and_legacy_reports_are_stale() {
+        let state = snapshot();
+        let mut runtime = CompatibilityRuntime::default();
+        prepare(&mut runtime, &state).unwrap();
+        let report = runtime
+            .build_report(
+                "game-1",
+                CompatibilityCheckOutcome::Failed {
+                    duration_ms: 1,
+                    error_code: "FAILED".to_owned(),
+                },
+            )
+            .unwrap();
+        assert_eq!(report.runtime.as_ref(), Some(&versions()));
+
+        let mut legacy = report;
+        legacy.runtime = None;
+        let current =
+            CompatibilityRuntime::current_reports(&state.games, &[legacy], &versions()).unwrap();
+        assert!(current[0].is_stale);
     }
 }

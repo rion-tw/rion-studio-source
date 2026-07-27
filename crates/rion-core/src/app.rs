@@ -36,12 +36,12 @@ use crate::{
         DiagnosticExportResultRecord, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
         EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
         GameBrowserSettingsRecord, GameWindowCreateInputRecord, GameWindowTabRecord,
-        GraphicsDiagnosticsRecord, LegacySessionRestoreRecord, LegalAcceptanceRecord,
-        LogCaptureRecord, LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
-        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
-        MacroStartRequest, OperationCancelResultRecord, RolePathsRecord,
-        RuntimeRestoreSessionRecord, RuntimeVersionRecord, RuntimeWindowPreferencesRecord,
-        StateCollection, StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
+        LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
+        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
+        RuntimeVersionRecord, RuntimeWindowPreferencesRecord, StateCollection,
+        StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
         StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         SystemWebViewRuntimeRegistrationRecord,
     },
@@ -589,13 +589,9 @@ impl AppCore {
             CoreCommand::CompatibilityPrepare { game_id, versions } => {
                 let _guard = self.state_mutation_guard()?;
                 let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-                let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-                    "gameBrowserSettings",
-                    "game browser settings are missing",
-                )?;
                 let (plan, statuses) = {
                     let mut runtime = self.compatibility_runtime()?;
-                    let plan = runtime.prepare(&games, &settings, &game_id, &versions)?;
+                    let plan = runtime.prepare(&games, &game_id, &versions)?;
                     (plan, runtime.statuses())
                 };
                 self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
@@ -638,13 +634,9 @@ impl AppCore {
                 let reports = self.read_typed_state_collection::<StateCompatibilityReportRecord>(
                     "compatibilityReports",
                 )?;
-                let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-                    "gameBrowserSettings",
-                    "game browser settings are missing",
-                )?;
                 serde_json::to_value(
                     crate::compatibility_runtime::CompatibilityRuntime::current_reports(
-                        &games, &reports, &settings, &versions,
+                        &games, &reports, &versions,
                     )?,
                 )
                 .map_err(|error| CoreError::Internal(error.to_string()))
@@ -1277,7 +1269,6 @@ impl AppCore {
             | CoreCommand::ChromeProfileRequestQuit { .. }
             | CoreCommand::ChromeProfileApply { .. }
             | CoreCommand::CompatibilityRun { .. }
-            | CoreCommand::GraphicsDiagnosticsAssemble { .. }
             | CoreCommand::DiagnosticsExport { .. }
             | CoreCommand::OverlayRequest { .. }
             | CoreCommand::BrowserRoleLaunch { .. }
@@ -1437,31 +1428,6 @@ impl AppCore {
             CoreCommand::CompatibilityRun { game_id, versions } => {
                 self.run_compatibility_check(game_id, versions).await
             }
-            CoreCommand::GraphicsDiagnosticsAssemble {
-                applied_settings,
-                embedded_raw_json,
-                embedded_error,
-                gpu_info_raw_json,
-                feature_status_raw_json,
-                gpu_info_ready,
-                hardware_acceleration_enabled,
-                platform,
-                versions,
-            } => serde_json::to_value(
-                self.assemble_graphics_diagnostics(
-                    applied_settings,
-                    embedded_raw_json,
-                    embedded_error,
-                    gpu_info_raw_json,
-                    feature_status_raw_json,
-                    gpu_info_ready,
-                    hardware_acceleration_enabled,
-                    platform,
-                    versions,
-                )
-                .await?,
-            )
-            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::DiagnosticsExport { path, snapshot } => {
                 serde_json::to_value(self.export_diagnostics(path, snapshot).await?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
@@ -3044,13 +3010,9 @@ impl AppCore {
         let plan = {
             let _guard = self.state_mutation_guard()?;
             let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-            let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-                "gameBrowserSettings",
-                "game browser settings are missing",
-            )?;
             let (plan, statuses) = {
                 let mut runtime = self.compatibility_runtime()?;
-                let plan = runtime.prepare(&games, &settings, &game_id, &versions)?;
+                let plan = runtime.prepare(&games, &game_id, &versions)?;
                 (plan, runtime.statuses())
             };
             self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
@@ -3099,18 +3061,16 @@ impl AppCore {
                     &game_id,
                     CoreEffectAction::CompatibilityProbeGraphics {
                         game_id: game_id.clone(),
-                        source: crate::graphics_diagnostics::WEB_GRAPHICS_PROBE_SOURCE.to_owned(),
+                        source: crate::web_graphics_probe::WEB_GRAPHICS_PROBE_SOURCE.to_owned(),
                     },
                     Duration::from_secs(2),
                 )
                 .await
             {
                 Ok(result) => {
-                    crate::graphics_diagnostics::normalize_web_graphics(effect_value(&result)?)
+                    crate::web_graphics_probe::normalize_web_graphics(effect_value(&result)?)
                 }
-                Err(error) => {
-                    crate::graphics_diagnostics::unavailable_probe(Some(error.to_string()))
-                }
+                Err(error) => crate::web_graphics_probe::unavailable_probe(Some(error.to_string())),
             };
             Ok::<_, CoreError>((final_origin, graphics))
         }
@@ -3211,48 +3171,6 @@ impl AppCore {
         };
         self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
         Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn assemble_graphics_diagnostics(
-        &self,
-        applied_settings: crate::model::BrowserGraphicsSettingsRecord,
-        embedded_raw_json: String,
-        embedded_error: Option<String>,
-        gpu_info_raw_json: Option<String>,
-        feature_status_raw_json: String,
-        gpu_info_ready: bool,
-        hardware_acceleration_enabled: Option<bool>,
-        platform: String,
-        versions: RuntimeVersionRecord,
-    ) -> CoreResult<GraphicsDiagnosticsRecord> {
-        let requested_platform = rion_platform::Platform::parse(&platform)
-            .map_err(|error| CoreError::Platform(error.to_string()))?;
-        if requested_platform != self.platform {
-            return Err(CoreError::InvalidInput(
-                "graphics diagnostics platform does not match the application core".to_owned(),
-            ));
-        }
-        let saved_settings = self
-            .read_scalar_state::<GameBrowserSettingsRecord>(
-                "gameBrowserSettings",
-                "game browser settings are missing",
-            )?
-            .graphics;
-        Ok(crate::graphics_diagnostics::assemble(
-            crate::graphics_diagnostics::GraphicsDiagnosticsInput {
-                applied_settings,
-                embedded_raw_json,
-                embedded_error,
-                feature_status_raw_json,
-                gpu_info_raw_json,
-                gpu_info_ready,
-                hardware_acceleration_enabled,
-                platform: requested_platform,
-                saved_settings,
-                versions,
-            },
-        ))
     }
 
     fn state_game(&self, game_id: &str) -> CoreResult<StateGameRecord> {
@@ -6181,7 +6099,6 @@ fn unavailable_system_webview_runtime(
             popup: EngineCapabilityStatus::Disabled,
             audio_mute: EngineCapabilityStatus::Disabled,
             custom_fonts: EngineCapabilityStatus::Disabled,
-            graphics_tuning: EngineCapabilityStatus::Disabled,
             downloads: EngineCapabilityStatus::Disabled,
             file_upload: EngineCapabilityStatus::Disabled,
             permissions: EngineCapabilityStatus::Disabled,
@@ -6587,7 +6504,6 @@ mod tests {
             popup: Supported,
             audio_mute: Supported,
             custom_fonts: Degraded,
-            graphics_tuning: Degraded,
             downloads: Supported,
             file_upload: Supported,
             permissions: Degraded,

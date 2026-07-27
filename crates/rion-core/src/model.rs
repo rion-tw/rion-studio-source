@@ -62,7 +62,6 @@ pub struct EngineCapabilitySnapshotRecord {
     pub popup: EngineCapabilityStatus,
     pub audio_mute: EngineCapabilityStatus,
     pub custom_fonts: EngineCapabilityStatus,
-    pub graphics_tuning: EngineCapabilityStatus,
     pub downloads: EngineCapabilityStatus,
     pub file_upload: EngineCapabilityStatus,
     pub permissions: EngineCapabilityStatus,
@@ -570,27 +569,6 @@ pub enum CoreCommand {
         #[ts(rename = "importId")]
         import_id: String,
     },
-    GraphicsDiagnosticsAssemble {
-        #[ts(rename = "appliedSettings")]
-        applied_settings: BrowserGraphicsSettingsRecord,
-        #[ts(rename = "embeddedRawJson")]
-        embedded_raw_json: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "embeddedError")]
-        embedded_error: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "gpuInfoRawJson")]
-        gpu_info_raw_json: Option<String>,
-        #[ts(rename = "featureStatusRawJson")]
-        feature_status_raw_json: String,
-        #[ts(rename = "gpuInfoReady")]
-        gpu_info_ready: bool,
-        #[serde(default)]
-        #[ts(type = "boolean | null", rename = "hardwareAccelerationEnabled")]
-        hardware_acceleration_enabled: Option<bool>,
-        platform: String,
-        versions: RuntimeVersionRecord,
-    },
     LayoutResolve {
         input: WorkspaceLayoutInput,
     },
@@ -844,7 +822,6 @@ impl CoreCommand {
                 | Self::MacroDelete { .. }
                 | Self::MacrosDelete { .. }
                 | Self::CompatibilityRun { .. }
-                | Self::GraphicsDiagnosticsAssemble { .. }
                 | Self::DiagnosticsExport { .. }
                 | Self::OverlayRequest { .. }
                 | Self::BrowserRoleLaunch { .. }
@@ -1948,6 +1925,9 @@ pub struct StateCompatibilityReportRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub recommendation: Option<StateCompatibilityRecommendationRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime: Option<RuntimeVersionRecord>,
     pub observations: StateCompatibilityObservationsRecord,
 }
 
@@ -2047,72 +2027,6 @@ pub struct CompatibilityCheckPlanRecord {
     pub game_name: String,
     pub launch_url: String,
     pub started_at: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ChromiumSwitchRecord {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub value: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BootstrapPlanRecord {
-    pub applied_graphics_settings: BrowserGraphicsSettingsRecord,
-    pub switches: Vec<ChromiumSwitchRecord>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct GraphicsDeviceDiagnosticsRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub active: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub device_id: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub device_string: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub driver_vendor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub driver_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub vendor_id: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub vendor_string: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct GraphicsDiagnosticsRecord {
-    pub applied_settings: BrowserGraphicsSettingsRecord,
-    pub applied_switches: Vec<String>,
-    pub collected_at: String,
-    pub embedded: StateWebGraphicsRecord,
-    pub feature_status: std::collections::BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub gpu_device: Option<GraphicsDeviceDiagnosticsRecord>,
-    pub gpu_info_ready: bool,
-    #[ts(type = "boolean | null")]
-    pub hardware_acceleration_enabled: Option<bool>,
-    pub platform: String,
-    pub restart_required: bool,
-    pub saved_settings: BrowserGraphicsSettingsRecord,
-    pub versions: RuntimeVersionRecord,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2569,7 +2483,6 @@ pub struct WorkspaceDividerResizeOutput {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameBrowserSettingsRecord {
     pub fonts: BrowserFontSettingsRecord,
-    pub graphics: BrowserGraphicsSettingsRecord,
     pub macro_badge_position: MacroBadgePositionRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
 }
@@ -2584,150 +2497,6 @@ pub struct BrowserFontSettingsRecord {
         type = "Partial<Record<\"standard\" | \"serif\" | \"sansserif\" | \"fixed\" | \"math\", string>>"
     )]
     pub families: std::collections::HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserGraphicsBackendSettingsRecord {
-    #[ts(type = "\"automatic\" | \"metal\"")]
-    pub macos: String,
-    #[ts(type = "\"automatic\" | \"d3d11\" | \"d3d11on12\" | \"vulkan\"")]
-    pub windows: String,
-}
-
-impl Default for BrowserGraphicsBackendSettingsRecord {
-    fn default() -> Self {
-        Self {
-            macos: "automatic".to_owned(),
-            windows: "automatic".to_owned(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserGraphicsSettingsRecord {
-    pub backend: BrowserGraphicsBackendSettingsRecord,
-    pub driver_bug_workarounds_enabled: bool,
-    pub force_gpu_rasterization: bool,
-    pub frame_rate_limit_enabled: bool,
-    pub gpu_blocklist_enabled: bool,
-    pub prefer_high_performance_gpu: bool,
-    pub unsafe_web_gpu_enabled: bool,
-    pub vsync_enabled: bool,
-    pub windows_eco_qos_enabled: bool,
-}
-
-impl BrowserGraphicsSettingsRecord {
-    pub fn recommended_default() -> Self {
-        Self {
-            backend: BrowserGraphicsBackendSettingsRecord::default(),
-            driver_bug_workarounds_enabled: true,
-            force_gpu_rasterization: false,
-            frame_rate_limit_enabled: true,
-            gpu_blocklist_enabled: true,
-            prefer_high_performance_gpu: true,
-            unsafe_web_gpu_enabled: false,
-            vsync_enabled: true,
-            windows_eco_qos_enabled: true,
-        }
-    }
-
-    pub fn from_legacy_mode(mode: &str) -> Self {
-        let mut settings = Self {
-            backend: BrowserGraphicsBackendSettingsRecord::default(),
-            driver_bug_workarounds_enabled: true,
-            force_gpu_rasterization: false,
-            frame_rate_limit_enabled: true,
-            gpu_blocklist_enabled: true,
-            prefer_high_performance_gpu: false,
-            unsafe_web_gpu_enabled: false,
-            vsync_enabled: true,
-            windows_eco_qos_enabled: true,
-        };
-        if matches!(mode, "high_performance" | "experimental") {
-            settings.prefer_high_performance_gpu = true;
-        }
-        if mode == "experimental" {
-            settings.gpu_blocklist_enabled = false;
-            settings.unsafe_web_gpu_enabled = true;
-        }
-        settings
-    }
-}
-
-impl<'de> Deserialize<'de> for BrowserGraphicsSettingsRecord {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Input {
-            backend: Option<BrowserGraphicsBackendSettingsRecord>,
-            driver_bug_workarounds_enabled: Option<bool>,
-            force_gpu_rasterization: Option<bool>,
-            frame_rate_limit_enabled: Option<bool>,
-            gpu_blocklist_enabled: Option<bool>,
-            mode: Option<String>,
-            prefer_high_performance_gpu: Option<bool>,
-            unsafe_web_gpu_enabled: Option<bool>,
-            vsync_enabled: Option<bool>,
-            windows_eco_qos_enabled: Option<bool>,
-        }
-
-        let input = Input::deserialize(deserializer)?;
-        let has_new_fields = input.backend.is_some()
-            || input.driver_bug_workarounds_enabled.is_some()
-            || input.force_gpu_rasterization.is_some()
-            || input.frame_rate_limit_enabled.is_some()
-            || input.gpu_blocklist_enabled.is_some()
-            || input.prefer_high_performance_gpu.is_some()
-            || input.unsafe_web_gpu_enabled.is_some()
-            || input.vsync_enabled.is_some()
-            || input.windows_eco_qos_enabled.is_some();
-        let mut settings = if has_new_fields {
-            Self::recommended_default()
-        } else if let Some(mode) = input.mode.as_deref() {
-            Self::from_legacy_mode(mode)
-        } else {
-            Self::recommended_default()
-        };
-
-        if let Some(value) = input.backend {
-            settings.backend = value;
-        }
-        if let Some(value) = input.driver_bug_workarounds_enabled {
-            settings.driver_bug_workarounds_enabled = value;
-        }
-        if let Some(value) = input.force_gpu_rasterization {
-            settings.force_gpu_rasterization = value;
-        }
-        if let Some(value) = input.frame_rate_limit_enabled {
-            settings.frame_rate_limit_enabled = value;
-        }
-        if let Some(value) = input.gpu_blocklist_enabled {
-            settings.gpu_blocklist_enabled = value;
-        }
-        if let Some(value) = input.prefer_high_performance_gpu {
-            settings.prefer_high_performance_gpu = value;
-        }
-        if let Some(value) = input.unsafe_web_gpu_enabled {
-            settings.unsafe_web_gpu_enabled = value;
-        }
-        if let Some(value) = input.vsync_enabled {
-            settings.vsync_enabled = value;
-        }
-        if let Some(value) = input.windows_eco_qos_enabled {
-            settings.windows_eco_qos_enabled = value;
-        }
-        if !settings.frame_rate_limit_enabled {
-            settings.vsync_enabled = false;
-        }
-        Ok(settings)
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

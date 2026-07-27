@@ -37,9 +37,17 @@ const removedPaths = [
   "crates/rion-core/src/external_automation.rs",
   "crates/rion-core/src/external_chrome.rs",
   "crates/rion-core/src/external_runtime.rs",
+  "crates/rion-core/src/graphics_diagnostics.rs",
   "crates/rion-platform/src/chrome.rs",
   "src-tauri/src/electron_helper.rs",
   "src/renderer/src/features/chrome-profile-import/ChromeProfileImportFlow.tsx",
+  "src/renderer/src/features/settings/graphicsRestart.ts",
+  "src/shared/generated/BootstrapPlanRecord.ts",
+  "src/shared/generated/BrowserGraphicsBackendSettingsRecord.ts",
+  "src/shared/generated/BrowserGraphicsSettingsRecord.ts",
+  "src/shared/generated/ChromiumSwitchRecord.ts",
+  "src/shared/generated/GraphicsDeviceDiagnosticsRecord.ts",
+  "src/shared/generated/GraphicsDiagnosticsRecord.ts",
   "src/shared/runtimeHelperProtocol.ts"
 ];
 
@@ -263,6 +271,39 @@ const effectTargets = await readFile(
 );
 if (!effectTargets.includes('"app" | "webContents"')) {
   failures.push("CoreEffectTargetKind must be restricted to app and webContents.");
+}
+
+const bootstrapSettingsSource = await readFile(
+  join(repositoryRoot, "crates/rion-core/src/bootstrap_settings.rs"),
+  "utf8"
+);
+const productionBootstrapSettings = bootstrapSettingsSource.split("#[cfg(test)]", 1)[0];
+for (const retiredGraphicsArgument of [
+  "force-high-performance-gpu",
+  "enable-gpu-rasterization",
+  "ignore-gpu-blocklist",
+  "enable-unsafe-webgpu",
+  "disable-frame-rate-limit",
+  "disable-gpu-vsync",
+  "disable-gpu-driver-bug-workarounds",
+  "use-angle",
+  "use-vulkan",
+  "UseEcoQoSForBackgroundProcess"
+]) {
+  if (productionBootstrapSettings.includes(retiredGraphicsArgument)) {
+    failures.push(`System WebView bootstrap still applies retired graphics argument ${retiredGraphicsArgument}.`);
+  }
+}
+for (const [path, retiredContract] of [
+  ["src/shared/api.ts", "getGraphicsDiagnostics"],
+  ["src/shared/api.ts", "restartApplication"],
+  ["src/shared/generated/CoreCommand.ts", "graphicsDiagnosticsAssemble"],
+  ["src/shared/generated/EngineCapabilitySnapshotRecord.ts", "graphicsTuning"]
+]) {
+  const source = await readFile(join(repositoryRoot, path), "utf8");
+  if (source.includes(retiredContract)) {
+    failures.push(`${path} still exposes retired graphics contract ${retiredContract}.`);
+  }
 }
 
 if (failures.length > 0) {

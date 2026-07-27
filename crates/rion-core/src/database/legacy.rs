@@ -12,7 +12,6 @@ use uuid::Uuid;
 use crate::{
     error::{CoreError, CoreResult},
     macro_graph::validate_macro_graph,
-    model::BrowserGraphicsSettingsRecord,
 };
 
 const DEFAULT_LAUNCH_URL: &str = "https://universe.flyff.com/play";
@@ -875,14 +874,6 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
             }
         }
     }
-    let graphics_mode = source
-        .get("graphics")
-        .and_then(Value::as_object)
-        .and_then(|value| value.get("mode"))
-        .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "automatic" | "high_performance" | "experimental"))
-        .unwrap_or("automatic");
-    let graphics = BrowserGraphicsSettingsRecord::from_legacy_mode(graphics_mode);
     // Legacy custom proxy fields are intentionally accepted here but omitted
     // from the normalized Tauri settings. System WebViews inherit OS networking.
     let _legacy_proxy = source
@@ -918,7 +909,6 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
         .unwrap_or(128);
     json!({
         "fonts": { "families": families, "mode": font_mode },
-        "graphics": graphics,
         "macroBadgePosition": {
             "horizontalAlign": horizontal_align,
             "horizontalMarginPx": horizontal_margin_px,

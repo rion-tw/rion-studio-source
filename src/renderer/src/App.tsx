@@ -34,7 +34,6 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type {
   GameBrowserSettings,
-  GraphicsDiagnostics,
   MacroSettings,
   PortableExportInput,
   PortableExportResult,
@@ -201,20 +200,6 @@ export function App(): JSX.Element {
     setSystemFonts(nextFonts);
     return nextFonts;
   }, [systemFonts]);
-  const loadGraphicsDiagnostics = useCallback(async (): Promise<GraphicsDiagnostics> => {
-    if (!window.rionStudio) {
-      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
-    }
-
-    return window.rionStudio.getGraphicsDiagnostics();
-  }, []);
-  const restartApplication = useCallback(async (): Promise<void> => {
-    if (!window.rionStudio) {
-      throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
-    }
-
-    await window.rionStudio.restartApplication();
-  }, []);
   const exportPortableData = useCallback(async (input: PortableExportInput): Promise<PortableExportResult | null> => {
     if (!window.rionStudio) {
       throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
@@ -458,7 +443,6 @@ export function App(): JSX.Element {
       t={preferences.t}
       onCancelCheck={(gameId) => void gameWorkflow.cancelCompatibilityCheck(gameId)}
       onError={data.setError}
-      onOpenGraphicsSettings={(gameId) => navigate("/settings?section=game", { state: { returnTo: `/games/${gameId}/edit` } })}
       onReset={gameWorkflow.resetBuiltinGame}
       onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
       onSave={gameWorkflow.saveGame}
@@ -777,14 +761,12 @@ export function App(): JSX.Element {
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
                   onMacroSettingsChange={updateMacroSettings}
                   onRuntimeWindowPreferencesChange={updateRuntimeWindowPreferences}
-                  onLoadGraphicsDiagnostics={loadGraphicsDiagnostics}
                   onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
                   onDiscardPortableImport={discardPortableImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
-                  onRestartApplication={restartApplication}
                   onLanguageChange={preferences.handleLanguageChange}
                   onThemeModeChange={preferences.handleThemeModeChange}
                   systemFonts={systemFonts}

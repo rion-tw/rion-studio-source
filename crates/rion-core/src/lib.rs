@@ -108,6 +108,7 @@ pub use model::{
     WorkspaceLayoutInput, WorkspaceLayoutOutput, WorkspaceSlotInputRecord, WorkspaceSlotRequest,
     WorkspaceUpdateInputRecord, WorkspaceUpdateRequest,
 };
+pub use portable::PORTABLE_SCHEMA_VERSION;
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 

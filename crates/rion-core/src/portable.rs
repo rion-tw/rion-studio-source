@@ -32,7 +32,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-const CURRENT_SCHEMA: u64 = 11;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 11;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -84,7 +84,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     let schema = object
         .get("schemaVersion")
         .and_then(Value::as_u64)
-        .filter(|schema| (1..=CURRENT_SCHEMA).contains(schema))
+        .filter(|schema| (1..=PORTABLE_SCHEMA_VERSION).contains(schema))
         .ok_or_else(|| invalid("portable schema version is unsupported"))?;
     let mut roles = normalize_array(object, "roles", normalize_role)?;
     let input_games = if schema >= 2 {
@@ -109,7 +109,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     validate_macro_graph(&macros).map_err(|_| portable_macro_dependency_invalid())?;
     let mut output = Map::new();
     output.insert("app".to_owned(), json!(PORTABLE_APP));
-    output.insert("schemaVersion".to_owned(), json!(CURRENT_SCHEMA));
+    output.insert("schemaVersion".to_owned(), json!(PORTABLE_SCHEMA_VERSION));
     output.insert(
         "exportedAt".to_owned(),
         json!(
@@ -1070,7 +1070,7 @@ pub(crate) fn export(
     validate_preferences(preferences.as_ref())?;
     let data = PortableDataRecord {
         app: PORTABLE_APP.to_owned(),
-        schema_version: CURRENT_SCHEMA as u32,
+        schema_version: PORTABLE_SCHEMA_VERSION as u32,
         exported_at: chrono::Utc::now().to_rfc3339(),
         app_version: app_version.to_owned(),
         games: if selection.games {

@@ -68,8 +68,10 @@ describe("Tauri shell parity guard", () => {
     expect(nativeTabsBridge).toContain("TAURI_RUNTIME_TAB_MENU_FAILED");
     expect(nativeTabsBridge).toContain("target_window_id.or(host_window_id)");
     expect(nativeTabsBridge).toContain("open_launcher(&app, window_id)");
-    expect(nativeTabs).toContain('@"type" : @"tearOut"');
-    expect(nativeTabsBridge).toContain("move_game_window_tab_to_new_window");
+    expect(nativeTabs).toContain('@"type" : @"tabDragStart"');
+    expect(nativeTabs).toContain('@"type" : @"tabDragMove"');
+    expect(nativeTabs).toContain('@"type" : @"tabDragEnd"');
+    expect(nativeTabsBridge).toContain("handle_game_window_tab_drag");
     expect(shell).toContain("rion_runtime_audio_state");
     expect(build).toContain('"rion_runtime_tab_action"');
     expect(build).toContain('"rion_divider_pointer"');

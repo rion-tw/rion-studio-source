@@ -245,7 +245,11 @@ pub async fn handle_scoped_action(
     let allowed_keys = match action_type {
         "activate" | "hide" | "stop" | "openTabMenu" => &["type", "tabId"][..],
         "move" => &["type", "tabId", "windowId"][..],
-        "tearOut" => &["type", "tabId", "screenX", "screenY"][..],
+        "tabDragStart" => &["type", "sessionId", "tabId", "screenX", "screenY"][..],
+        "tabDragMove" => &["type", "sessionId", "screenX", "screenY"][..],
+        "tabDragDrop" => &["type", "sessionId", "windowId", "beforeTabId"][..],
+        "tabDragEnd" => &["type", "sessionId", "cancelled"][..],
+        "tabDragCancel" => &["type", "sessionId"][..],
         "reorder" => &["type", "tabId", "beforeTabId"][..],
         "openLauncher" | "fullscreenToolbarEnter" | "fullscreenToolbarLeave" => &["type"][..],
         "activateAdjacent" => &["type", "direction"][..],
@@ -258,6 +262,12 @@ pub async fn handle_scoped_action(
             .any(|key| !allowed_keys.contains(&key.as_str()))
     }) {
         return Err("runtime tab action contains unexpected fields".to_owned());
+    }
+    if crate::handle_game_window_tab_drag(app, state, &window_id, &action)
+        .await
+        .map_err(|error| error.message)?
+    {
+        return Ok(());
     }
     if action_type == "openLauncher" {
         return open_launcher(app, &window_id);
@@ -323,28 +333,6 @@ pub async fn handle_scoped_action(
         .iter()
         .find(|tab| tab.id == tab_id)
         .ok_or_else(|| "runtime tab is outside this tab-strip WebView's window".to_owned())?;
-    if action_type == "tearOut" {
-        if tab.window_id != window_id {
-            return Err("runtime tab is outside this tab-strip WebView's window".to_owned());
-        }
-        let screen_x = action["screenX"]
-            .as_f64()
-            .filter(|value| value.is_finite())
-            .ok_or_else(|| "tear-out screen position is invalid".to_owned())?;
-        let screen_y = action["screenY"]
-            .as_f64()
-            .filter(|value| value.is_finite())
-            .ok_or_else(|| "tear-out screen position is invalid".to_owned())?;
-        return crate::move_game_window_tab_to_new_window(
-            app,
-            state,
-            tab_id,
-            Some((screen_x, screen_y)),
-        )
-        .await
-        .map(|_| ())
-        .map_err(|error| error.message);
-    }
     if action_type != "move" && tab.window_id != window_id {
         return Err("runtime tab is outside this tab-strip WebView's window".to_owned());
     }

@@ -57,9 +57,19 @@ never mutates the source profile.
 Game roles use the operating system WebView runtime. Compatibility checks use a
 short-lived isolated System WebView surface.
 
-Windows platform operations are part of the `rion-platform` Rust crate. Install the pinned Rust
-toolchain and the Visual Studio 2022 MSVC/Windows SDK components required by the
-`x86_64-pc-windows-msvc` target. To run the Rust checks directly on Windows:
+Linux CI validates only the portable Rust crates because Linux is not a supported
+Tauri shell target. Run the same portable gates locally with:
+
+```bash
+pnpm run lint:rust:portable
+pnpm run test:rust:portable
+```
+
+The complete Tauri workspace must be linted and tested on both supported shell
+platforms. Windows platform operations are part of the `rion-platform` Rust crate.
+Install the pinned Rust toolchain and the Visual Studio 2022 MSVC/Windows SDK
+components required by the `x86_64-pc-windows-msvc` target. To run the complete
+Rust checks directly on macOS or Windows:
 
 ```bash
 pnpm run lint:rust

@@ -37,9 +37,6 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - name: Install Linux Tauri build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 
@@ -55,14 +52,11 @@ jobs:
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
 
-      - name: Build renderer assets for Rust checks
-        run: pnpm run build:renderer
+      - name: Check portable Rust formatting and lints
+        run: pnpm run lint:rust:portable
 
-      - name: Check Rust formatting and lints
-        run: pnpm run lint:rust
-
-      - name: Test Rust workspace and generate contracts
-        run: pnpm run test:rust
+      - name: Test portable Rust crates and generate contracts
+        run: pnpm run test:rust:portable
 
       - name: Verify generated Rust contracts
         run: git diff --exit-code -- src/shared/generated
@@ -76,8 +70,8 @@ jobs:
       - name: Lint TypeScript
         run: pnpm run lint
 
-      - name: Build Tauri application
-        run: pnpm run build
+      - name: Build renderer application
+        run: pnpm run build:renderer
 
   rust-concurrency-sanitizer:
     name: Linux Rust sanitizer and concurrency soak
@@ -151,6 +145,15 @@ jobs:
 
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
+
+      - name: Build renderer assets for Rust checks
+        run: pnpm run build:renderer
+
+      - name: Check target-platform Rust formatting and lints
+        run: pnpm run lint:rust
+
+      - name: Test target-platform Rust workspace
+        run: pnpm run test:rust
 
       - name: Verify macOS System WebView parity
         if: runner.os == 'macOS'

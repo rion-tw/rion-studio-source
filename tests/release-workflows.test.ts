@@ -4,7 +4,16 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri-only release workflows", () => {
   it("runs common checks and native package gates on macOS and Windows", async () => {
-    const workflow = await readWorkflow(".github/workflows/ci.yml");
+    const [workflow, packageJsonSource] = await Promise.all([
+      readWorkflow(".github/workflows/ci.yml"),
+      readFile("package.json", "utf8")
+    ]);
+    const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
+    const checks = workflow.slice(
+      workflow.indexOf("  checks:"),
+      workflow.indexOf("  rust-concurrency-sanitizer:")
+    );
+    const platformChecks = workflow.slice(workflow.indexOf("  platform-package-smoke:"));
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("runs-on: ubuntu-latest");
@@ -12,9 +21,23 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("pnpm run typecheck");
     expect(workflow).toContain("pnpm run test");
     expect(workflow).toContain("pnpm run lint");
-    expect(workflow).toContain("pnpm run build");
-    expect(workflow.indexOf("pnpm run build:renderer"))
-      .toBeLessThan(workflow.indexOf("pnpm run lint:rust"));
+    expect(checks).toContain("pnpm run lint:rust:portable");
+    expect(checks).toContain("pnpm run test:rust:portable");
+    expect(checks).toContain("pnpm run build:renderer");
+    expect(checks).not.toContain("Install Linux Tauri build dependencies");
+    expect(checks).not.toContain("run: pnpm run lint:rust\n");
+    expect(checks).not.toContain("run: pnpm run test:rust\n");
+    expect(checks).not.toContain("run: pnpm run build\n");
+    expect(platformChecks).toContain("pnpm run lint:rust");
+    expect(platformChecks).toContain("pnpm run test:rust");
+    expect(platformChecks.indexOf("pnpm run build:renderer"))
+      .toBeLessThan(platformChecks.indexOf("pnpm run lint:rust"));
+    expect(packageJson.scripts["lint:rust:portable"]).toBe(
+      "cargo fmt --all -- --check && cargo clippy -p rion-core -p rion-platform --all-targets --no-deps -- -D warnings"
+    );
+    expect(packageJson.scripts["test:rust:portable"]).toBe(
+      "cargo test -p rion-core -p rion-platform --all-targets"
+    );
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
     expect(workflow).toContain("pnpm run test:native:system-input");

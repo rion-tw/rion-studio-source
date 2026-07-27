@@ -3653,6 +3653,10 @@ impl SystemRuntimeExecutor {
     }
 
     fn load_roles(&self, roles: Vec<EmbeddedRoleLoadEffectRecord>) -> RuntimeResult<()> {
+        let mut pending_navigations = Vec::with_capacity(roles.len());
+        let restore_attestation =
+            std::env::var_os("RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT").is_some();
+
         for role in roles {
             if !is_current_system_engine(role.resolved_engine) {
                 return Err(RuntimeError::new(
@@ -3677,8 +3681,6 @@ impl SystemRuntimeExecutor {
                 (surface.webview.clone(), Arc::clone(&surface.navigation))
             };
             let url = checked_web_url(&role.url)?;
-            let restore_attestation =
-                std::env::var_os("RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_OUTPUT").is_some();
             if let Ok(mut state) = self.state()
                 && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
                 && let Some(role_surface) = state
@@ -3709,16 +3711,23 @@ impl SystemRuntimeExecutor {
             surface
                 .set_zoom(role.zoom_factor)
                 .map_err(RuntimeError::tauri)?;
+            pending_navigations.push((role.role_id, surface, navigation));
+        }
+
+        // Start every role navigation before waiting for any one of them. A workspace can
+        // contain up to nine roles; waiting inside the loop serialized the network wait and
+        // made one slow page delay every role behind it.
+        for (role_id, surface, navigation) in pending_navigations {
             navigation
                 .wait()
                 .map_err(|message| RuntimeError::new("TAURI_NAVIGATION_FAILED", message))?;
             if restore_attestation {
                 eprintln!(
                     "Runtime restore attestation: navigation finished for {}.",
-                    role.role_id
+                    role_id
                 );
             }
-            self.reassert_role_keys(&role.role_id, &surface)?;
+            self.reassert_role_keys(&role_id, &surface)?;
         }
         Ok(())
     }

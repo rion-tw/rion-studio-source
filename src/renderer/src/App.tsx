@@ -21,7 +21,6 @@ import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigatio
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
-import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
@@ -331,7 +330,8 @@ export function App(): JSX.Element {
   });
   const busyRoleIds = roleWorkflow.busyRoleIds;
   const { openListForRole } = macroWorkflow;
-  const { initialLoadState, setError } = data;
+  const { initialLoadState, loadData, setError } = data;
+  const { reload: reloadLegal } = legal;
 
   useEffect(() => {
     if (initialLoadState !== "ready" || data.error === null) {
@@ -403,46 +403,21 @@ export function App(): JSX.Element {
     };
   }, [hasBridge, initialLoadState, navigateToMacros, openListForRole, setError]);
 
-  useEffect(() => {
-    if (!hasBridge || initialLoadState === "loading" || legal.isLoading) {
-      return;
-    }
+  const retryInitialLoad = useCallback(() => {
+    void loadData({ markInitialLoad: true });
+    void reloadLegal();
+  }, [loadData, reloadLegal]);
+  const initialBootFailed = data.initialLoadState === "failed" || legal.error !== null;
+  const initialBootError = data.initialLoadState === "failed" ? data.error : legal.error;
 
-    let isDisposed = false;
-    let cancelScheduledPaint = (): void => undefined;
-    const notifyAfterSettledPaint = (): void => {
-      cancelScheduledPaint = scheduleAfterTwoAnimationFrames(() => {
-        if (isDisposed) {
-          return;
-        }
-
-        if (document.querySelector("[data-renderer-pending]")) {
-          notifyAfterSettledPaint();
-          return;
-        }
-
-        void window.rionStudio.notifyAppReady(initialLoadState).catch((readyError) => {
-          console.error("Failed to notify the main process that the renderer is ready.", readyError);
-        });
-      });
-    };
-
-    notifyAfterSettledPaint();
-
-    return () => {
-      isDisposed = true;
-      cancelScheduledPaint();
-    };
-  }, [hasBridge, initialLoadState, legal.isLoading]);
-
-  if (hasBridge && (data.initialLoadState !== "ready" || legal.isLoading)) {
+  if (hasBridge && (data.initialLoadState !== "ready" || legal.status === null)) {
     return (
       <BootLoadingScreen
-        error={data.error}
+        error={initialBootError}
         language={preferences.language}
-        state={data.initialLoadState === "failed" ? "failed" : "loading"}
+        state={initialBootFailed ? "failed" : "loading"}
         t={preferences.t}
-        onRetry={() => void data.loadData({ markInitialLoad: true })}
+        onRetry={retryInitialLoad}
       />
     );
   }

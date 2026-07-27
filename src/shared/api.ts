@@ -1,7 +1,6 @@
 import type {
   AcceptLegalDocumentsInput,
   AppLanguage,
-  AppRendererReadyState,
   AppSnapshot,
   AppUpdateStatus,
   AppWindowState,
@@ -63,7 +62,7 @@ import type {
 } from "./types";
 
 export interface RionStudioApi {
-  notifyAppReady: (state: AppRendererReadyState) => Promise<void>;
+  notifyRendererReady: () => Promise<void>;
   getAppSnapshot: () => Promise<AppSnapshot>;
   getCurrentWindowState: () => Promise<AppWindowState>;
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;

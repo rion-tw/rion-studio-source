@@ -21,8 +21,46 @@ import type {
   UpdateGameInput,
   UpdateRoleInput
 } from "../../../shared/types";
+import { withTimeout } from "../app/withTimeout";
 
 type Listener = (...payload: never[]) => void;
+type Unlisten = () => void;
+type ListenerRegistration = () => Promise<Unlisten>;
+
+export const TAURI_BRIDGE_TIMEOUT_MS = 10_000;
+
+export async function registerBridgeListeners(
+  registrations: ListenerRegistration[],
+  timeoutMs = TAURI_BRIDGE_TIMEOUT_MS
+): Promise<Unlisten> {
+  let cancelled = false;
+  const unlisteners: Unlisten[] = [];
+  const pending = registrations.map(async (register) => {
+    const unlisten = await register();
+    if (cancelled) {
+      unlisten();
+      return;
+    }
+    unlisteners.push(unlisten);
+  });
+
+  try {
+    await withTimeout(
+      Promise.all(pending),
+      timeoutMs,
+      `The desktop event bridge did not become ready within ${timeoutMs / 1000} seconds.`
+    );
+  } catch (error) {
+    cancelled = true;
+    unlisteners.splice(0).forEach((unlisten) => unlisten());
+    throw error;
+  }
+
+  return () => {
+    cancelled = true;
+    unlisteners.splice(0).forEach((unlisten) => unlisten());
+  };
+}
 
 function gameCreateInput(input: CreateGameInput): Extract<
   CoreCommand,
@@ -131,6 +169,11 @@ function isTauriRuntime(): boolean {
   return Reflect.has(window, "__TAURI_INTERNALS__");
 }
 
+export async function reportRendererStartupFailure(message: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invokeShell("rendererStartupFailed", [message]);
+}
+
 export async function installTauriBridgeIfNeeded(): Promise<void> {
   if (window.rionStudio || !isTauriRuntime()) return;
 
@@ -187,79 +230,79 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     await Promise.all(jobs);
   };
 
-  const unlistenCoreEvents = await listen<CoreEvent[]>("rion://core-events", ({ payload }) => {
-    for (const event of payload) {
-      switch (event.type) {
-        case "stateChanged":
-          void refreshCollections(event.changedCollections);
-          break;
-        case "browserStatuses":
-          emit("roleStatuses", event.statuses);
-          void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
-            "embeddedRuntimeState"
-          ).then((runtimeState) => emit("runtimeState", runtimeState));
-          break;
-        case "macroStatuses":
-          emit("macroStatuses", event.statuses);
-          break;
-        case "compatibilityStatuses":
-          void refreshCollections(["compatibilityReports"]);
-          break;
-        case "logEntriesCaptured":
-          event.entries.forEach((entry) => emit("logEntry", entry));
-          break;
-        case "chromeProfileImportProgress":
-          emit("chromeProfileImportProgress", event.progress);
-          break;
-        case "legacySessionsRestored":
-          emit("legacySessionsRestored", event.records);
-          break;
-        case "coreEffects":
-          // The Rust Tauri executor consumes effect events before renderer delivery.
-          break;
+  const unlistenBridge = await registerBridgeListeners([
+    () => listen<CoreEvent[]>("rion://core-events", ({ payload }) => {
+      for (const event of payload) {
+        switch (event.type) {
+          case "stateChanged":
+            void refreshCollections(event.changedCollections);
+            break;
+          case "browserStatuses":
+            emit("roleStatuses", event.statuses);
+            void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
+              "embeddedRuntimeState"
+            ).then((runtimeState) => emit("runtimeState", runtimeState));
+            break;
+          case "macroStatuses":
+            emit("macroStatuses", event.statuses);
+            break;
+          case "compatibilityStatuses":
+            void refreshCollections(["compatibilityReports"]);
+            break;
+          case "logEntriesCaptured":
+            event.entries.forEach((entry) => emit("logEntry", entry));
+            break;
+          case "chromeProfileImportProgress":
+            emit("chromeProfileImportProgress", event.progress);
+            break;
+          case "legacySessionsRestored":
+            emit("legacySessionsRestored", event.records);
+            break;
+          case "coreEffects":
+            // The Rust Tauri executor consumes effect events before renderer delivery.
+            break;
+        }
       }
-    }
-  });
-  const unlistenRuntimeState = await listen<
-    Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>
-  >("rion://runtime-state", ({ payload }) => emit("runtimeState", payload));
-  const unlistenMacroPage = await listen<Parameters<
-    Parameters<RionStudioApi["onMacroPageRequested"]>[0]
-  >[0]>("rion://macro-page-request", ({ payload }) =>
-    emit("macroPageRequest", payload));
-  const unlistenWindowState = await listen<
-    Awaited<ReturnType<RionStudioApi["getCurrentWindowState"]>>
-  >("rion://window-state", ({ payload }) => emit("windowState", payload));
-  const unlistenDisplays = await listen<
-    Awaited<ReturnType<RionStudioApi["listDisplays"]>>
-  >("rion://displays", ({ payload }) => emit("displays", payload));
-  const unlistenUpdates = await listen<
-    Awaited<ReturnType<RionStudioApi["getUpdateStatus"]>>
-  >("rion://update-status", ({ payload }) => emit("updateStatus", payload));
-  const unlistenShellErrors = await listen<{ code: string; message: string }>(
-    "rion://shell-error",
-    ({ payload }) => console.error(`[${payload.code}] ${payload.message}`)
-  );
-  const unlistenQuickMenuRestore = await listen("rion://quick-menu-restore", () => {
-    void invokeShell("restoreSavedGameWindows", [{ scope: "all" }])
-      .then(() => invokeShell("refreshQuickMenu"))
-      .catch((error) => console.error("Quick Menu restore failed.", error));
-  });
+    }),
+    () => listen<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
+      "rion://runtime-state",
+      ({ payload }) => emit("runtimeState", payload)
+    ),
+    () => listen<Parameters<Parameters<RionStudioApi["onMacroPageRequested"]>[0]>[0]>(
+      "rion://macro-page-request",
+      ({ payload }) => emit("macroPageRequest", payload)
+    ),
+    () => listen<Awaited<ReturnType<RionStudioApi["getCurrentWindowState"]>>>(
+      "rion://window-state",
+      ({ payload }) => emit("windowState", payload)
+    ),
+    () => listen<Awaited<ReturnType<RionStudioApi["listDisplays"]>>>(
+      "rion://displays",
+      ({ payload }) => emit("displays", payload)
+    ),
+    () => listen<Awaited<ReturnType<RionStudioApi["getUpdateStatus"]>>>(
+      "rion://update-status",
+      ({ payload }) => emit("updateStatus", payload)
+    ),
+    () => listen<{ code: string; message: string }>(
+      "rion://shell-error",
+      ({ payload }) => console.error(`[${payload.code}] ${payload.message}`)
+    ),
+    () => listen("rion://quick-menu-restore", () => {
+      void invokeShell("restoreSavedGameWindows", [{ scope: "all" }])
+        .then(() => invokeShell("refreshQuickMenu"))
+        .catch((error) => console.error("Quick Menu restore failed.", error));
+    })
+  ]);
   window.addEventListener("pagehide", () => {
-    unlistenCoreEvents();
-    unlistenRuntimeState();
-    unlistenMacroPage();
-    unlistenWindowState();
-    unlistenDisplays();
-    unlistenUpdates();
-    unlistenShellErrors();
-    unlistenQuickMenuRestore();
+    unlistenBridge();
   }, { once: true });
 
   const api: RionStudioApi = {
-    notifyAppReady: async (state) => {
-      await invokeShell("rendererReady", [state]);
-      if (state === "ready") await maybeAutoRestoreSavedWindows();
+    notifyRendererReady: async () => {
+      await invokeShell("rendererReady");
+      void maybeAutoRestoreSavedWindows()
+        .catch((error) => console.error("Saved Game Window restore failed.", error));
     },
     getAppSnapshot: () => invokeShell("appSnapshot"),
     getCurrentWindowState: () => invokeShell("currentWindowState"),

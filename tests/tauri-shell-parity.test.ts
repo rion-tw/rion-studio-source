@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri shell parity guard", () => {
   it("keeps the hidden-inset-equivalent main window and bundled startup failure UI", async () => {
-    const [baseSource, macSource, shell, startup] = await Promise.all([
+    const [baseSource, macSource, shell, startup, startupFallback] = await Promise.all([
       readFile("src-tauri/tauri.conf.json", "utf8"),
       readFile("src-tauri/tauri.macos.conf.json", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
-      readFile("src/renderer/index.html", "utf8")
+      readFile("src/renderer/index.html", "utf8"),
+      readFile("src/renderer/src/app/startupFallback.ts", "utf8")
     ]);
     const base = JSON.parse(baseSource);
     const mac = JSON.parse(macSource);
@@ -28,11 +29,18 @@ describe("Tauri shell parity guard", () => {
     });
     expect(mac.app.windows[0].windowEffects.effects).toContain("underWindowBackground");
     expect(shell).toContain("renderer_ready");
+    expect(shell).toContain("StartupWindowState");
+    expect(shell).toContain("reveal_once()");
+    expect(shell).toContain("PageLoadEvent::Finished");
     expect(shell).toContain("schedule_resize_window");
     expect(shell).toContain("rion-runtime-focus-persist");
     expect(shell).toContain("show_startup_failure");
-    expect(shell).toContain("Renderer startup timed out");
-    expect(startup).toContain("__rionShowStartupFailure");
+    expect(shell).toContain("did not become ready within 15 seconds");
+    expect(shell).toContain('"rendererStartupFailed"');
+    expect(startupFallback).toContain("__rionShowStartupFailure");
+    expect(startup).toContain("startupFallback.ts");
+    expect(startup).toContain("boot-fallback-error-mark");
+    expect(startup).toContain("prefers-reduced-motion: reduce");
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {

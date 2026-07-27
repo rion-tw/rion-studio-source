@@ -6,10 +6,13 @@ import { App } from "./App";
 import { AppRouteError } from "./components/AppRouteError";
 import { AppWindowStateSync } from "./components/AppWindowStateSync";
 import { ConfirmationProvider } from "./components/ConfirmationDialog";
-import { installTauriBridgeIfNeeded } from "./tauri/installTauriBridge";
+import { RendererReadyReporter } from "./components/RendererReadyReporter";
+import { showStartupFailure, startupFailureMessage } from "./app/startupFallback";
+import {
+  installTauriBridgeIfNeeded,
+  reportRendererStartupFailure
+} from "./tauri/installTauriBridge";
 import "./styles.css";
-
-await installTauriBridgeIfNeeded();
 
 function detectPlatform(): "linux" | "mac" | "windows" {
   const platform = navigator.platform.toLowerCase();
@@ -26,24 +29,50 @@ function detectPlatform(): "linux" | "mac" | "windows" {
   return "linux";
 }
 
-document.documentElement.dataset.platform = detectPlatform();
-document.documentElement.dataset.windowFullscreen = "false";
-
-const router = createHashRouter([
-  {
-    path: "*",
-    element: (
-      <ConfirmationProvider>
-        <App />
-      </ConfirmationProvider>
-    ),
-    errorElement: <AppRouteError />
+async function bootstrapRenderer(): Promise<void> {
+  try {
+    await installTauriBridgeIfNeeded();
+  } catch (error) {
+    const message = startupFailureMessage(error);
+    showStartupFailure(message);
+    void reportRendererStartupFailure(message).catch(() => undefined);
+    return;
   }
-]);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <AppWindowStateSync />
-    <RouterProvider router={router} />
-  </React.StrictMode>
-);
+  document.documentElement.dataset.platform = detectPlatform();
+  document.documentElement.dataset.windowFullscreen = "false";
+
+  const router = createHashRouter([
+    {
+      path: "*",
+      element: (
+        <ConfirmationProvider>
+          <App />
+        </ConfirmationProvider>
+      ),
+      errorElement: <AppRouteError />
+    }
+  ]);
+  const rootElement = document.getElementById("root");
+  if (!rootElement) {
+    showStartupFailure(new Error("The renderer root element is unavailable."));
+    return;
+  }
+
+  const root = ReactDOM.createRoot(rootElement);
+  const handleRendererReadyFailure = (error: unknown): void => {
+    const message = startupFailureMessage(error);
+    root.unmount();
+    showStartupFailure(message);
+    void reportRendererStartupFailure(message).catch(() => undefined);
+  };
+  root.render(
+    <React.StrictMode>
+      <RendererReadyReporter onFailure={handleRendererReadyFailure} />
+      <AppWindowStateSync />
+      <RouterProvider router={router} />
+    </React.StrictMode>
+  );
+}
+
+void bootstrapRenderer();

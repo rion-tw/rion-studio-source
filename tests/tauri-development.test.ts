@@ -29,6 +29,9 @@ describe("Tauri development and release commands", () => {
     expect(viteSource).toContain("manualChunks");
     expect(viteSource).toContain('return "vendor"');
     expect(launcher).toContain("environmentWithCargoExecutable");
+    expect(launcher).toContain("assertDevRendererPortAvailable");
+    expect(launcher.indexOf("await assertDevRendererPortAvailable()"))
+      .toBeLessThan(launcher.indexOf("await environmentWithCargoExecutable()"));
     expect(launcher).toContain("configureMacOsDevBundleRunner(environment)");
     expect(launcher).toContain("CARGO_TARGET_${architecture}_APPLE_DARWIN_RUNNER");
     expect(macRunner).toContain('"Rion Studio Dev.app"');

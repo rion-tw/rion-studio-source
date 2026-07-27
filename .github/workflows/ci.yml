@@ -161,6 +161,7 @@ jobs:
           pnpm run test:native:macro-game -- --skip-system-input
           pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
+          pnpm run test:native:local-storage-sync
           pnpm run test:native:file-operations
 
       - name: Verify Windows System WebView parity
@@ -171,6 +172,7 @@ jobs:
           pnpm run test:native:macro-game -- --skip-system-input
           pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
+          pnpm run test:native:local-storage-sync
           pnpm run test:native:file-operations
 
       - name: Build target-platform Tauri bundle
@@ -186,6 +188,7 @@ jobs:
           pnpm run test:native:macro-game -- --executable "${executable}" --skip-system-input
           pnpm run test:native:session-import -- --executable "${executable}" --skip-system-input
           pnpm run test:native:runtime-restore -- --executable "${executable}"
+          pnpm run test:native:local-storage-sync -- --executable "${executable}"
           pnpm run test:native:file-operations -- --executable "${executable}"
 
       - name: Verify packaged Windows System WebView behavior
@@ -196,4 +199,5 @@ jobs:
           pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
+          pnpm run test:native:local-storage-sync -- --executable target/release/rion-tauri.exe
           pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe

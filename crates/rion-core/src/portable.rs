@@ -32,7 +32,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-const CURRENT_SCHEMA: u64 = 9;
+const CURRENT_SCHEMA: u64 = 10;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -44,6 +44,7 @@ struct BuiltinGame {
     key: &'static str,
     name: &'static str,
     launch_url: &'static str,
+    local_storage_sync_keys: &'static [&'static str],
 }
 
 const BUILTIN_GAMES: &[BuiltinGame] = &[
@@ -52,12 +53,14 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
         key: "flyff-universe",
         name: "Flyff Universe",
         launch_url: "https://universe.flyff.com/play",
+        local_storage_sync_keys: &["game_client_settings"],
     },
     BuiltinGame {
         id: "builtin-feifei-infinite-universe",
         key: "feifei-infinite-universe",
         name: "飞飞：无限宇宙",
         launch_url: "https://ffcli.ruiwoo.cn",
+        local_storage_sync_keys: &[],
     },
 ];
 
@@ -168,7 +171,7 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
     let mut game = Map::new();
     game.insert("id".to_owned(), json!(id));
     game.insert("source".to_owned(), json!(kind));
-    if let Some(key) = builtin_key {
+    if let Some(key) = &builtin_key {
         game.insert("builtinKey".to_owned(), json!(key));
     }
     game.insert(
@@ -184,6 +187,39 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
             "defaultLaunchUrl",
             "game",
         )?)?),
+    );
+    let local_storage_sync_keys = source
+        .get("localStorageSyncKeys")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable localStorage sync key is invalid"))
+                })
+                .collect::<CoreResult<Vec<_>>>()
+        })
+        .transpose()?
+        .unwrap_or_else(|| {
+            builtin_key
+                .as_deref()
+                .and_then(builtin_by_key)
+                .map(|game| {
+                    game.local_storage_sync_keys
+                        .iter()
+                        .map(|value| (*value).to_owned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+    game.insert(
+        "localStorageSyncKeys".to_owned(),
+        json!(crate::domain::normalize_local_storage_sync_keys(
+            local_storage_sync_keys
+        )?),
     );
     if source.get("inferred").and_then(Value::as_bool) == Some(true) {
         game.insert("inferred".to_owned(), Value::Bool(true));
@@ -226,6 +262,9 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
     copy_optional_image(source, &mut role, "coverImageDataUrl")?;
     if let Some(color) = optional_string(source.get("coverImageDominantColor")) {
         role.insert("coverImageDominantColor".to_owned(), json!(color));
+    }
+    if let Some(source_role_id) = optional_string(source.get("localStorageSourceRoleId")) {
+        role.insert("localStorageSourceRoleId".to_owned(), json!(source_role_id));
     }
     Ok(Value::Object(role))
 }
@@ -302,7 +341,8 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                     "source": "builtin",
                     "builtinKey": builtin.key,
                     "name": builtin.name,
-                    "defaultLaunchUrl": builtin.launch_url
+                    "defaultLaunchUrl": builtin.launch_url,
+                    "localStorageSyncKeys": builtin.local_storage_sync_keys
                 }));
                 game_ids.insert(builtin.id.to_owned());
                 game_by_url.insert(launch_url.clone(), builtin.id.to_owned());
@@ -320,7 +360,8 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                 "inferred": true,
                 "source": "custom",
                 "name": name,
-                "defaultLaunchUrl": launch_url
+                "defaultLaunchUrl": launch_url,
+                "localStorageSyncKeys": []
             }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());
@@ -1215,6 +1256,7 @@ fn build_import_plan(
                     updated.cover_image_data_url = game.cover_image_data_url.clone();
                 }
                 updated.default_launch_url = game.default_launch_url.clone();
+                updated.local_storage_sync_keys = game.local_storage_sync_keys.clone();
                 updated.updated_at = timestamp.clone();
                 if game_equivalent(&existing, &updated)? {
                     operations.games.unchanged += 1;
@@ -1271,6 +1313,7 @@ fn build_import_plan(
                     .then_some(source.cover_image_data_url)
                     .flatten(),
                 default_launch_url: source.default_launch_url,
+                local_storage_sync_keys: source.local_storage_sync_keys,
                 created_at: timestamp.clone(),
                 updated_at: timestamp.clone(),
             };
@@ -1316,6 +1359,7 @@ fn build_import_plan(
                     .cover_image_data_url
                     .as_ref()
                     .and(role.cover_image_dominant_color.clone());
+                updated.local_storage_source_role_id = None;
                 updated.updated_at = timestamp.clone();
                 if role_equivalent(&existing, &updated)? {
                     operations.roles.unchanged += 1;
@@ -1335,6 +1379,7 @@ fn build_import_plan(
                         .cover_image_data_url
                         .as_ref()
                         .and(role.cover_image_dominant_color.clone()),
+                    local_storage_source_role_id: None,
                     created_at: timestamp.clone(),
                     updated_at: timestamp.clone(),
                 };
@@ -1342,6 +1387,68 @@ fn build_import_plan(
                 snapshot.roles.push(created);
                 operations.roles.create += 1;
             }
+        }
+
+        for role in &data.roles {
+            let Some(imported_source_id) = role.local_storage_source_role_id.as_deref() else {
+                continue;
+            };
+            let Some(target_id) = role_id_map.get(&role.id).cloned() else {
+                continue;
+            };
+            let Some(source_id) = role_id_map.get(imported_source_id).cloned() else {
+                warnings.push(warning(
+                    "ROLE_LOCAL_STORAGE_SOURCE_MISSING",
+                    Some(role.name.clone()),
+                    None,
+                    None,
+                ));
+                continue;
+            };
+            let portable_source_is_root = data
+                .roles
+                .iter()
+                .find(|candidate| candidate.id == imported_source_id)
+                .is_some_and(|candidate| candidate.local_storage_source_role_id.is_none());
+            let portable_target_has_dependents = data.roles.iter().any(|candidate| {
+                candidate.local_storage_source_role_id.as_deref() == Some(role.id.as_str())
+            });
+            if !portable_source_is_root || portable_target_has_dependents {
+                warnings.push(warning(
+                    "ROLE_LOCAL_STORAGE_BINDING_INVALID",
+                    Some(role.name.clone()),
+                    None,
+                    None,
+                ));
+                continue;
+            }
+            let Some(target_index) = snapshot
+                .roles
+                .iter()
+                .position(|candidate| candidate.id == target_id)
+            else {
+                continue;
+            };
+            let mut candidate = snapshot.roles[target_index].clone();
+            candidate.local_storage_source_role_id = Some(source_id);
+            let has_managed_keys = snapshot
+                .games
+                .iter()
+                .find(|game| game.id == candidate.game_id)
+                .is_some_and(|game| !game.local_storage_sync_keys.is_empty());
+            if !has_managed_keys
+                || crate::domain::validate_role_local_storage_binding(&candidate, &snapshot.roles)
+                    .is_err()
+            {
+                warnings.push(warning(
+                    "ROLE_LOCAL_STORAGE_BINDING_INVALID",
+                    Some(role.name.clone()),
+                    None,
+                    None,
+                ));
+                continue;
+            }
+            snapshot.roles[target_index] = candidate;
         }
     }
 
@@ -2060,6 +2167,7 @@ fn portable_game(game: &StateGameRecord) -> PortableGameRecord {
         icon_image_data_url: game.icon_image_data_url.clone(),
         cover_image_data_url: game.cover_image_data_url.clone(),
         default_launch_url: game.default_launch_url.clone(),
+        local_storage_sync_keys: game.local_storage_sync_keys.clone(),
     }
 }
 
@@ -2073,6 +2181,7 @@ fn portable_role(role: &StateRoleRecord) -> PortableRoleRecord {
         notes: role.notes.clone(),
         cover_image_data_url: role.cover_image_data_url.clone(),
         cover_image_dominant_color: role.cover_image_dominant_color.clone(),
+        local_storage_source_role_id: role.local_storage_source_role_id.clone(),
     }
 }
 
@@ -2470,20 +2579,20 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_every_supported_portable_schema_to_v9() {
-        for schema in 1..=9 {
+    fn normalizes_every_supported_portable_schema_to_v10() {
+        for schema in 1..=10 {
             let value = normalize(&fixture(schema)).unwrap();
-            assert_eq!(value["schemaVersion"], 9);
+            assert_eq!(value["schemaVersion"], 10);
             assert!(!value["roles"][0]["gameId"].as_str().unwrap().is_empty());
             assert_eq!(value["macros"][0]["enabled"], true);
             assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
         }
     }
 
-    // Historical parity evidence retained after the portable schema advanced to v9.
+    // Historical parity evidence retained after the portable schema advanced to v10.
     #[test]
     fn normalizes_every_supported_portable_schema_to_v7() {
-        normalizes_every_supported_portable_schema_to_v9();
+        normalizes_every_supported_portable_schema_to_v10();
     }
 
     #[test]
@@ -2625,7 +2734,7 @@ mod tests {
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         });
-        let future = fixture(9).replace("\"schemaVersion\":9", "\"schemaVersion\":10");
+        let future = fixture(10).replace("\"schemaVersion\":10", "\"schemaVersion\":11");
         assert!(normalize(&future).is_err());
     }
 
@@ -2667,6 +2776,82 @@ mod tests {
         assert!(prepared.result.selection.roles);
         assert!(prepared.result.selection.macros);
         assert!(!prepared.result.selection.launch_workspaces);
+    }
+
+    #[test]
+    fn portable_v10_remaps_role_local_storage_bindings_and_warns_when_missing() {
+        let mut source = fixture_value(10);
+        source["games"][0]["localStorageSyncKeys"] = json!(["game_client_settings"]);
+        source["roles"] = json!([
+            {"id":"master","gameId":"g1","name":"Master","launchUrl":"https://example.test/play","notes":""},
+            {"id":"follower","gameId":"g1","name":"Follower","launchUrl":"https://example.test/play","notes":"","localStorageSourceRoleId":"master"}
+        ]);
+        source["launchWorkspaces"] = json!([]);
+        source["macros"] = json!([]);
+
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &source.to_string(),
+                "/tmp/binding.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let master = prepared
+            .snapshot
+            .roles
+            .iter()
+            .find(|role| role.name == "Master")
+            .unwrap();
+        let follower = prepared
+            .snapshot
+            .roles
+            .iter()
+            .find(|role| role.name == "Follower")
+            .unwrap();
+        assert_eq!(
+            follower.local_storage_source_role_id.as_deref(),
+            Some(master.id.as_str())
+        );
+
+        source["roles"][1]["localStorageSourceRoleId"] = json!("missing");
+        let preview = runtime
+            .preview(
+                &source.to_string(),
+                "/tmp/missing.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        assert!(
+            prepared
+                .snapshot
+                .roles
+                .iter()
+                .all(|role| role.local_storage_source_role_id.is_none())
+        );
+        assert!(
+            prepared
+                .result
+                .warnings
+                .iter()
+                .any(|warning| warning.code == "ROLE_LOCAL_STORAGE_SOURCE_MISSING")
+        );
     }
 
     #[test]
@@ -2937,7 +3122,7 @@ mod tests {
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 9);
+            assert_eq!(exported.schema_version, 10);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);
@@ -4023,7 +4208,7 @@ mod tests {
     }
 
     #[test]
-    fn export_is_v9_and_never_emits_internal_timestamps_or_browser_session_source() {
+    fn export_is_v10_and_never_emits_internal_timestamps_or_browser_session_source() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -4039,7 +4224,7 @@ mod tests {
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         crate::v1_case!("portable-profile-3dc36f8d51a0", {
-            assert_eq!(value["schemaVersion"], 9);
+            assert_eq!(value["schemaVersion"], 10);
             assert_eq!(value["appVersion"], "2.0.0");
             for field in [
                 "authState",

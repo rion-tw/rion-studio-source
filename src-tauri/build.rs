@@ -40,6 +40,7 @@ fn main() {
         "rion_core_invoke",
         "rion_divider_pointer",
         "rion_overlay_request",
+        "rion_local_storage_sync_changed",
         "rion_runtime_audio_state",
         "rion_runtime_tab_action",
         "rion_dispatch_core_effect_results",

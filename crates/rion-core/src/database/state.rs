@@ -39,7 +39,7 @@ use crate::model::{
     WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 12;
+pub(crate) const SCHEMA_VERSION: u32 = 13;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -657,6 +657,13 @@ fn apply_domain_mutation(
                         message: "Role not found.".to_owned(),
                     });
                 }
+                for (ordinal, role) in roles.iter_mut().enumerate() {
+                    if role.local_storage_source_role_id.as_deref() == Some(id.as_str()) {
+                        role.local_storage_source_role_id = None;
+                        role.updated_at = chrono::Utc::now().to_rfc3339();
+                        upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
+                    }
+                }
                 let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
                     &transaction,
                     "launchWorkspaces",
@@ -684,7 +691,7 @@ fn apply_domain_mutation(
             }
             StateMutation::RolesDelete { ids, operation_ids } => {
                 let requested = normalize_bulk_ids(ids)?;
-                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
                 let existing_ids = roles
                     .iter()
                     .map(|role| role.id.as_str())
@@ -700,6 +707,18 @@ fn apply_domain_mutation(
                     .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
                     .collect::<Vec<_>>();
                 let deleted = deleted_ids.iter().collect::<std::collections::HashSet<_>>();
+                for (ordinal, role) in roles.iter_mut().enumerate() {
+                    if role
+                        .local_storage_source_role_id
+                        .as_ref()
+                        .is_some_and(|source_id| deleted.contains(source_id))
+                        && !deleted.contains(&role.id)
+                    {
+                        role.local_storage_source_role_id = None;
+                        role.updated_at = chrono::Utc::now().to_rfc3339();
+                        upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
+                    }
+                }
                 let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
                     &transaction,
                     "launchWorkspaces",
@@ -1825,8 +1844,37 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 13 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        add_local_storage_sync_contracts(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (13, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
     Ok(())
+}
+
+fn add_local_storage_sync_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
+    rewrite_entity_payloads(transaction, "games", |object| {
+        if !object.contains_key("localStorageSyncKeys") {
+            let defaults =
+                if object.get("id").and_then(Value::as_str) == Some("builtin-flyff-universe") {
+                    json!(["game_client_settings"])
+                } else {
+                    json!([])
+                };
+            object.insert("localStorageSyncKeys".to_owned(), defaults);
+        }
+    })
 }
 
 fn remove_browser_engine_option_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
@@ -3524,6 +3572,7 @@ mod tests {
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
+                local_storage_sync_keys: Vec::new(),
             }),
         )
         .unwrap();
@@ -3559,6 +3608,7 @@ mod tests {
                 notes: None,
                 cover_image_data_url: None,
                 cover_image_dominant_color: None,
+                local_storage_source_role_id: None,
             }),
         )
         .unwrap();
@@ -3897,6 +3947,10 @@ mod tests {
                     "id":"r1","gameId":"g1","name":"Role","launchUrl":"https://example.test/play",
                     "notes":"","browserSessionSource":"embedded",
                     "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+                },{
+                    "id":"r2","gameId":"g1","name":"Follower","launchUrl":"https://example.test/play",
+                    "notes":"","localStorageSourceRoleId":"r1",
+                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
                 }],
                 "launchWorkspaces":[{
                     "id":"w1","name":"Workspace","template":"single","browserLaunchMode":"inherit",
@@ -3934,7 +3988,9 @@ mod tests {
         .unwrap();
 
         let snapshot = read_snapshot(&connection).unwrap();
-        assert!(snapshot["roles"].as_array().unwrap().is_empty());
+        assert_eq!(snapshot["roles"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["roles"][0]["id"], "r2");
+        assert!(snapshot["roles"][0]["localStorageSourceRoleId"].is_null());
         assert!(snapshot["launchWorkspaces"][0]["slots"][0]["roleId"].is_null());
         assert!(
             snapshot["macros"][0]["roleIds"]
@@ -3952,6 +4008,52 @@ mod tests {
                 .unwrap(),
             "committed"
         );
+    }
+
+    #[test]
+    fn schema_thirteen_adds_flyff_local_storage_sync_defaults_only() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        replace_snapshot(
+            &mut connection,
+            &json!({
+                "games":[
+                    {"id":"builtin-flyff-universe","source":"builtin","builtinKey":"flyff-universe","name":"Flyff Universe","defaultLaunchUrl":"https://universe.flyff.com/play","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
+                    {"id":"custom","source":"custom","name":"Custom","defaultLaunchUrl":"https://example.test/play","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "roles":[],"launchWorkspaces":[],"macros":[],"compatibilityReports":[]
+            }),
+        )
+        .unwrap();
+        for id in ["builtin-flyff-universe", "custom"] {
+            let payload: String = connection
+                .query_row("SELECT payload_json FROM games WHERE id=?1", [id], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            let mut value: Value = serde_json::from_str(&payload).unwrap();
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove("localStorageSyncKeys");
+            connection
+                .execute(
+                    "UPDATE games SET payload_json=?2 WHERE id=?1",
+                    rusqlite::params![id, serde_json::to_string(&value).unwrap()],
+                )
+                .unwrap();
+        }
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=13", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+        let snapshot = read_snapshot(&connection).unwrap();
+        assert_eq!(
+            snapshot["games"][0]["localStorageSyncKeys"],
+            json!(["game_client_settings"])
+        );
+        assert_eq!(snapshot["games"][1]["localStorageSyncKeys"], json!([]));
     }
 
     #[test]
@@ -4245,7 +4347,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            12
+            SCHEMA_VERSION
         );
     }
 

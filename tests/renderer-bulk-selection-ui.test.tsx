@@ -259,6 +259,7 @@ function game(id: string, name: string): Game {
     source: "custom",
     name,
     defaultLaunchUrl: `https://example.test/${id}`,
+    localStorageSyncKeys: [],
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };

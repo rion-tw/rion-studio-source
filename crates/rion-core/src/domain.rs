@@ -27,6 +27,9 @@ use crate::{
 const DEFAULT_LAUNCH_URL: &str = "https://universe.flyff.com/play";
 const MAX_IMAGE_DATA_URL_LENGTH: usize = 2_000_128;
 const MAX_ROLE_COVER_DATA_URL_LENGTH: usize = 1_500_000;
+const MAX_LOCAL_STORAGE_SYNC_KEYS: usize = 32;
+const MAX_LOCAL_STORAGE_SYNC_KEY_BYTES: usize = 256;
+const FLYFF_LOCAL_STORAGE_SYNC_KEY: &str = "game_client_settings";
 
 pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
     GameBrowserSettingsRecord {
@@ -215,6 +218,7 @@ pub fn create_game(
             "GAME_COVER_INVALID",
         )?,
         default_launch_url: normalize_http_url(&input.default_launch_url, "GAME_URL_INVALID")?,
+        local_storage_sync_keys: normalize_local_storage_sync_keys(input.local_storage_sync_keys)?,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -279,6 +283,11 @@ pub fn update_game(
         } else {
             current.cover_image_data_url.clone()
         },
+        local_storage_sync_keys: input
+            .local_storage_sync_keys
+            .map(normalize_local_storage_sync_keys)
+            .transpose()?
+            .unwrap_or_else(|| current.local_storage_sync_keys.clone()),
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
@@ -291,8 +300,9 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         .iter_mut()
         .find(|game| game.id == id)
         .ok_or_else(|| domain("GAME_NOT_BUILTIN", "Only built-in games can be reset."))?;
-    let (builtin_key, name, default_launch_url) = builtin_definition(id)
-        .ok_or_else(|| domain("GAME_NOT_BUILTIN", "Only built-in games can be reset."))?;
+    let (builtin_key, name, default_launch_url, local_storage_sync_keys) =
+        builtin_definition(id)
+            .ok_or_else(|| domain("GAME_NOT_BUILTIN", "Only built-in games can be reset."))?;
     if game.source != "builtin" {
         return Err(domain(
             "GAME_NOT_BUILTIN",
@@ -307,6 +317,10 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         icon_image_data_url: None,
         cover_image_data_url: None,
         default_launch_url: default_launch_url.to_owned(),
+        local_storage_sync_keys: local_storage_sync_keys
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
         created_at: game.created_at.clone(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -368,12 +382,27 @@ pub fn create_role(
             None
         },
         cover_image_data_url: cover,
+        local_storage_source_role_id: normalize_local_storage_source_role_id(
+            input.local_storage_source_role_id,
+        )?,
         created_at: now.clone(),
         updated_at: now,
     };
     if role.notes.len() > 20_000 {
         return Err(domain("ROLE_NOTES_TOO_LONG", "Role notes are too long."));
     }
+    if role.local_storage_source_role_id.is_some()
+        && games
+            .iter()
+            .find(|game| game.id == role.game_id)
+            .is_none_or(|game| game.local_storage_sync_keys.is_empty())
+    {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_KEYS_REQUIRED",
+            "The game has no managed localStorage keys.",
+        ));
+    }
+    validate_role_local_storage_binding(&role, roles)?;
     roles.push(role.clone());
     Ok(role)
 }
@@ -442,9 +471,38 @@ pub fn update_role(
         notes,
         cover_image_data_url: cover,
         cover_image_dominant_color: color,
+        local_storage_source_role_id: if input.set_local_storage_source_role_id {
+            normalize_local_storage_source_role_id(input.local_storage_source_role_id)?
+        } else {
+            current.local_storage_source_role_id.clone()
+        },
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
+    if roles
+        .iter()
+        .any(|candidate| candidate.local_storage_source_role_id.as_deref() == Some(id))
+        && (role.game_id != roles[index].game_id
+            || launch_origin(&role.launch_url)? != launch_origin(&roles[index].launch_url)?)
+    {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_SOURCE_IN_USE",
+            "Unbind dependent roles before changing this source role's game or launch origin.",
+        ));
+    }
+    if role.local_storage_source_role_id != roles[index].local_storage_source_role_id
+        && role.local_storage_source_role_id.is_some()
+        && games
+            .iter()
+            .find(|game| game.id == role.game_id)
+            .is_none_or(|game| game.local_storage_sync_keys.is_empty())
+    {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_KEYS_REQUIRED",
+            "The game has no managed localStorage keys.",
+        ));
+    }
+    validate_role_local_storage_binding(&role, roles)?;
     roles[index] = role.clone();
     Ok(role)
 }
@@ -2053,16 +2111,136 @@ fn ensure_game_exists(games: &[StateGameRecord], game_id: &str) -> CoreResult<()
     }
 }
 
-fn builtin_definition(id: &str) -> Option<(&'static str, &'static str, &'static str)> {
+fn builtin_definition(
+    id: &str,
+) -> Option<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static [&'static str],
+)> {
     match id {
-        "builtin-flyff-universe" => Some(("flyff-universe", "Flyff Universe", DEFAULT_LAUNCH_URL)),
+        "builtin-flyff-universe" => Some((
+            "flyff-universe",
+            "Flyff Universe",
+            DEFAULT_LAUNCH_URL,
+            &[FLYFF_LOCAL_STORAGE_SYNC_KEY],
+        )),
         "builtin-feifei-infinite-universe" => Some((
             "feifei-infinite-universe",
             "飞飞：无限宇宙",
             "https://ffcli.ruiwoo.cn",
+            &[],
         )),
         _ => None,
     }
+}
+
+pub fn normalize_local_storage_sync_keys(values: Vec<String>) -> CoreResult<Vec<String>> {
+    if values.len() > MAX_LOCAL_STORAGE_SYNC_KEYS {
+        return Err(domain(
+            "GAME_LOCAL_STORAGE_SYNC_KEYS_TOO_MANY",
+            "A game can synchronize at most 32 localStorage keys.",
+        ));
+    }
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::with_capacity(values.len());
+    for value in values {
+        let value = value.trim().to_owned();
+        if value.is_empty() || value.len() > MAX_LOCAL_STORAGE_SYNC_KEY_BYTES {
+            return Err(domain(
+                "GAME_LOCAL_STORAGE_SYNC_KEY_INVALID",
+                "localStorage sync keys must be between 1 and 256 UTF-8 bytes.",
+            ));
+        }
+        if seen.insert(value.clone()) {
+            normalized.push(value);
+        }
+    }
+    Ok(normalized)
+}
+
+fn normalize_local_storage_source_role_id(value: Option<String>) -> CoreResult<Option<String>> {
+    value
+        .map(|value| {
+            let value = value.trim().to_owned();
+            if value.is_empty() || value.len() > 128 {
+                Err(domain(
+                    "ROLE_LOCAL_STORAGE_SOURCE_INVALID",
+                    "The localStorage source role is invalid.",
+                ))
+            } else {
+                Ok(value)
+            }
+        })
+        .transpose()
+}
+
+pub fn validate_role_local_storage_binding(
+    role: &StateRoleRecord,
+    roles: &[StateRoleRecord],
+) -> CoreResult<()> {
+    let Some(source_id) = role.local_storage_source_role_id.as_deref() else {
+        return Ok(());
+    };
+    if source_id == role.id {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_SOURCE_SELF",
+            "A role cannot synchronize localStorage from itself.",
+        ));
+    }
+    if roles.iter().any(|candidate| {
+        candidate.local_storage_source_role_id.as_deref() == Some(role.id.as_str())
+    }) {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_SOURCE_HAS_DEPENDENTS",
+            "A source role with dependents cannot depend on another role.",
+        ));
+    }
+    let source = roles
+        .iter()
+        .find(|candidate| candidate.id == source_id)
+        .ok_or_else(|| {
+            domain(
+                "ROLE_LOCAL_STORAGE_SOURCE_NOT_FOUND",
+                "The localStorage source role was not found.",
+            )
+        })?;
+    if source.local_storage_source_role_id.is_some() {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_SOURCE_CHAIN",
+            "A dependent role cannot be used as a localStorage source.",
+        ));
+    }
+    if source.game_id != role.game_id {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_SOURCE_GAME_MISMATCH",
+            "The localStorage source role must belong to the same game.",
+        ));
+    }
+    if launch_origin(&source.launch_url)? != launch_origin(&role.launch_url)? {
+        return Err(domain(
+            "ROLE_LOCAL_STORAGE_SOURCE_ORIGIN_MISMATCH",
+            "The localStorage source role must use the same launch origin.",
+        ));
+    }
+    Ok(())
+}
+
+pub fn launch_origin(value: &str) -> CoreResult<String> {
+    let url = Url::parse(value).map_err(|_| {
+        domain(
+            "ROLE_LAUNCH_URL_INVALID",
+            "Role launch URL must be a valid HTTP or HTTPS URL.",
+        )
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(domain(
+            "ROLE_LAUNCH_URL_INVALID",
+            "Role launch URL must be a valid HTTP or HTTPS URL.",
+        ));
+    }
+    Ok(url.origin().ascii_serialization())
 }
 
 #[derive(Debug, Deserialize)]
@@ -3003,6 +3181,7 @@ mod tests {
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
+                local_storage_sync_keys: Vec::new(),
             };
             let mut games = Vec::new();
             let result = create_game(&mut games, input);
@@ -4173,6 +4352,7 @@ mod tests {
                     default_launch_url: "https://example.test/play".to_owned(),
                     icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
+                    local_storage_sync_keys: Vec::new(),
                 },
             )
             .unwrap();
@@ -4184,6 +4364,7 @@ mod tests {
                         default_launch_url: "https://other.test/play".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
+                        local_storage_sync_keys: Vec::new(),
                     }
                 )
                 .unwrap_err()
@@ -4198,6 +4379,7 @@ mod tests {
                         default_launch_url: "file:///tmp/game".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
+                        local_storage_sync_keys: Vec::new(),
                     }
                 )
                 .is_err()
@@ -4210,6 +4392,7 @@ mod tests {
                         default_launch_url: "https://image.test/play".to_owned(),
                         icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
                         cover_image_data_url: None,
+                        local_storage_sync_keys: Vec::new(),
                     }
                 )
                 .is_err()
@@ -4282,6 +4465,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4302,6 +4486,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4315,6 +4500,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4332,6 +4518,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4367,6 +4554,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4396,6 +4584,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4410,6 +4599,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
+                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -4429,6 +4619,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
+                        local_storage_source_role_id: None,
                     },
                 )
                 .unwrap();
@@ -4448,6 +4639,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4478,6 +4670,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_dominant_color: Some("#123456".to_owned()),
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4500,6 +4693,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4544,6 +4738,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -4564,6 +4759,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: Some("https://example.test/cover.png".to_owned()),
                         cover_image_dominant_color: None,
+                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -4582,6 +4778,7 @@ mod tests {
                             "A".repeat(MAX_ROLE_COVER_DATA_URL_LENGTH)
                         )),
                         cover_image_dominant_color: None,
+                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -4601,6 +4798,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
+                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -4620,6 +4818,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                         cover_image_dominant_color: Some("red".to_owned()),
+                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -4636,5 +4835,98 @@ mod tests {
             assert!(legacy.cover_image_data_url.is_some());
             assert!(legacy.cover_image_dominant_color.is_none());
         });
+    }
+
+    #[test]
+    fn local_storage_sync_keys_are_bounded_normalized_and_reset_for_flyff() {
+        assert_eq!(
+            normalize_local_storage_sync_keys(vec![
+                "  game_client_settings  ".to_owned(),
+                "audio".to_owned(),
+                "game_client_settings".to_owned(),
+            ])
+            .unwrap(),
+            ["game_client_settings", "audio"]
+        );
+        assert!(
+            normalize_local_storage_sync_keys(
+                (0..=MAX_LOCAL_STORAGE_SYNC_KEYS)
+                    .map(|index| format!("key-{index}"))
+                    .collect()
+            )
+            .is_err()
+        );
+        assert!(normalize_local_storage_sync_keys(vec!["界".repeat(86)]).is_err());
+
+        let mut games = vec![game_record(json!({
+            "id":"builtin-flyff-universe","source":"builtin",
+            "builtinKey":"flyff-universe","name":"Flyff Universe",
+            "defaultLaunchUrl":"https://override.test/play",
+            "localStorageSyncKeys":["custom"],
+            "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+        }))];
+        let reset = reset_builtin_game(&mut games, "builtin-flyff-universe").unwrap();
+        assert_eq!(reset.local_storage_sync_keys, ["game_client_settings"]);
+    }
+
+    #[test]
+    fn local_storage_role_binding_rejects_self_cross_scope_and_chains() {
+        let games = [
+            game_record(json!({
+                "id":"g1","source":"custom","name":"One",
+                "defaultLaunchUrl":"https://one.test/play","localStorageSyncKeys":["sync"],
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            })),
+            game_record(json!({
+                "id":"g2","source":"custom","name":"Two",
+                "defaultLaunchUrl":"https://two.test/play","localStorageSyncKeys":["sync"],
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            })),
+        ];
+        let role = |id: &str, game_id: &str, url: &str, source: Option<&str>| {
+            role_record(json!({
+                "id":id,"gameId":game_id,"name":id,"launchUrl":url,"notes":"",
+                "localStorageSourceRoleId":source,
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }))
+        };
+        let master = role("master", "g1", "https://one.test/play", None);
+
+        let self_bound = role("self", "g1", "https://one.test/play", Some("self"));
+        assert_eq!(
+            validate_role_local_storage_binding(&self_bound, std::slice::from_ref(&self_bound))
+                .unwrap_err()
+                .code(),
+            "ROLE_LOCAL_STORAGE_SOURCE_SELF"
+        );
+
+        let cross_game = role("cross", "g2", "https://two.test/play", Some("master"));
+        assert_eq!(
+            validate_role_local_storage_binding(&cross_game, &[master.clone(), cross_game.clone()])
+                .unwrap_err()
+                .code(),
+            "ROLE_LOCAL_STORAGE_SOURCE_GAME_MISMATCH"
+        );
+
+        let cross_origin = role("origin", "g1", "https://other.test/play", Some("master"));
+        assert_eq!(
+            validate_role_local_storage_binding(
+                &cross_origin,
+                &[master.clone(), cross_origin.clone()]
+            )
+            .unwrap_err()
+            .code(),
+            "ROLE_LOCAL_STORAGE_SOURCE_ORIGIN_MISMATCH"
+        );
+
+        let follower = role("follower", "g1", "https://one.test/play", Some("master"));
+        let chained = role("chained", "g1", "https://one.test/play", Some("follower"));
+        assert_eq!(
+            validate_role_local_storage_binding(&chained, &[master, follower, chained.clone()],)
+                .unwrap_err()
+                .code(),
+            "ROLE_LOCAL_STORAGE_SOURCE_CHAIN"
+        );
+        assert_eq!(games.len(), 2);
     }
 }

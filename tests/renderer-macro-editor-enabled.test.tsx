@@ -1357,6 +1357,7 @@ function game(): Game {
     source: "custom",
     name: "Test game",
     defaultLaunchUrl: "https://example.test/play",
+    localStorageSyncKeys: [],
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };

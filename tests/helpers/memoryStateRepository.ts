@@ -46,6 +46,7 @@ export class MemoryStateRepository {
           builtinKey: "flyff-universe",
           name: "Flyff Universe",
           defaultLaunchUrl: "https://universe.flyff.com/play",
+          localStorageSyncKeys: ["game_client_settings"],
           createdAt: timestamp,
           updatedAt: timestamp
         },
@@ -55,6 +56,7 @@ export class MemoryStateRepository {
           builtinKey: "feifei-infinite-universe",
           name: "飞飞：无限宇宙",
           defaultLaunchUrl: "https://ffcli.ruiwoo.cn/",
+          localStorageSyncKeys: [],
           createdAt: timestamp,
           updatedAt: timestamp
         }
@@ -157,6 +159,7 @@ export class MemoryStateRepository {
       source: "custom",
       name: input.name.trim(),
       defaultLaunchUrl: new URL(input.defaultLaunchUrl).toString(),
+      localStorageSyncKeys: input.localStorageSyncKeys,
       ...(typeof input.iconImageDataUrl === "string" && input.iconImageDataUrl
         ? { iconImageDataUrl: input.iconImageDataUrl }
         : {}),
@@ -190,6 +193,9 @@ export class MemoryStateRepository {
         : input.coverImageDataUrl
           ? { coverImageDataUrl: input.coverImageDataUrl }
           : { coverImageDataUrl: undefined }),
+      ...(input.localStorageSyncKeys === undefined
+        ? {}
+        : { localStorageSyncKeys: input.localStorageSyncKeys }),
       updatedAt: new Date().toISOString()
     };
     games[index] = game;
@@ -236,6 +242,9 @@ export class MemoryStateRepository {
       ...(typeof input.coverImageDominantColor === "string" && input.coverImageDominantColor
         ? { coverImageDominantColor: input.coverImageDominantColor }
         : {}),
+      ...(typeof input.localStorageSourceRoleId === "string"
+        ? { localStorageSourceRoleId: input.localStorageSourceRoleId }
+        : {}),
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -254,6 +263,9 @@ export class MemoryStateRepository {
       ...(input.name === undefined ? {} : { name: input.name.trim() }),
       ...(input.launchUrl === undefined ? {} : { launchUrl: new URL(input.launchUrl).toString() }),
       ...(input.notes === undefined ? {} : { notes: input.notes.trim() }),
+      ...(input.localStorageSourceRoleId === undefined
+        ? {}
+        : { localStorageSourceRoleId: input.localStorageSourceRoleId ?? undefined }),
       updatedAt: new Date().toISOString()
     };
     roles[index] = role;

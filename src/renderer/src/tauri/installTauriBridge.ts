@@ -62,13 +62,14 @@ export async function registerBridgeListeners(
   };
 }
 
-function gameCreateInput(input: CreateGameInput): Extract<
+export function gameCreateInput(input: CreateGameInput): Extract<
   CoreCommand,
   { type: "gameCreate" }
 >["input"] {
   return {
     name: input.name,
     defaultLaunchUrl: input.defaultLaunchUrl,
+    localStorageSyncKeys: input.localStorageSyncKeys,
     ...(typeof input.iconImageDataUrl === "string"
       ? { iconImageDataUrl: input.iconImageDataUrl }
       : {}),
@@ -78,7 +79,7 @@ function gameCreateInput(input: CreateGameInput): Extract<
   };
 }
 
-function gameUpdateInput(input: UpdateGameInput): Extract<
+export function gameUpdateInput(input: UpdateGameInput): Extract<
   CoreCommand,
   { type: "gameUpdate" }
 >["input"] {
@@ -87,6 +88,9 @@ function gameUpdateInput(input: UpdateGameInput): Extract<
     ...(input.defaultLaunchUrl === undefined
       ? {}
       : { defaultLaunchUrl: input.defaultLaunchUrl }),
+    ...(input.localStorageSyncKeys === undefined
+      ? {}
+      : { localStorageSyncKeys: input.localStorageSyncKeys }),
     ...(typeof input.iconImageDataUrl === "string"
       ? { iconImageDataUrl: input.iconImageDataUrl }
       : {}),
@@ -98,7 +102,7 @@ function gameUpdateInput(input: UpdateGameInput): Extract<
   };
 }
 
-function roleCreateInput(input: CreateRoleInput): Extract<
+export function roleCreateInput(input: CreateRoleInput): Extract<
   CoreCommand,
   { type: "roleCreate" }
 >["input"] {
@@ -112,11 +116,14 @@ function roleCreateInput(input: CreateRoleInput): Extract<
       : {}),
     ...(typeof input.coverImageDominantColor === "string"
       ? { coverImageDominantColor: input.coverImageDominantColor }
+      : {}),
+    ...(typeof input.localStorageSourceRoleId === "string"
+      ? { localStorageSourceRoleId: input.localStorageSourceRoleId }
       : {})
   };
 }
 
-function roleUpdateInput(input: UpdateRoleInput): Extract<
+export function roleUpdateInput(input: UpdateRoleInput): Extract<
   CoreCommand,
   { type: "roleUpdate" }
 >["input"] {
@@ -132,7 +139,11 @@ function roleUpdateInput(input: UpdateRoleInput): Extract<
     ...(typeof input.coverImageDominantColor === "string"
       ? { coverImageDominantColor: input.coverImageDominantColor }
       : {}),
-    setCoverImageDominantColor: input.coverImageDominantColor !== undefined
+    setCoverImageDominantColor: input.coverImageDominantColor !== undefined,
+    ...(typeof input.localStorageSourceRoleId === "string"
+      ? { localStorageSourceRoleId: input.localStorageSourceRoleId }
+      : {}),
+    setLocalStorageSourceRoleId: input.localStorageSourceRoleId !== undefined
   };
 }
 

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import GameEditorRoute from "../src/renderer/src/features/games/GameModal";
+import { parseLocalStorageSyncKeys } from "../src/renderer/src/features/games/localStorageSyncKeys";
 import GamesRoute from "../src/renderer/src/features/games/GamesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
@@ -26,6 +27,42 @@ afterEach(() => {
 });
 
 describe("games cover UI", () => {
+  it("normalizes the compact one-key-per-line editor input", () => {
+    expect(parseLocalStorageSyncKeys(" game_client_settings \n audio\ngame_client_settings\n"))
+      .toEqual(["game_client_settings", "audio"]);
+  });
+
+  it("keeps newlines editable and saves the normalized localStorage key list", async () => {
+    const user = userEvent.setup();
+    const customGame = game({ id: "game-keys", name: "Keyed game" });
+    const onSave = vi.fn().mockResolvedValue(customGame);
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[customGame]}
+        isSaving={false}
+        reports={[]}
+        runStatuses={[]}
+        t={t}
+        onCancelCheck={vi.fn()}
+        onError={vi.fn()}
+        onOpenGraphicsSettings={vi.fn()}
+        onReset={vi.fn()}
+        onRunCheck={vi.fn()}
+        onSave={onSave}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/game-keys/edit"] });
+    render(<RouterProvider router={router} />);
+
+    const editor = screen.getByLabelText("Managed keys") as HTMLTextAreaElement;
+    await user.type(editor, "game_client_settings{enter}audio");
+    expect(editor.value).toBe("game_client_settings\naudio");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      localStorageSyncKeys: ["game_client_settings", "audio"]
+    }));
+  });
+
   it("renders a clean cover section and keeps card actions independent from navigation", async () => {
     const user = userEvent.setup();
     const covered = game({ id: "covered", name: "Covered", coverImageDataUrl: processedCover });
@@ -360,6 +397,7 @@ function game(overrides: Partial<Game> = {}): Game {
     source: "custom",
     name: "Game",
     defaultLaunchUrl: "https://example.test/play",
+    localStorageSyncKeys: [],
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z",
     ...overrides

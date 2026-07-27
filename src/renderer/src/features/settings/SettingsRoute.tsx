@@ -2218,6 +2218,10 @@ function formatPortableWarning(warning: PortableImportWarning, t: Translator): s
       return t("settings.warningRoleGameRecovered").replace("{name}", itemName);
     case "ROLE_NAME_RENAMED":
       return t("settings.warningRoleRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+    case "ROLE_LOCAL_STORAGE_SOURCE_MISSING":
+      return t("settings.warningRoleLocalStorageSourceMissing").replace("{name}", itemName);
+    case "ROLE_LOCAL_STORAGE_BINDING_INVALID":
+      return t("settings.warningRoleLocalStorageBindingInvalid").replace("{name}", itemName);
     case "WORKSPACE_NAME_RENAMED":
       return t("settings.warningWorkspaceRenamed").replace("{name}", itemName).replace("{next}", replacementName);
     case "WORKSPACE_ROLE_MISSING":

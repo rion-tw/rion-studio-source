@@ -16,8 +16,8 @@ use rion_core::{
     AppCore, AppCoreOptions, CoreCommand, CoreEffectAction, CoreEffectResult, CoreErrorPayload,
     CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord, EmbeddedLaunchTargetRecord,
     GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-    StateCollection, StateGameWindowRecord, StatePixelBoundsRecord, StateResolutionRecord,
-    migrate_legacy_data_root,
+    StateCollection, StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord,
+    StateResolutionRecord, StateRoleRecord, migrate_legacy_data_root,
 };
 #[cfg(any(windows, target_os = "macos"))]
 use rusty_leveldb::{DB, Options};
@@ -56,10 +56,15 @@ const SESSION_IMPORT_ATTESTATION_FIXTURE_URL_ENV: &str =
 const SESSION_IMPORT_ATTESTATION_OUTPUT_ENV: &str = "RION_STUDIO_SESSION_IMPORT_ATTESTATION_OUTPUT";
 const SESSION_IMPORT_ATTESTATION_SOURCE_ENV: &str = "RION_STUDIO_SESSION_IMPORT_ATTESTATION_SOURCE";
 const SESSION_IMPORT_ATTESTATION_STAGE_ENV: &str = "RION_STUDIO_SESSION_IMPORT_ATTESTATION_STAGE";
+const LOCAL_STORAGE_SYNC_ATTESTATION_FIXTURE_URL_ENV: &str =
+    "RION_STUDIO_LOCAL_STORAGE_SYNC_ATTESTATION_FIXTURE_URL";
+const LOCAL_STORAGE_SYNC_ATTESTATION_OUTPUT_ENV: &str =
+    "RION_STUDIO_LOCAL_STORAGE_SYNC_ATTESTATION_OUTPUT";
 const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     match action {
+        CoreEffectAction::LocalStorageSyncRefresh { .. } => "localStorageSyncRefresh",
         CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
         CoreEffectAction::LegacySessionRestore { .. } => "legacySessionRestore",
         CoreEffectAction::ChromeProfileImportSnapshot { .. } => "chromeProfileImportSnapshot",
@@ -100,6 +105,11 @@ struct SessionImportAttestationRequest {
 }
 
 struct MacroGameAttestationRequest {
+    fixture_url: String,
+    output_path: PathBuf,
+}
+
+struct LocalStorageSyncAttestationRequest {
     fixture_url: String,
     output_path: PathBuf,
 }
@@ -226,6 +236,7 @@ fn user_data_override_allowed() -> bool {
             FILE_OPERATIONS_ATTESTATION_OUTPUT_ENV,
             RESTORE_ATTESTATION_OUTPUT_ENV,
             SESSION_IMPORT_ATTESTATION_OUTPUT_ENV,
+            LOCAL_STORAGE_SYNC_ATTESTATION_OUTPUT_ENV,
         ]
         .iter()
         .any(|name| std::env::var_os(name).is_some())
@@ -264,6 +275,38 @@ fn macro_game_attestation_request() -> Result<Option<MacroGameAttestationRequest
         ));
     }
     Ok(Some(MacroGameAttestationRequest {
+        fixture_url,
+        output_path,
+    }))
+}
+
+fn local_storage_sync_attestation_request()
+-> Result<Option<LocalStorageSyncAttestationRequest>, String> {
+    let output = std::env::var_os(LOCAL_STORAGE_SYNC_ATTESTATION_OUTPUT_ENV);
+    let fixture_url = std::env::var(LOCAL_STORAGE_SYNC_ATTESTATION_FIXTURE_URL_ENV).ok();
+    if output.is_none() && fixture_url.is_none() {
+        return Ok(None);
+    }
+    let output_path = output
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{LOCAL_STORAGE_SYNC_ATTESTATION_OUTPUT_ENV} is required."))?;
+    if !output_path.is_absolute() {
+        return Err(format!(
+            "{LOCAL_STORAGE_SYNC_ATTESTATION_OUTPUT_ENV} must be absolute."
+        ));
+    }
+    let fixture_url = fixture_url
+        .ok_or_else(|| format!("{LOCAL_STORAGE_SYNC_ATTESTATION_FIXTURE_URL_ENV} is required."))?;
+    let parsed = tauri::Url::parse(&fixture_url)
+        .map_err(|_| format!("{LOCAL_STORAGE_SYNC_ATTESTATION_FIXTURE_URL_ENV} is invalid."))?;
+    if parsed.scheme() != "http"
+        || !matches!(parsed.host_str(), Some("127.0.0.1" | "::1" | "localhost"))
+    {
+        return Err(format!(
+            "{LOCAL_STORAGE_SYNC_ATTESTATION_FIXTURE_URL_ENV} must be a loopback HTTP URL."
+        ));
+    }
+    Ok(Some(LocalStorageSyncAttestationRequest {
         fixture_url,
         output_path,
     }))
@@ -483,6 +526,19 @@ async fn rion_runtime_audio_state(
         .runtime
         .set_webview_audible(webview.label(), &role_id, audible)
         .map_err(|message| shell_error("TAURI_RUNTIME_AUDIO_FAILED", message))
+}
+
+#[tauri::command]
+async fn rion_local_storage_sync_changed(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    token: String,
+    entries: Vec<(String, Option<String>)>,
+) -> Result<(), CoreErrorPayload> {
+    state
+        .runtime
+        .local_storage_sync_changed(webview.label(), &token, entries)
+        .map_err(|message| shell_error("TAURI_LOCAL_STORAGE_SYNC_REJECTED", message))
 }
 
 #[tauri::command]
@@ -2292,6 +2348,306 @@ fn write_runtime_restore_attestation(path: &std::path::Path, value: &Value) -> R
     )
     .map_err(|error| error.to_string())?;
     fs::rename(&temporary, path).map_err(|error| error.to_string())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn start_local_storage_sync_attestation(
+    app: AppHandle,
+    request: LocalStorageSyncAttestationRequest,
+) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    thread::Builder::new()
+        .name("rion-local-storage-sync-attestation".to_owned())
+        .spawn(move || {
+            let outcome =
+                tauri::async_runtime::block_on(run_local_storage_sync_attestation(&app, &request));
+            let (document, exit_code) = match outcome {
+                Ok(report) => (
+                    json!({ "schemaVersion": 1, "ok": true, "report": report }),
+                    0,
+                ),
+                Err(message) => (
+                    json!({
+                        "schemaVersion": 1,
+                        "ok": false,
+                        "error": {
+                            "code": "SYSTEM_LOCAL_STORAGE_SYNC_ATTESTATION_FAILED",
+                            "message": message
+                        }
+                    }),
+                    15,
+                ),
+            };
+            if let Err(error) = write_runtime_restore_attestation(&request.output_path, &document) {
+                eprintln!("localStorage sync attestation output failed: {error}");
+                app.exit(16);
+            } else {
+                app.exit(exit_code);
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+async fn run_local_storage_sync_attestation(
+    app: &AppHandle,
+    request: &LocalStorageSyncAttestationRequest,
+) -> Result<Value, String> {
+    wait_for_tauri_main_loop(app)?;
+    let state = app.state::<CoreState>();
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The Tauri main window is unavailable.".to_owned())?;
+    let target = default_display_launch_target(&window, None)
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let game = invoke_core_sync(
+        &state,
+        json!({
+            "type": "gameCreate",
+            "input": {
+                "name": "localStorage sync attestation",
+                "defaultLaunchUrl": request.fixture_url,
+                "localStorageSyncKeys": ["game_client_settings"]
+            }
+        }),
+    )
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let game_id = game["id"]
+        .as_str()
+        .ok_or_else(|| "The localStorage sync fixture has no game ID.".to_owned())?
+        .to_owned();
+    let source = invoke_core_async(
+        &state,
+        json!({
+            "type": "roleCreate",
+            "input": {
+                "gameId": game_id,
+                "name": "localStorage source",
+                "launchUrl": request.fixture_url
+            }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let source_role_id = source["id"]
+        .as_str()
+        .ok_or_else(|| "The localStorage source role has no ID.".to_owned())?
+        .to_owned();
+    invoke_core_async(
+        &state,
+        json!({ "type": "browserRoleLaunch", "roleId": source_role_id, "target": target }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    state.runtime.evaluate_role_for_attestation(
+        &source_role_id,
+        "localStorage.setItem('game_client_settings', 'first-alignment'); JSON.stringify({ value: localStorage.getItem('game_client_settings') })",
+    )?;
+
+    let follower = invoke_core_async(
+        &state,
+        json!({
+            "type": "roleCreate",
+            "input": {
+                "gameId": game_id,
+                "name": "localStorage follower",
+                "launchUrl": request.fixture_url,
+                "localStorageSourceRoleId": source_role_id
+            }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let follower_role_id = follower["id"]
+        .as_str()
+        .ok_or_else(|| "The localStorage follower role has no ID.".to_owned())?
+        .to_owned();
+    refresh_local_storage_sync_attestation_metadata(&state)?;
+    invoke_core_async(
+        &state,
+        json!({ "type": "browserRoleLaunch", "roleId": follower_role_id, "target": target }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    wait_for_local_storage_sync_value(
+        &state,
+        &follower_role_id,
+        Some("first-alignment"),
+        Some("first-alignment"),
+    )?;
+
+    state.runtime.evaluate_role_for_attestation(
+        &source_role_id,
+        "localStorage.setItem('game_client_settings', 'live-update'); JSON.stringify({ value: localStorage.getItem('game_client_settings') })",
+    )?;
+    if let Err(error) =
+        wait_for_local_storage_sync_value(&state, &follower_role_id, Some("live-update"), None)
+    {
+        let observer = state.runtime.evaluate_role_for_attestation(
+            &source_role_id,
+            "JSON.stringify(globalThis.__rionLocalStorageSyncObserver?.snapshot?.() ?? null)",
+        )?;
+        return Err(format!("{error} Source observer: {observer}."));
+    }
+    state.runtime.evaluate_role_for_attestation(
+        &source_role_id,
+        "localStorage.removeItem('game_client_settings'); JSON.stringify({ value: localStorage.getItem('game_client_settings') })",
+    )?;
+    if let Err(error) = wait_for_local_storage_sync_value(&state, &follower_role_id, None, None) {
+        let observer = state.runtime.evaluate_role_for_attestation(
+            &source_role_id,
+            "JSON.stringify({ observer: globalThis.__rionLocalStorageSyncObserver?.snapshot?.() ?? null, value: localStorage.getItem('game_client_settings') })",
+        )?;
+        return Err(format!("{error} Source state: {observer}."));
+    }
+
+    state.runtime.evaluate_role_for_attestation(
+        &source_role_id,
+        "localStorage.setItem('game_client_settings', 'stopped-source'); JSON.stringify({ value: localStorage.getItem('game_client_settings') })",
+    )?;
+    wait_for_local_storage_sync_value(&state, &follower_role_id, Some("stopped-source"), None)?;
+    for role_id in [&follower_role_id, &source_role_id] {
+        invoke_core_async(
+            &state,
+            json!({ "type": "browserRoleStop", "roleId": role_id }),
+        )
+        .await
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    }
+    invoke_core_async(
+        &state,
+        json!({ "type": "browserRoleLaunch", "roleId": follower_role_id, "target": target }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    wait_for_local_storage_sync_value(
+        &state,
+        &follower_role_id,
+        Some("stopped-source"),
+        Some("stopped-source"),
+    )?;
+
+    let mut isolated_url = tauri::Url::parse(&request.fixture_url)
+        .map_err(|error| format!("The fixture URL is invalid: {error}."))?;
+    let isolated_host = if isolated_url.host_str() == Some("localhost") {
+        "127.0.0.1"
+    } else {
+        "localhost"
+    };
+    isolated_url
+        .set_host(Some(isolated_host))
+        .map_err(|_| "The isolated fixture origin could not be built.".to_owned())?;
+    let isolated = invoke_core_async(
+        &state,
+        json!({
+            "type": "roleCreate",
+            "input": {
+                "gameId": game_id,
+                "name": "localStorage isolated role",
+                "launchUrl": isolated_url.as_str()
+            }
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let isolated_role_id = isolated["id"]
+        .as_str()
+        .ok_or_else(|| "The isolated role has no ID.".to_owned())?
+        .to_owned();
+    let isolated_target = default_display_launch_target(&window, None)
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    invoke_core_async(
+        &state,
+        json!({
+            "type": "browserRoleLaunch",
+            "roleId": isolated_role_id,
+            "target": isolated_target
+        }),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    state.runtime.evaluate_role_for_attestation(
+        &isolated_role_id,
+        "localStorage.setItem('game_client_settings', 'isolated'); JSON.stringify({ value: localStorage.getItem('game_client_settings') })",
+    )?;
+    let rejected = invoke_core_async(
+        &state,
+        json!({
+            "type": "roleUpdate",
+            "id": isolated_role_id,
+            "input": {
+                "setLocalStorageSourceRoleId": true,
+                "localStorageSourceRoleId": source_role_id
+            }
+        }),
+    )
+    .await
+    .is_err();
+    let isolated_value = state.runtime.evaluate_role_for_attestation(
+        &isolated_role_id,
+        "JSON.stringify({ value: localStorage.getItem('game_client_settings') })",
+    )?;
+    if !rejected || isolated_value["value"] != json!("isolated") {
+        return Err(format!(
+            "Cross-origin binding was not rejected without mutating the isolated store: rejected={rejected}, value={isolated_value}."
+        ));
+    }
+
+    Ok(json!({
+        "crossOriginRejected": true,
+        "deletionMirrored": true,
+        "documentStartAligned": true,
+        "isolatedStorePreserved": true,
+        "liveUpdateMirrored": true,
+        "stoppedSourceBootstrap": true
+    }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn refresh_local_storage_sync_attestation_metadata(state: &CoreState) -> Result<(), String> {
+    let roles = invoke_core_sync(state, json!({ "type": "rolesList" }))
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let roles: Vec<StateRoleRecord> =
+        serde_json::from_value(roles).map_err(|error| error.to_string())?;
+    let games = invoke_core_sync(state, json!({ "type": "gamesList" }))
+        .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    let games: Vec<StateGameRecord> =
+        serde_json::from_value(games).map_err(|error| error.to_string())?;
+    state
+        .runtime
+        .refresh_local_storage_sync_metadata(&roles, &games)
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn wait_for_local_storage_sync_value(
+    state: &CoreState,
+    role_id: &str,
+    expected: Option<&str>,
+    expected_initial: Option<&str>,
+) -> Result<Value, String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let value = state.runtime.evaluate_role_for_attestation(
+            role_id,
+            "JSON.stringify({ initial: globalThis.__rionLocalStorageInitial ?? null, value: localStorage.getItem('game_client_settings') })",
+        )?;
+        let current_matches =
+            value["value"].as_str() == expected || (expected.is_none() && value["value"].is_null());
+        let initial_matches =
+            expected_initial.is_none_or(|expected| value["initial"].as_str() == Some(expected));
+        if current_matches && initial_matches {
+            return Ok(value);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!(
+                "Timed out waiting for localStorage synchronization: role={role_id}, expected={expected:?}, expectedInitial={expected_initial:?}, actual={value}."
+            ));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -4177,11 +4533,14 @@ pub fn run() {
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let session_import_attestation = session_import_attestation_request()
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            let local_storage_sync_attestation = local_storage_sync_attestation_request()
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let attestation_mode_count = usize::from(input_attestation_output.is_some())
                 + usize::from(macro_game_attestation.is_some())
                 + usize::from(file_operations_attestation_output.is_some())
                 + usize::from(restore_attestation.is_some())
-                + usize::from(session_import_attestation.is_some());
+                + usize::from(session_import_attestation.is_some())
+                + usize::from(local_storage_sync_attestation.is_some());
             if attestation_mode_count > 1 {
                 return Err("Only one System WebView attestation mode can run at a time.".into());
             }
@@ -4316,6 +4675,26 @@ pub fn run() {
                                     renderer_events.push(CoreEvent::Shutdown);
                                 }
                                 event => {
+                                    if matches!(
+                                        &event,
+                                        CoreEvent::StateChanged { changed_collections, .. }
+                                            if changed_collections.iter().any(|collection| {
+                                                matches!(collection, StateCollection::Roles | StateCollection::Games)
+                                            })
+                                    ) {
+                                        let roles: Option<Vec<StateRoleRecord>> = effect_core
+                                            .invoke(CoreCommand::RolesList)
+                                            .ok()
+                                            .and_then(|value| serde_json::from_value(value).ok());
+                                        let games: Option<Vec<StateGameRecord>> = effect_core
+                                            .invoke(CoreCommand::GamesList)
+                                            .ok()
+                                            .and_then(|value| serde_json::from_value(value).ok());
+                                        if let (Some(roles), Some(games)) = (roles, games) {
+                                            let _ = effect_runtime
+                                                .refresh_local_storage_sync_metadata(&roles, &games);
+                                        }
+                                    }
                                     if matches!(&event, CoreEvent::BrowserStatuses { .. })
                                         || matches!(
                                         &event,
@@ -4401,6 +4780,13 @@ pub fn run() {
                 start_session_import_attestation(app.handle().clone(), request)?;
                 #[cfg(not(any(windows, target_os = "macos")))]
                 return Err("Session-import attestation supports only macOS and Windows.".into());
+            } else if let Some(request) = local_storage_sync_attestation {
+                #[cfg(any(windows, target_os = "macos"))]
+                start_local_storage_sync_attestation(app.handle().clone(), request)?;
+                #[cfg(not(any(windows, target_os = "macos")))]
+                return Err(
+                    "localStorage sync attestation supports only macOS and Windows.".into(),
+                );
             } else if let Some(output_path) = file_operations_attestation_output {
                 #[cfg(any(windows, target_os = "macos"))]
                 start_file_operations_attestation(app.handle().clone(), output_path)?;
@@ -4461,6 +4847,7 @@ pub fn run() {
             rion_core_invoke,
             rion_divider_pointer,
             rion_overlay_request,
+            rion_local_storage_sync_changed,
             rion_runtime_audio_state,
             rion_runtime_tab_action,
             rion_dispatch_core_effect_results,

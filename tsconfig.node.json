@@ -50,6 +50,7 @@
     "src/renderer/src/features/games/GameModal.tsx",
     "src/renderer/src/features/games/GamesRoute.tsx",
     "src/renderer/src/features/games/gameCover.ts",
+    "src/renderer/src/features/games/localStorageSyncKeys.ts",
     "src/renderer/src/features/game-windows/GameWindowModal.tsx",
     "src/renderer/src/features/game-windows/GameWindowsRoute.tsx",
     "src/renderer/src/features/macros/MacrosRoute.tsx",

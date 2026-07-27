@@ -21,9 +21,12 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("pnpm run test:native:macro-game");
     expect(workflow).toContain("pnpm run test:native:session-import");
     expect(workflow).toContain("pnpm run test:native:runtime-restore");
+    expect(workflow).toContain("pnpm run test:native:local-storage-sync");
     expect(workflow).toContain("pnpm run test:native:file-operations");
     expect(countOccurrences(workflow, "pnpm run test:native:macro-game")).toBeGreaterThanOrEqual(4);
     expect(countOccurrences(workflow, "pnpm run test:native:session-import")).toBeGreaterThanOrEqual(4);
+    expect(countOccurrences(workflow, "pnpm run test:native:local-storage-sync"))
+      .toBeGreaterThanOrEqual(4);
     expect(workflow).not.toContain("--require-compiled-attestation");
     expect(workflow).not.toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED");
     expect(workflow).not.toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
@@ -61,6 +64,7 @@ describe("Tauri-only release workflows", () => {
     expect(packageScript).toContain('signingIdentity: "-"');
     expect(packageScript).toContain('"test:native:macro-game"');
     expect(packageScript).toContain('"test:native:session-import"');
+    expect(packageScript).toContain('"test:native:local-storage-sync"');
     expect(countOccurrences(packageScript, '"--skip-system-input"')).toBeGreaterThanOrEqual(2);
     expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
     expect(workflow).toContain("Get-AuthenticodeSignature");

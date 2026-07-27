@@ -93,7 +93,11 @@ describe("Tauri shell parity guard", () => {
     expect(JSON.parse(roleCapability)).toMatchObject({
       local: false,
       webviews: ["game-role-*"],
-      permissions: ["allow-rion-overlay-request", "allow-rion-runtime-audio-state"]
+      permissions: [
+        "allow-rion-overlay-request",
+        "allow-rion-local-storage-sync-changed",
+        "allow-rion-runtime-audio-state"
+      ]
     });
     expect(shell).toContain('"moveGameWindowTabToNewWindow"');
     expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');

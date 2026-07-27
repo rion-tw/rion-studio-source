@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-local-storage-sync-changed"
+description = "Enables the rion_local_storage_sync_changed command without any pre-configured scope."
+commands.allow = ["rion_local_storage_sync_changed"]
+
+[[permission]]
+identifier = "deny-rion-local-storage-sync-changed"
+description = "Denies the rion_local_storage_sync_changed command without any pre-configured scope."
+commands.deny = ["rion_local_storage_sync_changed"]

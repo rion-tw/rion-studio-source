@@ -8,6 +8,7 @@ import type { GameFormState } from "../../app/types";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
@@ -17,6 +18,7 @@ import type {
   GameCompatibilityRunStatus
 } from "../../../../shared/types";
 import { GameCompatibilityPanel } from "./GameCompatibilityPanel";
+import { parseLocalStorageSyncKeys } from "./localStorageSyncKeys";
 import { createGameCoverImageDataUrl } from "./gameCover";
 
 interface GameEditorRouteProps {
@@ -62,10 +64,15 @@ function GameEditor({
   const navigate = useNavigate();
   const initialRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
+  const [localStorageKeysText, setLocalStorageKeysText] = useState(
+    initialForm.localStorageSyncKeys.join("\n")
+  );
   const guard = useUnsavedChangesGuard(!areEditorFormsEqual(initialRef.current, form), useMemo(() => ({
     title: t("confirm.unsaved.title"), description: t("confirm.unsaved.description"), cancelLabel: t("confirm.unsaved.continue"), confirmLabel: t("confirm.unsaved.discard"), tone: "destructive" as const
   }), [t]), isSaving);
-  const canSubmit = Boolean(form.name.trim() && /^https?:\/\//.test(form.defaultLaunchUrl));
+  const keysValid = form.localStorageSyncKeys.length <= 32
+    && form.localStorageSyncKeys.every((key) => new TextEncoder().encode(key.trim()).length <= 256);
+  const canSubmit = Boolean(form.name.trim() && /^https?:\/\//.test(form.defaultLaunchUrl) && keysValid);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -80,6 +87,7 @@ function GameEditor({
     const resetForm = createGameFormState(saved);
     initialRef.current = resetForm;
     setForm(resetForm);
+    setLocalStorageKeysText(resetForm.localStorageSyncKeys.join("\n"));
   }
 
   return (
@@ -98,6 +106,26 @@ function GameEditor({
         <Surface className="grid gap-4 p-4" variant="inset">
           <FieldHeader title={t("games.form.urls")} description={t("games.form.urlsDescription")} />
           <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
+        </Surface>
+        <Surface className="grid gap-3 p-4" variant="inset">
+          <FieldHeader title={t("games.form.localStorageSyncKeys")} description={t("games.form.localStorageSyncKeysDescription")} />
+          <FormField htmlFor="game-local-storage-sync-keys" label={t("games.form.localStorageSyncKeysLabel")}>
+            <Textarea
+              id="game-local-storage-sync-keys"
+              rows={4}
+              spellCheck={false}
+              placeholder={t("games.form.localStorageSyncKeysPlaceholder")}
+              value={localStorageKeysText}
+              onChange={(event) => {
+                setLocalStorageKeysText(event.target.value);
+                setForm({
+                  ...form,
+                  localStorageSyncKeys: parseLocalStorageSyncKeys(event.target.value)
+                });
+              }}
+            />
+          </FormField>
+          {!keysValid ? <p className="text-xs text-destructive">{t("games.form.localStorageSyncKeysInvalid")}</p> : null}
         </Surface>
         {game ? (
           <GameCompatibilityPanel

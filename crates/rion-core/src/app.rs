@@ -4208,14 +4208,11 @@ impl AppCore {
                     role,
                     resolved_engine: workspace_resolved_engine,
                     rect: slot.rect.clone(),
-                    zoom_factor: slot
-                        .browser_zoom_percent
-                        .unwrap_or(workspace.browser_zoom_percent)
-                        / 100.0,
+                    zoom_factor: slot.browser_zoom_percent.unwrap_or(100.0) / 100.0,
                     zoom_mode: if slot.browser_zoom_percent.is_some() {
                         "fixed".to_owned()
                     } else {
-                        workspace.browser_zoom_mode.clone()
+                        "adaptive".to_owned()
                     },
                 })
             })

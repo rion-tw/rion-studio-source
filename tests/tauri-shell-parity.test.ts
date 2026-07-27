@@ -44,13 +44,14 @@ describe("Tauri shell parity guard", () => {
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {
-    const [menu, quickMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, shell, build, capability, roleCapability] = await Promise.all([
+    const [menu, quickMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, roleCapability] = await Promise.all([
       readFile("src-tauri/src/application_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu.rs", "utf8"),
       readFile("src-tauri/src/system_runtime.rs", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.mm", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
       readFile("src-tauri/src/runtime_tabs_macos.rs", "utf8"),
+      readFile("src-tauri/native/macos/RionWKWebViewInput.m", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src-tauri/build.rs", "utf8"),
       readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
@@ -85,6 +86,9 @@ describe("Tauri shell parity guard", () => {
     expect(build).toContain('"rion_divider_pointer"');
     expect(build).toContain('"rion_runtime_audio_state"');
     expect(build).toContain("clang_rt.osx");
+    expect(nativeInput).toContain("rion_wk_install_role_zoom_shortcut");
+    expect(nativeInput).toContain("RionRoleZoomBindingForResponder");
+    expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
     expect(JSON.parse(capability)).toMatchObject({
       local: true,
       webviews: ["game-tab-strip-*", "game-divider-*"],

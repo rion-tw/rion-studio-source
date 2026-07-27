@@ -28,13 +28,9 @@ import type {
   NormalizedRect,
   Role,
   RoleStatus,
-  WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
-import {
-  workspaceBrowserZoomPercents,
-  workspaceLayoutTemplates
-} from "../../../../shared/workspaceLayout";
+import { workspaceLayoutTemplates } from "../../../../shared/workspaceLayout";
 import {
   formatWorkspaceResizeRatio,
   snapWorkspaceResizePosition
@@ -422,40 +418,6 @@ function WorkspaceLayoutFormEditor({
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-4 min-[1200px]:grid-cols-3">
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
-            htmlFor="workspace-browser-zoom"
-            label={t("workspaces.browserZoom")}
-            description={t("workspaces.browserZoomDescription")}
-          >
-            <Select
-              value={form.browserZoomMode === "adaptive" ? "adaptive" : String(form.browserZoomPercent)}
-              disabled={isSaving}
-              onValueChange={(value) =>
-                onChange({
-                  ...form,
-                  browserZoomMode: value === "adaptive" ? "adaptive" : "fixed",
-                  ...(value === "adaptive"
-                    ? {}
-                    : { browserZoomPercent: Number(value) as WorkspaceBrowserZoomPercent })
-                })
-              }
-            >
-              <SelectTrigger id="workspace-browser-zoom">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="adaptive">{t("workspaces.browserZoomAdaptive")}</SelectItem>
-                {workspaceBrowserZoomPercents.map((zoomPercent) => (
-                  <SelectItem key={zoomPercent} value={String(zoomPercent)}>
-                    {zoomPercent}%
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-layout-template"

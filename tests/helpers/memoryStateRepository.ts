@@ -18,10 +18,7 @@ import type {
   UpdateMacroInput,
   WorkspaceSlotBrowserZoomPercent
 } from "../../src/shared/types";
-import {
-  createDefaultWorkspaceSlots,
-  getDefaultWorkspaceBrowserZoomPercent
-} from "../../src/shared/workspaceLayout";
+import { createDefaultWorkspaceSlots } from "../../src/shared/workspaceLayout";
 import { normalizeGameBrowserSettings } from "../../src/shared/browserFonts";
 import { normalizeMacroSettings } from "../../src/shared/macroSettings";
 import type {
@@ -319,8 +316,6 @@ export class MemoryStateRepository {
       id: crypto.randomUUID(),
       name: input.name.trim(),
       template,
-      browserZoomMode: input.browserZoomMode ?? "adaptive",
-      browserZoomPercent: input.browserZoomPercent ?? getDefaultWorkspaceBrowserZoomPercent(template),
       slots: defaults.map((slot, index) => ({ ...slot, ...structuredClone(input.slots?.[index] ?? {}) })),
       createdAt: timestamp,
       updatedAt: timestamp

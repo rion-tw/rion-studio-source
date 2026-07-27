@@ -59,6 +59,7 @@ static MACOS_KEY_DISPATCH_STATE: std::sync::OnceLock<Mutex<Option<String>>> =
     std::sync::OnceLock::new();
 static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(any(windows, target_os = "macos"))]
 const DOWNLOAD_ATTESTATION_BODY: &[u8] = b"Rion Studio System WebView download attestation\n";
 #[cfg(any(windows, target_os = "macos"))]
@@ -139,6 +140,55 @@ const WORKSPACE_RESIZE_INDICATOR_SCRIPT: &str = r#"
   };
 })();
 "#;
+const ZOOM_INDICATOR_SCRIPT: &str = r#"
+(() => {
+  if (globalThis.__rionStudioZoomIndicator) return;
+  const id = "rion-studio-zoom-indicator";
+  let timer = 0;
+  globalThis.__rionStudioZoomIndicator = (label) => {
+    let element = document.getElementById(id);
+    if (!element) {
+      element = document.createElement("div"); element.id = id;
+      Object.assign(element.style, { background:"rgba(15,23,42,.9)", border:"1px solid rgba(255,255,255,.2)", borderRadius:"8px", color:"white", font:"600 13px system-ui,sans-serif", left:"50%", padding:"6px 10px", pointerEvents:"none", position:"fixed", top:"16px", transform:"translateX(-50%)", zIndex:"2147483647" });
+      (document.body || document.documentElement).append(element);
+    }
+    element.textContent = String(label || "");
+    clearTimeout(timer);
+    timer = setTimeout(() => { element?.remove(); }, 1200);
+  };
+})();
+"#;
+
+fn next_zoom_factor(current: f64, action: &str, minimum: f64, maximum: f64) -> f64 {
+    let value = match action {
+        "in" => current + 0.1,
+        "out" => current - 0.1,
+        _ => 1.0,
+    };
+    ((value * 100.0).round() / 100.0).clamp(minimum, maximum)
+}
+
+fn effective_zoom_factor(role_zoom_factor: f64, window_zoom_factor: f64) -> f64 {
+    (role_zoom_factor * window_zoom_factor).clamp(0.25, 5.0)
+}
+
+fn take_latest_role_zoom_write(
+    pending: &mut HashMap<(String, String), u64>,
+    key: &(String, String),
+    sequence: u64,
+) -> bool {
+    if pending.get(key) != Some(&sequence) {
+        return false;
+    }
+    pending.remove(key);
+    true
+}
+
+fn show_zoom_indicator(webview: &Webview, label: &str) {
+    if let Ok(label) = serde_json::to_string(label) {
+        let _ = webview.eval(format!("globalThis.__rionStudioZoomIndicator?.({label});"));
+    }
+}
 #[cfg(any(windows, target_os = "macos"))]
 const TRUSTED_INPUT_ATTESTATION_SOURCE: &str = r#"(() => {
   const state = {
@@ -300,6 +350,7 @@ struct RoleSurface {
     rect: rion_core::StateNormalizedRectRecord,
     webview: Webview,
     zoom_factor: f64,
+    zoom_mode: String,
 }
 
 #[derive(Clone)]
@@ -326,6 +377,7 @@ struct RuntimeTab {
     dividers: Vec<RuntimeDivider>,
     window_id: String,
     roles: HashMap<String, RoleSurface>,
+    workspace_id: Option<String>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
     workspace_template: Option<String>,
 }
@@ -333,6 +385,7 @@ struct RuntimeTab {
 struct RuntimeDisplayHost {
     target: EmbeddedLaunchTargetRecord,
     window: Window,
+    zoom_factor: f64,
     #[cfg(windows)]
     tab_strip: Webview,
     #[cfg(windows)]
@@ -452,6 +505,7 @@ struct RuntimeState {
     compatibility: HashMap<String, CompatibilitySurface>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
+    pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
     pending_window_close_labels: HashSet<String>,
     popup_roles: HashMap<String, String>,
@@ -624,6 +678,7 @@ impl SystemRuntimeExecutor {
             RUNTIME_TAB_SHORTCUT_SCRIPT.to_owned(),
             RUNTIME_AUDIO_OBSERVER_SCRIPT.to_owned(),
             WORKSPACE_RESIZE_INDICATOR_SCRIPT.to_owned(),
+            ZOOM_INDICATOR_SCRIPT.to_owned(),
             native_font_document_start_script(&settings),
         ]
         .into_iter()
@@ -1317,17 +1372,18 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn zoom_focused_runtime(&self, action: &str) -> Result<bool, String> {
-        let window_id = {
+        let focused_host = {
             let state = self.state().map_err(|error| error.message)?;
             state
                 .display_hosts
                 .values()
                 .find(|host| host.window.is_focused().unwrap_or(false))
-                .map(|host| host.target.window_id.clone())
+                .map(|host| (host.target.window_id.clone(), host.zoom_factor))
         };
-        let Some(window_id) = window_id else {
+        let Some((window_id, current_zoom)) = focused_host else {
             return Ok(false);
         };
+        let next_zoom = next_zoom_factor(current_zoom, action, 0.25, 5.0);
         let snapshot = self
             .core
             .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -1344,38 +1400,79 @@ impl SystemRuntimeExecutor {
         else {
             return Ok(false);
         };
-        let surfaces = {
+        let (surfaces, visible_role_ids) = {
             let state = self.state().map_err(|error| error.message)?;
-            let Some(tab) = state.tabs.get(tab_id) else {
+            let Some(active_tab) = state.tabs.get(tab_id) else {
                 return Ok(false);
             };
-            tab.roles
-                .iter()
-                .map(|(role_id, surface)| {
-                    let zoom = match action {
-                        "in" => (surface.zoom_factor + 0.1).min(5.0),
-                        "out" => (surface.zoom_factor - 0.1).max(0.25),
-                        _ => 1.0,
-                    };
-                    (role_id.clone(), surface.webview.clone(), zoom)
+            let visible_role_ids = active_tab.roles.keys().cloned().collect::<HashSet<_>>();
+            let surfaces = state
+                .tabs
+                .values()
+                .filter(|tab| tab.window_id == window_id)
+                .flat_map(|tab| {
+                    tab.roles.iter().map(|(role_id, surface)| {
+                        (
+                            role_id.clone(),
+                            surface.webview.clone(),
+                            effective_zoom_factor(surface.zoom_factor, next_zoom),
+                        )
+                    })
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (surfaces, visible_role_ids)
         };
         for (_, webview, zoom) in &surfaces {
             webview.set_zoom(*zoom).map_err(|error| error.to_string())?;
         }
-        let mut state = self.state().map_err(|error| error.message)?;
-        for (role_id, _, zoom) in surfaces {
-            if let Some(tab_id) = state.role_tabs.get(&role_id).cloned()
-                && let Some(surface) = state
-                    .tabs
-                    .get_mut(&tab_id)
-                    .and_then(|tab| tab.roles.get_mut(&role_id))
-            {
-                surface.zoom_factor = zoom;
+        let popup_surfaces = {
+            let state = self.state().map_err(|error| error.message)?;
+            state
+                .popup_roles
+                .iter()
+                .filter_map(|(label, role_id)| {
+                    let tab_id = state.role_tabs.get(role_id)?;
+                    let tab = state.tabs.get(tab_id)?;
+                    if tab.window_id != window_id {
+                        return None;
+                    }
+                    let base = tab.roles.get(role_id)?.zoom_factor;
+                    Some((label.clone(), effective_zoom_factor(base, next_zoom)))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (label, zoom) in popup_surfaces {
+            if let Some(webview) = self.app.get_webview(&label) {
+                webview.set_zoom(zoom).map_err(|error| error.to_string())?;
+            }
+        }
+        if let Ok(mut state) = self.state()
+            && let Some(host) = state.display_hosts.get_mut(&window_id)
+        {
+            host.zoom_factor = next_zoom;
+        }
+        let label = self.window_zoom_indicator_label(next_zoom);
+        for (role_id, webview, _) in surfaces {
+            if visible_role_ids.contains(&role_id) {
+                show_zoom_indicator(&webview, &label);
             }
         }
         Ok(true)
+    }
+
+    fn window_zoom_indicator_label(&self, zoom_factor: f64) -> String {
+        let percent = (zoom_factor * 100.0).round() as u32;
+        let language = self
+            .language
+            .lock()
+            .map(|language| language.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        match language.as_str() {
+            "zh-TW" => format!("窗口 {percent}%"),
+            "zh-CN" => format!("窗口 {percent}%"),
+            "ja" => format!("ウインドウ {percent}%"),
+            _ => format!("Window {percent}%"),
+        }
     }
 
     pub fn execute(&self, effect: CoreEffectRequest) -> CoreEffectResult {
@@ -2164,6 +2261,133 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Overlay WebView is not associated with a running role.".to_owned())
     }
 
+    pub fn zoom_role_for_webview(
+        self: &Arc<Self>,
+        webview_label: &str,
+        action: &str,
+    ) -> Result<u32, String> {
+        if !matches!(action, "in" | "out" | "reset") {
+            return Err("Role zoom action is invalid.".to_owned());
+        }
+        let role_id = self.role_id_for_webview(webview_label)?;
+        let (tab_id, workspace_id, window_zoom_factor, base_zoom_factor, webviews) = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            let tab_id = state
+                .role_tabs
+                .get(&role_id)
+                .cloned()
+                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
+            let tab = state
+                .tabs
+                .get(&tab_id)
+                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+            let surface = tab
+                .roles
+                .get(&role_id)
+                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
+            let window_zoom_factor = state
+                .display_hosts
+                .get(&tab.window_id)
+                .map(|host| host.zoom_factor)
+                .unwrap_or(1.0);
+            let mut webviews = vec![surface.webview.clone()];
+            webviews.extend(
+                state
+                    .popup_roles
+                    .iter()
+                    .filter_map(|(label, popup_role_id)| {
+                        (popup_role_id == &role_id)
+                            .then(|| self.app.get_webview(label))
+                            .flatten()
+                    }),
+            );
+            (
+                tab_id,
+                tab.workspace_id.clone(),
+                window_zoom_factor,
+                next_zoom_factor(surface.zoom_factor, action, 0.25, 3.0),
+                webviews,
+            )
+        };
+        let effective_zoom = effective_zoom_factor(base_zoom_factor, window_zoom_factor);
+        for webview in &webviews {
+            webview
+                .set_zoom(effective_zoom)
+                .map_err(|error| error.to_string())?;
+        }
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            let surface = state
+                .tabs
+                .get_mut(&tab_id)
+                .and_then(|tab| tab.roles.get_mut(&role_id))
+                .ok_or_else(|| "Runtime role stopped while zooming.".to_owned())?;
+            surface.zoom_factor = base_zoom_factor;
+            surface.zoom_mode = "fixed".to_owned();
+        }
+        let percent = (base_zoom_factor * 100.0).round() as u32;
+        if let Some(source) = webviews
+            .iter()
+            .find(|webview| webview.label() == webview_label)
+            .or_else(|| webviews.first())
+        {
+            show_zoom_indicator(source, &format!("{percent}%"));
+        }
+        if let Some(workspace_id) = workspace_id {
+            self.schedule_role_zoom_persistence(workspace_id, role_id, percent);
+        }
+        Ok(percent)
+    }
+
+    fn schedule_role_zoom_persistence(
+        self: &Arc<Self>,
+        workspace_id: String,
+        role_id: String,
+        percent: u32,
+    ) {
+        let sequence = ROLE_ZOOM_PERSIST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let key = (workspace_id.clone(), role_id.clone());
+        if let Ok(mut state) = self.state.lock() {
+            state.pending_role_zoom_writes.insert(key.clone(), sequence);
+        }
+        let runtime = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let should_write = runtime.state.lock().ok().is_some_and(|mut state| {
+                take_latest_role_zoom_write(&mut state.pending_role_zoom_writes, &key, sequence)
+            });
+            if !should_write {
+                return;
+            }
+            if let Err(error) = runtime
+                .core
+                .invoke_async(CoreCommand::WorkspaceSetRoleBrowserZoom {
+                    workspace_id: workspace_id.clone(),
+                    role_id: role_id.clone(),
+                    browser_zoom_percent: percent as f64,
+                })
+                .await
+            {
+                let _ = runtime.app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "TAURI_ROLE_ZOOM_PERSIST_FAILED",
+                        "message": error.to_string(),
+                        "workspaceId": workspace_id,
+                        "roleId": role_id,
+                        "browserZoomPercent": percent
+                    }),
+                );
+            }
+        });
+    }
+
     pub fn set_webview_audible(
         &self,
         webview_label: &str,
@@ -2231,8 +2455,24 @@ impl SystemRuntimeExecutor {
     }
 
     fn register_popup(&self, window_label: String, role_id: String) {
-        if let Ok(mut state) = self.state.lock() {
-            state.popup_roles.insert(window_label, role_id);
+        let effective_zoom = self.state.lock().ok().and_then(|mut state| {
+            let tab_id = state.role_tabs.get(&role_id)?.clone();
+            let tab = state.tabs.get(&tab_id)?;
+            let role_zoom = tab.roles.get(&role_id)?.zoom_factor;
+            let window_zoom = state
+                .display_hosts
+                .get(&tab.window_id)
+                .map(|host| host.zoom_factor)
+                .unwrap_or(1.0);
+            state
+                .popup_roles
+                .insert(window_label.clone(), role_id.clone());
+            Some(effective_zoom_factor(role_zoom, window_zoom))
+        });
+        if let Some(effective_zoom) = effective_zoom
+            && let Some(webview) = self.app.get_webview(&window_label)
+        {
+            let _ = webview.set_zoom(effective_zoom);
         }
     }
 
@@ -2303,7 +2543,17 @@ impl SystemRuntimeExecutor {
     }
 
     fn rebuild_role_surface(&self, role_id: &str) -> RuntimeResult<()> {
-        let (window, old_webview, rect, current_url, zoom_factor, audio_muted, generation) = {
+        let (
+            window,
+            old_webview,
+            rect,
+            current_url,
+            zoom_factor,
+            zoom_mode,
+            window_zoom_factor,
+            audio_muted,
+            generation,
+        ) = {
             let mut state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
@@ -2311,7 +2561,7 @@ impl SystemRuntimeExecutor {
                     "Runtime role was not found during System WebView recovery.",
                 )
             })?;
-            let (window_id, old_webview, rect, current_url, zoom_factor, audio_muted) = {
+            let (window_id, old_webview, rect, current_url, zoom_factor, zoom_mode, audio_muted) = {
                 let tab = state.tabs.get(&tab_id).ok_or_else(|| {
                     RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
                 })?;
@@ -2333,19 +2583,18 @@ impl SystemRuntimeExecutor {
                     role.rect.clone(),
                     current_url,
                     role.zoom_factor,
+                    role.zoom_mode.clone(),
                     tab.audio_muted,
                 )
             };
-            let window = state
-                .display_hosts
-                .get(&window_id)
-                .map(|host| host.window.clone())
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
-                        "Runtime display host was not found during recovery.",
-                    )
-                })?;
+            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                    "Runtime display host was not found during recovery.",
+                )
+            })?;
+            let window = host.window.clone();
+            let window_zoom_factor = host.zoom_factor;
             let next_generation = state
                 .recovery_generations
                 .entry(role_id.to_owned())
@@ -2357,6 +2606,8 @@ impl SystemRuntimeExecutor {
                 rect,
                 current_url,
                 zoom_factor,
+                zoom_mode,
+                window_zoom_factor,
                 audio_muted,
                 *next_generation,
             )
@@ -2386,8 +2637,11 @@ impl SystemRuntimeExecutor {
             )
             .map_err(RuntimeError::tauri)?;
         install_platform_security_policy(&webview)?;
+        install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
         install_process_failure_monitor(&webview, self.app.clone(), role_id.to_owned())?;
-        webview.set_zoom(zoom_factor).map_err(RuntimeError::tauri)?;
+        webview
+            .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
+            .map_err(RuntimeError::tauri)?;
         navigation.reset();
         webview
             .navigate(current_url.clone())
@@ -2419,6 +2673,7 @@ impl SystemRuntimeExecutor {
                     rect,
                     webview,
                     zoom_factor,
+                    zoom_mode,
                 },
             );
             tab_id
@@ -3025,6 +3280,21 @@ impl SystemRuntimeExecutor {
                             popup_app.clone(),
                             role_id.clone(),
                         ) {
+                            let _ = window.close();
+                            let _ = popup_app.emit(
+                                "rion://shell-error",
+                                json!({
+                                    "code": error.code,
+                                    "message": error.message,
+                                    "roleId": role_id,
+                                    "url": url
+                                }),
+                            );
+                            return NewWindowResponse::Deny;
+                        }
+                        if let Err(error) =
+                            install_role_zoom_shortcut_handler(window.as_ref(), popup_app.clone())
+                        {
                             let _ = window.close();
                             let _ = popup_app.emit(
                                 "rion://shell-error",
@@ -4281,7 +4551,15 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab(&self, tab_id: &str) -> RuntimeResult<()> {
-        let (window, role_views, divider_views, gap, tab_strip, _toolbar_revealed) = {
+        let (
+            window,
+            role_views,
+            divider_views,
+            gap,
+            window_zoom_factor,
+            tab_strip,
+            _toolbar_revealed,
+        ) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
@@ -4300,6 +4578,8 @@ impl SystemRuntimeExecutor {
                         (
                             role_id.clone(),
                             surface.webview.clone(),
+                            surface.zoom_factor,
+                            surface.zoom_mode.clone(),
                             LayoutRoleInput {
                                 role_id: role_id.clone(),
                                 rect: LayoutRect {
@@ -4317,6 +4597,7 @@ impl SystemRuntimeExecutor {
                     .map(|divider| (divider.index, divider.webview.clone()))
                     .collect::<HashMap<_, _>>(),
                 tab.workspace_appearance.gap,
+                host.zoom_factor,
                 #[cfg(windows)]
                 Some(host.tab_strip.clone()),
                 #[cfg(not(windows))]
@@ -4346,11 +4627,28 @@ impl SystemRuntimeExecutor {
         let _ = tab_strip;
         let role_inputs = role_views
             .iter()
-            .map(|(_, _, input)| input.clone())
+            .map(|(_, _, _, _, input)| input.clone())
             .collect();
         let (role_bounds, divider_bounds) =
             self.resolve_runtime_layout(metrics, role_inputs, gap)?;
-        for (role_id, webview, _) in role_views {
+        let mut zoom_updates = Vec::with_capacity(role_views.len());
+        for (role_id, webview, current_zoom, zoom_mode, _) in &role_views {
+            let Some(bounds) = role_bounds.get(role_id) else {
+                continue;
+            };
+            let base_zoom = if zoom_mode == "adaptive" {
+                self.adaptive_zoom_factor(bounds.width, Some(*current_zoom))?
+            } else {
+                *current_zoom
+            };
+            zoom_updates.push((
+                role_id.clone(),
+                webview.clone(),
+                base_zoom,
+                effective_zoom_factor(base_zoom, window_zoom_factor),
+            ));
+        }
+        for (role_id, webview, _, _, _) in role_views {
             if let Some(bounds) = role_bounds.get(&role_id) {
                 webview
                     .set_position(LogicalPosition::new(bounds.x, bounds.y))
@@ -4358,6 +4656,42 @@ impl SystemRuntimeExecutor {
                 webview
                     .set_size(LogicalSize::new(bounds.width, bounds.height))
                     .map_err(RuntimeError::tauri)?;
+            }
+        }
+        for (_, webview, _, effective_zoom) in &zoom_updates {
+            webview
+                .set_zoom(*effective_zoom)
+                .map_err(RuntimeError::tauri)?;
+        }
+        let popup_updates = {
+            let state = self.state()?;
+            state
+                .popup_roles
+                .iter()
+                .filter_map(|(label, popup_role_id)| {
+                    zoom_updates
+                        .iter()
+                        .find(|(role_id, _, _, _)| role_id == popup_role_id)
+                        .map(|(_, _, _, effective)| (label.clone(), *effective))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (label, effective_zoom) in popup_updates {
+            if let Some(webview) = self.app.get_webview(&label) {
+                webview
+                    .set_zoom(effective_zoom)
+                    .map_err(RuntimeError::tauri)?;
+            }
+        }
+        if let Ok(mut state) = self.state()
+            && let Some(tab) = state.tabs.get_mut(tab_id)
+        {
+            for (role_id, _, base_zoom, _) in zoom_updates {
+                if let Some(surface) = tab.roles.get_mut(&role_id)
+                    && surface.zoom_mode == "adaptive"
+                {
+                    surface.zoom_factor = base_zoom;
+                }
             }
         }
         for (index, descriptor, bounds) in divider_bounds {
@@ -4372,6 +4706,29 @@ impl SystemRuntimeExecutor {
             }
         }
         Ok(())
+    }
+
+    fn adaptive_zoom_factor(
+        &self,
+        viewport_width: f64,
+        current_factor: Option<f64>,
+    ) -> RuntimeResult<f64> {
+        let value = self
+            .core
+            .invoke(CoreCommand::LayoutAdaptiveZoom {
+                viewport_width,
+                current_percent: current_factor.map(|factor| (factor * 100.0).round() as u32),
+            })
+            .map_err(RuntimeError::core)?;
+        value
+            .as_u64()
+            .map(|percent| percent as f64 / 100.0)
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_LAYOUT_INVALID",
+                    "Adaptive role zoom did not return a percentage.",
+                )
+            })
     }
 
     fn ensure_display_host(
@@ -4442,6 +4799,7 @@ impl SystemRuntimeExecutor {
             RuntimeDisplayHost {
                 target: target.clone(),
                 window: window.clone(),
+                zoom_factor: 1.0,
                 #[cfg(windows)]
                 tab_strip,
                 #[cfg(windows)]
@@ -4519,6 +4877,12 @@ impl SystemRuntimeExecutor {
         }
         let target = tab.target.clone();
         let (window, host_created) = self.ensure_display_host(&target, &tab.name)?;
+        let window_zoom_factor = self
+            .state()?
+            .display_hosts
+            .get(&target.window_id)
+            .map(|host| host.zoom_factor)
+            .unwrap_or(1.0);
         let mut created_webviews = Vec::new();
         let result = (|| -> RuntimeResult<()> {
             let content_metrics = runtime_window_content_metrics(&window)?;
@@ -4586,6 +4950,11 @@ impl SystemRuntimeExecutor {
                     .get(&role_id)
                     .copied()
                     .unwrap_or_else(|| role_bounds_for_content(content_metrics, &role.rect));
+                let base_zoom_factor = if role.zoom_mode == "adaptive" {
+                    self.adaptive_zoom_factor(bounds.width, None)?
+                } else {
+                    role.zoom_factor.clamp(0.25, 3.0)
+                };
                 let webview = window
                     .add_child(
                         builder,
@@ -4595,12 +4964,13 @@ impl SystemRuntimeExecutor {
                     .map_err(RuntimeError::tauri)?;
                 created_webviews.push(webview.clone());
                 install_platform_security_policy(&webview)
+                    .and_then(|()| install_role_zoom_shortcut_handler(&webview, self.app.clone()))
                     .and_then(|()| {
                         install_process_failure_monitor(&webview, self.app.clone(), role_id.clone())
                     })
                     .and_then(|()| {
                         webview
-                            .set_zoom(role.zoom_factor)
+                            .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
                             .map_err(RuntimeError::tauri)
                     })?;
                 webview.hide().map_err(RuntimeError::tauri)?;
@@ -4613,7 +4983,8 @@ impl SystemRuntimeExecutor {
                         navigation,
                         rect: role.rect.clone(),
                         webview,
-                        zoom_factor: role.zoom_factor,
+                        zoom_factor: base_zoom_factor,
+                        zoom_mode: role.zoom_mode.clone(),
                     },
                 );
             }
@@ -4662,6 +5033,7 @@ impl SystemRuntimeExecutor {
                     dividers,
                     window_id: target.window_id.clone(),
                     roles: surfaces,
+                    workspace_id: tab.workspace_id,
                     workspace_appearance: tab.workspace_appearance,
                     workspace_template: tab.workspace_template,
                 },
@@ -4689,7 +5061,7 @@ impl SystemRuntimeExecutor {
                     "The role did not resolve to the current platform System WebView.",
                 ));
             }
-            let (surface, navigation) = {
+            let (surface, navigation, base_zoom_factor, effective_zoom) = {
                 let state = self.state()?;
                 let tab_id = state.role_tabs.get(&role.role_id).ok_or_else(|| {
                     RuntimeError::new(
@@ -4703,7 +5075,22 @@ impl SystemRuntimeExecutor {
                         "Runtime role was not found.",
                     )
                 })?;
-                (surface.webview.clone(), Arc::clone(&surface.navigation))
+                let base_zoom_factor = if surface.zoom_mode == "adaptive" {
+                    surface.zoom_factor
+                } else {
+                    role.zoom_factor.clamp(0.25, 3.0)
+                };
+                let window_zoom_factor = state
+                    .display_hosts
+                    .get(&state.tabs[tab_id].window_id)
+                    .map(|host| host.zoom_factor)
+                    .unwrap_or(1.0);
+                (
+                    surface.webview.clone(),
+                    Arc::clone(&surface.navigation),
+                    base_zoom_factor,
+                    effective_zoom_factor(base_zoom_factor, window_zoom_factor),
+                )
             };
             let url = checked_web_url(&role.url)?;
             if let Ok(mut state) = self.state()
@@ -4717,7 +5104,7 @@ impl SystemRuntimeExecutor {
                 // call. A renderer process can terminate before page-load events
                 // arrive, and a dead WKWebView may report a nil URL.
                 role_surface.current_url = Some(url.clone());
-                role_surface.zoom_factor = role.zoom_factor;
+                role_surface.zoom_factor = base_zoom_factor;
             }
             navigation.reset();
             if restore_attestation {
@@ -4734,7 +5121,7 @@ impl SystemRuntimeExecutor {
                 );
             }
             surface
-                .set_zoom(role.zoom_factor)
+                .set_zoom(effective_zoom)
                 .map_err(RuntimeError::tauri)?;
             pending_navigations.push((role.role_id, surface, navigation));
         }
@@ -4778,7 +5165,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn focus_role(&self, role_id: &str, zoom_factor: Option<f64>) -> RuntimeResult<()> {
-        let (window, webview) = {
+        let (window, webview, window_zoom_factor) = {
             let state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
                 RuntimeError::new(
@@ -4795,20 +5182,19 @@ impl SystemRuntimeExecutor {
                     "Runtime role was not found.",
                 )
             })?;
-            let window = state
-                .display_hosts
-                .get(&tab.window_id)
-                .map(|host| host.window.clone())
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
-                        "Runtime display host was not found.",
-                    )
-                })?;
-            (window, role.webview.clone())
+            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                    "Runtime display host was not found.",
+                )
+            })?;
+            (host.window.clone(), role.webview.clone(), host.zoom_factor)
         };
         if let Some(zoom_factor) = zoom_factor {
-            webview.set_zoom(zoom_factor).map_err(RuntimeError::tauri)?;
+            let zoom_factor = zoom_factor.clamp(0.25, 3.0);
+            webview
+                .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
+                .map_err(RuntimeError::tauri)?;
             if let Ok(mut state) = self.state()
                 && let Some(tab_id) = state.role_tabs.get(role_id).cloned()
                 && let Some(role_surface) = state
@@ -4817,6 +5203,7 @@ impl SystemRuntimeExecutor {
                     .and_then(|tab| tab.roles.get_mut(role_id))
             {
                 role_surface.zoom_factor = zoom_factor;
+                role_surface.zoom_mode = "fixed".to_owned();
             }
         }
         window.show().map_err(RuntimeError::tauri)?;
@@ -8993,6 +9380,221 @@ fn install_platform_security_policy(_webview: &Webview) -> RuntimeResult<()> {
     Ok(())
 }
 
+fn dispatch_role_zoom_shortcut(app: &AppHandle, webview_label: &str, action: &str) {
+    let result = app
+        .try_state::<crate::CoreState>()
+        .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
+        .and_then(|state| {
+            Arc::clone(&state.runtime)
+                .zoom_role_for_webview(webview_label, action)
+                .map(|_| ())
+        });
+    if let Err(message) = result {
+        let _ = app.emit(
+            "rion://shell-error",
+            json!({
+                "code": "TAURI_RUNTIME_ROLE_ZOOM_FAILED",
+                "message": message
+            }),
+        );
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_role_zoom_action(
+    virtual_key: u32,
+    control: bool,
+    alt: bool,
+    meta: bool,
+    shift: bool,
+) -> Option<&'static str> {
+    if !control || alt || meta {
+        return None;
+    }
+    match virtual_key {
+        0x30 | 0x60 if !shift => Some("reset"),
+        0xBD | 0x6D if !shift => Some("out"),
+        0xBB => Some("in"),
+        0x6B if !shift => Some("in"),
+        _ => None,
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn macos_role_zoom_action(
+    key_code: u16,
+    command: bool,
+    control: bool,
+    option: bool,
+    shift: bool,
+) -> Option<&'static str> {
+    if !command || control || option {
+        return None;
+    }
+    match key_code {
+        29 | 82 if !shift => Some("reset"),
+        27 | 78 if !shift => Some("out"),
+        24 => Some("in"),
+        69 if !shift => Some("in"),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct MacRoleZoomShortcutContext {
+    app: AppHandle,
+    webview_label: String,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_role_zoom_shortcut(
+    context: *mut std::ffi::c_void,
+    action: *const std::os::raw::c_char,
+) {
+    if context.is_null() || action.is_null() {
+        return;
+    }
+    let context = unsafe { &*(context.cast::<MacRoleZoomShortcutContext>()) };
+    let Ok(action) = unsafe { std::ffi::CStr::from_ptr(action) }.to_str() else {
+        return;
+    };
+    dispatch_role_zoom_shortcut(&context.app, &context.webview_label, action);
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn drop_macos_role_zoom_shortcut_context(context: *mut std::ffi::c_void) {
+    if !context.is_null() {
+        drop(unsafe { Box::from_raw(context.cast::<MacRoleZoomShortcutContext>()) });
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> RuntimeResult<()> {
+    unsafe extern "C" {
+        fn rion_wk_install_role_zoom_shortcut(
+            webview: *mut std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            handler: unsafe extern "C" fn(
+                context: *mut std::ffi::c_void,
+                action: *const std::os::raw::c_char,
+            ),
+            destructor: unsafe extern "C" fn(context: *mut std::ffi::c_void),
+        ) -> bool;
+    }
+
+    let context = Box::new(MacRoleZoomShortcutContext {
+        app,
+        webview_label: webview.label().to_owned(),
+    });
+    let context_address = Box::into_raw(context) as usize;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let scheduling = webview.with_webview(move |platform_webview| {
+        let installed = unsafe {
+            rion_wk_install_role_zoom_shortcut(
+                platform_webview.inner(),
+                context_address as *mut std::ffi::c_void,
+                macos_role_zoom_shortcut,
+                drop_macos_role_zoom_shortcut_context,
+            )
+        };
+        let _ = sender.send(installed);
+    });
+    if let Err(error) = scheduling {
+        unsafe { drop_macos_role_zoom_shortcut_context(context_address as *mut std::ffi::c_void) };
+        return Err(RuntimeError::tauri(error));
+    }
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            unsafe {
+                drop_macos_role_zoom_shortcut_context(context_address as *mut std::ffi::c_void)
+            };
+            Err(RuntimeError::new(
+                "SYSTEM_ROLE_ZOOM_SHORTCUT_FAILED",
+                "WKWebView could not install the role zoom shortcut responder.",
+            ))
+        }
+        Err(_) => Err(RuntimeError::new(
+            "SYSTEM_ROLE_ZOOM_SHORTCUT_TIMEOUT",
+            "WKWebView role zoom shortcut installation timed out.",
+        )),
+    }
+}
+
+#[cfg(windows)]
+fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> RuntimeResult<()> {
+    use webview2_com::{
+        AcceleratorKeyPressedEventHandler,
+        Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+            COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+        },
+    };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    };
+
+    let webview_label = webview.label().to_owned();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let shortcut_app = app.clone();
+            let shortcut_label = webview_label.clone();
+            let handler =
+                AcceleratorKeyPressedEventHandler::create(Box::new(move |_controller, args| {
+                    let Some(args) = args else {
+                        return Ok(());
+                    };
+                    let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
+                    args.KeyEventKind(&mut kind)?;
+                    if !matches!(
+                        kind,
+                        COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                            | COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                    ) {
+                        return Ok(());
+                    }
+                    let mut virtual_key = 0;
+                    args.VirtualKey(&mut virtual_key)?;
+                    let pressed = |key: u16| GetKeyState(i32::from(key)) < 0;
+                    let action = windows_role_zoom_action(
+                        virtual_key,
+                        pressed(VK_CONTROL.0),
+                        pressed(VK_MENU.0),
+                        pressed(VK_LWIN.0) || pressed(VK_RWIN.0),
+                        pressed(VK_SHIFT.0),
+                    );
+                    let Some(action) = action else {
+                        return Ok(());
+                    };
+                    args.SetHandled(true)?;
+                    dispatch_role_zoom_shortcut(&shortcut_app, &shortcut_label, action);
+                    Ok(())
+                }));
+            let mut token = 0;
+            let result = platform_webview
+                .controller()
+                .add_AcceleratorKeyPressed(&handler, &mut token)
+                .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        })
+        .map_err(RuntimeError::tauri)?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_ROLE_ZOOM_SHORTCUT_TIMEOUT",
+                "WebView2 role zoom shortcut installation timed out.",
+            )
+        })?
+        .map_err(|message| RuntimeError::new("SYSTEM_ROLE_ZOOM_SHORTCUT_FAILED", message))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn install_role_zoom_shortcut_handler(_webview: &Webview, _app: AppHandle) -> RuntimeResult<()> {
+    Ok(())
+}
+
 #[cfg(windows)]
 fn install_process_failure_monitor(
     webview: &Webview,
@@ -9900,5 +10502,96 @@ mod tests {
                 height: 480.0
             })
         );
+    }
+
+    #[test]
+    fn window_and_role_zoom_layers_compose_and_clamp_on_both_platforms() {
+        for platform in ["macos", "windows"] {
+            assert_eq!(next_zoom_factor(1.0, "in", 0.25, 5.0), 1.1, "{platform}");
+            assert_eq!(next_zoom_factor(1.0, "out", 0.25, 5.0), 0.9, "{platform}");
+            assert_eq!(next_zoom_factor(0.33, "in", 0.25, 3.0), 0.43, "{platform}");
+            assert_eq!(next_zoom_factor(1.8, "reset", 0.25, 5.0), 1.0, "{platform}");
+            assert_eq!(next_zoom_factor(3.0, "in", 0.25, 3.0), 3.0, "{platform}");
+            assert_eq!(effective_zoom_factor(1.25, 1.1), 1.375, "{platform}");
+            assert_eq!(effective_zoom_factor(3.0, 2.0), 5.0, "{platform}");
+            assert_eq!(effective_zoom_factor(0.25, 0.25), 0.25, "{platform}");
+        }
+    }
+
+    #[test]
+    fn role_zoom_shortcuts_cover_platform_modifiers_rows_numpad_and_repeats() {
+        for platform in ["macos", "windows"] {
+            let action = |key: &str, shift: bool, wrong_modifier: bool| match platform {
+                "macos" => macos_role_zoom_action(
+                    match key {
+                        "0" => 29,
+                        "numpad0" => 82,
+                        "minus" => 27,
+                        "numpadMinus" => 78,
+                        "plus" => 24,
+                        _ => 69,
+                    },
+                    true,
+                    wrong_modifier,
+                    false,
+                    shift,
+                ),
+                _ => windows_role_zoom_action(
+                    match key {
+                        "0" => 0x30,
+                        "numpad0" => 0x60,
+                        "minus" => 0xBD,
+                        "numpadMinus" => 0x6D,
+                        "plus" => 0xBB,
+                        _ => 0x6B,
+                    },
+                    true,
+                    false,
+                    wrong_modifier,
+                    shift,
+                ),
+            };
+            assert_eq!(action("0", false, false), Some("reset"), "{platform}");
+            assert_eq!(action("numpad0", false, false), Some("reset"), "{platform}");
+            assert_eq!(action("minus", false, false), Some("out"), "{platform}");
+            assert_eq!(
+                action("numpadMinus", false, false),
+                Some("out"),
+                "{platform}"
+            );
+            assert_eq!(action("plus", true, false), Some("in"), "{platform}");
+            assert_eq!(action("numpadPlus", false, false), Some("in"), "{platform}");
+            assert_eq!(action("0", false, true), None, "{platform}");
+            assert_eq!(action("numpadPlus", true, false), None, "{platform}");
+            for _repeat in 0..3 {
+                assert_eq!(action("plus", false, false), Some("in"), "{platform}");
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_role_zoom_shortcut_responder_consumes_only_supported_combinations() {
+        unsafe extern "C" {
+            fn rion_wk_role_zoom_shortcut_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_role_zoom_shortcut_self_test() });
+    }
+
+    #[test]
+    fn manual_zoom_indicator_resets_a_twelve_hundred_millisecond_timer() {
+        assert!(ZOOM_INDICATOR_SCRIPT.contains("clearTimeout(timer)"));
+        assert!(ZOOM_INDICATOR_SCRIPT.contains("1200"));
+        assert!(ZOOM_INDICATOR_SCRIPT.contains("element?.remove()"));
+    }
+
+    #[test]
+    fn role_zoom_persistence_is_last_write_wins() {
+        let key = ("workspace-1".to_owned(), "role-1".to_owned());
+        let mut pending = HashMap::from([(key.clone(), 2)]);
+        assert!(!take_latest_role_zoom_write(&mut pending, &key, 1));
+        assert_eq!(pending.get(&key), Some(&2));
+        assert!(take_latest_role_zoom_write(&mut pending, &key, 2));
+        assert!(!pending.contains_key(&key));
     }
 }

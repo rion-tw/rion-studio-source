@@ -92,9 +92,7 @@ export type WorkspaceLayoutTemplate =
   | "six_grid"
   | "eight_grid"
   | "nine_grid";
-export type WorkspaceBrowserZoomPercent = 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125;
 export type WorkspaceSlotBrowserZoomPercent = number;
-export type WorkspaceBrowserZoomMode = "adaptive" | "fixed";
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
 

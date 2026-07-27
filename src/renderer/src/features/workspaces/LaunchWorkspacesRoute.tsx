@@ -8,8 +8,7 @@ import {
   Plus,
   Search,
   Square,
-  Trash2,
-  ZoomIn
+  Trash2
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -284,10 +283,6 @@ function WorkspaceCard({
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
   const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);
   const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
-  const zoomLabel = workspace.browserZoomMode === "adaptive"
-    ? t("workspaces.browserZoomAdaptive")
-    : `${workspace.browserZoomPercent}%`;
-  const zoomTitle = `${t("workspaces.browserZoom")}: ${zoomLabel}`;
 
   return (
     <Card
@@ -364,15 +359,6 @@ function WorkspaceCard({
           >
             <LayoutIcon className="shrink-0" size={12} aria-hidden="true" />
             <span className="min-w-0 truncate">{layoutTitle}</span>
-          </Badge>
-          <Badge
-            aria-label={zoomTitle}
-            className="shrink-0 gap-1.5"
-            title={zoomTitle}
-            variant="secondary"
-          >
-            <ZoomIn size={12} aria-hidden="true" />
-            <span>{zoomLabel}</span>
           </Badge>
         </div>
       </div>

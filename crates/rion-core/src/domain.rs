@@ -568,11 +568,6 @@ pub fn create_workspace(
         id: Uuid::new_v4().to_string(),
         name,
         template: template.clone(),
-        browser_zoom_mode: normalize_workspace_zoom_mode(input.browser_zoom_mode.as_deref())?,
-        browser_zoom_percent: normalize_workspace_zoom_percent(
-            input.browser_zoom_percent,
-            default_workspace_zoom_percent(&template),
-        )?,
         slots,
         created_at: now.clone(),
         updated_at: now,
@@ -624,16 +619,6 @@ pub fn update_workspace(
         id: current.id.clone(),
         name,
         template,
-        browser_zoom_mode: input
-            .browser_zoom_mode
-            .as_deref()
-            .map(|mode| normalize_workspace_zoom_mode(Some(mode)))
-            .transpose()?
-            .unwrap_or_else(|| current.browser_zoom_mode.clone()),
-        browser_zoom_percent: normalize_workspace_zoom_percent(
-            input.browser_zoom_percent,
-            current.browser_zoom_percent,
-        )?,
         slots,
         created_at: current.created_at,
         updated_at: chrono::Utc::now().to_rfc3339(),
@@ -1235,47 +1220,6 @@ fn workspace_template_slot_count(template: &str) -> usize {
     }
 }
 
-fn default_workspace_zoom_percent(template: &str) -> f64 {
-    match template {
-        "eight_grid" => 75.0,
-        "nine_grid"
-        | "six_grid"
-        | "main_center_side_stacks"
-        | "three_top_two_bottom"
-        | "two_top_three_bottom" => 80.0,
-        "three_columns" | "quad" | "four_columns" => 90.0,
-        _ => 100.0,
-    }
-}
-
-fn normalize_workspace_zoom_mode(value: Option<&str>) -> CoreResult<String> {
-    let value = value.unwrap_or("adaptive");
-    if matches!(value, "adaptive" | "fixed") {
-        Ok(value.to_owned())
-    } else {
-        Err(domain(
-            "WORKSPACE_BROWSER_ZOOM_INVALID",
-            "Launch workspace browser zoom is invalid.",
-        ))
-    }
-}
-
-fn normalize_workspace_zoom_percent(value: Option<f64>, fallback: f64) -> CoreResult<f64> {
-    let value = value.unwrap_or(fallback);
-    if [
-        25.0, 33.0, 50.0, 67.0, 75.0, 80.0, 90.0, 100.0, 110.0, 125.0,
-    ]
-    .contains(&value)
-    {
-        Ok(value)
-    } else {
-        Err(domain(
-            "WORKSPACE_BROWSER_ZOOM_INVALID",
-            "Launch workspace browser zoom is invalid.",
-        ))
-    }
-}
-
 pub fn validate_display_target(mut target: DisplayTargetRecord) -> CoreResult<DisplayTargetRecord> {
     const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
     if target.id == -1 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&target.id) {
@@ -1381,7 +1325,7 @@ fn normalize_workspace_slots(
 }
 
 fn normalize_workspace_slot_zoom(value: f64) -> CoreResult<f64> {
-    if value.is_finite() && value.fract() == 0.0 && (50.0..=300.0).contains(&value) {
+    if value.is_finite() && value.fract() == 0.0 && (25.0..=300.0).contains(&value) {
         Ok(value)
     } else {
         Err(domain(
@@ -2419,8 +2363,6 @@ struct WorkspaceRecord {
     id: String,
     name: String,
     template: String,
-    browser_zoom_mode: String,
-    browser_zoom_percent: f64,
     slots: Vec<WorkspaceSlot>,
     created_at: String,
     updated_at: String,
@@ -2572,16 +2514,6 @@ fn validate_workspace(workspace: WorkspaceRecord) -> CoreResult<()> {
         ],
         "workspace template",
     )?;
-    one_of(
-        &workspace.browser_zoom_mode,
-        &["adaptive", "fixed"],
-        "workspace browser zoom mode",
-    )?;
-    if !(25.0..=125.0).contains(&workspace.browser_zoom_percent) {
-        return Err(CoreError::InvalidInput(
-            "workspace browser zoom is out of range".to_owned(),
-        ));
-    }
     if workspace.slots.len() > 9 {
         return Err(CoreError::InvalidInput(
             "workspace cannot contain more than nine slots".to_owned(),
@@ -2851,14 +2783,13 @@ mod tests {
         serde_json::from_value(value).unwrap()
     }
 
-    fn assert_workspace_template(template: &str, expected_zoom: f64, expected_rects: &[[f64; 4]]) {
+    fn assert_workspace_template(template: &str, expected_rects: &[[f64; 4]]) {
         let mut workspaces = Vec::new();
         let workspace = create_workspace(
             &mut workspaces,
             workspace_input(json!({"name":"Layout","template":template})),
         )
         .unwrap();
-        assert_eq!(workspace.browser_zoom_percent, expected_zoom);
         assert_eq!(workspace.slots.len(), expected_rects.len());
         for (slot, expected) in workspace.slots.iter().zip(expected_rects) {
             assert_eq!(
@@ -3821,7 +3752,6 @@ mod tests {
                 create_workspace(&mut workspaces, workspace_input(json!({"name":"Default"})))
                     .unwrap();
             assert_eq!(created.template, "two_columns");
-            assert_eq!(created.browser_zoom_percent, 100.0);
             assert_eq!(created.slots.len(), 2);
             assert_eq!(created.slots[0].id, "slot-1");
             assert_eq!(created.slots[1].id, "slot-2");
@@ -3833,13 +3763,13 @@ mod tests {
                 &mut workspaces,
                 workspace_input(json!({
                     "name":"Zoom","slots":[
-                        {"roleId":"r1","browserZoomPercent":125},
+                        {"roleId":"r1","browserZoomPercent":25},
                         {"roleId":"r2"}
                     ]
                 })),
             )
             .unwrap();
-            assert_eq!(created.slots[0].browser_zoom_percent, Some(125.0));
+            assert_eq!(created.slots[0].browser_zoom_percent, Some(25.0));
             assert!(created.slots[1].browser_zoom_percent.is_none());
             assert!(
                 create_workspace(
@@ -3847,6 +3777,16 @@ mod tests {
                     workspace_input(json!({
                         "name":"Invalid zoom",
                         "slots":[{"roleId":"r3","browserZoomPercent":301}]
+                    }))
+                )
+                .is_err()
+            );
+            assert!(
+                create_workspace(
+                    &mut workspaces,
+                    workspace_input(json!({
+                        "name":"Too small zoom",
+                        "slots":[{"roleId":"r4","browserZoomPercent":24}]
                     }))
                 )
                 .is_err()
@@ -4013,7 +3953,6 @@ mod tests {
         crate::v1_case!("state-migration-b57b56106912", {
             assert_workspace_template(
                 "three_columns",
-                90.0,
                 &[
                     [0.0, 0.0, 0.3333, 1.0],
                     [0.3333, 0.0, 0.3334, 1.0],
@@ -4051,7 +3990,6 @@ mod tests {
         crate::v1_case!("state-migration-323cefb9afae", {
             assert_workspace_template(
                 "main_right_stack_left",
-                100.0,
                 &[
                     [0.5, 0.0, 0.5, 1.0],
                     [0.0, 0.0, 0.5, 0.5],
@@ -4081,7 +4019,6 @@ mod tests {
         crate::v1_case!("state-migration-37306492d6a9", {
             assert_workspace_template(
                 "main_center_side_stacks",
-                80.0,
                 &[
                     [0.3, 0.0, 0.4, 1.0],
                     [0.0, 0.0, 0.3, 0.5],
@@ -4114,7 +4051,6 @@ mod tests {
         crate::v1_case!("state-migration-8e8c9045207a", {
             assert_workspace_template(
                 "three_columns",
-                90.0,
                 &[
                     [0.0, 0.0, 0.3333, 1.0],
                     [0.3333, 0.0, 0.3334, 1.0],
@@ -4129,7 +4065,6 @@ mod tests {
                 workspace_input(json!({"name":"Quad","template":"quad"})),
             )
             .unwrap();
-            assert_eq!(workspace.browser_zoom_percent, 90.0);
             assert_eq!(workspace.slots.len(), 4);
         });
         crate::v1_case!("state-migration-426c9c61f12c", {
@@ -4139,7 +4074,6 @@ mod tests {
                 workspace_input(json!({"name":"Four","template":"four_columns"})),
             )
             .unwrap();
-            assert_eq!(workspace.browser_zoom_percent, 90.0);
             assert_eq!(workspace.slots.len(), 4);
         });
 
@@ -4152,28 +4086,29 @@ mod tests {
                 })),
             )
             .unwrap();
-            assert_eq!(created.browser_zoom_percent, 125.0);
+            assert!(
+                serde_json::to_value(&created)
+                    .unwrap()
+                    .get("browserZoomPercent")
+                    .is_none()
+            );
             let updated = update_workspace(
                 &mut workspaces,
                 &created.id,
                 serde_json::from_value(json!({"browserZoomPercent":90})).unwrap(),
             )
             .unwrap();
-            assert_eq!(updated.browser_zoom_percent, 90.0);
             assert!(
-                update_workspace(
-                    &mut workspaces,
-                    &created.id,
-                    serde_json::from_value(json!({"browserZoomPercent":91})).unwrap(),
-                )
-                .is_err()
+                serde_json::to_value(updated)
+                    .unwrap()
+                    .get("browserZoomPercent")
+                    .is_none()
             );
         });
 
         crate::v1_case!("state-migration-ebaa1c20914a", {
             assert_workspace_template(
                 "four_columns",
-                90.0,
                 &[
                     [0.0, 0.0, 0.25, 1.0],
                     [0.25, 0.0, 0.25, 1.0],
@@ -4186,7 +4121,6 @@ mod tests {
         crate::v1_case!("state-migration-764ee3055e09", {
             assert_workspace_template(
                 "three_top_two_bottom",
-                80.0,
                 &[
                     [0.0, 0.0, 0.3333, 0.5],
                     [0.3333, 0.0, 0.3334, 0.5],
@@ -4199,7 +4133,6 @@ mod tests {
         crate::v1_case!("state-migration-fbdf387e5729", {
             assert_workspace_template(
                 "two_top_three_bottom",
-                80.0,
                 &[
                     [0.0, 0.0, 0.5, 0.5],
                     [0.5, 0.0, 0.5, 0.5],
@@ -4216,7 +4149,6 @@ mod tests {
                 workspace_input(json!({"name":"Six","template":"six_grid"})),
             )
             .unwrap();
-            assert_eq!(workspace.browser_zoom_percent, 80.0);
             assert_eq!(workspace.slots.len(), 6);
             assert_eq!(workspace.slots[3].rect.y, 0.5);
         });
@@ -4227,7 +4159,6 @@ mod tests {
                 workspace_input(json!({"name":"Eight","template":"eight_grid"})),
             )
             .unwrap();
-            assert_eq!(workspace.browser_zoom_percent, 75.0);
             assert_eq!(workspace.slots.len(), 8);
             assert_eq!(workspace.slots[4].rect.y, 0.5);
         });

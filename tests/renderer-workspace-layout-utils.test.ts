@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { LaunchWorkspaceSlot, Role } from "../src/shared/types";
-import {
-  getDefaultWorkspaceBrowserZoomPercent,
-  getDefaultWorkspaceRects,
-  isWorkspaceBrowserZoomPercent,
-  workspaceBrowserZoomPercents
-} from "../src/shared/workspaceLayout";
+import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
@@ -45,43 +40,18 @@ describe("renderer workspace layout helpers", () => {
     });
   });
 
-  it("uses compact-layout browser zoom defaults", () => {
-    expect(getDefaultWorkspaceBrowserZoomPercent("eight_grid")).toBe(75);
-    expect(getDefaultWorkspaceBrowserZoomPercent("three_columns")).toBe(90);
-    expect(getDefaultWorkspaceBrowserZoomPercent("quad")).toBe(90);
-    expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
-    expect(getDefaultWorkspaceBrowserZoomPercent("six_grid")).toBe(80);
-    expect(getDefaultWorkspaceBrowserZoomPercent("main_center_side_stacks")).toBe(80);
-    expect(getDefaultWorkspaceBrowserZoomPercent("three_top_two_bottom")).toBe(80);
-    expect(getDefaultWorkspaceBrowserZoomPercent("two_top_three_bottom")).toBe(80);
-    expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
-    expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
-    expect(getDefaultWorkspaceBrowserZoomPercent("main_right_stack_left")).toBe(100);
-  });
-
-  it("offers and validates every supported browser zoom percentage", () => {
-    expect(workspaceBrowserZoomPercents).toEqual([25, 33, 50, 67, 75, 80, 90, 100, 110, 125]);
-    expect(workspaceBrowserZoomPercents.every(isWorkspaceBrowserZoomPercent)).toBe(true);
-    expect(isWorkspaceBrowserZoomPercent(34)).toBe(false);
-  });
-
-  it("loads the saved browser zoom into the workspace form", () => {
-    expect(
-      createWorkspaceFormState({
-        id: "workspace-1",
-        browserZoomMode: "fixed",
-        name: "Party",
-        template: "three_columns",
-        browserZoomPercent: 125,
-        slots: applyWorkspaceTemplate([], "three_columns"),
-        createdAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z"
-      })
-    ).toMatchObject({
-      browserZoomMode: "fixed",
-      browserZoomPercent: 125,
-      template: "three_columns"
+  it("does not expose a workspace-wide browser zoom form contract", () => {
+    const form = createWorkspaceFormState({
+      id: "workspace-1",
+      name: "Party",
+      template: "three_columns",
+      slots: applyWorkspaceTemplate([], "three_columns"),
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
     });
+    expect(form).not.toHaveProperty("browserZoomMode");
+    expect(form).not.toHaveProperty("browserZoomPercent");
+    expect(form.template).toBe("three_columns");
   });
 
   it("preserves a saved single layout and its assigned role in the workspace form", () => {
@@ -94,10 +64,8 @@ describe("renderer workspace layout helpers", () => {
 
     expect(createWorkspaceFormState({
       id: "workspace-1",
-      browserZoomMode: "adaptive",
       name: "Solo",
       template: "single",
-      browserZoomPercent: 100,
       slots,
       createdAt: "2026-07-10T00:00:00.000Z",
       updatedAt: "2026-07-10T00:00:00.000Z"

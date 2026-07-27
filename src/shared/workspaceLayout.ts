@@ -1,8 +1,6 @@
 import type {
   LaunchWorkspaceSlot,
   NormalizedRect,
-  WorkspaceBrowserZoomMode,
-  WorkspaceBrowserZoomPercent,
   WorkspaceSlotBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "./types";
@@ -10,22 +8,8 @@ import type {
 export const MAX_WORKSPACE_SLOTS = 9;
 export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
-export const DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE: WorkspaceBrowserZoomMode = "adaptive";
-export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
-export const MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 50;
+export const MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 25;
 export const MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 300;
-export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [
-  25,
-  33,
-  50,
-  67,
-  75,
-  80,
-  90,
-  100,
-  110,
-  125
-];
 
 export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "single",
@@ -43,36 +27,6 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "nine_grid"
 ];
 
-export function getDefaultWorkspaceBrowserZoomPercent(
-  template: WorkspaceLayoutTemplate
-): WorkspaceBrowserZoomPercent {
-  if (template === "eight_grid") {
-    return 75;
-  }
-
-  if (template === "nine_grid") {
-    return 80;
-  }
-
-  if (
-    template === "six_grid" ||
-    template === "main_center_side_stacks" ||
-    template === "three_top_two_bottom" ||
-    template === "two_top_three_bottom"
-  ) {
-    return 80;
-  }
-
-  return template === "three_columns" || template === "quad" || template === "four_columns" ? 90 : 100;
-}
-
-export function isWorkspaceBrowserZoomPercent(value: unknown): value is WorkspaceBrowserZoomPercent {
-  return (
-    typeof value === "number" &&
-    workspaceBrowserZoomPercents.includes(value as WorkspaceBrowserZoomPercent)
-  );
-}
-
 export function isWorkspaceSlotBrowserZoomPercent(
   value: unknown
 ): value is WorkspaceSlotBrowserZoomPercent {
@@ -82,10 +36,6 @@ export function isWorkspaceSlotBrowserZoomPercent(
     value >= MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT &&
     value <= MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT
   );
-}
-
-export function isWorkspaceBrowserZoomMode(value: unknown): value is WorkspaceBrowserZoomMode {
-  return value === "adaptive" || value === "fixed";
 }
 
 export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate): number {

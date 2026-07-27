@@ -2235,6 +2235,21 @@ impl SystemRuntimeExecutor {
                     json!({ "insertedCookieCount": inserted_cookie_count }).to_string(),
                 ))
             }
+            CoreEffectAction::ChromeProfileImportVerify {
+                role_id,
+                verification_url,
+                authenticated_path,
+                login_path,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+            } => self.verify_role_authentication(
+                &role_id,
+                &verification_url,
+                &authenticated_path,
+                &login_path,
+                &webview2_user_data_dir,
+                &webkit_data_store_identifier,
+            ),
             CoreEffectAction::ChromeProfileImportRollback {
                 transaction_id,
                 role_id,
@@ -2999,6 +3014,76 @@ impl SystemRuntimeExecutor {
         })();
         close_hidden_surface(window, webview);
         result
+    }
+
+    fn verify_role_authentication(
+        &self,
+        role_id: &str,
+        verification_url: &str,
+        authenticated_path: &str,
+        login_path: &str,
+        webview2_user_data_dir: &str,
+        webkit_data_store_identifier: &str,
+    ) -> RuntimeResult<Option<String>> {
+        if self.state()?.role_tabs.contains_key(role_id) {
+            return Err(RuntimeError::new(
+                "ROLE_SESSION_IMPORT_IN_USE",
+                "Stop the role before verifying imported browser session data.",
+            ));
+        }
+        if !valid_auth_probe_path(authenticated_path)
+            || !valid_auth_probe_path(login_path)
+            || authenticated_path == login_path
+        {
+            return Err(RuntimeError::new(
+                "SESSION_IMPORT_AUTH_PROBE_INVALID",
+                "The session authentication probe paths are invalid.",
+            ));
+        }
+        let verification = checked_web_url(verification_url)?;
+        let expected_origin = verification.origin().ascii_serialization();
+        let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
+        fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
+        let (window, webview, navigation) =
+            self.create_session_transfer_surface(role_id, &paths, None)?;
+        let outcome = (|| {
+            navigation.reset();
+            webview
+                .navigate(verification)
+                .map_err(RuntimeError::tauri)?;
+            navigation.wait().map_err(|message| {
+                RuntimeError::new("SESSION_IMPORT_AUTH_PROBE_LOAD_FAILED", message)
+            })?;
+            webview.url().map_err(RuntimeError::tauri)
+        })();
+        close_hidden_surface(window, webview);
+        let (auth_state, final_path, reason_code) = match outcome {
+            Ok(final_url) if final_url.origin().ascii_serialization() != expected_origin => (
+                "indeterminate",
+                final_url.path().to_owned(),
+                Some("SESSION_IMPORT_AUTH_PROBE_ORIGIN_MISMATCH"),
+            ),
+            Ok(final_url) if auth_probe_path_matches(final_url.path(), authenticated_path) => {
+                ("authenticated", final_url.path().to_owned(), None)
+            }
+            Ok(final_url) if auth_probe_path_matches(final_url.path(), login_path) => {
+                ("notAuthenticated", final_url.path().to_owned(), None)
+            }
+            Ok(final_url) => (
+                "indeterminate",
+                final_url.path().to_owned(),
+                Some("SESSION_IMPORT_AUTH_PROBE_UNEXPECTED_PATH"),
+            ),
+            Err(error) => ("indeterminate", String::new(), Some(error.code)),
+        };
+        Ok(Some(
+            json!({
+                "authState": auth_state,
+                "finalPath": final_path,
+                "reasonCode": reason_code,
+            })
+            .to_string(),
+        ))
     }
 
     fn load_session_transfer(
@@ -6726,6 +6811,17 @@ fn require_exact_webview_origin(webview: &Webview, expected: &str) -> RuntimeRes
     }
 }
 
+fn valid_auth_probe_path(path: &str) -> bool {
+    path.starts_with('/') && !path.contains(['?', '#'])
+}
+
+fn auth_probe_path_matches(actual: &str, expected: &str) -> bool {
+    actual == expected
+        || (actual.starts_with(expected)
+            && expected != "/"
+            && actual.as_bytes().get(expected.len()) == Some(&b'/'))
+}
+
 fn storage_entries_from_value(value: &Value, field: &str) -> RuntimeResult<Vec<(String, String)>> {
     value
         .get(field)
@@ -8105,6 +8201,17 @@ mod tests {
         assert!(should_refresh_macro_overlay(&[], "role-a"));
         assert!(!should_refresh_macro_overlay(&selected, "role-a"));
         assert!(should_refresh_macro_overlay(&selected, "role-b"));
+    }
+
+    #[test]
+    fn auth_probe_paths_are_exact_or_descendants_without_prefix_confusion() {
+        assert!(valid_auth_probe_path("/profile"));
+        assert!(!valid_auth_probe_path("profile"));
+        assert!(!valid_auth_probe_path("/profile?token=private"));
+        assert!(auth_probe_path_matches("/profile", "/profile"));
+        assert!(auth_probe_path_matches("/profile/security", "/profile"));
+        assert!(!auth_probe_path_matches("/profiles", "/profile"));
+        assert!(auth_probe_path_matches("/", "/"));
     }
 
     #[test]

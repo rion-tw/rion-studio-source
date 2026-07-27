@@ -79,7 +79,7 @@ describe("Chrome profile import flow", () => {
     expect(requestChromeQuitForImport).toHaveBeenCalledWith("import-1");
   });
 
-  it("requires an explicit per-profile conflict decision and shows progress and results", async () => {
+  it("preselects an exact role match, confirms once, and shows progress and results", async () => {
     const user = userEvent.setup();
     let progressListener: ((progress: ChromeProfileImportProgress) => void) | undefined;
     const applyChromeProfileImport = vi.fn().mockResolvedValue({
@@ -89,8 +89,15 @@ describe("Chrome profile import flow", () => {
         roleId: "role-1",
         roleName: "Main",
         status: "imported",
+        authState: "notApplicable",
         cookieCount: 3,
         localStorageCount: 2,
+        unsupported: {
+          partitionedCookieCount: 1,
+          appBoundCookieCount: 0,
+          decryptFailureCount: 0,
+          storageReadFailureCount: 0
+        },
         warnings: ["COOKIE_PARTITIONED_UNSUPPORTED"]
       }]
     });
@@ -107,13 +114,8 @@ describe("Chrome profile import flow", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Game" }));
     await user.click(screen.getByRole("option", { name: "Example" }));
-    await user.click(screen.getByRole("checkbox", { name: /Main/ }));
+    expect(screen.getByRole("checkbox", { name: /Main/ }).getAttribute("aria-checked")).toBe("true");
     const apply = screen.getByRole("button", { name: "Apply import" });
-    expect((apply as HTMLButtonElement).disabled).toBe(true);
-    await user.selectOptions(
-      screen.getAllByRole("combobox")[1],
-      "replace:role-1"
-    );
     expect((apply as HTMLButtonElement).disabled).toBe(false);
 
     act(() => {
@@ -127,6 +129,8 @@ describe("Chrome profile import flow", () => {
     });
     expect(screen.getByText("Writing and verifying · 0/1")).toBeTruthy();
     await user.click(apply);
+    expect(screen.getByText("Replace selected role sessions?")).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: "Apply import" }).at(-1)!);
 
     expect(applyChromeProfileImport).toHaveBeenCalledWith({
       importId: "import-1",
@@ -135,7 +139,44 @@ describe("Chrome profile import flow", () => {
       resolutions: [{ action: "replace", profileId: "Default", targetRoleId: "role-1" }]
     });
     expect(screen.getByText("3 cookies · 2 LocalStorage entries")).toBeTruthy();
-    expect(screen.getByText("COOKIE_PARTITIONED_UNSUPPORTED")).toBeTruthy();
+    expect(screen.getByText(/1 partitioned/)).toBeTruthy();
+    expect(screen.getByText("Partitioned cookies cannot be transferred to this System WebView")).toBeTruthy();
+  });
+
+  it("opens a needs-login role in the same managed session", async () => {
+    const user = userEvent.setup();
+    const launchRole = vi.fn().mockResolvedValue({});
+    installApi({
+      launchRole,
+      previewChromeProfileImport: vi.fn().mockResolvedValue(preview(false)),
+      applyChromeProfileImport: vi.fn().mockResolvedValue({
+        importId: "import-1",
+        items: [{
+          profileId: "Default",
+          roleId: "role-1",
+          roleName: "Main",
+          status: "needsLogin",
+          authState: "notAuthenticated",
+          cookieCount: 3,
+          localStorageCount: 2,
+          unsupported: {
+            partitionedCookieCount: 0,
+            appBoundCookieCount: 0,
+            decryptFailureCount: 0,
+            storageReadFailureCount: 0
+          },
+          warnings: []
+        }]
+      })
+    });
+    renderFlow([role]);
+    await openPreview(user);
+    await user.click(screen.getByRole("combobox", { name: "Game" }));
+    await user.click(screen.getByRole("option", { name: "Example" }));
+    await user.click(screen.getByRole("button", { name: "Apply import" }));
+    await user.click(screen.getAllByRole("button", { name: "Apply import" }).at(-1)!);
+    await user.click(screen.getByRole("button", { name: "Open role to finish sign-in" }));
+    expect(launchRole).toHaveBeenCalledWith("role-1");
   });
 });
 

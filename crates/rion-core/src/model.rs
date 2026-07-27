@@ -236,6 +236,26 @@ pub struct SessionTransferPayloadRecord {
     pub local_storage: Vec<LocalStorageEntryRecord>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum ChromeProfileImportAuthStateRecord {
+    Authenticated,
+    NotAuthenticated,
+    Indeterminate,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportUnsupportedCountsRecord {
+    pub partitioned_cookie_count: u32,
+    pub app_bound_cookie_count: u32,
+    pub decrypt_failure_count: u32,
+    pub storage_read_failure_count: u32,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -245,9 +265,14 @@ pub struct ChromeProfileImportItemResultRecord {
     #[ts(optional)]
     pub role_id: Option<String>,
     pub role_name: String,
+    #[ts(
+        type = "\"imported\" | \"needsLogin\" | \"alreadyAuthenticated\" | \"failed\" | \"cancelled\""
+    )]
     pub status: String,
+    pub auth_state: ChromeProfileImportAuthStateRecord,
     pub cookie_count: u32,
     pub local_storage_count: u32,
+    pub unsupported: ChromeProfileImportUnsupportedCountsRecord,
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -3228,6 +3253,14 @@ pub enum CoreEffectAction {
         webview2_user_data_dir: String,
         webkit_data_store_identifier: String,
         replace_existing: bool,
+    },
+    ChromeProfileImportVerify {
+        role_id: String,
+        verification_url: String,
+        authenticated_path: String,
+        login_path: String,
+        webview2_user_data_dir: String,
+        webkit_data_store_identifier: String,
     },
     ChromeProfileImportRollback {
         transaction_id: String,

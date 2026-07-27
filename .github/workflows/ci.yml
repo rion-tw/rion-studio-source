@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - rust
+      - v4
   workflow_call:
     inputs:
       ref:

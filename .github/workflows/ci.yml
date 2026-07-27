@@ -55,6 +55,9 @@ jobs:
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
 
+      - name: Build renderer assets for Rust checks
+        run: pnpm run build:renderer
+
       - name: Check Rust formatting and lints
         run: pnpm run lint:rust
 

@@ -13,6 +13,8 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("pnpm run test");
     expect(workflow).toContain("pnpm run lint");
     expect(workflow).toContain("pnpm run build");
+    expect(workflow.indexOf("pnpm run build:renderer"))
+      .toBeLessThan(workflow.indexOf("pnpm run lint:rust"));
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
     expect(workflow).toContain("pnpm run test:native:system-input");

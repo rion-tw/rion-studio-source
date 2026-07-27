@@ -37,6 +37,7 @@ describe("renderer control sizing", () => {
     const utilitiesLayerStart = styles.indexOf("@layer utilities");
     expect(hitTargetRulesStart).toBeGreaterThan(baseLayerStart);
     expect(hitTargetRulesStart).toBeLessThan(utilitiesLayerStart);
+    expect(styles.slice(hitTargetRulesStart, utilitiesLayerStart)).not.toContain("[contenteditable]");
     expect(styles).not.toContain("min-width: var(--control-hit-size)");
     expect(styles).not.toContain("min-height: var(--control-hit-size)");
   });

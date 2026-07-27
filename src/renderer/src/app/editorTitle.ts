@@ -9,21 +9,3 @@ export function syncEditorTitle(element: HTMLElement, value: string): void {
     element.textContent = value;
   }
 }
-
-export function focusEditorTitle(
-  element: HTMLElement,
-  selection: Selection | null = window.getSelection(),
-  createRange: () => Range = () => document.createRange()
-): void {
-  element.focus({ preventScroll: true });
-
-  if (!selection) {
-    return;
-  }
-
-  const range = createRange();
-  range.selectNodeContents(element);
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
-}

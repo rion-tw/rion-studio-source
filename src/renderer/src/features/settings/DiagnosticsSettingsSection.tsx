@@ -102,7 +102,7 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
               <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsLevel")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsLevelDescription")}</p>
             </div>
-            <Select value={status?.currentLevel ?? "info"} onValueChange={(value) => void run(() => window.rionStudio.setLogLevel(value as LogLevel))}>
+            <Select value={status?.currentLevel ?? "debug"} onValueChange={(value) => void run(() => window.rionStudio.setLogLevel(value as LogLevel))}>
               <SelectTrigger className="w-32 settings-menu-control"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="info">Info</SelectItem><SelectItem value="debug">Debug</SelectItem></SelectContent>
             </Select>

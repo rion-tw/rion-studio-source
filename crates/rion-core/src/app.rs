@@ -232,7 +232,7 @@ impl AppCore {
         let log_level = state
             .read_scalar("logLevel".to_owned())?
             .and_then(|value| serde_json::from_value::<LogLevel>(value).ok())
-            .unwrap_or(LogLevel::Info);
+            .unwrap_or(LogLevel::Debug);
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
         let effect_subscribers = Arc::clone(&subscribers);
@@ -6899,7 +6899,7 @@ mod tests {
             let first = AppCore::create(options()).unwrap();
             assert_eq!(
                 first.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
-                "info"
+                "debug"
             );
             first
                 .invoke(CoreCommand::LogsSetLevel {
@@ -6956,7 +6956,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_persisted_log_level_falls_back_to_info() {
+    fn invalid_persisted_log_level_falls_back_to_debug() {
         let (directory, core) = core();
         core.shutdown();
         drop(core);
@@ -6980,7 +6980,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             restored.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
-            "info"
+            "debug"
         );
         restored.shutdown();
     }
@@ -7008,7 +7008,7 @@ mod tests {
         );
         assert_eq!(
             core.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
-            "info"
+            "debug"
         );
         assert!(
             core.with_runtime(|runtime| runtime.state.read_scalar("logLevel".to_owned()))

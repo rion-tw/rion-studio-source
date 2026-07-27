@@ -16,8 +16,8 @@ use rion_core::{
     AppCore, AppCoreOptions, CoreCommand, CoreEffectAction, CoreEffectResult, CoreErrorPayload,
     CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord, EmbeddedLaunchTargetRecord,
     GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-    StateCollection, StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord,
-    StateResolutionRecord, StateRoleRecord, migrate_legacy_data_root,
+    PORTABLE_SCHEMA_VERSION, StateCollection, StateGameRecord, StateGameWindowRecord,
+    StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord, migrate_legacy_data_root,
 };
 #[cfg(any(windows, target_os = "macos"))]
 use rusty_leveldb::{DB, Options};
@@ -3282,9 +3282,7 @@ async fn run_file_operations_attestation(
         &fs::read(&portable_path).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if portable_document["schemaVersion"].as_u64() != Some(7)
-        || portable["filePath"].as_str() != Some(portable_path.to_string_lossy().as_ref())
-    {
+    if !portable_attestation_export_is_valid(&portable, &portable_document, &portable_path) {
         return Err(format!(
             "The packaged portable export was invalid: result={portable}, document={portable_document}."
         ));
@@ -3422,6 +3420,16 @@ async fn run_file_operations_attestation(
         "portablePreviewVerified": true,
         "temporaryFilesReleased": true
     }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn portable_attestation_export_is_valid(
+    result: &Value,
+    document: &Value,
+    path: &std::path::Path,
+) -> bool {
+    document["schemaVersion"].as_u64() == Some(PORTABLE_SCHEMA_VERSION)
+        && result["filePath"].as_str() == Some(path.to_string_lossy().as_ref())
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -5007,6 +5015,28 @@ mod tests {
         assert!(
             validate_input_attestation_output_path(PathBuf::from("relative/result.json")).is_err()
         );
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn portable_attestation_requires_the_current_schema_and_export_path() {
+        let path = std::env::temp_dir().join("rion-portable-attestation.json");
+        let result = json!({ "filePath": path });
+        let current = json!({ "schemaVersion": PORTABLE_SCHEMA_VERSION });
+
+        assert!(portable_attestation_export_is_valid(
+            &result, &current, &path
+        ));
+        assert!(!portable_attestation_export_is_valid(
+            &result,
+            &json!({ "schemaVersion": PORTABLE_SCHEMA_VERSION - 1 }),
+            &path
+        ));
+        assert!(!portable_attestation_export_is_valid(
+            &json!({ "filePath": path.with_file_name("other.json") }),
+            &current,
+            &path
+        ));
     }
 
     #[test]

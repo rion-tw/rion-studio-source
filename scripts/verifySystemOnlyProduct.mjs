@@ -195,6 +195,7 @@ for (const transferEffect of [
   "LegacySessionRestore",
   "ChromeProfileImportSnapshot",
   "ChromeProfileImportApply",
+  "ChromeProfileImportVerify",
   "ChromeProfileImportRollback",
   "ChromeProfileImportCommit"
 ]) {

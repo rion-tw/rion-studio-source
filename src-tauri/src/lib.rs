@@ -64,6 +64,7 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
         CoreEffectAction::LegacySessionRestore { .. } => "legacySessionRestore",
         CoreEffectAction::ChromeProfileImportSnapshot { .. } => "chromeProfileImportSnapshot",
         CoreEffectAction::ChromeProfileImportApply { .. } => "chromeProfileImportApply",
+        CoreEffectAction::ChromeProfileImportVerify { .. } => "chromeProfileImportVerify",
         CoreEffectAction::ChromeProfileImportRollback { .. } => "chromeProfileImportRollback",
         CoreEffectAction::ChromeProfileImportCommit { .. } => "chromeProfileImportCommit",
         CoreEffectAction::CompatibilityCreateWindow { .. } => "compatibilityCreateWindow",

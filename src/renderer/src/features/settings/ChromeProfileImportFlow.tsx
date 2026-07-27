@@ -1,4 +1,4 @@
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, LogIn, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import type {
@@ -41,6 +41,7 @@ export function ChromeProfileImportFlow({
   const [busy, setBusy] = useState(false);
   const [applyInProgress, setApplyInProgress] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [launchingRoleId, setLaunchingRoleId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!preview || !window.rionStudio) return;
@@ -58,7 +59,7 @@ export function ChromeProfileImportFlow({
         roles.filter(
           (role) =>
             role.gameId === selectedGameId &&
-            role.name.localeCompare(profile.name, undefined, { sensitivity: "accent" }) === 0
+            importNamesMatch(role.name, profile.name)
         )
       );
     }
@@ -71,11 +72,30 @@ export function ChromeProfileImportFlow({
       const duplicateSelectedName = Boolean(profile) && selectedProfiles.some((candidateId) => {
         if (candidateId === profileId) return false;
         const candidate = preview?.profiles.find((entry) => entry.id === candidateId);
-        return candidate?.name.localeCompare(profile!.name, undefined, { sensitivity: "accent" }) === 0;
+        return candidate ? importNamesMatch(candidate.name, profile!.name) : false;
       });
       return ((conflicts.get(profileId)?.length ?? 0) > 0 || duplicateSelectedName) && !decisions[profileId];
     }
   );
+
+  useEffect(() => {
+    if (!preview || !selectedGameId) return;
+    const profileNameCounts = new Map<string, number>();
+    for (const profile of preview.profiles) {
+      const name = normalizedImportName(profile.name);
+      profileNameCounts.set(name, (profileNameCounts.get(name) ?? 0) + 1);
+    }
+    const nextSelected: string[] = [];
+    const nextDecisions: Record<string, string> = {};
+    for (const profile of preview.profiles) {
+      const matchingRoles = conflicts.get(profile.id) ?? [];
+      if (profileNameCounts.get(normalizedImportName(profile.name)) !== 1 || matchingRoles.length !== 1) continue;
+      nextSelected.push(profile.id);
+      nextDecisions[profile.id] = `replace:${matchingRoles[0].id}`;
+    }
+    setSelectedProfiles(nextSelected);
+    setDecisions(nextDecisions);
+  }, [conflicts, preview, selectedGameId]);
 
   async function chooseChromeFolder(): Promise<void> {
     if (!window.rionStudio || !consentAccepted) return;
@@ -144,6 +164,14 @@ export function ChromeProfileImportFlow({
       }
       return { action: "create", profileId };
     });
+    const approved = await confirm({
+      title: t("settings.chromeImportConfirmTitle"),
+      description: t("settings.chromeImportConfirmDescription")
+        .replace("{count}", String(resolutions.length)),
+      cancelLabel: t("settings.importCancel"),
+      confirmLabel: t("settings.chromeImportApply")
+    });
+    if (!approved) return;
     setBusy(true);
     setApplyInProgress(true);
     setCancelRequested(false);
@@ -161,6 +189,18 @@ export function ChromeProfileImportFlow({
       setApplyInProgress(false);
       setCancelRequested(false);
       setBusy(false);
+    }
+  }
+
+  async function openRoleForLogin(roleId: string): Promise<void> {
+    if (!window.rionStudio || launchingRoleId) return;
+    setLaunchingRoleId(roleId);
+    try {
+      await window.rionStudio.launchRole(roleId);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setLaunchingRoleId(null);
     }
   }
 
@@ -241,12 +281,8 @@ export function ChromeProfileImportFlow({
                 <div key={item.profileId} className="rounded-md border border-border/45 bg-background/25 p-3 text-xs leading-5">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-foreground">{item.roleName}</span>
-                    <span className={item.status === "imported" ? "text-emerald-600" : item.status === "cancelled" ? "text-amber-600" : "text-destructive"}>
-                      {t(item.status === "imported"
-                        ? "settings.chromeImportSuccess"
-                        : item.status === "cancelled"
-                          ? "settings.chromeImportCancelled"
-                          : "settings.chromeImportFailed")}
+                    <span className={chromeImportStatusClass(item.status)}>
+                      {chromeImportStatusLabel(item.status, t)}
                     </span>
                   </div>
                   <p className="text-muted-foreground">
@@ -254,8 +290,33 @@ export function ChromeProfileImportFlow({
                       .replace("{cookies}", String(item.cookieCount))
                       .replace("{storage}", String(item.localStorageCount))}
                   </p>
+                  {unsupportedCount(item.unsupported) > 0 ? (
+                    <p className="text-amber-600">
+                      {t("settings.chromeImportUnsupportedCounts")
+                        .replace("{partitioned}", String(item.unsupported.partitionedCookieCount))
+                        .replace("{appBound}", String(item.unsupported.appBoundCookieCount))
+                        .replace("{decrypt}", String(item.unsupported.decryptFailureCount))
+                        .replace("{storage}", String(item.unsupported.storageReadFailureCount))}
+                    </p>
+                  ) : null}
                   {item.warnings.length > 0 ? (
-                    <p className="break-words text-amber-600">{item.warnings.join(" · ")}</p>
+                    <p className="break-words text-amber-600">
+                      {item.warnings.map((warning) => chromeImportWarningLabel(warning, t)).join(" · ")}
+                    </p>
+                  ) : null}
+                  {item.status === "needsLogin" && item.roleId ? (
+                    <Button
+                      className="mt-2"
+                      type="button"
+                      variant="outline"
+                      disabled={launchingRoleId !== null}
+                      onClick={() => void openRoleForLogin(item.roleId!)}
+                    >
+                      {launchingRoleId === item.roleId
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <LogIn size={14} />}
+                      {t("settings.chromeImportOpenLogin")}
+                    </Button>
                   ) : null}
                 </div>
               ))}
@@ -278,7 +339,7 @@ export function ChromeProfileImportFlow({
                   const duplicateSelectedName = selectedProfiles.some((candidateId) => {
                     if (candidateId === profile.id) return false;
                     const candidate = preview.profiles.find((entry) => entry.id === candidateId);
-                    return candidate?.name.localeCompare(profile.name, undefined, { sensitivity: "accent" }) === 0;
+                    return candidate ? importNamesMatch(candidate.name, profile.name) : false;
                   });
                   return (
                     <div key={profile.id} className="rounded-md border border-border/45 bg-background/25 p-3">
@@ -390,9 +451,55 @@ function chromeImportPhaseLabel(phase: string, t: Translator): string {
       return t("settings.chromeImportPhaseBackingUp");
     case "applying":
       return t("settings.chromeImportPhaseApplying");
+    case "verifying":
+      return t("settings.chromeImportPhaseVerifying");
     case "complete":
       return t("settings.chromeImportPhaseComplete");
     default:
       return phase;
+  }
+}
+
+function normalizedImportName(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase();
+}
+
+function importNamesMatch(left: string, right: string): boolean {
+  return normalizedImportName(left) === normalizedImportName(right);
+}
+
+function unsupportedCount(value: ChromeProfileImportResult["items"][number]["unsupported"]): number {
+  return value.partitionedCookieCount
+    + value.appBoundCookieCount
+    + value.decryptFailureCount
+    + value.storageReadFailureCount;
+}
+
+function chromeImportStatusClass(status: ChromeProfileImportResult["items"][number]["status"]): string {
+  if (status === "imported" || status === "alreadyAuthenticated") return "text-emerald-600";
+  if (status === "cancelled" || status === "needsLogin") return "text-amber-600";
+  return "text-destructive";
+}
+
+function chromeImportStatusLabel(
+  status: ChromeProfileImportResult["items"][number]["status"],
+  t: Translator
+): string {
+  switch (status) {
+    case "imported": return t("settings.chromeImportSuccess");
+    case "needsLogin": return t("settings.chromeImportNeedsLogin");
+    case "alreadyAuthenticated": return t("settings.chromeImportAlreadyAuthenticated");
+    case "cancelled": return t("settings.chromeImportCancelled");
+    default: return t("settings.chromeImportFailed");
+  }
+}
+
+function chromeImportWarningLabel(warning: string, t: Translator): string {
+  switch (warning) {
+    case "COOKIE_PARTITIONED_UNSUPPORTED": return t("settings.chromeImportWarningPartitioned");
+    case "COOKIE_APP_BOUND_UNSUPPORTED": return t("settings.chromeImportWarningAppBound");
+    case "COOKIE_DECRYPT_FAILED": return t("settings.chromeImportWarningDecrypt");
+    case "LOCAL_STORAGE_READ_FAILED": return t("settings.chromeImportWarningStorage");
+    default: return warning;
   }
 }

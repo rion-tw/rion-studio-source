@@ -12,7 +12,10 @@ use url::Url;
 
 use crate::{
     error::{CoreError, CoreResult},
-    model::{LocalStorageEntryRecord, SessionCookieRecord, SessionTransferPayloadRecord},
+    model::{
+        ChromeProfileImportUnsupportedCountsRecord, LocalStorageEntryRecord, SessionCookieRecord,
+        SessionTransferPayloadRecord,
+    },
 };
 
 const CHROME_EPOCH_OFFSET_SECONDS: i64 = 11_644_473_600;
@@ -27,6 +30,7 @@ const MAX_LEVELDB_SNAPSHOT_FILES: usize = 4_096;
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedSessionTransfer {
     pub payload: SessionTransferPayloadRecord,
+    pub unsupported: ChromeProfileImportUnsupportedCountsRecord,
     pub warnings: Vec<String>,
     pub source_fingerprint: String,
 }
@@ -35,6 +39,15 @@ pub(crate) struct ParsedSessionTransfer {
 pub(crate) enum SessionTransferSource {
     Chrome,
     LegacyRion,
+}
+
+struct CookieReadContext<'a> {
+    platform: rion_platform::Platform,
+    launch: &'a Url,
+    source: SessionTransferSource,
+    include_all_cookie_paths: bool,
+    warnings: &'a mut Vec<String>,
+    unsupported: &'a mut ChromeProfileImportUnsupportedCountsRecord,
 }
 
 pub(crate) fn read_session_transfer(
@@ -47,11 +60,21 @@ pub(crate) fn read_session_transfer(
     let launch = Url::parse(launch_url)
         .map_err(|_| CoreError::InvalidInput("Role launch URL is invalid.".to_owned()))?;
     let mut warnings = Vec::new();
-    let cookies = read_cookies(staged_profile, platform, &launch, source, &mut warnings)?;
+    let mut unsupported = ChromeProfileImportUnsupportedCountsRecord::default();
+    let cookies = read_cookies(
+        staged_profile,
+        platform,
+        &launch,
+        source,
+        false,
+        &mut warnings,
+        &mut unsupported,
+    )?;
     let local_storage = if include_local_storage {
         match read_local_storage(staged_profile, &launch, &mut warnings) {
             Ok(entries) => entries,
             Err(_) => {
+                unsupported.storage_read_failure_count += 1;
                 warnings.push("LOCAL_STORAGE_READ_FAILED".to_owned());
                 Vec::new()
             }
@@ -66,6 +89,7 @@ pub(crate) fn read_session_transfer(
             cookies,
             local_storage,
         },
+        unsupported,
         warnings,
         source_fingerprint: source_fingerprint(staged_profile, include_local_storage)?,
     })
@@ -76,6 +100,7 @@ pub(crate) fn read_chrome_session_transfer(
     profile_directory: &str,
     platform: rion_platform::Platform,
     launch_url: &str,
+    include_all_cookie_paths: bool,
 ) -> CoreResult<ParsedSessionTransfer> {
     if !is_chrome_profile_directory(profile_directory) {
         return Err(CoreError::InvalidInput(
@@ -89,13 +114,18 @@ pub(crate) fn read_chrome_session_transfer(
     ensure_real_directory(&profile)?;
     let local_state = source_user_data.join("Local State");
     let mut warnings = Vec::new();
+    let mut unsupported = ChromeProfileImportUnsupportedCountsRecord::default();
     let cookies = read_cookies_from_paths(
         &[profile.join("Network/Cookies"), profile.join("Cookies")],
         &local_state,
-        platform,
-        &launch,
-        SessionTransferSource::Chrome,
-        &mut warnings,
+        CookieReadContext {
+            platform,
+            launch: &launch,
+            source: SessionTransferSource::Chrome,
+            include_all_cookie_paths,
+            warnings: &mut warnings,
+            unsupported: &mut unsupported,
+        },
     )?;
     let local_storage = match read_local_storage_directory(
         &profile.join("Local Storage/leveldb"),
@@ -104,6 +134,7 @@ pub(crate) fn read_chrome_session_transfer(
     ) {
         Ok(entries) => entries,
         Err(_) => {
+            unsupported.storage_read_failure_count += 1;
             warnings.push("LOCAL_STORAGE_READ_FAILED".to_owned());
             Vec::new()
         }
@@ -118,6 +149,7 @@ pub(crate) fn read_chrome_session_transfer(
             cookies,
             local_storage,
         },
+        unsupported,
         warnings,
         source_fingerprint,
     })
@@ -153,7 +185,9 @@ fn read_cookies(
     platform: rion_platform::Platform,
     launch: &Url,
     source: SessionTransferSource,
+    include_all_cookie_paths: bool,
     warnings: &mut Vec<String>,
+    unsupported: &mut ChromeProfileImportUnsupportedCountsRecord,
 ) -> CoreResult<Vec<SessionCookieRecord>> {
     let paths = [
         profile.join("Default/Network/Cookies"),
@@ -164,20 +198,21 @@ fn read_cookies(
     read_cookies_from_paths(
         &paths,
         &profile.join("Local State"),
-        platform,
-        launch,
-        source,
-        warnings,
+        CookieReadContext {
+            platform,
+            launch,
+            source,
+            include_all_cookie_paths,
+            warnings,
+            unsupported,
+        },
     )
 }
 
 fn read_cookies_from_paths(
     paths: &[PathBuf],
     local_state_path: &Path,
-    platform: rion_platform::Platform,
-    launch: &Url,
-    source: SessionTransferSource,
-    warnings: &mut Vec<String>,
+    mut context: CookieReadContext<'_>,
 ) -> CoreResult<Vec<SessionCookieRecord>> {
     let Some(path) = paths.iter().find(|path| path.is_file()) else {
         return Ok(Vec::new());
@@ -198,23 +233,13 @@ fn read_cookies_from_paths(
             .map_err(|error| CoreError::Platform(format!("Chrome Cookies snapshot: {error}")))?;
     }
     let local_state = read_bounded_optional_file(local_state_path, MAX_LOCAL_STATE_BYTES)?;
-    read_cookie_rows(
-        &connection,
-        platform,
-        launch,
-        source,
-        local_state.as_deref(),
-        warnings,
-    )
+    read_cookie_rows(&connection, local_state.as_deref(), &mut context)
 }
 
 fn read_cookie_rows(
     connection: &Connection,
-    platform: rion_platform::Platform,
-    launch: &Url,
-    source: SessionTransferSource,
     local_state: Option<&[u8]>,
-    warnings: &mut Vec<String>,
+    context: &mut CookieReadContext<'_>,
 ) -> CoreResult<Vec<SessionCookieRecord>> {
     let schema_version = connection
         .query_row(
@@ -262,35 +287,41 @@ fn read_cookie_rows(
         let row = match row {
             Ok(row) => row,
             Err(_) => {
-                warnings.push("COOKIE_ROW_INVALID".to_owned());
+                context.warnings.push("COOKIE_ROW_INVALID".to_owned());
                 continue;
             }
         };
-        if !row.partition_key.is_empty() {
-            warnings.push("COOKIE_PARTITIONED_UNSUPPORTED".to_owned());
+        if !cookie_matches_launch(&row, context.launch, now, context.include_all_cookie_paths) {
             continue;
         }
-        if !cookie_matches_launch(&row, launch, now) {
+        if !row.partition_key.is_empty() {
+            context.unsupported.partitioned_cookie_count += 1;
+            context
+                .warnings
+                .push("COOKIE_PARTITIONED_UNSUPPORTED".to_owned());
             continue;
         }
         let encrypted = !row.encrypted_value.is_empty();
         let mut value = if encrypted {
             if row.encrypted_value.starts_with(b"v20") {
-                warnings.push("COOKIE_APP_BOUND_UNSUPPORTED".to_owned());
+                context.unsupported.app_bound_cookie_count += 1;
+                context
+                    .warnings
+                    .push("COOKIE_APP_BOUND_UNSUPPORTED".to_owned());
                 continue;
             }
             let decryptor = decryptor.get_or_insert_with(|| {
-                match source {
+                match context.source {
                     SessionTransferSource::Chrome => {
                         rion_platform::CookieDecryptor::chrome_from_local_state(
-                            platform,
+                            context.platform,
                             local_state,
                             &row.encrypted_value,
                         )
                     }
                     SessionTransferSource::LegacyRion => {
                         rion_platform::CookieDecryptor::legacy_rion_from_local_state(
-                            platform,
+                            context.platform,
                             local_state,
                             &row.encrypted_value,
                         )
@@ -307,11 +338,14 @@ fn read_cookie_rows(
             match decrypted {
                 Ok(value) => value,
                 Err(message) => {
-                    warnings.push(if message.contains("app-bound") {
-                        "COOKIE_APP_BOUND_UNSUPPORTED".to_owned()
+                    let warning = if message.contains("app-bound") {
+                        context.unsupported.app_bound_cookie_count += 1;
+                        "COOKIE_APP_BOUND_UNSUPPORTED"
                     } else {
-                        "COOKIE_DECRYPT_FAILED".to_owned()
-                    });
+                        context.unsupported.decrypt_failure_count += 1;
+                        "COOKIE_DECRYPT_FAILED"
+                    };
+                    context.warnings.push(warning.to_owned());
                     continue;
                 }
             }
@@ -319,12 +353,14 @@ fn read_cookie_rows(
             row.value.into_bytes()
         };
         if !strip_valid_cookie_domain_hash(&mut value, &row.host_key, schema_version, encrypted) {
-            warnings.push("COOKIE_DOMAIN_INTEGRITY_FAILED".to_owned());
+            context
+                .warnings
+                .push("COOKIE_DOMAIN_INTEGRITY_FAILED".to_owned());
             continue;
         }
         let value = String::from_utf8_lossy(&value).into_owned();
         if contains_cookie_control(&value) {
-            warnings.push("COOKIE_VALUE_INVALID".to_owned());
+            context.warnings.push("COOKIE_VALUE_INVALID".to_owned());
             continue;
         }
         result.push(SessionCookieRecord {
@@ -352,8 +388,8 @@ fn read_cookie_rows(
     result.sort_by(|left, right| {
         (&left.domain, &left.path, &left.name).cmp(&(&right.domain, &right.path, &right.name))
     });
-    warnings.sort();
-    warnings.dedup();
+    context.warnings.sort();
+    context.warnings.dedup();
     Ok(result)
 }
 
@@ -585,7 +621,12 @@ fn read_blob_or_text(row: &Row<'_>, index: usize) -> rusqlite::Result<Vec<u8>> {
     }
 }
 
-fn cookie_matches_launch(row: &CookieRow, launch: &Url, now: i64) -> bool {
+fn cookie_matches_launch(
+    row: &CookieRow,
+    launch: &Url,
+    now: i64,
+    include_all_cookie_paths: bool,
+) -> bool {
     let Some(host) = launch.host_str() else {
         return false;
     };
@@ -598,7 +639,7 @@ fn cookie_matches_launch(row: &CookieRow, launch: &Url, now: i64) -> bool {
     let cookie_path = if row.path.is_empty() { "/" } else { &row.path };
     let expires = row.expires_utc / 1_000_000 - CHROME_EPOCH_OFFSET_SECONDS;
     domain_matches
-        && cookie_path_matches(launch.path(), cookie_path)
+        && (include_all_cookie_paths || cookie_path_matches(launch.path(), cookie_path))
         && (!row.secure || launch.scheme() == "https")
         && (row.expires_utc <= 0 || expires > now)
         && !row.name.is_empty()
@@ -761,14 +802,22 @@ mod tests {
         assert!(cookie_matches_launch(
             &row,
             &launch,
-            chrono::Utc::now().timestamp()
+            chrono::Utc::now().timestamp(),
+            false,
         ));
         let mut wrong_boundary = row;
         wrong_boundary.path = "/pla".to_owned();
         assert!(!cookie_matches_launch(
             &wrong_boundary,
             &launch,
-            chrono::Utc::now().timestamp()
+            chrono::Utc::now().timestamp(),
+            false,
+        ));
+        assert!(cookie_matches_launch(
+            &wrong_boundary,
+            &launch,
+            chrono::Utc::now().timestamp(),
+            true,
         ));
     }
 
@@ -833,6 +882,70 @@ mod tests {
         assert_eq!(parsed.payload.cookies[0].name, "valid");
         assert_eq!(parsed.payload.cookies[0].value, "kept");
         assert_eq!(parsed.warnings, vec!["COOKIE_PARTITIONED_UNSUPPORTED"]);
+        assert_eq!(parsed.unsupported.partitioned_cookie_count, 1);
+    }
+
+    #[test]
+    fn chrome_profile_first_party_policy_includes_all_paths_and_counts_unsupported_rows() {
+        let source = tempdir().unwrap();
+        let cookie_path = source.path().join("Default/Network/Cookies");
+        std::fs::create_dir_all(cookie_path.parent().unwrap()).unwrap();
+        std::fs::write(source.path().join("Local State"), b"{}").unwrap();
+        let connection = Connection::open(&cookie_path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+                 INSERT INTO meta(key, value) VALUES ('version', '23');
+                 CREATE TABLE cookies(
+                   host_key TEXT, name TEXT, value TEXT, path TEXT, expires_utc INTEGER,
+                   is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
+                   encrypted_value BLOB, top_frame_site_key TEXT
+                 );
+                 INSERT INTO cookies VALUES
+                   ('.example.test','profile-session','kept','/profile',0,1,1,1,X'',''),
+                   ('.example.test','partitioned','no','/auth',0,1,1,1,X'','https://top.test'),
+                   ('.example.test','app-bound','','/auth',0,1,1,1,X'7632307061796c6f6164',''),
+                   ('other.test','unrelated-partitioned','no','/',0,1,1,1,X'','https://top.test');",
+            )
+            .unwrap();
+        drop(connection);
+
+        let bounded = read_chrome_session_transfer(
+            source.path(),
+            "Default",
+            rion_platform::Platform::Macos,
+            "https://game.example.test/play",
+            false,
+        )
+        .unwrap();
+        assert!(bounded.payload.cookies.is_empty());
+        assert_eq!(bounded.unsupported.partitioned_cookie_count, 0);
+        assert_eq!(bounded.unsupported.app_bound_cookie_count, 0);
+
+        for platform in [
+            rion_platform::Platform::Macos,
+            rion_platform::Platform::Windows,
+        ] {
+            let first_party = read_chrome_session_transfer(
+                source.path(),
+                "Default",
+                platform,
+                "https://game.example.test/play",
+                true,
+            )
+            .unwrap();
+            assert_eq!(first_party.payload.cookies.len(), 1);
+            assert_eq!(first_party.payload.cookies[0].name, "profile-session");
+            assert_eq!(first_party.unsupported.partitioned_cookie_count, 1);
+            assert_eq!(first_party.unsupported.app_bound_cookie_count, 1);
+            assert_eq!(
+                first_party.warnings,
+                vec![
+                    "COOKIE_APP_BOUND_UNSUPPORTED",
+                    "COOKIE_PARTITIONED_UNSUPPORTED"
+                ]
+            );
+        }
     }
 
     #[test]
@@ -871,6 +984,7 @@ mod tests {
             "Default",
             rion_platform::Platform::Macos,
             "https://game.example.test/play",
+            false,
         )
         .unwrap();
 

@@ -8,7 +8,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use fs2::FileExt;
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -27,19 +27,21 @@ use crate::{
     macro_runtime::MacroRuntime,
     model::{
         AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BrowserActionResult,
-        BrowserOperationRequest, BrowserRuntimeCommand, ChromeProfileImportItemResultRecord,
-        ChromeProfileImportProgressRecord, ChromeProfileImportResolutionRecord,
-        ChromeProfileImportResultRecord, CompatibilityCheckOutcome, CompatibilityRunPhase,
-        CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult,
-        CoreEffectTarget, CoreEffectTargetKind, CoreEvent, DiagnosticExportResultRecord,
-        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
-        GameWindowTabRecord, GraphicsDiagnosticsRecord, LegacySessionRestoreRecord,
-        LegalAcceptanceRecord, LogCaptureRecord, LogLevel, MacroOverlayRequestRecord,
-        MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
-        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
-        RuntimeRestoreSessionRecord, RuntimeVersionRecord, RuntimeWindowPreferencesRecord,
-        StateCollection, StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
+        BrowserOperationRequest, BrowserRuntimeCommand, ChromeProfileImportAuthStateRecord,
+        ChromeProfileImportItemResultRecord, ChromeProfileImportProgressRecord,
+        ChromeProfileImportResolutionRecord, ChromeProfileImportResultRecord,
+        ChromeProfileImportUnsupportedCountsRecord, CompatibilityCheckOutcome,
+        CompatibilityRunPhase, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+        CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind, CoreEvent,
+        DiagnosticExportResultRecord, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
+        EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
+        GameBrowserSettingsRecord, GameWindowTabRecord, GraphicsDiagnosticsRecord,
+        LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
+        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
+        RuntimeVersionRecord, RuntimeWindowPreferencesRecord, StateCollection,
+        StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
         StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         SystemWebViewRuntimeRegistrationRecord,
     },
@@ -114,6 +116,19 @@ struct ChromeImportRollbackContext {
     webview2_user_data_dir: String,
     webkit_data_store_identifier: String,
     staging: PathBuf,
+}
+
+#[derive(Clone, Copy)]
+struct ChromeImportAuthProbe {
+    verification_url: &'static str,
+    authenticated_path: &'static str,
+    login_path: &'static str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChromeImportAuthProbeResult {
+    auth_state: ChromeProfileImportAuthStateRecord,
 }
 
 impl<'a> BrowserOperationGuard<'a> {
@@ -1621,8 +1636,10 @@ impl AppCore {
                         &profile.directory_name,
                     ),
                     status: if cancelled { "cancelled" } else { "failed" }.to_owned(),
+                    auth_state: ChromeProfileImportAuthStateRecord::NotApplicable,
                     cookie_count: 0,
                     local_storage_count: 0,
+                    unsupported: ChromeProfileImportUnsupportedCountsRecord::default(),
                     warnings: Vec::new(),
                     error_code: Some(error.code().to_owned()),
                 },
@@ -2072,6 +2089,29 @@ impl AppCore {
             })
             .await?;
         let operation_guard = BrowserOperationGuard::new(&self.browser_operations, lease.id);
+        let paths = self.resolve_role_paths(&role_id)?;
+        let auth_probe = chrome_import_auth_probe(game);
+        if replace_existing && let Some(probe) = auth_probe {
+            self.emit_chrome_import_progress(import_id, Some(&profile.id), "verifying", 0, 1);
+            let auth_state = self
+                .verify_chrome_import_auth(&role_id, &paths, probe)
+                .await;
+            if auth_state == ChromeProfileImportAuthStateRecord::Authenticated {
+                operation_guard.complete()?;
+                return Ok(ChromeProfileImportItemResultRecord {
+                    profile_id: profile.id,
+                    role_id: Some(role_id),
+                    role_name,
+                    status: "alreadyAuthenticated".to_owned(),
+                    auth_state,
+                    cookie_count: 0,
+                    local_storage_count: 0,
+                    unsupported: ChromeProfileImportUnsupportedCountsRecord::default(),
+                    warnings: Vec::new(),
+                    error_code: None,
+                });
+            }
+        }
         let transaction_id = uuid::Uuid::new_v4().to_string();
         let staging = crate::chrome_profile_import::session_transfer_directory(
             &self.user_data_dir,
@@ -2084,12 +2124,14 @@ impl AppCore {
         self.emit_chrome_import_progress(import_id, Some(&profile.id), "copying", 0, 1);
         let platform = self.platform;
         let launch_for_parse = launch_url.clone();
+        let include_all_cookie_paths = auth_probe.is_some();
         let parsed = tokio::task::spawn_blocking(move || {
             let parsed = crate::session_import::read_chrome_session_transfer(
                 &source,
                 &profile_directory,
                 platform,
                 &launch_for_parse,
+                include_all_cookie_paths,
             )?;
             let current_fingerprint =
                 rion_platform::chrome_profile_source_fingerprint(&source, &profile_directory)
@@ -2140,7 +2182,6 @@ impl AppCore {
             }),
         };
         self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
-        let paths = self.resolve_role_paths(&role_id)?;
         let rollback = ChromeImportRollbackContext {
             operation_id: operation_id.clone(),
             transaction_id: transaction_id.clone(),
@@ -2189,8 +2230,8 @@ impl AppCore {
                     transaction_id: transaction_id.clone(),
                     role_id: role_id.clone(),
                     launch_url: launch_url.clone(),
-                    webview2_user_data_dir: paths.webview2_user_data_dir,
-                    webkit_data_store_identifier: paths.webkit_data_store_identifier,
+                    webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
                     replace_existing,
                 },
                 Duration::from_secs(45),
@@ -2201,6 +2242,13 @@ impl AppCore {
                 .await?;
             return Err(error);
         }
+        let auth_state = if let Some(probe) = auth_probe {
+            self.emit_chrome_import_progress(import_id, Some(&profile.id), "verifying", 0, 1);
+            self.verify_chrome_import_auth(&role_id, &paths, probe)
+                .await
+        } else {
+            ChromeProfileImportAuthStateRecord::NotApplicable
+        };
         journal.phase = "verified".to_owned();
         self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
         if self.chrome_import_cancel_requested(import_id)? {
@@ -2258,16 +2306,45 @@ impl AppCore {
         self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
         let _ = fs::remove_dir_all(&staging);
         operation_guard.complete()?;
+        let status = chrome_import_status(auth_state);
         Ok(ChromeProfileImportItemResultRecord {
             profile_id: profile.id,
             role_id: Some(role_id),
             role_name,
-            status: "imported".to_owned(),
+            status: status.to_owned(),
+            auth_state,
             cookie_count: parsed.payload.cookies.len() as u32,
             local_storage_count: parsed.payload.local_storage.len() as u32,
+            unsupported: parsed.unsupported,
             warnings: parsed.warnings,
             error_code: None,
         })
+    }
+
+    async fn verify_chrome_import_auth(
+        &self,
+        role_id: &str,
+        paths: &RolePathsRecord,
+        probe: ChromeImportAuthProbe,
+    ) -> ChromeProfileImportAuthStateRecord {
+        let effect = self
+            .request_core_effect(
+                role_id,
+                CoreEffectAction::ChromeProfileImportVerify {
+                    role_id: role_id.to_owned(),
+                    verification_url: probe.verification_url.to_owned(),
+                    authenticated_path: probe.authenticated_path.to_owned(),
+                    login_path: probe.login_path.to_owned(),
+                    webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+                },
+                Duration::from_secs(45),
+            )
+            .await;
+        match effect.and_then(|result| effect_value::<ChromeImportAuthProbeResult>(&result)) {
+            Ok(result) => result.auth_state,
+            Err(_) => ChromeProfileImportAuthStateRecord::Indeterminate,
+        }
     }
 
     async fn rollback_chrome_profile_import_item(
@@ -5434,6 +5511,23 @@ fn chrome_import_cancelled() -> CoreError {
     }
 }
 
+fn chrome_import_auth_probe(game: &StateGameRecord) -> Option<ChromeImportAuthProbe> {
+    (game.builtin_key.as_deref() == Some("flyff-universe")).then_some(ChromeImportAuthProbe {
+        verification_url: "https://universe.flyff.com/profile",
+        authenticated_path: "/profile",
+        login_path: "/user/login",
+    })
+}
+
+fn chrome_import_status(auth_state: ChromeProfileImportAuthStateRecord) -> &'static str {
+    match auth_state {
+        ChromeProfileImportAuthStateRecord::NotAuthenticated
+        | ChromeProfileImportAuthStateRecord::Indeterminate => "needsLogin",
+        ChromeProfileImportAuthStateRecord::Authenticated
+        | ChromeProfileImportAuthStateRecord::NotApplicable => "imported",
+    }
+}
+
 fn recover_operation_journals(
     state: &StateDatabaseWorker,
     user_data_dir: &std::path::Path,
@@ -5902,6 +5996,72 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned()
+    }
+
+    fn flyff_game_id(core: &AppCore) -> String {
+        core.invoke(CoreCommand::GamesList)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|game| game["builtinKey"] == json!("flyff-universe"))
+            .and_then(|game| game["id"].as_str())
+            .unwrap()
+            .to_owned()
+    }
+
+    fn create_chrome_import_fixture(source: &std::path::Path) {
+        let cookie_path = source.join("Default/Network/Cookies");
+        fs::create_dir_all(cookie_path.parent().unwrap()).unwrap();
+        fs::write(
+            source.join("Local State"),
+            br#"{"profile":{"info_cache":{"Default":{"name":"Main"}}}}"#,
+        )
+        .unwrap();
+        let connection = rusqlite::Connection::open(cookie_path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+                 INSERT INTO meta(key, value) VALUES ('version', '23');
+                 CREATE TABLE cookies(
+                   host_key TEXT, name TEXT, value TEXT, path TEXT, expires_utc INTEGER,
+                   is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
+                   encrypted_value BLOB, top_frame_site_key TEXT
+                 );
+                 INSERT INTO cookies VALUES
+                   ('.flyff.com','remember_session','present','/profile',0,1,1,1,X'','');",
+            )
+            .unwrap();
+    }
+
+    fn preview_chrome_import(core: &AppCore, source: &std::path::Path) -> (String, String) {
+        let preview = core
+            .invoke(CoreCommand::ChromeProfilePreview {
+                source_user_data_dir: source.to_string_lossy().into_owned(),
+            })
+            .unwrap();
+        (
+            preview["importId"].as_str().unwrap().to_owned(),
+            preview["profiles"][0]["id"].as_str().unwrap().to_owned(),
+        )
+    }
+
+    fn chrome_import_effect_result(
+        effect: CoreEffectRequest,
+        auth_state: &str,
+    ) -> CoreEffectResult {
+        let value_json = matches!(
+            effect.action,
+            CoreEffectAction::ChromeProfileImportVerify { .. }
+        )
+        .then(|| json!({ "authState": auth_state }).to_string());
+        CoreEffectResult {
+            effect_id: effect.effect_id,
+            operation_id: effect.operation_id,
+            ok: true,
+            value_json,
+            error: None,
+        }
     }
 
     fn supported_system_capabilities() -> crate::model::EngineCapabilitySnapshotRecord {
@@ -7962,6 +8122,76 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, CoreEvent::Ready { .. }))
         );
+    }
+
+    #[test]
+    fn chrome_import_auth_outcomes_never_report_rejected_or_unknown_sessions_as_imported() {
+        for (auth_state, expected) in [
+            (
+                ChromeProfileImportAuthStateRecord::Authenticated,
+                "imported",
+            ),
+            (
+                ChromeProfileImportAuthStateRecord::NotAuthenticated,
+                "needsLogin",
+            ),
+            (
+                ChromeProfileImportAuthStateRecord::Indeterminate,
+                "needsLogin",
+            ),
+            (
+                ChromeProfileImportAuthStateRecord::NotApplicable,
+                "imported",
+            ),
+        ] {
+            assert_eq!(chrome_import_status(auth_state), expected);
+        }
+    }
+
+    #[test]
+    fn flyff_chrome_import_preserves_an_already_authenticated_role() {
+        for platform in ["darwin", "win32"] {
+            let (directory, core) = core_for_platform(platform);
+            let source = directory.path().join("chrome-source");
+            create_chrome_import_fixture(&source);
+            let game_id = flyff_game_id(&core);
+            let role_id = core
+                .invoke(command(json!({
+                    "type": "roleCreate",
+                    "input": {
+                        "gameId": game_id,
+                        "name": "Main",
+                        "launchUrl": "https://universe.flyff.com/play"
+                    }
+                })))
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let (import_id, profile_id) = preview_chrome_import(&core, &source);
+            let (result, actions, _) = drive_async_command_with(
+                Arc::clone(&core),
+                CoreCommand::ChromeProfileApply {
+                    import_id,
+                    game_id,
+                    consent_accepted: true,
+                    resolutions: vec![ChromeProfileImportResolutionRecord::Replace {
+                        profile_id,
+                        target_role_id: role_id,
+                    }],
+                },
+                |effect| chrome_import_effect_result(effect, "authenticated"),
+            );
+            let result = result.unwrap();
+            assert_eq!(result["items"][0]["status"], json!("alreadyAuthenticated"));
+            assert_eq!(result["items"][0]["cookieCount"], json!(0));
+            assert_eq!(actions.len(), 1, "{platform} must skip every mutation");
+            assert!(matches!(
+                actions[0],
+                CoreEffectAction::ChromeProfileImportVerify { .. }
+            ));
+            core.shutdown();
+        }
     }
 
     #[test]

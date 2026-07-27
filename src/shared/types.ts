@@ -101,7 +101,6 @@ export type WorkspaceSlotBrowserZoomPercent = number;
 export type WorkspaceBrowserZoomMode = "adaptive" | "fixed";
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
-export type AppRendererReadyState = "failed" | "ready";
 
 export interface AppWindowState {
   fullscreen: boolean;

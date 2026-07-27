@@ -30,3 +30,14 @@ export function scheduleAfterTwoAnimationFrames(
     }
   };
 }
+
+export function notifyRendererReadyAfterPaint(
+  notify: () => Promise<void>,
+  onError: (error: unknown) => void,
+  requestFrame: RequestFrame = requestAnimationFrame,
+  cancelFrame: CancelFrame = cancelAnimationFrame
+): () => void {
+  return scheduleAfterTwoAnimationFrames(() => {
+    void notify().catch(onError);
+  }, requestFrame, cancelFrame);
+}

@@ -23,8 +23,10 @@ import type {
 } from "../../../shared/types";
 import { LatestRequestGate } from "../app/operationState";
 import { createRoleStats } from "../app/statusUtils";
+import { withTimeout } from "../app/withTimeout";
 
 export type InitialLoadState = "loading" | "ready" | "failed";
+export const INITIAL_APP_DATA_TIMEOUT_MS = 15_000;
 
 interface VersionedState<T> {
   beginRequest: () => number;
@@ -198,7 +200,11 @@ export function useAppData() {
         throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
       }
 
-      const snapshot = await window.rionStudio.getAppSnapshot();
+      const snapshot = await withTimeout(
+        window.rionStudio.getAppSnapshot(),
+        INITIAL_APP_DATA_TIMEOUT_MS,
+        "Rion Studio data did not load within 15 seconds."
+      );
       commitEmbeddedRuntimeRequest(embeddedRuntimeRequest, snapshot.embeddedRuntimeState);
       commitGamesRequest(gamesRequest, snapshot.games);
       commitCompatibilityReportsRequest(compatibilityReportsRequest, snapshot.gameCompatibilityReports);

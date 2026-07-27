@@ -3,12 +3,14 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { environmentWithCargoExecutable } from "./cargoExecutable.mjs";
+import { assertDevRendererPortAvailable } from "./devPortPreflight.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const platform = process.platform;
 const macOsDevBundleRunner = fileURLToPath(new URL("./runMacDevBundle.mjs", import.meta.url));
 
 try {
+  await assertDevRendererPortAvailable();
   const environment = await environmentWithCargoExecutable();
   configureMacOsDevBundleRunner(environment);
   process.exitCode = await run(command("pnpm"), ["exec", "tauri", "dev"], environment);

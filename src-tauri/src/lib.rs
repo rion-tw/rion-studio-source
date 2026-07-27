@@ -22,7 +22,7 @@ use rion_core::{
 #[cfg(any(windows, target_os = "macos"))]
 use rusty_leveldb::{DB, Options};
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager, State, Webview, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, Webview, WebviewWindow, webview::PageLoadEvent};
 
 mod activation;
 mod application_menu;
@@ -110,7 +110,6 @@ struct CoreState {
     core: Arc<AppCore>,
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
-    renderer_ready: Arc<AtomicBool>,
     runtime: Arc<SystemRuntimeExecutor>,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
     updates: Arc<update_manager::UpdateManager>,
@@ -131,15 +130,48 @@ struct GameWindowTabDragSession {
 }
 
 #[derive(Default)]
-struct StartupFailureState(Mutex<Option<String>>);
+struct StartupWindowState {
+    failure: Mutex<Option<String>>,
+    renderer_ready: AtomicBool,
+    revealed: AtomicBool,
+}
 
-fn show_startup_failure(app: &tauri::App, error: &dyn std::fmt::Display) {
-    let message = format!("Rion Studio could not finish starting.\n\n{error}");
-    if let Some(state) = app.try_state::<StartupFailureState>()
-        && let Ok(mut current) = state.0.lock()
-    {
-        *current = Some(message.clone());
+impl StartupWindowState {
+    fn failure(&self) -> Option<String> {
+        self.failure.lock().ok().and_then(|value| value.clone())
     }
+
+    fn mark_renderer_ready(&self) {
+        self.renderer_ready.store(true, Ordering::Release);
+        if let Ok(mut failure) = self.failure.lock() {
+            *failure = None;
+        }
+    }
+
+    fn renderer_ready(&self) -> bool {
+        self.renderer_ready.load(Ordering::Acquire)
+    }
+
+    fn should_report_timeout(&self) -> bool {
+        !self.renderer_ready() && self.failure().is_none()
+    }
+
+    fn reveal_once(&self) -> bool {
+        !self.revealed.swap(true, Ordering::AcqRel)
+    }
+
+    fn set_failure(&self, message: String) {
+        if let Ok(mut failure) = self.failure.lock() {
+            *failure = Some(message);
+        }
+    }
+}
+
+fn show_startup_failure_message(app: &AppHandle, message: String) {
+    if let Some(state) = app.try_state::<StartupWindowState>() {
+        state.set_failure(message.clone());
+    }
+    eprintln!("Rion Studio startup failure: {message}");
     if let Some(window) = app.get_webview_window("main") {
         let encoded = serde_json::to_string(&message)
             .unwrap_or_else(|_| "\"Rion Studio could not finish starting.\"".to_owned());
@@ -147,6 +179,13 @@ fn show_startup_failure(app: &tauri::App, error: &dyn std::fmt::Display) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn show_startup_failure(app: &AppHandle, error: &dyn std::fmt::Display) {
+    show_startup_failure_message(
+        app,
+        format!("Rion Studio could not finish starting.\n\n{error}"),
+    );
 }
 
 fn platform_name() -> Result<&'static str, String> {
@@ -681,15 +720,21 @@ async fn rion_shell_invoke(
     app: tauri::AppHandle,
     window: WebviewWindow,
     state: State<'_, CoreState>,
+    startup: State<'_, StartupWindowState>,
     operation: String,
     args: Vec<Value>,
 ) -> Result<Value, CoreErrorPayload> {
     match operation.as_str() {
         "rendererReady" => {
-            state.renderer_ready.store(true, Ordering::Release);
+            startup.mark_renderer_ready();
             window
                 .show()
                 .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            Ok(Value::Null)
+        }
+        "rendererStartupFailed" => {
+            let message = string_argument(&args, 0, "Renderer startup failure")?;
+            show_startup_failure_message(&app, message);
             Ok(Value::Null)
         }
         "appSnapshot" => app_snapshot(&state, &window),
@@ -4075,23 +4120,25 @@ fn clamp_window_bounds(
 
 pub fn run() {
     let builder = tauri::Builder::default()
-        .manage(StartupFailureState::default())
-        .on_page_load(|webview, _| {
+        .manage(StartupWindowState::default())
+        .on_page_load(|webview, payload| {
             if webview.label() != "main" {
                 return;
             }
             let app = webview.app_handle();
-            let message = app
-                .try_state::<StartupFailureState>()
-                .and_then(|state| state.0.lock().ok().and_then(|value| value.clone()));
-            if let Some(message) = message {
+            let startup = app.try_state::<StartupWindowState>();
+            if startup.as_ref().is_some_and(|state| state.reveal_once())
+                && let Some(window) = app.get_webview_window("main")
+            {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            if payload.event() == PageLoadEvent::Finished
+                && let Some(message) = startup.and_then(|state| state.failure())
+            {
                 let encoded = serde_json::to_string(&message)
                     .unwrap_or_else(|_| "\"Rion Studio could not finish starting.\"".to_owned());
                 let _ = webview.eval(format!("window.__rionShowStartupFailure?.({encoded});"));
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
             }
         });
     let builder = if update_manager::embedded_updater_public_key().is_some() {
@@ -4320,7 +4367,6 @@ pub fn run() {
                         }
                     }
                 })?;
-            let renderer_ready = Arc::new(AtomicBool::new(false));
             let recovery_core = Arc::clone(&core);
             app.manage(CoreState {
                 _activation: activation,
@@ -4328,7 +4374,6 @@ pub fn run() {
                 core,
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
-                renderer_ready: Arc::clone(&renderer_ready),
                 runtime,
                 tab_drag: Mutex::new(None),
                 updates,
@@ -4384,29 +4429,31 @@ pub fn run() {
                     .name("rion-tauri-renderer-ready".to_owned())
                     .spawn(move || {
                         thread::sleep(RENDERER_READY_TIMEOUT);
-                        if renderer_ready.load(Ordering::Acquire) {
+                        if ready_app
+                            .try_state::<StartupWindowState>()
+                            .is_some_and(|state| !state.should_report_timeout())
+                        {
                             return;
                         }
                         let dispatch_app = ready_app.clone();
                         let _ = ready_app.run_on_main_thread(move || {
-                            if let Some(window) = dispatch_app.get_webview_window("main") {
-                                let message = serde_json::to_string(
-                                    "The desktop renderer did not become ready within 15 seconds. Check the diagnostics log and restart Rion Studio.",
-                                )
-                                .unwrap_or_else(|_| "\"Renderer startup timed out.\"".to_owned());
-                                let _ = window.eval(format!(
-                                    "window.__rionShowStartupFailure?.({message});"
-                                ));
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                            if dispatch_app
+                                .try_state::<StartupWindowState>()
+                                .is_some_and(|state| !state.should_report_timeout())
+                            {
+                                return;
                             }
+                            show_startup_failure_message(
+                                &dispatch_app,
+                                "The desktop renderer did not become ready within 15 seconds. Check the diagnostics log and restart Rion Studio.".to_owned(),
+                            );
                         });
                     })?;
             }
                 Ok(())
             })();
             if let Err(error) = setup_result {
-                show_startup_failure(app, error.as_ref());
+                show_startup_failure(app.handle(), error.as_ref());
             }
             Ok(())
         })
@@ -4627,5 +4674,29 @@ mod tests {
         assert!(!core_command_refreshes_runtime_projection(
             &CoreCommand::RuntimeWindowPreferencesGet
         ));
+    }
+
+    #[test]
+    fn startup_window_reveals_only_once_across_page_reloads() {
+        let state = StartupWindowState::default();
+
+        assert!(state.reveal_once());
+        assert!(!state.reveal_once());
+    }
+
+    #[test]
+    fn renderer_readiness_cancels_the_startup_watchdog_and_clears_failure() {
+        let state = StartupWindowState::default();
+        assert!(state.should_report_timeout());
+
+        state.set_failure("startup failed".to_owned());
+
+        assert!(!state.should_report_timeout());
+        assert_eq!(state.failure().as_deref(), Some("startup failed"));
+
+        state.mark_renderer_ready();
+
+        assert!(!state.should_report_timeout());
+        assert_eq!(state.failure(), None);
     }
 }

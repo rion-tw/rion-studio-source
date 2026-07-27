@@ -1,36 +1,48 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CURRENT_LEGAL_DOCUMENT_VERSIONS } from "../../../shared/legal";
 import type { LegalAcceptanceStatus } from "../../../shared/types";
+import { withTimeout } from "../app/withTimeout";
+
+export const LEGAL_STATUS_TIMEOUT_MS = 15_000;
 
 export function useLegalAcceptance(enabled: boolean) {
   const [status, setStatus] = useState<LegalAcceptanceStatus | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [isAccepting, setIsAccepting] = useState(false);
+  const statusRequestRef = useRef(0);
 
-  useEffect(() => {
+  const reload = useCallback(async (): Promise<void> => {
     if (!enabled) {
       return;
     }
 
-    let isDisposed = false;
-    void window.rionStudio
-      .getLegalAcceptanceStatus()
-      .then((nextStatus) => {
-        if (!isDisposed) {
-          setStatus(nextStatus);
-        }
-      })
-      .catch((nextError) => {
-        if (!isDisposed) {
-          setError(nextError);
-        }
-      });
+    const request = ++statusRequestRef.current;
+    setStatus(null);
+    setError(null);
+    try {
+      const nextStatus = await withTimeout(
+        window.rionStudio.getLegalAcceptanceStatus(),
+        LEGAL_STATUS_TIMEOUT_MS,
+        "Legal acceptance status did not load within 15 seconds."
+      );
+      if (statusRequestRef.current === request) {
+        setStatus(nextStatus);
+      }
+    } catch (nextError) {
+      if (statusRequestRef.current === request) {
+        setError(nextError);
+      }
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    void reload();
 
     return () => {
-      isDisposed = true;
+      statusRequestRef.current += 1;
     };
-  }, [enabled]);
+  }, [reload]);
 
   const accept = useCallback(async (): Promise<void> => {
     setIsAccepting(true);
@@ -54,6 +66,7 @@ export function useLegalAcceptance(enabled: boolean) {
     error,
     isAccepting,
     isLoading: enabled && status === null && error === null,
+    reload,
     status
   };
 }

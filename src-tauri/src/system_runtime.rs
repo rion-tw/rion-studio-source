@@ -6129,15 +6129,18 @@ pub fn start_trusted_input_attestation(
         .spawn(move || {
             eprintln!("System WebView parity: trusted-input worker started.");
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                run_trusted_input_attestation(&webview, page_receiver).and_then(|mut report| {
-                    report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
-                    report["registration"] =
-                        serde_json::to_value(runtime.registration()).map_err(|error| {
-                            RuntimeError::new("SYSTEM_INPUT_ATTESTATION_INVALID", error.to_string())
-                        })?;
-                    report["roleParity"] = run_role_count_attestation(&runtime)?;
-                    Ok(report)
-                })
+                // Role parity temporarily reveals native windows on macOS. Run it before the
+                // hidden trusted-input probe so those windows cannot leave the probe document
+                // focused and invalidate its background-input assertion.
+                let role_parity = run_role_count_attestation(&runtime)?;
+                let mut report = run_trusted_input_attestation(&webview, page_receiver)?;
+                report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
+                report["registration"] =
+                    serde_json::to_value(runtime.registration()).map_err(|error| {
+                        RuntimeError::new("SYSTEM_INPUT_ATTESTATION_INVALID", error.to_string())
+                    })?;
+                report["roleParity"] = role_parity;
+                Ok(report)
             }))
             .unwrap_or_else(|_| {
                 Err(input_attestation_error(

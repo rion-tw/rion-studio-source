@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import GamesRoute from "../src/renderer/src/features/games/GamesRoute";
+import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import MacrosRoute from "../src/renderer/src/features/macros/MacrosRoute";
 import { DEFAULT_MACRO_LIST_SORT } from "../src/renderer/src/features/macros/macroListUtils";
 import RolesRoute from "../src/renderer/src/features/roles/RolesRoute";
@@ -65,6 +66,7 @@ describe("create controls at the end of lists", () => {
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}
         onEdit={vi.fn()}
+        onError={vi.fn()}
         onFilterChange={vi.fn()}
         onLaunch={vi.fn()}
         onNewRole={onNewRole}
@@ -80,6 +82,45 @@ describe("create controls at the end of lists", () => {
     expect(createCard?.className).toContain("aspect-[4/5]");
     await user.click(createButton);
     expect(onNewRole).toHaveBeenCalledOnce();
+  });
+
+  it("lazy loads the Chrome import flow from the roles list", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConfirmationProvider>
+        <RolesRoute
+          activeFilter="all"
+          busyRoleIds={new Set()}
+          filteredRoles={[role()]}
+          games={[game()]}
+          isReordering={false}
+          language="en"
+          roleStats={{ total: 1, running: 0, stopped: 1 }}
+          roles={[role()]}
+          scrollPositionRef={{ current: 0 }}
+          query=""
+          statusByRole={new Map()}
+          t={t}
+          onClearQuery={vi.fn()}
+          onClearBrowserData={vi.fn()}
+          onCopy={vi.fn()}
+          onDelete={vi.fn()}
+          onDeleteMany={vi.fn().mockResolvedValue(false)}
+          onEdit={vi.fn()}
+          onError={vi.fn()}
+          onFilterChange={vi.fn()}
+          onLaunch={vi.fn()}
+          onNewRole={vi.fn()}
+          onQueryChange={vi.fn()}
+          onReorder={vi.fn()}
+          onStop={vi.fn()}
+        />
+      </ConfirmationProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Import from Chrome" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(screen.getByRole("dialog").parentElement?.parentElement).toBe(document.body);
   });
 
   it("appends a create card after workspace cards", async () => {

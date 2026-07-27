@@ -133,6 +133,7 @@
   "roles.searchPlaceholder": "搜尋角色",
   "roles.refresh": "重新整理",
   "roles.newRole": "新增角色",
+  "roles.chromeImport": "從 Chrome 匯入",
   "roles.summary.total": "角色總數",
   "roles.summary.running": "目前啟動",
   "roles.summary.stopped": "可啟動",

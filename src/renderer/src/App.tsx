@@ -647,6 +647,7 @@ export function App(): JSX.Element {
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}
                     onDeleteMany={roleWorkflow.handleDeleteMany}
                     onEdit={(role) => navigateToEditRole(role.id)}
+                    onError={data.setError}
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onNewRole={navigateToNewRole}

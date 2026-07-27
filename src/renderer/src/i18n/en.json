@@ -133,6 +133,7 @@
   "roles.searchPlaceholder": "Search roles",
   "roles.refresh": "Refresh",
   "roles.newRole": "New role",
+  "roles.chromeImport": "Import from Chrome",
   "roles.summary.total": "Total roles",
   "roles.summary.running": "Active now",
   "roles.summary.stopped": "Ready",

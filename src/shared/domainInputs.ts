@@ -17,7 +17,6 @@ export function toWorkspaceCreateInput(
   return {
     name: input.name,
     ...(input.template === undefined ? {} : { template: input.template }),
-    ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine }),
     ...(input.browserZoomMode === undefined ? {} : { browserZoomMode: input.browserZoomMode }),
     ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),
     ...(input.slots === undefined ? {} : { slots: structuredClone(input.slots) })
@@ -30,7 +29,6 @@ export function toWorkspaceUpdateInput(
   return {
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.template === undefined ? {} : { template: input.template }),
-    ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine }),
     ...(input.browserZoomMode === undefined ? {} : { browserZoomMode: input.browserZoomMode }),
     ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),
     ...(input.slots === undefined ? {} : { slots: structuredClone(input.slots) })

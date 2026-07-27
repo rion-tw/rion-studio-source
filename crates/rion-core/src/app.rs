@@ -1432,11 +1432,6 @@ impl AppCore {
                 {
                     self.restore_legacy_session_if_needed(role_id).await?;
                 }
-                let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-                    "gameBrowserSettings",
-                    "game browser settings are missing",
-                )?;
-                self.ensure_workspace_engine_preference(&workspace, &settings)?;
                 let core = Arc::clone(self);
                 let statuses = tokio::task::spawn_blocking(move || {
                     core.launch_embedded_workspace(&workspace_id, target)
@@ -3338,11 +3333,6 @@ impl AppCore {
             let Some(first) = role_statuses.first() else {
                 continue;
             };
-            status.preferred_engine = role_statuses
-                .iter()
-                .all(|candidate| candidate.preferred_engine == first.preferred_engine)
-                .then_some(first.preferred_engine)
-                .flatten();
             status.resolved_engine = role_statuses
                 .iter()
                 .all(|candidate| candidate.resolved_engine == first.resolved_engine)
@@ -3384,10 +3374,6 @@ impl AppCore {
             .collect::<std::collections::HashMap<_, _>>();
         let workspaces =
             self.read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?;
-        let workspace_by_id = workspaces
-            .iter()
-            .map(|workspace| (workspace.id.clone(), workspace))
-            .collect::<std::collections::HashMap<_, _>>();
         let active_workspace_by_role = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot
@@ -3409,13 +3395,8 @@ impl AppCore {
             let Some(game) = games.get(&role.game_id) else {
                 continue;
             };
-            let workspace = active_workspace_by_role
-                .get(&status.role_id)
-                .and_then(|workspace_id| workspace_by_id.get(workspace_id))
-                .copied();
             let system_runtime = self.system_webview_runtime()?;
-            let resolution = self.resolve_role_browser_engine(role, game, workspace, &settings)?;
-            status.preferred_engine = Some(resolution.preferred_engine);
+            let resolution = self.resolve_role_browser_engine(role, game, &settings)?;
             status.resolved_engine = Some(resolution.resolved_engine);
             status.host_kind = Some(resolution.host_kind);
             status.issue_reason = resolution.issue_reason;
@@ -3435,12 +3416,8 @@ impl AppCore {
                 .iter()
                 .filter_map(|role_id| roles.get(*role_id).cloned())
                 .collect::<Vec<_>>();
-            let resolution = self.resolve_workspace_browser_engine(
-                &workspace_roles,
-                &games,
-                workspace,
-                &settings,
-            )?;
+            let resolution =
+                self.resolve_workspace_browser_engine(&workspace_roles, &games, &settings)?;
             let capability_snapshot = Some(self.system_webview_runtime()?.capability_snapshot);
             for status in &mut statuses {
                 if status.runtime_mode != "embedded"
@@ -3448,7 +3425,6 @@ impl AppCore {
                 {
                     continue;
                 }
-                status.preferred_engine = Some(resolution.preferred_engine);
                 status.resolved_engine = Some(resolution.resolved_engine);
                 status.host_kind = Some(resolution.host_kind);
                 status.issue_reason = match status.issue_reason {
@@ -3532,7 +3508,6 @@ impl AppCore {
         &self,
         role: &StateRoleRecord,
         game: &StateGameRecord,
-        workspace: Option<&StateLaunchWorkspaceRecord>,
         settings: &GameBrowserSettingsRecord,
     ) -> CoreResult<crate::model::BrowserEngineResolutionRecord> {
         let system_runtime = self.system_webview_runtime()?;
@@ -3540,12 +3515,6 @@ impl AppCore {
             self.system_runtime_preflight(role, game, settings, &system_runtime)?;
         Ok(crate::engine_resolution::resolve_browser_engine(
             crate::engine_resolution::BrowserEngineResolutionInput {
-                global_engine: settings.browser_engine.unwrap_or_default(),
-                game_engine: game.browser_engine.unwrap_or_default(),
-                workspace_engine: workspace
-                    .and_then(|workspace| workspace.browser_engine)
-                    .unwrap_or_default(),
-                role_engine_pin: role.browser_engine_pin,
                 platform: self.platform,
                 system_available,
                 system_failure_reason,
@@ -3557,23 +3526,8 @@ impl AppCore {
         &self,
         roles: &[StateRoleRecord],
         games: &std::collections::HashMap<String, StateGameRecord>,
-        workspace: &StateLaunchWorkspaceRecord,
         settings: &GameBrowserSettingsRecord,
     ) -> CoreResult<crate::model::BrowserEngineResolutionRecord> {
-        let preferred_engine = crate::engine_resolution::resolve_workspace_preference(
-            settings.browser_engine.unwrap_or_default(),
-            workspace.browser_engine.unwrap_or_default(),
-            roles.iter().filter_map(|role| {
-                games
-                    .get(&role.game_id)
-                    .map(|game| game.browser_engine.unwrap_or_default())
-            }),
-        )
-        .preferred_engine
-        .ok_or_else(|| CoreError::Domain {
-            code: "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED",
-            message: "The workspace contains legacy browser engine settings that could not be normalized to System.".to_owned(),
-        })?;
         let resolutions = roles
             .iter()
             .map(|role| {
@@ -3581,7 +3535,7 @@ impl AppCore {
                     code: "GAME_NOT_FOUND",
                     message: "Game not found.".to_owned(),
                 })?;
-                self.resolve_role_browser_engine(role, game, Some(workspace), settings)
+                self.resolve_role_browser_engine(role, game, settings)
             })
             .collect::<CoreResult<Vec<_>>>()?;
         let system_engine = match self.platform {
@@ -3589,7 +3543,6 @@ impl AppCore {
             rion_platform::Platform::Windows => crate::model::ResolvedBrowserEngine::Webview2,
         };
         Ok(crate::model::BrowserEngineResolutionRecord {
-            preferred_engine,
             resolved_engine: system_engine,
             host_kind: crate::model::BrowserHostKind::SystemNative,
             issue_reason: resolutions
@@ -3686,7 +3639,6 @@ impl AppCore {
     ) -> CoreResult<crate::model::EngineCompatibilityCacheKeyRecord> {
         let settings_json = serde_json::to_vec(&json!({
             "defaultLaunchUrl": &game.default_launch_url,
-            "browserEngine": game.browser_engine,
             "fonts": &settings.fonts,
             "workspace": &settings.workspace
         }))
@@ -3750,40 +3702,6 @@ impl AppCore {
         role_ids.iter().for_each(|role_id| {
             issues.insert(role_id.clone(), reason);
         });
-        Ok(())
-    }
-
-    fn ensure_workspace_engine_preference(
-        &self,
-        workspace: &StateLaunchWorkspaceRecord,
-        settings: &GameBrowserSettingsRecord,
-    ) -> CoreResult<()> {
-        let roles = self
-            .read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .map(|role| (role.id.clone(), role))
-            .collect::<std::collections::HashMap<_, _>>();
-        let games = self
-            .read_typed_state_collection::<StateGameRecord>("games")?
-            .into_iter()
-            .map(|game| (game.id.clone(), game))
-            .collect::<std::collections::HashMap<_, _>>();
-        let preference = crate::engine_resolution::resolve_workspace_preference(
-            settings.browser_engine.unwrap_or_default(),
-            workspace.browser_engine.unwrap_or_default(),
-            workspace.slots.iter().filter_map(|slot| {
-                let role = roles.get(slot.role_id.as_ref()?)?;
-                games
-                    .get(&role.game_id)
-                    .map(|game| game.browser_engine.unwrap_or_default())
-            }),
-        );
-        if preference.requires_override {
-            return Err(CoreError::Domain {
-                code: "WORKSPACE_BROWSER_ENGINE_OVERRIDE_REQUIRED",
-                message: "The workspace contains legacy browser engine settings that could not be normalized to System.".to_owned(),
-            });
-        }
         Ok(())
     }
 
@@ -3892,7 +3810,7 @@ impl AppCore {
         )?;
         let game = self.state_game(&role.game_id)?;
         self.reset_system_launch_retry_state(std::slice::from_ref(&role))?;
-        let resolution = self.resolve_role_browser_engine(&role, &game, None, &settings)?;
+        let resolution = self.resolve_role_browser_engine(&role, &game, &settings)?;
         require_system_resolution(&resolution)?;
         let resolved_engine = resolution.resolved_engine;
 
@@ -4104,7 +4022,7 @@ impl AppCore {
             .collect::<std::collections::HashMap<_, _>>();
         self.reset_system_launch_retry_state(&roles)?;
         let workspace_resolution =
-            self.resolve_workspace_browser_engine(&roles, &available_games, &workspace, &settings)?;
+            self.resolve_workspace_browser_engine(&roles, &available_games, &settings)?;
         require_system_resolution(&workspace_resolution)?;
         let workspace_resolved_engine = workspace_resolution.resolved_engine;
         self.invoke_browser_runtime(BrowserRuntimeCommand::BeginWorkspace {
@@ -5265,9 +5183,6 @@ impl AppCore {
                 "activeRoles": browser_role_statuses,
                 "activeWorkspaces": browser_workspace_statuses,
                 "compatibilityCache": engine_compatibility_cache,
-                "requirements": {
-                    "defaultEngine": browser_settings.browser_engine,
-                },
             },
             "windowsGraphicsEvents": windows_graphics_events,
             "windowsGraphicsEventWindow": {
@@ -5316,7 +5231,6 @@ fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserR
         automation_state: None,
         overlay_state: None,
         page_health: None,
-        preferred_engine: None,
         resolved_engine: None,
         host_kind: None,
         issue_reason: None,
@@ -5339,7 +5253,6 @@ fn embedded_role_statuses(
             automation_state: None,
             overlay_state: None,
             page_health: None,
-            preferred_engine: None,
             resolved_engine: None,
             host_kind: None,
             issue_reason: None,
@@ -5358,7 +5271,6 @@ fn embedded_workspace_statuses(
         .map(|workspace| crate::model::BrowserWorkspaceStatusRecord {
             workspace_id: workspace.workspace_id,
             state: workspace.state,
-            preferred_engine: None,
             resolved_engine: None,
             host_kind: None,
             issue_reason: None,

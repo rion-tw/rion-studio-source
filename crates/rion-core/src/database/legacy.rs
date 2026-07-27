@@ -159,7 +159,6 @@ fn normalize_games(values: Vec<Value>, now: &str) -> CoreResult<Vec<Value>> {
             games.push(json!({
                 "id": builtin.id, "source": "builtin", "builtinKey": builtin.key,
                 "name": builtin.name, "defaultLaunchUrl": normalize_url(builtin.launch_url.to_owned())?,
-                "browserEngine": "inherit",
                 "createdAt": now, "updatedAt": now
             }));
         }
@@ -241,7 +240,6 @@ fn normalize_game(value: &Value, now: &str) -> CoreResult<Value> {
                 .unwrap_or_else(|| DEFAULT_LAUNCH_URL.to_owned())
         )?),
     );
-    output.insert("browserEngine".to_owned(), json!("inherit"));
     output.insert(
         "createdAt".to_owned(),
         json!(timestamp(source.get("createdAt"), now)),
@@ -300,7 +298,7 @@ fn normalize_roles(
                 .and_then(|url| url.host_str().map(str::to_owned))
                 .unwrap_or_else(|| "Imported Game".to_owned());
             let name = unique_name(&host, &mut game_names);
-            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "browserEngine": "inherit", "createdAt": now, "updatedAt": now }));
+            games.push(json!({ "id": id, "source": "custom", "name": name, "defaultLaunchUrl": launch_url, "createdAt": now, "updatedAt": now }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());
             id
@@ -462,7 +460,6 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
         json!(required_string(source, "name", "workspace")?),
     );
     output.insert("template".to_owned(), json!(template));
-    output.insert("browserEngine".to_owned(), json!("system"));
     output.insert(
         "browserZoomMode".to_owned(),
         json!(
@@ -910,7 +907,6 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
     json!({
         "fonts": { "families": families, "mode": font_mode },
         "graphics": graphics,
-        "browserEngine": "system",
         "macroBadgePosition": {
             "horizontalAlign": horizontal_align,
             "horizontalMarginPx": horizontal_margin_px,
@@ -1304,7 +1300,11 @@ mod tests {
         )
         .unwrap();
         let snapshot = build_snapshot(directory.path()).unwrap();
-        assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert!(
+            snapshot["gameBrowserSettings"]
+                .get("browserEngine")
+                .is_none()
+        );
         assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
         assert_eq!(
             snapshot["gameBrowserSettings"]["macroBadgePosition"],
@@ -1788,7 +1788,7 @@ mod tests {
             .unwrap();
             let workspace =
                 build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
-            assert_eq!(workspace["browserEngine"], "system");
+            assert!(workspace.get("browserEngine").is_none());
             assert!(workspace.get("browserLaunchMode").is_none());
             assert_eq!(workspace["browserZoomMode"], "adaptive");
             assert_eq!(workspace["browserZoomPercent"], 100);
@@ -1974,7 +1974,7 @@ mod tests {
                     })
                     .collect::<Vec<_>>()
             );
-            assert_eq!(workspace["browserEngine"], "system");
+            assert!(workspace.get("browserEngine").is_none());
             assert!(workspace.get("browserLaunchMode").is_none());
         });
     }

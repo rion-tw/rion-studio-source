@@ -34,8 +34,7 @@ export function createNewGameForm(): GameFormState {
   return {
     source: "custom",
     name: "",
-    defaultLaunchUrl: "https://",
-    browserEngine: "inherit"
+    defaultLaunchUrl: "https://"
   };
 }
 
@@ -46,8 +45,7 @@ export function createGameFormState(game: Game): GameFormState {
     name: game.name,
     iconImageDataUrl: game.iconImageDataUrl,
     coverImageDataUrl: game.coverImageDataUrl,
-    defaultLaunchUrl: game.defaultLaunchUrl,
-    browserEngine: game.browserEngine ?? "inherit"
+    defaultLaunchUrl: game.defaultLaunchUrl
   };
 }
 

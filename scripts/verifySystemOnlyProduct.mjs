@@ -175,13 +175,6 @@ if (/^\s*(?:electron|electron-winstaller):|^\s*-\s*electron\s*$/mu.test(pnpmWork
   failures.push("pnpm-workspace.yaml permits a retired Electron install script");
 }
 
-const embeddedEngine = await readFile(
-  join(repositoryRoot, "src/shared/generated/EmbeddedBrowserEngine.ts"),
-  "utf8"
-);
-if (!embeddedEngine.includes('export type EmbeddedBrowserEngine = "system";')) {
-  failures.push("EmbeddedBrowserEngine is not restricted to the System WebView.");
-}
 const resolvedEngine = await readFile(
   join(repositoryRoot, "src/shared/generated/ResolvedBrowserEngine.ts"),
   "utf8"

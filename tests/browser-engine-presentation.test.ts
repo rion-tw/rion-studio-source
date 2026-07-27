@@ -20,7 +20,6 @@ describe("browser engine presentation", () => {
       roleId: "role-1",
       state: "running",
       runtimeMode: "embedded",
-      preferredEngine: "system",
       resolvedEngine: "wkwebview",
       hostKind: "system-native",
       issueReason: "runtime-creation-failed"

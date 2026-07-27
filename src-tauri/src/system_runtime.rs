@@ -5956,7 +5956,6 @@ fn attestation_role(count: usize, index: usize) -> EmbeddedRoleViewEffectRecord 
             name: format!("Attestation role {index}"),
             launch_url: "http://127.0.0.1/".to_owned(),
             notes: String::new(),
-            browser_engine_pin: None,
             cover_image_data_url: None,
             cover_image_dominant_color: None,
             created_at: "1970-01-01T00:00:00Z".to_owned(),
@@ -8362,7 +8361,6 @@ mod tests {
         let default = serde_json::from_value::<GameBrowserSettingsRecord>(json!({
             "fonts": {"mode":"default","families":{}},
             "graphics": {"mode":"automatic"},
-            "browserEngine":"system",
             "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
             "workspace":{"background":"material","gap":4}
         }))

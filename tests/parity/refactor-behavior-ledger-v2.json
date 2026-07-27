@@ -1,0 +1,4713 @@
+{
+  "schemaVersion": 2,
+  "baselines": {
+    "target": "58c917168a3864d2bb6a54887d631736e7c37c74",
+    "modernPreRefactor": "551b4d9",
+    "signedV1": "a3c7504da111c43d25c098c3b178fa2add8b668e",
+    "deletedTestBaseline": "b11b526"
+  },
+  "policy": {
+    "defaultDisposition": "preserved",
+    "retiredClauses": [
+      "Electron shell implementation",
+      "External Chrome runtime or fallback",
+      "custom proxy injection",
+      "CDN rewriting",
+      "Chromium-profile runtime mutation",
+      "generic debugger or session automation"
+    ],
+    "metadataOnlyEvidenceAllowed": false,
+    "runtimeCriticalRequiresNativeGate": true
+  },
+  "inventories": {
+    "signedV1BehaviorCount": 226,
+    "deletedTestDeclarationCount": 245,
+    "deletedExecutableTestCount": 244,
+    "deletedSupportHelperCount": 1,
+    "targetContractCount": 4
+  },
+  "behaviors": [
+    {
+      "id": "behavior-024d5ef72bf9",
+      "deduplicationKey": "target\u0000BrowserAction exposes only Focus, Key, and Click automation.",
+      "status": "preserved",
+      "contract": "BrowserAction exposes only Focus, Key, and Click automation.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/rust-core-contracts.test.ts",
+          "test": "exports a typed browser-action union instead of unvalidated payload JSON"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "target-bounded-browser-actions"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-02715dd2026f",
+      "deduplicationKey": "shell\u0000tests/renderer-runtime-session.test.tsx\u0000offers recovery, one-window restore, show-all, stop, and discard actions",
+      "status": "preserved",
+      "contract": "Current runtime-session tests cover the user-facing recovery surface while Rust unit tests own structured log persistence and capture.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/renderer-runtime-session.test.tsx",
+          "test": "offers recovery, one-window restore, show-all, stop, and discard actions"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-511c2df0efbc",
+        "legacy-b1d8cce87bc4",
+        "legacy-b81430739c06",
+        "legacy-c5ab3598ff0d",
+        "legacy-e13eeb9f609b",
+        "legacy-e8d73e5d6a45",
+        "legacy-eefdcf4003e6",
+        "legacy-f563c1827a2b"
+      ],
+      "nativeGate": "test:native:runtime-restore"
+    },
+    {
+      "id": "behavior-0d837474ccfb",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000installs once per embedded handle and reinstalls after navigation",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “installs once per embedded handle and reinstalls after navigation” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "installs once per System WebView document and reinstalls after navigation"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-ae0d50963824"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-0e4e826cc868",
+      "deduplicationKey": "test\u0000tests/workspace-layout.test.ts\u0000offers single before multi-slot templates without changing the default",
+      "status": "preserved",
+      "contract": "offers single before multi-slot templates without changing the default",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/workspace-layout.test.ts",
+          "test": "offers single before multi-slot templates without changing the default"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-7308ab2fb93e"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-0fe49fe77bfe",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000leaves editable controls and operating-system switch shortcuts untouched",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “leaves editable controls and operating-system switch shortcuts untouched” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "leaves editable controls and operating-system switch shortcuts untouched"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-b226ccebb33d"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-180b7614f2da",
+      "deduplicationKey": "retired\u0000custom-proxy",
+      "status": "retired",
+      "contract": "Application-owned proxy configuration and Electron session proxy mutation are retired.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-04284a9bea4d",
+        "browser-workspace-0576092234ce",
+        "browser-workspace-323a842fef44",
+        "browser-workspace-3d56093ad88c",
+        "browser-workspace-68b3526e056a",
+        "browser-workspace-8319e1d94f43",
+        "browser-workspace-f6073f7c76ec"
+      ],
+      "retirementClause": "Retired clause: custom proxy injection. The baseline case “loads an embedded %s game directly after proxy and CDN preparation (darwin)” now inherits operating-system network settings.",
+      "preservedCompanion": {
+        "contract": "Role and workspace launch still fail or complete atomically without leaking native hosts.",
+        "evidence": {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "rolls_back_runtime_and_native_handles_after_load_failure"
+        }
+      }
+    },
+    {
+      "id": "behavior-1bfcaf527b8f",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000renders nine non-interactive anchor markers and repositions them after resize",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “renders nine non-interactive anchor markers and repositions them after resize” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "renders nine non-interactive anchor markers and repositions them after resize"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-8fb6f793d295"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-204af43db77c",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/compatibility_runtime.rs\u0000owns_duplicate_prevention_transitions_and_completion_decisions",
+      "status": "preserved",
+      "contract": "Compatibility decisions remain in Rust and resolve only to System WebViews.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/compatibility_runtime.rs",
+          "test": "owns_duplicate_prevention_transitions_and_completion_decisions"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-375825dc04e7",
+        "legacy-9ab64adba7f6",
+        "legacy-a51b14961c0e",
+        "legacy-ddfacbbc8e35"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-274d2040c2ff",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000renders running click coordinates, merges duplicates, and flashes the clicked marker",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “renders running click coordinates, merges duplicates, and flashes the clicked marker” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "renders running click coordinates, merges duplicates, and flashes the clicked marker"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-f4866477886a"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-27f7d263f6e2",
+      "deduplicationKey": "shell\u0000tests/renderer-app-window-state.test.tsx\u0000applies the initial state and unsubscribes on unmount",
+      "status": "preserved",
+      "contract": "Window state events and UI behavior remain covered without Electron.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/renderer-app-window-state.test.tsx",
+          "test": "applies the initial state and unsubscribes on unmount"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-203274cf2de7",
+        "legacy-39ddb2c4534a",
+        "legacy-3c31cfe6a047"
+      ],
+      "nativeGate": "test:native:runtime-restore"
+    },
+    {
+      "id": "behavior-28bc323d328a",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/database/state.rs\u0000seeds_recommended_graphics_defaults_and_preserves_explicit_settings_on_restart",
+      "status": "preserved",
+      "contract": "Update preferences remain in the Rust state repository and renderer contract.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/database/state.rs",
+          "test": "seeds_recommended_graphics_defaults_and_preserves_explicit_settings_on_restart"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-0fdf7d66807b",
+        "legacy-16302c6ee7e8",
+        "legacy-1754bcef4add",
+        "legacy-5489c6f37aa8",
+        "legacy-5b94db6949fc",
+        "legacy-5d4964594696",
+        "legacy-68e3a7caad28",
+        "legacy-72d4bf7d423d",
+        "legacy-8936e1f86dd4",
+        "legacy-93b80136e514",
+        "legacy-9b785ced6fdf",
+        "legacy-a776e05370f2",
+        "legacy-ab70385bce26",
+        "legacy-f67f3daeaef4",
+        "legacy-f77a2f4d18c2",
+        "legacy-f856fd77bee5",
+        "legacy-f903c0693af6"
+      ],
+      "nativeGate": "test:native:file-operations"
+    },
+    {
+      "id": "behavior-29b4bfcf2a5c",
+      "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000rolls_back_runtime_and_native_handles_after_load_failure",
+      "status": "preserved",
+      "contract": "cleans a destroyed game view without reading WebContentsView.webContents again",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "rolls_back_runtime_and_native_handles_after_load_failure"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-077adc062d81",
+        "browser-workspace-8802a25430df",
+        "browser-workspace-cac64f02252a",
+        "browser-workspace-e7ec12f196f7"
+      ]
+    },
+    {
+      "id": "behavior-2c1f2f9fd214",
+      "deduplicationKey": "shell\u0000tests/macro-overlay-runtime.test.ts\u0000preserves coordinate, shortcut, held-release, canvas, editable, and dense queue behavior",
+      "status": "preserved",
+      "contract": "Current macro runtime tests exercise the bounded overlay path while Rust unit tests own held-key state and release semantics.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-runtime.test.ts",
+          "test": "preserves coordinate, shortcut, held-release, canvas, editable, and dense queue behavior"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-ea4362559de7"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-2ebf42940e9f",
+      "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000launches_and_stops_an_embedded_role_through_typed_effects",
+      "status": "preserved",
+      "contract": "creates a persistent isolated partition for each role",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "launches_and_stops_an_embedded_role_through_typed_effects"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-0ca1210d6eef",
+        "browser-workspace-0e9f68cb0180",
+        "browser-workspace-140e8f7adf23",
+        "browser-workspace-18902d65009b",
+        "browser-workspace-19acd98432da",
+        "browser-workspace-3019794f93b7",
+        "browser-workspace-3ba42c388c15",
+        "browser-workspace-4bbcc3605a5c",
+        "browser-workspace-5935bacd1051",
+        "browser-workspace-687f83dcb393",
+        "browser-workspace-6fbd9280eaae",
+        "browser-workspace-87b82c305dcc",
+        "browser-workspace-889b5c73962c",
+        "browser-workspace-99084879446e",
+        "browser-workspace-a885357bb42b",
+        "browser-workspace-d6db27cb5ba6",
+        "browser-workspace-ead7ec740aab",
+        "browser-workspace-f288ec9f3e41",
+        "browser-workspace-f2f0e81d61c8",
+        "browser-workspace-f454b1829caa"
+      ]
+    },
+    {
+      "id": "behavior-3043c4b98118",
+      "deduplicationKey": "test\u0000tests/runtime-tab-strip.test.ts\u0000keeps Ctrl+Tab and Ctrl+Shift+Tab inside the scoped bridge",
+      "status": "preserved",
+      "contract": "applies consecutive runtime tab shortcuts immediately without refocusing the window on %s (darwin)",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/runtime-tab-strip.test.ts",
+          "test": "keeps Ctrl+Tab and Ctrl+Shift+Tab inside the scoped bridge"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-2bbe60d17f9d",
+        "browser-workspace-f1eb2035ac59"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-33d4bdc0c486",
+      "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up",
+      "status": "preserved",
+      "contract": "times out, prevents duplicate checks, and allows the user to cancel by closing the window",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-4f62d15e31bf"
+      ]
+    },
+    {
+      "id": "behavior-356c25315b5f",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000opens the coordinate action on hover and copies a measured viewport point",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “opens the coordinate action on hover and copies a measured viewport point” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "opens the coordinate action on hover and copies a measured viewport point"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-211207de18c2"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-367220c2a3b9",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000positions active badges on the left with a px margin",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “positions active badges on the left with a px margin” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "positions active badges on the left with a px margin"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-59fb6fc295cf"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-39b7d1ddd013",
+      "deduplicationKey": "target\u0000Core effects address only the app or a role webContents target.",
+      "status": "preserved",
+      "contract": "Core effects address only the app or a role webContents target.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/rust-core-contracts.test.ts",
+          "test": "restricts generic core effects to app and role web-content targets"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "target-bounded-effect-targets"
+      ]
+    },
+    {
+      "id": "behavior-39f681e9e95d",
+      "deduplicationKey": "retired\u0000chromium-profile-zoom",
+      "status": "retired",
+      "contract": "Mutation of Chromium profile preference files and Chromium zoom levels is retired.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-3f959230081a",
+        "browser-workspace-48a4a8debeae",
+        "browser-workspace-4fdf2c9c9b28",
+        "browser-workspace-5a70d4247957",
+        "browser-workspace-634067b0e9e1",
+        "browser-workspace-85e80a6734ef",
+        "browser-workspace-8b81ac2d81ae",
+        "browser-workspace-92ff089cf29a",
+        "browser-workspace-d5842155e369",
+        "browser-workspace-e82a46509a74"
+      ],
+      "retirementClause": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (0.25)” is implemented through native per-System-WebView zoom.",
+      "preservedCompanion": {
+        "contract": "User-visible adaptive and fixed zoom remain bounded and stable.",
+        "evidence": {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/layout.rs",
+          "test": "resolves_adaptive_zoom_with_hysteresis"
+        }
+      }
+    },
+    {
+      "id": "behavior-3ad0487f1bee",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000does not run legacy macros that use reserved browser zoom shortcuts",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “does not run legacy macros that use reserved browser zoom shortcuts” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "does not run legacy macros that use reserved browser zoom shortcuts"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-3ab785a01b66"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-3fe280c48f70",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000releases Rust-owned held input on main-frame navigation and destroyed handles",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “releases Rust-owned held input on main-frame navigation and destroyed handles” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "releases held input when a System WebView navigates or closes"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-aadb64df08ea"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-4256b06131b2",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000releases a while-held shortcut when the page becomes hidden or the overlay is disposed",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “releases a while-held shortcut when the page becomes hidden or the overlay is disposed” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "releases a while-held shortcut when the page becomes hidden or the overlay is disposed"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-71f0fb5c78b7"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-4526f97cb8e8",
+      "deduplicationKey": "retired-shell\u0000tests/tauri-preview.test.ts",
+      "status": "retired",
+      "contract": "Preview identity and transitional entry points are retired; Tauri Stable is the product shell.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-stable.test.ts",
+          "test": "owns the stable application identity and shared renderer build"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-af6014639da0",
+        "legacy-cc3f74960548",
+        "legacy-da18ef7afb29",
+        "legacy-ef55fe92c526"
+      ],
+      "retirementClause": "Preview identity and transitional entry points are retired; Tauri Stable is the product shell."
+    },
+    {
+      "id": "behavior-4666e0de7864",
+      "deduplicationKey": "shell\u0000tests/release-workflows.test.ts\u0000runs common checks and native package gates on macOS and Windows",
+      "status": "preserved",
+      "contract": "Tauri release and local package builds explicitly use macOS ad-hoc signing and strip notarization credentials.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/release-workflows.test.ts",
+          "test": "runs common checks and native package gates on macOS and Windows"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-c438cc9f6d9c"
+      ]
+    },
+    {
+      "id": "behavior-47c2c2a25d96",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000does not release a physical held shortcut for a suppressed synthetic keyup",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “does not release a physical held shortcut for a suppressed synthetic keyup” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "does not release a physical held shortcut for a suppressed synthetic keyup"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-dd7ef7b456d9"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-4dcbd05287d1",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000preserves Flyff text input focus and ignores keyboard events forwarded to the canvas",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “preserves Flyff text input focus and ignores keyboard events forwarded to the canvas” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "preserves Flyff text input focus and ignores keyboard events forwarded to the canvas"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-68076fb61b99"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-518a668a7ff4",
+      "deduplicationKey": "test\u0000crates/rion-core/src/browser_runtime.rs\u0000owns_tab_order_visibility_display_moves_and_role_transitions",
+      "status": "preserved",
+      "contract": "applies browser font preferences before creating a new role view",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/browser_runtime.rs",
+          "test": "owns_tab_order_visibility_display_moves_and_role_transitions"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-074d6b7f91fa",
+        "browser-workspace-2cc368780200",
+        "browser-workspace-310227ef70a3",
+        "browser-workspace-3998a3495cb6",
+        "browser-workspace-61348ba870d1",
+        "browser-workspace-77373ff70243",
+        "browser-workspace-b75a0c498770",
+        "browser-workspace-cfa845f242c2",
+        "browser-workspace-dda21739e52f",
+        "browser-workspace-e303c7cf7ff7",
+        "browser-workspace-e4d2ccbeb3ce",
+        "browser-workspace-e726b29ab04b",
+        "browser-workspace-f500fa56e6a2"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-522bfe8273f4",
+      "deduplicationKey": "shell\u0000crates/rion-platform/src/system.rs\u0000uses_graceful_platform_close_commands",
+      "status": "preserved",
+      "contract": "Platform diagnostics moved to Rust adapters and retain renderer coverage.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-platform/src/system.rs",
+          "test": "uses_graceful_platform_close_commands"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-ce364d7c992d",
+        "legacy-eecaf4348081"
+      ]
+    },
+    {
+      "id": "behavior-5acb6ed79d0c",
+      "deduplicationKey": "test\u0000crates/rion-core/src/compatibility_runtime.rs\u0000owns_duplicate_prevention_transitions_and_completion_decisions",
+      "status": "preserved",
+      "contract": "reports the Chrome blocker when embedded loading fails without Chrome",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/compatibility_runtime.rs",
+          "test": "owns_duplicate_prevention_transitions_and_completion_decisions"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-63d8d3912912"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-5ba44dacfd62",
+      "deduplicationKey": "shell\u0000tests/renderer-workspace-display-picker.test.ts\u0000formats fallback names, resolution, and display badges",
+      "status": "preserved",
+      "contract": "Display enumeration, hotplug reconciliation, and selection remain covered.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/renderer-workspace-display-picker.test.ts",
+          "test": "formats fallback names, resolution, and display badges"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-1f2da1edca94",
+        "legacy-4ce4b3eeb919",
+        "legacy-6018a219293a",
+        "legacy-65d11178a3bd",
+        "legacy-9620eb310269",
+        "legacy-b1638bb0c0c3"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-5e04d2e0180c",
+      "deduplicationKey": "test\u0000src-tauri/src/system_runtime.rs\u0000macos_and_windows_tab_activation_share_one_display_host_plan",
+      "status": "preserved",
+      "contract": "shows a launching %s tab immediately and cancels without rereading a destroyed view (darwin)",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/system_runtime.rs",
+          "test": "macos_and_windows_tab_activation_share_one_display_host_plan"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-0585aa1b7a39",
+        "browser-workspace-0a7d3c8d180b",
+        "browser-workspace-11dca68b17d7",
+        "browser-workspace-1f8900aaa15a",
+        "browser-workspace-2187542f137c",
+        "browser-workspace-2476cbdf7ddb",
+        "browser-workspace-3702d1aea9ee",
+        "browser-workspace-3f5d2e1e2a8f",
+        "browser-workspace-40814ce78df9",
+        "browser-workspace-416b05de38a2",
+        "browser-workspace-48a517948506",
+        "browser-workspace-4b6fa7f40ee5",
+        "browser-workspace-4cb5bcad4a14",
+        "browser-workspace-5095f354af88",
+        "browser-workspace-5103909ccbf6",
+        "browser-workspace-57efc4de7790",
+        "browser-workspace-5e94d5625e01",
+        "browser-workspace-62c6c976945a",
+        "browser-workspace-69c503f2725a",
+        "browser-workspace-726253d6c1f3",
+        "browser-workspace-74b6e4ce8055",
+        "browser-workspace-7d0a2fa414df",
+        "browser-workspace-7f76d50cfbd8",
+        "browser-workspace-7f991a0d8f29",
+        "browser-workspace-80cad119482f",
+        "browser-workspace-81634cf2c47c",
+        "browser-workspace-84f97745593b",
+        "browser-workspace-87c65787a1f3",
+        "browser-workspace-8e058324104c",
+        "browser-workspace-8e4a2570ed13",
+        "browser-workspace-901a4ae182aa",
+        "browser-workspace-90edadc145f6",
+        "browser-workspace-9426b85f71b5",
+        "browser-workspace-98fba36a7d38",
+        "browser-workspace-a12fcb6d92f3",
+        "browser-workspace-a87fe4cca82b",
+        "browser-workspace-a94ed0966de7",
+        "browser-workspace-a96f082c1e4d",
+        "browser-workspace-a9bb9aad22e0",
+        "browser-workspace-adf3bbaca440",
+        "browser-workspace-afd704ddddba",
+        "browser-workspace-b1009e758e96",
+        "browser-workspace-b3e608cf49c3",
+        "browser-workspace-b4596ee467b5",
+        "browser-workspace-b6180bccd026",
+        "browser-workspace-b69881879674",
+        "browser-workspace-b839fe3129c1",
+        "browser-workspace-bec19daf196c",
+        "browser-workspace-becd0c0e6603",
+        "browser-workspace-c7be0952b356",
+        "browser-workspace-c978143f30b8",
+        "browser-workspace-cf177ab109b6",
+        "browser-workspace-de48f33827b6",
+        "browser-workspace-df6b38746d3a",
+        "browser-workspace-df82c8ac9176",
+        "browser-workspace-e38d1abb9000",
+        "browser-workspace-f0a8dbde711c",
+        "browser-workspace-f4188e31142c",
+        "browser-workspace-f901c1ec13db",
+        "browser-workspace-f95c55c6aeda",
+        "browser-workspace-fa75912a292c"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-5f2032dea92c",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000disposes a detached overlay and stops its polling intervals",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “disposes a detached overlay and stops its polling intervals” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "disposes a detached overlay and stops its polling intervals"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-d18fc0033c57"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-607b35cc35e1",
+      "deduplicationKey": "retired\u0000retired-resource-policy",
+      "status": "retired",
+      "contract": "Electron and External Chrome resource-policy implementation is retired.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-8855d2f20327"
+      ],
+      "retirementClause": "Retired clause: Electron shell implementation. The baseline case “launches every role concurrently for $name (name=an unrestricted workspace,resourcePolicy={ mode: \"unrestricted\" as const },pressureLevel=normal)” no longer applies runtime throttling.",
+      "preservedCompanion": {
+        "contract": "Multi-role workspaces still launch all assigned roles as one ordered operation.",
+        "evidence": {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "batches_one_four_and_nine_role_workspace_load_effects"
+        }
+      }
+    },
+    {
+      "id": "behavior-63d2ba5fa8e8",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000keeps the measurement layer visible when clipboard copying fails",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “keeps the measurement layer visible when clipboard copying fails” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "keeps the measurement layer visible when clipboard copying fails"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-fb39dd816585"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-66eaecb6bbe7",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000prevents browser defaults on a focused game canvas without hiding key events from the game",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “prevents browser defaults on a focused game canvas without hiding key events from the game” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "prevents browser defaults on a focused game canvas without hiding key events from the game"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-b0dc0d1eaf1f"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-6a37b55813ac",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000disposes page-owned caches and rejects late navigation refreshes",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “disposes page-owned caches and rejects late navigation refreshes” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "disposes page-owned state and rejects late refresh work"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-255fb15e0a52"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-6ab93411e54b",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000coalesces embedded refreshes and drops invalid trailing work",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “coalesces embedded refreshes and drops invalid trailing work” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "coalesces dense embedded refreshes into one trailing refresh"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-1a598621dd2c"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-6b6d8c28a6e3",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000centers active badges in the full viewport and ignores the margin",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “centers active badges in the full viewport and ignores the margin” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "centers active badges in the full viewport and ignores the margin"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-a5b4e70d3117"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-6c9d4c788951",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000blocks macro shortcuts while measuring and lets Escape cancel without copying",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “blocks macro shortcuts while measuring and lets Escape cancel without copying” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "blocks macro shortcuts while measuring and lets Escape cancel without copying"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-60cc59f0dafc"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-6ce7ce2bb264",
+      "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000compatibility_run_owns_effect_order_report_outcome_and_cleanup",
+      "status": "preserved",
+      "contract": "hides a %s host closed during launch and still performs auto compatibility fallback (darwin)",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "compatibility_run_owns_effect_order_report_outcome_and_cleanup"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-42a9d8ab83ad",
+        "browser-workspace-682b219b6d10",
+        "browser-workspace-94557ef32ede",
+        "browser-workspace-b36d189c65c3"
+      ]
+    },
+    {
+      "id": "behavior-6fe182c3b2d9",
+      "deduplicationKey": "shell\u0000src-tauri/src/application_menu.rs\u0000localizes_all_supported_languages",
+      "status": "preserved",
+      "contract": "Tauri native menus restore Edit, zoom, fullscreen, window actions, and toolbar preference.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/application_menu.rs",
+          "test": "localizes_all_supported_languages"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-80f092adb42a",
+        "legacy-93483467c428",
+        "legacy-b31ec713c120",
+        "legacy-f7dbf0d78f29"
+      ]
+    },
+    {
+      "id": "behavior-74671f546273",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000replays the badge border animation when a loop iteration advances",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “replays the badge border animation when a loop iteration advances” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "replays the badge border animation when a loop iteration advances"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-f28f6de73cb3"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-7483ece1319b",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/app.rs\u0000application_instance_lock_is_shared_by_both_shell_platforms",
+      "status": "preserved",
+      "contract": "Rust launch effects and System WebView configuration replace Electron launch options.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "application_instance_lock_is_shared_by_both_shell_platforms"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-dfcb90bd2903",
+        "legacy-fa830b628bf7"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-782faf71bd3c",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000opens the app once from a physical trigger click while keeping the action menu hidden",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “opens the app once from a physical trigger click while keeping the action menu hidden” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "opens the app once from a physical trigger click while keeping the action menu hidden"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-639b1e3bdc10"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-7c86ba66619d",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000matches release by physical code after modifiers are released",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “matches release by physical code after modifiers are released” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "matches release by physical code after modifiers are released"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-211a0c245cba"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-7f6834810502",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000refreshes only selected embedded handles without a TypeScript queue or timer",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “refreshes only selected embedded handles without a TypeScript queue or timer” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "refreshes an installed page through events without a polling interval"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-3c3dac7b6927"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-800146226bea",
+      "deduplicationKey": "test\u0000crates/rion-core/src/browser_operations.rs\u0000rejects_stale_operations_and_permanently_blocks_destructive_roles",
+      "status": "preserved",
+      "contract": "serializes role deletion after active work and rejects stale queued work",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/browser_operations.rs",
+          "test": "rejects_stale_operations_and_permanently_blocks_destructive_roles"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-1c12d2a62541",
+        "browser-workspace-5070fdd94192"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-8705d9a0b989",
+      "deduplicationKey": "retired-shell\u0000tests/send-to-window.test.ts",
+      "status": "retired",
+      "contract": "The generic Electron webContents sender is retired; scoped typed Tauri events are used instead.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-475cc4cfc403",
+        "legacy-9c6450791d5e",
+        "legacy-9cc8e04a72f8"
+      ],
+      "retirementClause": "The generic Electron webContents sender is retired; scoped typed Tauri events are used instead.",
+      "nativeGate": "test:native:runtime-restore"
+    },
+    {
+      "id": "behavior-872a8f0b9269",
+      "deduplicationKey": "shell\u0000tests/tauri-shell-parity.test.ts\u0000keeps the hidden-inset-equivalent main window and bundled startup failure UI",
+      "status": "preserved",
+      "contract": "Tauri Quick Menu owns live windows, saved-window restore, status, legal gating, and stop-all.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-shell-parity.test.ts",
+          "test": "keeps the hidden-inset-equivalent main window and bundled startup failure UI"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-02d04884d4d1",
+        "legacy-03b852b1bc03",
+        "legacy-053336511380",
+        "legacy-09f6813737f0",
+        "legacy-112289b96c71",
+        "legacy-13f905ed5543",
+        "legacy-18482e68fbc3",
+        "legacy-2ddbaab684fd",
+        "legacy-3266b1746bcc",
+        "legacy-39e5ffae7cd4",
+        "legacy-3e322c292862",
+        "legacy-40abf2dc99ec",
+        "legacy-44204d700e81",
+        "legacy-4b51fd10c2b3",
+        "legacy-5634bb3cca33",
+        "legacy-612aa0fed1ea",
+        "legacy-616f9072ce6c",
+        "legacy-7cd8a121cf6e",
+        "legacy-800210caca9a",
+        "legacy-8e7880b06c71",
+        "legacy-9695654717ce",
+        "legacy-99e4a97a640b",
+        "legacy-ba813b7262d6",
+        "legacy-c2ade7032f2c",
+        "legacy-cbb427a64edb",
+        "legacy-db4665483246",
+        "legacy-e4104ed8f445",
+        "legacy-e83a82c242b4"
+      ],
+      "nativeGate": "test:native:runtime-restore"
+    },
+    {
+      "id": "behavior-876b25cb6afb",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000does not let a stale editable active element block a canvas shortcut",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “does not let a stale editable active element block a canvas shortcut” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "does not let a stale editable active element block a canvas shortcut"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-f0868fb69a09"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-8b8b1c45e38e",
+      "deduplicationKey": "target\u0000The system-only negative gate executes and rejects retired runtime tokens.",
+      "status": "preserved",
+      "contract": "The system-only negative gate executes and rejects retired runtime tokens.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "rejects a negative fixture that reintroduces remote debugging"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "target-system-only-execution"
+      ]
+    },
+    {
+      "id": "behavior-8c3bf1cf7aae",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000starts a macro even when the game already prevented the shortcut event",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “starts a macro even when the game already prevented the shortcut event” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "starts a macro even when the game already prevented the shortcut event"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-13a52239fbd2"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-8d6dfb84a238",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/data_root_migration.rs\u0000migrates_durable_data_and_replaces_unpublished_destination_once",
+      "status": "preserved",
+      "contract": "Legacy-to-stable data-root migration now has transactional Rust tests and production startup wiring.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/data_root_migration.rs",
+          "test": "migrates_durable_data_and_replaces_unpublished_destination_once"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-5aa706c95021",
+        "legacy-76fc1f4c1f35"
+      ]
+    },
+    {
+      "id": "behavior-8e3549088ff4",
+      "deduplicationKey": "test\u0000crates/rion-core/src/layout.rs\u0000normalizes_touching_and_persisted_rect_edges_to_one_authoritative_value",
+      "status": "preserved",
+      "contract": "repairs legacy four-decimal shared edges without mutating the input",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/layout.rs",
+          "test": "normalizes_touching_and_persisted_rect_edges_to_one_authoritative_value"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-725f43d25113",
+        "browser-workspace-9b815e24c436",
+        "browser-workspace-a4bda3b1af37"
+      ]
+    },
+    {
+      "id": "behavior-8fb61c01fb73",
+      "deduplicationKey": "retired-shell\u0000tests/electron-builder-config.test.ts",
+      "status": "retired",
+      "contract": "Electron Builder is retired and Tauri bundle configuration is authoritative.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-stable.test.ts",
+          "test": "owns the stable application identity and shared renderer build"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-022f931e0076",
+        "legacy-0ba7b9e07a72",
+        "legacy-3ccce86b864a",
+        "legacy-51488baa692d",
+        "legacy-bcc12fb941e4"
+      ],
+      "retirementClause": "Electron Builder is retired and Tauri bundle configuration is authoritative."
+    },
+    {
+      "id": "behavior-93f5f028f0a6",
+      "deduplicationKey": "shell\u0000src-tauri/src/activation.rs\u0000authenticated_activation_round_trips_and_cleans_up",
+      "status": "preserved",
+      "contract": "Authenticated single-instance activation is implemented and unit-tested in Rust.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/activation.rs",
+          "test": "authenticated_activation_round_trips_and_cleans_up"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-0714055e19d0",
+        "legacy-54904e12a976",
+        "legacy-a866fec5f269",
+        "legacy-dc796e4f14f6"
+      ],
+      "nativeGate": "test:native:runtime-restore"
+    },
+    {
+      "id": "behavior-943f2a8ee8ad",
+      "deduplicationKey": "retired\u0000external-chrome",
+      "status": "retired",
+      "contract": "External Chrome runtime selection, launch, resource scheduling, and fallback are retired.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-0dc6bcf3e5e5",
+        "browser-workspace-13aaf9ae3e44",
+        "browser-workspace-25ad1cb1ef25",
+        "browser-workspace-441d225256bd",
+        "browser-workspace-5edde963f133",
+        "browser-workspace-834d6924d42c",
+        "browser-workspace-bc07c25dd07c",
+        "browser-workspace-c4177d56c920",
+        "browser-workspace-d81b9d5accb5",
+        "browser-workspace-f4f8ee648a41"
+      ],
+      "retirementClause": "Retired clause: External Chrome runtime or fallback. The baseline case “falls back to external Chrome compatibility mode in auto mode when embedded game load fails” cannot select another browser runtime.",
+      "preservedCompanion": {
+        "contract": "System WebView launch failures remain explicit, recoverable, and retain the selected display context.",
+        "evidence": {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "rolls_back_runtime_and_native_handles_after_load_failure"
+        }
+      }
+    },
+    {
+      "id": "behavior-9513ab01ddaa",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000opens the app from Ctrl+Shift+M and consumes the shortcut",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “opens the app from Ctrl+Shift+M and consumes the shortcut” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "opens the app from Ctrl+Shift+M and consumes the shortcut"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-d1886a7bf44a"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-979b469f1327",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000does not poll for reconciliation while an event-driven refresh is pending",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “does not poll for reconciliation while an event-driven refresh is pending” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "does not poll for reconciliation while an event-driven refresh is pending"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-95a78a3d71ec"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-98b63e0fe489",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000assembles executable raw runtime, shortcut guard, and presentation-only styles",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “assembles executable raw runtime, shortcut guard, and presentation-only styles” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "assembles executable native bridge, raw runtime, shortcut guard, and presentation styles"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-70e79aee0b1e"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-9c782fcc06d9",
+      "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000preserves_disabled_features_and_applies_safe_high_performance_switches",
+      "status": "preserved",
+      "contract": "preserves existing disabled features and applies the safe high-performance switches",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/bootstrap_settings.rs",
+          "test": "preserves_disabled_features_and_applies_safe_high_performance_switches"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-ec8bf4e43acc"
+      ]
+    },
+    {
+      "id": "behavior-a07d6db8feae",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000positions active badges from the shared overlay state",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “positions active badges from the shared overlay state” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "positions active badges from the shared overlay state"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-fc4652bd25cb"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-a08d045c53ed",
+      "deduplicationKey": "test\u0000crates/rion-core/src/database/legacy.rs\u0000removes_legacy_login_observations_from_compatibility_reports",
+      "status": "preserved",
+      "contract": "removes legacy login observations when compatibility data is read",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/database/legacy.rs",
+          "test": "removes_legacy_login_observations_from_compatibility_reports"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-df5ebcde1ab5"
+      ]
+    },
+    {
+      "id": "behavior-a18a43cd7863",
+      "deduplicationKey": "shell\u0000src-tauri/src/quick_menu.rs\u0000quick_menu_ids_keep_domain_ids_as_opaque_suffixes",
+      "status": "preserved",
+      "contract": "The Tauri Quick Menu restores per-display and per-saved-window actions.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/quick_menu.rs",
+          "test": "quick_menu_ids_keep_domain_ids_as_opaque_suffixes"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-d1082a40ffa1"
+      ],
+      "nativeGate": "test:native:runtime-restore"
+    },
+    {
+      "id": "behavior-a2db9e2355f4",
+      "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000limits_unsafe_switches_to_explicit_experimental_mode",
+      "status": "preserved",
+      "contract": "limits unsafe switches to explicitly selected experimental mode",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/bootstrap_settings.rs",
+          "test": "limits_unsafe_switches_to_explicit_experimental_mode"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-cc817a22dbcc"
+      ]
+    },
+    {
+      "id": "behavior-a3be59d1f8f9",
+      "deduplicationKey": "retired\u0000cdn-rewriting",
+      "status": "retired",
+      "contract": "CDN rewriting and its setup/fail-open ordering are retired.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-0c6984ca8f9d"
+      ],
+      "retirementClause": "Retired clause: CDN rewriting. The baseline case “fails open when CDN compatibility setup fails” is replaced by direct launch-origin navigation.",
+      "preservedCompanion": {
+        "contract": "The selected launch URL is still loaded directly through a typed System WebView effect.",
+        "evidence": {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "launches_and_stops_an_embedded_role_through_typed_effects"
+        }
+      }
+    },
+    {
+      "id": "behavior-a62bbeb5d776",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000captures macro shortcuts before game document handlers",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “captures macro shortcuts before game document handlers” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "captures macro shortcuts before game document handlers"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-012057e747bc"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-aec93ffefa07",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000blocks macOS browser navigation while preserving system desktop shortcuts",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “blocks macOS browser navigation while preserving system desktop shortcuts” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "blocks macOS browser navigation while preserving system desktop shortcuts"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-0a4a25012bc3"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-af5aa5ea12bf",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000keeps stale Electron handles detached without issuing a Rust operation",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “keeps stale Electron handles detached without issuing a Rust operation” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "fails closed when a page is detached from Tauri IPC"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-baef08037049"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-b0f6348f2ce6",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000lets disabled macro shortcuts reach the game",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “lets disabled macro shortcuts reach the game” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "lets disabled macro shortcuts reach the game"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-9ce55d635542"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-b21f9494f2d9",
+      "deduplicationKey": "retired-shell\u0000tests/electron-vite-config.test.ts",
+      "status": "retired",
+      "contract": "Electron Vite entry points are retired; the Tauri renderer build is the only frontend build.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-development.test.ts",
+          "test": "starts Tauri development directly without native parity or attestation gates"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-1643dfcb6b29",
+        "legacy-5478b9d0b1ef",
+        "legacy-5acdfd327ae0"
+      ],
+      "retirementClause": "Electron Vite entry points are retired; the Tauri renderer build is the only frontend build."
+    },
+    {
+      "id": "behavior-b2999f37b907",
+      "deduplicationKey": "target\u0000Chrome Cookie and LocalStorage sources are snapshotted in memory before encrypted persistence.",
+      "status": "preserved",
+      "contract": "Chrome Cookie and LocalStorage sources are snapshotted in memory before encrypted persistence.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/session_import.rs",
+          "test": "chrome_profile_is_snapshotted_in_memory_without_raw_staging_files"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "target-memory-session-snapshot"
+      ],
+      "nativeGate": "test:native:session-import"
+    },
+    {
+      "id": "behavior-b391a67d5a08",
+      "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000reads_legacy_before_first_migration_and_defaults_invalid_values",
+      "status": "preserved",
+      "contract": "reads the persisted mode synchronously before Electron becomes ready",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/bootstrap_settings.rs",
+          "test": "reads_legacy_before_first_migration_and_defaults_invalid_values"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-b4ce96870a1a"
+      ]
+    },
+    {
+      "id": "behavior-b41791e81be2",
+      "deduplicationKey": "test\u0000src-tauri/src/system_runtime.rs\u0000display_host_plan_marks_only_cross_display_tabs_for_reparenting",
+      "status": "preserved",
+      "contract": "moves a runtime tab to another display without reloading its session",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/system_runtime.rs",
+          "test": "display_host_plan_marks_only_cross_display_tabs_for_reparenting"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-4871b0d4d9d2",
+        "browser-workspace-e58dedf8e5a9"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-b4957788a0bf",
+      "deduplicationKey": "retired\u0000electron-shell-shape",
+      "status": "retired",
+      "contract": "Electron-specific host, startup mode, and compatibility recommendation shapes are retired.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-77044f2f1365",
+        "browser-workspace-8dcdbe109c2f",
+        "browser-workspace-bf0235d3ce63"
+      ],
+      "retirementClause": "Retired clause: Electron shell implementation. The baseline case “uses automatic mode for missing or invalid startup settings” is preserved only at the user-visible System WebView behavior boundary.",
+      "preservedCompanion": {
+        "contract": "The native System WebView host remains secure, single-engine, and lifecycle-owned by Tauri.",
+        "evidence": {
+          "kind": "executable-test",
+          "file": "src-tauri/src/system_runtime.rs",
+          "test": "macos_and_windows_tab_activation_share_one_display_host_plan"
+        }
+      }
+    },
+    {
+      "id": "behavior-b6ad7c6f24c3",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000keeps modified wheel input in the game canvas without affecting editable controls",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “keeps modified wheel input in the game canvas without affecting editable controls” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "keeps modified wheel input in the game canvas without affecting editable controls"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-ac3b96cf63ac"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-b6c1048ed54c",
+      "deduplicationKey": "shell\u0000tests/tauri-system-runtime-source.test.ts\u0000keeps popup, download, crash recovery, and platform input inside the native runtime",
+      "status": "preserved",
+      "contract": "Focused Tauri tests now verify shared display-host lifecycle, native surface switching, layout, and the scoped tab strip.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-system-runtime-source.test.ts",
+          "test": "keeps popup, download, crash recovery, and platform input inside the native runtime"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-0e5de3606509",
+        "legacy-0fd2613eb6ad",
+        "legacy-1576675d6b00",
+        "legacy-1635beb88d7f",
+        "legacy-176fcdff692d",
+        "legacy-181f9897f775",
+        "legacy-2316a7882d84",
+        "legacy-2c35981f0c3b",
+        "legacy-44842d39d393",
+        "legacy-4b914fc3e1d4",
+        "legacy-4c96e8d867eb",
+        "legacy-57902ddbd336",
+        "legacy-5d01337a3bcd",
+        "legacy-5ddea4e435aa",
+        "legacy-616b4ff9c28d",
+        "legacy-64510d490293",
+        "legacy-65b5f093ee99",
+        "legacy-6eddc42219dc",
+        "legacy-710179a89480",
+        "legacy-725c65e5abca",
+        "legacy-7eef52111190",
+        "legacy-882d909c6de4",
+        "legacy-8ff1ac8580d7",
+        "legacy-94d2f47423c7",
+        "legacy-b6277594cc3a",
+        "legacy-d16ababf8ea6",
+        "legacy-d1dacc153e97",
+        "legacy-e0b08ac45a49",
+        "legacy-ea261ff5e1c6",
+        "legacy-f653ab3d7e41",
+        "legacy-f84fc731eb55"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-b983f4ed21cd",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000releases a while-held shortcut when the source window loses focus",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “releases a while-held shortcut when the source window loses focus” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "releases a while-held shortcut when the source window loses focus"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-ed7c9069911c"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-be72d0e8c60e",
+      "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000batches_one_four_and_nine_role_workspace_load_effects",
+      "status": "preserved",
+      "contract": "shows a %s workspace while its game pages are still loading (darwin)",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/app.rs",
+          "test": "batches_one_four_and_nine_role_workspace_load_effects"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-1a45b9a5a642",
+        "browser-workspace-4203a545f875",
+        "browser-workspace-5ac6e4515a71",
+        "browser-workspace-5dfc29cb5531",
+        "browser-workspace-7b9e9324691b",
+        "browser-workspace-7fad93d9b2f7",
+        "browser-workspace-89d17e35538d",
+        "browser-workspace-a3ca75255d49",
+        "browser-workspace-af651bceaeb9",
+        "browser-workspace-fb693eb251e3"
+      ]
+    },
+    {
+      "id": "behavior-bfd1bf620429",
+      "deduplicationKey": "shell\u0000tests/runtime-tabs.test.ts\u0000accepts only bounded runtime tab action shapes",
+      "status": "preserved",
+      "contract": "The shell-neutral action and tooltip contract was restored at the same path.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/runtime-tabs.test.ts",
+          "test": "accepts only bounded runtime tab action shapes"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-384d5cdcf769",
+        "legacy-94e31c273f88"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-c68a72318dd9",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000forwards overlay language to Rust and refreshes installed pages after acknowledgement",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “forwards overlay language to Rust and refreshes installed pages after acknowledgement” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "forwards overlay language from Rust presentation refreshes"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-eb027c74a937"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-c6e780deba41",
+      "deduplicationKey": "retired-shell\u0000tests/webview2-automation-target.test.ts",
+      "status": "retired",
+      "contract": "General automation targets are retired; bounded native input and recovery attestations remain.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-system-runtime-source.test.ts",
+          "test": "keeps popup, download, crash recovery, and platform input inside the native runtime"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-5f0b895a32bc",
+        "legacy-85cf40d55986"
+      ],
+      "retirementClause": "General automation targets are retired; bounded native input and recovery attestations remain."
+    },
+    {
+      "id": "behavior-c7951d1f30ab",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000queues dense toggle intents instead of dropping a shortcut while the prior toggle is pending",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “queues dense toggle intents instead of dropping a shortcut while the prior toggle is pending” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "queues dense toggle intents instead of dropping a shortcut while the prior toggle is pending"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-9799d570d7a8"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-c8ee2d127067",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000starts and stops macros from their in-game shortcuts while updating the badge",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “starts and stops macros from their in-game shortcuts while updating the badge” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "starts and stops macros from their in-game shortcuts while updating the badge"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-03df909c4cc8"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-c908f5242113",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000leaves reserved runtime tab switching shortcuts to the browser",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “leaves reserved runtime tab switching shortcuts to the browser” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "leaves reserved runtime tab switching shortcuts to the browser"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-b0e777ffa62d"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-c96e121d833d",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000pairs while-held shortcuts with one press and release while consuming auto-repeat",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “pairs while-held shortcuts with one press and release while consuming auto-repeat” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "pairs while-held shortcuts with one press and release while consuming auto-repeat"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-dbaaa990cb69"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-ca1a179448fd",
+      "deduplicationKey": "test\u0000crates/rion-core/src/layout.rs\u0000creates_and_resizes_workspace_dividers",
+      "status": "preserved",
+      "contract": "aggregates workspace role and popup audio and inherits mute on %s (darwin)",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/layout.rs",
+          "test": "creates_and_resizes_workspace_dividers"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-0b240ba8ff6f",
+        "browser-workspace-0cf07f76f758",
+        "browser-workspace-0f4355309e0a",
+        "browser-workspace-186a683fc2ba",
+        "browser-workspace-20e5e911fdd9",
+        "browser-workspace-2ace2b258565",
+        "browser-workspace-2b612eefaac7",
+        "browser-workspace-356c619b93d1",
+        "browser-workspace-465b721df9d6",
+        "browser-workspace-4c07e98519ab",
+        "browser-workspace-4dcb867cdda3",
+        "browser-workspace-623ce82a7b87",
+        "browser-workspace-62d4bfbdd2db",
+        "browser-workspace-6714e4772b74",
+        "browser-workspace-69c62eab446f",
+        "browser-workspace-6b680bb8734e",
+        "browser-workspace-6c0e0d9dd9cc",
+        "browser-workspace-73c9e64971cb",
+        "browser-workspace-81230ae94ff2",
+        "browser-workspace-87039fb0bab6",
+        "browser-workspace-8ba8d6edae8b",
+        "browser-workspace-911a4d7e5843",
+        "browser-workspace-930306bbcd8d",
+        "browser-workspace-9d7e891184ac",
+        "browser-workspace-aad1d0b35db3",
+        "browser-workspace-b03989dbb2b7",
+        "browser-workspace-b4da75306cdc",
+        "browser-workspace-bb1689bebcda",
+        "browser-workspace-bc04f07641cf",
+        "browser-workspace-c112ef604a75",
+        "browser-workspace-ca6cc43f48be",
+        "browser-workspace-cf28ea16cdcc",
+        "browser-workspace-d08cac3d3f7d",
+        "browser-workspace-d8f506fd5278",
+        "browser-workspace-dc742dfec033",
+        "browser-workspace-e8ebaa3605bf",
+        "browser-workspace-e90180c0cfdd",
+        "browser-workspace-eb7002ba1763",
+        "browser-workspace-ef59508664f5",
+        "browser-workspace-f5416440d714"
+      ]
+    },
+    {
+      "id": "behavior-cd9dffebc7c2",
+      "deduplicationKey": "retired-shell\u0000tests/electron-automation-target.test.ts",
+      "status": "retired",
+      "contract": "Electron debugger automation is explicitly retired; native trusted-input attestation is the supported path.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-150c23d40c9a",
+        "legacy-1705696f87eb",
+        "legacy-1f3390091ed8",
+        "legacy-22ed28b9c437",
+        "legacy-2b22097cd9de",
+        "legacy-4cb0d20724ef",
+        "legacy-5c58bd6074ed",
+        "legacy-6570adc2dff3",
+        "legacy-6e2fcabdfe7e",
+        "legacy-77d22bb6f983",
+        "legacy-91351b4fb1d5",
+        "legacy-9181dc7e2bb2",
+        "legacy-93882840f415",
+        "legacy-99e5a491cc90",
+        "legacy-b14c6d76e133",
+        "legacy-b2e3118c5c11",
+        "legacy-b54d76e166ac",
+        "legacy-b60331230ae2",
+        "legacy-d7484975f5e5",
+        "legacy-dd844081ad03",
+        "legacy-e32d6f664cdf",
+        "legacy-e5a7716bfb77",
+        "legacy-f2caf0106f73"
+      ],
+      "retirementClause": "Electron debugger automation is explicitly retired; native trusted-input attestation is the supported path."
+    },
+    {
+      "id": "behavior-ce186f8ee8b3",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000lets unmatched physical key events pass through without macro actions",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “lets unmatched physical key events pass through without macro actions” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "lets unmatched physical key events pass through without macro actions"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-325b40a0c4d7"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-cf2c9223de3b",
+      "deduplicationKey": "shell\u0000tests/settings-graphics-restart.test.ts\u0000does not require a restart when the saved settings are already applied",
+      "status": "preserved",
+      "contract": "Restart-required settings and native relaunch behavior remain shell-neutral.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/settings-graphics-restart.test.ts",
+          "test": "does not require a restart when the saved settings are already applied"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-ca95f26c1ff7",
+        "legacy-e8e92a8e0663"
+      ]
+    },
+    {
+      "id": "behavior-d5dd03413092",
+      "deduplicationKey": "shell\u0000tests/tauri-updater-manifest.test.ts\u0000publishes only explicit signed macOS and Windows updater archives",
+      "status": "preserved",
+      "contract": "The signed Tauri updater and its failure state replace electron-updater.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-updater-manifest.test.ts",
+          "test": "publishes only explicit signed macOS and Windows updater archives"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-0f84c7554616",
+        "legacy-2c479ad2584a",
+        "legacy-543ce1325d8e",
+        "legacy-5ea26eecd7eb",
+        "legacy-71b5a208d5f2",
+        "legacy-878bcd57c2e0",
+        "legacy-ce340c966b6f",
+        "legacy-dc9e9aa33d42"
+      ]
+    },
+    {
+      "id": "behavior-d65efd71f331",
+      "deduplicationKey": "shell\u0000tests/runtime-tab-strip.test.ts\u0000renders workspace detail, audio state, and a stop control",
+      "status": "preserved",
+      "contract": "The runtime tab strip receives per-game icon data and has a local fallback marker.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/runtime-tab-strip.test.ts",
+          "test": "renders workspace detail, audio state, and a stop control"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-006d6538908a",
+        "legacy-0dff1875ad00",
+        "legacy-12200d9ebd10",
+        "legacy-23308b789165",
+        "legacy-41998be20116",
+        "legacy-9c801170e223",
+        "legacy-fadd4dc24253"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-dea33f52f812",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/legal.rs\u0000validates_versions_and_owns_acceptance_timestamp",
+      "status": "preserved",
+      "contract": "Legal acceptance and current release versions are validated in Rust and renderer documents.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/legal.rs",
+          "test": "validates_versions_and_owns_acceptance_timestamp"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-6575c99e704c",
+        "legacy-92c6b0bbf592",
+        "legacy-9be16e5a61b9"
+      ]
+    },
+    {
+      "id": "behavior-e217e6f6d37c",
+      "deduplicationKey": "shell\u0000src-tauri/src/runtime_tabs_macos.rs\u0000native_action_scope_preserves_nonzero_and_safe_negative_display_ids",
+      "status": "preserved",
+      "contract": "The AppKit controller now receives bounded state/actions through Rust FFI and a Tauri NSWindow.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/runtime_tabs_macos.rs",
+          "test": "native_action_scope_preserves_nonzero_and_safe_negative_display_ids"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-49d2c8ceb37a",
+        "legacy-5f010691d730",
+        "legacy-6901583ebd18",
+        "legacy-b3f53a8cfdab",
+        "legacy-d331f88c0078",
+        "legacy-e977aa54aa51"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-e23a4aa3e177",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/macro_runtime.rs\u0000suppresses_only_keys_that_can_match_an_enabled_role_shortcut",
+      "status": "preserved",
+      "contract": "Macro scheduling, held-key release, and queue semantics remain Rust-owned.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/macro_runtime.rs",
+          "test": "suppresses_only_keys_that_can_match_an_enabled_role_shortcut"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-c14fe6577f69",
+        "legacy-ec1ff4d4ecc5"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-e28634be453a",
+      "deduplicationKey": "retired-shell\u0000tests/runtime-tabs-macos-preload.test.ts",
+      "status": "retired",
+      "contract": "The Electron macOS fallback preload is retired; AppKit tabs are reached through Rust FFI.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/runtime_tabs_macos.rs",
+          "test": "native_action_scope_preserves_nonzero_and_safe_negative_display_ids"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-d782cb9df6ac",
+        "legacy-f6c6218bb474"
+      ],
+      "retirementClause": "The Electron macOS fallback preload is retired; AppKit tabs are reached through Rust FFI.",
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-e55d38917944",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000keeps the trigger node stable across polling refreshes",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “keeps the trigger node stable across polling refreshes” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "keeps the trigger node stable across polling refreshes"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-e376eca5943e"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-ed3d485c000d",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000ignores editable and IME events but permits game-surface shortcuts",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “ignores editable and IME events but permits game-surface shortcuts” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "ignores editable and IME events but permits game-surface shortcuts"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-402f5771117d"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-ef57456bd498",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/browser_runtime.rs\u0000owns_tab_order_visibility_display_moves_and_role_transitions",
+      "status": "preserved",
+      "contract": "Browser actions now cross the bounded Rust effect boundary into native System WebViews.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/browser_runtime.rs",
+          "test": "owns_tab_order_visibility_display_moves_and_role_transitions"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-1d1428bd77f8",
+        "legacy-21b9f042102f",
+        "legacy-3c1ce52e384b",
+        "legacy-5f0ecff64e1e",
+        "legacy-64ec3b2055b9",
+        "legacy-73cdfa941933",
+        "legacy-c1e0b99a96b2",
+        "legacy-ccdded5fcbbc",
+        "legacy-e2e4595d79f8"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-f09e95f58f21",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000rejects untracked views and role-handle mismatches before entering Rust",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “rejects untracked views and role-handle mismatches before entering Rust” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "keeps authenticated role selection outside the page-owned request envelope"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-b3ca002c431c"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-f323eb4f303c",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-injector.test.ts\u0000forwards a raw embedded request to the typed Rust overlay command",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “forwards a raw embedded request to the typed Rust overlay command” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-injector.test.ts",
+          "test": "forwards a raw embedded request to the typed Tauri overlay command"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-bd0c39468d35"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-f458739fbefc",
+      "deduplicationKey": "test\u0000crates/rion-core/src/layout.rs\u0000resolves_adaptive_zoom_with_hysteresis",
+      "status": "preserved",
+      "contract": "uses a workspace role zoom override instead of adaptive zoom",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/layout.rs",
+          "test": "resolves_adaptive_zoom_with_hysteresis"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "browser-workspace-0873cbdc898e",
+        "browser-workspace-110e30ab5cb6",
+        "browser-workspace-1123d2ecdfda",
+        "browser-workspace-117a545e853d",
+        "browser-workspace-144aa4d30ef3",
+        "browser-workspace-1b428ba7ff51",
+        "browser-workspace-23eb51b6873e",
+        "browser-workspace-3620fcdfac1f",
+        "browser-workspace-3ee311675951",
+        "browser-workspace-3f10abf46fe2",
+        "browser-workspace-6253d3b7bd01",
+        "browser-workspace-8554abf0a66a",
+        "browser-workspace-86b633230184",
+        "browser-workspace-8becfde663cb",
+        "browser-workspace-ab6e9af491e5",
+        "browser-workspace-b28f8f5c69ee",
+        "browser-workspace-b40350994824",
+        "browser-workspace-c45aa11e5117",
+        "browser-workspace-c5fd948d8da0",
+        "browser-workspace-c8833223e747",
+        "browser-workspace-d95327781f0d",
+        "browser-workspace-df118bf48954",
+        "browser-workspace-ea042a9959b1",
+        "browser-workspace-eb52e01afc63",
+        "browser-workspace-fb71184c9053"
+      ]
+    },
+    {
+      "id": "behavior-f676e6d36aa5",
+      "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000leaves game pointer events and focus untouched",
+      "status": "preserved",
+      "contract": "Preserve the legacy overlay behavior “leaves game pointer events and focus untouched” through the shell-neutral shared runtime and authenticated Tauri bridge.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/macro-overlay-interactions.test.ts",
+          "test": "leaves game pointer events and focus untouched"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-b4975a7fc45c"
+      ],
+      "nativeGate": "test:native:macro-game"
+    },
+    {
+      "id": "behavior-f768949c59b9",
+      "deduplicationKey": "test\u0000crates/rion-core/src/compatibility_runtime.rs\u0000stale_reports_are_resolved_from_current_rust_domain_state",
+      "status": "preserved",
+      "contract": "marks the saved report stale when network or graphics conditions change",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/compatibility_runtime.rs",
+          "test": "stale_reports_are_resolved_from_current_rust_domain_state"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "browser-workspace-f1d3460084ea"
+      ],
+      "nativeGate": "test:native:system-input"
+    },
+    {
+      "id": "behavior-ff80de4878ee",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/portable.rs\u0000normalizes_every_supported_portable_schema_to_v7",
+      "status": "preserved",
+      "contract": "Portable import/export and migration remain Rust-owned and transactionally tested.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/portable.rs",
+          "test": "normalizes_every_supported_portable_schema_to_v7"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-4fc8a7675f8f",
+        "legacy-7ae238e3e7e7",
+        "legacy-af4292c8d819",
+        "legacy-c2756df1d303",
+        "legacy-fb629be97bfe"
+      ]
+    }
+  ],
+  "mappings": [
+    {
+      "source": "58c9171-refactor-target",
+      "sourceCaseId": "target-bounded-browser-actions",
+      "behaviorId": "behavior-024d5ef72bf9"
+    },
+    {
+      "source": "58c9171-refactor-target",
+      "sourceCaseId": "target-bounded-effect-targets",
+      "behaviorId": "behavior-39b7d1ddd013"
+    },
+    {
+      "source": "58c9171-refactor-target",
+      "sourceCaseId": "target-memory-session-snapshot",
+      "behaviorId": "behavior-b2999f37b907"
+    },
+    {
+      "source": "58c9171-refactor-target",
+      "sourceCaseId": "target-system-only-execution",
+      "behaviorId": "behavior-8b8b1c45e38e"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-006d6538908a",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-012057e747bc",
+      "behaviorId": "behavior-a62bbeb5d776"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-022f931e0076",
+      "behaviorId": "behavior-8fb61c01fb73"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-02d04884d4d1",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-03b852b1bc03",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-03df909c4cc8",
+      "behaviorId": "behavior-c8ee2d127067"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-053336511380",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0714055e19d0",
+      "behaviorId": "behavior-93f5f028f0a6"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-09f6813737f0",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0a4a25012bc3",
+      "behaviorId": "behavior-aec93ffefa07"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0ba7b9e07a72",
+      "behaviorId": "behavior-8fb61c01fb73"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0dff1875ad00",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0e5de3606509",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0f84c7554616",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0fd2613eb6ad",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-0fdf7d66807b",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-112289b96c71",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-12200d9ebd10",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-13a52239fbd2",
+      "behaviorId": "behavior-8c3bf1cf7aae"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-13f905ed5543",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-150c23d40c9a",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1576675d6b00",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-16302c6ee7e8",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1635beb88d7f",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1643dfcb6b29",
+      "behaviorId": "behavior-b21f9494f2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1705696f87eb",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1754bcef4add",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-176fcdff692d",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-181f9897f775",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-18482e68fbc3",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1a598621dd2c",
+      "behaviorId": "behavior-6ab93411e54b"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1d1428bd77f8",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1f2da1edca94",
+      "behaviorId": "behavior-5ba44dacfd62"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-1f3390091ed8",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-203274cf2de7",
+      "behaviorId": "behavior-27f7d263f6e2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-211207de18c2",
+      "behaviorId": "behavior-356c25315b5f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-211a0c245cba",
+      "behaviorId": "behavior-7c86ba66619d"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-21b9f042102f",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-22ed28b9c437",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-2316a7882d84",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-23308b789165",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-255fb15e0a52",
+      "behaviorId": "behavior-6a37b55813ac"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-2b22097cd9de",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-2c35981f0c3b",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-2c479ad2584a",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-2ddbaab684fd",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-325b40a0c4d7",
+      "behaviorId": "behavior-ce186f8ee8b3"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3266b1746bcc",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-375825dc04e7",
+      "behaviorId": "behavior-204af43db77c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-384d5cdcf769",
+      "behaviorId": "behavior-bfd1bf620429"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-39ddb2c4534a",
+      "behaviorId": "behavior-27f7d263f6e2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-39e5ffae7cd4",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3ab785a01b66",
+      "behaviorId": "behavior-3ad0487f1bee"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3c1ce52e384b",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3c31cfe6a047",
+      "behaviorId": "behavior-27f7d263f6e2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3c3dac7b6927",
+      "behaviorId": "behavior-7f6834810502"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3ccce86b864a",
+      "behaviorId": "behavior-8fb61c01fb73"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-3e322c292862",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-402f5771117d",
+      "behaviorId": "behavior-ed3d485c000d"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-40abf2dc99ec",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-41998be20116",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-44204d700e81",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-44842d39d393",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-475cc4cfc403",
+      "behaviorId": "behavior-8705d9a0b989"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-49d2c8ceb37a",
+      "behaviorId": "behavior-e217e6f6d37c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-4b51fd10c2b3",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-4b914fc3e1d4",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-4c96e8d867eb",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-4cb0d20724ef",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-4ce4b3eeb919",
+      "behaviorId": "behavior-5ba44dacfd62"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-4fc8a7675f8f",
+      "behaviorId": "behavior-ff80de4878ee"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-511c2df0efbc",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-51488baa692d",
+      "behaviorId": "behavior-8fb61c01fb73"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-543ce1325d8e",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5478b9d0b1ef",
+      "behaviorId": "behavior-b21f9494f2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5489c6f37aa8",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-54904e12a976",
+      "behaviorId": "behavior-93f5f028f0a6"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5634bb3cca33",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-57902ddbd336",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-59fb6fc295cf",
+      "behaviorId": "behavior-367220c2a3b9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5aa706c95021",
+      "behaviorId": "behavior-8d6dfb84a238"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5acdfd327ae0",
+      "behaviorId": "behavior-b21f9494f2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5b94db6949fc",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5c58bd6074ed",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5d01337a3bcd",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5d4964594696",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5ddea4e435aa",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5ea26eecd7eb",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5f010691d730",
+      "behaviorId": "behavior-e217e6f6d37c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5f0b895a32bc",
+      "behaviorId": "behavior-c6e780deba41"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-5f0ecff64e1e",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-6018a219293a",
+      "behaviorId": "behavior-5ba44dacfd62"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-60cc59f0dafc",
+      "behaviorId": "behavior-6c9d4c788951"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-612aa0fed1ea",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-616b4ff9c28d",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-616f9072ce6c",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-639b1e3bdc10",
+      "behaviorId": "behavior-782faf71bd3c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-64510d490293",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-64ec3b2055b9",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-6570adc2dff3",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-6575c99e704c",
+      "behaviorId": "behavior-dea33f52f812"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-65b5f093ee99",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-65d11178a3bd",
+      "behaviorId": "behavior-5ba44dacfd62"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-68076fb61b99",
+      "behaviorId": "behavior-4dcbd05287d1"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-68e3a7caad28",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-6901583ebd18",
+      "behaviorId": "behavior-e217e6f6d37c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-6e2fcabdfe7e",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-6eddc42219dc",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-70e79aee0b1e",
+      "behaviorId": "behavior-98b63e0fe489"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-710179a89480",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-71b5a208d5f2",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-71f0fb5c78b7",
+      "behaviorId": "behavior-4256b06131b2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-725c65e5abca",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-72d4bf7d423d",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-73cdfa941933",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-76fc1f4c1f35",
+      "behaviorId": "behavior-8d6dfb84a238"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-77d22bb6f983",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-7ae238e3e7e7",
+      "behaviorId": "behavior-ff80de4878ee"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-7cd8a121cf6e",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-7eef52111190",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-800210caca9a",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-80f092adb42a",
+      "behaviorId": "behavior-6fe182c3b2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-85cf40d55986",
+      "behaviorId": "behavior-c6e780deba41"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-878bcd57c2e0",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-882d909c6de4",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-8936e1f86dd4",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-8e7880b06c71",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-8fb6f793d295",
+      "behaviorId": "behavior-1bfcaf527b8f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-8ff1ac8580d7",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-91351b4fb1d5",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9181dc7e2bb2",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-92c6b0bbf592",
+      "behaviorId": "behavior-dea33f52f812"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-93483467c428",
+      "behaviorId": "behavior-6fe182c3b2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-93882840f415",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-93b80136e514",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-94d2f47423c7",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-94e31c273f88",
+      "behaviorId": "behavior-bfd1bf620429"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-95a78a3d71ec",
+      "behaviorId": "behavior-979b469f1327"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9620eb310269",
+      "behaviorId": "behavior-5ba44dacfd62"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9695654717ce",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9799d570d7a8",
+      "behaviorId": "behavior-c7951d1f30ab"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-99e4a97a640b",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-99e5a491cc90",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9ab64adba7f6",
+      "behaviorId": "behavior-204af43db77c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9b785ced6fdf",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9be16e5a61b9",
+      "behaviorId": "behavior-dea33f52f812"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9c6450791d5e",
+      "behaviorId": "behavior-8705d9a0b989"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9c801170e223",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9cc8e04a72f8",
+      "behaviorId": "behavior-8705d9a0b989"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-9ce55d635542",
+      "behaviorId": "behavior-b0f6348f2ce6"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-a51b14961c0e",
+      "behaviorId": "behavior-204af43db77c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-a5b4e70d3117",
+      "behaviorId": "behavior-6b6d8c28a6e3"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-a776e05370f2",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-a866fec5f269",
+      "behaviorId": "behavior-93f5f028f0a6"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-aadb64df08ea",
+      "behaviorId": "behavior-3fe280c48f70"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ab70385bce26",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ac3b96cf63ac",
+      "behaviorId": "behavior-b6ad7c6f24c3"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ae0d50963824",
+      "behaviorId": "behavior-0d837474ccfb"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-af4292c8d819",
+      "behaviorId": "behavior-ff80de4878ee"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-af6014639da0",
+      "behaviorId": "behavior-4526f97cb8e8"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b0dc0d1eaf1f",
+      "behaviorId": "behavior-66eaecb6bbe7"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b0e777ffa62d",
+      "behaviorId": "behavior-c908f5242113"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b14c6d76e133",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b1638bb0c0c3",
+      "behaviorId": "behavior-5ba44dacfd62"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b1d8cce87bc4",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b226ccebb33d",
+      "behaviorId": "behavior-0fe49fe77bfe"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b2e3118c5c11",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b31ec713c120",
+      "behaviorId": "behavior-6fe182c3b2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b3ca002c431c",
+      "behaviorId": "behavior-f09e95f58f21"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b3f53a8cfdab",
+      "behaviorId": "behavior-e217e6f6d37c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b4975a7fc45c",
+      "behaviorId": "behavior-f676e6d36aa5"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b54d76e166ac",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b60331230ae2",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b6277594cc3a",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-b81430739c06",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ba813b7262d6",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-baef08037049",
+      "behaviorId": "behavior-af5aa5ea12bf"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-bcc12fb941e4",
+      "behaviorId": "behavior-8fb61c01fb73"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-bd0c39468d35",
+      "behaviorId": "behavior-f323eb4f303c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-c14fe6577f69",
+      "behaviorId": "behavior-e23a4aa3e177"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-c1e0b99a96b2",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-c2756df1d303",
+      "behaviorId": "behavior-ff80de4878ee"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-c2ade7032f2c",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-c438cc9f6d9c",
+      "behaviorId": "behavior-4666e0de7864"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-c5ab3598ff0d",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ca95f26c1ff7",
+      "behaviorId": "behavior-cf2c9223de3b"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-cbb427a64edb",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-cc3f74960548",
+      "behaviorId": "behavior-4526f97cb8e8"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ccdded5fcbbc",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ce340c966b6f",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ce364d7c992d",
+      "behaviorId": "behavior-522bfe8273f4"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d1082a40ffa1",
+      "behaviorId": "behavior-a18a43cd7863"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d16ababf8ea6",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d1886a7bf44a",
+      "behaviorId": "behavior-9513ab01ddaa"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d18fc0033c57",
+      "behaviorId": "behavior-5f2032dea92c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d1dacc153e97",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d331f88c0078",
+      "behaviorId": "behavior-e217e6f6d37c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d7484975f5e5",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-d782cb9df6ac",
+      "behaviorId": "behavior-e28634be453a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-da18ef7afb29",
+      "behaviorId": "behavior-4526f97cb8e8"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-db4665483246",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-dbaaa990cb69",
+      "behaviorId": "behavior-c96e121d833d"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-dc796e4f14f6",
+      "behaviorId": "behavior-93f5f028f0a6"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-dc9e9aa33d42",
+      "behaviorId": "behavior-d5dd03413092"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-dd7ef7b456d9",
+      "behaviorId": "behavior-47c2c2a25d96"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-dd844081ad03",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ddfacbbc8e35",
+      "behaviorId": "behavior-204af43db77c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-dfcb90bd2903",
+      "behaviorId": "behavior-7483ece1319b"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e0b08ac45a49",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e13eeb9f609b",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e2e4595d79f8",
+      "behaviorId": "behavior-ef57456bd498"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e32d6f664cdf",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e376eca5943e",
+      "behaviorId": "behavior-e55d38917944"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e4104ed8f445",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e5a7716bfb77",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e83a82c242b4",
+      "behaviorId": "behavior-872a8f0b9269"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e8d73e5d6a45",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e8e92a8e0663",
+      "behaviorId": "behavior-cf2c9223de3b"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-e977aa54aa51",
+      "behaviorId": "behavior-e217e6f6d37c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ea261ff5e1c6",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ea4362559de7",
+      "behaviorId": "behavior-2c1f2f9fd214"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-eb027c74a937",
+      "behaviorId": "behavior-c68a72318dd9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ec1ff4d4ecc5",
+      "behaviorId": "behavior-e23a4aa3e177"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ed7c9069911c",
+      "behaviorId": "behavior-b983f4ed21cd"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-eecaf4348081",
+      "behaviorId": "behavior-522bfe8273f4"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-eefdcf4003e6",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-ef55fe92c526",
+      "behaviorId": "behavior-4526f97cb8e8"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f0868fb69a09",
+      "behaviorId": "behavior-876b25cb6afb"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f28f6de73cb3",
+      "behaviorId": "behavior-74671f546273"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f2caf0106f73",
+      "behaviorId": "behavior-cd9dffebc7c2"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f4866477886a",
+      "behaviorId": "behavior-274d2040c2ff"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f563c1827a2b",
+      "behaviorId": "behavior-02715dd2026f"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f653ab3d7e41",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f67f3daeaef4",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f6c6218bb474",
+      "behaviorId": "behavior-e28634be453a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f77a2f4d18c2",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f7dbf0d78f29",
+      "behaviorId": "behavior-6fe182c3b2d9"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f84fc731eb55",
+      "behaviorId": "behavior-b6c1048ed54c"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f856fd77bee5",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-f903c0693af6",
+      "behaviorId": "behavior-28bc323d328a"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-fa830b628bf7",
+      "behaviorId": "behavior-7483ece1319b"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-fadd4dc24253",
+      "behaviorId": "behavior-d65efd71f331"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-fb39dd816585",
+      "behaviorId": "behavior-63d2ba5fa8e8"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-fb629be97bfe",
+      "behaviorId": "behavior-ff80de4878ee"
+    },
+    {
+      "source": "b11b526-legacy-tests",
+      "sourceCaseId": "legacy-fc4652bd25cb",
+      "behaviorId": "behavior-a07d6db8feae"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-04284a9bea4d",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0576092234ce",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0585aa1b7a39",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-074d6b7f91fa",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-077adc062d81",
+      "behaviorId": "behavior-29b4bfcf2a5c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0873cbdc898e",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0a7d3c8d180b",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0b240ba8ff6f",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0c6984ca8f9d",
+      "behaviorId": "behavior-a3be59d1f8f9"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0ca1210d6eef",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0cf07f76f758",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0dc6bcf3e5e5",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0e9f68cb0180",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-0f4355309e0a",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-110e30ab5cb6",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-1123d2ecdfda",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-117a545e853d",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-11dca68b17d7",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-13aaf9ae3e44",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-140e8f7adf23",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-144aa4d30ef3",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-186a683fc2ba",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-18902d65009b",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-19acd98432da",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-1a45b9a5a642",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-1b428ba7ff51",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-1c12d2a62541",
+      "behaviorId": "behavior-800146226bea"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-1f8900aaa15a",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-20e5e911fdd9",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-2187542f137c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-23eb51b6873e",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-2476cbdf7ddb",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-25ad1cb1ef25",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-2ace2b258565",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-2b612eefaac7",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-2bbe60d17f9d",
+      "behaviorId": "behavior-3043c4b98118"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-2cc368780200",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3019794f93b7",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-310227ef70a3",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-323a842fef44",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-356c619b93d1",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3620fcdfac1f",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3702d1aea9ee",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3998a3495cb6",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3ba42c388c15",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3d56093ad88c",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3ee311675951",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3f10abf46fe2",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3f5d2e1e2a8f",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-3f959230081a",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-40814ce78df9",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-416b05de38a2",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4203a545f875",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-42a9d8ab83ad",
+      "behaviorId": "behavior-6ce7ce2bb264"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-441d225256bd",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-465b721df9d6",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4871b0d4d9d2",
+      "behaviorId": "behavior-b41791e81be2"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-48a4a8debeae",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-48a517948506",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4b6fa7f40ee5",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4bbcc3605a5c",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4c07e98519ab",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4cb5bcad4a14",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4dcb867cdda3",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4f62d15e31bf",
+      "behaviorId": "behavior-33d4bdc0c486"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-4fdf2c9c9b28",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5070fdd94192",
+      "behaviorId": "behavior-800146226bea"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5095f354af88",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5103909ccbf6",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-57efc4de7790",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5935bacd1051",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5a70d4247957",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5ac6e4515a71",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5dfc29cb5531",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5e94d5625e01",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-5edde963f133",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-61348ba870d1",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-623ce82a7b87",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-6253d3b7bd01",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-62c6c976945a",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-62d4bfbdd2db",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-634067b0e9e1",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-63d8d3912912",
+      "behaviorId": "behavior-5acb6ed79d0c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-6714e4772b74",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-682b219b6d10",
+      "behaviorId": "behavior-6ce7ce2bb264"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-687f83dcb393",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-68b3526e056a",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-69c503f2725a",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-69c62eab446f",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-6b680bb8734e",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-6c0e0d9dd9cc",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-6fbd9280eaae",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-725f43d25113",
+      "behaviorId": "behavior-8e3549088ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-726253d6c1f3",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-7308ab2fb93e",
+      "behaviorId": "behavior-0e4e826cc868"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-73c9e64971cb",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-74b6e4ce8055",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-77044f2f1365",
+      "behaviorId": "behavior-b4957788a0bf"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-77373ff70243",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-7b9e9324691b",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-7d0a2fa414df",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-7f76d50cfbd8",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-7f991a0d8f29",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-7fad93d9b2f7",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-80cad119482f",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-81230ae94ff2",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-81634cf2c47c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8319e1d94f43",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-834d6924d42c",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-84f97745593b",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8554abf0a66a",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-85e80a6734ef",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-86b633230184",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-87039fb0bab6",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-87b82c305dcc",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-87c65787a1f3",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8802a25430df",
+      "behaviorId": "behavior-29b4bfcf2a5c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8855d2f20327",
+      "behaviorId": "behavior-607b35cc35e1"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-889b5c73962c",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-89d17e35538d",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8b81ac2d81ae",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8ba8d6edae8b",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8becfde663cb",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8dcdbe109c2f",
+      "behaviorId": "behavior-b4957788a0bf"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8e058324104c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-8e4a2570ed13",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-901a4ae182aa",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-90edadc145f6",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-911a4d7e5843",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-92ff089cf29a",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-930306bbcd8d",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-9426b85f71b5",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-94557ef32ede",
+      "behaviorId": "behavior-6ce7ce2bb264"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-98fba36a7d38",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-99084879446e",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-9b815e24c436",
+      "behaviorId": "behavior-8e3549088ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-9d7e891184ac",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a12fcb6d92f3",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a3ca75255d49",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a4bda3b1af37",
+      "behaviorId": "behavior-8e3549088ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a87fe4cca82b",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a885357bb42b",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a94ed0966de7",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a96f082c1e4d",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-a9bb9aad22e0",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-aad1d0b35db3",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-ab6e9af491e5",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-adf3bbaca440",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-af651bceaeb9",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-afd704ddddba",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b03989dbb2b7",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b1009e758e96",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b28f8f5c69ee",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b36d189c65c3",
+      "behaviorId": "behavior-6ce7ce2bb264"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b3e608cf49c3",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b40350994824",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b4596ee467b5",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b4ce96870a1a",
+      "behaviorId": "behavior-b391a67d5a08"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b4da75306cdc",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b6180bccd026",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b69881879674",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b75a0c498770",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-b839fe3129c1",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-bb1689bebcda",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-bc04f07641cf",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-bc07c25dd07c",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-bec19daf196c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-becd0c0e6603",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-bf0235d3ce63",
+      "behaviorId": "behavior-b4957788a0bf"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c112ef604a75",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c4177d56c920",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c45aa11e5117",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c5fd948d8da0",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c7be0952b356",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c8833223e747",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-c978143f30b8",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-ca6cc43f48be",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-cac64f02252a",
+      "behaviorId": "behavior-29b4bfcf2a5c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-cc817a22dbcc",
+      "behaviorId": "behavior-a2db9e2355f4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-cf177ab109b6",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-cf28ea16cdcc",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-cfa845f242c2",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-d08cac3d3f7d",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-d5842155e369",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-d6db27cb5ba6",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-d81b9d5accb5",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-d8f506fd5278",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-d95327781f0d",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-dc742dfec033",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-dda21739e52f",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-de48f33827b6",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-df118bf48954",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-df5ebcde1ab5",
+      "behaviorId": "behavior-a08d045c53ed"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-df6b38746d3a",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-df82c8ac9176",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e303c7cf7ff7",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e38d1abb9000",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e4d2ccbeb3ce",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e58dedf8e5a9",
+      "behaviorId": "behavior-b41791e81be2"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e726b29ab04b",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e7ec12f196f7",
+      "behaviorId": "behavior-29b4bfcf2a5c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e82a46509a74",
+      "behaviorId": "behavior-39f681e9e95d"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e8ebaa3605bf",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-e90180c0cfdd",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-ea042a9959b1",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-ead7ec740aab",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-eb52e01afc63",
+      "behaviorId": "behavior-f458739fbefc"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-eb7002ba1763",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-ec8bf4e43acc",
+      "behaviorId": "behavior-9c782fcc06d9"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-ef59508664f5",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f0a8dbde711c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f1d3460084ea",
+      "behaviorId": "behavior-f768949c59b9"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f1eb2035ac59",
+      "behaviorId": "behavior-3043c4b98118"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f288ec9f3e41",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f2f0e81d61c8",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f4188e31142c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f454b1829caa",
+      "behaviorId": "behavior-2ebf42940e9f"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f4f8ee648a41",
+      "behaviorId": "behavior-943f2a8ee8ad"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f500fa56e6a2",
+      "behaviorId": "behavior-518a668a7ff4"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f5416440d714",
+      "behaviorId": "behavior-ca1a179448fd"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f6073f7c76ec",
+      "behaviorId": "behavior-180b7614f2da"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f901c1ec13db",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-f95c55c6aeda",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-fa75912a292c",
+      "behaviorId": "behavior-5e04d2e0180c"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-fb693eb251e3",
+      "behaviorId": "behavior-be72d0e8c60e"
+    },
+    {
+      "source": "v1.37.0-browser-workspace",
+      "sourceCaseId": "browser-workspace-fb71184c9053",
+      "behaviorId": "behavior-f458739fbefc"
+    }
+  ]
+}

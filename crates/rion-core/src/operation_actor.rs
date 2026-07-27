@@ -591,8 +591,8 @@ mod tests {
 
     fn target() -> CoreEffectTarget {
         CoreEffectTarget {
-            kind: "view".to_owned(),
-            handle_id: "view-1".to_owned(),
+            kind: crate::model::CoreEffectTargetKind::WebContents,
+            handle_id: "role-1".to_owned(),
         }
     }
 

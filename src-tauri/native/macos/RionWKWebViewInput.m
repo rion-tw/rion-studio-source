@@ -355,6 +355,33 @@ static NSString *RionShiftedCharacter(NSString *code, NSString *base) {
   return shifted[code] ?: base;
 }
 
+static NSView *RionWKContentView(NSView *root) {
+  for (NSView *subview in root.subviews) {
+    if ([NSStringFromClass(subview.class) containsString:@"WKContentView"]) {
+      return subview;
+    }
+    NSView *nested = RionWKContentView(subview);
+    if (nested) return nested;
+  }
+  return nil;
+}
+
+static NSResponder *RionKeyResponder(WKWebView *webView) {
+  NSWindow *window = webView.window;
+  if (!window) return nil;
+  [window makeFirstResponder:webView];
+  NSView *content = RionWKContentView(webView);
+  if (content) return content;
+  NSResponder *candidate = window.firstResponder;
+  if ([candidate isKindOfClass:NSView.class]) {
+    NSView *candidateView = (NSView *)candidate;
+    if (candidateView == webView || [candidateView isDescendantOf:webView]) {
+      return candidate;
+    }
+  }
+  return webView;
+}
+
 bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
                           bool keyDown, uint64_t rawFlags, bool repeat) {
   @autoreleasepool {
@@ -388,10 +415,11 @@ bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
                                      isARepeat:repeat
                                        keyCode:virtualCode.unsignedShortValue];
     if (!event) return false;
-    if (keyDown || type == NSEventTypeFlagsChanged) {
-      [webView.window makeFirstResponder:webView];
-    }
-    NSResponder *responder = webView.window.firstResponder ?: webView;
+    // WKWebView installs an internal content responder. A hidden sibling may not
+    // become the window responder, so verify ownership and fall back to that
+    // role's own content view instead of sending input across role boundaries.
+    NSResponder *responder = RionKeyResponder(webView);
+    if (!responder) return false;
     if (type == NSEventTypeFlagsChanged) {
       [responder flagsChanged:event];
     } else if (keyDown) {

@@ -1,10 +1,12 @@
 use std::{
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
+    rc::Rc,
+    time::Duration,
 };
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, types::ValueRef};
-use rusty_leveldb::{DB, LdbIterator, Options};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, backup::Backup, types::ValueRef};
+use rusty_leveldb::{DB, LdbIterator, MemEnv, Options, env::Env};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -17,6 +19,10 @@ const CHROME_EPOCH_OFFSET_SECONDS: i64 = 11_644_473_600;
 const DOMAIN_HASH_SCHEMA_VERSION: u32 = 24;
 const MAX_LOCAL_STORAGE_ENTRIES: usize = 10_000;
 const MAX_LOCAL_STORAGE_BYTES: usize = 10 * 1024 * 1024;
+const MAX_LOCAL_STATE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_COOKIE_SNAPSHOT_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_LEVELDB_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_LEVELDB_SNAPSHOT_FILES: usize = 4_096;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedSessionTransfer {
@@ -65,6 +71,58 @@ pub(crate) fn read_session_transfer(
     })
 }
 
+pub(crate) fn read_chrome_session_transfer(
+    source_user_data: &Path,
+    profile_directory: &str,
+    platform: rion_platform::Platform,
+    launch_url: &str,
+) -> CoreResult<ParsedSessionTransfer> {
+    if !is_chrome_profile_directory(profile_directory) {
+        return Err(CoreError::InvalidInput(
+            "Chrome profile directory name is invalid.".to_owned(),
+        ));
+    }
+    let launch = Url::parse(launch_url)
+        .map_err(|_| CoreError::InvalidInput("Role launch URL is invalid.".to_owned()))?;
+    let profile = source_user_data.join(profile_directory);
+    ensure_real_directory(source_user_data)?;
+    ensure_real_directory(&profile)?;
+    let local_state = source_user_data.join("Local State");
+    let mut warnings = Vec::new();
+    let cookies = read_cookies_from_paths(
+        &[profile.join("Network/Cookies"), profile.join("Cookies")],
+        &local_state,
+        platform,
+        &launch,
+        SessionTransferSource::Chrome,
+        &mut warnings,
+    )?;
+    let local_storage = match read_local_storage_directory(
+        &profile.join("Local Storage/leveldb"),
+        &launch,
+        &mut warnings,
+    ) {
+        Ok(entries) => entries,
+        Err(_) => {
+            warnings.push("LOCAL_STORAGE_READ_FAILED".to_owned());
+            Vec::new()
+        }
+    };
+    warnings.sort();
+    warnings.dedup();
+    let source_fingerprint =
+        rion_platform::chrome_profile_source_fingerprint(source_user_data, profile_directory)
+            .map_err(|error| CoreError::Platform(error.to_string()))?;
+    Ok(ParsedSessionTransfer {
+        payload: SessionTransferPayloadRecord {
+            cookies,
+            local_storage,
+        },
+        warnings,
+        source_fingerprint,
+    })
+}
+
 pub(crate) fn legacy_profile_candidates(
     platform: rion_platform::Platform,
     role_id: &str,
@@ -97,21 +155,67 @@ fn read_cookies(
     source: SessionTransferSource,
     warnings: &mut Vec<String>,
 ) -> CoreResult<Vec<SessionCookieRecord>> {
-    let Some(path) = [
+    let paths = [
         profile.join("Default/Network/Cookies"),
         profile.join("Default/Cookies"),
         profile.join("Network/Cookies"),
         profile.join("Cookies"),
-    ]
-    .into_iter()
-    .find(|path| path.is_file()) else {
+    ];
+    read_cookies_from_paths(
+        &paths,
+        &profile.join("Local State"),
+        platform,
+        launch,
+        source,
+        warnings,
+    )
+}
+
+fn read_cookies_from_paths(
+    paths: &[PathBuf],
+    local_state_path: &Path,
+    platform: rion_platform::Platform,
+    launch: &Url,
+    source: SessionTransferSource,
+    warnings: &mut Vec<String>,
+) -> CoreResult<Vec<SessionCookieRecord>> {
+    let Some(path) = paths.iter().find(|path| path.is_file()) else {
         return Ok(Vec::new());
     };
-    let connection = Connection::open_with_flags(
-        &path,
+    ensure_sqlite_snapshot_size(path)?;
+    let source_connection = Connection::open_with_flags(
+        path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(|error| CoreError::Platform(format!("Chrome Cookies database: {error}")))?;
+    let mut connection = Connection::open_in_memory()
+        .map_err(|error| CoreError::Platform(format!("Chrome Cookies snapshot: {error}")))?;
+    {
+        let backup = Backup::new(&source_connection, &mut connection)
+            .map_err(|error| CoreError::Platform(format!("Chrome Cookies snapshot: {error}")))?;
+        backup
+            .run_to_completion(128, Duration::from_millis(1), None)
+            .map_err(|error| CoreError::Platform(format!("Chrome Cookies snapshot: {error}")))?;
+    }
+    let local_state = read_bounded_optional_file(local_state_path, MAX_LOCAL_STATE_BYTES)?;
+    read_cookie_rows(
+        &connection,
+        platform,
+        launch,
+        source,
+        local_state.as_deref(),
+        warnings,
+    )
+}
+
+fn read_cookie_rows(
+    connection: &Connection,
+    platform: rion_platform::Platform,
+    launch: &Url,
+    source: SessionTransferSource,
+    local_state: Option<&[u8]>,
+    warnings: &mut Vec<String>,
+) -> CoreResult<Vec<SessionCookieRecord>> {
     let schema_version = connection
         .query_row(
             "SELECT CAST(value AS INTEGER) FROM meta WHERE key='version'",
@@ -122,7 +226,7 @@ fn read_cookies(
         .unwrap_or(None)
         .and_then(|value| u32::try_from(value).ok())
         .unwrap_or(0);
-    let columns = cookie_columns(&connection)?;
+    let columns = cookie_columns(connection)?;
     let partition_expression = if columns.contains("top_frame_site_key") {
         "COALESCE(top_frame_site_key, '')"
     } else {
@@ -151,8 +255,6 @@ fn read_cookies(
             })
         })
         .map_err(|error| CoreError::Platform(format!("Chrome Cookies query: {error}")))?;
-    let local_state = profile.join("Local State");
-    let local_state_path = local_state.is_file().then_some(local_state.as_path());
     let mut decryptor: Option<Result<rion_platform::CookieDecryptor, String>> = None;
     let now = chrono::Utc::now().timestamp();
     let mut result = Vec::new();
@@ -179,15 +281,17 @@ fn read_cookies(
             }
             let decryptor = decryptor.get_or_insert_with(|| {
                 match source {
-                    SessionTransferSource::Chrome => rion_platform::CookieDecryptor::chrome(
-                        platform,
-                        local_state_path,
-                        &row.encrypted_value,
-                    ),
-                    SessionTransferSource::LegacyRion => {
-                        rion_platform::CookieDecryptor::legacy_rion(
+                    SessionTransferSource::Chrome => {
+                        rion_platform::CookieDecryptor::chrome_from_local_state(
                             platform,
-                            local_state_path,
+                            local_state,
+                            &row.encrypted_value,
+                        )
+                    }
+                    SessionTransferSource::LegacyRion => {
+                        rion_platform::CookieDecryptor::legacy_rion_from_local_state(
+                            platform,
+                            local_state,
                             &row.encrypted_value,
                         )
                     }
@@ -259,6 +363,14 @@ fn read_local_storage(
     warnings: &mut Vec<String>,
 ) -> CoreResult<Vec<LocalStorageEntryRecord>> {
     let path = profile.join("Default/Local Storage/leveldb");
+    read_local_storage_directory(&path, launch, warnings)
+}
+
+fn read_local_storage_directory(
+    path: &Path,
+    launch: &Url,
+    warnings: &mut Vec<String>,
+) -> CoreResult<Vec<LocalStorageEntryRecord>> {
     if !path.is_dir() {
         return Ok(Vec::new());
     }
@@ -267,12 +379,14 @@ fn read_local_storage(
     prefix.push(b'_');
     prefix.extend_from_slice(origin.as_bytes());
     prefix.push(0);
+    let environment = snapshot_leveldb(path)?;
     let options = Options {
+        env: Rc::new(Box::new(environment)),
         create_if_missing: false,
         paranoid_checks: true,
         ..Options::default()
     };
-    let mut database = DB::open(&path, options)
+    let mut database = DB::open(Path::new("chrome-local-storage"), options)
         .map_err(|error| CoreError::Platform(format!("Chrome LocalStorage database: {error}")))?;
     let mut iterator = database
         .new_iter()
@@ -315,6 +429,110 @@ fn read_local_storage(
     warnings.sort();
     warnings.dedup();
     Ok(result)
+}
+
+fn snapshot_leveldb(path: &Path) -> CoreResult<MemEnv> {
+    ensure_real_directory(path)?;
+    let mut entries = std::fs::read_dir(path)
+        .map_err(|error| CoreError::Platform(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CoreError::Platform(error.to_string()))?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    if entries.len() > MAX_LEVELDB_SNAPSHOT_FILES {
+        return Err(CoreError::Platform(
+            "Chrome LocalStorage snapshot contains too many files.".to_owned(),
+        ));
+    }
+    let environment = MemEnv::new();
+    let mut total_bytes = 0_u64;
+    for entry in entries {
+        let source = entry.path();
+        let metadata = std::fs::symlink_metadata(&source)
+            .map_err(|error| CoreError::Platform(error.to_string()))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(CoreError::Platform(
+                "Chrome LocalStorage snapshot contains an unsupported path.".to_owned(),
+            ));
+        }
+        total_bytes = total_bytes.saturating_add(metadata.len());
+        if total_bytes > MAX_LEVELDB_SNAPSHOT_BYTES {
+            return Err(CoreError::Platform(
+                "Chrome LocalStorage snapshot is too large.".to_owned(),
+            ));
+        }
+        let bytes =
+            std::fs::read(&source).map_err(|error| CoreError::Platform(error.to_string()))?;
+        let destination = Path::new("chrome-local-storage").join(entry.file_name());
+        let mut file = environment
+            .open_writable_file(&destination)
+            .map_err(|error| CoreError::Platform(error.to_string()))?;
+        file.write_all(&bytes)
+            .map_err(|error| CoreError::Platform(error.to_string()))?;
+        file.flush()
+            .map_err(|error| CoreError::Platform(error.to_string()))?;
+    }
+    Ok(environment)
+}
+
+fn read_bounded_optional_file(path: &Path, maximum: u64) -> CoreResult<Option<Vec<u8>>> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(CoreError::Platform(error.to_string())),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > maximum {
+        return Err(CoreError::Platform(
+            "Chrome transfer source contains an unsupported or oversized file.".to_owned(),
+        ));
+    }
+    std::fs::read(path)
+        .map(Some)
+        .map_err(|error| CoreError::Platform(error.to_string()))
+}
+
+fn ensure_sqlite_snapshot_size(path: &Path) -> CoreResult<()> {
+    let mut total = 0_u64;
+    for candidate in [
+        path.to_path_buf(),
+        PathBuf::from(format!("{}-wal", path.display())),
+        PathBuf::from(format!("{}-shm", path.display())),
+    ] {
+        let metadata = match std::fs::symlink_metadata(&candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(CoreError::Platform(error.to_string())),
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(CoreError::Platform(
+                "Chrome Cookies snapshot contains an unsupported path.".to_owned(),
+            ));
+        }
+        total = total.saturating_add(metadata.len());
+        if total > MAX_COOKIE_SNAPSHOT_BYTES {
+            return Err(CoreError::Platform(
+                "Chrome Cookies snapshot is too large.".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_real_directory(path: &Path) -> CoreResult<()> {
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|error| CoreError::Platform(error.to_string()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(CoreError::Platform(
+            "Chrome transfer source must be a real directory.".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_chrome_profile_directory(value: &str) -> bool {
+    value == "Default"
+        || value.strip_prefix("Profile ").is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 fn decode_chromium_string(value: &[u8]) -> Option<String> {
@@ -615,6 +833,57 @@ mod tests {
         assert_eq!(parsed.payload.cookies[0].name, "valid");
         assert_eq!(parsed.payload.cookies[0].value, "kept");
         assert_eq!(parsed.warnings, vec!["COOKIE_PARTITIONED_UNSUPPORTED"]);
+    }
+
+    #[test]
+    fn chrome_profile_is_snapshotted_in_memory_without_raw_staging_files() {
+        let source = tempdir().unwrap();
+        let cookie_path = source.path().join("Default/Network/Cookies");
+        std::fs::create_dir_all(cookie_path.parent().unwrap()).unwrap();
+        std::fs::write(source.path().join("Local State"), b"{}").unwrap();
+        let connection = Connection::open(&cookie_path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+                 INSERT INTO meta(key, value) VALUES ('version', '23');
+                 CREATE TABLE cookies(
+                   host_key TEXT, name TEXT, value TEXT, path TEXT, expires_utc INTEGER,
+                   is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
+                   encrypted_value BLOB, top_frame_site_key TEXT
+                 );
+                 INSERT INTO cookies VALUES
+                   ('.example.test','session','kept','/',0,1,1,1,X'','');",
+            )
+            .unwrap();
+        drop(connection);
+        write_local_storage_fixture(
+            source.path(),
+            vec![(
+                [b"_https://game.example.test\0".as_slice(), &[1], b"token"].concat(),
+                [b"\x01".as_slice(), b"exact"].concat(),
+            )],
+        );
+        let before =
+            rion_platform::chrome_profile_source_fingerprint(source.path(), "Default").unwrap();
+
+        let parsed = read_chrome_session_transfer(
+            source.path(),
+            "Default",
+            rion_platform::Platform::Macos,
+            "https://game.example.test/play",
+        )
+        .unwrap();
+
+        assert_eq!(parsed.payload.cookies[0].value, "kept");
+        assert_eq!(parsed.payload.local_storage[0].key, "token");
+        assert_eq!(parsed.payload.local_storage[0].value, "exact");
+        assert_eq!(parsed.source_fingerprint, before);
+        assert_eq!(
+            rion_platform::chrome_profile_source_fingerprint(source.path(), "Default").unwrap(),
+            before
+        );
+        assert!(!source.path().join(".chrome-profile-import-work").exists());
+        assert!(!source.path().join(".session-transfers").exists());
     }
 
     #[test]

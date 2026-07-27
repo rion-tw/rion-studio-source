@@ -69,7 +69,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Electron shell implementation. The baseline case “uses automatic mode for missing or invalid startup settings” is preserved only at the user-visible System WebView behavior boundary.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -181,7 +181,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “loads an embedded %s game directly after proxy and CDN preparation (darwin)” now inherits operating-system network settings.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -205,7 +205,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “loads an embedded %s game directly after proxy and CDN preparation (win32)” now inherits operating-system network settings.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -647,7 +647,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Electron shell implementation. The baseline case “uses a frameless macOS BaseWindow with a secure overlay chrome view” is preserved only at the user-visible System WebView behavior boundary.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1529,7 +1529,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “falls back to external Chrome compatibility mode in auto mode when embedded game load fails” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1553,7 +1553,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “keeps the selected work area when a workspace falls back to external Chrome” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1577,7 +1577,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “does not fall back to external Chrome in embedded-only mode” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1601,7 +1601,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “launches external Chrome directly in external mode without creating embedded views” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1625,7 +1625,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “delegates external freeze capture and single-role recovery to the external Chrome manager” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1671,7 +1671,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “ignores the embedded workspace gap in explicit external mode on every platform” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1695,7 +1695,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “leaves external Chrome resource scheduling entirely to Chrome” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1741,7 +1741,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “applies browser proxy settings before loading the game page” now inherits operating-system network settings.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1765,7 +1765,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “applies CDN compatibility after the proxy and before loading the game page” now inherits operating-system network settings.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1789,7 +1789,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: CDN rewriting. The baseline case “fails open when CDN compatibility setup fails” is replaced by direct launch-origin navigation.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -1813,7 +1813,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “cleans up the host when browser proxy setup fails” now inherits operating-system network settings.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -2563,7 +2563,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Electron shell implementation. The baseline case “launches every role concurrently for $name (name=an unrestricted workspace,resourcePolicy={ mode: \"unrestricted\" as const },pressureLevel=normal)” no longer applies runtime throttling.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -2631,7 +2631,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “falls back a workspace to external Chrome compatibility mode after embedded game load failure” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -3447,7 +3447,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “reserves a target display only for an external Chrome workspace” cannot select another browser runtime.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -3603,7 +3603,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Electron shell implementation. The baseline case “hides a display host on system close without stopping its roles on %s (macOS HTML fallback,{ platform: \"darwin\", useTabbedHostWindow: true })” is preserved only at the user-visible System WebView behavior boundary.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4023,7 +4023,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “applies custom proxy settings to an Electron session” now inherits operating-system network settings.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4047,7 +4047,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: custom proxy injection. The baseline case “falls back to system proxy settings when custom proxy is invalid” now inherits operating-system network settings.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -4071,7 +4071,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (0.25)” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4095,7 +4095,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (0.33)” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4119,7 +4119,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (0.5)” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4143,7 +4143,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (0.9)” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4167,7 +4167,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (1)” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4191,7 +4191,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “converts zoom factor %s to Chromium's zoom level (1.25)” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4215,7 +4215,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “sets the Default partition zoom while preserving unrelated preferences” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4239,7 +4239,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “restores 100% by removing Default partition overrides” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4285,7 +4285,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “replaces an invalid preferences document with valid zoom preferences” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4309,7 +4309,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: Chromium-profile runtime mutation. The baseline case “does not create a missing preferences file when resetting to 100%” is implemented through native per-System-WebView zoom.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4377,7 +4377,7 @@
       },
       "classification": "intentional-change",
       "decision": "docs/system-native-engine-tauri-plan.md",
-      "reason": "The v1 behavior depends on a retired Electron, External Chrome, custom proxy, or superseded runtime policy; the System WebView-only negative gate prevents that path from returning.",
+      "reason": "Retired clause: External Chrome runtime or fallback. The baseline case “recommends external Chrome after an embedded load failure” cannot select another browser runtime.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -5097,4 +5097,3 @@
     }
   ]
 }
-

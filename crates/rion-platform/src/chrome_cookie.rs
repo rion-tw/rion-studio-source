@@ -22,9 +22,22 @@ impl CookieDecryptor {
         local_state_path: Option<&Path>,
         encrypted_sample: &[u8],
     ) -> Result<Self, PlatformError> {
+        let local_state = local_state_path
+            .filter(|path| path.is_file())
+            .map(std::fs::read)
+            .transpose()
+            .map_err(|error| PlatformError::Operation(error.to_string()))?;
+        Self::chrome_from_local_state(platform, local_state.as_deref(), encrypted_sample)
+    }
+
+    pub fn chrome_from_local_state(
+        platform: Platform,
+        local_state: Option<&[u8]>,
+        encrypted_sample: &[u8],
+    ) -> Result<Self, PlatformError> {
         Self::new(
             platform,
-            local_state_path,
+            local_state,
             encrypted_sample,
             CookieKeySource::Chrome,
         )
@@ -35,9 +48,22 @@ impl CookieDecryptor {
         local_state_path: Option<&Path>,
         encrypted_sample: &[u8],
     ) -> Result<Self, PlatformError> {
+        let local_state = local_state_path
+            .filter(|path| path.is_file())
+            .map(std::fs::read)
+            .transpose()
+            .map_err(|error| PlatformError::Operation(error.to_string()))?;
+        Self::legacy_rion_from_local_state(platform, local_state.as_deref(), encrypted_sample)
+    }
+
+    pub fn legacy_rion_from_local_state(
+        platform: Platform,
+        local_state: Option<&[u8]>,
+        encrypted_sample: &[u8],
+    ) -> Result<Self, PlatformError> {
         Self::new(
             platform,
-            local_state_path,
+            local_state,
             encrypted_sample,
             CookieKeySource::LegacyRion,
         )
@@ -45,7 +71,7 @@ impl CookieDecryptor {
 
     fn new(
         platform: Platform,
-        local_state_path: Option<&Path>,
+        local_state: Option<&[u8]>,
         encrypted_sample: &[u8],
         source: CookieKeySource,
     ) -> Result<Self, PlatformError> {
@@ -58,7 +84,7 @@ impl CookieDecryptor {
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    let _ = (local_state_path, encrypted_sample, source);
+                    let _ = (local_state, encrypted_sample, source);
                     Err(PlatformError::Operation(
                         "macOS cookie decryption requires macOS".to_owned(),
                     ))
@@ -68,10 +94,7 @@ impl CookieDecryptor {
                 #[cfg(windows)]
                 {
                     let _ = (encrypted_sample, source);
-                    let windows_key = local_state_path
-                        .filter(|path| path.is_file())
-                        .map(load_windows_master_key)
-                        .transpose()?;
+                    let windows_key = local_state.map(load_windows_master_key).transpose()?;
                     Ok(Self {
                         platform,
                         windows_key,
@@ -79,7 +102,7 @@ impl CookieDecryptor {
                 }
                 #[cfg(not(windows))]
                 {
-                    let _ = (local_state_path, encrypted_sample, source);
+                    let _ = (local_state, encrypted_sample, source);
                     Err(PlatformError::Operation(
                         "Windows cookie decryption requires Windows".to_owned(),
                     ))
@@ -256,10 +279,8 @@ pub fn decrypt_mac_cookie_payload(
 }
 
 #[cfg(windows)]
-fn load_windows_master_key(path: &Path) -> Result<Vec<u8>, PlatformError> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|error| PlatformError::Operation(error.to_string()))?;
-    let encrypted_key = serde_json::from_str::<serde_json::Value>(&raw)
+fn load_windows_master_key(raw: &[u8]) -> Result<Vec<u8>, PlatformError> {
+    let encrypted_key = serde_json::from_slice::<serde_json::Value>(raw)
         .ok()
         .and_then(|value| {
             value

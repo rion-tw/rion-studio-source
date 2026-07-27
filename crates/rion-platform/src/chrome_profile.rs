@@ -107,47 +107,6 @@ pub fn discover_chrome_profiles(source: &Path) -> Result<Vec<ChromeProfileEntry>
         .collect())
 }
 
-/// Copies only data needed by the one-time session transfer. The destination is
-/// staging owned by Rion Studio and is never used as a browser profile.
-pub fn stage_chrome_profile(
-    source_user_data: &Path,
-    directory_name: &str,
-    destination: &Path,
-) -> Result<(), PlatformError> {
-    validate_directory(source_user_data)?;
-    if !is_profile_directory(directory_name) {
-        return Err(PlatformError::Operation(
-            "Chrome profile directory name is invalid".to_owned(),
-        ));
-    }
-    if !destination.is_absolute() || destination.starts_with(source_user_data) {
-        return Err(PlatformError::Operation(
-            "Chrome profile staging destination is invalid".to_owned(),
-        ));
-    }
-    let source_profile = source_user_data.join(directory_name);
-    validate_directory(&source_profile)?;
-    fs::create_dir_all(destination).map_err(|error| operation(destination, error))?;
-    copy_file_if_present(
-        &source_user_data.join("Local State"),
-        &destination.join("Local State"),
-    )?;
-    let destination_profile = destination.join("Default");
-    fs::create_dir_all(&destination_profile)
-        .map_err(|error| operation(&destination_profile, error))?;
-    for relative in COPY_FILES {
-        copy_file_if_present(
-            &source_profile.join(relative),
-            &destination_profile.join(relative),
-        )?;
-    }
-    copy_directory_if_present(
-        &source_profile.join("Local Storage/leveldb"),
-        &destination_profile.join("Local Storage/leveldb"),
-    )?;
-    Ok(())
-}
-
 pub fn chrome_profile_source_fingerprint(
     source_user_data: &Path,
     directory_name: &str,
@@ -259,63 +218,6 @@ fn is_profile_directory(name: &str) -> bool {
         })
 }
 
-fn copy_directory_if_present(source: &Path, destination: &Path) -> Result<(), PlatformError> {
-    let metadata = match fs::symlink_metadata(source) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(operation(source, error)),
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(PlatformError::Operation(format!(
-            "Chrome profile contains an unsupported path: {}",
-            source.display()
-        )));
-    }
-    fs::create_dir_all(destination).map_err(|error| operation(destination, error))?;
-    for entry in fs::read_dir(source).map_err(|error| operation(source, error))? {
-        let entry = entry.map_err(|error| operation(source, error))?;
-        let entry_type = entry
-            .file_type()
-            .map_err(|error| operation(&entry.path(), error))?;
-        if entry_type.is_symlink() {
-            return Err(PlatformError::Operation(format!(
-                "Chrome profile contains an unsupported symbolic link: {}",
-                entry.path().display()
-            )));
-        }
-        if entry_type.is_dir() {
-            copy_directory_if_present(&entry.path(), &destination.join(entry.file_name()))?;
-        } else if entry_type.is_file() {
-            copy_file(&entry.path(), &destination.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
-
-fn copy_file_if_present(source: &Path, destination: &Path) -> Result<(), PlatformError> {
-    match fs::symlink_metadata(source) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(PlatformError::Operation(format!(
-                "Chrome profile contains an unsupported symbolic link: {}",
-                source.display()
-            )))
-        }
-        Ok(metadata) if metadata.is_file() => copy_file(source, destination),
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(operation(source, error)),
-    }
-}
-
-fn copy_file(source: &Path, destination: &Path) -> Result<(), PlatformError> {
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent).map_err(|error| operation(parent, error))?;
-    }
-    fs::copy(source, destination)
-        .map(|_| ())
-        .map_err(|error| operation(source, error))
-}
-
 fn operation(path: &Path, error: std::io::Error) -> PlatformError {
     PlatformError::Operation(format!("{}: {error}", path.display()))
 }
@@ -326,7 +228,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn discovers_profiles_and_stages_only_cookie_and_local_storage_data() {
+    fn discovers_profiles_and_fingerprints_only_transferable_data() {
         let source = tempdir().unwrap();
         fs::create_dir_all(source.path().join("Default/Network")).unwrap();
         fs::create_dir_all(source.path().join("Default/Local Storage/leveldb")).unwrap();
@@ -353,18 +255,36 @@ mod tests {
             "Personal"
         );
 
-        let staging = tempdir().unwrap().keep().join("staging");
-        stage_chrome_profile(source.path(), "Default", &staging).unwrap();
-        assert!(staging.join("Default/Network/Cookies").is_file());
-        assert!(
-            staging
-                .join("Default/Local Storage/leveldb/000001.log")
-                .is_file()
+        let fingerprint = chrome_profile_source_fingerprint(source.path(), "Default").unwrap();
+        fs::write(source.path().join("Default/History"), b"history changed").unwrap();
+        fs::write(
+            source.path().join("Default/Login Data"),
+            b"passwords changed",
+        )
+        .unwrap();
+        fs::write(
+            source.path().join("Default/Preferences"),
+            b"preferences changed",
+        )
+        .unwrap();
+        fs::write(
+            source.path().join("Default/IndexedDB/data"),
+            b"indexed changed",
+        )
+        .unwrap();
+        assert_eq!(
+            chrome_profile_source_fingerprint(source.path(), "Default").unwrap(),
+            fingerprint
         );
-        assert!(!staging.join("Default/History").exists());
-        assert!(!staging.join("Default/Login Data").exists());
-        assert!(!staging.join("Default/Preferences").exists());
-        assert!(!staging.join("Default/IndexedDB").exists());
+        fs::write(
+            source.path().join("Default/Network/Cookies"),
+            b"cookie changed",
+        )
+        .unwrap();
+        assert_ne!(
+            chrome_profile_source_fingerprint(source.path(), "Default").unwrap(),
+            fingerprint
+        );
     }
 
     #[test]
@@ -372,8 +292,7 @@ mod tests {
         let source = tempdir().unwrap();
         fs::create_dir(source.path().join("Default")).unwrap();
         fs::write(source.path().join("Local State"), "{}").unwrap();
-        let staging = tempdir().unwrap().keep().join("staging");
-        assert!(stage_chrome_profile(source.path(), "../Default", &staging).is_err());
+        assert!(chrome_profile_source_fingerprint(source.path(), "../Default").is_err());
         assert!(!chrome_user_data_in_use(source.path()));
         fs::write(source.path().join("SingletonLock"), b"locked").unwrap();
         assert!(chrome_user_data_in_use(source.path()));
@@ -409,8 +328,6 @@ mod tests {
                 .join("Default/Local Storage/leveldb/000001.log"),
         )
         .unwrap();
-        let staging = tempdir().unwrap().keep().join("staging");
-        assert!(stage_chrome_profile(source.path(), "Default", &staging).is_err());
         assert!(chrome_profile_source_fingerprint(source.path(), "Default").is_err());
     }
 

@@ -12,7 +12,7 @@ use crate::{
     error::{CoreError, CoreResult},
     model::{
         BrowserActionRequest, BrowserActionResult, CoreEffectAction, CoreEffectRequest,
-        CoreEffectResult, CoreEffectTarget, CoreEvent,
+        CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind, CoreEvent,
     },
 };
 
@@ -124,7 +124,7 @@ fn effect_request(request: BrowserActionRequest) -> CoreEffectRequest {
         effect_id: request.request_id.clone(),
         operation_id: effect_operation_id(&request.request_id),
         target: CoreEffectTarget {
-            kind: "webContents".to_owned(),
+            kind: CoreEffectTargetKind::WebContents,
             handle_id: request.role_id.clone(),
         },
         deadline_ms: request.deadline_ms,

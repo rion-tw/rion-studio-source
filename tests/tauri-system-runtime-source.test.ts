@@ -4,7 +4,17 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
   it("keeps popup, download, crash recovery, and platform input inside the native runtime", async () => {
-    const [runtime, shell, macInput, inputVerifier, restoreVerifier, fileVerifier, platformProbe] = await Promise.all([
+    const [
+      runtime,
+      shell,
+      macInput,
+      inputVerifier,
+      macroGameVerifier,
+      sessionImportVerifier,
+      restoreVerifier,
+      fileVerifier,
+      platformProbe
+    ] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
       readFile(
@@ -13,6 +23,14 @@ describe("Tauri System WebView runtime source", () => {
       ),
       readFile(
         new URL("../scripts/verifySystemTrustedInput.mjs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../scripts/verifySystemMacroGame.mjs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../scripts/verifySystemSessionImport.mjs", import.meta.url),
         "utf8"
       ),
       readFile(
@@ -89,6 +107,14 @@ describe("Tauri System WebView runtime source", () => {
     expect(attestKey).not.toContain("sleep(Duration::from_millis(2))");
     expect(runtime).toContain("run_role_count_attestation");
     expect(runtime).toContain("verify_shared_display_host_attestation");
+    const compatibilitySurface = runtime.slice(
+      runtime.indexOf("fn create_compatibility_surface("),
+      runtime.indexOf("fn require_compatibility_surface(")
+    );
+    expect(compatibilitySurface.indexOf("let mut state = match self.state()"))
+      .toBeGreaterThan(compatibilitySurface.indexOf("install_platform_security_policy"));
+    expect(compatibilitySurface).toContain("A compatibility surface was created concurrently");
+    expect(compatibilitySurface).toContain('format!("{}:{}", plan.game_id, plan.started_at)');
     expect(runtime).toContain("for count in [1_usize, 3, 6, 9]");
     expect(runtime).toContain("role_bounds_for_content");
     expect(runtime).toContain("logical_window_content_metrics");
@@ -112,15 +138,26 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).not.toContain("NSIntersectionRect(webView.bounds, layoutInView)");
     expect(macInput).not.toContain("proxyConfigurations");
     expect(macInput).toContain("rion_wk_terminate_web_content_process");
+    expect(macInput).toContain("[window makeFirstResponder:webView]");
+    expect(macInput).toContain("RionWKContentView(webView)");
+    expect(macInput).toContain("[candidateView isDescendantOf:webView]");
+    expect(macInput).toContain("[responder keyUp:event]");
+    expect(runtime).toContain("MACOS_KEY_DISPATCH_STATE");
+    expect(runtime).toContain("MACOS_KEY_DISPATCH_SETTLE_INTERVAL");
+    expect(runtime).toContain("macos_key_dispatch_needs_settle");
     expect(macInput).toContain('@"_webProcessIdentifier"');
     expect(macInput).toContain("kill(pid, SIGKILL)");
     expect(macInput).toContain("RionJavaScriptConfirm");
     expect(macInput).toContain("WKPermissionDecisionDeny");
     expect(macInput).not.toContain("CGEventPost");
     expect(inputVerifier).toContain("RION_STUDIO_INPUT_ATTESTATION_OUTPUT");
-    expect(inputVerifier).toContain("stress?.keyDown !== 1000");
+    expect(inputVerifier).toContain("simulatedStress?.keyDown !== 1000");
+    expect(inputVerifier).toContain('simulatedStress?.transport !== "simulated-core-input-state"');
+    expect(runtime).toContain("run_simulated_input_stress(&runtime.core)");
     expect(inputVerifier).toContain("JSON.stringify([1, 3, 6, 9])");
     expect(inputVerifier).toContain("roleParity?.createDestroyCycles !== 100");
+    expect(inputVerifier).toContain("compatibility?.probeExecuted !== true");
+    expect(inputVerifier).toContain("compatibility?.isolatedStorage !== true");
     expect(inputVerifier).toContain("sharedDisplayHost?.nativeHandleStable !== true");
     expect(inputVerifier).toContain("sharedDisplayHost?.contentStateStable !== true");
     expect(inputVerifier).toContain("popupDownload?.popupSharedStore !== true");
@@ -134,6 +171,20 @@ describe("Tauri System WebView runtime source", () => {
     expect(inputVerifier).toContain("recovery?.nativeHandleReplaced !== true");
     expect(inputVerifier).toContain("recovery?.processTerminationObserved !== true");
     expect(inputVerifier).toContain("recovery?.inputRestored !== true");
+    expect(macroGameVerifier).toContain(
+      "embedded_macro_from_one_role_runs_three_iterations_for_all_assigned_roles"
+    );
+    expect(macroGameVerifier).toContain("macro_runtime::tests");
+    expect(macroGameVerifier).toContain("compatibility_runtime::tests");
+    expect(macroGameVerifier).toContain("RION_STUDIO_MACRO_GAME_ATTESTATION_OUTPUT");
+    expect(macroGameVerifier).toContain("productionMacroStart !== true");
+    expect(macroGameVerifier).toContain("cancelStoppedDispatch !== true");
+    expect(macroGameVerifier).toContain("trustedEventsOnly !== true");
+    expect(macroGameVerifier).toContain("verifySystemTrustedInput.mjs");
+    expect(sessionImportVerifier).toContain("session_import::tests");
+    expect(sessionImportVerifier).toContain("chrome_profile_import::tests");
+    expect(sessionImportVerifier).toContain('"session_transfer_"');
+    expect(sessionImportVerifier).toContain("verifySystemTrustedInput.mjs");
     expect(inputVerifier).not.toContain("--require-compiled-attestation");
     expect(inputVerifier).toContain('backgroundInput !== "supported"');
     expect(shell).toContain("RION_STUDIO_RUNTIME_RESTORE_ATTESTATION_STAGE");

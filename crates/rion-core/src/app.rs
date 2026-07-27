@@ -31,16 +31,17 @@ use crate::{
         ChromeProfileImportProgressRecord, ChromeProfileImportResolutionRecord,
         ChromeProfileImportResultRecord, CompatibilityCheckOutcome, CompatibilityRunPhase,
         CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult,
-        CoreEffectTarget, CoreEvent, DiagnosticExportResultRecord, EmbeddedLaunchResultRecord,
-        EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
-        EmbeddedTabEffectRecord, GameBrowserSettingsRecord, GraphicsDiagnosticsRecord,
-        LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
-        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
-        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
-        OperationCancelResultRecord, RuntimeRestoreSessionRecord, RuntimeVersionRecord,
-        RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityReportRecord,
-        StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
-        StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
+        CoreEffectTarget, CoreEffectTargetKind, CoreEvent, DiagnosticExportResultRecord,
+        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
+        GraphicsDiagnosticsRecord, LegacySessionRestoreRecord, LegalAcceptanceRecord,
+        LogCaptureRecord, LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
+        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
+        MacroStartRequest, OperationCancelResultRecord, RuntimeRestoreSessionRecord,
+        RuntimeVersionRecord, RuntimeWindowPreferencesRecord, StateCollection,
+        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
+        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
 };
@@ -193,7 +194,6 @@ impl AppCore {
         let platform = rion_platform::Platform::parse(&options.platform)
             .map_err(|error| CoreError::Platform(error.to_string()))?;
         let instance_lock = acquire_instance_lock(&user_data_dir)?;
-        crate::chrome_profile_import::cleanup_abandoned_snapshot_root(&user_data_dir)?;
         if let Some(backup_label) = backup_label {
             crate::database::create_online_startup_backup(
                 &user_data_dir,
@@ -2041,35 +2041,26 @@ impl AppCore {
         let source = source_user_data_dir.to_path_buf();
         let profile_directory = profile.directory_name.clone();
         let expected_source_fingerprint = expected_source_fingerprint.to_owned();
-        let snapshot_root =
-            crate::chrome_profile_import::create_private_snapshot_root(&self.user_data_dir)?;
         let encrypted_staging = staging.clone();
         self.emit_chrome_import_progress(import_id, Some(&profile.id), "copying", 0, 1);
         let platform = self.platform;
         let launch_for_parse = launch_url.clone();
         let parsed = tokio::task::spawn_blocking(move || {
-            let snapshot = tempfile::Builder::new()
-                .prefix("chrome-profile-")
-                .tempdir_in(&snapshot_root)
-                .map_err(|error| CoreError::Platform(error.to_string()))?;
-            rion_platform::stage_chrome_profile(&source, &profile_directory, snapshot.path())
-                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            let parsed = crate::session_import::read_chrome_session_transfer(
+                &source,
+                &profile_directory,
+                platform,
+                &launch_for_parse,
+            )?;
             let current_fingerprint =
                 rion_platform::chrome_profile_source_fingerprint(&source, &profile_directory)
                     .map_err(|error| CoreError::Platform(error.to_string()))?;
             if current_fingerprint != expected_source_fingerprint {
                 return Err(CoreError::Domain {
                     code: "SOURCE_CHANGED",
-                    message: "Chrome profile data changed while it was being copied.".to_owned(),
+                    message: "Chrome profile data changed while it was being read.".to_owned(),
                 });
             }
-            let parsed = crate::session_import::read_session_transfer(
-                snapshot.path(),
-                platform,
-                &launch_for_parse,
-                true,
-                crate::session_import::SessionTransferSource::Chrome,
-            )?;
             let serialized = serde_json::to_vec(&parsed.payload)
                 .map_err(|error| CoreError::Internal(error.to_string()))?;
             let protected = rion_platform::protect_session_transfer(platform, &serialized)
@@ -5218,7 +5209,7 @@ fn effect_step(
     crate::operation_actor::OperationStep {
         effect: crate::operation_actor::OperationEffect {
             target: CoreEffectTarget {
-                kind: "app".to_owned(),
+                kind: CoreEffectTargetKind::App,
                 handle_id: handle_id.to_owned(),
             },
             action,
@@ -5226,7 +5217,7 @@ fn effect_step(
         },
         compensation: compensation.map(|action| crate::operation_actor::OperationEffect {
             target: CoreEffectTarget {
-                kind: "app".to_owned(),
+                kind: CoreEffectTargetKind::App,
                 handle_id: handle_id.to_owned(),
             },
             action,
@@ -5892,6 +5883,55 @@ mod tests {
             Arc::try_unwrap(actions).unwrap().into_inner().unwrap(),
             Arc::try_unwrap(progress).unwrap().into_inner().unwrap(),
         )
+    }
+
+    fn drive_chrome_import_recovery(
+        core: Arc<AppCore>,
+        fail_rollback: bool,
+    ) -> (CoreResult<Value>, Vec<CoreEffectAction>) {
+        let receiver = core.subscribe().unwrap();
+        let invocation_core = Arc::clone(&core);
+        let invocation = thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(invocation_core.recover_pending_chrome_profile_imports())
+        });
+        let mut actions = Vec::new();
+        while !invocation.is_finished() {
+            let Ok(events) = receiver.recv_timeout(Duration::from_millis(100)) else {
+                continue;
+            };
+            for event in events {
+                let CoreEvent::CoreEffects { effects } = event else {
+                    continue;
+                };
+                let results = effects
+                    .into_iter()
+                    .map(|effect| {
+                        let failed = fail_rollback
+                            && matches!(
+                                effect.action,
+                                CoreEffectAction::ChromeProfileImportRollback { .. }
+                            );
+                        actions.push(effect.action.clone());
+                        CoreEffectResult {
+                            effect_id: effect.effect_id,
+                            operation_id: effect.operation_id,
+                            ok: !failed,
+                            value_json: None,
+                            error: failed.then(|| CoreErrorPayload {
+                                code: "SESSION_IMPORT_ROLLBACK_FAILED".to_owned(),
+                                message: "Injected rollback failure.".to_owned(),
+                            }),
+                        }
+                    })
+                    .collect();
+                core.dispatch_core_effect_results(results).unwrap();
+            }
+        }
+        (invocation.join().unwrap(), actions)
     }
 
     fn effect_result(effect: CoreEffectRequest, fail_action: Option<&str>) -> CoreEffectResult {
@@ -7591,9 +7631,7 @@ mod tests {
             origin: "macro".to_owned(),
             scheduled_at_ms: 1,
             deadline_ms: 2,
-            action: crate::model::BrowserAction::Evaluate {
-                source: "void 0".to_owned(),
-            },
+            action: crate::model::BrowserAction::Focus,
         };
 
         route_browser_action_events(
@@ -7687,5 +7725,135 @@ mod tests {
             })
             .unwrap();
         }
+    }
+
+    #[test]
+    fn every_uncommitted_chrome_import_phase_rolls_back_and_clears_its_journal() {
+        for phase in [
+            "prepared",
+            "snapshotted",
+            "applying",
+            "verified",
+            "metadataCommitted",
+            "committing",
+        ] {
+            let (directory, core) = core();
+            let role_id = create_role(&core, &first_game_id(&core), 1);
+            let transaction_id = uuid::Uuid::new_v4().to_string();
+            let transfer = directory
+                .path()
+                .join(".session-transfers")
+                .join(&transaction_id);
+            fs::create_dir_all(&transfer).unwrap();
+            fs::write(transfer.join("backup.enc"), b"encrypted-backup-fixture").unwrap();
+            core.with_runtime(|runtime| {
+                runtime.state.put_operation_journal(OperationJournalRecord {
+                    id: format!("chrome-recovery-{phase}"),
+                    kind: "chrome_profile_import_v2".to_owned(),
+                    phase: phase.to_owned(),
+                    payload: json!({
+                        "roleId": role_id,
+                        "transactionId": transaction_id,
+                        "launchUrl": "https://example.com/play",
+                        "createdRole": false
+                    }),
+                })
+            })
+            .unwrap();
+
+            let (result, actions) = drive_chrome_import_recovery(Arc::clone(&core), false);
+            assert_eq!(result.unwrap(), json!({ "recovered": 1, "pending": 0 }));
+            assert!(actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::ChromeProfileImportRollback { role_id: current, .. }
+                    if current == &role_id
+            )));
+            assert!(
+                core.with_runtime(|runtime| runtime.state.operation_journals())
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(!transfer.exists());
+            core.shutdown();
+        }
+    }
+
+    #[test]
+    fn committed_chrome_import_marker_finalizes_without_rollback() {
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let transaction_id = uuid::Uuid::new_v4().to_string();
+        let transfer = directory
+            .path()
+            .join(".session-transfers")
+            .join(&transaction_id);
+        fs::create_dir_all(&transfer).unwrap();
+        fs::write(transfer.join("backup.enc"), b"encrypted-backup-fixture").unwrap();
+        fs::write(transfer.join("committed"), b"").unwrap();
+        core.with_runtime(|runtime| {
+            runtime.state.put_operation_journal(OperationJournalRecord {
+                id: "chrome-recovery-committed".to_owned(),
+                kind: "chrome_profile_import_v2".to_owned(),
+                phase: "committing".to_owned(),
+                payload: json!({
+                    "roleId": role_id,
+                    "transactionId": transaction_id,
+                    "launchUrl": "https://example.com/play",
+                    "createdRole": false
+                }),
+            })
+        })
+        .unwrap();
+
+        let (result, actions) = drive_chrome_import_recovery(Arc::clone(&core), false);
+        assert_eq!(result.unwrap(), json!({ "recovered": 1, "pending": 0 }));
+        assert!(actions.is_empty());
+        assert!(core.invoke(CoreCommand::RoleGet { id: role_id }).is_ok());
+        assert!(!transfer.exists());
+        core.shutdown();
+    }
+
+    #[test]
+    fn failed_chrome_import_rollback_remains_pending_and_keeps_encrypted_recovery_data() {
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let transaction_id = uuid::Uuid::new_v4().to_string();
+        let transfer = directory
+            .path()
+            .join(".session-transfers")
+            .join(&transaction_id);
+        fs::create_dir_all(&transfer).unwrap();
+        fs::write(transfer.join("backup.enc"), b"encrypted-backup-fixture").unwrap();
+        core.with_runtime(|runtime| {
+            runtime.state.put_operation_journal(OperationJournalRecord {
+                id: "chrome-recovery-pending".to_owned(),
+                kind: "chrome_profile_import_v2".to_owned(),
+                phase: "applying".to_owned(),
+                payload: json!({
+                    "roleId": role_id,
+                    "transactionId": transaction_id,
+                    "launchUrl": "https://example.com/play",
+                    "createdRole": false
+                }),
+            })
+        })
+        .unwrap();
+
+        let (result, actions) = drive_chrome_import_recovery(Arc::clone(&core), true);
+        assert_eq!(result.unwrap(), json!({ "recovered": 0, "pending": 1 }));
+        assert!(
+            actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::ChromeProfileImportRollback { .. }
+            ))
+        );
+        assert_eq!(
+            core.with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(transfer.join("backup.enc").is_file());
+        core.shutdown();
     }
 }

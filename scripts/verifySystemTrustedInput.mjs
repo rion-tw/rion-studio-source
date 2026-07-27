@@ -54,7 +54,8 @@ async function main() {
     }
     console.log(
       `Attested ${report.engine} trusted background input with ` +
-      `${report.report.cycles} press/release cycles, 1/3/6/9 pixel layouts, ` +
+      `a bounded native key/mouse sequence, ${report.report.simulatedStress.cycles} ` +
+      `simulated production input-state cycles, 1/3/6/9 pixel layouts, ` +
       `popup/upload/download/recovery parity, a stable two-tab display host, and ` +
       `${report.report.roleParity.createDestroyCycles} create/destroy cycles using ` +
       `${basename(executable)}.`
@@ -86,7 +87,7 @@ function validateReport(value) {
     throw new Error(`${code}: ${message}`);
   }
   if (
-    value.schemaVersion !== 1 ||
+    value.schemaVersion !== 2 ||
     value.platform !== expectedPlatform ||
     value.engine !== expectedEngine
   ) {
@@ -96,11 +97,13 @@ function validateReport(value) {
   const registration = value.report?.registration;
   const roleParity = value.report?.roleParity;
   const popupDownload = roleParity?.popupDownload;
+  const compatibility = roleParity?.compatibility;
   const recovery = roleParity?.recovery;
   const sharedDisplayHost = roleParity?.sharedDisplayHost;
-  const stress = value.report?.stress;
+  const simulatedStress = value.report?.simulatedStress;
   if (
-    value.report?.cycles !== 1000 ||
+    value.report?.nativeKeyDown !== 4 ||
+    value.report?.nativeKeyUp !== 3 ||
     registration?.available !== true ||
     registration?.capabilitySnapshot?.navigation !== "supported" ||
     registration?.capabilitySnapshot?.persistentSession !== "supported" ||
@@ -113,12 +116,11 @@ function validateReport(value) {
     behavior?.repeatCount !== 1 ||
     behavior?.mouseDown !== 1 ||
     behavior?.mouseUp !== 1 ||
-    stress?.allTrusted !== true ||
-    stress?.backgroundOnly !== true ||
-    stress?.documentFocused !== false ||
-    stress?.heldCount !== 0 ||
-    stress?.keyDown !== 1000 ||
-    stress?.keyUp !== 1000 ||
+    simulatedStress?.cycles !== 1000 ||
+    simulatedStress?.heldCount !== 0 ||
+    simulatedStress?.keyDown !== 1000 ||
+    simulatedStress?.keyUp !== 1000 ||
+    simulatedStress?.transport !== "simulated-core-input-state" ||
     JSON.stringify(roleParity?.counts) !== JSON.stringify([1, 3, 6, 9]) ||
     roleParity?.createDestroyCycles !== 100 ||
     roleParity?.totalRoles !== 19 ||
@@ -126,6 +128,11 @@ function validateReport(value) {
     roleParity.layouts.some((layout) =>
       layout?.loaded !== true || layout?.pixelParity !== true || layout?.released !== true
     ) ||
+    compatibility?.cleanupReleased !== true ||
+    compatibility?.isolatedStorage !== true ||
+    compatibility?.loaded !== true ||
+    compatibility?.probeExecuted !== true ||
+    compatibility?.recreated !== true ||
     popupDownload?.trustedPopupGesture !== true ||
     popupDownload?.popupSharedStore !== true ||
     popupDownload?.popupClosed !== true ||

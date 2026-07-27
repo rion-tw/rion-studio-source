@@ -5,15 +5,20 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const shellLedgerPath = join(root, "docs/tauri-parity-ledger.json");
 const behaviorManifestPath = join(root, "tests/parity/v1.37.0-browser-workspace.json");
+const legacyInventoryPath = join(root, "tests/parity/b11b526-legacy-test-inventory.json");
+const refactorLedgerPath = join(root, "tests/parity/refactor-behavior-ledger-v2.json");
 const reportPath = join(root, "docs/v1.37-browser-workspace-parity.md");
 const shellLedger = JSON.parse(await readFile(shellLedgerPath, "utf8"));
 const behaviorManifest = JSON.parse(await readFile(behaviorManifestPath, "utf8"));
+const legacyInventory = JSON.parse(await readFile(legacyInventoryPath, "utf8"));
+const refactorLedger = JSON.parse(await readFile(refactorLedgerPath, "utf8"));
 const failures = [];
 const sourceCache = new Map();
 let weakFanoutCount = 0;
 
 await validateShellLedger();
 await validateBehaviorManifest();
+await validateRefactorLedgerV2();
 
 const report = renderBehaviorReport();
 if (process.argv.includes("--write-report")) {
@@ -40,8 +45,133 @@ console.log(
   `${behaviorManifest.entries.length} Browser/Workspace behaviors: ` +
   `${counts["direct-test"]} direct, ${counts["assertion-case"]} assertion-evidenced, ` +
   `${counts["intentional-change"]} intentional, 0 unresolved, 0 source-only, ` +
-  `${weakFanoutCount} weak fanout.`
+  `${weakFanoutCount} weak fanout; parity v2 maps ${refactorLedger.mappings.length} source cases ` +
+  `to ${refactorLedger.behaviors.length} canonical behaviors.`
 );
+
+async function validateRefactorLedgerV2() {
+  if (legacyInventory.schemaVersion !== 1 || legacyInventory.expectedDeclarationCount !== 245) {
+    failures.push("legacy declaration inventory must remain pinned to 245 baseline declarations");
+  }
+  if (
+    legacyInventory.entries?.length !== 245 ||
+    legacyInventory.actualExecutableTestCount !== 244 ||
+    legacyInventory.supportHelperCount !== 1
+  ) {
+    failures.push("legacy inventory must distinguish 244 executable tests from its one support helper");
+  }
+  if (refactorLedger.schemaVersion !== 2) failures.push("refactor parity ledger schemaVersion must be 2");
+  const expectedBaselines = {
+    target: "58c917168a3864d2bb6a54887d631736e7c37c74",
+    modernPreRefactor: "551b4d9",
+    signedV1: "a3c7504da111c43d25c098c3b178fa2add8b668e",
+    deletedTestBaseline: "b11b526"
+  };
+  for (const [name, commit] of Object.entries(expectedBaselines)) {
+    if (refactorLedger.baselines?.[name] !== commit) {
+      failures.push(`refactor parity ledger baseline ${name} must remain ${commit}`);
+    }
+  }
+  if (
+    refactorLedger.inventories?.signedV1BehaviorCount !== 226 ||
+    refactorLedger.inventories?.deletedTestDeclarationCount !== 245 ||
+    refactorLedger.inventories?.deletedExecutableTestCount !== 244 ||
+    refactorLedger.inventories?.deletedSupportHelperCount !== 1
+  ) {
+    failures.push("refactor parity ledger inventory counts are incomplete");
+  }
+
+  const sourceIds = new Map([
+    ["v1.37.0-browser-workspace", new Set(behaviorManifest.entries.map((entry) => entry.id))],
+    ["b11b526-legacy-tests", new Set(legacyInventory.entries.map((entry) => entry.id))],
+    ["58c9171-refactor-target", new Set(
+      refactorLedger.mappings
+        .filter((mapping) => mapping.source === "58c9171-refactor-target")
+        .map((mapping) => mapping.sourceCaseId)
+    )]
+  ]);
+  const behaviorIds = new Set();
+  const deduplicationKeys = new Set();
+  const behaviorSources = new Map();
+  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  const ci = await sourceText(".github/workflows/ci.yml");
+  for (const behavior of refactorLedger.behaviors ?? []) {
+    if (!behavior.id || behaviorIds.has(behavior.id)) {
+      failures.push(`refactor parity behavior has an invalid or duplicate id: ${behavior.id}`);
+      continue;
+    }
+    behaviorIds.add(behavior.id);
+    if (!behavior.deduplicationKey || deduplicationKeys.has(behavior.deduplicationKey)) {
+      failures.push(`${behavior.id}: canonical behavior needs a unique deduplication key`);
+    }
+    deduplicationKeys.add(behavior.deduplicationKey);
+    if (!new Set(["preserved", "retired"]).has(behavior.status)) {
+      failures.push(`${behavior.id}: status must be preserved or retired`);
+    }
+    if (typeof behavior.contract !== "string" || behavior.contract.trim().length < 24) {
+      failures.push(`${behavior.id}: canonical contract is not concrete`);
+    }
+    if (!Array.isArray(behavior.sourceCaseIds) || behavior.sourceCaseIds.length === 0) {
+      failures.push(`${behavior.id}: canonical behavior has no baseline or target source cases`);
+    }
+    behaviorSources.set(behavior.id, new Set(behavior.sourceCaseIds ?? []));
+    if (!Array.isArray(behavior.evidence) || behavior.evidence.length === 0) {
+      failures.push(`${behavior.id}: canonical behavior has no executable evidence`);
+    }
+    for (const evidence of behavior.evidence ?? []) {
+      if (evidence.kind !== "executable-test") {
+        failures.push(`${behavior.id}: metadata-only evidence is forbidden`);
+        continue;
+      }
+      if (evidence.file === "tests/browser-workspace-parity.test.ts") {
+        failures.push(`${behavior.id}: inventory tests cannot serve as runtime behavior evidence`);
+      }
+      await validateExactTest(behavior.id, evidence.file, evidence.test);
+    }
+    if (behavior.status === "retired") {
+      const clause = behavior.retirementClause ?? "";
+      if (clause.length < 24 || !/(retired|退役)/i.test(clause)) {
+        failures.push(`${behavior.id}: retired behavior needs an exact retirement clause`);
+      }
+      if (behavior.preservedCompanion) {
+        if (!behavior.preservedCompanion.contract || !behavior.preservedCompanion.evidence) {
+          failures.push(`${behavior.id}: composite retirement must preserve its user-visible companion`);
+        } else {
+          const evidence = behavior.preservedCompanion.evidence;
+          await validateExactTest(`${behavior.id} companion`, evidence.file, evidence.test);
+        }
+      }
+    } else if (behavior.retirementClause) {
+      failures.push(`${behavior.id}: preserved behavior must not carry a retirement clause`);
+    }
+    if (behavior.runtimeCritical) {
+      const gate = behavior.nativeGate;
+      if (!gate || typeof packageJson.scripts?.[gate] !== "string") {
+        failures.push(`${behavior.id}: runtime-critical behavior has no package-level native gate`);
+      } else if (!ci.includes(`pnpm run ${gate}`)) {
+        failures.push(`${behavior.id}: native gate ${gate} is not executed by platform CI`);
+      }
+    }
+  }
+
+  const mapped = new Map();
+  for (const mapping of refactorLedger.mappings ?? []) {
+    const available = sourceIds.get(mapping.source);
+    const key = `${mapping.source}\0${mapping.sourceCaseId}`;
+    if (!available?.has(mapping.sourceCaseId)) failures.push(`unknown parity v2 source case: ${key}`);
+    if (mapped.has(key)) failures.push(`duplicate parity v2 source mapping: ${key}`);
+    mapped.set(key, mapping.behaviorId);
+    if (!behaviorIds.has(mapping.behaviorId)) failures.push(`${key}: unknown canonical behavior ${mapping.behaviorId}`);
+    if (!behaviorSources.get(mapping.behaviorId)?.has(mapping.sourceCaseId)) {
+      failures.push(`${key}: canonical behavior does not claim its mapped source case`);
+    }
+  }
+  for (const [source, ids] of sourceIds) {
+    for (const id of ids) {
+      if (!mapped.has(`${source}\0${id}`)) failures.push(`${source}/${id}: unresolved parity v2 source case`);
+    }
+  }
+}
 
 async function validateShellLedger() {
   const allowed = new Set(["retired", "existing-rust-tauri-equivalent", "replacement-added"]);

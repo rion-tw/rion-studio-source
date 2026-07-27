@@ -3356,7 +3356,6 @@ mod tests {
                                 phase.clone()
                             }
                             BrowserAction::Click { .. } => "click".to_owned(),
-                            _ => "other".to_owned(),
                         };
                         (action.role_id.clone(), phase)
                     }));

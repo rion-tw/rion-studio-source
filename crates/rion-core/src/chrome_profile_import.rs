@@ -163,33 +163,6 @@ pub(crate) fn session_transfer_directory(
         .join(transaction_id))
 }
 
-pub(crate) fn create_private_snapshot_root(user_data_dir: &Path) -> CoreResult<PathBuf> {
-    let root = user_data_dir.join(".chrome-profile-import-work");
-    fs::create_dir_all(&root).map_err(|error| CoreError::Platform(error.to_string()))?;
-    restrict_directory(&root)?;
-    Ok(root)
-}
-
-pub(crate) fn cleanup_abandoned_snapshot_root(user_data_dir: &Path) -> CoreResult<()> {
-    let root = user_data_dir.join(".chrome-profile-import-work");
-    match fs::symlink_metadata(&root) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err(CoreError::Platform(
-                "Chrome profile snapshot root must not be a symbolic link.".to_owned(),
-            ));
-        }
-        Ok(metadata) if metadata.is_dir() => {
-            fs::remove_dir_all(&root).map_err(|error| CoreError::Platform(error.to_string()))?;
-        }
-        Ok(_) => {
-            fs::remove_file(&root).map_err(|error| CoreError::Platform(error.to_string()))?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(CoreError::Platform(error.to_string())),
-    }
-    Ok(())
-}
-
 pub(crate) fn persist_encrypted_staging(
     directory: &Path,
     protected_payload: &[u8],
@@ -342,14 +315,19 @@ mod tests {
     }
 
     #[test]
-    fn startup_cleanup_removes_abandoned_raw_profile_snapshots() {
+    fn encrypted_staging_never_creates_a_raw_profile_snapshot_root() {
         let root = tempdir().unwrap();
-        let abandoned = root
-            .path()
-            .join(".chrome-profile-import-work/chrome-profile-old");
-        fs::create_dir_all(&abandoned).unwrap();
-        fs::write(abandoned.join("Cookies"), b"sensitive").unwrap();
-        cleanup_abandoned_snapshot_root(root.path()).unwrap();
-        assert!(!root.path().join(".chrome-profile-import-work").exists());
+        let staging = session_transfer_directory(root.path(), "transaction-1").unwrap();
+        persist_encrypted_staging(&staging, b"protected-payload").unwrap();
+        assert_eq!(
+            fs::read(staging.join("session-transfer.enc")).unwrap(),
+            b"protected-payload"
+        );
+        let mut entries = fs::read_dir(root.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        entries.sort();
+        assert_eq!(entries, vec![".session-transfers"]);
     }
 }

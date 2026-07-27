@@ -4662,7 +4662,7 @@ impl SystemRuntimeExecutor {
 
     #[cfg(target_os = "macos")]
     fn sync_native_tab_strip(&self, snapshot: &BrowserRuntimeSnapshot) {
-        let always_show = crate::runtime_tabs_macos::fullscreen_preference(&self.core);
+        let preferences = crate::runtime_tabs_macos::runtime_window_preferences(&self.core);
         let language = self
             .language
             .lock()
@@ -4754,7 +4754,13 @@ impl SystemRuntimeExecutor {
             .collect::<Vec<_>>();
         drop(state);
         for (controller, window_id, tabs) in updates {
-            let _ = controller.update(&window_id, tabs, always_show, &language);
+            let _ = controller.update(
+                &window_id,
+                tabs,
+                preferences.always_show_toolbar_in_full_screen,
+                preferences.always_hide_tab_close_button,
+                &language,
+            );
         }
     }
 
@@ -4766,11 +4772,15 @@ impl SystemRuntimeExecutor {
             .lock()
             .map(|value| value.clone())
             .unwrap_or_else(|_| "en".to_owned());
-        let always_show = self
+        let preferences = self
             .core
             .invoke(CoreCommand::RuntimeWindowPreferencesGet)
-            .ok()
-            .and_then(|value| value["alwaysShowToolbarInFullScreen"].as_bool())
+            .unwrap_or_else(|_| Value::Null);
+        let always_hide_tab_close_button = preferences["alwaysHideTabCloseButton"]
+            .as_bool()
+            .unwrap_or(false);
+        let always_show = preferences["alwaysShowToolbarInFullScreen"]
+            .as_bool()
             .unwrap_or(false);
         let roles = self
             .core
@@ -4833,6 +4843,10 @@ impl SystemRuntimeExecutor {
                         let fullscreen = host.window.is_fullscreen().unwrap_or(false);
                         let mut tab_strip_state = projection.clone();
                         if let Some(object) = tab_strip_state.as_object_mut() {
+                            object.insert(
+                                "alwaysHideTabCloseButton".to_owned(),
+                                json!(always_hide_tab_close_button),
+                            );
                             object.insert(
                                 "alwaysShowToolbarInFullScreen".to_owned(),
                                 json!(always_show),

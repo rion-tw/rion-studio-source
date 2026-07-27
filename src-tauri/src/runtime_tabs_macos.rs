@@ -48,15 +48,20 @@ unsafe extern "C" {
         window_id: *const c_char,
         tabs: *const NativeTabInput,
         tab_count: usize,
+        always_hide_tab_close_button: bool,
         add_label: *const c_char,
         audio_muted_label: *const c_char,
         audio_playing_label: *const c_char,
         close_label: *const c_char,
+        scroll_left_label: *const c_char,
+        scroll_right_label: *const c_char,
     );
     fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
     #[cfg(test)]
     fn rion_runtime_tabs_action_scope_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
 }
 
 struct CallbackContext {
@@ -137,6 +142,7 @@ impl MacRuntimeTabsController {
         window_id: &str,
         tabs: Vec<MacRuntimeTabState>,
         always_show_in_fullscreen: bool,
+        always_hide_tab_close_button: bool,
         language: &str,
     ) -> Result<(), String> {
         let raw = self.inner.raw as usize;
@@ -180,10 +186,12 @@ impl MacRuntimeTabsController {
                             .map_or(std::ptr::null(), |value| value.as_ptr()),
                     })
                     .collect::<Vec<_>>();
-                let add = c_string(labels.0);
-                let muted = c_string(labels.1);
-                let playing = c_string(labels.2);
-                let close = c_string(labels.3);
+                let add = c_string(labels.add);
+                let muted = c_string(labels.muted);
+                let playing = c_string(labels.playing);
+                let close = c_string(labels.close);
+                let scroll_left = c_string(labels.scroll_left);
+                let scroll_right = c_string(labels.scroll_right);
                 let window_id = c_string(&window_id);
                 unsafe {
                     rion_runtime_tabs_set_fullscreen_policy(
@@ -195,10 +203,13 @@ impl MacRuntimeTabsController {
                         window_id.as_ptr(),
                         inputs.as_ptr(),
                         inputs.len(),
+                        always_hide_tab_close_button,
                         add.as_ptr(),
                         muted.as_ptr(),
                         playing.as_ptr(),
                         close.as_ptr(),
+                        scroll_left.as_ptr(),
+                        scroll_right.as_ptr(),
                     );
                 }
             })
@@ -227,32 +238,49 @@ impl Drop for MacRuntimeTabsControllerInner {
     }
 }
 
-fn labels(language: &str) -> (&'static str, &'static str, &'static str, &'static str) {
+struct Labels {
+    add: &'static str,
+    muted: &'static str,
+    playing: &'static str,
+    close: &'static str,
+    scroll_left: &'static str,
+    scroll_right: &'static str,
+}
+
+fn labels(language: &str) -> Labels {
     match language {
-        "zh-TW" => (
-            "開啟角色或工作區",
-            "分頁已靜音",
-            "正在播放音訊",
-            "停止並關閉分頁",
-        ),
-        "zh-CN" => (
-            "打开角色或工作区",
-            "标签页已静音",
-            "正在播放音频",
-            "停止并关闭标签页",
-        ),
-        "ja" => (
-            "ロールまたはワークスペースを開く",
-            "タブはミュート中",
-            "音声を再生中",
-            "停止してタブを閉じる",
-        ),
-        _ => (
-            "Open role or workspace",
-            "Tab muted",
-            "Playing audio",
-            "Stop and close tab",
-        ),
+        "zh-TW" => Labels {
+            add: "開啟角色或工作區",
+            muted: "分頁已靜音",
+            playing: "正在播放音訊",
+            close: "停止並關閉分頁",
+            scroll_left: "向左捲動分頁",
+            scroll_right: "向右捲動分頁",
+        },
+        "zh-CN" => Labels {
+            add: "打开角色或工作区",
+            muted: "标签页已静音",
+            playing: "正在播放音频",
+            close: "停止并关闭标签页",
+            scroll_left: "向左滚动标签页",
+            scroll_right: "向右滚动标签页",
+        },
+        "ja" => Labels {
+            add: "ロールまたはワークスペースを開く",
+            muted: "タブはミュート中",
+            playing: "音声を再生中",
+            close: "停止してタブを閉じる",
+            scroll_left: "タブを左へスクロール",
+            scroll_right: "タブを右へスクロール",
+        },
+        _ => Labels {
+            add: "Open role or workspace",
+            muted: "Tab muted",
+            playing: "Playing audio",
+            close: "Stop and close tab",
+            scroll_left: "Scroll tabs left",
+            scroll_right: "Scroll tabs right",
+        },
     }
 }
 
@@ -484,11 +512,15 @@ fn stop_command_for_tab(core: &rion_core::AppCore, tab_id: &str) -> Option<CoreC
     })
 }
 
-pub fn fullscreen_preference(core: &rion_core::AppCore) -> bool {
+pub fn runtime_window_preferences(core: &rion_core::AppCore) -> RuntimeWindowPreferencesRecord {
     core.invoke(CoreCommand::RuntimeWindowPreferencesGet)
         .ok()
         .and_then(|value| serde_json::from_value::<RuntimeWindowPreferencesRecord>(value).ok())
-        .is_some_and(|preferences| preferences.always_show_toolbar_in_full_screen)
+        .unwrap_or(RuntimeWindowPreferencesRecord {
+            always_hide_tab_close_button: false,
+            always_show_toolbar_in_full_screen: false,
+            restore_game_windows_on_startup: true,
+        })
 }
 
 #[cfg(test)]
@@ -502,5 +534,10 @@ mod tests {
     #[test]
     fn native_action_scope_preserves_nonzero_and_safe_negative_display_ids() {
         native_action_scope_preserves_window_identifiers();
+    }
+
+    #[test]
+    fn native_tab_overflow_layout_clamps_and_reclaims_hidden_close_width() {
+        assert!(unsafe { super::rion_runtime_tabs_overflow_layout_self_test() });
     }
 }

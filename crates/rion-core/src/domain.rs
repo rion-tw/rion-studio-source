@@ -58,6 +58,7 @@ pub fn default_macro_settings() -> MacroSettingsRecord {
 
 pub fn default_runtime_window_preferences() -> RuntimeWindowPreferencesRecord {
     RuntimeWindowPreferencesRecord {
+        always_hide_tab_close_button: false,
         always_show_toolbar_in_full_screen: false,
         restore_game_windows_on_startup: true,
     }
@@ -2976,12 +2977,14 @@ mod tests {
     #[test]
     fn runtime_window_preferences_default_to_startup_restore() {
         let preferences = default_runtime_window_preferences();
+        assert!(!preferences.always_hide_tab_close_button);
         assert!(!preferences.always_show_toolbar_in_full_screen);
         assert!(preferences.restore_game_windows_on_startup);
         let legacy: RuntimeWindowPreferencesRecord = serde_json::from_value(json!({
             "alwaysShowToolbarInFullScreen": true
         }))
         .unwrap();
+        assert!(!legacy.always_hide_tab_close_button);
         assert!(legacy.restore_game_windows_on_startup);
     }
 

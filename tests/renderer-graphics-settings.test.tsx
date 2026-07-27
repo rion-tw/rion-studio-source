@@ -95,6 +95,7 @@ function renderGameSettings(
           portableDataCounts={{ gameCount: 0, gameWindowCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
           resolvedTheme="light"
           runtimeWindowPreferences={{
+            alwaysHideTabCloseButton: false,
             alwaysShowToolbarInFullScreen: false,
             restoreGameWindowsOnStartup: true
           }}
@@ -250,8 +251,36 @@ describe("flattened graphics settings", () => {
     fireEvent.click(toggle);
 
     await waitFor(() => expect(onRuntimeWindowPreferencesChange).toHaveBeenCalledWith({
+      alwaysHideTabCloseButton: false,
       alwaysShowToolbarInFullScreen: false,
       restoreGameWindowsOnStartup: false
+    }));
+  });
+
+  it("saves the tab close-button visibility preference from Interface settings", async () => {
+    const onRuntimeWindowPreferencesChange = vi.fn(
+      async (preferences: RuntimeWindowPreferences) => preferences
+    );
+    renderGameSettings(
+      async (settings) => settings,
+      "win32",
+      DEFAULT_GAME_BROWSER_SETTINGS,
+      {
+        initialEntry: "/settings?section=interface",
+        onRuntimeWindowPreferencesChange
+      }
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Always hide tab close buttons"
+    });
+    expect(toggle.getAttribute("data-state")).toBe("unchecked");
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(onRuntimeWindowPreferencesChange).toHaveBeenCalledWith({
+      alwaysHideTabCloseButton: true,
+      alwaysShowToolbarInFullScreen: false,
+      restoreGameWindowsOnStartup: true
     }));
   });
 });

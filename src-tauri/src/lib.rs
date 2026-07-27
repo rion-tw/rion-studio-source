@@ -347,6 +347,10 @@ fn shell_error(code: &str, message: impl Into<String>) -> CoreErrorPayload {
     }
 }
 
+fn core_command_refreshes_runtime_projection(command: &CoreCommand) -> bool {
+    matches!(command, CoreCommand::RuntimeWindowPreferencesReplace { .. })
+}
+
 #[tauri::command]
 async fn rion_core_invoke(
     app: AppHandle,
@@ -362,6 +366,7 @@ async fn rion_core_invoke(
         CoreCommand::OverlayLanguageSet { language } => Some(language.clone()),
         _ => None,
     };
+    let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let result = if command.requires_async_dispatch() {
         Arc::clone(&state.core)
             .invoke_async(command)
@@ -385,6 +390,12 @@ async fn rion_core_invoke(
         }
         state.runtime.set_language(&language);
         let _ = application_menu::install(&app, &state.core, &language);
+    }
+    if result.is_ok() && runtime_window_preferences_changed {
+        state.runtime.publish_projection();
+        if let Ok(language) = state.menu_language.lock().map(|value| value.clone()) {
+            let _ = application_menu::install(&app, &state.core, &language);
+        }
     }
     result
 }
@@ -4600,5 +4611,21 @@ mod tests {
         assert!(
             validate_input_attestation_output_path(PathBuf::from("relative/result.json")).is_err()
         );
+    }
+
+    #[test]
+    fn replacing_runtime_window_preferences_refreshes_open_runtime_windows() {
+        assert!(core_command_refreshes_runtime_projection(
+            &CoreCommand::RuntimeWindowPreferencesReplace {
+                preferences: rion_core::RuntimeWindowPreferencesRecord {
+                    always_hide_tab_close_button: true,
+                    always_show_toolbar_in_full_screen: false,
+                    restore_game_windows_on_startup: true,
+                },
+            }
+        ));
+        assert!(!core_command_refreshes_runtime_projection(
+            &CoreCommand::RuntimeWindowPreferencesGet
+        ));
     }
 }

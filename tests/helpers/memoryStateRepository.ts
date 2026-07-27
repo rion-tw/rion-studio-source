@@ -104,6 +104,7 @@ export class MemoryStateRepository {
 
   async getRuntimeWindowPreferences(): Promise<RuntimeWindowPreferencesRecord> {
     return structuredClone(this.state.runtimeWindowPreferences ?? {
+      alwaysHideTabCloseButton: false,
       alwaysShowToolbarInFullScreen: false,
       restoreGameWindowsOnStartup: true
     });

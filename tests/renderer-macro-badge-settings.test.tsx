@@ -66,6 +66,7 @@ describe("macro badge interface settings", () => {
             onThemeModeChange={() => undefined}
             resolvedTheme="light"
             runtimeWindowPreferences={{
+              alwaysHideTabCloseButton: false,
               alwaysShowToolbarInFullScreen: false,
               restoreGameWindowsOnStartup: true
             }}

@@ -107,6 +107,17 @@ describe("Tauri System WebView runtime source", () => {
     expect(attestKey).not.toContain("sleep(Duration::from_millis(2))");
     expect(runtime).toContain("run_role_count_attestation");
     expect(runtime).toContain("verify_shared_display_host_attestation");
+    const roleLoading = runtime.slice(
+      runtime.indexOf("fn load_roles("),
+      runtime.indexOf("fn install_overlays(")
+    );
+    expect(roleLoading).toContain("let mut pending_navigations");
+    expect(roleLoading.indexOf("pending_navigations.push")).toBeGreaterThan(
+      roleLoading.indexOf("surface.navigate")
+    );
+    expect(roleLoading.indexOf(".wait()")).toBeGreaterThan(
+      roleLoading.indexOf("pending_navigations.push")
+    );
     const compatibilitySurface = runtime.slice(
       runtime.indexOf("fn create_compatibility_surface("),
       runtime.indexOf("fn require_compatibility_surface(")

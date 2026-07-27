@@ -72,6 +72,11 @@ const MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE: &str =
 const MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
 const MACRO_OVERLAY_CSS_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
 const MACRO_OVERLAY_REFRESH_SOURCE: &str = "void globalThis.__rionStudioMacroOverlay?.refresh?.()";
+const RUNTIME_INDICATOR_RUNTIME_SOURCE: &str =
+    include_str!("../../src/shared/browser-overlay/runtimeIndicators.js");
+const RUNTIME_INDICATOR_CSS: &str =
+    include_str!("../../src/shared/browser-overlay/runtimeIndicators.css");
+const RUNTIME_INDICATOR_CSS_TOKEN: &str = "__RION_STUDIO_RUNTIME_INDICATOR_CSS__";
 const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
 Object.defineProperty(window, "__rionSystemWebView", {
   configurable: false,
@@ -124,40 +129,6 @@ pub(crate) fn native_runtime_window_title(title: &str) -> &str {
     const PLATFORM: &str = "windows";
     native_runtime_window_title_for_platform(PLATFORM, title)
 }
-const WORKSPACE_RESIZE_INDICATOR_SCRIPT: &str = r#"
-(() => {
-  if (globalThis.__rionStudioWorkspaceResizeIndicator) return;
-  const id = "rion-studio-workspace-resize-indicator";
-  globalThis.__rionStudioWorkspaceResizeIndicator = (payload) => {
-    let element = document.getElementById(id);
-    if (payload?.type === "hide") { element?.remove(); return; }
-    if (!element) {
-      element = document.createElement("div"); element.id = id;
-      Object.assign(element.style, { background:"rgba(15,23,42,.88)", border:"1px solid rgba(255,255,255,.2)", borderRadius:"8px", color:"white", font:"600 13px system-ui,sans-serif", left:"50%", padding:"6px 10px", pointerEvents:"none", position:"fixed", top:"16px", transform:"translateX(-50%)", zIndex:"2147483647" });
-      (document.body || document.documentElement).append(element);
-    }
-    element.textContent = String(payload?.label || "");
-  };
-})();
-"#;
-const ZOOM_INDICATOR_SCRIPT: &str = r#"
-(() => {
-  if (globalThis.__rionStudioZoomIndicator) return;
-  const id = "rion-studio-zoom-indicator";
-  let timer = 0;
-  globalThis.__rionStudioZoomIndicator = (label) => {
-    let element = document.getElementById(id);
-    if (!element) {
-      element = document.createElement("div"); element.id = id;
-      Object.assign(element.style, { background:"rgba(15,23,42,.9)", border:"1px solid rgba(255,255,255,.2)", borderRadius:"8px", color:"white", font:"600 13px system-ui,sans-serif", left:"50%", padding:"6px 10px", pointerEvents:"none", position:"fixed", top:"16px", transform:"translateX(-50%)", zIndex:"2147483647" });
-      (document.body || document.documentElement).append(element);
-    }
-    element.textContent = String(label || "");
-    clearTimeout(timer);
-    timer = setTimeout(() => { element?.remove(); }, 1200);
-  };
-})();
-"#;
 
 fn next_zoom_factor(current: f64, action: &str, minimum: f64, maximum: f64) -> f64 {
     let value = match action {
@@ -673,12 +644,12 @@ impl SystemRuntimeExecutor {
             "msWebOOUI,msPdfOOUI,msSmartScreenProtection",
         )
         .join(" ");
+        let runtime_indicator_script = runtime_indicator_document_start_script()?;
         let document_start_script = [
             SYSTEM_RUNTIME_INIT_SCRIPT.to_owned(),
             RUNTIME_TAB_SHORTCUT_SCRIPT.to_owned(),
             RUNTIME_AUDIO_OBSERVER_SCRIPT.to_owned(),
-            WORKSPACE_RESIZE_INDICATOR_SCRIPT.to_owned(),
-            ZOOM_INDICATOR_SCRIPT.to_owned(),
+            runtime_indicator_script,
             native_font_document_start_script(&settings),
         ]
         .into_iter()
@@ -8372,14 +8343,21 @@ fn macro_overlay_document_start_script() -> Result<String, String> {
         .map_err(|error| error.to_string())?;
     let css_token =
         serde_json::to_string(MACRO_OVERLAY_CSS_TOKEN).map_err(|error| error.to_string())?;
-    let with_guard = replace_single_overlay_token(
+    let with_guard = replace_single_script_token(
         MACRO_OVERLAY_RUNTIME_SOURCE,
         &guard_token,
         MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE.trim(),
     )?;
     let css = serde_json::to_string(MACRO_OVERLAY_CSS).map_err(|error| error.to_string())?;
-    let runtime = replace_single_overlay_token(&with_guard, &css_token, &css)?;
+    let runtime = replace_single_script_token(&with_guard, &css_token, &css)?;
     Ok(format!("{TAURI_MACRO_OVERLAY_BRIDGE_SOURCE}\n{runtime}"))
+}
+
+fn runtime_indicator_document_start_script() -> Result<String, String> {
+    let css_token =
+        serde_json::to_string(RUNTIME_INDICATOR_CSS_TOKEN).map_err(|error| error.to_string())?;
+    let css = serde_json::to_string(RUNTIME_INDICATOR_CSS).map_err(|error| error.to_string())?;
+    replace_single_script_token(RUNTIME_INDICATOR_RUNTIME_SOURCE, &css_token, &css)
 }
 
 fn should_refresh_macro_overlay(role_ids: &[String], role_id: &str) -> bool {
@@ -8399,18 +8377,18 @@ fn should_release_macros_for_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
 
-fn replace_single_overlay_token(
+fn replace_single_script_token(
     source: &str,
     token: &str,
     replacement: &str,
 ) -> Result<String, String> {
     let mut matches = source.match_indices(token);
     let Some((index, _)) = matches.next() else {
-        return Err(format!("Macro overlay token is missing: {token}"));
+        return Err(format!("Document-start script token is missing: {token}"));
     };
     if matches.next().is_some() {
         return Err(format!(
-            "Macro overlay token occurs more than once: {token}"
+            "Document-start script token occurs more than once: {token}"
         ));
     }
     Ok(format!(
@@ -10579,10 +10557,16 @@ mod tests {
     }
 
     #[test]
-    fn manual_zoom_indicator_resets_a_twelve_hundred_millisecond_timer() {
-        assert!(ZOOM_INDICATOR_SCRIPT.contains("clearTimeout(timer)"));
-        assert!(ZOOM_INDICATOR_SCRIPT.contains("1200"));
-        assert!(ZOOM_INDICATOR_SCRIPT.contains("element?.remove()"));
+    fn shared_runtime_indicators_are_isolated_and_reset_the_zoom_timer() {
+        let source = runtime_indicator_document_start_script().unwrap();
+        assert!(source.contains("rion-studio-runtime-indicators-v1"));
+        assert!(source.contains("attachShadow({ mode: \"open\" })"));
+        assert!(source.contains("__rionStudioWorkspaceResizeIndicator"));
+        assert!(source.contains("__rionStudioZoomIndicator"));
+        assert!(source.contains("clearTimeout(zoomTimer)"));
+        assert!(source.contains("1200"));
+        assert!(source.contains("element.remove()"));
+        assert!(!source.contains(RUNTIME_INDICATOR_CSS_TOKEN));
     }
 
     #[test]

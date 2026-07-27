@@ -1750,41 +1750,56 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn move_window(&self, label: &str, physical_x: i32, physical_y: i32) {
-        let target = self.state.lock().ok().and_then(|mut state| {
-            let host = state
-                .display_hosts
-                .values_mut()
-                .find(|host| host.window.label() == label)?;
-            if host.window.is_maximized().unwrap_or(false)
-                || host.window.is_fullscreen().unwrap_or(false)
-                || host.window.is_minimized().unwrap_or(false)
-            {
-                return None;
-            }
-            let scale = host.window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
-            host.target.bounds.x = (physical_x as f64 / scale).round() as i32;
-            host.target.bounds.y = (physical_y as f64 / scale).round() as i32;
-            host.window.current_monitor().ok().flatten().map(|monitor| {
-                let scale = monitor.scale_factor();
-                let work_area = monitor.work_area();
-                (
-                    host.target.window_id.clone(),
-                    super::monitor_id(&monitor),
-                    StatePixelBoundsRecord {
-                        x: (work_area.position.x as f64 / scale).round() as i32,
-                        y: (work_area.position.y as f64 / scale).round() as i32,
-                        width: (work_area.size.width as f64 / scale).round() as i32,
-                        height: (work_area.size.height as f64 / scale).round() as i32,
-                    },
-                )
-            })
-        });
-        if let Some((window_id, display_id, work_area)) = target
-            && let Ok(mut state) = self.state.lock()
+        // Tauri window queries can synchronously marshal to AppKit's main thread.
+        // Snapshot the native window while holding the runtime lock, then release
+        // the lock before making any of those calls to avoid lock inversion with
+        // window callbacks handled by the main event loop.
+        let Some((window_id, logical_x, logical_y, monitor_target)) = query_unlocked_snapshot(
+            &self.state,
+            |state| {
+                state
+                    .display_hosts
+                    .iter()
+                    .find(|(_, host)| host.window.label() == label)
+                    .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
+            },
+            |(window_id, window)| {
+                if window.is_maximized().unwrap_or(false)
+                    || window.is_fullscreen().unwrap_or(false)
+                    || window.is_minimized().unwrap_or(false)
+                {
+                    return None;
+                }
+                let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+                let (logical_x, logical_y) = logical_window_position(physical_x, physical_y, scale);
+                let monitor_target = window.current_monitor().ok().flatten().map(|monitor| {
+                    let scale = monitor.scale_factor();
+                    let work_area = monitor.work_area();
+                    (
+                        super::monitor_id(&monitor),
+                        StatePixelBoundsRecord {
+                            x: (work_area.position.x as f64 / scale).round() as i32,
+                            y: (work_area.position.y as f64 / scale).round() as i32,
+                            width: (work_area.size.width as f64 / scale).round() as i32,
+                            height: (work_area.size.height as f64 / scale).round() as i32,
+                        },
+                    )
+                });
+                Some((window_id, logical_x, logical_y, monitor_target))
+            },
+        )
+        .flatten() else {
+            return;
+        };
+        if let Ok(mut state) = self.state.lock()
             && let Some(host) = state.display_hosts.get_mut(&window_id)
         {
-            host.target.display_id = display_id;
-            host.target.work_area = work_area;
+            host.target.bounds.x = logical_x;
+            host.target.bounds.y = logical_y;
+            if let Some((display_id, work_area)) = monitor_target {
+                host.target.display_id = display_id;
+                host.target.work_area = work_area;
+            }
         }
         let _ = self.persist_game_window_placement(label);
     }
@@ -1888,33 +1903,39 @@ impl SystemRuntimeExecutor {
             .flatten()
             .as_ref()
             .map(super::monitor_id);
-        let target = self.state.lock().ok().and_then(|state| {
-            state
-                .display_hosts
-                .values()
-                .find(|host| host.window.label() == label)
-                .map(|host| {
-                    let presentation = if host.window.is_fullscreen().unwrap_or(false) {
-                        "fullscreen"
-                    } else if host.window.is_maximized().unwrap_or(false) {
-                        "maximized"
-                    } else {
-                        "normal"
-                    };
-                    let display_target = host
-                        .window
-                        .current_monitor()
-                        .ok()
-                        .flatten()
-                        .map(|monitor| super::display_target_and_work_area(&monitor, primary_id).0)
-                        .unwrap_or(DisplayTargetRecord {
-                            id: host.target.display_id,
-                            fingerprint: None,
-                        });
-                    (host.target.clone(), display_target, presentation.to_owned())
-                })
-        });
-        let Some((target, display_target, presentation)) = target else {
+        // Do not call into Tauri/AppKit while holding RuntimeState. These queries
+        // may synchronously wait for the main thread, which also handles moved
+        // events and needs the same mutex.
+        let snapshot = query_unlocked_snapshot(
+            &self.state,
+            |state| {
+                state
+                    .display_hosts
+                    .values()
+                    .find(|host| host.window.label() == label)
+                    .map(|host| (host.window.clone(), host.target.clone()))
+            },
+            |(window, target)| {
+                let presentation = if window.is_fullscreen().unwrap_or(false) {
+                    "fullscreen"
+                } else if window.is_maximized().unwrap_or(false) {
+                    "maximized"
+                } else {
+                    "normal"
+                };
+                let display_target = window
+                    .current_monitor()
+                    .ok()
+                    .flatten()
+                    .map(|monitor| super::display_target_and_work_area(&monitor, primary_id).0)
+                    .unwrap_or(DisplayTargetRecord {
+                        id: target.display_id,
+                        fingerprint: None,
+                    });
+                (target, display_target, presentation.to_owned())
+            },
+        );
+        let Some((target, display_target, presentation)) = snapshot else {
             return Ok(());
         };
         self.core
@@ -4368,8 +4389,9 @@ impl SystemRuntimeExecutor {
             active_webview: Option<Webview>,
             focus: bool,
             presentation: String,
+            reveal: bool,
+            retain_visibility: bool,
             title: Option<String>,
-            visible: bool,
             window: Window,
         }
 
@@ -4599,10 +4621,9 @@ impl SystemRuntimeExecutor {
                                     .iter()
                                     .any(|update| &update.window_id == window_id && update.focus)),
                         presentation: host.target.presentation.clone(),
+                        reveal: reveal_window_ids.contains(window_id),
+                        retain_visibility: has_visible_active || active_tab.is_none(),
                         title,
-                        visible: reveal_window_ids.contains(window_id)
-                            || (host.window.is_visible().unwrap_or(false)
-                                && (has_visible_active || active_tab.is_none())),
                         window: host.window.clone(),
                     }
                 })
@@ -4613,10 +4634,15 @@ impl SystemRuntimeExecutor {
                 let _ = update.window.set_title(&title);
             }
             let currently_visible = update.window.is_visible().unwrap_or(false);
-            if update.visible && !currently_visible {
+            let visible = runtime_host_should_be_visible(
+                update.reveal,
+                update.retain_visibility,
+                currently_visible,
+            );
+            if visible && !currently_visible {
                 trace("showing display host");
                 update.window.show().map_err(RuntimeError::tauri)?;
-            } else if !update.visible && currently_visible {
+            } else if !visible && currently_visible {
                 trace("hiding display host");
                 update.window.hide().map_err(RuntimeError::tauri)?;
             }
@@ -7358,6 +7384,34 @@ type ResolvedRuntimeLayout = (
     Vec<(u32, WorkspaceDividerDescriptor, RoleBounds)>,
 );
 
+fn query_unlocked_snapshot<State, Snapshot, Output>(
+    mutex: &Mutex<State>,
+    snapshot: impl FnOnce(&State) -> Option<Snapshot>,
+    query: impl FnOnce(Snapshot) -> Output,
+) -> Option<Output> {
+    let snapshot = {
+        let state = mutex.lock().ok()?;
+        snapshot(&state)?
+    };
+    Some(query(snapshot))
+}
+
+fn runtime_host_should_be_visible(
+    reveal: bool,
+    retain_visibility: bool,
+    currently_visible: bool,
+) -> bool {
+    reveal || (currently_visible && retain_visibility)
+}
+
+fn logical_window_position(physical_x: i32, physical_y: i32, scale: f64) -> (i32, i32) {
+    let scale = scale.max(f64::EPSILON);
+    (
+        (physical_x as f64 / scale).round() as i32,
+        (physical_y as f64 / scale).round() as i32,
+    )
+}
+
 fn role_bounds_for_size(
     width: f64,
     height: f64,
@@ -8750,6 +8804,50 @@ mod tests {
             (bounds.x, bounds.y, bounds.width, bounds.height),
             (600.0, 0.0, 600.0, 800.0)
         );
+    }
+
+    #[test]
+    fn window_move_coordinates_remain_scaled_after_unlocked_native_queries() {
+        for (platform, physical_x, physical_y, scale, expected) in [
+            ("macos", 1_846, 60, 2.0, (923, 30)),
+            ("windows", -300, 225, 1.5, (-200, 150)),
+        ] {
+            assert_eq!(
+                logical_window_position(physical_x, physical_y, scale),
+                expected,
+                "unexpected logical position on {platform}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_window_query_runs_after_runtime_mutex_is_released() {
+        let state = Mutex::new(41);
+        let result = query_unlocked_snapshot(
+            &state,
+            |value| Some(*value),
+            |snapshot| {
+                assert!(state.try_lock().is_ok());
+                snapshot + 1
+            },
+        );
+        assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn runtime_host_visibility_policy_is_resolved_after_the_state_snapshot() {
+        for (platform, reveal, retain_visibility, currently_visible, expected) in [
+            ("macos", true, false, false, true),
+            ("macos", false, true, true, true),
+            ("windows", false, false, true, false),
+            ("windows", false, true, false, false),
+        ] {
+            assert_eq!(
+                runtime_host_should_be_visible(reveal, retain_visibility, currently_visible),
+                expected,
+                "unexpected runtime host visibility on {platform}"
+            );
+        }
     }
 
     #[test]

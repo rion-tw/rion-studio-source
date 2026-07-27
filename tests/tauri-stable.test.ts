@@ -15,7 +15,7 @@ describe("Tauri Stable shell", () => {
     });
     expect(config.app.windows[0]).toMatchObject({
       label: "main",
-      title: "Rion Studio",
+      title: "",
       minWidth: 960,
       minHeight: 640,
       visible: false

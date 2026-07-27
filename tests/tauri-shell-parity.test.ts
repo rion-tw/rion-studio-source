@@ -22,7 +22,7 @@ describe("Tauri shell parity guard", () => {
       visible: false
     });
     expect(mac.app.windows[0]).toMatchObject({
-      title: "Rion Studio",
+      title: "",
       titleBarStyle: "Overlay",
       trafficLightPosition: { x: 18, y: 18 },
       transparent: true

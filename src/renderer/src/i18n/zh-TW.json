@@ -540,6 +540,8 @@
   "settings.chromeImportFailed": "匯入失敗",
   "settings.chromeImportCancelled": "已取消",
   "settings.chromeImportCancelling": "取消中…",
+  "settings.chromeImportWorking": "請保持 Rion Studio 開啟。每個 profile 都要經過數個 System WebView 檢查，多筆匯入可能需要幾分鐘。",
+  "settings.chromeImportCancelNotice": "正在安全回復目前角色的 Session，完成後才會結束取消。",
   "settings.chromeImportCounts": "{cookies} 個 Cookie · {storage} 筆 LocalStorage",
   "settings.chromeImportUnsupportedCounts": "已略過：{partitioned} 個分區 Cookie · {appBound} 個 App-Bound Cookie · {decrypt} 個無法解密 Cookie · {storage} 次 Storage 讀取失敗",
   "settings.chromeImportOpenLogin": "開啟角色完成登入",

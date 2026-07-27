@@ -510,6 +510,8 @@
   "settings.chromeImportFailed": "导入失败",
   "settings.chromeImportCancelled": "已取消",
   "settings.chromeImportCancelling": "正在取消…",
+  "settings.chromeImportWorking": "请保持 Rion Studio 开启。每个 profile 都要经过数个 System WebView 检查，多项导入可能需要几分钟。",
+  "settings.chromeImportCancelNotice": "正在安全恢复当前角色的 Session，完成后才会结束取消。",
   "settings.chromeImportCounts": "{cookies} 个 Cookie · {storage} 条 LocalStorage",
   "settings.chromeImportUnsupportedCounts": "已跳过：{partitioned} 个分区 Cookie · {appBound} 个 App-Bound Cookie · {decrypt} 个无法解密 Cookie · {storage} 次 Storage 读取失败",
   "settings.chromeImportOpenLogin": "打开角色完成登录",

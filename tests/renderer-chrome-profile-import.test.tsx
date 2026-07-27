@@ -8,7 +8,11 @@ import { ConfirmationProvider } from "../src/renderer/src/components/Confirmatio
 import { ChromeProfileImportFlow } from "../src/renderer/src/features/settings/ChromeProfileImportFlow";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import type { ChromeProfileImportProgress, Game, Role } from "../src/shared/types";
+import type {
+  ChromeProfileImportResult,
+  Game,
+  Role
+} from "../src/shared/types";
 
 const t: Translator = (key) => en[key] ?? key;
 
@@ -91,7 +95,6 @@ describe("Chrome profile import flow", () => {
 
   it("preselects an exact role match, confirms once, and shows progress and results", async () => {
     const user = userEvent.setup();
-    let progressListener: ((progress: ChromeProfileImportProgress) => void) | undefined;
     const applyChromeProfileImport = vi.fn().mockResolvedValue({
       importId: "import-1",
       items: [{
@@ -113,11 +116,7 @@ describe("Chrome profile import flow", () => {
     });
     installApi({
       previewChromeProfileImport: vi.fn().mockResolvedValue(preview(false)),
-      applyChromeProfileImport,
-      onChromeProfileImportProgress: (listener: (progress: ChromeProfileImportProgress) => void) => {
-        progressListener = listener;
-        return () => undefined;
-      }
+      applyChromeProfileImport
     });
     renderFlow([role]);
     await openPreview(user);
@@ -128,16 +127,6 @@ describe("Chrome profile import flow", () => {
     const apply = screen.getByRole("button", { name: "Apply import" });
     expect((apply as HTMLButtonElement).disabled).toBe(false);
 
-    act(() => {
-      progressListener?.({
-        importId: "import-1",
-        profileId: "Default",
-        phase: "applying",
-        completed: 0,
-        total: 1
-      });
-    });
-    expect(screen.getByText("Writing and verifying · 0/1")).toBeTruthy();
     await user.click(apply);
     expect(screen.getByText("Replace selected role sessions?")).toBeTruthy();
     await user.click(within(screen.getByRole("dialog", { name: "Replace selected role sessions?" })).getByRole("button", { name: "Apply import" }));
@@ -151,6 +140,50 @@ describe("Chrome profile import flow", () => {
     expect(screen.getByText("3 cookies · 2 LocalStorage entries")).toBeTruthy();
     expect(screen.getByText(/1 partitioned/)).toBeTruthy();
     expect(screen.getByText("Partitioned cookies cannot be transferred to this System WebView")).toBeTruthy();
+  });
+
+  it("shows a dedicated progress state and waits for a safe rollback when cancelled", async () => {
+    const user = userEvent.setup();
+    let finishApply: (result: ChromeProfileImportResult) => void = () => undefined;
+    const applyChromeProfileImport = vi.fn().mockImplementation(
+      () => new Promise<ChromeProfileImportResult>((resolve) => {
+        finishApply = resolve;
+      })
+    );
+    const discardChromeProfileImport = vi.fn().mockResolvedValue(undefined);
+    installApi({
+      previewChromeProfileImport: vi.fn().mockResolvedValue(preview(false)),
+      applyChromeProfileImport,
+      discardChromeProfileImport
+    });
+    renderFlow([role]);
+    await openPreview(user);
+
+    await user.click(screen.getByRole("combobox", { name: "Game" }));
+    await user.click(screen.getByRole("option", { name: "Example" }));
+    await user.click(screen.getByRole("button", { name: "Apply import" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Replace selected role sessions?" })).getByRole("button", { name: "Apply import" }));
+
+    expect(await screen.findByRole("status")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("10");
+    expect(screen.getByText(/multiple profiles can take a few minutes/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Apply import" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(discardChromeProfileImport).toHaveBeenCalledWith("import-1");
+    expect(screen.getByRole("dialog", { name: "Chrome profile import" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancelling…" })).toBeTruthy();
+    expect(screen.getByText(/safe rollback/)).toBeTruthy();
+
+    await act(async () => {
+      finishApply({
+        importId: "import-1",
+        items: []
+      });
+    });
+
+    expect(screen.getByText("Cancelled")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
   it("opens a needs-login role in the same managed session", async () => {

@@ -510,6 +510,8 @@
   "settings.chromeImportFailed": "失敗",
   "settings.chromeImportCancelled": "キャンセル済み",
   "settings.chromeImportCancelling": "キャンセル中…",
+  "settings.chromeImportWorking": "Rion Studio を開いたままにしてください。各 profile で複数の System WebView チェックを行うため、複数件のインポートには数分かかる場合があります。",
+  "settings.chromeImportCancelNotice": "現在のロールの Session を安全に復元してからキャンセルを完了します。",
   "settings.chromeImportCounts": "Cookie {cookies} 件 · LocalStorage {storage} 件",
   "settings.chromeImportUnsupportedCounts": "スキップ：パーティション Cookie {partitioned} 件 · App-Bound Cookie {appBound} 件 · 復号不可 {decrypt} 件 · Storage 読み取り失敗 {storage} 件",
   "settings.chromeImportOpenLogin": "ロールを開いてサインインを完了",

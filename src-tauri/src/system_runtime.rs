@@ -11,15 +11,15 @@ use std::{
 
 use rion_core::{
     AppCore, BrowserAction, BrowserActionRequest, BrowserRuntimeSnapshot,
-    CompatibilityCheckPlanRecord, CoreCommand, CoreEffectAction, CoreEffectRequest,
-    CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
-    EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
-    EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, ResolvedBrowserEngine,
-    RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
-    SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
-    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    BrowserRuntimeWindowRecord, CompatibilityCheckPlanRecord, CoreCommand, CoreEffectAction,
+    CoreEffectRequest, CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord,
+    EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+    EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
+    EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
+    GameWindowUpdateInputRecord, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
+    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
+    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
     WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -769,6 +769,213 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    pub fn prepare_provisional_game_window(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        title: &str,
+    ) -> Result<(), String> {
+        let (window, _) = self
+            .ensure_display_host(target, title)
+            .map_err(|error| error.message)?;
+        window
+            .set_ignore_cursor_events(true)
+            .map_err(|error| error.to_string())?;
+        window.hide().map_err(|error| error.to_string())
+    }
+
+    pub fn make_provisional_game_window_interactive(&self, window_id: &str) -> Result<(), String> {
+        let window = self
+            .window_for_id(window_id)
+            .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
+        window
+            .set_ignore_cursor_events(false)
+            .map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())
+    }
+
+    pub fn position_provisional_game_window(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+    ) -> Result<(), String> {
+        let window = self
+            .window_for_id(&target.window_id)
+            .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
+        if let Ok(mut state) = self.state.lock()
+            && let Some(host) = state.display_hosts.get_mut(&target.window_id)
+        {
+            host.target = target.clone();
+        }
+        window
+            .set_position(LogicalPosition::new(
+                target.bounds.x as f64,
+                target.bounds.y as f64,
+            ))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn window_contains_screen_point(
+        &self,
+        window_id: &str,
+        screen_x: f64,
+        screen_y: f64,
+    ) -> bool {
+        let Some(window) = self.window_for_id(window_id) else {
+            return false;
+        };
+        let Ok(position) = window.outer_position() else {
+            return false;
+        };
+        let Ok(size) = window.outer_size() else {
+            return false;
+        };
+        let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+        let left = position.x as f64 / scale;
+        let top = position.y as f64 / scale;
+        let width = size.width as f64 / scale;
+        let height = size.height as f64 / scale;
+        screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
+    }
+
+    pub fn provisionally_move_tab(
+        &self,
+        tab_id: &str,
+        target_window_id: &str,
+    ) -> Result<(), String> {
+        let (source_window_id, source_window, target_window, surfaces) = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+            let source_window_id = tab.window_id.clone();
+            let source_window = state
+                .display_hosts
+                .get(&source_window_id)
+                .map(|host| host.window.clone())
+                .ok_or_else(|| "Source Game Window was not found.".to_owned())?;
+            let target_window = state
+                .display_hosts
+                .get(target_window_id)
+                .map(|host| host.window.clone())
+                .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
+            let mut surfaces = tab
+                .roles
+                .values()
+                .map(|role| role.webview.clone())
+                .collect::<Vec<_>>();
+            surfaces.extend(tab.dividers.iter().map(|divider| divider.webview.clone()));
+            (source_window_id, source_window, target_window, surfaces)
+        };
+        if source_window_id == target_window_id {
+            return Ok(());
+        }
+
+        let mut moved: Vec<Webview> = Vec::new();
+        for surface in &surfaces {
+            surface.hide().map_err(|error| error.to_string())?;
+            if let Err(error) = surface.reparent(&target_window) {
+                for moved_surface in moved.iter().rev() {
+                    let _ = moved_surface.reparent(&source_window);
+                }
+                for source_surface in &surfaces {
+                    let _ = source_surface.show();
+                }
+                return Err(error.to_string());
+            }
+            moved.push(surface.clone());
+        }
+        let source_is_empty = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
+            state
+                .tabs
+                .get_mut(tab_id)
+                .ok_or_else(|| "Runtime tab was not found.".to_owned())?
+                .window_id = target_window_id.to_owned();
+            !state
+                .tabs
+                .values()
+                .any(|tab| tab.window_id == source_window_id)
+        };
+        let reveal_result = (|| {
+            self.layout_runtime_tab(tab_id)
+                .map_err(|error| error.message)?;
+            for surface in &surfaces {
+                surface.show().map_err(|error| error.to_string())?;
+            }
+            target_window.show().map_err(|error| error.to_string())?;
+            if source_is_empty {
+                source_window.hide().map_err(|error| error.to_string())?;
+            }
+            Ok::<(), String>(())
+        })();
+        if let Err(message) = reveal_result {
+            for surface in &surfaces {
+                let _ = surface.hide();
+                let _ = surface.reparent(&source_window);
+            }
+            if let Ok(mut state) = self.state.lock()
+                && let Some(tab) = state.tabs.get_mut(tab_id)
+            {
+                tab.window_id = source_window_id;
+            }
+            let _ = self.layout_runtime_tab(tab_id);
+            for surface in &surfaces {
+                let _ = surface.show();
+            }
+            let _ = source_window.show();
+            let _ = target_window.hide();
+            self.publish_projection();
+            return Err(message);
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    pub fn cancel_provisional_tab_move(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        provisional_window_id: &str,
+    ) -> Result<(), String> {
+        let current_window_id = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()));
+        if current_window_id.as_deref() == Some(provisional_window_id) {
+            self.provisionally_move_tab(tab_id, source_window_id)?;
+        }
+        if let Some(source) = self.window_for_id(source_window_id) {
+            let _ = source.show();
+            let _ = source.set_focus();
+        }
+        self.discard_provisional_game_window(provisional_window_id);
+        self.publish_projection();
+        Ok(())
+    }
+
+    pub fn discard_provisional_game_window(&self, window_id: &str) {
+        let host = self.state.lock().ok().and_then(|mut state| {
+            if state.tabs.values().any(|tab| tab.window_id == window_id) {
+                return None;
+            }
+            let host = state.display_hosts.remove(window_id)?;
+            state
+                .allow_window_close_labels
+                .insert(host.window.label().to_owned());
+            Some(host)
+        });
+        if let Some(host) = host {
+            let _ = host.window.close();
+        }
+    }
+
     pub fn window_id_for_label(&self, label: &str) -> Option<String> {
         self.state.lock().ok().and_then(|state| {
             state.display_hosts.iter().find_map(|(window_id, host)| {
@@ -1376,6 +1583,7 @@ impl SystemRuntimeExecutor {
         let Ok(snapshot) = serde_json::from_value::<BrowserRuntimeSnapshot>(value) else {
             return;
         };
+        let snapshot = self.snapshot_with_native_tab_locations(snapshot);
         #[cfg(target_os = "macos")]
         self.sync_native_tab_strip(&snapshot);
         #[cfg(windows)]
@@ -1383,6 +1591,73 @@ impl SystemRuntimeExecutor {
         let _ = self
             .app
             .emit("rion://runtime-state", self.projection(&snapshot));
+    }
+
+    fn snapshot_with_native_tab_locations(
+        &self,
+        mut snapshot: BrowserRuntimeSnapshot,
+    ) -> BrowserRuntimeSnapshot {
+        let Ok(state) = self.state.lock() else {
+            return snapshot;
+        };
+        let native_locations = state
+            .tabs
+            .iter()
+            .map(|(tab_id, tab)| (tab_id.as_str(), tab.window_id.as_str()))
+            .collect::<HashMap<_, _>>();
+        let active_tab_ids = snapshot
+            .windows
+            .iter()
+            .filter_map(|window| window.active_tab_id.clone())
+            .collect::<HashSet<_>>();
+        let provisional_active_tabs = snapshot
+            .tabs
+            .iter()
+            .filter_map(|tab| {
+                let window_id = native_locations.get(tab.id.as_str())?;
+                (**window_id != tab.window_id).then(|| ((*window_id).to_owned(), tab.id.clone()))
+            })
+            .collect::<HashMap<_, _>>();
+        for tab in &mut snapshot.tabs {
+            if let Some(window_id) = native_locations.get(tab.id.as_str()) {
+                tab.window_id = (*window_id).to_owned();
+            }
+        }
+        for window in &mut snapshot.windows {
+            window.tab_ids.clear();
+            window.active_tab_id = None;
+        }
+        for tab in &snapshot.tabs {
+            if !snapshot
+                .windows
+                .iter()
+                .any(|window| window.window_id == tab.window_id)
+            {
+                snapshot.windows.push(BrowserRuntimeWindowRecord {
+                    window_id: tab.window_id.clone(),
+                    active_tab_id: None,
+                    tab_ids: Vec::new(),
+                });
+            }
+            let window = snapshot
+                .windows
+                .iter_mut()
+                .find(|window| window.window_id == tab.window_id)
+                .expect("native tab window was inserted");
+            window.tab_ids.push(tab.id.clone());
+            if active_tab_ids.contains(&tab.id) {
+                window.active_tab_id = Some(tab.id.clone());
+            }
+        }
+        for window in &mut snapshot.windows {
+            if let Some(tab_id) = provisional_active_tabs.get(&window.window_id) {
+                window.active_tab_id = Some(tab_id.clone());
+            }
+            if window.active_tab_id.is_none() {
+                window.active_tab_id = window.tab_ids.first().cloned();
+            }
+        }
+        snapshot
     }
 
     pub fn restore_tab_audio_muted(&self, source_id: &str, muted: bool) -> Result<(), String> {

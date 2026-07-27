@@ -638,9 +638,16 @@ pub fn create_game_window(
         "GAME_WINDOW_NAME_TOO_LONG",
     )?;
     ensure_unique_game_window_name(game_windows, &name, None)?;
+    let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    if game_windows.iter().any(|window| window.id == id) {
+        return Err(domain(
+            "GAME_WINDOW_ID_CONFLICT",
+            "Game window id is already in use.",
+        ));
+    }
     let now = chrono::Utc::now().to_rfc3339();
     let game_window = normalize_game_window(StateGameWindowRecord {
-        id: Uuid::new_v4().to_string(),
+        id,
         name,
         target_display: input.target_display,
         placement: input.placement,

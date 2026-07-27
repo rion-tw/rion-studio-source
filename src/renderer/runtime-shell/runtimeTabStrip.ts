@@ -12,8 +12,10 @@ const root = document.querySelector<HTMLDivElement>("#tabs")!;
 const add = document.querySelector<HTMLButtonElement>("#add")!;
 let current: RuntimeTabStripState | undefined;
 let draggingTabId: string | undefined;
+let dragSessionId: string | undefined;
 let dragCancelled = false;
-let dropHandled = false;
+let dragMoveFrame: number | undefined;
+let pendingDragPoint: { screenX: number; screenY: number } | undefined;
 
 const dispatch = (action: RuntimeTabAction): void => {
   void invoke("rion_runtime_tab_action", { action }).catch(() => undefined);
@@ -92,31 +94,65 @@ function render(state: RuntimeTabStripState): void {
       button.addEventListener("dragstart", (event) => {
         button.classList.add("dragging");
         draggingTabId = tab.id;
+        dragSessionId = crypto.randomUUID();
         dragCancelled = false;
-        dropHandled = false;
         if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer?.setData("text/rion-runtime-tab", tab.id);
+        event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify({
+          sessionId: dragSessionId,
+          tabId: tab.id
+        }));
+        dispatch({
+          type: "tabDragStart",
+          sessionId: dragSessionId,
+          tabId: tab.id,
+          screenX: event.screenX,
+          screenY: event.screenY
+        });
+      });
+      button.addEventListener("drag", (event) => {
+        if (!dragSessionId || dragCancelled || (event.screenX === 0 && event.screenY === 0)) return;
+        pendingDragPoint = { screenX: event.screenX, screenY: event.screenY };
+        if (dragMoveFrame !== undefined) return;
+        dragMoveFrame = requestAnimationFrame(() => {
+          dragMoveFrame = undefined;
+          if (!dragSessionId || !pendingDragPoint) return;
+          dispatch({ type: "tabDragMove", sessionId: dragSessionId, ...pendingDragPoint });
+          pendingDragPoint = undefined;
+        });
       });
       button.addEventListener("dragend", (event) => {
         button.classList.remove("dragging");
-        if (!dragCancelled && !dropHandled && event.dataTransfer?.dropEffect === "none") {
-          dispatch({ type: "tearOut", tabId: tab.id, screenX: event.screenX, screenY: event.screenY });
+        if (dragMoveFrame !== undefined) {
+          cancelAnimationFrame(dragMoveFrame);
+          dragMoveFrame = undefined;
+        }
+        if (dragSessionId && event.dataTransfer?.dropEffect !== "move") {
+          dispatch({
+            type: "tabDragEnd",
+            sessionId: dragSessionId,
+            cancelled: dragCancelled
+          });
         }
         draggingTabId = undefined;
+        dragSessionId = undefined;
+        pendingDragPoint = undefined;
         dragCancelled = false;
-        dropHandled = false;
       });
-      button.addEventListener("dragover", (event) => event.preventDefault());
+      button.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      });
       button.addEventListener("drop", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const tabId = event.dataTransfer?.getData("text/rion-runtime-tab");
-        if (!tabId || tabId === tab.id) return;
-        dropHandled = true;
-        const source = current?.tabs.find((candidate) => candidate.id === tabId);
-        dispatch(source?.windowId === current?.windowId
-          ? { type: "reorder", tabId, beforeTabId: tab.id }
-          : { type: "move", tabId, windowId: state.windowId });
+        const payload = runtimeTabDragPayload(event.dataTransfer);
+        if (!payload) return;
+        dispatch({
+          type: "tabDragDrop",
+          sessionId: payload.sessionId,
+          windowId: state.windowId,
+          beforeTabId: payload.tabId === tab.id ? undefined : tab.id
+        });
       });
       return button;
     }));
@@ -139,22 +175,26 @@ document.body.addEventListener("pointerleave", () => {
 addEventListener("keydown", (event) => {
   if (event.key === "Escape" && draggingTabId) {
     dragCancelled = true;
+    if (dragSessionId) dispatch({ type: "tabDragCancel", sessionId: dragSessionId });
     return;
   }
   if (event.key !== "Tab" || !event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
   event.preventDefault();
   dispatch({ type: "activateAdjacent", direction: event.shiftKey ? "previous" : "next" });
 }, true);
-root.addEventListener("dragover", (event) => event.preventDefault());
+root.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+});
 root.addEventListener("drop", (event) => {
   event.preventDefault();
-  const tabId = event.dataTransfer?.getData("text/rion-runtime-tab");
-  if (!tabId || !current) return;
-  dropHandled = true;
-  const source = current?.tabs.find((candidate) => candidate.id === tabId);
-  dispatch(source?.windowId === current?.windowId
-    ? { type: "reorder", tabId }
-    : { type: "move", tabId, windowId: current.windowId });
+  const payload = runtimeTabDragPayload(event.dataTransfer);
+  if (!payload || !current) return;
+  dispatch({
+    type: "tabDragDrop",
+    sessionId: payload.sessionId,
+    windowId: current.windowId
+  });
 });
 add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
 add.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -166,3 +206,17 @@ add.addEventListener("keydown", (event) => {
 });
 
 void current;
+
+function runtimeTabDragPayload(
+  dataTransfer: DataTransfer | null
+): { sessionId: string; tabId: string } | undefined {
+  const raw = dataTransfer?.getData("text/rion-runtime-tab");
+  if (!raw) return undefined;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof value.sessionId !== "string" || typeof value.tabId !== "string") return undefined;
+    return { sessionId: value.sessionId, tabId: value.tabId };
+  } catch {
+    return undefined;
+  }
+}

@@ -72,11 +72,12 @@ typedef struct {
 } RionRuntimeTabInput;
 
 typedef void (*RionRuntimeTabsCActionHandler)(
-    void *context, const char *type, const char * _Nullable tabIdentifier,
+    void *context, const char *type, const char * _Nullable sessionIdentifier,
+    const char * _Nullable tabIdentifier,
     const char * _Nullable sourceWindowID,
     const char * _Nullable targetWindowID,
     const char * _Nullable beforeTabIdentifier, double screenX,
-    double screenY);
+    double screenY, bool cancelled);
 typedef void (*RionRuntimeTabsCLayoutHandler)(
     void *context, double heightInset, double yOffset, bool valid);
 

@@ -2,4 +2,4 @@
 import type { DisplayTargetRecord } from "./DisplayTargetRecord";
 import type { GameWindowPlacementRecord } from "./GameWindowPlacementRecord";
 
-export type GameWindowCreateInputRecord = { name: string, targetDisplay: DisplayTargetRecord, placement: GameWindowPlacementRecord, };
+export type GameWindowCreateInputRecord = { id?: string, name: string, targetDisplay: DisplayTargetRecord, placement: GameWindowPlacementRecord, };

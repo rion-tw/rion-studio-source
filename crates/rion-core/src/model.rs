@@ -776,6 +776,23 @@ pub enum CoreCommand {
         tab_id: String,
         target: EmbeddedLaunchTargetRecord,
     },
+    EmbeddedTabMoveOrdered {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "beforeTabId")]
+        before_tab_id: Option<String>,
+    },
+    GameWindowCreateAndMoveTab {
+        input: GameWindowCreateInputRecord,
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "beforeTabId")]
+        before_tab_id: Option<String>,
+    },
     BrowserRoleLaunch {
         #[ts(rename = "roleId")]
         role_id: String,
@@ -1803,6 +1820,9 @@ pub struct StateGameWindowRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameWindowCreateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<String>,
     pub name: String,
     pub target_display: DisplayTargetRecord,
     pub placement: GameWindowPlacementRecord,

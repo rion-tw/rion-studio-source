@@ -20,7 +20,11 @@ export type RuntimeTabAction =
   | { type: "hide"; tabId: string }
   | { type: "stop"; tabId: string }
   | { type: "move"; tabId: string; windowId: string }
-  | { type: "tearOut"; tabId: string; screenX: number; screenY: number }
+  | { type: "tabDragStart"; sessionId: string; tabId: string; screenX: number; screenY: number }
+  | { type: "tabDragMove"; sessionId: string; screenX: number; screenY: number }
+  | { type: "tabDragDrop"; sessionId: string; windowId: string; beforeTabId?: string }
+  | { type: "tabDragEnd"; sessionId: string; cancelled: boolean }
+  | { type: "tabDragCancel"; sessionId: string }
   | { type: "reorder"; tabId: string; beforeTabId?: string }
   | { type: "openLauncher" }
   | { type: "openTabMenu"; tabId: string }
@@ -59,11 +63,35 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       typeof action.windowId === "string" && action.windowId.length > 0 &&
       Object.keys(action).length === 3;
   }
-  if (action.type === "tearOut") {
-    return typeof action.tabId === "string" && action.tabId.length > 0 &&
+  if (action.type === "tabDragStart") {
+    return typeof action.sessionId === "string" && action.sessionId.length > 0 &&
+      typeof action.tabId === "string" && action.tabId.length > 0 &&
+      typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
+      typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
+      Object.keys(action).length === 5;
+  }
+  if (action.type === "tabDragMove") {
+    return typeof action.sessionId === "string" && action.sessionId.length > 0 &&
       typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
       typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
       Object.keys(action).length === 4;
+  }
+  if (action.type === "tabDragDrop") {
+    return typeof action.sessionId === "string" && action.sessionId.length > 0 &&
+      typeof action.windowId === "string" && action.windowId.length > 0 &&
+      (action.beforeTabId === undefined ||
+        (typeof action.beforeTabId === "string" && action.beforeTabId.length > 0)) &&
+      Object.keys(action).every((key) =>
+        ["type", "sessionId", "windowId", "beforeTabId"].includes(key)
+      );
+  }
+  if (action.type === "tabDragEnd") {
+    return typeof action.sessionId === "string" && action.sessionId.length > 0 &&
+      typeof action.cancelled === "boolean" && Object.keys(action).length === 3;
+  }
+  if (action.type === "tabDragCancel") {
+    return typeof action.sessionId === "string" && action.sessionId.length > 0 &&
+      Object.keys(action).length === 2;
   }
   if (action.type === "reorder") {
     return typeof action.tabId === "string" && action.tabId.length > 0 &&

@@ -28,8 +28,10 @@ type ActionCallback = unsafe extern "C" fn(
     *const c_char,
     *const c_char,
     *const c_char,
+    *const c_char,
     f64,
     f64,
+    bool,
 );
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
 
@@ -270,12 +272,14 @@ fn c_string(value: &str) -> CString {
 unsafe extern "C" fn action_callback(
     context: *mut c_void,
     action_type: *const c_char,
+    session_id: *const c_char,
     tab_id: *const c_char,
     source_window_id: *const c_char,
     target_window_id: *const c_char,
     before_tab_id: *const c_char,
     screen_x: f64,
     screen_y: f64,
+    cancelled: bool,
 ) {
     if context.is_null() || action_type.is_null() {
         return;
@@ -284,6 +288,7 @@ unsafe extern "C" fn action_callback(
     let action_type = unsafe { CStr::from_ptr(action_type) }
         .to_string_lossy()
         .into_owned();
+    let session_id = c_string_from_pointer(session_id);
     let tab_id = c_string_from_pointer(tab_id);
     let before_tab_id = c_string_from_pointer(before_tab_id);
     let source_window_id = c_string_from_pointer(source_window_id);
@@ -293,12 +298,14 @@ unsafe extern "C" fn action_callback(
         context.window_label.clone(),
         NativeTabAction {
             action_type,
+            session_id,
             tab_id,
             source_window_id,
             target_window_id,
             before_tab_id,
             screen_x,
             screen_y,
+            cancelled,
         },
     );
 }
@@ -338,38 +345,61 @@ fn c_string_from_pointer(value: *const c_char) -> Option<String> {
 
 struct NativeTabAction {
     action_type: String,
+    session_id: Option<String>,
     tab_id: Option<String>,
     source_window_id: Option<String>,
     target_window_id: Option<String>,
     before_tab_id: Option<String>,
     screen_x: f64,
     screen_y: f64,
+    cancelled: bool,
 }
 
 fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction) {
     tauri::async_runtime::spawn(async move {
         let NativeTabAction {
             action_type,
+            session_id,
             tab_id,
             source_window_id,
             target_window_id,
             before_tab_id,
             screen_x,
             screen_y,
+            cancelled,
         } = action;
         let Some(state) = app.try_state::<crate::CoreState>() else {
             return;
         };
         let host_window_id = state.runtime.window_id_for_label(&window_label);
-        let target_window_id = target_window_id.or(host_window_id);
-        if action_type == "tearOut" {
-            let Some(tab_id) = tab_id else {
+        if matches!(
+            action_type.as_str(),
+            "tabDragStart" | "tabDragMove" | "tabDragDrop" | "tabDragEnd" | "tabDragCancel"
+        ) {
+            let source_window_id = source_window_id.or_else(|| host_window_id.clone());
+            let Some(source_window_id) = source_window_id else {
                 return;
             };
-            let point =
-                (screen_x.is_finite() && screen_y.is_finite()).then_some((screen_x, screen_y));
+            let mut action = serde_json::json!({
+                "type": action_type,
+                "cancelled": cancelled,
+                "screenX": screen_x,
+                "screenY": screen_y
+            });
+            if let Some(session_id) = session_id {
+                action["sessionId"] = serde_json::Value::String(session_id);
+            }
+            if let Some(tab_id) = tab_id {
+                action["tabId"] = serde_json::Value::String(tab_id);
+            }
+            if let Some(target_window_id) = target_window_id {
+                action["windowId"] = serde_json::Value::String(target_window_id);
+            }
+            if let Some(before_tab_id) = before_tab_id {
+                action["beforeTabId"] = serde_json::Value::String(before_tab_id);
+            }
             if let Err(error) =
-                crate::move_game_window_tab_to_new_window(&app, &state, &tab_id, point).await
+                crate::handle_game_window_tab_drag(&app, &state, &source_window_id, &action).await
             {
                 let _ = app.emit(
                     "rion://shell-error",
@@ -378,6 +408,7 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             }
             return;
         }
+        let target_window_id = target_window_id.or(host_window_id);
         let command = match action_type.as_str() {
             "activate" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabActivate { tab_id }),
             "hide" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabHide { tab_id }),

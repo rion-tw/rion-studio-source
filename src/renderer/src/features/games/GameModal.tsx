@@ -29,7 +29,6 @@ interface GameEditorRouteProps {
   t: Translator;
   onCancelCheck: (gameId: string) => void;
   onError: (error: unknown | null) => void;
-  onOpenGraphicsSettings: (gameId: string) => void;
   onReset: (game: Game) => Promise<Game | undefined>;
   onRunCheck: (gameId: string) => void;
   onSave: (form: GameFormState) => Promise<Game | undefined>;
@@ -56,7 +55,6 @@ function GameEditor({
   t,
   onCancelCheck,
   onError,
-  onOpenGraphicsSettings,
   onReset,
   onRunCheck,
   onSave
@@ -133,7 +131,6 @@ function GameEditor({
             runStatus={runStatuses.find((item) => item.gameId === game.id)}
             t={t}
             onCancel={() => onCancelCheck(game.id)}
-            onOpenGraphicsSettings={() => onOpenGraphicsSettings(game.id)}
             onRun={() => onRunCheck(game.id)}
           />
         ) : null}

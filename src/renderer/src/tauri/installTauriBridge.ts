@@ -329,7 +329,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     },
     quitApplication: () => invokeShell("quitApplication"),
     requestCurrentWindowClose: () => void invokeShell("requestCurrentWindowClose"),
-    restartApplication: () => invokeShell("restartApplication"),
     getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),
     listGameWindows: () => invokeCore({ type: "gameWindowsList" }),
     createGameWindow: async (input) => {
@@ -447,7 +446,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     getGameBrowserSettings: () => invokeCore({ type: "gameBrowserSettingsGet" }),
     updateGameBrowserSettings: (settings) =>
       invokeCore({ type: "gameBrowserSettingsReplace", settings }),
-    getGraphicsDiagnostics: () => invokeShell("getGraphicsDiagnostics"),
     getLogStatus: () => invokeCore({ type: "logsStatus" }),
     queryLogs: (query) => invokeCore({ type: "logsQuery", query: query ?? {} }),
     setLogLevel: (level) =>

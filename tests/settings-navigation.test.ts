@@ -5,7 +5,7 @@ import { readSettingsReturnTo, readSettingsSection } from "../src/renderer/src/f
 describe("settings navigation", () => {
   it("normalizes section query values", () => {
     expect(readSettingsSection("interface")).toBe("interface");
-    expect(readSettingsSection("game")).toBe("game");
+    expect(readSettingsSection("game")).toBe("interface");
     expect(readSettingsSection("macros")).toBe("macros");
     expect(readSettingsSection("data")).toBe("data");
     expect(readSettingsSection("updates")).toBe("updates");
@@ -17,7 +17,7 @@ describe("settings navigation", () => {
   it("normalizes legacy section query values", () => {
     expect(readSettingsSection("appearance")).toBe("interface");
     expect(readSettingsSection("preferences")).toBe("interface");
-    expect(readSettingsSection("role-defaults")).toBe("game");
+    expect(readSettingsSection("role-defaults")).toBe("interface");
     expect(readSettingsSection("portability")).toBe("data");
   });
 

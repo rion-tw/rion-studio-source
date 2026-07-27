@@ -3613,10 +3613,11 @@ mod tests {
             let mut source = fixture_value(6);
             let mut settings =
                 serde_json::to_value(crate::domain::default_game_browser_settings()).unwrap();
-            settings["graphics"]
-                .as_object_mut()
-                .unwrap()
-                .remove("windowsEcoQosEnabled");
+            settings["graphics"] = json!({
+                "mode":"experimental",
+                "backend":{"windows":"vulkan"},
+                "windowsEcoQosEnabled":false
+            });
             settings["fonts"]["mode"] = json!("custom");
             settings["fonts"]["families"] = json!({
                 "fixed":"Bad\u{0000}Font",
@@ -3633,7 +3634,12 @@ mod tests {
                 )
                 .unwrap();
             let browser_settings = preview.preferences.unwrap().game_browser_settings.unwrap();
-            assert!(browser_settings.graphics.windows_eco_qos_enabled);
+            assert!(
+                serde_json::to_value(&browser_settings)
+                    .unwrap()
+                    .get("graphics")
+                    .is_none()
+            );
             let fonts = &browser_settings.fonts;
             assert_eq!(
                 fonts.families.get("standard").map(String::as_str),
@@ -3648,9 +3654,13 @@ mod tests {
     }
 
     #[test]
-    fn portable_browser_preferences_preserve_explicit_eco_qos_opt_out() {
+    fn portable_browser_preferences_do_not_export_retired_graphics_settings() {
         let mut browser_settings = crate::domain::default_game_browser_settings();
-        browser_settings.graphics.windows_eco_qos_enabled = false;
+        browser_settings.fonts.mode = "custom".to_owned();
+        browser_settings
+            .fonts
+            .families
+            .insert("standard".to_owned(), "Inter".to_owned());
         let exported = export(
             state_fixture(),
             Some(PortablePreferencesRecord {
@@ -3679,15 +3689,10 @@ mod tests {
             )
             .unwrap();
 
-        assert!(
-            !preview
-                .preferences
-                .unwrap()
-                .game_browser_settings
-                .unwrap()
-                .graphics
-                .windows_eco_qos_enabled
-        );
+        let settings = preview.preferences.unwrap().game_browser_settings.unwrap();
+        let serialized = serde_json::to_value(settings).unwrap();
+        assert!(serialized.get("graphics").is_none());
+        assert_eq!(serialized["fonts"]["families"]["standard"], "Inter");
     }
 
     #[test]

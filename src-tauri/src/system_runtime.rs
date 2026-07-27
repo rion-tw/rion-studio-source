@@ -595,21 +595,11 @@ impl SystemRuntimeExecutor {
         } else {
             rion_platform::Platform::Windows
         };
-        let plan = rion_core::read_bootstrap_plan(
-            &user_data_dir,
+        let additional_browser_arguments = rion_core::additional_browser_arguments(
             platform,
-            "",
             "msWebOOUI,msPdfOOUI,msSmartScreenProtection",
-        );
-        let additional_browser_arguments = plan
-            .switches
-            .iter()
-            .map(|item| match &item.value {
-                Some(value) => format!("--{}={value}", item.name),
-                None => format!("--{}", item.name),
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
+        )
+        .join(" ");
         let document_start_script = [
             SYSTEM_RUNTIME_INIT_SCRIPT.to_owned(),
             RUNTIME_TAB_SHORTCUT_SCRIPT.to_owned(),
@@ -738,13 +728,6 @@ impl SystemRuntimeExecutor {
                 popup: degraded_if(available),
                 audio_mute: supported_if(available),
                 custom_fonts: degraded_if(available),
-                graphics_tuning: if available && cfg!(target_os = "windows") {
-                    EngineCapabilityStatus::Supported
-                } else if available {
-                    EngineCapabilityStatus::Unsupported
-                } else {
-                    EngineCapabilityStatus::Disabled
-                },
                 downloads: degraded_if(available),
                 file_upload: supported_if(available),
                 permissions: if available {

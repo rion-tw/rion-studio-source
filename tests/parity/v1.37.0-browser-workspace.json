@@ -91,7 +91,9 @@
         "file": "tests/browser-launch-configuration.test.ts",
         "test": "reads the persisted mode synchronously before Electron becomes ready"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: persisted Chromium graphics startup modes. System WebView startup now reads no application-owned graphics mode before Tauri becomes ready.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -101,8 +103,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/bootstrap_settings.rs",
-        "test": "reads_legacy_before_first_migration_and_defaults_invalid_values"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -113,7 +115,9 @@
         "file": "tests/browser-launch-configuration.test.ts",
         "test": "preserves existing disabled features and applies the safe high-performance switches"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: safe high-performance Chromium graphics switches. Windows keeps only fixed non-graphics WebView2 arguments and macOS receives none.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -123,8 +127,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/bootstrap_settings.rs",
-        "test": "preserves_disabled_features_and_applies_safe_high_performance_switches"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -135,7 +139,9 @@
         "file": "tests/browser-launch-configuration.test.ts",
         "test": "limits unsafe switches to explicitly selected experimental mode"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: experimental Chromium GPU switches. The product no longer exposes a mode capable of enabling unsafe or backend-specific graphics arguments.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -145,8 +151,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/bootstrap_settings.rs",
-        "test": "limits_unsafe_switches_to_explicit_experimental_mode"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {

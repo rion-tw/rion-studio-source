@@ -22,7 +22,6 @@ interface GameCompatibilityPanelProps {
   runStatus?: GameCompatibilityRunStatus;
   t: Translator;
   onCancel: () => void;
-  onOpenGraphicsSettings: () => void;
   onRun: () => void;
 }
 
@@ -31,7 +30,6 @@ export function GameCompatibilityPanel({
   runStatus,
   t,
   onCancel,
-  onOpenGraphicsSettings,
   onRun
 }: GameCompatibilityPanelProps): JSX.Element {
   const recommendation = report?.recommendation;
@@ -64,11 +62,6 @@ export function GameCompatibilityPanel({
           ) : (
             <Button type="button" onClick={onRun}>{t("games.compatibility.run")}</Button>
           )}
-          {recommendation?.reason === "graphics_unavailable" ? (
-            <Button type="button" variant="secondary" onClick={onOpenGraphicsSettings}>
-              {t("games.compatibility.graphicsSettings")}
-            </Button>
-          ) : null}
         </div>
         {runStatus ? (
           <p className="text-xs text-muted-foreground">
@@ -94,16 +87,19 @@ export function GameCompatibilityPanel({
                     : t("games.compatibility.failed")}
             </p>
             {report.isStale ? <Badge variant="warning">{t("games.compatibility.stale")}</Badge> : null}
-            <span className="text-xs text-muted-foreground">{new Date(report.checkedAt).toLocaleString()}</span>
           </div>
           <div className="grid gap-2 text-xs sm:grid-cols-2">
+            <Datum label={t("games.compatibility.checkedAt")} value={new Date(report.checkedAt).toLocaleString()} />
+            <Datum label={t("games.compatibility.runtime")} value={formatRuntime(report)} />
             <Datum label={t("games.compatibility.duration")} value={report.load ? `${report.load.durationMs} ms` : "—"} />
             <Datum label={t("games.compatibility.origin")} value={report.load?.finalOrigin ?? "—"} />
             <Datum label="WebGL / WebGL2" value={`${formatAvailability(report.graphics?.webgl, t)} / ${formatAvailability(report.graphics?.webgl2, t)}`} />
             <Datum label="WebGPU" value={formatAvailability(report.graphics?.webgpu, t)} />
             <Datum label={t("games.compatibility.renderer")} value={report.graphics?.renderer ?? "—"} />
+            <Datum label={t("games.compatibility.vendor")} value={report.graphics?.vendor ?? "—"} />
             <Datum label={t("games.compatibility.recommendation")} value={recommendation ? t(`games.compatibility.recommendation.${recommendation.reason}` as "games.compatibility.recommendation.system_webview_available") : "—"} />
             <Datum label={t("games.compatibility.errorCode")} value={report.load?.errorCode ?? "—"} />
+            <Datum label={t("games.compatibility.probeError")} value={report.graphics?.error ?? "—"} />
           </div>
         </div>
       ) : (
@@ -131,6 +127,14 @@ export function GameCompatibilityPanel({
       ) : null}
     </Surface>
   );
+}
+
+function formatRuntime(report: GameCompatibilityReport): string {
+  if (!report.runtime) {
+    return "—";
+  }
+  const engine = report.runtime.engine === "webview2" ? "WebView2" : "WKWebView";
+  return `${engine} ${report.runtime.engineVersion}`;
 }
 
 function Datum({ label, value }: { label: string; value: string }): JSX.Element {

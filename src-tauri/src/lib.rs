@@ -818,21 +818,6 @@ async fn rion_shell_invoke(
                 .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
             Ok(Value::Null)
         }
-        "restartApplication" => {
-            if state
-                .core
-                .invoke(CoreCommand::BrowserStatuses)
-                .map_err(error_payload)?
-                .as_array()
-                .is_some_and(|statuses| !statuses.is_empty())
-            {
-                return Err(shell_error(
-                    "SHELL_RESTART_BLOCKED",
-                    "Stop all running roles before restarting Rion Studio.",
-                ));
-            }
-            app.restart();
-        }
         "displays" => display_inventory(&window),
         "launchRole" => {
             let role_id = string_argument(&args, 0, "Role ID")?;
@@ -1247,7 +1232,6 @@ async fn rion_shell_invoke(
             Ok(result)
         }
         "previewChromeProfileImport" => preview_chrome_profile_import(&state).await,
-        "getGraphicsDiagnostics" => graphics_diagnostics(&app, &state).await,
         "revealLogs" => reveal_logs(&state).await,
         "exportDiagnostics" => export_diagnostics(&app, &window, &state).await,
         "appVersion" => Ok(Value::String(app.package_info().version.to_string())),
@@ -1395,30 +1379,6 @@ async fn preview_chrome_profile_import(state: &CoreState) -> Result<Value, CoreE
             "sourceUserDataDir": path.to_string_lossy()
         }),
     )
-}
-
-async fn graphics_diagnostics(
-    app: &tauri::AppHandle,
-    state: &CoreState,
-) -> Result<Value, CoreErrorPayload> {
-    let settings = invoke_core_sync(state, json!({ "type": "gameBrowserSettingsGet" }))?;
-    let versions = runtime_versions(app, state)?;
-    invoke_core_async(
-        state,
-        json!({
-            "type": "graphicsDiagnosticsAssemble",
-            "appliedSettings": settings["graphics"].clone(),
-            "embeddedRawJson": "null",
-            "embeddedError": "Tauri does not expose a synchronous GPU probe for the launcher WebView.",
-            "featureStatusRawJson": "{}",
-            "gpuInfoReady": false,
-            "hardwareAccelerationEnabled": null,
-            "platform": platform_name()
-                .map_err(|error| shell_error("SHELL_PLATFORM_UNSUPPORTED", error))?,
-            "versions": versions
-        }),
-    )
-    .await
 }
 
 async fn reveal_logs(state: &CoreState) -> Result<Value, CoreErrorPayload> {

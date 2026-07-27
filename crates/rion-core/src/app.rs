@@ -54,6 +54,11 @@ const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.
 const CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT: Duration = Duration::from_secs(60);
+// A persistent login cookie can be committed before a newly-created native
+// WebView has rehydrated it into the site's active session. Give the post-apply
+// verifier a short, bounded stabilization window before requiring login.
+const CHROME_PROFILE_IMPORT_AUTH_RETRY_DELAYS: [Duration; 2] =
+    [Duration::from_millis(250), Duration::from_millis(750)];
 
 fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
     fs::create_dir_all(user_data_dir).map_err(|error| {
@@ -2297,7 +2302,7 @@ impl AppCore {
         }
         let auth_state = if let Some(probe) = auth_probe {
             self.emit_chrome_import_progress(import_id, Some(&profile.id), "verifying", 0, 1);
-            self.verify_chrome_import_auth(&role_id, &paths, probe)
+            self.verify_chrome_import_auth_after_apply(&role_id, &paths, probe)
                 .await
         } else {
             ChromeProfileImportAuthStateRecord::NotApplicable
@@ -2399,6 +2404,23 @@ impl AppCore {
             Ok(result) => result.auth_state,
             Err(_) => ChromeProfileImportAuthStateRecord::Indeterminate,
         }
+    }
+
+    async fn verify_chrome_import_auth_after_apply(
+        &self,
+        role_id: &str,
+        paths: &RolePathsRecord,
+        probe: ChromeImportAuthProbe,
+    ) -> ChromeProfileImportAuthStateRecord {
+        let mut auth_state = self.verify_chrome_import_auth(role_id, paths, probe).await;
+        for delay in CHROME_PROFILE_IMPORT_AUTH_RETRY_DELAYS {
+            if auth_state != ChromeProfileImportAuthStateRecord::NotAuthenticated {
+                break;
+            }
+            tokio::time::sleep(delay).await;
+            auth_state = self.verify_chrome_import_auth(role_id, paths, probe).await;
+        }
+        auth_state
     }
 
     async fn rollback_chrome_profile_import_item(
@@ -6491,6 +6513,68 @@ mod tests {
         }
     }
 
+    fn drive_post_apply_chrome_import_auth(
+        core: Arc<AppCore>,
+        auth_states: Vec<ChromeProfileImportAuthStateRecord>,
+    ) -> (ChromeProfileImportAuthStateRecord, Vec<CoreEffectAction>) {
+        assert!(!auth_states.is_empty());
+        let receiver = core.subscribe().unwrap();
+        let role_id = "auth-verification-role".to_owned();
+        let paths = core.resolve_role_paths(&role_id).unwrap();
+        let game = core.state_game(&flyff_game_id(&core)).unwrap();
+        let probe = chrome_import_auth_probe(&game).unwrap();
+        let invocation_core = Arc::clone(&core);
+        let invocation_role_id = role_id.clone();
+        let invocation = thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(invocation_core.verify_chrome_import_auth_after_apply(
+                    &invocation_role_id,
+                    &paths,
+                    probe,
+                ))
+        });
+        let fallback_auth_state = *auth_states.last().unwrap();
+        let mut auth_state_index = 0;
+        let mut actions = Vec::new();
+        while !invocation.is_finished() {
+            let Ok(events) = receiver.recv_timeout(Duration::from_secs(2)) else {
+                continue;
+            };
+            for event in events {
+                let CoreEvent::CoreEffects { effects } = event else {
+                    continue;
+                };
+                let results = effects
+                    .into_iter()
+                    .map(|effect| {
+                        assert!(matches!(
+                            &effect.action,
+                            CoreEffectAction::ChromeProfileImportVerify { .. }
+                        ));
+                        actions.push(effect.action.clone());
+                        let auth_state = auth_states
+                            .get(auth_state_index)
+                            .copied()
+                            .unwrap_or(fallback_auth_state);
+                        auth_state_index += 1;
+                        CoreEffectResult {
+                            effect_id: effect.effect_id,
+                            operation_id: effect.operation_id,
+                            ok: true,
+                            value_json: Some(json!({ "authState": auth_state }).to_string()),
+                            error: None,
+                        }
+                    })
+                    .collect();
+                core.dispatch_core_effect_results(results).unwrap();
+            }
+        }
+        (invocation.join().unwrap(), actions)
+    }
+
     fn supported_system_capabilities() -> crate::model::EngineCapabilitySnapshotRecord {
         use crate::model::EngineCapabilityStatus::{Degraded, Supported};
 
@@ -8735,6 +8819,50 @@ mod tests {
             CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT > Duration::from_secs(40),
             "the core must not time out while the native System WebView is still within its navigation deadline"
         );
+    }
+
+    #[test]
+    fn post_apply_chrome_import_auth_retries_a_transient_login_redirect_on_both_platforms() {
+        for platform in ["darwin", "win32"] {
+            let (_directory, core) = core_for_platform(platform);
+            let (auth_state, actions) = drive_post_apply_chrome_import_auth(
+                Arc::clone(&core),
+                vec![
+                    ChromeProfileImportAuthStateRecord::NotAuthenticated,
+                    ChromeProfileImportAuthStateRecord::Authenticated,
+                ],
+            );
+
+            assert_eq!(
+                auth_state,
+                ChromeProfileImportAuthStateRecord::Authenticated,
+                "{platform} must accept the rehydrated session during the same import"
+            );
+            assert_eq!(actions.len(), 2, "{platform} must retry exactly once");
+            core.shutdown();
+        }
+    }
+
+    #[test]
+    fn post_apply_chrome_import_auth_retry_is_bounded_and_skips_indeterminate_results() {
+        for platform in ["darwin", "win32"] {
+            for (auth_state, expected_attempts) in [
+                (ChromeProfileImportAuthStateRecord::NotAuthenticated, 3),
+                (ChromeProfileImportAuthStateRecord::Indeterminate, 1),
+            ] {
+                let (_directory, core) = core_for_platform(platform);
+                let (result, actions) =
+                    drive_post_apply_chrome_import_auth(Arc::clone(&core), vec![auth_state]);
+
+                assert_eq!(result, auth_state, "{platform} must preserve the result");
+                assert_eq!(
+                    actions.len(),
+                    expected_attempts,
+                    "{platform} must keep retries bounded"
+                );
+                core.shutdown();
+            }
+        }
     }
 
     #[test]

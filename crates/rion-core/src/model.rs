@@ -455,8 +455,23 @@ pub enum CoreCommand {
         #[ts(rename = "browserZoomPercent")]
         browser_zoom_percent: f64,
     },
-    WorkspaceReconcileDisplays {
-        displays: Vec<WorkspaceDisplayInfoRecord>,
+    GameWindowsList,
+    GameWindowGet {
+        id: String,
+    },
+    GameWindowCreate {
+        input: GameWindowCreateInputRecord,
+    },
+    GameWindowUpdate {
+        id: String,
+        input: GameWindowUpdateInputRecord,
+    },
+    GameWindowReorder {
+        #[ts(rename = "orderedIds")]
+        ordered_ids: Vec<String>,
+    },
+    GameWindowDelete {
+        id: String,
     },
     MacrosList,
     MacroGet {
@@ -755,19 +770,25 @@ pub enum CoreCommand {
         #[ts(rename = "roleId")]
         role_id: String,
     },
+    EmbeddedWindowRegister {
+        target: EmbeddedLaunchTargetRecord,
+    },
+    EmbeddedWindowDelete {
+        #[ts(rename = "windowId")]
+        window_id: String,
+    },
     EmbeddedWindowsShow {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "displayId", type = "number")]
-        display_id: Option<i64>,
+        #[ts(optional, rename = "windowId")]
+        window_id: Option<String>,
     },
     EmbeddedTabActivate {
         #[ts(rename = "tabId")]
         tab_id: String,
     },
     EmbeddedTabActivateAdjacent {
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
+        #[ts(rename = "windowId")]
+        window_id: String,
         #[ts(type = "\"next\" | \"previous\"")]
         direction: String,
     },
@@ -786,12 +807,6 @@ pub enum CoreCommand {
         #[ts(rename = "tabId")]
         tab_id: String,
         target: EmbeddedLaunchTargetRecord,
-    },
-    EmbeddedDisplayRemove {
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
-        fallback: EmbeddedLaunchTargetRecord,
     },
     BrowserRoleLaunch {
         #[ts(rename = "roleId")]
@@ -861,6 +876,8 @@ pub struct PortableDataSelectionRecord {
     pub games: bool,
     pub roles: bool,
     pub launch_workspaces: bool,
+    #[serde(default)]
+    pub game_windows: bool,
     pub macros: bool,
     pub preferences: bool,
 }
@@ -984,6 +1001,21 @@ pub struct PortableLaunchWorkspaceRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableGameWindowRecord {
+    pub id: String,
+    pub name: String,
+    pub target_display: DisplayTargetRecord,
+    pub placement: GameWindowPlacementRecord,
+    #[serde(default)]
+    pub tabs: Vec<GameWindowTabRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct PortableMacroRecord {
     pub id: String,
     pub enabled: bool,
@@ -1004,13 +1036,15 @@ pub struct PortableMacroRecord {
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "6")]
+    #[ts(type = "8")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
     pub games: Vec<PortableGameRecord>,
     pub roles: Vec<PortableRoleRecord>,
     pub launch_workspaces: Vec<PortableLaunchWorkspaceRecord>,
+    #[serde(default)]
+    pub game_windows: Vec<PortableGameWindowRecord>,
     pub macros: Vec<PortableMacroRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -1034,6 +1068,7 @@ pub struct PortableImportOperationsRecord {
     pub games: PortableImportOperationSummaryRecord,
     pub roles: PortableImportOperationSummaryRecord,
     pub launch_workspaces: PortableImportOperationSummaryRecord,
+    pub game_windows: PortableImportOperationSummaryRecord,
     pub macros: PortableImportOperationSummaryRecord,
 }
 
@@ -1042,7 +1077,7 @@ pub struct PortableImportOperationsRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct PortableImportWarningRecord {
     #[ts(
-        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
+        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"GAME_WINDOW_NAME_RENAMED\" | \"GAME_WINDOW_TAB_DEPENDENCY_MISSING\" | \"GAME_WINDOW_TAB_ROLE_CONFLICT\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
     )]
     pub code: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1092,6 +1127,7 @@ pub struct PortableImportPreviewRecord {
     pub game_count: u32,
     pub role_count: u32,
     pub workspace_count: u32,
+    pub game_window_count: u32,
     pub macro_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -1108,6 +1144,7 @@ pub struct PortableImportResultRecord {
     pub game_count: u32,
     pub role_count: u32,
     pub workspace_count: u32,
+    pub game_window_count: u32,
     pub macro_count: u32,
     pub preferences_included: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1126,6 +1163,7 @@ pub struct PortableExportResultRecord {
     pub game_count: u32,
     pub role_count: u32,
     pub workspace_count: u32,
+    pub game_window_count: u32,
     pub macro_count: u32,
     pub preferences_included: bool,
     pub selection: PortableDataSelectionRecord,
@@ -1266,9 +1304,6 @@ pub struct WorkspaceCreateRequest {
     #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotRequest>>,
 }
@@ -1295,9 +1330,6 @@ pub struct WorkspaceUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotRequest>>,
@@ -1486,9 +1518,6 @@ pub struct WorkspaceCreateInputRecord {
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotInputRecord>>,
 }
 
@@ -1513,22 +1542,18 @@ pub struct WorkspaceUpdateInputRecord {
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
-    #[serde(default)]
-    pub set_target_display: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub slots: Option<Vec<WorkspaceSlotInputRecord>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct WorkspaceDisplayInfoRecord {
+pub struct DisplayInfoRecord {
     #[ts(type = "number")]
     pub id: i64,
     pub label: String,
     pub bounds: StatePixelBoundsRecord,
+    pub work_area: StatePixelBoundsRecord,
     pub resolution: StateResolutionRecord,
     pub scale_factor: f64,
     pub is_primary: bool,
@@ -1662,6 +1687,7 @@ pub enum StateCollection {
     Games,
     Roles,
     LaunchWorkspaces,
+    GameWindows,
     Macros,
     CompatibilityReports,
 }
@@ -1750,9 +1776,6 @@ pub struct StateLaunchWorkspaceRecord {
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     pub slots: Vec<StateWorkspaceSlotRecord>,
     pub created_at: String,
     pub updated_at: String,
@@ -1761,18 +1784,18 @@ pub struct StateLaunchWorkspaceRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateWorkspaceDisplayTargetRecord {
+pub struct DisplayTargetRecord {
     #[ts(type = "number")]
     pub id: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub fingerprint: Option<StateWorkspaceDisplayFingerprintRecord>,
+    pub fingerprint: Option<DisplayFingerprintRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateWorkspaceDisplayFingerprintRecord {
+pub struct DisplayFingerprintRecord {
     pub label: String,
     pub bounds: StatePixelBoundsRecord,
     pub resolution: StateResolutionRecord,
@@ -1795,6 +1818,88 @@ pub struct StatePixelBoundsRecord {
 pub struct StateResolutionRecord {
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowPlacementRecord {
+    pub normal_bounds: StatePixelBoundsRecord,
+    pub saved_work_area: StatePixelBoundsRecord,
+    #[ts(type = "\"normal\" | \"maximized\" | \"fullscreen\"")]
+    pub presentation: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowRoleViewRecord {
+    pub role_id: String,
+    pub rect: StateNormalizedRectRecord,
+    pub browser_zoom_percent: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowTabRecord {
+    pub id: String,
+    #[ts(type = "\"role\" | \"workspace\"")]
+    pub tab_type: String,
+    pub source_id: String,
+    pub name: String,
+    pub role_ids: Vec<String>,
+    pub hidden: bool,
+    pub audio_muted: bool,
+    #[serde(default)]
+    pub role_views: Vec<GameWindowRoleViewRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct StateGameWindowRecord {
+    pub id: String,
+    pub name: String,
+    pub target_display: DisplayTargetRecord,
+    pub placement: GameWindowPlacementRecord,
+    #[serde(default)]
+    pub tabs: Vec<GameWindowTabRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_tab_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowCreateInputRecord {
+    pub name: String,
+    pub target_display: DisplayTargetRecord,
+    pub placement: GameWindowPlacementRecord,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowUpdateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target_display: Option<DisplayTargetRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub placement: Option<GameWindowPlacementRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tabs: Option<Vec<GameWindowTabRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub active_tab_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2066,6 +2171,8 @@ pub struct CoreStateSnapshotRecord {
     #[serde(default)]
     pub launch_workspaces: Vec<StateLaunchWorkspaceRecord>,
     #[serde(default)]
+    pub game_windows: Vec<StateGameWindowRecord>,
+    #[serde(default)]
     pub macros: Vec<StateMacroRecord>,
     #[serde(default)]
     pub compatibility_reports: Vec<StateCompatibilityReportRecord>,
@@ -2154,24 +2261,29 @@ pub enum BrowserRuntimeCommand {
         workspace_id: String,
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "displayId", type = "number")]
-        display_id: Option<i64>,
+        #[ts(optional, rename = "windowId")]
+        window_id: Option<String>,
         #[serde(rename = "roleIds")]
         #[ts(rename = "roleIds")]
         role_ids: Vec<String>,
     },
-    RegisterDisplay {
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
+    RegisterWindow {
+        #[ts(rename = "windowId")]
+        window_id: String,
+    },
+    RemoveWindow {
+        #[ts(rename = "windowId")]
+        window_id: String,
     },
     CreateTab {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "tabId")]
+        tab_id: Option<String>,
         #[ts(rename = "sourceId")]
         source_id: String,
         name: String,
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
+        #[ts(rename = "windowId")]
+        window_id: String,
         #[serde(rename = "tabType")]
         #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
         tab_type: String,
@@ -2190,15 +2302,13 @@ pub enum BrowserRuntimeCommand {
         #[ts(rename = "tabId")]
         tab_id: String,
     },
-    ShowDisplay {
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
+    ShowWindow {
+        #[ts(rename = "windowId")]
+        window_id: String,
     },
     ActivateAdjacentTab {
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
+        #[ts(rename = "windowId")]
+        window_id: String,
         #[ts(type = "\"next\" | \"previous\"")]
         direction: String,
     },
@@ -2216,17 +2326,14 @@ pub enum BrowserRuntimeCommand {
     MoveTab {
         #[ts(rename = "tabId")]
         tab_id: String,
-        #[ts(rename = "displayId")]
-        #[ts(type = "number")]
-        display_id: i64,
+        #[ts(rename = "windowId")]
+        window_id: String,
     },
-    MoveDisplayTabs {
-        #[ts(rename = "sourceDisplayId")]
-        #[ts(type = "number")]
-        source_display_id: i64,
-        #[ts(rename = "targetDisplayId")]
-        #[ts(type = "number")]
-        target_display_id: i64,
+    MoveWindowTabs {
+        #[ts(rename = "sourceWindowId")]
+        source_window_id: String,
+        #[ts(rename = "targetWindowId")]
+        target_window_id: String,
     },
     RoleTransition {
         #[ts(rename = "roleId")]
@@ -2264,9 +2371,8 @@ pub enum BrowserRuntimeCommand {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeDisplayRecord {
-    #[ts(type = "number")]
-    pub display_id: i64,
+pub struct BrowserRuntimeWindowRecord {
+    pub window_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_tab_id: Option<String>,
@@ -2280,8 +2386,7 @@ pub struct BrowserRuntimeTabRecord {
     pub id: String,
     pub source_id: String,
     pub name: String,
-    #[ts(type = "number")]
-    pub display_id: i64,
+    pub window_id: String,
     #[serde(rename = "tabType")]
     #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
     pub tab_type: String,
@@ -2321,9 +2426,8 @@ pub struct BrowserRuntimeWorkspaceRecord {
     #[ts(type = "\"pending\" | \"embedded\"")]
     pub runtime: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "number")]
-    pub display_id: Option<i64>,
-    pub exclusive_display: bool,
+    #[ts(optional)]
+    pub window_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub tab_id: Option<String>,
@@ -2336,7 +2440,7 @@ pub struct BrowserRuntimeWorkspaceRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserRuntimeSnapshot {
-    pub displays: Vec<BrowserRuntimeDisplayRecord>,
+    pub windows: Vec<BrowserRuntimeWindowRecord>,
     pub roles: Vec<BrowserRuntimeRoleRecord>,
     pub tabs: Vec<BrowserRuntimeTabRecord>,
     pub workspaces: Vec<BrowserRuntimeWorkspaceRecord>,
@@ -2708,7 +2812,7 @@ pub struct RuntimeRestoreTabRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RuntimeRestoreWindowRecord {
     pub id: String,
-    pub target_display: StateWorkspaceDisplayTargetRecord,
+    pub target_display: DisplayTargetRecord,
     pub was_visible: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -2721,11 +2825,18 @@ pub struct RuntimeRestoreWindowRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RuntimeRestoreSessionRecord {
     pub schema_version: u8,
+    #[serde(default)]
+    pub session_generation: u32,
     pub updated_at: String,
     pub clean_exit: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub last_focused_window_id: Option<String>,
+    #[serde(default)]
+    pub restore_in_progress_window_ids: Vec<String>,
+    // Kept only as a one-version migration input. GameWindow records are the
+    // authoritative source of restorable windows and tabs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub windows: Vec<RuntimeRestoreWindowRecord>,
 }
 
@@ -3277,11 +3388,11 @@ pub enum CoreEffectAction {
         #[ts(optional)]
         target: Option<EmbeddedLaunchTargetRecord>,
         #[serde(default)]
-        #[ts(rename = "revealDisplayIds", type = "Array<number>")]
-        reveal_display_ids: Vec<i64>,
+        #[ts(rename = "revealWindowIds")]
+        reveal_window_ids: Vec<String>,
         #[serde(default)]
-        #[ts(rename = "focusWindowDisplayIds", type = "Array<number>")]
-        focus_window_display_ids: Vec<i64>,
+        #[ts(rename = "focusWindowIds")]
+        focus_window_ids: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "focusTabId")]
         focus_tab_id: Option<String>,
@@ -3362,9 +3473,13 @@ pub struct OperationCancelResultRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedLaunchTargetRecord {
+    pub window_id: String,
     #[ts(type = "number")]
     pub display_id: i64,
     pub work_area: StatePixelBoundsRecord,
+    pub bounds: StatePixelBoundsRecord,
+    #[ts(type = "\"normal\" | \"maximized\" | \"fullscreen\"")]
+    pub presentation: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

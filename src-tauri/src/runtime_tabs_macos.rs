@@ -21,8 +21,16 @@ struct NativeTabInput {
     workspace_template: *const c_char,
 }
 
-type ActionCallback =
-    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, i64, i64, *const c_char);
+type ActionCallback = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    f64,
+    f64,
+);
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
 
 unsafe extern "C" {
@@ -35,7 +43,7 @@ unsafe extern "C" {
     fn rion_runtime_tabs_destroy(controller: *mut c_void);
     fn rion_runtime_tabs_update(
         controller: *mut c_void,
-        display_id: i64,
+        window_id: *const c_char,
         tabs: *const NativeTabInput,
         tab_count: usize,
         add_label: *const c_char,
@@ -124,12 +132,13 @@ impl MacRuntimeTabsController {
 
     pub fn update(
         &self,
-        display_id: i64,
+        window_id: &str,
         tabs: Vec<MacRuntimeTabState>,
         always_show_in_fullscreen: bool,
         language: &str,
     ) -> Result<(), String> {
         let raw = self.inner.raw as usize;
+        let window_id = window_id.to_owned();
         let labels = labels(language);
         // Runtime projections can be published from AppKit window callbacks.
         // Queueing the update is safe from every caller, while synchronously
@@ -173,6 +182,7 @@ impl MacRuntimeTabsController {
                 let muted = c_string(labels.1);
                 let playing = c_string(labels.2);
                 let close = c_string(labels.3);
+                let window_id = c_string(&window_id);
                 unsafe {
                     rion_runtime_tabs_set_fullscreen_policy(
                         raw as *mut c_void,
@@ -180,7 +190,7 @@ impl MacRuntimeTabsController {
                     );
                     rion_runtime_tabs_update(
                         raw as *mut c_void,
-                        display_id,
+                        window_id.as_ptr(),
                         inputs.as_ptr(),
                         inputs.len(),
                         add.as_ptr(),
@@ -261,9 +271,11 @@ unsafe extern "C" fn action_callback(
     context: *mut c_void,
     action_type: *const c_char,
     tab_id: *const c_char,
-    source_display_id: i64,
-    target_display_id: i64,
+    source_window_id: *const c_char,
+    target_window_id: *const c_char,
     before_tab_id: *const c_char,
+    screen_x: f64,
+    screen_y: f64,
 ) {
     if context.is_null() || action_type.is_null() {
         return;
@@ -274,13 +286,20 @@ unsafe extern "C" fn action_callback(
         .into_owned();
     let tab_id = c_string_from_pointer(tab_id);
     let before_tab_id = c_string_from_pointer(before_tab_id);
+    let source_window_id = c_string_from_pointer(source_window_id);
+    let target_window_id = c_string_from_pointer(target_window_id);
     dispatch_action(
         context.app.clone(),
-        action_type,
-        tab_id,
-        source_display_id,
-        target_display_id,
-        before_tab_id,
+        context.window_label.clone(),
+        NativeTabAction {
+            action_type,
+            tab_id,
+            source_window_id,
+            target_window_id,
+            before_tab_id,
+            screen_x,
+            screen_y,
+        },
     );
 }
 
@@ -317,18 +336,48 @@ fn c_string_from_pointer(value: *const c_char) -> Option<String> {
     })
 }
 
-fn dispatch_action(
-    app: AppHandle,
+struct NativeTabAction {
     action_type: String,
     tab_id: Option<String>,
-    source_display_id: i64,
-    target_display_id: i64,
+    source_window_id: Option<String>,
+    target_window_id: Option<String>,
     before_tab_id: Option<String>,
-) {
+    screen_x: f64,
+    screen_y: f64,
+}
+
+fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction) {
     tauri::async_runtime::spawn(async move {
+        let NativeTabAction {
+            action_type,
+            tab_id,
+            source_window_id,
+            target_window_id,
+            before_tab_id,
+            screen_x,
+            screen_y,
+        } = action;
         let Some(state) = app.try_state::<crate::CoreState>() else {
             return;
         };
+        let host_window_id = state.runtime.window_id_for_label(&window_label);
+        let target_window_id = target_window_id.or(host_window_id);
+        if action_type == "tearOut" {
+            let Some(tab_id) = tab_id else {
+                return;
+            };
+            let point =
+                (screen_x.is_finite() && screen_y.is_finite()).then_some((screen_x, screen_y));
+            if let Err(error) =
+                crate::move_game_window_tab_to_new_window(&app, &state, &tab_id, point).await
+            {
+                let _ = app.emit(
+                    "rion://shell-error",
+                    serde_json::json!({ "code": error.code, "message": error.message }),
+                );
+            }
+            return;
+        }
         let command = match action_type.as_str() {
             "activate" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabActivate { tab_id }),
             "hide" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabHide { tab_id }),
@@ -337,14 +386,17 @@ fn dispatch_action(
                 before_tab_id,
             }),
             "move" => tab_id.and_then(|tab_id| {
-                crate::launch_target_for_app_display(&app, target_display_id)
-                    .ok()
+                target_window_id
+                    .as_deref()
+                    .and_then(|window_id| {
+                        crate::launch_target_for_game_window(&app, window_id).ok()
+                    })
                     .map(|target| CoreCommand::EmbeddedTabMove { tab_id, target })
             }),
             "stop" => tab_id.and_then(|tab_id| stop_command_for_tab(&state.core, &tab_id)),
             "openLauncher" => {
-                if let Err(message) =
-                    crate::runtime_tab_menu::open_launcher(&app, source_display_id)
+                if let Some(window_id) = target_window_id.as_deref()
+                    && let Err(message) = crate::runtime_tab_menu::open_launcher(&app, window_id)
                 {
                     let _ = app.emit(
                         "rion://shell-error",
@@ -372,6 +424,7 @@ fn dispatch_action(
             }
             _ => None,
         };
+        let _ = source_window_id;
         if let Some(command) = command
             && let Err(error) = state.core.invoke_async(command).await
         {
@@ -410,7 +463,13 @@ pub fn fullscreen_preference(core: &rion_core::AppCore) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn native_action_scope_preserves_nonzero_and_safe_negative_display_ids() {
+    fn native_action_scope_preserves_window_identifiers() {
         assert!(unsafe { super::rion_runtime_tabs_action_scope_self_test() });
+    }
+
+    // Keep the historical parity evidence name while the native scope key is now a window ID.
+    #[test]
+    fn native_action_scope_preserves_nonzero_and_safe_negative_display_ids() {
+        native_action_scope_preserves_window_identifiers();
     }
 }

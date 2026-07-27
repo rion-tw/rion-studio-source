@@ -18,6 +18,7 @@ export function clearPortableDataSelection(): PortableDataSelection {
     games: false,
     roles: false,
     launchWorkspaces: false,
+    gameWindows: false,
     macros: false,
     preferences: false
   };
@@ -40,21 +41,27 @@ export function normalizePortableDataSelection(
   selection: PortableDataSelection,
   availability: PortableDataAvailability
 ): PortableDataSelection {
-  const launchWorkspaces = availability.launchWorkspaces && selection.launchWorkspaces;
+  const gameWindows = availability.gameWindows && selection.gameWindows;
+  const launchWorkspaces = availability.launchWorkspaces && (selection.launchWorkspaces || gameWindows);
   const macros = availability.macros && selection.macros;
-  const roles = availability.roles && (selection.roles || launchWorkspaces || macros);
+  const roles = availability.roles && (selection.roles || launchWorkspaces || gameWindows || macros);
 
   return {
     games: availability.games && (selection.games || roles),
     roles,
     launchWorkspaces,
+    gameWindows,
     macros,
     preferences: availability.preferences && selection.preferences
   };
 }
 
 export function isPortableRoleSelectionRequired(selection: PortableDataSelection): boolean {
-  return selection.launchWorkspaces || selection.macros;
+  return selection.launchWorkspaces || selection.gameWindows || selection.macros;
+}
+
+export function isPortableWorkspaceSelectionRequired(selection: PortableDataSelection): boolean {
+  return selection.gameWindows;
 }
 
 export function isPortableGameSelectionRequired(selection: PortableDataSelection): boolean {
@@ -62,7 +69,7 @@ export function isPortableGameSelectionRequired(selection: PortableDataSelection
 }
 
 export function hasPortableDataSelection(selection: PortableDataSelection): boolean {
-  return selection.games || selection.roles || selection.launchWorkspaces || selection.macros || selection.preferences;
+  return selection.games || selection.roles || selection.launchWorkspaces || selection.gameWindows || selection.macros || selection.preferences;
 }
 
 export function filterPortableImportWarnings(
@@ -73,6 +80,9 @@ export function filterPortableImportWarnings(
 }
 
 function getPortableWarningSection(code: PortableImportWarningCode): PortableDataSection {
+  if (code.startsWith("GAME_WINDOW_")) {
+    return "gameWindows";
+  }
   if (code.startsWith("GAME_") || code.startsWith("BUILTIN_GAME_")) {
     return "games";
   }

@@ -34,13 +34,13 @@ use crate::{
         CoreEffectTarget, CoreEffectTargetKind, CoreEvent, DiagnosticExportResultRecord,
         EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
         EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
-        GraphicsDiagnosticsRecord, LegacySessionRestoreRecord, LegalAcceptanceRecord,
-        LogCaptureRecord, LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
-        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
-        MacroStartRequest, OperationCancelResultRecord, RuntimeRestoreSessionRecord,
-        RuntimeVersionRecord, RuntimeWindowPreferencesRecord, StateCollection,
-        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        GameWindowTabRecord, GraphicsDiagnosticsRecord, LegacySessionRestoreRecord,
+        LegalAcceptanceRecord, LogCaptureRecord, LogLevel, MacroOverlayRequestRecord,
+        MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
+        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
+        RuntimeRestoreSessionRecord, RuntimeVersionRecord, RuntimeWindowPreferencesRecord,
+        StateCollection, StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
+        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
@@ -511,8 +511,25 @@ impl AppCore {
                 role_id,
                 browser_zoom_percent,
             }),
-            CoreCommand::WorkspaceReconcileDisplays { displays } => {
-                self.mutate_state(StateMutation::WorkspaceReconcileDisplays(displays))
+            CoreCommand::GameWindowsList => self.read_state_collection("gameWindows"),
+            CoreCommand::GameWindowGet { id } => self.read_state_record(
+                "gameWindows",
+                "id",
+                &id,
+                "GAME_WINDOW_NOT_FOUND",
+                "Game window not found.",
+            ),
+            CoreCommand::GameWindowCreate { input } => {
+                self.mutate_state(StateMutation::GameWindowCreate(input))
+            }
+            CoreCommand::GameWindowUpdate { id, input } => {
+                self.mutate_state(StateMutation::GameWindowUpdate { id, input })
+            }
+            CoreCommand::GameWindowReorder { ordered_ids } => {
+                self.mutate_state(StateMutation::GameWindowReorder { ordered_ids })
+            }
+            CoreCommand::GameWindowDelete { id } => {
+                self.mutate_state(StateMutation::GameWindowDelete { id })
             }
             CoreCommand::MacrosList => self.read_state_collection("macros"),
             CoreCommand::MacroGet { id } => {
@@ -766,6 +783,23 @@ impl AppCore {
                 resolutions,
             } => {
                 let _guard = self.state_mutation_guard()?;
+                if selection.game_windows
+                    && self
+                        .browser_runtime
+                        .lock()
+                        .map_err(|_| {
+                            CoreError::Internal("browser runtime lock poisoned".to_owned())
+                        })?
+                        .snapshot()
+                        .roles
+                        .iter()
+                        .any(|role| role.runtime == "embedded")
+                {
+                    return Err(CoreError::Domain {
+                        code: "PORTABLE_IMPORT_GAME_WINDOWS_RUNNING",
+                        message: "Stop all running roles before importing Game Windows.".to_owned(),
+                    });
+                }
                 let snapshot = self.read_typed_snapshot()?;
                 let mut portable = self.portable()?;
                 let prepared =
@@ -1039,28 +1073,53 @@ impl AppCore {
                 serde_json::to_value(self.report_recovered_system_surface(&role_id)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::EmbeddedWindowsShow { display_id } => {
-                let display_ids = match display_id {
-                    Some(display_id) => vec![display_id],
+            CoreCommand::EmbeddedWindowRegister { target } => {
+                let window_id = target.window_id.clone();
+                serde_json::to_value(self.apply_embedded_runtime_command(
+                    vec![BrowserRuntimeCommand::RegisterWindow {
+                        window_id: window_id.clone(),
+                    }],
+                    Some(target),
+                    vec![window_id.clone()],
+                    vec![window_id],
+                    None,
+                    None,
+                )?)
+                .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::EmbeddedWindowDelete { window_id } => {
+                serde_json::to_value(self.apply_embedded_runtime_command(
+                    vec![BrowserRuntimeCommand::RemoveWindow { window_id }],
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    None,
+                )?)
+                .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::EmbeddedWindowsShow { window_id } => {
+                let window_ids = match window_id {
+                    Some(window_id) => vec![window_id],
                     None => self
                         .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                         .snapshot
-                        .displays
+                        .windows
                         .into_iter()
-                        .map(|display| display.display_id)
+                        .map(|window| window.window_id)
                         .collect(),
                 };
                 serde_json::to_value(
                     self.apply_embedded_runtime_command(
-                        display_ids
+                        window_ids
                             .iter()
-                            .map(|display_id| BrowserRuntimeCommand::ShowDisplay {
-                                display_id: *display_id,
+                            .map(|window_id| BrowserRuntimeCommand::ShowWindow {
+                                window_id: window_id.clone(),
                             })
                             .collect(),
                         None,
-                        display_ids.clone(),
-                        display_ids,
+                        window_ids.clone(),
+                        window_ids,
                         None,
                         None,
                     )?,
@@ -1068,32 +1127,32 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedTabActivate { tab_id } => {
-                let display_id = self.embedded_tab_display_id(&tab_id)?;
+                let window_id = self.embedded_tab_window_id(&tab_id)?;
                 serde_json::to_value(self.apply_embedded_runtime_command(
                     vec![BrowserRuntimeCommand::ActivateTab {
                         tab_id: tab_id.clone(),
                     }],
                     None,
-                    vec![display_id],
-                    vec![display_id],
+                    vec![window_id.clone()],
+                    vec![window_id],
                     Some(tab_id),
                     None,
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedTabActivateAdjacent {
-                display_id,
+                window_id,
                 direction,
             } => serde_json::to_value(self.apply_embedded_runtime_command(
                 vec![BrowserRuntimeCommand::ActivateAdjacentTab {
-                    display_id,
+                    window_id: window_id.clone(),
                     direction,
                 }],
                 None,
-                vec![display_id],
+                vec![window_id.clone()],
                 Vec::new(),
                 None,
-                Some(display_id),
+                Some(window_id),
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::EmbeddedTabHide { tab_id } => {
@@ -1128,31 +1187,16 @@ impl AppCore {
                 serde_json::to_value(self.apply_embedded_runtime_command(
                     vec![BrowserRuntimeCommand::MoveTab {
                         tab_id: tab_id.clone(),
-                        display_id: target.display_id,
+                        window_id: target.window_id.clone(),
                     }],
                     Some(target.clone()),
-                    vec![target.display_id],
-                    vec![target.display_id],
+                    vec![target.window_id.clone()],
+                    vec![target.window_id.clone()],
                     Some(tab_id),
                     None,
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::EmbeddedDisplayRemove {
-                display_id,
-                fallback,
-            } => serde_json::to_value(self.apply_embedded_runtime_command(
-                vec![BrowserRuntimeCommand::MoveDisplayTabs {
-                    source_display_id: display_id,
-                    target_display_id: fallback.display_id,
-                }],
-                Some(fallback.clone()),
-                vec![fallback.display_id],
-                Vec::new(),
-                None,
-                None,
-            )?)
-            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserStatuses => serde_json::to_value(self.browser_statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserWorkspaceStatuses => {
@@ -3809,8 +3853,8 @@ impl AppCore {
                     tab_id: tab_id.clone(),
                 }],
                 None,
-                vec![self.embedded_tab_display_id(&tab_id)?],
-                vec![self.embedded_tab_display_id(&tab_id)?],
+                vec![self.embedded_tab_window_id(&tab_id)?],
+                vec![self.embedded_tab_window_id(&tab_id)?],
                 None,
                 None,
             )?;
@@ -3854,9 +3898,10 @@ impl AppCore {
 
         let tab_id = self
             .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+                tab_id: self.saved_game_window_tab_id(&target.window_id, "role", &role.id)?,
                 source_id: role.id.clone(),
                 name: role.name.clone(),
-                display_id: target.display_id,
+                window_id: target.window_id.clone(),
                 tab_type: "role".to_owned(),
                 workspace_id: None,
                 role_ids: vec![role.id.clone()],
@@ -3975,6 +4020,46 @@ impl AppCore {
                 message: "The launch workspace has no roles.".to_owned(),
             });
         }
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        if let Some(runtime_workspace) = snapshot
+            .workspaces
+            .iter()
+            .find(|candidate| candidate.workspace_id == workspace_id)
+        {
+            if runtime_workspace.state != "running" {
+                return Err(CoreError::Domain {
+                    code: "WORKSPACE_ALREADY_RUNNING",
+                    message: "The workspace is already launching or stopping.".to_owned(),
+                });
+            }
+            let tab_id = runtime_workspace.tab_id.clone().ok_or_else(|| {
+                CoreError::Internal("embedded workspace runtime is missing its tab".to_owned())
+            })?;
+            self.apply_embedded_runtime_command_inner(
+                vec![BrowserRuntimeCommand::ActivateTab {
+                    tab_id: tab_id.clone(),
+                }],
+                None,
+                vec![self.embedded_tab_window_id(&tab_id)?],
+                vec![self.embedded_tab_window_id(&tab_id)?],
+                None,
+                None,
+            )?;
+            return Ok(role_ids
+                .iter()
+                .map(|role_id| {
+                    let launched_at = snapshot
+                        .roles
+                        .iter()
+                        .find(|role| &role.role_id == role_id)
+                        .and_then(|role| role.launched_at.clone())
+                        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                    embedded_launch_result(role_id, launched_at)
+                })
+                .collect());
+        }
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
             role_ids: role_ids.clone(),
             kind: "normal".to_owned(),
@@ -4025,13 +4110,14 @@ impl AppCore {
         self.invoke_browser_runtime(BrowserRuntimeCommand::BeginWorkspace {
             workspace_id: workspace.id.clone(),
             name: workspace.name.clone(),
-            display_id: Some(target.display_id),
+            window_id: Some(target.window_id.clone()),
             role_ids: role_ids.clone(),
         })?;
         let tab_id = match self.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+            tab_id: self.saved_game_window_tab_id(&target.window_id, "workspace", &workspace.id)?,
             source_id: workspace.id.clone(),
             name: workspace.name.clone(),
-            display_id: target.display_id,
+            window_id: target.window_id.clone(),
             tab_type: "workspace".to_owned(),
             workspace_id: Some(workspace.id.clone()),
             role_ids: role_ids.clone(),
@@ -4547,13 +4633,13 @@ impl AppCore {
         Ok(())
     }
 
-    fn embedded_tab_display_id(&self, tab_id: &str) -> CoreResult<i64> {
+    fn embedded_tab_window_id(&self, tab_id: &str) -> CoreResult<String> {
         self.invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot
             .tabs
             .into_iter()
             .find(|tab| tab.id == tab_id)
-            .map(|tab| tab.display_id)
+            .map(|tab| tab.window_id)
             .ok_or_else(|| CoreError::Domain {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),
@@ -4564,19 +4650,19 @@ impl AppCore {
         &self,
         commands: Vec<BrowserRuntimeCommand>,
         target: Option<EmbeddedLaunchTargetRecord>,
-        reveal_display_ids: Vec<i64>,
-        focus_window_display_ids: Vec<i64>,
+        reveal_window_ids: Vec<String>,
+        focus_window_ids: Vec<String>,
         focus_tab_id: Option<String>,
-        focus_active_display_id: Option<i64>,
+        focus_active_window_id: Option<String>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let _sequence = self.embedded_runtime_sequence.acquire()?;
         self.apply_embedded_runtime_command_inner(
             commands,
             target,
-            reveal_display_ids,
-            focus_window_display_ids,
+            reveal_window_ids,
+            focus_window_ids,
             focus_tab_id,
-            focus_active_display_id,
+            focus_active_window_id,
         )
     }
 
@@ -4584,10 +4670,10 @@ impl AppCore {
         &self,
         commands: Vec<BrowserRuntimeCommand>,
         target: Option<EmbeddedLaunchTargetRecord>,
-        reveal_display_ids: Vec<i64>,
-        focus_window_display_ids: Vec<i64>,
+        reveal_window_ids: Vec<String>,
+        focus_window_ids: Vec<String>,
         focus_tab_id: Option<String>,
-        focus_active_display_id: Option<i64>,
+        focus_active_window_id: Option<String>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let (previous, next_runtime, next) = {
             let runtime = self
@@ -4607,33 +4693,42 @@ impl AppCore {
             .invoke(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
         let focus_tab_id = focus_tab_id.or_else(|| {
-            focus_active_display_id.and_then(|display_id| {
-                next.displays
+            focus_active_window_id.and_then(|window_id| {
+                next.windows
                     .iter()
-                    .find(|display| display.display_id == display_id)
-                    .and_then(|display| display.active_tab_id.clone())
+                    .find(|window| window.window_id == window_id)
+                    .and_then(|window| window.active_tab_id.clone())
             })
         });
         let effect = CoreEffectAction::EmbeddedApplyRuntime {
             snapshot: next.clone(),
             target: target.clone(),
-            reveal_display_ids,
-            focus_window_display_ids,
+            reveal_window_ids,
+            focus_window_ids,
             focus_tab_id,
         };
         let compensation = CoreEffectAction::EmbeddedApplyRuntime {
             snapshot: previous_snapshot,
             target,
-            reveal_display_ids: Vec::new(),
-            focus_window_display_ids: Vec::new(),
+            reveal_window_ids: Vec::new(),
+            focus_window_ids: Vec::new(),
             focus_tab_id: None,
         };
         self.run_effect_plan(vec![effect_step(
             "embedded-runtime",
             effect,
             Duration::from_secs(15),
-            Some(compensation),
+            Some(compensation.clone()),
         )])?;
+        if let Err(error) = self.sync_game_windows_from_runtime(&next) {
+            let _ = self.run_effect_plan(vec![effect_step(
+                "embedded-runtime-persistence-rollback",
+                compensation,
+                Duration::from_secs(15),
+                None,
+            )]);
+            return Err(error);
+        }
         let mut runtime = self
             .browser_runtime
             .lock()
@@ -4642,6 +4737,78 @@ impl AppCore {
         drop(runtime);
         self.emit_browser_statuses();
         Ok(next)
+    }
+
+    fn saved_game_window_tab_id(
+        &self,
+        window_id: &str,
+        tab_type: &str,
+        source_id: &str,
+    ) -> CoreResult<Option<String>> {
+        Ok(self
+            .read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?
+            .into_iter()
+            .find(|window| window.id == window_id)
+            .and_then(|window| {
+                window
+                    .tabs
+                    .into_iter()
+                    .find(|tab| tab.tab_type == tab_type && tab.source_id == source_id)
+            })
+            .map(|tab| tab.id))
+    }
+
+    fn sync_game_windows_from_runtime(
+        &self,
+        snapshot: &crate::model::BrowserRuntimeSnapshot,
+    ) -> CoreResult<()> {
+        let mut game_windows =
+            self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
+        let mut changed = false;
+        for runtime_window in &snapshot.windows {
+            let Some(game_window) = game_windows
+                .iter_mut()
+                .find(|window| window.id == runtime_window.window_id)
+            else {
+                continue;
+            };
+            let previous_tabs = game_window
+                .tabs
+                .iter()
+                .map(|tab| ((tab.tab_type.clone(), tab.source_id.clone()), tab.clone()))
+                .collect::<std::collections::HashMap<_, _>>();
+            let tabs = runtime_window
+                .tab_ids
+                .iter()
+                .filter_map(|tab_id| snapshot.tabs.iter().find(|tab| &tab.id == tab_id))
+                .map(|tab| {
+                    let previous =
+                        previous_tabs.get(&(tab.tab_type.clone(), tab.source_id.clone()));
+                    GameWindowTabRecord {
+                        id: tab.id.clone(),
+                        tab_type: tab.tab_type.clone(),
+                        source_id: tab.source_id.clone(),
+                        name: tab.name.clone(),
+                        role_ids: tab.role_ids.clone(),
+                        hidden: tab.hidden,
+                        audio_muted: previous.is_some_and(|tab| tab.audio_muted),
+                        role_views: previous
+                            .map(|tab| tab.role_views.clone())
+                            .unwrap_or_default(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            game_window.tabs = tabs;
+            game_window.active_tab_id = runtime_window.active_tab_id.clone();
+            game_window.updated_at = chrono::Utc::now().to_rfc3339();
+            changed = true;
+        }
+        if changed {
+            self.mutate_state(StateMutation::GameWindowsSync {
+                windows: game_windows,
+            })?;
+        }
+        Ok(())
     }
 
     fn publish_embedded_runtime_snapshot(
@@ -4655,8 +4822,8 @@ impl AppCore {
             CoreEffectAction::EmbeddedApplyRuntime {
                 snapshot: snapshot.clone(),
                 target: None,
-                reveal_display_ids: Vec::new(),
-                focus_window_display_ids: Vec::new(),
+                reveal_window_ids: Vec::new(),
+                focus_window_ids: Vec::new(),
                 focus_tab_id: None,
             },
             Duration::from_secs(15),
@@ -5466,8 +5633,8 @@ fn embedded_launch_effects(
             CoreEffectAction::EmbeddedApplyRuntime {
                 snapshot: runtime_snapshot,
                 target: Some(target.clone()),
-                reveal_display_ids: vec![target.display_id],
-                focus_window_display_ids: vec![target.display_id],
+                reveal_window_ids: vec![target.window_id.clone()],
+                focus_window_ids: vec![target.window_id.clone()],
                 focus_tab_id: None,
             },
             Duration::from_secs(10),
@@ -5607,15 +5774,16 @@ fn next_active_tab_after_removal(
     snapshot: &crate::model::BrowserRuntimeSnapshot,
     removed_tab_id: &str,
 ) -> Option<String> {
-    let display_id = snapshot
+    let window_id = snapshot
         .tabs
         .iter()
         .find(|tab| tab.id == removed_tab_id)?
-        .display_id;
+        .window_id
+        .clone();
     snapshot
-        .displays
+        .windows
         .iter()
-        .find(|display| display.display_id == display_id)?
+        .find(|window| window.window_id == window_id)?
         .tab_ids
         .iter()
         .filter(|tab_id| tab_id.as_str() != removed_tab_id)
@@ -5709,7 +5877,25 @@ mod tests {
         model::{CoreEffectRequest, CoreEffectResult},
     };
 
-    fn command(value: Value) -> CoreCommand {
+    fn command(mut value: Value) -> CoreCommand {
+        if matches!(
+            value.get("type").and_then(Value::as_str),
+            Some("embeddedRoleLaunch" | "embeddedWorkspaceLaunch")
+        ) && let Some(target) = value.get_mut("target").and_then(Value::as_object_mut)
+        {
+            let work_area = target
+                .get("workArea")
+                .cloned()
+                .unwrap_or_else(|| json!({"x": 0, "y": 0, "width": 1200, "height": 800}));
+            let display_id = target.get("displayId").and_then(Value::as_i64).unwrap_or(1);
+            target
+                .entry("windowId")
+                .or_insert_with(|| json!(format!("test-window-{display_id}")));
+            target.entry("bounds").or_insert(work_area);
+            target
+                .entry("presentation")
+                .or_insert_with(|| json!("normal"));
+        }
         serde_json::from_value(value).unwrap()
     }
 
@@ -6691,6 +6877,7 @@ mod tests {
             games: true,
             roles: true,
             launch_workspaces: true,
+            game_windows: false,
             macros: true,
             preferences: false,
         };
@@ -6735,6 +6922,93 @@ mod tests {
                 2
             );
         });
+        core.shutdown();
+    }
+
+    #[test]
+    fn portable_game_window_import_is_blocked_while_a_role_is_running() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let game_window = core
+            .invoke(command(json!({
+                "type": "gameWindowCreate",
+                "input": {
+                    "name": "Import target",
+                    "targetDisplay": { "id": 1 },
+                    "placement": {
+                        "normalBounds": { "x": 20, "y": 20, "width": 960, "height": 640 },
+                        "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                        "presentation": "normal"
+                    }
+                }
+            })))
+            .unwrap();
+        let window_id = game_window["id"].as_str().unwrap().to_owned();
+        let selection = crate::model::PortableDataSelectionRecord {
+            games: true,
+            roles: true,
+            launch_workspaces: false,
+            game_windows: true,
+            macros: false,
+            preferences: false,
+        };
+        let portable = core
+            .invoke(CoreCommand::PortableExport {
+                preferences: None,
+                selection: selection.clone(),
+            })
+            .unwrap();
+        let preview = core
+            .invoke(CoreCommand::PortablePreview {
+                raw_json: portable.to_string(),
+                file_path: "/tmp/rion-game-window-running-import.json".to_owned(),
+            })
+            .unwrap();
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RegisterWindow {
+            window_id: window_id.clone(),
+        })
+        .unwrap();
+        let tab_id = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+                tab_id: Some(uuid::Uuid::new_v4().to_string()),
+                source_id: role_id.clone(),
+                name: "Role 1".to_owned(),
+                window_id,
+                tab_type: "role".to_owned(),
+                workspace_id: None,
+                role_ids: vec![role_id.clone()],
+            })
+            .unwrap()
+            .created_tab_id
+            .unwrap();
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+            role_id: role_id.clone(),
+            runtime: "embedded".to_owned(),
+            workspace_id: None,
+            tab_id: Some(tab_id.clone()),
+            state: "launching".to_owned(),
+            launched_at: None,
+        })
+        .unwrap();
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+            role_id,
+            runtime: "embedded".to_owned(),
+            workspace_id: None,
+            tab_id: Some(tab_id),
+            state: "running".to_owned(),
+            launched_at: Some(chrono::Utc::now().to_rfc3339()),
+        })
+        .unwrap();
+
+        let error = core
+            .invoke(CoreCommand::PortableApply {
+                import_id: preview["importId"].as_str().unwrap().to_owned(),
+                selection,
+                resolutions: Vec::new(),
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code(), "PORTABLE_IMPORT_GAME_WINDOWS_RUNNING");
         core.shutdown();
     }
 
@@ -7581,6 +7855,7 @@ mod tests {
             CoreCommand::EmbeddedRoleLaunch {
                 role_id,
                 target: EmbeddedLaunchTargetRecord {
+                    window_id: uuid::Uuid::new_v4().to_string(),
                     display_id: 1,
                     work_area: crate::model::StatePixelBoundsRecord {
                         x: 0,
@@ -7588,6 +7863,13 @@ mod tests {
                         width: 1200,
                         height: 800,
                     },
+                    bounds: crate::model::StatePixelBoundsRecord {
+                        x: 120,
+                        y: 80,
+                        width: 960,
+                        height: 640,
+                    },
+                    presentation: "normal".to_owned(),
                 },
                 zoom_factor: None,
             },

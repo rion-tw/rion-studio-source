@@ -136,8 +136,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain('cfg!(target_os = "macos")');
     expect(shell).toContain("on_web_content_process_terminate");
     expect(shell).toContain("rion-tauri-display-watcher");
-    expect(shell).toContain("CoreCommand::EmbeddedDisplayRemove");
-    expect(shell).toContain("CoreCommand::WorkspaceReconcileDisplays");
+    expect(shell).not.toContain("CoreCommand::EmbeddedDisplayRemove");
+    expect(shell).not.toContain("CoreCommand::WorkspaceReconcileDisplays");
+    expect(shell).toContain('"rion://displays"');
     expect(shell).toContain('"restoreSavedGameWindows"');
     expect(shell).toContain('"autoRestoreSavedGameWindows"');
     expect(macInput).toContain("NSEventTypeFlagsChanged");

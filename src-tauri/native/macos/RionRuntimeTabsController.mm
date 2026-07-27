@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 
 // Unified compact is AppKit's 40pt titlebar host on macOS 12 and newer. Keep
@@ -474,11 +475,14 @@ static void RionForwardRuntimeTabsAction(
   NSString *type = action[@"type"];
   NSString *tabID = action[@"tabId"];
   NSString *beforeTabID = action[@"beforeTabId"];
-  NSNumber *sourceDisplayID = action[@"sourceDisplayId"];
-  NSNumber *targetDisplayID = action[@"displayId"];
+  NSString *sourceWindowID = action[@"sourceWindowId"];
+  NSString *targetWindowID = action[@"windowId"];
+  NSNumber *screenX = action[@"screenX"];
+  NSNumber *screenY = action[@"screenY"];
   actionHandler(context, type.UTF8String, tabID.UTF8String,
-                sourceDisplayID.longLongValue,
-                targetDisplayID.longLongValue, beforeTabID.UTF8String);
+                sourceWindowID.UTF8String, targetWindowID.UTF8String,
+                beforeTabID.UTF8String, screenX ? screenX.doubleValue : NAN,
+                screenY ? screenY.doubleValue : NAN);
 }
 
 void *rion_runtime_tabs_create(
@@ -511,7 +515,7 @@ void rion_runtime_tabs_destroy(void *rawController) {
 }
 
 void rion_runtime_tabs_update(
-    void *rawController, int64_t displayID, const RionRuntimeTabInput *tabs,
+    void *rawController, const char *windowID, const RionRuntimeTabInput *tabs,
     size_t tabCount, const char *addLabel, const char *audioMutedLabel,
     const char *audioPlayingLabel, const char *closeLabel) {
   @autoreleasepool {
@@ -535,7 +539,7 @@ void rion_runtime_tabs_update(
       [models addObject:model];
     }
     RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
-    state.displayID = displayID;
+    state.windowID = RionStringFromUTF8(windowID) ?: @"";
     state.addLabel = RionStringFromUTF8(addLabel) ?: @"Open role or workspace";
     state.audioMutedLabel = RionStringFromUTF8(audioMutedLabel) ?: @"Tab muted";
     state.audioPlayingLabel = RionStringFromUTF8(audioPlayingLabel) ?: @"Playing audio";
@@ -571,41 +575,43 @@ RionRuntimeContentLayout rion_runtime_tabs_content_layout(void *rawController) {
 }
 
 struct RionRuntimeTabsActionScopeProbe {
-  int64_t sourceDisplayID;
-  int64_t targetDisplayID;
+  std::string sourceWindowID;
+  std::string targetWindowID;
   bool called;
 };
 
 static void RionRuntimeTabsActionScopeProbeCallback(
     void *context, const char *type, const char *tabIdentifier,
-    int64_t sourceDisplayID, int64_t targetDisplayID,
-    const char *beforeTabIdentifier) {
+    const char *sourceWindowID, const char *targetWindowID,
+    const char *beforeTabIdentifier, double screenX, double screenY) {
   (void)tabIdentifier;
   (void)beforeTabIdentifier;
+  (void)screenX;
+  (void)screenY;
   RionRuntimeTabsActionScopeProbe *probe =
       static_cast<RionRuntimeTabsActionScopeProbe *>(context);
   probe->called = type && (strcmp(type, "openLauncher") == 0 ||
                            strcmp(type, "move") == 0);
-  probe->sourceDisplayID = sourceDisplayID;
-  probe->targetDisplayID = targetDisplayID;
+  probe->sourceWindowID = sourceWindowID ?: "";
+  probe->targetWindowID = targetWindowID ?: "";
 }
 
 bool rion_runtime_tabs_action_scope_self_test(void) {
   @autoreleasepool {
-    RionRuntimeTabsActionScopeProbe launcherProbe = {0, 0, false};
+    RionRuntimeTabsActionScopeProbe launcherProbe = {"", "", false};
     RionForwardRuntimeTabsAction(
-        @{ @"type" : @"openLauncher", @"sourceDisplayId" : @(42) },
+        @{ @"type" : @"openLauncher", @"sourceWindowId" : @"window-a" },
         &launcherProbe, RionRuntimeTabsActionScopeProbeCallback);
-    RionRuntimeTabsActionScopeProbe moveProbe = {0, 0, false};
+    RionRuntimeTabsActionScopeProbe moveProbe = {"", "", false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"move",
-           @"sourceDisplayId" : @(-9007199254740991LL),
-           @"displayId" : @(73) },
+           @"sourceWindowId" : @"window-a",
+           @"windowId" : @"window-b" },
         &moveProbe, RionRuntimeTabsActionScopeProbeCallback);
-    return launcherProbe.called && launcherProbe.sourceDisplayID == 42 &&
-           launcherProbe.targetDisplayID == 0 && moveProbe.called &&
-           moveProbe.sourceDisplayID == -9007199254740991LL &&
-           moveProbe.targetDisplayID == 73;
+    return launcherProbe.called && launcherProbe.sourceWindowID == "window-a" &&
+           launcherProbe.targetWindowID.empty() && moveProbe.called &&
+           moveProbe.sourceWindowID == "window-a" &&
+           moveProbe.targetWindowID == "window-b";
   }
 }
 
@@ -631,7 +637,7 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
 @interface RionRuntimeTabItemView : NSControl <NSDraggingSource>
 
 @property(nonatomic) BOOL activeTab;
-@property(nonatomic) NSInteger sourceDisplayID;
+@property(nonatomic, copy) NSString *sourceWindowID;
 @property(nonatomic, weak) RionRuntimeSurfaceView *surfaceView;
 @property(nonatomic, weak) RionRuntimeTabsController *tabsController;
 @property(nonatomic, copy) NSString *tabIdentifier;
@@ -689,8 +695,9 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
 - (void)ensureFullScreenTitlebarWidgetInsetOverrides;
 - (void)enforceTrafficLightVisibility;
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
-                    sourceDisplayID:(NSInteger)sourceDisplayID
+                     sourceWindowID:(NSString *)sourceWindowID
                    beforeIdentifier:(nullable NSString *)beforeIdentifier;
+- (void)tearOutTab:(NSString *)tabIdentifier atScreenPoint:(NSPoint)screenPoint;
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view;
 - (void)hideInsertionIndicator;
 - (void)hideResidualFullScreenTrafficLightOverlay;
@@ -1196,6 +1203,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   return YES;
 }
 
+- (void)draggingSession:(NSDraggingSession *)session
+           endedAtPoint:(NSPoint)screenPoint
+              operation:(NSDragOperation)operation {
+  (void)session;
+  NSEvent *event = NSApp.currentEvent;
+  BOOL cancelledWithEscape =
+      event.type == NSEventTypeKeyDown && event.keyCode == 53;
+  if (operation == NSDragOperationNone && !cancelledWithEscape &&
+      self.tabIdentifier.length > 0) {
+    [self.tabsController tearOutTab:self.tabIdentifier atScreenPoint:screenPoint];
+  }
+}
+
 @end
 
 @implementation RionRuntimeAddButton {
@@ -1270,14 +1290,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       stringForType:RionRuntimeTabPasteboardType];
   NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\n"];
   if (parts.count != 2) return NO;
-  NSInteger sourceDisplayID = parts[0].integerValue;
+  NSString *sourceWindowID = parts[0];
   NSString *tabIdentifier = parts[1];
   NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
   NSString *beforeIdentifier =
       [self.tabsController tabIdentifierBeforePoint:point inView:self];
   [self.tabsController hideInsertionIndicator];
   [self.tabsController handleDropWithTabIdentifier:tabIdentifier
-                                   sourceDisplayID:sourceDisplayID
+                                    sourceWindowID:sourceWindowID
                                   beforeIdentifier:beforeIdentifier];
   return YES;
 }
@@ -1301,7 +1321,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   RionRuntimeAddButton *_addButton;
   NSView *_clusterContainer;
   RionRuntimeDraggableView *_clusterContent;
-  NSInteger _displayID;
+  NSString *_windowID;
   NSView *_insertionIndicator;
   NSMutableArray<NSButton *> *_observedTrafficLightButtons;
   NSMutableDictionary<NSValue *, NSDictionary<NSString *, NSNumber *> *> *
@@ -2263,7 +2283,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)updateState:(RionRuntimeTabsState *)state {
   if (_destroyed) return;
-  _displayID = state.displayID;
+  _windowID = state.windowID;
   _addButton.toolTip = state.addLabel;
   _addButton.accessibilityLabel = state.addLabel;
 
@@ -2290,7 +2310,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                        cornerRadius:14.0];
       item.surfaceView = surface;
     }
-    item.sourceDisplayID = state.displayID;
+    item.sourceWindowID = state.windowID;
     [item configureWithTab:tab
                      image:[self imageForTab:tab]
                 closeLabel:state.closeLabel
@@ -2381,21 +2401,21 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)activateTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
     _actionHandler(@{ @"type" : @"activate", @"tabId" : tabIdentifier,
-                      @"sourceDisplayId" : @(_displayID) });
+                      @"sourceWindowId" : _windowID });
   }
 }
 
 - (void)closeTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
     _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier,
-                      @"sourceDisplayId" : @(_displayID) });
+                      @"sourceWindowId" : _windowID });
   }
 }
 
 - (void)showTabMenu:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
     _actionHandler(@{ @"type" : @"openTabMenu", @"tabId" : tabIdentifier,
-                      @"sourceDisplayId" : @(_displayID) });
+                      @"sourceWindowId" : _windowID });
   }
 }
 
@@ -2403,14 +2423,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   (void)sender;
   if (_actionHandler) {
     _actionHandler(@{ @"type" : @"openLauncher",
-                      @"sourceDisplayId" : @(_displayID) });
+                      @"sourceWindowId" : _windowID });
   }
 }
 
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event {
   NSPasteboardItem *pasteboardItem = [[NSPasteboardItem alloc] init];
   [pasteboardItem
-      setString:[NSString stringWithFormat:@"%ld\n%@", (long)item.sourceDisplayID,
+      setString:[NSString stringWithFormat:@"%@\n%@", item.sourceWindowID,
                                            item.tabIdentifier]
         forType:RionRuntimeTabPasteboardType];
   NSDraggingItem *draggingItem =
@@ -2462,15 +2482,15 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 }
 
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
-                    sourceDisplayID:(NSInteger)sourceDisplayID
+                     sourceWindowID:(NSString *)sourceWindowID
                    beforeIdentifier:(nullable NSString *)beforeIdentifier {
   if (!_actionHandler || tabIdentifier.length == 0) return;
-  if (sourceDisplayID != _displayID) {
+  if (![sourceWindowID isEqualToString:_windowID]) {
     _actionHandler(@{
       @"type" : @"move",
       @"tabId" : tabIdentifier,
-      @"sourceDisplayId" : @(sourceDisplayID),
-      @"displayId" : @(_displayID)
+      @"sourceWindowId" : sourceWindowID,
+      @"windowId" : _windowID
     });
     return;
   }
@@ -2478,10 +2498,25 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSMutableDictionary<NSString *, id> *action = [@{
     @"type" : @"reorder",
     @"tabId" : tabIdentifier,
-    @"sourceDisplayId" : @(_displayID)
+    @"sourceWindowId" : _windowID
   } mutableCopy];
   if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
   _actionHandler(action);
+}
+
+- (void)tearOutTab:(NSString *)tabIdentifier atScreenPoint:(NSPoint)screenPoint {
+  if (!_actionHandler || tabIdentifier.length == 0) return;
+  CGFloat desktopTop = 0;
+  for (NSScreen *screen in NSScreen.screens) {
+    desktopTop = MAX(desktopTop, NSMaxY(screen.frame));
+  }
+  _actionHandler(@{
+    @"type" : @"tearOut",
+    @"tabId" : tabIdentifier,
+    @"sourceWindowId" : _windowID,
+    @"screenX" : @(screenPoint.x),
+    @"screenY" : @(desktopTop - screenPoint.y)
+  });
 }
 
 - (void)ensureFullscreenPresentationOptionsHook {

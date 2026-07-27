@@ -5,7 +5,8 @@ import { formatRuntimeTabTooltip, isRuntimeTabAction } from "../src/shared/runti
 describe("runtime tab shell-neutral contracts", () => {
   it("accepts only bounded runtime tab action shapes", () => {
     expect(isRuntimeTabAction({ type: "activate", tabId: "tab-1" })).toBe(true);
-    expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: -22 })).toBe(true);
+    expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", windowId: "window-22" })).toBe(true);
+    expect(isRuntimeTabAction({ type: "tearOut", tabId: "tab-1", screenX: 100, screenY: 200 })).toBe(true);
     expect(isRuntimeTabAction({ type: "reorder", tabId: "tab-1", beforeTabId: "tab-2" })).toBe(true);
     expect(isRuntimeTabAction({ type: "openLauncher" })).toBe(true);
     expect(isRuntimeTabAction({ type: "openTabMenu", tabId: "tab-1" })).toBe(true);
@@ -15,8 +16,9 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "windowControl", control: "close" })).toBe(true);
 
     expect(isRuntimeTabAction({ type: "activate", tabId: "" })).toBe(false);
-    expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: 1.5 })).toBe(false);
-    expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: Number.MAX_VALUE })).toBe(false);
+    expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", windowId: "" })).toBe(false);
+    expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: 22 })).toBe(false);
+    expect(isRuntimeTabAction({ type: "tearOut", tabId: "tab-1", screenX: Number.NaN, screenY: 0 })).toBe(false);
     expect(isRuntimeTabAction({ type: "openLauncher", itemId: "role-1" })).toBe(false);
     expect(isRuntimeTabAction({ type: "windowControl", control: "fullscreen" })).toBe(false);
     expect(isRuntimeTabAction({ type: "activateAdjacent", direction: "up" })).toBe(false);

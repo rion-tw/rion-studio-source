@@ -66,8 +66,6 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Launch workspace name must be 80 characters or fewer.": "error.workspaceNameTooLong",
   "Launch workspace layout is invalid.": "error.workspaceTemplateInvalid",
   "Launch workspace browser zoom is invalid.": "error.workspaceBrowserZoomInvalid",
-  "Launch workspace target display is invalid.": "error.workspaceTargetDisplayInvalid",
-  "Launch workspace display selection is invalid.": "error.workspaceDisplaySelectionInvalid",
   "Launch workspace role is outside the selected layout.": "error.workspaceSlotOutsideLayout",
   "Launch workspace can contain at most 9 slots.": "error.workspaceTooManySlots",
   "A role can only appear once in a launch workspace.": "error.workspaceRoleDuplicate",

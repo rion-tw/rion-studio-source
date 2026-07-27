@@ -19,19 +19,20 @@ use crate::{
     layout::normalize_rect_edges,
     macro_graph::validate_macro_graph,
     model::{
-        CoreStateSnapshotRecord, GameBrowserSettingsRecord, LayoutRect, MacroSettingsRecord,
-        MacroStepDefinition, MacroTrigger, PortableDataRecord, PortableDataSelectionRecord,
-        PortableExportResultRecord, PortableGameRecord, PortableImportOperationsRecord,
-        PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
-        PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
-        PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
-        PortablePreferencesRecord, PortableRoleRecord, StateGameRecord, StateLaunchWorkspaceRecord,
+        CoreStateSnapshotRecord, GameBrowserSettingsRecord, GameWindowTabRecord, LayoutRect,
+        MacroSettingsRecord, MacroStepDefinition, MacroTrigger, PortableDataRecord,
+        PortableDataSelectionRecord, PortableExportResultRecord, PortableGameRecord,
+        PortableGameWindowRecord, PortableImportOperationsRecord, PortableImportPreviewRecord,
+        PortableImportResultRecord, PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
+        PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
+        PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
+        PortableRoleRecord, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
         StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
     },
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-const CURRENT_SCHEMA: u64 = 7;
+const CURRENT_SCHEMA: u64 = 8;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -110,9 +111,15 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
     let macros = normalize_macros(object, schema >= 5)?;
+    let game_windows = if schema >= 8 {
+        normalize_array(object, "gameWindows", normalize_game_window)?
+    } else {
+        Vec::new()
+    };
     ensure_unique_ids(&games, "id", "game")?;
     ensure_unique_ids(&roles, "id", "role")?;
     ensure_unique_ids(&workspaces, "id", "workspace")?;
+    ensure_unique_ids(&game_windows, "id", "game window")?;
     ensure_unique_ids(&macros, "id", "macro")?;
     validate_macro_graph(&macros).map_err(|_| portable_macro_dependency_invalid())?;
     let mut output = Map::new();
@@ -139,6 +146,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     output.insert("games".to_owned(), Value::Array(games));
     output.insert("roles".to_owned(), Value::Array(roles));
     output.insert("launchWorkspaces".to_owned(), Value::Array(workspaces));
+    output.insert("gameWindows".to_owned(), Value::Array(game_windows));
     output.insert("macros".to_owned(), Value::Array(macros));
     if let Some(preferences) = normalize_preferences(object.get("preferences"))? {
         output.insert("preferences".to_owned(), preferences);
@@ -251,6 +259,32 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
         role.insert("coverImageDominantColor".to_owned(), json!(color));
     }
     Ok(Value::Object(role))
+}
+
+fn normalize_game_window(value: &Value) -> CoreResult<Value> {
+    let mut window = serde_json::from_value::<PortableGameWindowRecord>(value.clone())
+        .map_err(|error| invalid(format!("portable game window is invalid: {error}")))?;
+    window.id = window.id.trim().to_owned();
+    window.name = window.name.trim().to_owned();
+    if window.id.is_empty() || window.id.len() > 128 {
+        return Err(invalid("portable game window id is invalid"));
+    }
+    if window.name.is_empty() || window.name.chars().count() > 80 {
+        return Err(invalid("portable game window name is invalid"));
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    crate::domain::validate_game_window_collection(&[StateGameWindowRecord {
+        id: window.id.clone(),
+        name: window.name.clone(),
+        target_display: window.target_display.clone(),
+        placement: window.placement.clone(),
+        tabs: window.tabs.clone(),
+        active_tab_id: window.active_tab_id.clone(),
+        created_at: now.clone(),
+        updated_at: now,
+    }])?;
+    serde_json::to_value(window)
+        .map_err(|error| invalid(format!("portable game window is invalid: {error}")))
 }
 
 fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Value>, Vec<Value>)> {
@@ -971,6 +1005,7 @@ impl PortableRuntime {
             game_count: processed_count(&plan.operations.games),
             role_count: processed_count(&plan.operations.roles),
             workspace_count: processed_count(&plan.operations.launch_workspaces),
+            game_window_count: processed_count(&plan.operations.game_windows),
             macro_count: processed_count(&plan.operations.macros),
             preferences: data.preferences,
             operations: plan.operations,
@@ -1011,6 +1046,7 @@ impl PortableRuntime {
                 game_count: processed_count(&plan.operations.games),
                 role_count: processed_count(&plan.operations.roles),
                 workspace_count: processed_count(&plan.operations.launch_workspaces),
+                game_window_count: processed_count(&plan.operations.game_windows),
                 macro_count: processed_count(&plan.operations.macros),
                 preferences_included: preferences.is_some(),
                 preferences,
@@ -1067,6 +1103,15 @@ pub(crate) fn export(
                 .launch_workspaces
                 .iter()
                 .map(portable_workspace)
+                .collect()
+        } else {
+            Vec::new()
+        },
+        game_windows: if selection.game_windows {
+            snapshot
+                .game_windows
+                .iter()
+                .map(portable_game_window)
                 .collect()
         } else {
             Vec::new()
@@ -1129,6 +1174,7 @@ pub(crate) fn write_export(
         game_count: data.games.len() as u32,
         role_count: data.roles.len() as u32,
         workspace_count: data.launch_workspaces.len() as u32,
+        game_window_count: data.game_windows.len() as u32,
         macro_count: data.macros.len() as u32,
         preferences_included: data.preferences.is_some(),
         selection,
@@ -1161,6 +1207,7 @@ fn build_import_plan(
     let mut operations = PortableImportOperationsRecord::default();
     let mut game_id_map = HashMap::new();
     let mut role_id_map = HashMap::new();
+    let mut workspace_id_map = HashMap::new();
 
     if selection.games {
         let mut used_names = snapshot
@@ -1456,9 +1503,6 @@ fn build_import_plan(
                 browser_engine: workspace.browser_engine,
                 browser_zoom_mode: workspace.browser_zoom_mode.clone(),
                 browser_zoom_percent: workspace.browser_zoom_percent,
-                target_display: existing
-                    .as_ref()
-                    .and_then(|workspace| workspace.target_display.clone()),
                 slots,
                 created_at: existing
                     .as_ref()
@@ -1466,6 +1510,7 @@ fn build_import_plan(
                     .unwrap_or_else(|| timestamp.clone()),
                 updated_at: timestamp.clone(),
             };
+            let merged_id = merged.id.clone();
             if let Some(index) = existing_index {
                 if workspace_equivalent(&snapshot.launch_workspaces[index], &merged)? {
                     operations.launch_workspaces.unchanged += 1;
@@ -1477,7 +1522,157 @@ fn build_import_plan(
                 snapshot.launch_workspaces.push(merged);
                 operations.launch_workspaces.create += 1;
             }
+            workspace_id_map.insert(workspace.id.clone(), merged_id);
         }
+    }
+
+    if selection.game_windows {
+        let incoming_ids = data
+            .game_windows
+            .iter()
+            .map(|window| window.id.as_str())
+            .collect::<HashSet<_>>();
+        let mut used_names = snapshot
+            .game_windows
+            .iter()
+            .filter(|window| !incoming_ids.contains(window.id.as_str()))
+            .map(|window| normalize_name_key(&window.name))
+            .collect::<HashSet<_>>();
+        let mut claimed_sources = HashSet::new();
+        let mut claimed_roles = HashSet::new();
+        let mut used_tab_ids = HashSet::new();
+        for window in snapshot
+            .game_windows
+            .iter()
+            .filter(|window| !incoming_ids.contains(window.id.as_str()))
+        {
+            for tab in &window.tabs {
+                claimed_sources.insert(format!("{}:{}", tab.tab_type, tab.source_id));
+                claimed_roles.extend(tab.role_ids.iter().cloned());
+                used_tab_ids.insert(tab.id.clone());
+            }
+        }
+
+        for portable in &data.game_windows {
+            let existing_index = snapshot
+                .game_windows
+                .iter()
+                .position(|window| window.id == portable.id);
+            let name = reserve_import_name(&portable.name, &mut used_names)?;
+            if name != portable.name {
+                warnings.push(warning(
+                    "GAME_WINDOW_NAME_RENAMED",
+                    Some(portable.name.clone()),
+                    Some(name.clone()),
+                    None,
+                ));
+            }
+            let mut tabs = Vec::new();
+            let mut imported_tab_ids = HashMap::new();
+            for tab in &portable.tabs {
+                let source_id = if tab.tab_type == "role" {
+                    role_id_map.get(&tab.source_id)
+                } else {
+                    workspace_id_map.get(&tab.source_id)
+                };
+                let Some(source_id) = source_id.cloned() else {
+                    warnings.push(warning(
+                        "GAME_WINDOW_TAB_DEPENDENCY_MISSING",
+                        Some(tab.name.clone()),
+                        None,
+                        None,
+                    ));
+                    continue;
+                };
+                let role_ids = if tab.tab_type == "role" {
+                    vec![source_id.clone()]
+                } else {
+                    tab.role_ids
+                        .iter()
+                        .filter_map(|role_id| role_id_map.get(role_id).cloned())
+                        .collect::<Vec<_>>()
+                };
+                let source_key = format!("{}:{source_id}", tab.tab_type);
+                if role_ids.is_empty()
+                    || claimed_sources.contains(&source_key)
+                    || role_ids
+                        .iter()
+                        .any(|role_id| claimed_roles.contains(role_id))
+                {
+                    warnings.push(warning(
+                        "GAME_WINDOW_TAB_ROLE_CONFLICT",
+                        Some(tab.name.clone()),
+                        None,
+                        None,
+                    ));
+                    continue;
+                }
+                let tab_id = if !tab.id.trim().is_empty() && used_tab_ids.insert(tab.id.clone()) {
+                    tab.id.clone()
+                } else {
+                    let id = Uuid::new_v4().to_string();
+                    used_tab_ids.insert(id.clone());
+                    id
+                };
+                let role_views = tab
+                    .role_views
+                    .iter()
+                    .filter_map(|view| {
+                        let role_id = role_id_map.get(&view.role_id)?.clone();
+                        role_ids.contains(&role_id).then(|| {
+                            crate::model::GameWindowRoleViewRecord {
+                                role_id,
+                                rect: view.rect.clone(),
+                                browser_zoom_percent: view.browser_zoom_percent,
+                            }
+                        })
+                    })
+                    .collect();
+                claimed_sources.insert(source_key);
+                claimed_roles.extend(role_ids.iter().cloned());
+                imported_tab_ids.insert(tab.id.clone(), tab_id.clone());
+                tabs.push(GameWindowTabRecord {
+                    id: tab_id,
+                    tab_type: tab.tab_type.clone(),
+                    source_id,
+                    name: tab.name.clone(),
+                    role_ids,
+                    hidden: tab.hidden,
+                    audio_muted: tab.audio_muted,
+                    role_views,
+                });
+            }
+            let existing = existing_index.map(|index| snapshot.game_windows[index].clone());
+            let merged = StateGameWindowRecord {
+                id: portable.id.clone(),
+                name,
+                target_display: portable.target_display.clone(),
+                placement: portable.placement.clone(),
+                active_tab_id: portable
+                    .active_tab_id
+                    .as_ref()
+                    .and_then(|id| imported_tab_ids.get(id).cloned())
+                    .or_else(|| tabs.first().map(|tab| tab.id.clone())),
+                tabs,
+                created_at: existing
+                    .as_ref()
+                    .map(|window| window.created_at.clone())
+                    .unwrap_or_else(|| timestamp.clone()),
+                updated_at: timestamp.clone(),
+            };
+            if let Some(index) = existing_index {
+                if game_window_equivalent(&snapshot.game_windows[index], &merged)? {
+                    operations.game_windows.unchanged += 1;
+                } else {
+                    snapshot.game_windows[index] = merged;
+                    operations.game_windows.update += 1;
+                }
+            } else {
+                snapshot.game_windows.push(merged);
+                operations.game_windows.create += 1;
+            }
+        }
+        crate::domain::validate_game_window_collection(&snapshot.game_windows)?;
     }
 
     let mut conflicts = Vec::new();
@@ -1779,14 +1974,18 @@ fn all_selection() -> PortableDataSelectionRecord {
         games: true,
         roles: true,
         launch_workspaces: true,
+        game_windows: true,
         macros: true,
         preferences: true,
     }
 }
 
 fn normalize_selection(mut selection: PortableDataSelectionRecord) -> PortableDataSelectionRecord {
-    if selection.launch_workspaces || selection.macros {
+    if selection.launch_workspaces || selection.game_windows || selection.macros {
         selection.roles = true;
+    }
+    if selection.game_windows {
+        selection.launch_workspaces = true;
     }
     if selection.roles {
         selection.games = true;
@@ -1802,6 +2001,7 @@ fn effective_selection(
         games: selection.games && !data.games.is_empty(),
         roles: selection.roles && !data.roles.is_empty(),
         launch_workspaces: selection.launch_workspaces && !data.launch_workspaces.is_empty(),
+        game_windows: selection.game_windows && !data.game_windows.is_empty(),
         macros: selection.macros && !data.macros.is_empty(),
         preferences: selection.preferences && data.preferences.is_some(),
     }
@@ -1815,6 +2015,7 @@ fn ensure_selected_content(
     if effective.games
         || effective.roles
         || effective.launch_workspaces
+        || effective.game_windows
         || effective.macros
         || effective.preferences
     {
@@ -1937,6 +2138,17 @@ fn portable_workspace(workspace: &StateLaunchWorkspaceRecord) -> PortableLaunchW
     }
 }
 
+fn portable_game_window(window: &StateGameWindowRecord) -> PortableGameWindowRecord {
+    PortableGameWindowRecord {
+        id: window.id.clone(),
+        name: window.name.clone(),
+        target_display: window.target_display.clone(),
+        placement: window.placement.clone(),
+        tabs: window.tabs.clone(),
+        active_tab_id: window.active_tab_id.clone(),
+    }
+}
+
 fn portable_macro(macro_record: &StateMacroRecord) -> PortableMacroRecord {
     let mut role_ids = macro_record.role_ids.clone();
     role_ids.sort();
@@ -1968,6 +2180,13 @@ fn workspace_equivalent(
     right: &StateLaunchWorkspaceRecord,
 ) -> CoreResult<bool> {
     json_equal(&portable_workspace(left), &portable_workspace(right))
+}
+
+fn game_window_equivalent(
+    left: &StateGameWindowRecord,
+    right: &StateGameWindowRecord,
+) -> CoreResult<bool> {
+    json_equal(&portable_game_window(left), &portable_game_window(right))
 }
 
 fn macro_equivalent(left: &StateMacroRecord, right: &StateMacroRecord) -> CoreResult<bool> {
@@ -2270,6 +2489,7 @@ mod tests {
             "games": if schema >= 2 { json!([{"id":"g1","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit"}]) } else { json!([]) },
             "roles":[{"id":"r1","gameId": if schema >= 2 { "g1" } else { "" },"name":"Role","launchUrl":"https://example.test/play","notes":""}],
             "launchWorkspaces":[{"id":"w1","name":"Workspace","template":"single","browserZoomPercent":100,"slots":[{"id":"s1","roleId":"r1","rect":{"x":0,"y":0,"width":1,"height":1}}]}],
+            "gameWindows":[],
             "macros":[{"id":"m1","name":"Macro","roleIds":["r1"],"repeat":{"type":"once"},"steps":[{"id":"step","type":"delay","ms":1}]}]
         }).to_string()
     }
@@ -2301,14 +2521,20 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_every_supported_portable_schema_to_v7() {
-        for schema in 1..=7 {
+    fn normalizes_every_supported_portable_schema_to_v8() {
+        for schema in 1..=8 {
             let value = normalize(&fixture(schema)).unwrap();
-            assert_eq!(value["schemaVersion"], 7);
+            assert_eq!(value["schemaVersion"], 8);
             assert!(!value["roles"][0]["gameId"].as_str().unwrap().is_empty());
             assert_eq!(value["macros"][0]["enabled"], true);
             assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
         }
+    }
+
+    // Historical parity evidence retained after the portable schema advanced to v8.
+    #[test]
+    fn normalizes_every_supported_portable_schema_to_v7() {
+        normalizes_every_supported_portable_schema_to_v8();
     }
 
     #[test]
@@ -2323,6 +2549,94 @@ mod tests {
         assert_eq!(normalized["games"][0]["browserEngine"], "system");
         assert_eq!(normalized["roles"][0]["browserEnginePin"], "system");
         assert_eq!(normalized["launchWorkspaces"][0]["browserEngine"], "system");
+    }
+
+    #[test]
+    fn portable_game_windows_remap_dependencies_and_keep_first_role_claim() {
+        let mut source = fixture_value(8);
+        let first_window_id = uuid::Uuid::new_v4().to_string();
+        let second_window_id = uuid::Uuid::new_v4().to_string();
+        source["gameWindows"] = json!([
+            {
+                "id": first_window_id,
+                "name": "Imported Window",
+                "targetDisplay": { "id": 7 },
+                "placement": {
+                    "normalBounds": { "x": 20, "y": 20, "width": 960, "height": 640 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": "maximized"
+                },
+                "tabs": [{
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "tabType": "workspace",
+                    "sourceId": "w1",
+                    "name": "Workspace",
+                    "roleIds": ["r1"],
+                    "hidden": true,
+                    "audioMuted": true,
+                    "roleViews": [{
+                        "roleId": "r1",
+                        "rect": { "x": 0, "y": 0, "width": 1, "height": 1 },
+                        "browserZoomPercent": 90
+                    }]
+                }],
+                "activeTabId": null
+            },
+            {
+                "id": second_window_id,
+                "name": "Second Window",
+                "targetDisplay": { "id": 7 },
+                "placement": {
+                    "normalBounds": { "x": 40, "y": 40, "width": 960, "height": 640 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": "normal"
+                },
+                "tabs": [{
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "tabType": "role",
+                    "sourceId": "r1",
+                    "name": "Duplicate role",
+                    "roleIds": ["r1"],
+                    "hidden": false,
+                    "audioMuted": false,
+                    "roleViews": []
+                }],
+                "activeTabId": null
+            }
+        ]);
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &source.to_string(),
+                "/tmp/game-windows.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+
+        assert_eq!(prepared.snapshot.game_windows.len(), 2);
+        assert_eq!(prepared.snapshot.game_windows[0].tabs.len(), 1);
+        assert!(prepared.snapshot.game_windows[0].tabs[0].hidden);
+        assert!(prepared.snapshot.game_windows[0].tabs[0].audio_muted);
+        assert_eq!(
+            prepared.snapshot.game_windows[0].placement.presentation,
+            "maximized"
+        );
+        assert!(prepared.snapshot.game_windows[1].tabs.is_empty());
+        assert!(
+            prepared
+                .result
+                .warnings
+                .iter()
+                .any(|warning| { warning.code == "GAME_WINDOW_TAB_ROLE_CONFLICT" })
+        );
     }
 
     #[test]
@@ -2358,7 +2672,7 @@ mod tests {
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         });
-        let future = fixture(7).replace("\"schemaVersion\":7", "\"schemaVersion\":8");
+        let future = fixture(8).replace("\"schemaVersion\":8", "\"schemaVersion\":9");
         assert!(normalize(&future).is_err());
     }
 
@@ -2384,6 +2698,7 @@ mod tests {
                     games: false,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: true,
                     preferences: false,
                 },
@@ -2584,6 +2899,7 @@ mod tests {
                     games: false,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: true,
                     preferences: false,
                 },
@@ -2608,6 +2924,7 @@ mod tests {
                     games: true,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: false,
                     preferences: false,
                 },
@@ -2636,6 +2953,7 @@ mod tests {
                     games: false,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: false,
                     preferences: false,
                 },
@@ -2659,13 +2977,14 @@ mod tests {
                     games: false,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: false,
                     preferences: true,
                 },
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 7);
+            assert_eq!(exported.schema_version, 8);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);
@@ -2689,6 +3008,7 @@ mod tests {
                         games: false,
                         roles: false,
                         launch_workspaces: false,
+                        game_windows: false,
                         macros: false,
                         preferences: true,
                     },
@@ -2727,6 +3047,7 @@ mod tests {
                     games: false,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: false,
                     preferences: false,
                 },
@@ -2747,6 +3068,7 @@ mod tests {
                         games: false,
                         roles: false,
                         launch_workspaces: false,
+                        game_windows: false,
                         macros: false,
                         preferences: true,
                     },
@@ -2790,6 +3112,7 @@ mod tests {
                 games: true,
                 roles: true,
                 launch_workspaces: false,
+                game_windows: false,
                 macros: true,
                 preferences: false,
             },
@@ -2819,6 +3142,7 @@ mod tests {
                 games: false,
                 roles: false,
                 launch_workspaces: false,
+                game_windows: false,
                 macros: false,
                 preferences: true,
             },
@@ -2847,6 +3171,7 @@ mod tests {
                     games: false,
                     roles: false,
                     launch_workspaces: false,
+                    game_windows: false,
                     macros: false,
                     preferences: true,
                 },
@@ -2947,6 +3272,7 @@ mod tests {
                         games: false,
                         roles: false,
                         launch_workspaces: true,
+                        game_windows: false,
                         macros: false,
                         preferences: false,
                     },
@@ -3199,6 +3525,7 @@ mod tests {
                 games: false,
                 roles: false,
                 launch_workspaces: false,
+                game_windows: false,
                 macros: false,
                 preferences: true,
             },
@@ -3743,7 +4070,7 @@ mod tests {
     }
 
     #[test]
-    fn export_is_v7_and_never_emits_internal_timestamps_or_browser_session_source() {
+    fn export_is_v8_and_never_emits_internal_timestamps_or_browser_session_source() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -3759,7 +4086,7 @@ mod tests {
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         crate::v1_case!("portable-profile-3dc36f8d51a0", {
-            assert_eq!(value["schemaVersion"], 7);
+            assert_eq!(value["schemaVersion"], 8);
             assert_eq!(value["appVersion"], "2.0.0");
             for field in [
                 "authState",

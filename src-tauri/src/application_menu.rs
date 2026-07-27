@@ -5,6 +5,8 @@ use tauri::{
 };
 
 const TOOLBAR_ITEM: &str = "rion-always-show-fullscreen-toolbar";
+const NEW_GAME_WINDOW_ITEM: &str = "rion-new-game-window";
+const SHOW_GAME_WINDOW_PREFIX: &str = "rion-show-game-window:";
 const TOGGLE_FULLSCREEN_ITEM: &str = "rion-toggle-fullscreen";
 const ZOOM_RESET_ITEM: &str = "rion-browser-reset-zoom";
 const ZOOM_IN_ITEM: &str = "rion-browser-zoom-in";
@@ -16,6 +18,7 @@ struct Labels {
     edit: &'static str,
     view: &'static str,
     window: &'static str,
+    new_game_window: &'static str,
     toolbar: &'static str,
     fullscreen: &'static str,
     zoom_reset: &'static str,
@@ -48,6 +51,10 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         } else {
             "F11"
         })
+        .build(app)
+        .map_err(|error| error.to_string())?;
+    let new_game_window = MenuItemBuilder::with_id(NEW_GAME_WINDOW_ITEM, labels.new_game_window)
+        .accelerator("CmdOrCtrl+N")
         .build(app)
         .map_err(|error| error.to_string())?;
 
@@ -85,12 +92,29 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .build()
         .map_err(|error| error.to_string())?;
     let mut window_menu = SubmenuBuilder::new(app, labels.window)
+        .item(&new_game_window)
+        .separator()
         .minimize()
         .maximize()
         .close_window();
     #[cfg(target_os = "macos")]
     {
         window_menu = window_menu.separator().bring_all_to_front();
+        let game_windows = core
+            .invoke(CoreCommand::GameWindowsList)
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default();
+        if !game_windows.is_empty() {
+            window_menu = window_menu.separator();
+            for game_window in game_windows {
+                if let (Some(id), Some(name)) =
+                    (game_window["id"].as_str(), game_window["name"].as_str())
+                {
+                    window_menu = window_menu.text(format!("{SHOW_GAME_WINDOW_PREFIX}{id}"), name);
+                }
+            }
+        }
     }
     let window_menu = window_menu.build().map_err(|error| error.to_string())?;
     let menu = MenuBuilder::new(app)
@@ -111,10 +135,15 @@ pub fn handle_event(app: &AppHandle, id: &str) {
     };
     let result = match id {
         TOOLBAR_ITEM => toggle_toolbar_preference(app, &state),
+        NEW_GAME_WINDOW_ITEM => create_game_window(app, &state),
         TOGGLE_FULLSCREEN_ITEM => toggle_fullscreen(app, &state),
         ZOOM_RESET_ITEM => zoom(app, &state, "reset"),
         ZOOM_IN_ITEM => zoom(app, &state, "in"),
         ZOOM_OUT_ITEM => zoom(app, &state, "out"),
+        _ if id.starts_with(SHOW_GAME_WINDOW_PREFIX) => {
+            show_game_window(&state, id.trim_start_matches(SHOW_GAME_WINDOW_PREFIX));
+            Ok(())
+        }
         _ if crate::runtime_tab_menu::handle_event(app, id) => Ok(()),
         _ => Ok(()),
     };
@@ -124,6 +153,42 @@ pub fn handle_event(app: &AppHandle, id: &str) {
             serde_json::json!({ "code": "TAURI_APPLICATION_MENU_FAILED", "message": message }),
         );
     }
+}
+
+fn create_game_window(app: &AppHandle, state: &crate::CoreState) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_owned())?;
+    let target =
+        crate::new_game_window_launch_target(app, state, &main).map_err(|error| error.message)?;
+    let core = std::sync::Arc::clone(&state.core);
+    tauri::async_runtime::spawn(async move {
+        let window_id = target.window_id.clone();
+        let _ = core
+            .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
+            .await;
+        let _ = core
+            .invoke_async(CoreCommand::EmbeddedWindowsShow {
+                window_id: Some(window_id),
+            })
+            .await;
+    });
+    Ok(())
+}
+
+fn show_game_window(state: &crate::CoreState, window_id: &str) {
+    if window_id.is_empty() {
+        return;
+    }
+    let core = std::sync::Arc::clone(&state.core);
+    let window_id = window_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let _ = core
+            .invoke_async(CoreCommand::EmbeddedWindowsShow {
+                window_id: Some(window_id),
+            })
+            .await;
+    });
 }
 
 fn toggle_toolbar_preference(app: &AppHandle, state: &crate::CoreState) -> Result<(), String> {
@@ -191,6 +256,7 @@ fn labels(language: &str) -> Labels {
             edit: "編輯",
             view: "顯示",
             window: "視窗",
+            new_game_window: "新增遊戲視窗",
             toolbar: "全螢幕時一律顯示工具列",
             fullscreen: "切換全螢幕",
             zoom_reset: "實際大小",
@@ -202,6 +268,7 @@ fn labels(language: &str) -> Labels {
             edit: "编辑",
             view: "视图",
             window: "窗口",
+            new_game_window: "新建游戏窗口",
             toolbar: "全屏时始终显示工具栏",
             fullscreen: "切换全屏",
             zoom_reset: "实际大小",
@@ -213,6 +280,7 @@ fn labels(language: &str) -> Labels {
             edit: "編集",
             view: "表示",
             window: "ウインドウ",
+            new_game_window: "新規ゲームウィンドウ",
             toolbar: "フルスクリーンでツールバーを常に表示",
             fullscreen: "フルスクリーンを切り替える",
             zoom_reset: "実際のサイズ",
@@ -224,6 +292,7 @@ fn labels(language: &str) -> Labels {
             edit: "Edit",
             view: "View",
             window: "Window",
+            new_game_window: "New Game Window",
             toolbar: "Always Show Toolbar in Full Screen",
             fullscreen: "Toggle Full Screen",
             zoom_reset: "Actual Size",

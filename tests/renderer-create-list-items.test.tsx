@@ -96,7 +96,6 @@ describe("create controls at the end of lists", () => {
         statusByRole={new Map()}
         t={t}
         workspaces={[workspace()]}
-        workspaceDisplays={[]}
         onCopyWorkspace={vi.fn()}
         onCreateWorkspace={onCreateWorkspace}
         onDeleteWorkspace={vi.fn()}

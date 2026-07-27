@@ -17,7 +17,6 @@ import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/ca
 import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
-import { WorkspaceDisplayPickerDialog } from "./features/workspaces/WorkspaceDisplayPickerDialog";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { toMessage } from "./app/errorUtils";
@@ -43,6 +42,7 @@ import type {
   PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
+  GameWindow,
   RuntimeWindowPreferences,
   SystemFontFamily
 } from "../../shared/types";
@@ -54,6 +54,8 @@ const RoleEditorRoute = lazy(() => import("./features/roles/RoleModal"));
 const DashboardRoute = lazy(() => import("./features/dashboard/DashboardRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
 const WorkspaceEditorRoute = lazy(() => import("./features/workspaces/WorkspaceModal"));
+const GameWindowsRoute = lazy(() => import("./features/game-windows/GameWindowsRoute"));
+const GameWindowEditorRoute = lazy(() => import("./features/game-windows/GameWindowModal"));
 const MacrosRoute = lazy(() => import("./features/macros/MacrosRoute"));
 const MacroEditorRoute = lazy(() => import("./features/macros/MacroModal"));
 const SettingsRoute = lazy(() => import("./features/settings/SettingsRoute"));
@@ -74,6 +76,7 @@ export function App(): JSX.Element {
       restoreGameWindowsOnStartup: true
     });
   const [notice, setNotice] = useState<string | null>(null);
+  const [isSavingGameWindow, setIsSavingGameWindow] = useState(false);
   const notifiedEngineIssues = useRef(new Map<string, string>());
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
@@ -111,6 +114,43 @@ export function App(): JSX.Element {
     (workspaceId: string) => navigate(createEditEditorPath("workspaces", workspaceId)),
     [navigate]
   );
+  const navigateToNewGameWindow = useCallback(() => navigate(createNewEditorPath("game-windows")), [navigate]);
+  const navigateToEditGameWindow = useCallback(
+    (windowId: string) => navigate(createEditEditorPath("game-windows", windowId)),
+    [navigate]
+  );
+  const saveGameWindow = useCallback(async (form: {
+    id?: string;
+    name: string;
+    targetDisplay: Parameters<typeof window.rionStudio.createGameWindow>[0]["targetDisplay"];
+    placement: Parameters<typeof window.rionStudio.createGameWindow>[0]["placement"];
+  }): Promise<GameWindow | undefined> => {
+    if (!window.rionStudio || isSavingGameWindow) return undefined;
+    setIsSavingGameWindow(true);
+    const reportError = data.beginErrorOperation();
+    try {
+      const saved = form.id
+        ? await window.rionStudio.updateGameWindow(form.id, {
+            name: form.name,
+            targetDisplay: form.targetDisplay,
+            placement: form.placement
+          })
+        : await window.rionStudio.createGameWindow({
+            name: form.name,
+            targetDisplay: form.targetDisplay,
+            placement: form.placement
+          });
+      data.setGameWindows((current) => form.id
+        ? current.map((item) => item.id === saved.id ? saved : item)
+        : [...current, saved]);
+      return saved;
+    } catch (error) {
+      reportError(error);
+      return undefined;
+    } finally {
+      setIsSavingGameWindow(false);
+    }
+  }, [data, isSavingGameWindow]);
   const navigateToNewMacro = useCallback((roleId?: string) => {
     const searchParams = roleId ? new URLSearchParams({ roleId }) : undefined;
     navigate(createNewEditorPath("macros", searchParams));
@@ -279,7 +319,6 @@ export function App(): JSX.Element {
     t: preferences.t,
     workspaces: data.workspaces
   });
-  const handleWorkspaceLaunch = workspaceWorkflow.handleLaunchWorkspace;
 
   const macroWorkflow = useMacroWorkflow({
     beginErrorOperation: data.beginErrorOperation,
@@ -364,52 +403,6 @@ export function App(): JSX.Element {
       unsubscribe();
     };
   }, [hasBridge, initialLoadState, navigateToMacros, openListForRole, setError]);
-
-  useEffect(() => {
-    if (!hasBridge || initialLoadState !== "ready") {
-      return;
-    }
-
-    let isDisposed = false;
-
-    const consumePendingLaunchRequest = (): void => {
-      void window.rionStudio
-        .consumePendingWorkspaceLaunchRequest()
-        .then((request) => {
-          if (isDisposed || !request) {
-            return;
-          }
-
-          const workspace = data.workspaces.find((item) => item.id === request.workspaceId);
-          navigate("/workspaces");
-          if (!workspace) {
-            setError(new Error("Launch workspace not found."));
-            return;
-          }
-
-          void handleWorkspaceLaunch(workspace, request.result);
-        })
-        .catch(setError);
-    };
-
-    const unsubscribe = window.rionStudio.onWorkspaceLaunchRequested(() => {
-      consumePendingLaunchRequest();
-    });
-
-    consumePendingLaunchRequest();
-
-    return () => {
-      isDisposed = true;
-      unsubscribe();
-    };
-  }, [
-    data.workspaces,
-    hasBridge,
-    initialLoadState,
-    navigate,
-    setError,
-    handleWorkspaceLaunch
-  ]);
 
   useEffect(() => {
     if (!hasBridge || initialLoadState === "loading" || legal.isLoading) {
@@ -504,7 +497,6 @@ export function App(): JSX.Element {
       roles={data.roles}
       statusByRole={data.statusByRole}
       t={preferences.t}
-      workspaceDisplays={data.workspaceDisplays}
       workspaces={data.workspaces}
       onSave={workspaceWorkflow.saveWorkspace}
     />
@@ -532,6 +524,7 @@ export function App(): JSX.Element {
       ) : (
         <AppSidebar
           gameCount={data.games.length}
+          gameWindowCount={data.gameWindows.length}
           hasUpdateBadge={shouldShowUpdateBadge(updates.status)}
           macroCount={data.macros.length}
           roleCount={data.roles.length}
@@ -605,22 +598,18 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
-                    workspaceDisplays={data.workspaceDisplays}
                     onCreateWorkspace={navigateToNewWorkspace}
-                    onShowGameWindows={(displayId) => void window.rionStudio.showEmbeddedRuntimeWindows(displayId)}
                     onRestoreSavedGameWindows={(input) =>
                       void window.rionStudio.restoreSavedGameWindows(input)
                     }
                     onDiscardSavedGameWindows={(input) =>
                       void window.rionStudio.discardSavedGameWindows(input)
                     }
-                    onStopGameWindow={(displayId) =>
-                      void window.rionStudio.stopEmbeddedRuntimeWindow(displayId)
-                    }
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onNavigateMacros={navigateToMacros}
                     onNavigateGames={() => navigate("/games")}
+                    onNavigateGameWindows={() => navigate("/game-windows")}
                     onNavigateRoles={(filter) => {
                       roleWorkflow.setActiveFilter(filter);
                       roleWorkflow.setQuery("");
@@ -688,7 +677,6 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
-                    workspaceDisplays={data.workspaceDisplays}
                     onCopyWorkspace={(workspace) => void workspaceWorkflow.handleCopyWorkspace(workspace)}
                     onCreateWorkspace={navigateToNewWorkspace}
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
@@ -707,6 +695,44 @@ export function App(): JSX.Element {
             />
             <Route path="/workspaces/new" element={workspaceEditorElement} />
             <Route path="/workspaces/:id/edit" element={workspaceEditorElement} />
+            <Route
+              path="/game-windows"
+              element={hasBridge ? (
+                <GameWindowsRoute
+                  displays={data.displays}
+                  gameWindows={data.gameWindows}
+                  runtime={data.embeddedRuntime}
+                  t={preferences.t}
+                  onEdit={navigateToEditGameWindow}
+                  onError={data.setError}
+                  onNew={navigateToNewGameWindow}
+                />
+              ) : <BridgeUnavailable t={preferences.t} />}
+            />
+            <Route
+              path="/game-windows/new"
+              element={hasBridge ? (
+                <GameWindowEditorRoute
+                  displays={data.displays}
+                  gameWindows={data.gameWindows}
+                  isSaving={isSavingGameWindow}
+                  t={preferences.t}
+                  onSave={saveGameWindow}
+                />
+              ) : <BridgeUnavailable t={preferences.t} />}
+            />
+            <Route
+              path="/game-windows/:id/edit"
+              element={hasBridge ? (
+                <GameWindowEditorRoute
+                  displays={data.displays}
+                  gameWindows={data.gameWindows}
+                  isSaving={isSavingGameWindow}
+                  t={preferences.t}
+                  onSave={saveGameWindow}
+                />
+              ) : <BridgeUnavailable t={preferences.t} />}
+            />
             <Route
               path="/macros"
               element={
@@ -759,6 +785,7 @@ export function App(): JSX.Element {
                   runtimeWindowPreferences={runtimeWindowPreferences}
                   portableDataCounts={{
                     gameCount: data.games.length,
+                    gameWindowCount: data.gameWindows.length,
                     macroCount: data.macros.length,
                     roleCount: data.roles.length,
                     workspaceCount: data.workspaces.length
@@ -794,12 +821,6 @@ export function App(): JSX.Element {
           </Routes>
         </Suspense>
       </main>
-      <WorkspaceDisplayPickerDialog
-        request={workspaceWorkflow.displaySelectionRequest}
-        t={preferences.t}
-        onCancel={workspaceWorkflow.handleDisplaySelectionCancel}
-        onSelect={workspaceWorkflow.handleDisplaySelectionSelect}
-      />
     </div>
   );
 }

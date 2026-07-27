@@ -83,6 +83,7 @@ import {
   hasPortableDataSelection,
   isPortableGameSelectionRequired,
   isPortableRoleSelectionRequired,
+  isPortableWorkspaceSelectionRequired,
   updatePortableDataSelection,
   type PortableDataAvailability,
   type PortableDataSection
@@ -91,6 +92,7 @@ import { readSettingsSection, type SettingsSectionId } from "./settingsNavigatio
 
 interface PortableDataCounts {
   gameCount: number;
+  gameWindowCount: number;
   macroCount: number;
   roleCount: number;
   workspaceCount: number;
@@ -1802,6 +1804,7 @@ function createPortableExportAvailability(counts: PortableDataCounts): PortableD
     games: counts.gameCount > 0,
     roles: counts.roleCount > 0,
     launchWorkspaces: counts.workspaceCount > 0,
+    gameWindows: counts.gameWindowCount > 0,
     macros: counts.macroCount > 0,
     preferences: true
   };
@@ -1812,6 +1815,7 @@ function createPortableImportAvailability(preview: PortableImportPreview): Porta
     games: preview.gameCount > 0,
     roles: preview.roleCount > 0,
     launchWorkspaces: preview.workspaceCount > 0,
+    gameWindows: preview.gameWindowCount > 0,
     macros: preview.macroCount > 0,
     preferences: Boolean(preview.preferences)
   };
@@ -2074,6 +2078,7 @@ function PortableImportOperationsSummary({
     { key: "games", labelKey: "settings.importGames", selected: selection.games },
     { key: "roles", labelKey: "settings.importRoles", selected: selection.roles },
     { key: "launchWorkspaces", labelKey: "settings.importWorkspaces", selected: selection.launchWorkspaces },
+    { key: "gameWindows", labelKey: "settings.importGameWindows", selected: selection.gameWindows },
     { key: "macros", labelKey: "settings.importMacros", selected: selection.macros }
   ];
   return (
@@ -2116,6 +2121,7 @@ function PortableDataSelectionControls({
 }: PortableDataSelectionControlsProps): JSX.Element {
   const roleSelectionRequired = isPortableRoleSelectionRequired(selection);
   const gameSelectionRequired = isPortableGameSelectionRequired(selection);
+  const workspaceSelectionRequired = isPortableWorkspaceSelectionRequired(selection);
   const items: Array<{
     count?: number;
     descriptionKey: TranslationKey;
@@ -2139,6 +2145,12 @@ function PortableDataSelectionControls({
       descriptionKey: "settings.portableWorkspacesDescription",
       labelKey: "settings.importWorkspaces",
       section: "launchWorkspaces"
+    },
+    {
+      count: counts.gameWindowCount,
+      descriptionKey: "settings.portableGameWindowsDescription",
+      labelKey: "settings.importGameWindows",
+      section: "gameWindows"
     },
     {
       count: counts.macroCount,
@@ -2184,12 +2196,15 @@ function PortableDataSelectionControls({
           const isAvailable = availability[section];
           const isRoleLocked = section === "roles" && roleSelectionRequired;
           const isGameLocked = section === "games" && gameSelectionRequired;
-          const itemDisabled = disabled || !isAvailable || isRoleLocked || isGameLocked;
+          const isWorkspaceLocked = section === "launchWorkspaces" && workspaceSelectionRequired;
+          const itemDisabled = disabled || !isAvailable || isRoleLocked || isGameLocked || isWorkspaceLocked;
           const description = isRoleLocked
             ? t("settings.portableRolesRequired")
             : isGameLocked
               ? t("settings.portableGamesRequired")
-              : t(descriptionKey);
+              : isWorkspaceLocked
+                ? t("settings.portableWorkspacesRequired")
+                : t(descriptionKey);
 
           return (
             <label
@@ -2233,6 +2248,7 @@ function formatPortableImportResult(result: PortableImportResult, t: Translator)
     result.selection.games ? result.operations.games : undefined,
     result.selection.roles ? result.operations.roles : undefined,
     result.selection.launchWorkspaces ? result.operations.launchWorkspaces : undefined,
+    result.selection.gameWindows ? result.operations.gameWindows : undefined,
     result.selection.macros ? result.operations.macros : undefined
   ].filter((summary): summary is PortableImportOperations[keyof PortableImportOperations] => Boolean(summary));
   const totals = selectedOperations.reduce(
@@ -2269,6 +2285,9 @@ function formatPortableResultSummary(
   }
   if (result.selection.launchWorkspaces) {
     parts.push(formatPortableCountSummary(t("settings.importWorkspaces"), result.workspaceCount, t));
+  }
+  if (result.selection.gameWindows) {
+    parts.push(formatPortableCountSummary(t("settings.importGameWindows"), result.gameWindowCount, t));
   }
   if (result.selection.macros) {
     parts.push(formatPortableCountSummary(t("settings.importMacros"), result.macroCount, t));
@@ -2313,6 +2332,12 @@ function formatPortableWarning(warning: PortableImportWarning, t: Translator): s
       return t("settings.warningWorkspaceRenamed").replace("{name}", itemName).replace("{next}", replacementName);
     case "WORKSPACE_ROLE_MISSING":
       return t("settings.warningWorkspaceRoleMissing").replace("{name}", itemName).replace("{count}", count);
+    case "GAME_WINDOW_NAME_RENAMED":
+      return t("settings.warningGameWindowRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+    case "GAME_WINDOW_TAB_DEPENDENCY_MISSING":
+      return t("settings.warningGameWindowTabDependencyMissing").replace("{name}", itemName);
+    case "GAME_WINDOW_TAB_ROLE_CONFLICT":
+      return t("settings.warningGameWindowTabRoleConflict").replace("{name}", itemName);
     case "MACRO_NAME_RENAMED":
       return t("settings.warningMacroRenamed").replace("{name}", itemName).replace("{next}", replacementName);
     case "MACRO_ROLE_MISSING":

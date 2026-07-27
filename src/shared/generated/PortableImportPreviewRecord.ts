@@ -4,4 +4,4 @@ import type { PortableImportWarningRecord } from "./PortableImportWarningRecord"
 import type { PortableMacroConflictRecord } from "./PortableMacroConflictRecord";
 import type { PortablePreferencesRecord } from "./PortablePreferencesRecord";
 
-export type PortableImportPreviewRecord = { importId: string, filePath: string, exportedAt: string, appVersion: string, gameCount: number, roleCount: number, workspaceCount: number, macroCount: number, preferences?: PortablePreferencesRecord, operations: PortableImportOperationsRecord, conflicts: Array<PortableMacroConflictRecord>, warnings: Array<PortableImportWarningRecord>, };
+export type PortableImportPreviewRecord = { importId: string, filePath: string, exportedAt: string, appVersion: string, gameCount: number, roleCount: number, workspaceCount: number, gameWindowCount: number, macroCount: number, preferences?: PortablePreferencesRecord, operations: PortableImportOperationsRecord, conflicts: Array<PortableMacroConflictRecord>, warnings: Array<PortableImportWarningRecord>, };

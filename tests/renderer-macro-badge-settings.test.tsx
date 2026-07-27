@@ -75,7 +75,7 @@ describe("macro badge interface settings", () => {
             updateStatus={null}
             updateVersion=""
             isUpdateBusy={false}
-            portableDataCounts={{ gameCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
+            portableDataCounts={{ gameCount: 0, gameWindowCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
           />
         </ConfirmationProvider>
       </MemoryRouter>

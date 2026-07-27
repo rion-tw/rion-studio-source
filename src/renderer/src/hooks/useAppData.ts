@@ -13,12 +13,13 @@ import type {
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
+  GameWindow,
   LaunchWorkspace,
   Macro,
   MacroRunStatus,
   Role,
   RoleStatus,
-  WorkspaceDisplayInfo
+  DisplayInfo
 } from "../../../shared/types";
 import { LatestRequestGate } from "../app/operationState";
 import { createRoleStats } from "../app/statusUtils";
@@ -58,7 +59,8 @@ export function useAppData() {
   const roleState = useVersionedState<Role[]>([]);
   const embeddedRuntimeState = useVersionedState<EmbeddedRuntimeState>({ windows: [], tabs: [] });
   const workspaceState = useVersionedState<LaunchWorkspace[]>([]);
-  const workspaceDisplayState = useVersionedState<WorkspaceDisplayInfo[]>([]);
+  const gameWindowState = useVersionedState<GameWindow[]>([]);
+  const displayState = useVersionedState<DisplayInfo[]>([]);
   const macroState = useVersionedState<Macro[]>([]);
   const statusState = useVersionedState<RoleStatus[]>([]);
   const macroStatusState = useVersionedState<MacroRunStatus[]>([]);
@@ -104,11 +106,17 @@ export function useAppData() {
     value: workspaces
   } = workspaceState;
   const {
-    beginRequest: beginWorkspaceDisplaysRequest,
-    commitRequest: commitWorkspaceDisplaysRequest,
-    setValue: setWorkspaceDisplays,
-    value: workspaceDisplays
-  } = workspaceDisplayState;
+    beginRequest: beginGameWindowsRequest,
+    commitRequest: commitGameWindowsRequest,
+    setValue: setGameWindows,
+    value: gameWindows
+  } = gameWindowState;
+  const {
+    beginRequest: beginDisplaysRequest,
+    commitRequest: commitDisplaysRequest,
+    setValue: setDisplays,
+    value: displays
+  } = displayState;
   const {
     beginRequest: beginMacrosRequest,
     commitRequest: commitMacrosRequest,
@@ -174,9 +182,10 @@ export function useAppData() {
     const embeddedRuntimeRequest = beginEmbeddedRuntimeRequest();
     const statusesRequest = beginStatusesRequest();
     const workspacesRequest = beginWorkspacesRequest();
+    const gameWindowsRequest = beginGameWindowsRequest();
     const macrosRequest = beginMacrosRequest();
     const macroStatusesRequest = beginMacroStatusesRequest();
-    const workspaceDisplaysRequest = beginWorkspaceDisplaysRequest();
+    const displaysRequest = beginDisplaysRequest();
     const reportError = options.resetError ?? true ? beginErrorOperation() : captureErrorReporter();
     const initialLoadRequest = options.markInitialLoad ? ++initialLoadRequestRef.current : undefined;
 
@@ -197,9 +206,10 @@ export function useAppData() {
       commitRolesRequest(rolesRequest, snapshot.roles);
       commitStatusesRequest(statusesRequest, snapshot.roleStatuses);
       commitWorkspacesRequest(workspacesRequest, snapshot.launchWorkspaces);
+      commitGameWindowsRequest(gameWindowsRequest, snapshot.gameWindows);
       commitMacrosRequest(macrosRequest, snapshot.macros);
       commitMacroStatusesRequest(macroStatusesRequest, snapshot.macroStatuses);
-      commitWorkspaceDisplaysRequest(workspaceDisplaysRequest, snapshot.workspaceDisplays);
+      commitDisplaysRequest(displaysRequest, snapshot.displays);
       if (initialLoadRequest !== undefined && initialLoadRequestRef.current === initialLoadRequest) {
         setInitialLoadState("ready");
       }
@@ -214,23 +224,25 @@ export function useAppData() {
     beginCompatibilityStatusesRequest,
     beginEmbeddedRuntimeRequest,
     beginGamesRequest,
+    beginGameWindowsRequest,
     beginErrorOperation,
     beginMacrosRequest,
     beginMacroStatusesRequest,
     beginRolesRequest,
     beginStatusesRequest,
-    beginWorkspaceDisplaysRequest,
+    beginDisplaysRequest,
     beginWorkspacesRequest,
     captureErrorReporter,
     commitCompatibilityReportsRequest,
     commitCompatibilityStatusesRequest,
     commitEmbeddedRuntimeRequest,
     commitGamesRequest,
+    commitGameWindowsRequest,
     commitMacrosRequest,
     commitMacroStatusesRequest,
     commitRolesRequest,
     commitStatusesRequest,
-    commitWorkspaceDisplaysRequest,
+    commitDisplaysRequest,
     commitWorkspacesRequest
   ]);
 
@@ -256,8 +268,13 @@ export function useAppData() {
       return;
     }
 
-    return window.rionStudio.onWorkspaceDisplaysChanged(setWorkspaceDisplays);
-  }, [setWorkspaceDisplays]);
+    return window.rionStudio.onDisplaysChanged(setDisplays);
+  }, [setDisplays]);
+
+  useEffect(() => {
+    if (!window.rionStudio) return;
+    return window.rionStudio.onGameWindowsChanged(setGameWindows);
+  }, [setGameWindows]);
 
   useEffect(() => {
     if (!window.rionStudio) {
@@ -310,6 +327,7 @@ export function useAppData() {
     error,
     gameCompatibilityReports,
     gameCompatibilityStatuses,
+    gameWindows,
     games,
     initialLoadState,
     loadData,
@@ -320,6 +338,7 @@ export function useAppData() {
     roleStats,
     setError,
     setGames,
+    setGameWindows,
     setCompatibilityReports,
     setCompatibilityStatuses,
     setMacros,
@@ -330,6 +349,6 @@ export function useAppData() {
     statusByRole,
     statuses,
     workspaces,
-    workspaceDisplays
+    displays
   };
 }

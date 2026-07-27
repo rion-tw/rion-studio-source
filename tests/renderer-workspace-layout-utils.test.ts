@@ -73,7 +73,6 @@ describe("renderer workspace layout helpers", () => {
         name: "Party",
         template: "three_columns",
         browserZoomPercent: 125,
-        targetDisplay: { id: 22 },
         slots: applyWorkspaceTemplate([], "three_columns"),
         createdAt: "2026-07-10T00:00:00.000Z",
         updatedAt: "2026-07-10T00:00:00.000Z"
@@ -81,7 +80,6 @@ describe("renderer workspace layout helpers", () => {
     ).toMatchObject({
       browserZoomMode: "fixed",
       browserZoomPercent: 125,
-      targetDisplay: { id: 22 },
       template: "three_columns"
     });
   });

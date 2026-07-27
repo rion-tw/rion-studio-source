@@ -65,7 +65,6 @@ describe("workspace editor role picker layout", () => {
               roles={roles}
               statusByRole={new Map()}
               t={t}
-              workspaceDisplays={[]}
               workspaces={[selectedWorkspace]}
               onSave={onSave}
             />
@@ -105,7 +104,7 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[0].textContent).toContain("roles outside the new layout are not kept");
     expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
     expect(workspaceHelps[1].textContent).toContain("Assign at least one role before launching");
-    expect(workspaceHelps[1].textContent).toContain("choose another display when prompted");
+    expect(workspaceHelps[1].textContent).toContain("most recently focused game window");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(workspaceHelps[2].textContent).toContain("Command +/−/0 on macOS");
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
@@ -167,7 +166,6 @@ describe("workspace editor role picker layout", () => {
               roles={[role(1), role(2), role(3)]}
               statusByRole={new Map()}
               t={t}
-              workspaceDisplays={[]}
               workspaces={[selectedWorkspace]}
               onSave={onSave}
             />
@@ -226,7 +224,6 @@ describe("workspace editor role picker layout", () => {
               roles={[role(1), role(2)]}
               statusByRole={new Map()}
               t={t}
-              workspaceDisplays={[]}
               workspaces={[workspace()]}
               onSave={onSave}
             />
@@ -298,7 +295,6 @@ describe("workspace editor role picker layout", () => {
               roles={[]}
               statusByRole={new Map()}
               t={t}
-              workspaceDisplays={[]}
               workspaces={[]}
               onSave={vi.fn()}
             />

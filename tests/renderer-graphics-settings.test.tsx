@@ -95,7 +95,7 @@ function renderGameSettings(
           onPreviewPortableImport={async () => null}
           onRestartApplication={async () => undefined}
           onThemeModeChange={() => undefined}
-          portableDataCounts={{ gameCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
+          portableDataCounts={{ gameCount: 0, gameWindowCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
           resolvedTheme="light"
           runtimeWindowPreferences={{
             alwaysShowToolbarInFullScreen: false,

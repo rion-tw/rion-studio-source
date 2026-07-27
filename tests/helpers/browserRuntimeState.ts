@@ -6,7 +6,7 @@ import type {
   CoreCommandResult,
   CoreEvent,
   BrowserRuntimeCommand,
-  BrowserRuntimeDisplayRecord,
+  BrowserRuntimeWindowRecord,
   BrowserRuntimeRoleRecord,
   BrowserRuntimeResult,
   BrowserRuntimeSnapshot,
@@ -17,7 +17,7 @@ import type {
 export function createBrowserRuntimeState() {
   let nextTabId = 0;
   let nextOperationId = 0;
-  const displays = new Map<number, BrowserRuntimeDisplayRecord>();
+  const windows = new Map<string, BrowserRuntimeWindowRecord>();
   const roles = new Map<string, BrowserRuntimeRoleRecord>();
   const tabs = new Map<string, BrowserRuntimeTabRecord>();
   const workspaces = new Map<string, BrowserRuntimeWorkspaceRecord>();
@@ -81,17 +81,17 @@ export function createBrowserRuntimeState() {
     }
   };
 
-  const registerDisplay = (displayId: number): BrowserRuntimeDisplayRecord => {
-    const existing = displays.get(displayId);
+  const registerWindow = (windowId: string): BrowserRuntimeWindowRecord => {
+    const existing = windows.get(windowId);
     if (existing) return existing;
-    const display = { displayId, tabIds: [] };
-    displays.set(displayId, display);
-    return display;
+    const runtimeWindow = { windowId, tabIds: [] };
+    windows.set(windowId, runtimeWindow);
+    return runtimeWindow;
   };
   const snapshot = (): BrowserRuntimeSnapshot => ({
-    displays: [...displays.values()].map((display) => ({
-      ...display,
-      tabIds: [...display.tabIds]
+    windows: [...windows.values()].map((runtimeWindow) => ({
+      ...runtimeWindow,
+      tabIds: [...runtimeWindow.tabIds]
     })),
     roles: [...roles.values()].map((role) => ({ ...role })),
     tabs: [...tabs.values()].map((tab) => ({ ...tab, roleIds: [...tab.roleIds] })),
@@ -115,13 +115,12 @@ export function createBrowserRuntimeState() {
     const tab = tabs.get(tabId);
     if (!tab) return;
     tabs.delete(tabId);
-    const display = displays.get(tab.displayId);
-    if (display) {
-      display.tabIds = display.tabIds.filter((id) => id !== tabId);
-      if (display.activeTabId === tabId) {
-        display.activeTabId = display.tabIds.find((id) => !tabs.get(id)?.hidden);
+    const runtimeWindow = windows.get(tab.windowId);
+    if (runtimeWindow) {
+      runtimeWindow.tabIds = runtimeWindow.tabIds.filter((id) => id !== tabId);
+      if (runtimeWindow.activeTabId === tabId) {
+        runtimeWindow.activeTabId = runtimeWindow.tabIds.find((id) => !tabs.get(id)?.hidden);
       }
-      if (display.tabIds.length === 0) displays.delete(tab.displayId);
     }
     if (tab.workspaceId) workspaces.delete(tab.workspaceId);
   };
@@ -217,24 +216,28 @@ export function createBrowserRuntimeState() {
             workspaceId: command.workspaceId,
             name: command.name,
             runtime: "pending",
-            ...(command.displayId === undefined ? {} : { displayId: command.displayId }),
-            exclusiveDisplay: false,
+            ...(command.windowId === undefined ? {} : { windowId: command.windowId }),
             roleIds: [...command.roleIds],
             state: "launching"
           });
           break;
-        case "registerDisplay":
-          registerDisplay(command.displayId);
+        case "registerWindow":
+          registerWindow(command.windowId);
+          break;
+        case "removeWindow":
+          if ((windows.get(command.windowId)?.tabIds.length ?? 0) === 0) {
+            windows.delete(command.windowId);
+          }
           break;
         case "createTab": {
-          createdTabId = `runtime-tab-${++nextTabId}`;
-          const display = registerDisplay(command.displayId);
-          display.tabIds.push(createdTabId);
+          createdTabId = command.tabId ?? `runtime-tab-${++nextTabId}`;
+          const runtimeWindow = registerWindow(command.windowId);
+          runtimeWindow.tabIds.push(createdTabId);
           tabs.set(createdTabId, {
             id: createdTabId,
             sourceId: command.sourceId,
             name: command.name,
-            displayId: command.displayId,
+            windowId: command.windowId,
             tabType: command.tabType,
             ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
             roleIds: [...command.roleIds],
@@ -245,8 +248,7 @@ export function createBrowserRuntimeState() {
               workspaceId: command.workspaceId,
               name: command.name,
               runtime: "embedded",
-              displayId: command.displayId,
-              exclusiveDisplay: false,
+              windowId: command.windowId,
               tabId: createdTabId,
               roleIds: [...command.roleIds],
               state: "launching"
@@ -261,94 +263,94 @@ export function createBrowserRuntimeState() {
           const tab = tabs.get(command.tabId);
           if (tab) {
             tab.hidden = false;
-            registerDisplay(tab.displayId).activeTabId = tab.id;
+            registerWindow(tab.windowId).activeTabId = tab.id;
           }
           break;
         }
-        case "showDisplay": {
-          const display = displays.get(command.displayId);
-          const selected = display?.activeTabId && !tabs.get(display.activeTabId)?.hidden
-            ? display.activeTabId
-            : display?.tabIds[0];
+        case "showWindow": {
+          const runtimeWindow = windows.get(command.windowId);
+          const selected = runtimeWindow?.activeTabId && !tabs.get(runtimeWindow.activeTabId)?.hidden
+            ? runtimeWindow.activeTabId
+            : runtimeWindow?.tabIds[0];
           const tab = selected ? tabs.get(selected) : undefined;
-          if (display && tab) {
+          if (runtimeWindow && tab) {
             tab.hidden = false;
-            display.activeTabId = tab.id;
+            runtimeWindow.activeTabId = tab.id;
           }
           break;
         }
         case "activateAdjacentTab": {
-          const display = displays.get(command.displayId);
-          const visible = display?.tabIds.filter((tabId) => !tabs.get(tabId)?.hidden) ?? [];
-          if (display && visible.length >= 2) {
-            const current = visible.indexOf(display.activeTabId ?? "");
+          const runtimeWindow = windows.get(command.windowId);
+          const visible = runtimeWindow?.tabIds.filter((tabId) => !tabs.get(tabId)?.hidden) ?? [];
+          if (runtimeWindow && visible.length >= 2) {
+            const current = visible.indexOf(runtimeWindow.activeTabId ?? "");
             const next = current < 0
               ? 0
               : command.direction === "next"
                 ? (current + 1) % visible.length
                 : (current - 1 + visible.length) % visible.length;
-            display.activeTabId = visible[next];
+            runtimeWindow.activeTabId = visible[next];
           }
           break;
         }
         case "hideTab": {
           const tab = tabs.get(command.tabId);
-          const display = tab ? displays.get(tab.displayId) : undefined;
+          const runtimeWindow = tab ? windows.get(tab.windowId) : undefined;
           if (tab) tab.hidden = true;
-          if (display?.activeTabId === command.tabId) {
-            display.activeTabId = display.tabIds.find((id) => !tabs.get(id)?.hidden);
+          if (runtimeWindow?.activeTabId === command.tabId) {
+            runtimeWindow.activeTabId = runtimeWindow.tabIds.find((id) => !tabs.get(id)?.hidden);
           }
           break;
         }
         case "reorderTab": {
           const tab = tabs.get(command.tabId);
-          const display = tab ? displays.get(tab.displayId) : undefined;
-          if (display) {
-            const ids = display.tabIds.filter((id) => id !== command.tabId);
+          const runtimeWindow = tab ? windows.get(tab.windowId) : undefined;
+          if (runtimeWindow) {
+            const ids = runtimeWindow.tabIds.filter((id) => id !== command.tabId);
             const index = command.beforeTabId ? ids.indexOf(command.beforeTabId) : -1;
             ids.splice(index < 0 ? ids.length : index, 0, command.tabId);
-            display.tabIds = ids;
+            runtimeWindow.tabIds = ids;
           }
           break;
         }
         case "moveTab": {
           const tab = tabs.get(command.tabId);
           if (!tab) break;
-          const source = displays.get(tab.displayId);
+          const source = windows.get(tab.windowId);
           if (source) {
             source.tabIds = source.tabIds.filter((id) => id !== tab.id);
             if (source.activeTabId === tab.id) {
               source.activeTabId = source.tabIds.find((id) => !tabs.get(id)?.hidden);
             }
-            if (source.tabIds.length === 0) displays.delete(source.displayId);
           }
-          tab.displayId = command.displayId;
+          tab.windowId = command.windowId;
           tab.hidden = false;
-          const target = registerDisplay(command.displayId);
+          const target = registerWindow(command.windowId);
           target.tabIds.push(tab.id);
           target.activeTabId = tab.id;
           if (tab.workspaceId) {
             const workspace = workspaces.get(tab.workspaceId);
-            if (workspace) workspace.displayId = command.displayId;
+            if (workspace) workspace.windowId = command.windowId;
           }
           break;
         }
-        case "moveDisplayTabs": {
-          const source = displays.get(command.sourceDisplayId);
+        case "moveWindowTabs": {
+          const source = windows.get(command.sourceWindowId);
           if (!source) break;
-          const target = registerDisplay(command.targetDisplayId);
+          const target = registerWindow(command.targetWindowId);
           for (const tabId of source.tabIds) {
             const tab = tabs.get(tabId);
             if (!tab) continue;
-            tab.displayId = command.targetDisplayId;
+            tab.windowId = command.targetWindowId;
             target.tabIds.push(tabId);
             if (tab.workspaceId) {
               const workspace = workspaces.get(tab.workspaceId);
-              if (workspace) workspace.displayId = command.targetDisplayId;
+              if (workspace) workspace.windowId = command.targetWindowId;
             }
           }
           if (!target.activeTabId) target.activeTabId = source.activeTabId;
-          displays.delete(command.sourceDisplayId);
+          source.tabIds = [];
+          source.activeTabId = undefined;
           break;
         }
         case "roleTransition": {

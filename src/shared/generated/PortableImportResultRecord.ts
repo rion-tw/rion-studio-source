@@ -4,4 +4,4 @@ import type { PortableImportOperationsRecord } from "./PortableImportOperationsR
 import type { PortableImportWarningRecord } from "./PortableImportWarningRecord";
 import type { PortablePreferencesRecord } from "./PortablePreferencesRecord";
 
-export type PortableImportResultRecord = { gameCount: number, roleCount: number, workspaceCount: number, macroCount: number, preferencesIncluded: boolean, preferences?: PortablePreferencesRecord, selection: PortableDataSelectionRecord, operations: PortableImportOperationsRecord, warnings: Array<PortableImportWarningRecord>, };
+export type PortableImportResultRecord = { gameCount: number, roleCount: number, workspaceCount: number, gameWindowCount: number, macroCount: number, preferencesIncluded: boolean, preferences?: PortablePreferencesRecord, selection: PortableDataSelectionRecord, operations: PortableImportOperationsRecord, warnings: Array<PortableImportWarningRecord>, };

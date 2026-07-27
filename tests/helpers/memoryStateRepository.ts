@@ -16,7 +16,6 @@ import type {
   UpdateLaunchWorkspaceInput,
   CreateMacroInput,
   UpdateMacroInput,
-  WorkspaceDisplayInfo,
   WorkspaceSlotBrowserZoomPercent
 } from "../../src/shared/types";
 import {
@@ -121,9 +120,11 @@ export class MemoryStateRepository {
 
   async getRuntimeRestoreSession(): Promise<RuntimeRestoreSessionRecord> {
     return structuredClone(this.state.runtimeRestoreSession ?? {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      sessionGeneration: 0,
       updatedAt: "2026-01-01T00:00:00.000Z",
       cleanExit: true,
+      restoreInProgressWindowIds: [],
       windows: []
     });
   }
@@ -307,7 +308,6 @@ export class MemoryStateRepository {
       template,
       browserZoomMode: input.browserZoomMode ?? "adaptive",
       browserZoomPercent: input.browserZoomPercent ?? getDefaultWorkspaceBrowserZoomPercent(template),
-      ...(input.targetDisplay ? { targetDisplay: structuredClone(input.targetDisplay) } : {}),
       slots: defaults.map((slot, index) => ({ ...slot, ...structuredClone(input.slots?.[index] ?? {}) })),
       createdAt: timestamp,
       updatedAt: timestamp
@@ -325,7 +325,6 @@ export class MemoryStateRepository {
     const workspace: LaunchWorkspace = {
       ...current,
       ...structuredClone(input),
-      ...(input.targetDisplay === null ? { targetDisplay: undefined } : {}),
       updatedAt: new Date().toISOString()
     } as LaunchWorkspace;
     workspaces[index] = structuredClone(workspace);
@@ -377,10 +376,6 @@ export class MemoryStateRepository {
     slot.browserZoomPercent = browserZoomPercent;
     await this.replace("launchWorkspaces", workspaces);
     return workspace;
-  }
-
-  async reconcileWorkspaceDisplays(_displays: WorkspaceDisplayInfo[]): Promise<LaunchWorkspace[]> {
-    return this.listWorkspaces();
   }
 
   listMacros(): Promise<Macro[]> {
@@ -530,9 +525,6 @@ export class MemoryStateRepository {
           command.roleId,
           command.browserZoomPercent
         ) ?? null;
-        break;
-      case "workspaceReconcileDisplays":
-        result = await this.reconcileWorkspaceDisplays(command.displays as WorkspaceDisplayInfo[]);
         break;
       case "macrosList":
         result = await this.listMacros();

@@ -11,6 +11,7 @@ import type {
   ChromeProfileImportPreview,
   ChromeProfileImportProgress,
   ChromeProfileImportResult,
+  CreateGameWindowInput,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -23,6 +24,8 @@ import type {
   DiagnosticExportResult,
   DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
+  DisplayInfo,
+  GameWindow,
   LaunchWorkspace,
   LegacySessionRestore,
   LogEntry,
@@ -36,7 +39,6 @@ import type {
   MacroPageRequest,
   MacroRunStatus,
   MacroSettings,
-  PendingWorkspaceLaunchRequest,
   PortableExportInput,
   PortableExportResult,
   PortableImportInput,
@@ -45,15 +47,17 @@ import type {
   ReorderItemsInput,
   RestoreSavedGameWindowsInput,
   Role,
+  RoleLaunchInput,
+  RoleLaunchResult,
   RolePaths,
   RoleStatus,
   RuntimeWindowPreferences,
   SystemFontFamily,
   UpdateLaunchWorkspaceInput,
   UpdateGameInput,
+  UpdateGameWindowInput,
   UpdateMacroInput,
   UpdateRoleInput,
-  WorkspaceDisplayInfo,
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "./types";
@@ -68,12 +72,22 @@ export interface RionStudioApi {
   requestCurrentWindowClose: () => void;
   restartApplication: () => Promise<void>;
   getEmbeddedRuntimeState: () => Promise<EmbeddedRuntimeState>;
-  showEmbeddedRuntimeWindows: (displayId?: number) => Promise<void>;
-  showEmbeddedRuntimeTab: (tabId: string) => Promise<void>;
-  moveEmbeddedRuntimeTab: (tabId: string, displayId: number) => Promise<void>;
+  listGameWindows: () => Promise<GameWindow[]>;
+  createGameWindow: (input: CreateGameWindowInput) => Promise<GameWindow>;
+  updateGameWindow: (id: string, input: UpdateGameWindowInput) => Promise<GameWindow>;
+  reorderGameWindows: (input: ReorderItemsInput) => Promise<GameWindow[]>;
+  showGameWindow: (windowId: string) => Promise<void>;
+  closeGameWindow: (windowId: string) => Promise<void>;
+  stopGameWindow: (windowId: string) => Promise<void>;
+  deleteGameWindow: (windowId: string) => Promise<void>;
+  showGameWindowTab: (tabId: string) => Promise<void>;
+  moveGameWindowTab: (tabId: string, windowId: string) => Promise<void>;
+  moveGameWindowTabToNewWindow: (tabId: string) => Promise<GameWindow>;
+  setGameWindowTabMuted: (tabId: string, muted: boolean) => Promise<void>;
+  setGameWindowTabHidden: (tabId: string, hidden: boolean) => Promise<void>;
+  stopGameWindowTab: (tabId: string) => Promise<void>;
   restoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => Promise<void>;
   discardSavedGameWindows: (input: DiscardSavedGameWindowsInput) => Promise<void>;
-  stopEmbeddedRuntimeWindow: (displayId: number) => Promise<void>;
   getRuntimeWindowPreferences: () => Promise<RuntimeWindowPreferences>;
   updateRuntimeWindowPreferences: (
     preferences: RuntimeWindowPreferences
@@ -95,7 +109,7 @@ export interface RionStudioApi {
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   clearRoleBrowserData: (id: string) => Promise<Role>;
   getRolePaths: (id: string) => Promise<RolePaths>;
-  launchRole: (id: string) => Promise<RoleStatus | null>;
+  launchRole: (id: string, input?: RoleLaunchInput) => Promise<RoleLaunchResult>;
   stopRole: (id: string) => Promise<void>;
   listRoleStatuses: () => Promise<RoleStatus[]>;
   listLaunchWorkspaces: () => Promise<LaunchWorkspace[]>;
@@ -104,10 +118,9 @@ export interface RionStudioApi {
   reorderLaunchWorkspaces: (input: ReorderItemsInput) => Promise<LaunchWorkspace[]>;
   deleteLaunchWorkspace: (id: string) => Promise<void>;
   deleteLaunchWorkspaces: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
-  listWorkspaceDisplays: () => Promise<WorkspaceDisplayInfo[]>;
+  listDisplays: () => Promise<DisplayInfo[]>;
   launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
-  consumePendingWorkspaceLaunchRequest: () => Promise<PendingWorkspaceLaunchRequest | null>;
   listMacros: () => Promise<Macro[]>;
   createMacro: (input: CreateMacroInput) => Promise<Macro>;
   updateMacro: (id: string, input: UpdateMacroInput) => Promise<Macro>;
@@ -149,12 +162,12 @@ export interface RionStudioApi {
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
+  onGameWindowsChanged: (callback: (gameWindows: GameWindow[]) => void) => () => void;
   onWorkspacesChanged: (callback: (workspaces: LaunchWorkspace[]) => void) => () => void;
   onGameCompatibilityChanged: (
     callback: (reports: GameCompatibilityReport[], statuses: GameCompatibilityRunStatus[]) => void
   ) => () => void;
-  onWorkspaceDisplaysChanged: (callback: (displays: WorkspaceDisplayInfo[]) => void) => () => void;
-  onWorkspaceLaunchRequested: (callback: (request: PendingWorkspaceLaunchRequest) => void) => () => void;
+  onDisplaysChanged: (callback: (displays: DisplayInfo[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;

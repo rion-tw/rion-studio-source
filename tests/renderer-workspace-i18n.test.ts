@@ -13,10 +13,14 @@ const workspaceHelpKeys = [
   "workspaces.help.editingTemplate",
   "workspaces.help.launchTitle",
   "workspaces.help.launchRequirements",
-  "workspaces.help.launchDisplay",
+  "workspaces.help.launchWindow",
   "workspaces.help.runtimeTitle",
   "workspaces.help.runtimeZoom",
-  "workspaces.help.runtimeResource"
+  "workspaces.help.runtimeResource",
+  "workspaces.launchConflict.title",
+  "workspaces.launchConflict.description",
+  "workspaces.launchConflict.confirm",
+  "gameWindows.title"
 ] as const;
 
 describe("workspace help translations", () => {

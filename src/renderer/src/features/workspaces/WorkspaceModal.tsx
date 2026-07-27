@@ -29,7 +29,6 @@ import type {
   NormalizedRect,
   Role,
   RoleStatus,
-  WorkspaceDisplayInfo,
   WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
@@ -41,12 +40,7 @@ import {
   formatWorkspaceResizeRatio,
   snapWorkspaceResizePosition
 } from "../../../../shared/workspaceResize";
-import {
-  createWorkspaceDisplayTarget,
-  resolveWorkspaceDisplayTarget
-} from "../../../../shared/workspaceDisplays";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
-import { formatWorkspaceDisplayLabel } from "./workspaceDisplayUtils";
 import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
@@ -63,16 +57,12 @@ import {
   type WorkspaceSplitAxis
 } from "./workspaceLayoutUtils";
 
-const FOLLOW_APP_DISPLAY_SELECT_VALUE = "__follow_app_display__";
-const UNAVAILABLE_DISPLAY_SELECT_VALUE = "__unavailable_display__";
-
 interface WorkspaceEditorRouteProps {
   games: Game[];
   isSaving: boolean;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
-  workspaceDisplays: WorkspaceDisplayInfo[];
   workspaces: LaunchWorkspace[];
   onSave: (form: WorkspaceFormState) => Promise<LaunchWorkspace | undefined>;
 }
@@ -94,7 +84,7 @@ function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
   }
 
   const initialForm = selectedWorkspace
-    ? createWorkspaceFormState(selectedWorkspace, props.workspaceDisplays)
+    ? createWorkspaceFormState(selectedWorkspace)
     : createNewWorkspaceForm(props.workspaces, props.t);
   return (
     <WorkspaceEditor
@@ -113,7 +103,6 @@ function WorkspaceEditor({
   roles,
   statusByRole,
   t,
-  workspaceDisplays,
   onSave,
   persistedSlots
 }: WorkspaceEditorRouteProps & {
@@ -192,7 +181,6 @@ function WorkspaceEditor({
         roles={roles}
         statusByRole={statusByRole}
         t={t}
-        workspaceDisplays={workspaceDisplays}
         onChange={setForm}
       />
     </EditorPage>
@@ -207,7 +195,6 @@ interface WorkspaceLayoutFormEditorProps {
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
-  workspaceDisplays: WorkspaceDisplayInfo[];
 }
 
 interface WorkspaceActiveResize {
@@ -227,8 +214,7 @@ function WorkspaceLayoutFormEditor({
   onChange,
   roles,
   statusByRole,
-  t,
-  workspaceDisplays
+  t
 }: WorkspaceLayoutFormEditorProps): JSX.Element {
   const [activeResize, setActiveResize] = useState<WorkspaceActiveResize | null>(null);
   const [dragSlots, setDragSlots] = useState<LaunchWorkspaceSlot[] | null>(null);
@@ -243,12 +229,6 @@ function WorkspaceLayoutFormEditor({
   );
   const selectedSlot = slots[selectedSlotIndex] ?? slots[0];
   const selectedSlotLabel = t("workspaces.slot").replace("{index}", String(selectedSlotIndex + 1));
-  const resolvedTargetDisplay = resolveWorkspaceDisplayTarget(form.targetDisplay, workspaceDisplays);
-  const targetDisplaySelectValue = !form.targetDisplay
-    ? FOLLOW_APP_DISPLAY_SELECT_VALUE
-    : resolvedTargetDisplay
-      ? String(resolvedTargetDisplay.id)
-      : UNAVAILABLE_DISPLAY_SELECT_VALUE;
   const workspaceDrag = usePointerDrag<WorkspacePointerDragPayload>({
     disabled: isSaving,
     getScrollContainer: (_payload, clientX, clientY) =>
@@ -488,49 +468,6 @@ function WorkspaceLayoutFormEditor({
 
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
-            htmlFor="workspace-target-display"
-            label={t("workspaces.targetDisplay")}
-            description={t("workspaces.targetDisplayDescription")}
-          >
-            <Select
-              value={targetDisplaySelectValue}
-              disabled={isSaving}
-              onValueChange={(value) => {
-                if (value === FOLLOW_APP_DISPLAY_SELECT_VALUE) {
-                  const { targetDisplay: _targetDisplay, ...nextForm } = form;
-                  onChange(nextForm);
-                  return;
-                }
-                const display = workspaceDisplays.find((candidate) => candidate.id === Number(value));
-                if (display) {
-                  onChange({ ...form, targetDisplay: createWorkspaceDisplayTarget(display) });
-                }
-              }}
-            >
-              <SelectTrigger id="workspace-target-display">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={FOLLOW_APP_DISPLAY_SELECT_VALUE}>
-                  {t("workspaces.targetDisplayFollowApp")}
-                </SelectItem>
-                {form.targetDisplay && !resolvedTargetDisplay ? (
-                  <SelectItem value={UNAVAILABLE_DISPLAY_SELECT_VALUE} disabled>
-                    {t("workspaces.targetDisplayUnavailable").replace("{id}", String(form.targetDisplay.id))}
-                  </SelectItem>
-                ) : null}
-                {workspaceDisplays.map((display, index) => (
-                  <SelectItem key={display.id} value={String(display.id)}>
-                    {formatWorkspaceDisplayLabel(display, index, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
             htmlFor="workspace-layout-template"
             label={t("workspaces.layout")}
             description={t("workspaces.layoutDescription")}
@@ -707,7 +644,7 @@ function WorkspaceLayoutFormEditor({
         <HelpPanel data-workspace-help="launch">
           <WorkspaceHelpSection title={t("workspaces.help.launchTitle")}>
             <li>{t("workspaces.help.launchRequirements")}</li>
-            <li>{t("workspaces.help.launchDisplay")}</li>
+            <li>{t("workspaces.help.launchWindow")}</li>
           </WorkspaceHelpSection>
         </HelpPanel>
 

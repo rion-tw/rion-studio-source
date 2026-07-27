@@ -171,6 +171,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       jobs.push(invokeCore({ type: "workspacesList" })
         .then((workspaces) => emit("workspaces", workspaces)));
     }
+    if (collections.includes("gameWindows")) {
+      jobs.push(invokeCore({ type: "gameWindowsList" })
+        .then((gameWindows) => emit("gameWindows", gameWindows)));
+    }
     if (collections.includes("macros")) {
       jobs.push(invokeCore({ type: "macrosList" }).then((macros) => emit("macros", macros)));
     }
@@ -229,8 +233,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     Awaited<ReturnType<RionStudioApi["getCurrentWindowState"]>>
   >("rion://window-state", ({ payload }) => emit("windowState", payload));
   const unlistenDisplays = await listen<
-    Awaited<ReturnType<RionStudioApi["listWorkspaceDisplays"]>>
-  >("rion://workspace-displays", ({ payload }) => emit("workspaceDisplays", payload));
+    Awaited<ReturnType<RionStudioApi["listDisplays"]>>
+  >("rion://displays", ({ payload }) => emit("displays", payload));
   const unlistenUpdates = await listen<
     Awaited<ReturnType<RionStudioApi["getUpdateStatus"]>>
   >("rion://update-status", ({ payload }) => emit("updateStatus", payload));
@@ -275,11 +279,29 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     requestCurrentWindowClose: () => void invokeShell("requestCurrentWindowClose"),
     restartApplication: () => invokeShell("restartApplication"),
     getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),
-    showEmbeddedRuntimeWindows: (displayId) =>
-      invokeShell("showEmbeddedRuntimeWindows", [displayId]),
-    showEmbeddedRuntimeTab: (tabId) => invokeShell("showEmbeddedRuntimeTab", [tabId]),
-    moveEmbeddedRuntimeTab: (tabId, displayId) =>
-      invokeShell("moveEmbeddedRuntimeTab", [tabId, displayId]),
+    listGameWindows: () => invokeCore({ type: "gameWindowsList" }),
+    createGameWindow: async (input) => {
+      const gameWindow = await invokeCore({ type: "gameWindowCreate", input });
+      await invokeShell("showGameWindow", [gameWindow.id]);
+      return gameWindow;
+    },
+    updateGameWindow: (id, input) => invokeShell("updateGameWindow", [id, input]),
+    reorderGameWindows: (input) =>
+      invokeCore({ type: "gameWindowReorder", orderedIds: input.orderedIds }),
+    showGameWindow: (windowId) => invokeShell("showGameWindow", [windowId]),
+    closeGameWindow: (windowId) => invokeShell("closeGameWindow", [windowId]),
+    stopGameWindow: (windowId) => invokeShell("stopGameWindow", [windowId]),
+    deleteGameWindow: (windowId) => invokeShell("deleteGameWindow", [windowId]),
+    showGameWindowTab: (tabId) => invokeShell("showGameWindowTab", [tabId]),
+    moveGameWindowTab: (tabId, windowId) =>
+      invokeShell("moveGameWindowTab", [tabId, windowId]),
+    moveGameWindowTabToNewWindow: (tabId) =>
+      invokeShell("moveGameWindowTabToNewWindow", [tabId]),
+    setGameWindowTabMuted: (tabId, muted) =>
+      invokeShell("setGameWindowTabMuted", [tabId, muted]),
+    setGameWindowTabHidden: (tabId, hidden) =>
+      invokeShell("setGameWindowTabHidden", [tabId, hidden]),
+    stopGameWindowTab: (tabId) => invokeShell("stopGameWindowTab", [tabId]),
     restoreSavedGameWindows: async (input) => {
       const result = await invokeShell<void>("restoreSavedGameWindows", [input]);
       await invokeShell("refreshQuickMenu");
@@ -290,8 +312,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       await invokeShell("refreshQuickMenu");
       return result;
     },
-    stopEmbeddedRuntimeWindow: (displayId) =>
-      invokeShell("stopEmbeddedRuntimeWindow", [displayId]),
     getRuntimeWindowPreferences: () => invokeCore({ type: "runtimeWindowPreferencesGet" }),
     updateRuntimeWindowPreferences: (preferences) =>
       invokeCore({ type: "runtimeWindowPreferencesReplace", preferences }),
@@ -317,7 +337,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     deleteRoles: (input) => invokeCore({ type: "rolesDelete", ids: input.ids }),
     clearRoleBrowserData: (id) => invokeCore({ type: "roleBrowserDataClear", roleId: id }),
     getRolePaths: (id) => invokeCore({ type: "rolePathsResolve", id }),
-    launchRole: (id) => invokeShell("launchRole", [id]),
+    launchRole: (id, input) => invokeShell("launchRole", [id, input]),
     stopRole: (id) => invokeCore({ type: "browserRoleStop", roleId: id }).then(() => undefined),
     listRoleStatuses: () => invokeCore({ type: "browserStatuses" }),
     listLaunchWorkspaces: () => invokeCore({ type: "workspacesList" }),
@@ -334,12 +354,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       invokeCore({ type: "workspaceDelete", id }).then(() => undefined),
     deleteLaunchWorkspaces: (input) =>
       invokeCore({ type: "workspacesDelete", ids: input.ids }),
-    listWorkspaceDisplays: () => invokeShell("workspaceDisplays"),
+    listDisplays: () => invokeShell("displays"),
     launchWorkspace: (id, input) => invokeShell("launchWorkspace", [id, input]),
     stopLaunchWorkspace: (id) =>
       invokeCore({ type: "browserWorkspaceStop", workspaceId: id }).then(() => undefined),
-    consumePendingWorkspaceLaunchRequest: () =>
-      invokeShell("consumePendingWorkspaceLaunchRequest"),
     listMacros: () => invokeCore({ type: "macrosList" }),
     createMacro: (input) =>
       invokeCore({ type: "macroCreate", input: toMacroCreateInput(input) }),
@@ -359,12 +377,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       invokeCore({ type: "macroSettingsReplace", settings }),
     exportPortableData: (input) => invokeShell("exportPortableData", [input]),
     previewPortableImport: () => invokeShell("previewPortableImport"),
-    applyPortableImport: (input) => invokeCore({
-      type: "portableApply",
-      importId: input.importId,
-      selection: input.selection,
-      resolutions: input.resolutions ?? []
-    }),
+    applyPortableImport: (input) => invokeShell("applyPortableImport", [input]),
     discardPortableImport: (importId) =>
       invokeCore({ type: "portableDiscard", importId }).then(() => undefined),
     previewChromeProfileImport: () => invokeShell("previewChromeProfileImport"),
@@ -407,10 +420,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
     onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
     onGamesChanged: (callback) => on("games", callback as Listener),
+    onGameWindowsChanged: (callback) => on("gameWindows", callback as Listener),
     onWorkspacesChanged: (callback) => on("workspaces", callback as Listener),
     onGameCompatibilityChanged: (callback) => on("compatibility", callback as Listener),
-    onWorkspaceDisplaysChanged: (callback) => on("workspaceDisplays", callback as Listener),
-    onWorkspaceLaunchRequested: (callback) => on("workspaceLaunchRequest", callback as Listener),
+    onDisplaysChanged: (callback) => on("displays", callback as Listener),
     onMacroStatusChanged: (callback) => on("macroStatuses", callback as Listener),
     onMacrosChanged: (callback) => on("macros", callback as Listener),
     onMacroPageRequested: (callback) => on("macroPageRequest", callback as Listener),

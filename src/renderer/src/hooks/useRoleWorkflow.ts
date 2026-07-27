@@ -130,7 +130,7 @@ export function useRoleWorkflow({
     setNotice?.(null);
 
     try {
-      const status = await window.rionStudio.launchRole(roleId);
+      const { status } = await window.rionStudio.launchRole(roleId);
       if (!status) {
         const nextStatuses = await window.rionStudio.listRoleStatuses();
         setStatuses(nextStatuses);

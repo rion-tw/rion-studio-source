@@ -4,7 +4,6 @@ import type { Translator } from "../../i18n";
 import type { WorkspaceFormState } from "../../app/types";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
-import type { WorkspaceDisplayInfo } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
@@ -13,11 +12,6 @@ import {
   getWorkspaceTemplateSlotCount,
   MIN_WORKSPACE_SLOT_SIZE
 } from "../../../../shared/workspaceLayout";
-import {
-  cloneWorkspaceDisplayTarget,
-  createWorkspaceDisplayTarget,
-  resolveWorkspaceDisplayTarget
-} from "../../../../shared/workspaceDisplays";
 
 export interface WorkspaceSplits {
   horizontal: number[];
@@ -122,17 +116,7 @@ export function createEmptyWorkspaceForm(workspaces: LaunchWorkspace[], t: Trans
   };
 }
 
-export function createWorkspaceFormState(
-  workspace: LaunchWorkspace,
-  displays: WorkspaceDisplayInfo[] = []
-): WorkspaceFormState {
-  const resolvedTargetDisplay = resolveWorkspaceDisplayTarget(workspace.targetDisplay, displays);
-  const targetDisplay = resolvedTargetDisplay
-    ? createWorkspaceDisplayTarget(resolvedTargetDisplay)
-    : workspace.targetDisplay
-      ? cloneWorkspaceDisplayTarget(workspace.targetDisplay)
-      : undefined;
-
+export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceFormState {
   return {
     id: workspace.id,
     name: workspace.name,
@@ -140,7 +124,6 @@ export function createWorkspaceFormState(
     browserEngine: workspace.browserEngine ?? "inherit",
     browserZoomMode: workspace.browserZoomMode,
     browserZoomPercent: workspace.browserZoomPercent,
-    ...(targetDisplay === undefined ? {} : { targetDisplay }),
     slots: workspace.slots
   };
 }

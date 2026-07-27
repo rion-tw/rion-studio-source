@@ -32,6 +32,7 @@ import type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesR
 import type { RuntimeRestoreSessionRecord } from "./RuntimeRestoreSessionRecord";
 import type { StateCompatibilityReportRecord } from "./StateCompatibilityReportRecord";
 import type { StateGameRecord } from "./StateGameRecord";
+import type { StateGameWindowRecord } from "./StateGameWindowRecord";
 import type { StateLaunchWorkspaceRecord } from "./StateLaunchWorkspaceRecord";
 import type { StateMacroRecord } from "./StateMacroRecord";
 import type { StateRoleRecord } from "./StateRoleRecord";
@@ -80,8 +81,12 @@ type TypedCoreCommandResultMap = {
   workspaceUpdate: StateLaunchWorkspaceRecord;
   workspaceReorder: StateLaunchWorkspaceRecord[];
   workspaceSetRoleBrowserZoom: StateLaunchWorkspaceRecord | null;
-  workspaceReconcileDisplays: StateLaunchWorkspaceRecord[];
   workspacesDelete: BulkDeleteResultRecord;
+  gameWindowsList: StateGameWindowRecord[];
+  gameWindowGet: StateGameWindowRecord;
+  gameWindowCreate: StateGameWindowRecord;
+  gameWindowUpdate: StateGameWindowRecord;
+  gameWindowReorder: StateGameWindowRecord[];
   macrosList: StateMacroRecord[];
   macroGet: StateMacroRecord;
   macroCreate: StateMacroRecord;
@@ -132,7 +137,6 @@ type TypedCoreCommandResultMap = {
   embeddedTabHide: BrowserRuntimeSnapshot;
   embeddedTabReorder: BrowserRuntimeSnapshot;
   embeddedTabMove: BrowserRuntimeSnapshot;
-  embeddedDisplayRemove: BrowserRuntimeSnapshot;
   browserRoleLaunch: BrowserRoleStatusRecord[];
   browserWorkspaceLaunch: BrowserRoleStatusRecord[];
   browserStatuses: BrowserRoleStatusRecord[];

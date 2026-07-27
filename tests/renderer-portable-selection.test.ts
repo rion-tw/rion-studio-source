@@ -15,6 +15,7 @@ const ALL_AVAILABLE: PortableDataSelection = {
   games: true,
   roles: true,
   launchWorkspaces: true,
+  gameWindows: true,
   macros: true,
   preferences: true
 };
@@ -26,6 +27,7 @@ describe("portable data selection", () => {
         games: true,
         roles: true,
         launchWorkspaces: false,
+        gameWindows: false,
         macros: true,
         preferences: false
       })
@@ -33,6 +35,7 @@ describe("portable data selection", () => {
       games: true,
       roles: true,
       launchWorkspaces: false,
+      gameWindows: false,
       macros: true,
       preferences: false
     });
@@ -50,6 +53,7 @@ describe("portable data selection", () => {
       games: true,
       roles: true,
       launchWorkspaces: true,
+      gameWindows: false,
       macros: false,
       preferences: false
     });
@@ -61,14 +65,14 @@ describe("portable data selection", () => {
 
   it("allows roles to be cleared after dependent categories are cleared", () => {
     const selected = createDefaultPortableDataSelection(ALL_AVAILABLE);
-    const withoutWorkspaces = updatePortableDataSelection(
+    const withoutGameWindows = updatePortableDataSelection(
       selected,
-      "launchWorkspaces",
+      "gameWindows",
       false,
       ALL_AVAILABLE
     );
     const withoutDependencies = updatePortableDataSelection(
-      withoutWorkspaces,
+      updatePortableDataSelection(withoutGameWindows, "launchWorkspaces", false, ALL_AVAILABLE),
       "macros",
       false,
       ALL_AVAILABLE
@@ -104,6 +108,7 @@ describe("portable data selection", () => {
         games: true,
         roles: true,
         launchWorkspaces: false,
+        gameWindows: false,
         macros: false,
         preferences: true
       })

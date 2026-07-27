@@ -1,5 +1,4 @@
 import type {
-  BrowserEngineOverride as RustBrowserEngineOverride,
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
   BrowserGraphicsSettingsRecord,
@@ -13,7 +12,6 @@ import type {
   DisplayFingerprintRecord,
   DisplayInfoRecord,
   DisplayTargetRecord,
-  EmbeddedBrowserEngine as RustEmbeddedBrowserEngine,
   EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
   SystemWebViewIssueReason as RustSystemWebViewIssueReason,
   GameCreateRequest,
@@ -158,7 +156,6 @@ export interface RoleStatus {
   overlayState?: "ready" | "unavailable";
   /** Health reported by the active system WebView surface. */
   pageHealth?: "healthy" | "unresponsive";
-  preferredEngine?: EmbeddedBrowserEngine;
   resolvedEngine?: ResolvedBrowserEngine;
   hostKind?: BrowserHostKind;
   issueReason?: SystemWebViewIssueReason;
@@ -379,8 +376,6 @@ export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserMacosGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["macos"];
 export type BrowserWindowsGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["windows"];
 export type BrowserRuntimeMode = "embedded";
-export type EmbeddedBrowserEngine = RustEmbeddedBrowserEngine;
-export type BrowserEngineOverride = RustBrowserEngineOverride;
 export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
 export type BrowserHostKind = RustBrowserHostKind;
 export type SystemWebViewIssueReason = RustSystemWebViewIssueReason;

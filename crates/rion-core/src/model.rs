@@ -14,52 +14,6 @@ pub struct AppCoreOptions {
     pub performance_telemetry_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "kebab-case")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum EmbeddedBrowserEngine {
-    #[default]
-    System,
-}
-
-impl<'de> Deserialize<'de> for EmbeddedBrowserEngine {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        match String::deserialize(deserializer)?.as_str() {
-            "system" | "electron" => Ok(Self::System),
-            value => Err(serde::de::Error::custom(format!(
-                "unsupported browser engine: {value}"
-            ))),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "kebab-case")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum BrowserEngineOverride {
-    #[default]
-    Inherit,
-    System,
-}
-
-impl<'de> Deserialize<'de> for BrowserEngineOverride {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        match String::deserialize(deserializer)?.as_str() {
-            "inherit" => Ok(Self::Inherit),
-            "system" | "electron" => Ok(Self::System),
-            value => Err(serde::de::Error::custom(format!(
-                "unsupported browser engine override: {value}"
-            ))),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "kebab-case")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -120,7 +74,6 @@ pub struct EngineCapabilitySnapshotRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserEngineResolutionRecord {
-    pub preferred_engine: EmbeddedBrowserEngine,
     pub resolved_engine: ResolvedBrowserEngine,
     pub host_kind: BrowserHostKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -184,16 +137,6 @@ pub struct SystemWebViewRuntimeRegistrationRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub failure_reason: Option<SystemWebViewIssueReason>,
-}
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct WorkspaceEnginePreferenceRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub preferred_engine: Option<EmbeddedBrowserEngine>,
-    pub requires_override: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -949,9 +892,6 @@ pub struct PortableGameRecord {
     #[ts(optional)]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -968,8 +908,6 @@ pub struct PortableRoleRecord {
     pub name: String,
     pub launch_url: String,
     pub notes: String,
-    #[serde(default)]
-    pub browser_engine_pin: Option<EmbeddedBrowserEngine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_data_url: Option<String>,
@@ -988,9 +926,6 @@ pub struct PortableLaunchWorkspaceRecord {
         type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
     )]
     pub template: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
     #[ts(type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
@@ -1184,9 +1119,6 @@ pub struct GameCreateRequest {
     #[ts(optional = nullable)]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1205,9 +1137,6 @@ pub struct GameUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub default_launch_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1295,9 +1224,6 @@ pub struct WorkspaceCreateRequest {
     )]
     pub template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1321,9 +1247,6 @@ pub struct WorkspaceUpdateRequest {
         type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
     )]
     pub template: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: Option<String>,
@@ -1395,9 +1318,6 @@ pub struct GameCreateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_data_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1420,9 +1340,6 @@ pub struct GameUpdateInputRecord {
     pub cover_image_data_url: Option<String>,
     #[serde(default)]
     pub set_cover_image_data_url: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1509,9 +1426,6 @@ pub struct WorkspaceCreateInputRecord {
     pub template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub browser_zoom_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -1531,9 +1445,6 @@ pub struct WorkspaceUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub template: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_zoom_mode: Option<String>,
@@ -1730,9 +1641,6 @@ pub struct StateGameRecord {
     #[ts(optional, type = "string")]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1746,9 +1654,6 @@ pub struct StateRoleRecord {
     pub name: String,
     pub launch_url: String,
     pub notes: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine_pin: Option<EmbeddedBrowserEngine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "string")]
     pub cover_image_data_url: Option<String>,
@@ -1769,9 +1674,6 @@ pub struct StateLaunchWorkspaceRecord {
         type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
     )]
     pub template: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<BrowserEngineOverride>,
     #[ts(type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
@@ -2588,9 +2490,6 @@ pub struct WorkspaceDividerResizeOutput {
 pub struct GameBrowserSettingsRecord {
     pub fonts: BrowserFontSettingsRecord,
     pub graphics: BrowserGraphicsSettingsRecord,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_engine: Option<EmbeddedBrowserEngine>,
     pub macro_badge_position: MacroBadgePositionRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
 }
@@ -3560,9 +3459,6 @@ pub struct BrowserRoleStatusRecord {
     pub page_health: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub preferred_engine: Option<EmbeddedBrowserEngine>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub resolved_engine: Option<ResolvedBrowserEngine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -3582,9 +3478,6 @@ pub struct BrowserWorkspaceStatusRecord {
     pub workspace_id: String,
     #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
     pub state: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub preferred_engine: Option<EmbeddedBrowserEngine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub resolved_engine: Option<ResolvedBrowserEngine>,

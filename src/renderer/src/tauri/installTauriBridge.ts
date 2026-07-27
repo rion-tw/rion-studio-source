@@ -37,7 +37,6 @@ function gameCreateInput(input: CreateGameInput): Extract<
     ...(typeof input.coverImageDataUrl === "string"
       ? { coverImageDataUrl: input.coverImageDataUrl }
       : {}),
-    ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine })
   };
 }
 
@@ -58,7 +57,6 @@ function gameUpdateInput(input: UpdateGameInput): Extract<
       ? { coverImageDataUrl: input.coverImageDataUrl }
       : {}),
     setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
-    ...(input.browserEngine === undefined ? {} : { browserEngine: input.browserEngine })
   };
 }
 

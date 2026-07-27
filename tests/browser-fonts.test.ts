@@ -40,7 +40,6 @@ describe("browser font settings normalization", () => {
         }
       })
     ).toEqual({
-      browserEngine: "system",
       fonts: {
         families: {
           fixed: "Courier New",
@@ -57,14 +56,11 @@ describe("browser font settings normalization", () => {
     });
   });
 
-  it("normalizes legacy and unknown browser engines to System", () => {
-    expect(normalizeGameBrowserSettings({}).browserEngine).toBe("system");
-    expect(normalizeGameBrowserSettings({ browserEngine: "electron" }).browserEngine).toBe(
-      "system"
-    );
-    expect(normalizeGameBrowserSettings({ browserEngine: "webkit" }).browserEngine).toBe(
-      "system"
-    );
+  it("removes legacy browser engine settings", () => {
+    expect("browserEngine" in normalizeGameBrowserSettings({})).toBe(false);
+    expect(
+      "browserEngine" in normalizeGameBrowserSettings({ browserEngine: "electron" })
+    ).toBe(false);
   });
 
   it("normalizes macro badge position options and falls back for invalid values", () => {

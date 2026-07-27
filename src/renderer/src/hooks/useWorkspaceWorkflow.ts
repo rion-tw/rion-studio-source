@@ -51,7 +51,6 @@ export function useWorkspaceWorkflow({
       const input = {
         name: form.name,
         template: form.template,
-        browserEngine: form.browserEngine,
         browserZoomMode: form.browserZoomMode,
         browserZoomPercent: form.browserZoomPercent,
         slots: form.slots
@@ -153,7 +152,6 @@ export function useWorkspaceWorkflow({
       const copy = await window.rionStudio.createLaunchWorkspace({
         name: createCopyName(workspace.name, workspaces.map((item) => item.name), t("copyName.suffix")),
         template: workspace.template,
-        browserEngine: workspace.browserEngine ?? "inherit",
         browserZoomMode: workspace.browserZoomMode,
         browserZoomPercent: workspace.browserZoomPercent,
         slots: workspace.slots.map((slot) => ({

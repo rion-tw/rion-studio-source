@@ -353,9 +353,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (initialLoadState !== "ready") return;
     const engineIssue = [...data.statuses].reverse().find((status) => {
-      if (
-        status.preferredEngine !== "system" || !status.issueReason
-      ) {
+      if (!status.issueReason) {
         return false;
       }
       const key = status.issueReason;
@@ -778,7 +776,6 @@ export function App(): JSX.Element {
                   hasRunningRoles={data.statuses.some(
                     (status) => status.state === "launching" || status.state === "running"
                   )}
-                  roleStatuses={data.statuses}
                   roles={data.roles}
                   language={preferences.language}
                   macroSettings={macroSettings}

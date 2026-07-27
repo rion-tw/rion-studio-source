@@ -9,16 +9,15 @@ use crate::{
     error::{CoreError, CoreResult},
     model::StateCollection,
     model::{
-        BrowserEngineOverride, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
-        DisplayTargetRecord, EmbeddedBrowserEngine, GameBrowserSettingsRecord,
-        GameCreateInputRecord, GameUpdateInputRecord, GameWindowCreateInputRecord,
-        GameWindowPlacementRecord, GameWindowUpdateInputRecord, LegalAcceptanceRecord,
-        MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord,
-        MacroStepDefinition, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
-        RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
-        RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
-        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
-        StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord, DisplayTargetRecord,
+        GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
+        GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
+        LegalAcceptanceRecord, MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat,
+        MacroSettingsRecord, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
+        MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
+        RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord,
+        StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceSlotInputRecord,
         WorkspaceUpdateInputRecord,
@@ -36,7 +35,6 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             families: HashMap::new(),
         },
         graphics: BrowserGraphicsSettingsRecord::recommended_default(),
-        browser_engine: Some(EmbeddedBrowserEngine::System),
         macro_badge_position: MacroBadgePositionRecord {
             horizontal_align: "center".to_owned(),
             horizontal_margin_px: 8,
@@ -216,7 +214,6 @@ pub fn create_game(
             "GAME_COVER_INVALID",
         )?,
         default_launch_url: normalize_http_url(&input.default_launch_url, "GAME_URL_INVALID")?,
-        browser_engine: Some(input.browser_engine.unwrap_or_default()),
         created_at: now.clone(),
         updated_at: now,
     };
@@ -281,7 +278,6 @@ pub fn update_game(
         } else {
             current.cover_image_data_url.clone()
         },
-        browser_engine: input.browser_engine.or(current.browser_engine),
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
@@ -310,7 +306,6 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         icon_image_data_url: None,
         cover_image_data_url: None,
         default_launch_url: default_launch_url.to_owned(),
-        browser_engine: Some(BrowserEngineOverride::Inherit),
         created_at: game.created_at.clone(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -366,7 +361,6 @@ pub fn create_role(
             "ROLE_LAUNCH_URL_INVALID",
         )?,
         notes: input.notes.unwrap_or_default().trim().to_owned(),
-        browser_engine_pin: None,
         cover_image_dominant_color: if cover.is_some() {
             normalize_color(input.cover_image_dominant_color)?
         } else {
@@ -516,7 +510,6 @@ pub fn create_workspace(
         id: Uuid::new_v4().to_string(),
         name,
         template: template.clone(),
-        browser_engine: Some(input.browser_engine.unwrap_or_default()),
         browser_zoom_mode: normalize_workspace_zoom_mode(input.browser_zoom_mode.as_deref())?,
         browser_zoom_percent: normalize_workspace_zoom_percent(
             input.browser_zoom_percent,
@@ -573,7 +566,6 @@ pub fn update_workspace(
         id: current.id.clone(),
         name,
         template,
-        browser_engine: input.browser_engine.or(current.browser_engine),
         browser_zoom_mode: input
             .browser_zoom_mode
             .as_deref()
@@ -2072,9 +2064,6 @@ struct GameRecord {
     source: String,
     name: String,
     default_launch_url: String,
-    #[serde(default)]
-    #[serde(rename = "browserEngine")]
-    _browser_engine: Option<BrowserEngineOverride>,
     created_at: String,
     updated_at: String,
 }
@@ -2144,9 +2133,6 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
 pub fn normalize_game_browser_settings(
     mut settings: GameBrowserSettingsRecord,
 ) -> GameBrowserSettingsRecord {
-    if settings.browser_engine.is_none() {
-        settings.browser_engine = Some(EmbeddedBrowserEngine::System);
-    }
     if !matches!(settings.fonts.mode.as_str(), "default" | "custom") {
         settings.fonts.mode = "default".to_owned();
     }
@@ -2268,9 +2254,6 @@ struct RoleRecord {
     name: String,
     launch_url: String,
     notes: String,
-    #[serde(default)]
-    #[serde(rename = "browserEnginePin")]
-    _browser_engine_pin: Option<EmbeddedBrowserEngine>,
     created_at: String,
     updated_at: String,
 }
@@ -2281,9 +2264,6 @@ struct WorkspaceRecord {
     id: String,
     name: String,
     template: String,
-    #[serde(default)]
-    #[serde(rename = "browserEngine")]
-    _browser_engine: Option<BrowserEngineOverride>,
     browser_zoom_mode: String,
     browser_zoom_percent: f64,
     slots: Vec<WorkspaceSlot>,
@@ -3013,7 +2993,6 @@ mod tests {
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
-                browser_engine: None,
             };
             let mut games = Vec::new();
             let result = create_game(&mut games, input);
@@ -4184,7 +4163,6 @@ mod tests {
                     default_launch_url: "https://example.test/play".to_owned(),
                     icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
-                    browser_engine: None,
                 },
             )
             .unwrap();
@@ -4196,7 +4174,6 @@ mod tests {
                         default_launch_url: "https://other.test/play".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
-                        browser_engine: None,
                     }
                 )
                 .unwrap_err()
@@ -4211,7 +4188,6 @@ mod tests {
                         default_launch_url: "file:///tmp/game".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
-                        browser_engine: None,
                     }
                 )
                 .is_err()
@@ -4224,7 +4200,6 @@ mod tests {
                         default_launch_url: "https://image.test/play".to_owned(),
                         icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
                         cover_image_data_url: None,
-                        browser_engine: None,
                     }
                 )
                 .is_err()

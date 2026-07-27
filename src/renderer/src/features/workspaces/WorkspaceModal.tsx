@@ -22,7 +22,6 @@ import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDr
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
-  BrowserEngineOverride,
   Game,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
@@ -423,15 +422,6 @@ function WorkspaceLayoutFormEditor({
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-4 min-[1200px]:grid-cols-3">
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField htmlFor="workspace-browser-engine" label={t("workspaces.browserEngine")} description={t("workspaces.browserEngineDescription")}>
-            <Select value={form.browserEngine ?? "inherit"} disabled={isSaving} onValueChange={(value) => onChange({ ...form, browserEngine: value as BrowserEngineOverride })}>
-              <SelectTrigger id="workspace-browser-engine"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="inherit">{t("games.engine.inherit")}</SelectItem><SelectItem value="system">{t("games.engine.system")}</SelectItem></SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-browser-zoom"

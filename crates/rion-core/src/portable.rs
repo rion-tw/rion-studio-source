@@ -32,7 +32,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-const CURRENT_SCHEMA: u64 = 8;
+const CURRENT_SCHEMA: u64 = 9;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -84,30 +84,12 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
         .filter(|schema| (1..=CURRENT_SCHEMA).contains(schema))
         .ok_or_else(|| invalid("portable schema version is unsupported"))?;
     let mut roles = normalize_array(object, "roles", normalize_role)?;
-    let mut input_games = if schema >= 2 {
+    let input_games = if schema >= 2 {
         normalize_array(object, "games", normalize_game)?
     } else {
         Vec::new()
     };
-    let mut workspaces = normalize_workspaces(object)?;
-    if schema < 7 {
-        for role in &mut roles {
-            role.as_object_mut()
-                .expect("normalized role")
-                .insert("browserEnginePin".to_owned(), json!("system"));
-        }
-        for game in &mut input_games {
-            game.as_object_mut()
-                .expect("normalized game")
-                .insert("browserEngine".to_owned(), json!("inherit"));
-        }
-        for workspace in &mut workspaces {
-            workspace
-                .as_object_mut()
-                .expect("normalized workspace")
-                .insert("browserEngine".to_owned(), json!("system"));
-        }
-    }
+    let workspaces = normalize_workspaces(object)?;
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
     let macros = normalize_macros(object, schema >= 5)?;
@@ -203,10 +185,6 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
             "game",
         )?)?),
     );
-    game.insert(
-        "browserEngine".to_owned(),
-        json!(engine_override(source.get("browserEngine"))?),
-    );
     if source.get("inferred").and_then(Value::as_bool) == Some(true) {
         game.insert("inferred".to_owned(), Value::Bool(true));
     }
@@ -244,15 +222,6 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
                 .unwrap_or_default()
                 .trim()
         ),
-    );
-    role.insert(
-        "browserEnginePin".to_owned(),
-        match source.get("browserEnginePin") {
-            Some(Value::String(value)) if value == "system" => json!("system"),
-            Some(Value::String(value)) if value == "electron" => json!("system"),
-            Some(Value::Null) | None => Value::Null,
-            _ => return Err(invalid("portable role browser engine pin is invalid")),
-        },
     );
     copy_optional_image(source, &mut role, "coverImageDataUrl")?;
     if let Some(color) = optional_string(source.get("coverImageDominantColor")) {
@@ -333,9 +302,7 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                     "source": "builtin",
                     "builtinKey": builtin.key,
                     "name": builtin.name,
-                    "defaultLaunchUrl": builtin.launch_url,
-                    "browserLaunchMode": "inherit",
-                    "browserEngine": "inherit"
+                    "defaultLaunchUrl": builtin.launch_url
                 }));
                 game_ids.insert(builtin.id.to_owned());
                 game_by_url.insert(launch_url.clone(), builtin.id.to_owned());
@@ -353,9 +320,7 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                 "inferred": true,
                 "source": "custom",
                 "name": name,
-                "defaultLaunchUrl": launch_url,
-                "browserLaunchMode": "inherit",
-                "browserEngine": "inherit"
+                "defaultLaunchUrl": launch_url
             }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());
@@ -417,7 +382,6 @@ fn normalize_workspace(value: &Value) -> CoreResult<Value> {
         "id": required_string(source, "id", "workspace")?,
         "name": required_string(source, "name", "workspace")?,
         "template": template,
-        "browserEngine": engine_override(source.get("browserEngine"))?,
         "browserZoomMode": match source.get("browserZoomMode").and_then(Value::as_str) {
             Some("fixed") => "fixed",
             Some("adaptive") | None => "adaptive",
@@ -831,15 +795,6 @@ fn normalize_url(value: String) -> CoreResult<String> {
         return Err(invalid("portable URL is invalid"));
     }
     Ok(url.to_string())
-}
-
-fn engine_override(value: Option<&Value>) -> CoreResult<&'static str> {
-    match value.and_then(Value::as_str).unwrap_or("inherit") {
-        "inherit" => Ok("inherit"),
-        "system" => Ok("system"),
-        "electron" => Ok("system"),
-        _ => Err(invalid("portable browser engine override is invalid")),
-    }
 }
 
 fn copy_optional_image(
@@ -1316,7 +1271,6 @@ fn build_import_plan(
                     .then_some(source.cover_image_data_url)
                     .flatten(),
                 default_launch_url: source.default_launch_url,
-                browser_engine: source.browser_engine,
                 created_at: timestamp.clone(),
                 updated_at: timestamp.clone(),
             };
@@ -1376,7 +1330,6 @@ fn build_import_plan(
                     name: role.name.clone(),
                     launch_url: role.launch_url.clone(),
                     notes: role.notes.clone(),
-                    browser_engine_pin: role.browser_engine_pin,
                     cover_image_data_url: role.cover_image_data_url.clone(),
                     cover_image_dominant_color: role
                         .cover_image_data_url
@@ -1500,7 +1453,6 @@ fn build_import_plan(
                     .unwrap_or_else(|| Uuid::new_v4().to_string()),
                 name,
                 template: workspace.template.clone(),
-                browser_engine: workspace.browser_engine,
                 browser_zoom_mode: workspace.browser_zoom_mode.clone(),
                 browser_zoom_percent: workspace.browser_zoom_percent,
                 slots,
@@ -2108,7 +2060,6 @@ fn portable_game(game: &StateGameRecord) -> PortableGameRecord {
         icon_image_data_url: game.icon_image_data_url.clone(),
         cover_image_data_url: game.cover_image_data_url.clone(),
         default_launch_url: game.default_launch_url.clone(),
-        browser_engine: game.browser_engine,
     }
 }
 
@@ -2120,7 +2071,6 @@ fn portable_role(role: &StateRoleRecord) -> PortableRoleRecord {
         name: role.name.clone(),
         launch_url: role.launch_url.clone(),
         notes: role.notes.clone(),
-        browser_engine_pin: role.browser_engine_pin,
         cover_image_data_url: role.cover_image_data_url.clone(),
         cover_image_dominant_color: role.cover_image_dominant_color.clone(),
     }
@@ -2131,7 +2081,6 @@ fn portable_workspace(workspace: &StateLaunchWorkspaceRecord) -> PortableLaunchW
         id: workspace.id.clone(),
         name: workspace.name.clone(),
         template: workspace.template.clone(),
-        browser_engine: workspace.browser_engine,
         browser_zoom_mode: workspace.browser_zoom_mode.clone(),
         browser_zoom_percent: workspace.browser_zoom_percent,
         slots: workspace.slots.clone(),
@@ -2521,24 +2470,24 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_every_supported_portable_schema_to_v8() {
-        for schema in 1..=8 {
+    fn normalizes_every_supported_portable_schema_to_v9() {
+        for schema in 1..=9 {
             let value = normalize(&fixture(schema)).unwrap();
-            assert_eq!(value["schemaVersion"], 8);
+            assert_eq!(value["schemaVersion"], 9);
             assert!(!value["roles"][0]["gameId"].as_str().unwrap().is_empty());
             assert_eq!(value["macros"][0]["enabled"], true);
             assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
         }
     }
 
-    // Historical parity evidence retained after the portable schema advanced to v8.
+    // Historical parity evidence retained after the portable schema advanced to v9.
     #[test]
     fn normalizes_every_supported_portable_schema_to_v7() {
-        normalizes_every_supported_portable_schema_to_v8();
+        normalizes_every_supported_portable_schema_to_v9();
     }
 
     #[test]
-    fn normalizes_legacy_browser_engines_to_system_before_import() {
+    fn removes_legacy_browser_engine_fields_before_import() {
         let mut source = fixture_value(7);
         source["games"][0]["browserEngine"] = json!("electron");
         source["roles"][0]["browserEnginePin"] = json!("electron");
@@ -2546,9 +2495,13 @@ mod tests {
 
         let normalized = normalize(&source.to_string()).unwrap();
 
-        assert_eq!(normalized["games"][0]["browserEngine"], "system");
-        assert_eq!(normalized["roles"][0]["browserEnginePin"], "system");
-        assert_eq!(normalized["launchWorkspaces"][0]["browserEngine"], "system");
+        assert!(normalized["games"][0].get("browserEngine").is_none());
+        assert!(normalized["roles"][0].get("browserEnginePin").is_none());
+        assert!(
+            normalized["launchWorkspaces"][0]
+                .get("browserEngine")
+                .is_none()
+        );
     }
 
     #[test]
@@ -2672,7 +2625,7 @@ mod tests {
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         });
-        let future = fixture(8).replace("\"schemaVersion\":8", "\"schemaVersion\":9");
+        let future = fixture(9).replace("\"schemaVersion\":9", "\"schemaVersion\":10");
         assert!(normalize(&future).is_err());
     }
 
@@ -2984,7 +2937,7 @@ mod tests {
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 8);
+            assert_eq!(exported.schema_version, 9);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);
@@ -4070,7 +4023,7 @@ mod tests {
     }
 
     #[test]
-    fn export_is_v8_and_never_emits_internal_timestamps_or_browser_session_source() {
+    fn export_is_v9_and_never_emits_internal_timestamps_or_browser_session_source() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -4086,7 +4039,7 @@ mod tests {
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         crate::v1_case!("portable-profile-3dc36f8d51a0", {
-            assert_eq!(value["schemaVersion"], 8);
+            assert_eq!(value["schemaVersion"], 9);
             assert_eq!(value["appVersion"], "2.0.0");
             for field in [
                 "authState",

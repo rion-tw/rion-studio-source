@@ -39,7 +39,7 @@ use crate::model::{
     WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 11;
+pub(crate) const SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1810,7 +1810,57 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 12 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        remove_browser_engine_option_contracts(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (12, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn remove_browser_engine_option_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
+    rewrite_entity_payloads(transaction, "games", |object| {
+        object.remove("browserEngine");
+    })?;
+    rewrite_entity_payloads(transaction, "roles", |object| {
+        object.remove("browserEnginePin");
+    })?;
+    rewrite_entity_payloads(transaction, "workspaces", |object| {
+        object.remove("browserEngine");
+    })?;
+
+    let payload = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if let Some(payload) = payload {
+        let mut value = parse_payload(&payload)?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
+        })?;
+        object.remove("browserEngine");
+        transaction
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                params![serialize_payload(&value)?],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -3470,14 +3520,13 @@ mod tests {
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
-                browser_engine: None,
             }),
         )
         .unwrap();
         let game_id = created_game["value"]["id"].as_str().unwrap().to_owned();
         crate::v1_case!("state-migration-edad5901a646", {
             assert_eq!(created_game["value"]["name"], "Custom");
-            assert_eq!(created_game["value"]["browserEngine"], "inherit");
+            assert!(created_game["value"].get("browserEngine").is_none());
             assert!(created_game["value"].get("browserLaunchMode").is_none());
             assert_eq!(
                 read_record(&connection, "games", &game_id)
@@ -3711,16 +3760,6 @@ mod tests {
 
         create_schema(&connection, false).unwrap();
 
-        let browser: GameBrowserSettingsRecord = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
         let macros: MacroSettingsRecord = serde_json::from_str(
             &connection
                 .query_row(
@@ -3741,10 +3780,6 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(
-            browser.browser_engine,
-            Some(crate::model::EmbeddedBrowserEngine::System)
-        );
         assert_eq!(macros.key_hold_ms, 30);
         assert!(preferences.always_show_toolbar_in_full_screen);
         assert_eq!(
@@ -4026,7 +4061,11 @@ mod tests {
 
         let snapshot = read_snapshot(&connection).unwrap();
         assert_eq!(snapshot["compatibilityReports"], json!([]));
-        assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert!(
+            snapshot["gameBrowserSettings"]
+                .get("browserEngine")
+                .is_none()
+        );
         assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
     }
 
@@ -4075,7 +4114,7 @@ mod tests {
         create_schema(&connection, false).unwrap();
 
         let snapshot = read_snapshot(&connection).unwrap();
-        assert_eq!(snapshot["games"][0]["browserEngine"], "inherit");
+        assert!(snapshot["games"][0].get("browserEngine").is_none());
         assert!(snapshot["games"][0].get("browserLaunchMode").is_none());
         assert!(snapshot["roles"][0].get("browserSessionSource").is_none());
         assert!(snapshot["roles"][0].get("browserEnginePin").is_none());
@@ -4084,13 +4123,21 @@ mod tests {
                 .get("preferredBrowserLaunchMode")
                 .is_none()
         );
-        assert_eq!(snapshot["launchWorkspaces"][0]["browserEngine"], "system");
+        assert!(
+            snapshot["launchWorkspaces"][0]
+                .get("browserEngine")
+                .is_none()
+        );
         assert!(
             snapshot["launchWorkspaces"][0]
                 .get("browserLaunchMode")
                 .is_none()
         );
-        assert_eq!(snapshot["gameBrowserSettings"]["browserEngine"], "system");
+        assert!(
+            snapshot["gameBrowserSettings"]
+                .get("browserEngine")
+                .is_none()
+        );
         assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
         assert!(
             snapshot["gameBrowserSettings"]["network"]
@@ -4193,7 +4240,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            11
+            12
         );
     }
 

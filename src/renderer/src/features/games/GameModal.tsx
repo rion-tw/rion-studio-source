@@ -9,11 +9,9 @@ import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import type {
-  BrowserEngineOverride,
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus
@@ -100,9 +98,6 @@ function GameEditor({
         <Surface className="grid gap-4 p-4" variant="inset">
           <FieldHeader title={t("games.form.urls")} description={t("games.form.urlsDescription")} />
           <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
-        </Surface>
-        <Surface className="grid gap-4 p-4" variant="inset">
-          <FormField label={t("games.form.browserEngine")}><Select value={form.browserEngine ?? "inherit"} onValueChange={(value) => setForm({ ...form, browserEngine: value as BrowserEngineOverride })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.engine.inherit")}</SelectItem><SelectItem value="system">{t("games.engine.system")}</SelectItem></SelectContent></Select></FormField>
         </Surface>
         {game ? (
           <GameCompatibilityPanel

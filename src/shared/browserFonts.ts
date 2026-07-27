@@ -3,7 +3,6 @@ import type {
   BrowserFontSettings,
   BrowserFontSettingsMode,
   BrowserGraphicsSettings,
-  EmbeddedBrowserEngine,
   GameBrowserSettings,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
@@ -67,7 +66,6 @@ export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings 
 };
 
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
-  browserEngine: "system",
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
   macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
@@ -81,7 +79,6 @@ export function normalizeGameBrowserSettings(
   const input = isRecord(value) ? value : {};
 
   return {
-    browserEngine: normalizeEmbeddedBrowserEngine(input.browserEngine, fallback.browserEngine),
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
     graphics: normalizeBrowserGraphicsSettings(input.graphics, fallback.graphics),
     macroBadgePosition: normalizeMacroBadgePositionSettings(
@@ -248,13 +245,6 @@ function normalizeBrowserFontSettingsMode(
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
-}
-
-function normalizeEmbeddedBrowserEngine(
-  value: unknown,
-  fallback: EmbeddedBrowserEngine | undefined
-): EmbeddedBrowserEngine {
-  return value === "system" ? value : (fallback ?? "system");
 }
 
 function normalizeWorkspaceGapSize(

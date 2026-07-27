@@ -310,6 +310,7 @@ mod tests {
 
     #[test]
     fn localizes_all_supported_languages() {
+        assert_eq!(labels("en").app, "Rion Studio");
         assert_eq!(labels("en").toolbar, "Always Show Toolbar in Full Screen");
         assert_eq!(labels("zh-TW").view, "顯示");
         assert_eq!(labels("zh-CN").window, "窗口");

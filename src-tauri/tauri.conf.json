@@ -18,7 +18,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "",
+        "title": "Rion Studio",
         "width": 1440,
         "height": 900,
         "minWidth": 960,

@@ -68,6 +68,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("EmbeddedSystemSurfaceFailed");
     expect(runtime).toContain("EmbeddedSystemSurfaceRecovered");
     expect(runtime).toContain("SURFACE_RECOVERY_LIMIT");
+    expect(runtime).toContain(
+      '#[cfg(target_os = "macos")]\n    pub fn handle_web_content_process_terminated('
+    );
     expect(runtime).toContain('internals.invoke("rion_runtime_audio_state", { audible })');
     expect(runtime).not.toContain("rion-runtime-audio://");
     expect(runtime).toContain("set_webview_audible");
@@ -87,6 +90,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(windowsTabStrip).toContain("crate::display_inventory(&window)");
     expect(windowsTabStrip).not.toContain("crate::workspace_displays(&window)");
     expect(windowsTabStrip).toContain("Value::String(icon.clone())");
+    expect(windowsTabStrip).toContain(".unwrap_or(Value::Null)");
+    expect(windowsTabStrip).not.toContain(".unwrap_or_else(|_| Value::Null)");
     expect(applyRuntime).toContain("surface.reparent(&window)");
     expect(applyRuntime).toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");
@@ -142,6 +147,12 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(inputCountMatcher).toContain('snapshot.get("mouseDown")');
     expect(inputCountMatcher).toContain('snapshot.get("mouseUp")');
+    const windowsAudioMute = runtime.slice(
+      runtime.indexOf('#[cfg(windows)]\nfn set_audio_muted('),
+      runtime.indexOf('#[cfg(not(any(windows, target_os = "macos")))]\nfn set_audio_muted(')
+    );
+    expect(windowsAudioMute).toContain("SetIsMuted(muted)");
+    expect(windowsAudioMute).not.toContain("SetIsMuted(muted.into())");
     expect(runtime).toContain("run_role_count_attestation");
     expect(runtime).toContain("verify_shared_display_host_attestation");
     const destroyAttestationTab = runtime.slice(

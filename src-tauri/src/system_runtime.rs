@@ -42,6 +42,7 @@ use tauri::{
 };
 
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(40);
+const RION_STUDIO_APP_NAME: &str = "Rion Studio";
 const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
 const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
@@ -106,6 +107,22 @@ const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
   document.addEventListener("DOMContentLoaded", publish, { once: true });
 })();
 "#;
+
+fn native_runtime_window_title_for_platform<'a>(platform: &str, title: &'a str) -> &'a str {
+    if platform == "macos" {
+        RION_STUDIO_APP_NAME
+    } else {
+        title
+    }
+}
+
+pub(crate) fn native_runtime_window_title(title: &str) -> &str {
+    #[cfg(target_os = "macos")]
+    const PLATFORM: &str = "macos";
+    #[cfg(not(target_os = "macos"))]
+    const PLATFORM: &str = "windows";
+    native_runtime_window_title_for_platform(PLATFORM, title)
+}
 const WORKSPACE_RESIZE_INDICATOR_SCRIPT: &str = r#"
 (() => {
   if (globalThis.__rionStudioWorkspaceResizeIndicator) return;
@@ -2192,6 +2209,7 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     pub fn handle_web_content_process_terminated(
         self: &Arc<Self>,
         webview_label: &str,
@@ -4377,7 +4395,7 @@ impl SystemRuntimeExecutor {
         let host_id = format!("{}:{host_generation}", target.window_id);
         let window_label = runtime_label("game-display", &host_id);
         let window = WindowBuilder::new(&self.app, window_label)
-            .title(title)
+            .title(native_runtime_window_title(title))
             .position(target.bounds.x as f64, target.bounds.y as f64)
             .inner_size(
                 target.bounds.width.max(1) as f64,
@@ -4848,7 +4866,7 @@ impl SystemRuntimeExecutor {
                 .and_then(|window| window.active_tab_id.as_deref())
                 .and_then(|tab_id| snapshot.tabs.iter().find(|tab| tab.id == tab_id))
                 .map(|tab| tab.name.as_str())
-                .unwrap_or("");
+                .unwrap_or(RION_STUDIO_APP_NAME);
             let (_, created) = self.ensure_display_host(target, title)?;
             Some((target.window_id.clone(), created))
         } else {
@@ -5045,15 +5063,19 @@ impl SystemRuntimeExecutor {
                             .and_then(|tab| tab.roles.values().next())
                             .map(|surface| surface.webview.clone())
                     });
-                    let title = game_window_names.get(window_id).cloned().or_else(|| {
-                        active_tab.and_then(|tab_id| {
-                            snapshot
-                                .tabs
-                                .iter()
-                                .find(|tab| tab.id == tab_id)
-                                .map(|tab| tab.name.clone())
+                    let title = game_window_names
+                        .get(window_id)
+                        .cloned()
+                        .or_else(|| {
+                            active_tab.and_then(|tab_id| {
+                                snapshot
+                                    .tabs
+                                    .iter()
+                                    .find(|tab| tab.id == tab_id)
+                                    .map(|tab| tab.name.clone())
+                            })
                         })
-                    });
+                        .map(|title| native_runtime_window_title(&title).to_owned());
                     let has_visible_active = active_tab.is_some_and(|tab_id| {
                         snapshot
                             .tabs
@@ -5248,7 +5270,7 @@ impl SystemRuntimeExecutor {
         let preferences = self
             .core
             .invoke(CoreCommand::RuntimeWindowPreferencesGet)
-            .unwrap_or_else(|_| Value::Null);
+            .unwrap_or(Value::Null);
         let always_hide_tab_close_button = preferences["alwaysHideTabCloseButton"]
             .as_bool()
             .unwrap_or(false);
@@ -9180,7 +9202,7 @@ fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
                 .controller()
                 .CoreWebView2()
                 .and_then(|core| core.cast::<ICoreWebView2_8>())
-                .and_then(|core| core.SetIsMuted(muted.into()))
+                .and_then(|core| core.SetIsMuted(muted))
                 .map_err(|error| error.to_string());
             let _ = sender.send(result);
         })
@@ -9264,6 +9286,17 @@ mod tests {
             "workspaces": []
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn native_runtime_window_title_is_platform_explicit() {
+        let original = "遊戲視窗 1";
+        for (platform, expected) in [("macos", "Rion Studio"), ("windows", original)] {
+            assert_eq!(
+                native_runtime_window_title_for_platform(platform, original),
+                expected
+            );
+        }
     }
 
     #[test]

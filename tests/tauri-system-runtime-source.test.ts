@@ -107,6 +107,33 @@ describe("Tauri System WebView runtime source", () => {
     expect(attestKey).not.toContain("sleep(Duration::from_millis(2))");
     expect(runtime).toContain("run_role_count_attestation");
     expect(runtime).toContain("verify_shared_display_host_attestation");
+    const destroyAttestationTab = runtime.slice(
+      runtime.indexOf("fn destroy_attestation_tab("),
+      runtime.indexOf("fn run_role_count_attestation(")
+    );
+    expect(destroyAttestationTab).toContain("runtime.destroy_tab(tab_id)?");
+    expect(destroyAttestationTab).toContain("runtime.discard_provisional_game_window(window_id)");
+    const roleCountAttestation = runtime.slice(
+      runtime.indexOf("fn run_role_count_attestation("),
+      runtime.indexOf("fn verify_compatibility_surface_attestation(")
+    );
+    expect(roleCountAttestation).toContain(
+      "destroy_attestation_tab(runtime, &tab_id, &window_id)"
+    );
+    const sharedHostAttestation = runtime.slice(
+      runtime.indexOf("fn verify_shared_display_host_attestation("),
+      runtime.indexOf("fn runtime_window_native_identity(")
+    );
+    expect(sharedHostAttestation).toContain(
+      "destroy_attestation_tab(runtime, second_tab_id, WINDOW_ID)"
+    );
+    const createDestroyAttestation = runtime.slice(
+      runtime.indexOf("fn run_create_destroy_attestation("),
+      runtime.indexOf("fn attestation_role(")
+    );
+    expect(createDestroyAttestation).toContain(
+      "destroy_attestation_tab(runtime, &tab_id, &window_id)?"
+    );
     const roleLoading = runtime.slice(
       runtime.indexOf("fn load_roles("),
       runtime.indexOf("fn install_overlays(")

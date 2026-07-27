@@ -5962,6 +5962,17 @@ fn run_simulated_input_stress(core: &AppCore) -> RuntimeResult<Value> {
 }
 
 #[cfg(any(windows, target_os = "macos"))]
+fn destroy_attestation_tab(
+    runtime: &SystemRuntimeExecutor,
+    tab_id: &str,
+    window_id: &str,
+) -> RuntimeResult<()> {
+    runtime.destroy_tab(tab_id)?;
+    runtime.discard_provisional_game_window(window_id);
+    Ok(())
+}
+
+#[cfg(any(windows, target_os = "macos"))]
 fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeResult<Value> {
     let server = AttestationServer::start()?;
     let mut layouts = Vec::new();
@@ -5971,6 +5982,7 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
     for count in [1_usize, 3, 6, 9] {
         eprintln!("System WebView parity: creating {count}-role layout.");
         let tab_id = format!("attestation-tab-{count}");
+        let window_id = format!("attestation-layout-{count}");
         let roles = (0..count)
             .map(|index| attestation_role(count, index))
             .collect::<Vec<_>>();
@@ -5993,7 +6005,7 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
                 gap: 2,
             },
             target: EmbeddedLaunchTargetRecord {
-                window_id: format!("attestation-layout-{count}"),
+                window_id: window_id.clone(),
                 display_id: -9_999,
                 work_area: rion_core::StatePixelBoundsRecord {
                     x: 0,
@@ -6025,7 +6037,7 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
                 Ok(None)
             };
         eprintln!("System WebView parity: destroying {count}-role layout.");
-        let cleanup = runtime.destroy_tab(&tab_id);
+        let cleanup = destroy_attestation_tab(runtime, &tab_id, &window_id);
         verification?;
         if let Some(report) = edge_verification? {
             popup_download = Some(report);
@@ -6036,9 +6048,7 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
         cleanup?;
         let state = runtime.state()?;
         if state.tabs.contains_key(&tab_id)
-            || state
-                .display_hosts
-                .contains_key(&format!("attestation-layout-{count}"))
+            || state.display_hosts.contains_key(&window_id)
             || state
                 .role_tabs
                 .keys()
@@ -6197,7 +6207,7 @@ fn verify_shared_display_host_attestation(
     let second_tab_id = "attestation-shared-tab-b";
     runtime.create_tab(make_tab(first_tab_id, "attestation-shared-role-a"))?;
     if let Err(error) = runtime.create_tab(make_tab(second_tab_id, "attestation-shared-role-b")) {
-        let _ = runtime.destroy_tab(first_tab_id);
+        let _ = destroy_attestation_tab(runtime, first_tab_id, WINDOW_ID);
         return Err(error);
     }
     let result = (|| -> RuntimeResult<Value> {
@@ -6347,7 +6357,7 @@ fn verify_shared_display_host_attestation(
         }))
     })();
     let _ = runtime.destroy_tab(first_tab_id);
-    let cleanup = runtime.destroy_tab(second_tab_id);
+    let cleanup = destroy_attestation_tab(runtime, second_tab_id, WINDOW_ID);
     result.and_then(|report| cleanup.map(|()| report))
 }
 
@@ -6738,6 +6748,7 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
         }
         let tab_id = format!("attestation-soak-tab-{cycle}");
         let role_id = format!("attestation-soak-role-{cycle}");
+        let window_id = format!("attestation-soak-window-{cycle}");
         let mut role = attestation_role(1, 0);
         role.role.id = role_id.clone();
         role.role.name = format!("Attestation soak role {cycle}");
@@ -6752,7 +6763,7 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
                 gap: 2,
             },
             target: EmbeddedLaunchTargetRecord {
-                window_id: format!("attestation-soak-window-{cycle}"),
+                window_id: window_id.clone(),
                 display_id: -9_999,
                 work_area: rion_core::StatePixelBoundsRecord {
                     x: 0,
@@ -6770,13 +6781,11 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
             },
             roles: vec![role],
         })?;
-        runtime.destroy_tab(&tab_id)?;
+        destroy_attestation_tab(runtime, &tab_id, &window_id)?;
         let state = runtime.state()?;
         if state.tabs.contains_key(&tab_id)
             || state.role_tabs.contains_key(&role_id)
-            || state
-                .display_hosts
-                .contains_key(&format!("attestation-soak-window-{cycle}"))
+            || state.display_hosts.contains_key(&window_id)
         {
             return Err(input_attestation_error(format!(
                 "System WebView create/destroy soak cycle {cycle} leaked runtime handles."

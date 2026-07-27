@@ -92,6 +92,10 @@ describe("games cover UI", () => {
     expect(coveredCard).toBeTruthy();
     expect(uncoveredCard).toBeTruthy();
     expect(coveredCard?.querySelector(`img[src="${processedCover}"]`)).toBeTruthy();
+    const coveredImage = coveredCard?.querySelector(`img[src="${processedCover}"]`);
+    expect(coveredImage?.classList.contains("game-motion-transform")).toBe(true);
+    expect(coveredImage?.classList.contains("transition-transform")).toBe(true);
+    expect(coveredCard?.querySelector(".game-motion-opacity")).toBeTruthy();
     expect(uncoveredCard?.querySelector(".aspect-video img")).toBeNull();
     expect(container.querySelectorAll(".aspect-video")).toHaveLength(2);
 

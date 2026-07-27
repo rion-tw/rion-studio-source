@@ -148,7 +148,7 @@ function GamesRoute({
                   <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
                     {coverUrl ? (
                       <img
-                        className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+                        className="game-motion-transform size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
                         src={coverUrl}
                         alt=""
                       />
@@ -209,7 +209,7 @@ function GamesRoute({
                     </div>
                   </div>
                 </button>
-                <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                <div className="game-motion-opacity pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                   <GameActionMenu
                     checking={checking}
                     game={game}

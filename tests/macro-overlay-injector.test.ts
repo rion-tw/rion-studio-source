@@ -41,6 +41,16 @@ describe("Tauri macro overlay injector", () => {
     expect(assembled).not.toContain("setInterval");
   });
 
+  it("keeps game overlay flashes on compositor-friendly properties", async () => {
+    const { css } = await overlaySources();
+
+    expect(css).toMatch(/\.click-marker\.is-click-flash\{[^}]*will-change:transform,opacity,filter;/);
+    expect(css).toMatch(/\.active-badge::after\{[^}]*opacity:0/);
+    expect(css).toMatch(/\.active-badge\.is-iteration-flash::after\{[^}]*transform:translateZ\(0\);will-change:opacity;/);
+    expect(css).toContain("var(--active-badge-flash-duration,120ms) ease-out var(--active-badge-flash-delay,0ms) 1 both");
+    expect(css).toContain("@media (prefers-reduced-motion:reduce){.active-badge.is-iteration-flash::after{animation:none;will-change:auto;}}");
+  });
+
   it("installs once per System WebView document and reinstalls after navigation", async () => {
     const { bridge } = await overlaySources();
     const invoke = vi.fn(async (_command: string, _argumentsRecord: unknown) => ({}));

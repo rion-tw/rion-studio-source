@@ -3602,6 +3602,38 @@ impl AppCore {
         Ok((true, None))
     }
 
+    fn reset_system_launch_retry_state(&self, roles: &[StateRoleRecord]) -> CoreResult<()> {
+        let game_ids = roles
+            .iter()
+            .map(|role| role.game_id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let mut issues = self.system_webview_issues.write().map_err(|_| {
+                CoreError::Internal("system WebView issue lock poisoned".to_owned())
+            })?;
+            for role in roles {
+                let retryable = matches!(
+                    issues.get(&role.id),
+                    Some(
+                        crate::model::SystemWebViewIssueReason::CachedCompatibilityFailure
+                            | crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
+                    )
+                );
+                if retryable {
+                    issues.remove(&role.id);
+                }
+            }
+        }
+        for game_id in game_ids {
+            self.with_runtime(|runtime| {
+                runtime
+                    .state
+                    .engine_compatibility_cache_delete_game(game_id)
+            })?;
+        }
+        Ok(())
+    }
+
     fn engine_compatibility_cache_key(
         &self,
         game: &StateGameRecord,
@@ -3815,6 +3847,7 @@ impl AppCore {
             "game browser settings are missing",
         )?;
         let game = self.state_game(&role.game_id)?;
+        self.reset_system_launch_retry_state(std::slice::from_ref(&role))?;
         let resolution = self.resolve_role_browser_engine(&role, &game, None, &settings)?;
         require_system_resolution(&resolution)?;
         let resolved_engine = resolution.resolved_engine;
@@ -3984,6 +4017,7 @@ impl AppCore {
             .into_iter()
             .map(|game| (game.id.clone(), game))
             .collect::<std::collections::HashMap<_, _>>();
+        self.reset_system_launch_retry_state(&roles)?;
         let workspace_resolution =
             self.resolve_workspace_browser_engine(&roles, &available_games, &workspace, &settings)?;
         require_system_resolution(&workspace_resolution)?;
@@ -5680,17 +5714,21 @@ mod tests {
     }
 
     fn core() -> (TempDir, Arc<AppCore>) {
+        core_for_platform("darwin")
+    }
+
+    fn core_for_platform(platform: &str) -> (TempDir, Arc<AppCore>) {
         let directory = tempfile::tempdir().unwrap();
         let core = Arc::new(
             AppCore::create(AppCoreOptions {
                 app_version: "2.1.0-test".to_owned(),
-                platform: "darwin".to_owned(),
+                platform: platform.to_owned(),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
                 performance_telemetry_path: None,
             })
             .unwrap(),
         );
-        install_test_system_runtime(&core, supported_system_capabilities());
+        install_test_system_runtime_for_platform(&core, platform, supported_system_capabilities());
         (directory, core)
     }
 
@@ -5793,9 +5831,22 @@ mod tests {
         core: &AppCore,
         capability_snapshot: crate::model::EngineCapabilitySnapshotRecord,
     ) {
+        install_test_system_runtime_for_platform(core, "darwin", capability_snapshot);
+    }
+
+    fn install_test_system_runtime_for_platform(
+        core: &AppCore,
+        platform: &str,
+        capability_snapshot: crate::model::EngineCapabilitySnapshotRecord,
+    ) {
+        let (platform_name, engine) = match platform {
+            "darwin" => ("macos", crate::model::ResolvedBrowserEngine::Wkwebview),
+            "win32" => ("windows", crate::model::ResolvedBrowserEngine::Webview2),
+            _ => panic!("unsupported test platform: {platform}"),
+        };
         *core.system_webview_runtime.write().unwrap() = SystemWebViewRuntimeRegistrationRecord {
-            platform: "macos".to_owned(),
-            engine: crate::model::ResolvedBrowserEngine::Wkwebview,
+            platform: platform_name.to_owned(),
+            engine,
             adapter_version: "test-wkwebview-1".to_owned(),
             available: true,
             capability_snapshot,
@@ -7392,6 +7443,62 @@ mod tests {
             core.shutdown();
         }
     }
+
+    #[test]
+    fn transient_system_workspace_launch_failure_does_not_block_a_retry() {
+        for platform in ["darwin", "win32"] {
+            let (_directory, core) = core_for_platform(platform);
+            let game_id = first_game_id(&core);
+            let role_id = create_role(&core, &game_id, 1);
+            let workspace_id = core
+                .invoke(command(json!({
+                    "type": "workspaceCreate",
+                    "input": {
+                        "name": "Retryable workspace",
+                        "template": "single",
+                        "slots": [{"roleId": role_id, "rect": workspace_rect(0, 1)}]
+                    }
+                })))
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let launch_command = || {
+                command(json!({
+                    "type": "embeddedWorkspaceLaunch",
+                    "workspaceId": workspace_id,
+                    "target": {
+                        "displayId": 1,
+                        "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+                    }
+                }))
+            };
+
+            let (failed, _) = drive_command(
+                Arc::clone(&core),
+                launch_command(),
+                Some("embeddedLoadRoles"),
+            );
+            assert_eq!(failed.unwrap_err().code(), "GAME_PAGE_LOAD_FAILED");
+
+            let (retry, retry_actions) = drive_command(Arc::clone(&core), launch_command(), None);
+            assert!(retry.is_ok(), "{retry:?}");
+            assert!(
+                retry_actions
+                    .iter()
+                    .any(|action| matches!(action, CoreEffectAction::EmbeddedLoadRoles { .. }))
+            );
+
+            let (stop, _) = drive_command(
+                Arc::clone(&core),
+                CoreCommand::EmbeddedWorkspaceStop { workspace_id },
+                None,
+            );
+            assert!(stop.is_ok());
+            core.shutdown();
+        }
+    }
+
     #[test]
     fn registered_system_runtime_with_macro_input_launches_macro_assigned_roles() {
         let (_directory, core) = core();

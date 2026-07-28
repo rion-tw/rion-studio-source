@@ -810,6 +810,17 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    fn window_for_role(&self, role_id: &str) -> Option<Window> {
+        self.state.lock().ok().and_then(|state| {
+            let tab_id = state.role_tabs.get(role_id)?;
+            let window_id = &state.tabs.get(tab_id)?.window_id;
+            state
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.window.clone())
+        })
+    }
+
     pub fn window_for_id(&self, window_id: &str) -> Option<Window> {
         self.state.lock().ok().and_then(|state| {
             state
@@ -6807,7 +6818,7 @@ fn verify_surface_recovery_attestation(
     runtime: &Arc<SystemRuntimeExecutor>,
 ) -> RuntimeResult<Option<Value>> {
     let role_id = "attestation-1-0";
-    let window = runtime.window_for_tab(role_id).ok_or_else(|| {
+    let window = runtime.window_for_role(role_id).ok_or_else(|| {
         input_attestation_error("The System WebView recovery host window was not found.")
     })?;
     // The role parity probe reveals the host so navigation and popup behavior can be

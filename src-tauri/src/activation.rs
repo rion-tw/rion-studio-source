@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const ACTIVATION_ENDPOINT_FILE: &str = "rion-studio.activation.json";
-const ACTIVATION_TIMEOUT: Duration = Duration::from_millis(1_500);
+const ACTIVATION_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_ACTIVATION_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Deserialize, Serialize)]
@@ -73,7 +73,15 @@ impl ActivationServer {
                         Ok((stream, _)) => {
                             handle_connection(stream, &thread_token, on_activate.as_ref());
                         }
-                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                io::ErrorKind::WouldBlock
+                                    | io::ErrorKind::Interrupted
+                                    | io::ErrorKind::ConnectionAborted
+                                    | io::ErrorKind::ConnectionReset
+                            ) =>
+                        {
                             thread::sleep(Duration::from_millis(25));
                         }
                         Err(_) => break,

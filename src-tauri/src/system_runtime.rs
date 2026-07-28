@@ -48,6 +48,12 @@ const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
 const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(any(windows, target_os = "macos"))]
+const INPUT_ATTESTATION_SCENARIO_ENV: &str = "RION_STUDIO_INPUT_ATTESTATION_SCENARIO";
+#[cfg(any(windows, target_os = "macos"))]
+const INPUT_ATTESTATION_SOAK_CYCLES_ENV: &str = "RION_STUDIO_INPUT_ATTESTATION_SOAK_CYCLES";
+#[cfg(any(windows, target_os = "macos"))]
+const INPUT_ATTESTATION_SOAK_OFFSET_ENV: &str = "RION_STUDIO_INPUT_ATTESTATION_SOAK_OFFSET";
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
 const LOCAL_STORAGE_SYNC_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -358,7 +364,11 @@ impl SurfaceLifecycleTracker {
     }
 
     fn wait(&self, platform: &str) -> bool {
-        let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+        self.wait_for(platform, PLATFORM_CALLBACK_TIMEOUT)
+    }
+
+    fn wait_for(&self, platform: &str, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
         let Ok(mut release) = self.release.lock() else {
             return false;
         };
@@ -388,6 +398,16 @@ fn surface_release_complete(platform: &str, release: &SurfaceReleaseState) -> bo
 
 fn surface_generation_is_current(active: u64, reported: u64) -> bool {
     active == reported
+}
+
+fn claim_surface_recovery(
+    active_generation: u64,
+    reported_generation: u64,
+    recovering_roles: &mut HashSet<String>,
+    role_id: &str,
+) -> bool {
+    surface_generation_is_current(active_generation, reported_generation)
+        && recovering_roles.insert(role_id.to_owned())
 }
 
 #[derive(Clone)]
@@ -687,19 +707,52 @@ pub struct SystemRuntimeExecutor {
     app: AppHandle,
     configuration: RuntimeWebViewConfiguration,
     core: Arc<AppCore>,
+    diagnostics: NativeRuntimeDiagnostics,
     effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
+    health: RuntimeHealth,
     language: Mutex<String>,
-    runtime_healthy: AtomicBool,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
+}
+
+#[derive(Default)]
+struct NativeRuntimeDiagnostics {
+    browser_process_ids: Mutex<HashSet<u32>>,
+    failure_kind: Mutex<Option<String>>,
+}
+
+struct RuntimeHealth(AtomicBool);
+
+impl RuntimeHealth {
+    fn new() -> Self {
+        Self(AtomicBool::new(true))
+    }
+
+    fn is_healthy(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn mark_unhealthy(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+
+    fn require_healthy(&self) -> RuntimeResult<()> {
+        if self.is_healthy() {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(
+                "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
+                "The System WebView runtime is unhealthy. Restart Rion Studio before creating another native surface.",
+            ))
+        }
+    }
 }
 
 enum SystemRuntimeWork {
     Effect {
         action_name: &'static str,
-        effect: CoreEffectRequest,
+        effect: Box<CoreEffectRequest>,
         persist_runtime: bool,
-        trace: bool,
     },
     RecoverSurface {
         allowed: bool,
@@ -711,6 +764,45 @@ enum SystemRuntimeWork {
 fn run_serial_runtime_work_loop<T>(receiver: Receiver<T>, mut execute: impl FnMut(T)) {
     while let Ok(work) = receiver.recv() {
         execute(work);
+    }
+}
+
+fn native_effect_scope(effect: &CoreEffectRequest) -> String {
+    fn collect(value: &Value, fields: &mut Vec<String>, seen: &mut HashSet<String>) {
+        match value {
+            Value::Object(object) => {
+                for (key, value) in object {
+                    if matches!(key.as_str(), "roleId" | "tabId" | "windowId")
+                        && let Some(identifier) = value.as_str()
+                    {
+                        let field = format!("{key}={identifier}");
+                        if seen.insert(field.clone()) {
+                            fields.push(field);
+                        }
+                    }
+                    if fields.len() < 12 {
+                        collect(value, fields, seen);
+                    }
+                }
+            }
+            Value::Array(values) => {
+                for value in values.iter().take(12) {
+                    collect(value, fields, seen);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut fields = Vec::new();
+    let mut seen = HashSet::new();
+    if let Ok(value) = serde_json::to_value(&effect.action) {
+        collect(&value, &mut fields, &mut seen);
+    }
+    if fields.is_empty() {
+        "scope=none".to_owned()
+    } else {
+        fields.join(", ")
     }
 }
 
@@ -817,9 +909,10 @@ impl SystemRuntimeExecutor {
                 overlay_document_start_script,
             },
             core,
+            diagnostics: NativeRuntimeDiagnostics::default(),
             effect_sender: OnceLock::new(),
+            health: RuntimeHealth::new(),
             language: Mutex::new("en".to_owned()),
-            runtime_healthy: AtomicBool::new(true),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -853,16 +946,14 @@ impl SystemRuntimeExecutor {
         effect: CoreEffectRequest,
         action_name: &'static str,
         persist_runtime: bool,
-        trace: bool,
     ) -> Result<(), String> {
         self.effect_sender
             .get()
             .ok_or_else(|| "The System WebView effect executor is unavailable.".to_owned())?
             .send(SystemRuntimeWork::Effect {
                 action_name,
-                effect,
+                effect: Box::new(effect),
                 persist_runtime,
-                trace,
             })
             .map_err(|_| "The System WebView effect executor stopped unexpectedly.".to_owned())
     }
@@ -873,15 +964,15 @@ impl SystemRuntimeExecutor {
                 action_name,
                 effect,
                 persist_runtime,
-                trace,
             } => {
                 let effect_id = effect.effect_id.clone();
                 let started = Instant::now();
-                if trace {
-                    eprintln!("System WebView effect: {action_name} started (effect={effect_id}).");
-                }
-                let result = if self.runtime_healthy.load(Ordering::Acquire) {
-                    self.execute(effect)
+                let scope = native_effect_scope(&effect);
+                eprintln!(
+                    "System WebView effect: {action_name} started (effect={effect_id}, {scope})."
+                );
+                let result = if self.health.is_healthy() {
+                    self.execute(*effect)
                 } else {
                     CoreEffectResult {
                         effect_id: effect.effect_id,
@@ -895,12 +986,10 @@ impl SystemRuntimeExecutor {
                     }
                 };
                 let succeeded = result.ok;
-                if trace {
-                    eprintln!(
-                        "System WebView effect: {action_name} completed (effect={effect_id}, ok={succeeded}, elapsedMs={}).",
-                        started.elapsed().as_millis()
-                    );
-                }
+                eprintln!(
+                    "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
+                    started.elapsed().as_millis()
+                );
                 if self.core.dispatch_core_effect_results(vec![result]).is_ok()
                     && succeeded
                     && persist_runtime
@@ -913,7 +1002,24 @@ impl SystemRuntimeExecutor {
                 allowed,
                 reason,
                 role_id,
-            } => self.recover_system_surface(role_id, reason, allowed),
+            } => {
+                if self.health.is_healthy() {
+                    self.recover_system_surface(role_id, reason, allowed);
+                } else {
+                    if let Ok(mut state) = self.state.lock() {
+                        state.recovering_roles.remove(&role_id);
+                    }
+                    let _ = self.app.emit(
+                        "rion://shell-error",
+                        json!({
+                            "code": "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
+                            "message": "The System WebView runtime rejected recovery after a stalled native lifecycle. Restart Rion Studio to recover safely.",
+                            "roleId": role_id,
+                            "reason": reason
+                        }),
+                    );
+                }
+            }
         }
     }
 
@@ -970,6 +1076,48 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn record_runtime_failure_kind(&self, failure_kind: impl Into<String>) {
+        if let Ok(mut current) = self.diagnostics.failure_kind.lock() {
+            *current = Some(failure_kind.into());
+        }
+    }
+
+    fn runtime_diagnostics(&self) -> Value {
+        let mut browser_process_ids = self
+            .diagnostics
+            .browser_process_ids
+            .lock()
+            .map(|ids| ids.iter().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+        browser_process_ids.sort_unstable();
+        let failure_kind = self
+            .diagnostics
+            .failure_kind
+            .lock()
+            .ok()
+            .and_then(|value| value.clone());
+        json!({
+            "browserProcessIds": browser_process_ids,
+            "failureKind": failure_kind,
+            "healthy": self.health.is_healthy()
+        })
+    }
+
+    fn install_surface_lifecycle_tracker(
+        &self,
+        webview: &Webview,
+    ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+        let tracker = platform_surface_lifecycle_tracker(webview)?;
+        #[cfg(windows)]
+        if let Ok(mut ids) = self.diagnostics.browser_process_ids.lock() {
+            let browser_process_id = tracker.browser_process_id.load(Ordering::Acquire) as u32;
+            if browser_process_id != 0 {
+                ids.insert(browser_process_id);
+            }
+        }
+        Ok(tracker)
+    }
+
     pub fn set_language(&self, language: &str) {
         if matches!(language, "en" | "zh-TW" | "zh-CN" | "ja") {
             if let Ok(mut current) = self.language.lock() {
@@ -1015,7 +1163,7 @@ impl SystemRuntimeExecutor {
         title: &str,
     ) -> Result<(), String> {
         let (window, _) = self
-            .ensure_display_host(target, title, false)
+            .ensure_display_host(target, title)
             .map_err(|error| error.message)?;
         window
             .set_ignore_cursor_events(true)
@@ -2680,6 +2828,10 @@ impl SystemRuntimeExecutor {
         reason: String,
         generation: u64,
     ) {
+        if !self.health.is_healthy() {
+            return;
+        }
+        self.record_runtime_failure_kind(reason.clone());
         let allowed = {
             let Ok(mut state) = self.state.lock() else {
                 return;
@@ -2695,9 +2847,12 @@ impl SystemRuntimeExecutor {
             else {
                 return;
             };
-            if !surface_generation_is_current(surface_generation, generation)
-                || !state.recovering_roles.insert(role_id.clone())
-            {
+            if !claim_surface_recovery(
+                surface_generation,
+                generation,
+                &mut state.recovering_roles,
+                &role_id,
+            ) {
                 return;
             }
             let now = Instant::now();
@@ -2846,9 +3001,8 @@ impl SystemRuntimeExecutor {
             let popup_labels = state
                 .popup_roles
                 .iter()
-                .filter_map(|(label, popup_role_id)| {
-                    (popup_role_id == role_id).then(|| label.clone())
-                })
+                .filter(|(_, popup_role_id)| *popup_role_id == role_id)
+                .map(|(label, _)| label.clone())
                 .collect::<Vec<_>>();
             for label in &popup_labels {
                 state.popup_roles.remove(label);
@@ -2859,6 +3013,13 @@ impl SystemRuntimeExecutor {
                 .entry(role_id.to_owned())
                 .or_insert(0);
             *next_generation += 1;
+            let generation = *next_generation;
+            state
+                .tabs
+                .get_mut(&tab_id)
+                .and_then(|tab| tab.roles.get_mut(role_id))
+                .expect("the recovery role was validated above")
+                .generation = generation;
             (
                 window,
                 old_webview,
@@ -2870,7 +3031,7 @@ impl SystemRuntimeExecutor {
                 zoom_mode,
                 window_zoom_factor,
                 audio_muted,
-                *next_generation,
+                generation,
                 popup_labels,
             )
         };
@@ -2900,68 +3061,93 @@ impl SystemRuntimeExecutor {
                 callback_navigation.page_event(payload.event(), payload.url());
             });
         let bounds = role_bounds_for_content(runtime_window_content_metrics(&window)?, &rect);
-        let webview = window
-            .add_child(
-                builder,
-                LogicalPosition::new(bounds.x, bounds.y),
-                LogicalSize::new(bounds.width, bounds.height),
-            )
-            .map_err(RuntimeError::tauri)?;
-        let lifecycle = install_surface_lifecycle_tracker(&webview)?;
-        #[cfg(target_os = "macos")]
-        if !host_visible {
-            // Keep WKWebView recovery in the same hidden state as its host so a newly-created
-            // child does not become the active input target during navigation.
-            webview.hide().map_err(RuntimeError::tauri)?;
-        }
-        install_platform_security_policy(&webview)?;
-        install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
-        install_process_failure_monitor(
-            &webview,
-            self.app.clone(),
-            role_id.to_owned(),
-            generation,
+        let webview = self.add_child_bounded(
+            &window,
+            builder,
+            LogicalPosition::new(bounds.x, bounds.y),
+            LogicalSize::new(bounds.width, bounds.height),
+            role_id,
         )?;
-        webview
-            .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
-            .map_err(RuntimeError::tauri)?;
-        navigation.reset();
-        webview
-            .navigate(current_url.clone())
-            .map_err(RuntimeError::tauri)?;
-        navigation
-            .wait()
-            .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))?;
-        if audio_muted {
-            set_audio_muted(&webview, true)?;
-        }
-        let tab_id = {
-            let mut state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                    "Runtime role stopped while its System WebView was recovering.",
-                )
-            })?;
-            let tab = state.tabs.get_mut(&tab_id).ok_or_else(|| {
-                RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-            })?;
-            tab.roles.insert(
-                role_id.to_owned(),
-                RoleSurface {
-                    current_url: Some(current_url),
-                    generation,
-                    lifecycle,
-                    local_storage_sync,
-                    navigation,
-                    rect,
-                    webview,
-                    zoom_factor,
-                    zoom_mode,
-                },
-            );
-            tab_id
+        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                let _ = webview.close();
+                let _ = wait_for_tauri_main_thread(&self.app);
+                return Err(error);
+            }
         };
+        let preparation = (|| -> RuntimeResult<()> {
+            #[cfg(target_os = "macos")]
+            if !host_visible {
+                // Keep WKWebView recovery in the same hidden state as its host so a newly-created
+                // child does not become the active input target during navigation.
+                webview.hide().map_err(RuntimeError::tauri)?;
+            }
+            install_platform_security_policy(&webview)?;
+            install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
+            install_process_failure_monitor(
+                &webview,
+                self.app.clone(),
+                role_id.to_owned(),
+                generation,
+            )?;
+            webview
+                .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
+                .map_err(RuntimeError::tauri)?;
+            navigation.reset();
+            webview
+                .navigate(current_url.clone())
+                .map_err(RuntimeError::tauri)?;
+            navigation
+                .wait()
+                .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))?;
+            if audio_muted {
+                set_audio_muted(&webview, true)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = preparation {
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(error);
+        }
+        let mut state = match self.state() {
+            Ok(state) => state,
+            Err(error) => {
+                let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+                return Err(error);
+            }
+        };
+        let Some(tab_id) = state.role_tabs.get(role_id).cloned() else {
+            drop(state);
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(RuntimeError::new(
+                "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                "Runtime role stopped while its System WebView was recovering.",
+            ));
+        };
+        let Some(tab) = state.tabs.get_mut(&tab_id) else {
+            drop(state);
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(RuntimeError::new(
+                "TAURI_RUNTIME_TAB_NOT_FOUND",
+                "Runtime tab was not found.",
+            ));
+        };
+        tab.roles.insert(
+            role_id.to_owned(),
+            RoleSurface {
+                current_url: Some(current_url),
+                generation,
+                lifecycle,
+                local_storage_sync,
+                navigation,
+                rect,
+                webview,
+                zoom_factor,
+                zoom_mode,
+            },
+        );
+        drop(state);
         self.layout_runtime_tab(&tab_id)
     }
 
@@ -3561,7 +3747,7 @@ impl SystemRuntimeExecutor {
                         }
                         let generation = popup_app
                             .try_state::<crate::CoreState>()
-                            .and_then(|state| state.runtime.surface_generation_for_role(&role_id));
+                            .and_then(|state| state.runtime.surface_generation_for_role(role_id));
                         let Some(generation) = generation else {
                             let _ = window.close();
                             return NewWindowResponse::Deny;
@@ -3672,13 +3858,17 @@ impl SystemRuntimeExecutor {
             webview2: PathBuf::from(webview2_user_data_dir),
         };
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-        let window = WindowBuilder::new(&self.app, runtime_label("browser-data-clear", role_id))
-            .inner_size(1.0, 1.0)
-            .visible(false)
-            .build()
-            .map_err(RuntimeError::tauri)?;
-        let webview = window
-            .add_child(
+        let window_app = self.app.clone();
+        let window_label = runtime_label("browser-data-clear", role_id);
+        let window = self.create_window_bounded(role_id, move || {
+            WindowBuilder::new(&window_app, window_label)
+                .inner_size(1.0, 1.0)
+                .visible(false)
+                .build()
+        })?;
+        let webview = self
+            .add_child_bounded(
+                &window,
                 self.webview_builder(
                     runtime_label("browser-data-clear-webview", role_id),
                     &paths,
@@ -3686,17 +3876,26 @@ impl SystemRuntimeExecutor {
                 )?,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1.0, 1.0),
+                role_id,
             )
-            .map_err(|error| {
+            .inspect_err(|_| {
                 let _ = window.close();
-                RuntimeError::tauri(error)
             })?;
+        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                let _ = webview.close();
+                let _ = window.close();
+                let _ = wait_for_tauri_main_thread(&self.app);
+                return Err(error);
+            }
+        };
         let result = webview
             .clear_all_browsing_data()
             .map_err(RuntimeError::tauri);
-        let _ = webview.close();
+        let cleanup = self.close_surface_and_wait(&webview, &lifecycle, role_id);
         let _ = window.close();
-        result
+        result.and(cleanup)
     }
 
     fn apply_role_session_transfer(
@@ -3723,29 +3922,28 @@ impl SystemRuntimeExecutor {
         let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
 
-        let (snapshot_window, snapshot_webview, snapshot_navigation) =
+        let (snapshot_window, snapshot_webview, snapshot_navigation, snapshot_lifecycle) =
             self.create_session_transfer_surface(role_id, &paths, None)?;
-        let existing_backup = match backup_transaction_id {
-            Some(transaction_id) => self
-                .state()?
-                .session_import_backups
-                .get(transaction_id)
-                .cloned(),
-            None => None,
-        };
-        if backup_transaction_id.is_some() && existing_backup.is_none() {
-            close_hidden_surface(snapshot_window, snapshot_webview);
-            return Err(RuntimeError::new(
-                "SESSION_IMPORT_BACKUP_UNAVAILABLE",
-                "Chrome profile import requires a verified native session snapshot.",
-            ));
-        }
-        let (cookie_backup, storage_backup) = if let Some(backup) = existing_backup {
-            (backup.cookies, backup.local_storage)
-        } else {
-            let cookies = cookies_for_launch(&snapshot_webview, &launch)?;
-            let local_storage = if replace_existing {
-                match (|| {
+        let snapshot_result = (|| {
+            let existing_backup = match backup_transaction_id {
+                Some(transaction_id) => self
+                    .state()?
+                    .session_import_backups
+                    .get(transaction_id)
+                    .cloned(),
+                None => None,
+            };
+            if backup_transaction_id.is_some() && existing_backup.is_none() {
+                return Err(RuntimeError::new(
+                    "SESSION_IMPORT_BACKUP_UNAVAILABLE",
+                    "Chrome profile import requires a verified native session snapshot.",
+                ));
+            }
+            let (cookie_backup, storage_backup) = if let Some(backup) = existing_backup {
+                (backup.cookies, backup.local_storage)
+            } else {
+                let cookies = cookies_for_launch(&snapshot_webview, &launch)?;
+                let local_storage = if replace_existing {
                     snapshot_navigation.reset();
                     snapshot_webview
                         .navigate(launch.clone())
@@ -3755,66 +3953,70 @@ impl SystemRuntimeExecutor {
                     })?;
                     require_exact_webview_origin(&snapshot_webview, &origin)?;
                     read_local_storage_entries(&snapshot_webview)
-                })() {
-                    Ok(entries) => entries,
-                    Err(error) => {
-                        close_hidden_surface(snapshot_window, snapshot_webview);
-                        return Err(error);
+                } else {
+                    Ok(Vec::new())
+                }?;
+                (cookies, local_storage)
+            };
+
+            let existing_cookie_keys = cookie_backup
+                .iter()
+                .map(native_cookie_key)
+                .collect::<HashSet<_>>();
+            let import_cookies = payload
+                .cookies
+                .iter()
+                .filter(|cookie| {
+                    replace_existing
+                        || !existing_cookie_keys.contains(&transfer_cookie_key(cookie, &launch))
+                })
+                .map(|cookie| transfer_cookie(cookie, &launch))
+                .collect::<RuntimeResult<Vec<_>>>()?;
+            if let Some(transaction_id) = backup_transaction_id {
+                let backup = NativeSessionBackup {
+                    cookies: cookie_backup.clone(),
+                    local_storage: storage_backup.clone(),
+                    storage_touched: replace_existing || !payload.local_storage.is_empty(),
+                };
+                self.persist_session_backup(transaction_id, &backup)?;
+                self.state()?
+                    .session_import_backups
+                    .insert(transaction_id.to_owned(), backup);
+            }
+
+            let cookie_apply_result = (|| {
+                if replace_existing {
+                    for cookie in &cookie_backup {
+                        snapshot_webview
+                            .delete_cookie(cookie.clone())
+                            .map_err(RuntimeError::tauri)?;
                     }
                 }
-            } else {
-                Vec::new()
-            };
-            (cookies, local_storage)
-        };
-
-        let existing_cookie_keys = cookie_backup
-            .iter()
-            .map(native_cookie_key)
-            .collect::<HashSet<_>>();
-        let import_cookies = payload
-            .cookies
-            .iter()
-            .filter(|cookie| {
-                replace_existing
-                    || !existing_cookie_keys.contains(&transfer_cookie_key(cookie, &launch))
-            })
-            .map(|cookie| transfer_cookie(cookie, &launch))
-            .collect::<RuntimeResult<Vec<_>>>()?;
-        if let Some(transaction_id) = backup_transaction_id {
-            let backup = NativeSessionBackup {
-                cookies: cookie_backup.clone(),
-                local_storage: storage_backup.clone(),
-                storage_touched: replace_existing || !payload.local_storage.is_empty(),
-            };
-            self.persist_session_backup(transaction_id, &backup)?;
-            self.state()?
-                .session_import_backups
-                .insert(transaction_id.to_owned(), backup);
-        }
-
-        let cookie_apply_result = (|| {
-            if replace_existing {
-                for cookie in &cookie_backup {
+                for cookie in &import_cookies {
                     snapshot_webview
-                        .delete_cookie(cookie.clone())
+                        .set_cookie(cookie.clone())
                         .map_err(RuntimeError::tauri)?;
                 }
+                let readback = cookies_for_launch(&snapshot_webview, &launch)?;
+                verify_cookie_readback(&import_cookies, &readback)
+            })();
+            if let Err(error) = cookie_apply_result {
+                let rollback = restore_url_cookies(&snapshot_webview, &launch, &cookie_backup);
+                return Err(rollback.err().unwrap_or(error));
             }
-            for cookie in &import_cookies {
-                snapshot_webview
-                    .set_cookie(cookie.clone())
-                    .map_err(RuntimeError::tauri)?;
-            }
-            let readback = cookies_for_launch(&snapshot_webview, &launch)?;
-            verify_cookie_readback(&import_cookies, &readback)
+            Ok((cookie_backup, storage_backup, import_cookies))
         })();
-        if let Err(error) = cookie_apply_result {
-            let rollback = restore_url_cookies(&snapshot_webview, &launch, &cookie_backup);
-            close_hidden_surface(snapshot_window, snapshot_webview);
-            return Err(rollback.err().unwrap_or(error));
-        }
-        close_hidden_surface(snapshot_window, snapshot_webview);
+        let snapshot_cleanup = self.close_hidden_surface(
+            role_id,
+            snapshot_window,
+            snapshot_webview,
+            &snapshot_lifecycle,
+        );
+        let (cookie_backup, storage_backup, import_cookies) =
+            match (snapshot_result, snapshot_cleanup) {
+                (Ok(result), Ok(())) => result,
+                (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+            };
 
         let storage_required = replace_existing || !payload.local_storage.is_empty();
         if !storage_required {
@@ -3830,7 +4032,7 @@ impl SystemRuntimeExecutor {
         let apply_script =
             local_storage_document_start_script(&origin, replace_existing, &payload.local_storage)?;
         let storage_result = (|| {
-            let (window, webview, navigation) =
+            let (window, webview, navigation, lifecycle) =
                 self.create_session_transfer_surface(role_id, &paths, Some(&apply_script))?;
             let result = (|| {
                 navigation.reset();
@@ -3843,8 +4045,8 @@ impl SystemRuntimeExecutor {
                 require_exact_webview_origin(&webview, &origin)?;
                 verify_local_storage_import(&webview, &payload.local_storage, replace_existing)
             })();
-            close_hidden_surface(window, webview);
-            result
+            let cleanup = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+            result.and(cleanup)
         })();
         if let Err(error) = storage_result {
             let cookie_rollback =
@@ -3892,7 +4094,7 @@ impl SystemRuntimeExecutor {
         let origin = launch.origin().ascii_serialization();
         let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-        let (window, webview, navigation) =
+        let (window, webview, navigation, lifecycle) =
             self.create_session_transfer_surface(role_id, &paths, None)?;
         let result = (|| {
             let cookies = cookies_for_launch(&webview, &launch)?;
@@ -3920,8 +4122,8 @@ impl SystemRuntimeExecutor {
                 .insert(transaction_id.to_owned(), backup);
             Ok(())
         })();
-        close_hidden_surface(window, webview);
-        result
+        let cleanup = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+        result.and(cleanup)
     }
 
     fn verify_role_authentication(
@@ -3952,7 +4154,7 @@ impl SystemRuntimeExecutor {
         let expected_origin = verification.origin().ascii_serialization();
         let paths = effect_session_paths(webview2_user_data_dir, webkit_data_store_identifier)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-        let (window, webview, navigation) =
+        let (window, webview, navigation, lifecycle) =
             self.create_session_transfer_surface(role_id, &paths, None)?;
         let outcome = (|| {
             navigation.reset();
@@ -3964,7 +4166,8 @@ impl SystemRuntimeExecutor {
             })?;
             webview.url().map_err(RuntimeError::tauri)
         })();
-        close_hidden_surface(window, webview);
+        let cleanup = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+        cleanup?;
         let (auth_state, final_path, reason_code) = match outcome {
             Ok(final_url) if final_url.origin().ascii_serialization() != expected_origin => (
                 "indeterminate",
@@ -4147,15 +4350,22 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         paths: &SessionPaths,
         document_start_script: Option<&str>,
-    ) -> RuntimeResult<(Window, Webview, Arc<NavigationTracker>)> {
+    ) -> RuntimeResult<(
+        Window,
+        Webview,
+        Arc<NavigationTracker>,
+        Arc<SurfaceLifecycleTracker>,
+    )> {
         let sequence = POPUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let suffix = format!("{role_id}:{sequence}");
-        let window =
-            WindowBuilder::new(&self.app, runtime_label("session-transfer-window", &suffix))
+        let window_app = self.app.clone();
+        let window_label = runtime_label("session-transfer-window", &suffix);
+        let window = self.create_window_bounded(role_id, move || {
+            WindowBuilder::new(&window_app, window_label)
                 .inner_size(1.0, 1.0)
                 .visible(false)
                 .build()
-                .map_err(RuntimeError::tauri)?;
+        })?;
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let mut builder = self
@@ -4170,21 +4380,43 @@ impl SystemRuntimeExecutor {
         if let Some(script) = document_start_script {
             builder = builder.initialization_script_for_all_frames(script);
         }
-        let webview = window
-            .add_child(
+        let webview = self
+            .add_child_bounded(
+                &window,
                 builder,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1.0, 1.0),
+                role_id,
             )
-            .map_err(|error| {
+            .inspect_err(|_| {
                 let _ = window.close();
-                RuntimeError::tauri(error)
             })?;
+        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                let _ = webview.close();
+                let _ = window.close();
+                let _ = wait_for_tauri_main_thread(&self.app);
+                return Err(error);
+            }
+        };
         if let Err(error) = install_platform_security_policy(&webview) {
-            close_hidden_surface(window, webview);
+            let _ = self.close_hidden_surface(role_id, window, webview, &lifecycle);
             return Err(error);
         }
-        Ok((window, webview, navigation))
+        Ok((window, webview, navigation, lifecycle))
+    }
+
+    fn close_hidden_surface(
+        &self,
+        role_id: &str,
+        window: Window,
+        webview: Webview,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+    ) -> RuntimeResult<()> {
+        let surface_cleanup = self.close_surface_and_wait(&webview, lifecycle, role_id);
+        let window_cleanup = window.close().map_err(RuntimeError::tauri);
+        surface_cleanup.and(window_cleanup)
     }
 
     fn restore_role_session_cookies(
@@ -4194,10 +4426,11 @@ impl SystemRuntimeExecutor {
         launch: &Url,
         backup: &[Cookie<'static>],
     ) -> RuntimeResult<()> {
-        let (window, webview, _) = self.create_session_transfer_surface(role_id, paths, None)?;
+        let (window, webview, _, lifecycle) =
+            self.create_session_transfer_surface(role_id, paths, None)?;
         let result = restore_url_cookies(&webview, launch, backup);
-        close_hidden_surface(window, webview);
-        result
+        let cleanup = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+        result.and(cleanup)
     }
 
     fn restore_role_local_storage(
@@ -4209,7 +4442,7 @@ impl SystemRuntimeExecutor {
         backup: &[(String, String)],
     ) -> RuntimeResult<()> {
         let script = local_storage_restore_script(origin, backup)?;
-        let (window, webview, navigation) =
+        let (window, webview, navigation, lifecycle) =
             self.create_session_transfer_surface(role_id, paths, Some(&script))?;
         let result = (|| {
             navigation.reset();
@@ -4222,8 +4455,8 @@ impl SystemRuntimeExecutor {
             require_exact_webview_origin(&webview, origin)?;
             verify_local_storage_snapshot(&webview, backup)
         })();
-        close_hidden_surface(window, webview);
-        result
+        let cleanup = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+        result.and(cleanup)
     }
 
     fn create_compatibility_surface(
@@ -4240,15 +4473,16 @@ impl SystemRuntimeExecutor {
             }
         }
         let runtime_scope = format!("{}:{}", plan.game_id, plan.started_at);
-        let window = WindowBuilder::new(
-            &self.app,
-            runtime_label("compatibility-window", &runtime_scope),
-        )
-        .title(format!("{} compatibility", plan.game_name))
-        .inner_size(960.0, 640.0)
-        .visible(false)
-        .build()
-        .map_err(RuntimeError::tauri)?;
+        let window_app = self.app.clone();
+        let window_label = runtime_label("compatibility-window", &runtime_scope);
+        let window_title = format!("{} compatibility", plan.game_name);
+        let window = self.create_window_bounded(&plan.game_id, move || {
+            WindowBuilder::new(&window_app, window_label)
+                .title(window_title)
+                .inner_size(960.0, 640.0)
+                .visible(false)
+                .build()
+        })?;
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let paths =
@@ -4275,22 +4509,34 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
-        let webview = window
-            .add_child(
+        let webview = self
+            .add_child_bounded(
+                &window,
                 builder,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(960.0, 640.0),
+                &plan.game_id,
             )
-            .map_err(|error| {
+            .inspect_err(|_| {
                 let _ = window.close();
                 if let Some(directory) = paths.webview2.parent() {
                     let _ = fs::remove_dir_all(directory);
                 }
-                RuntimeError::tauri(error)
             })?;
-        let lifecycle = install_surface_lifecycle_tracker(&webview)?;
+        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                let _ = webview.close();
+                let _ = window.close();
+                let _ = wait_for_tauri_main_thread(&self.app);
+                if let Some(directory) = paths.webview2.parent() {
+                    let _ = fs::remove_dir_all(directory);
+                }
+                return Err(error);
+            }
+        };
         if let Err(error) = install_platform_security_policy(&webview) {
-            let _ = webview.close();
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, &plan.game_id);
             let _ = window.close();
             if let Some(directory) = paths.webview2.parent() {
                 let _ = fs::remove_dir_all(directory);
@@ -4300,7 +4546,7 @@ impl SystemRuntimeExecutor {
         let mut state = match self.state() {
             Ok(state) => state,
             Err(error) => {
-                let _ = webview.close();
+                let _ = self.close_surface_and_wait(&webview, &lifecycle, &plan.game_id);
                 let _ = window.close();
                 if let Some(directory) = paths.webview2.parent() {
                     let _ = fs::remove_dir_all(directory);
@@ -4310,7 +4556,7 @@ impl SystemRuntimeExecutor {
         };
         if state.compatibility.contains_key(&plan.game_id) {
             drop(state);
-            let _ = webview.close();
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, &plan.game_id);
             let _ = window.close();
             if let Some(directory) = paths.webview2.parent() {
                 let _ = fs::remove_dir_all(directory);
@@ -4398,7 +4644,7 @@ impl SystemRuntimeExecutor {
             }
             let paths = role_session_paths(&self.user_data_dir, source_role_id)?;
             fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-            let (window, webview, navigation) =
+            let (window, webview, navigation, lifecycle) =
                 self.create_session_transfer_surface(source_role_id, &paths, None)?;
             let result = (|| {
                 navigation.reset();
@@ -4409,8 +4655,11 @@ impl SystemRuntimeExecutor {
                 require_exact_local_storage_sync_origin(&webview, origin)?;
                 read_scoped_local_storage_entries(&webview, keys)
             })();
-            close_hidden_surface(window, webview);
-            result?
+            let cleanup = self.close_hidden_surface(source_role_id, window, webview, &lifecycle);
+            match (result, cleanup) {
+                (Ok(entries), Ok(())) => entries,
+                (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+            }
         };
         self.persist_local_storage_sync_snapshot(PersistedLocalStorageSyncSnapshot {
             schema_version: 1,
@@ -5036,7 +5285,6 @@ impl SystemRuntimeExecutor {
         &self,
         target: &EmbeddedLaunchTargetRecord,
         title: &str,
-        reveal_for_initialization: bool,
     ) -> RuntimeResult<(Window, bool)> {
         if let Some(window) = self
             .state()?
@@ -5053,27 +5301,18 @@ impl SystemRuntimeExecutor {
         let host_generation = DISPLAY_HOST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let host_id = format!("{}:{host_generation}", target.window_id);
         let window_label = runtime_label("game-display", &host_id);
-        let window = WindowBuilder::new(&self.app, window_label)
-            .title(native_runtime_window_title(title))
-            .position(target.bounds.x as f64, target.bounds.y as f64)
-            .inner_size(
-                target.bounds.width.max(1) as f64,
-                target.bounds.height.max(1) as f64,
-            )
-            .min_inner_size(640.0, 480.0)
-            .visible(false)
-            .build()
-            .map_err(RuntimeError::tauri)?;
-        #[cfg(windows)]
-        if reveal_for_initialization {
-            // WebView2 can wait indefinitely while creating a child inside a hidden
-            // native window on the hosted runner. The attestation hides the host
-            // again before returning, so this only warms the test fixture's native
-            // surfaces and does not alter normal runtime launch visibility.
-            window.show().map_err(RuntimeError::tauri)?;
-        }
-        #[cfg(not(windows))]
-        let _ = reveal_for_initialization;
+        let window_app = self.app.clone();
+        let window_title = native_runtime_window_title(title).to_owned();
+        let bounds = target.bounds.clone();
+        let window = self.create_window_bounded(&target.window_id, move || {
+            WindowBuilder::new(&window_app, window_label)
+                .title(window_title)
+                .position(bounds.x as f64, bounds.y as f64)
+                .inner_size(bounds.width.max(1) as f64, bounds.height.max(1) as f64)
+                .min_inner_size(640.0, 480.0)
+                .visible(false)
+                .build()
+        })?;
         #[cfg(target_os = "macos")]
         let tabs_controller =
             match crate::runtime_tabs_macos::MacRuntimeTabsController::create(&self.app, &window) {
@@ -5084,18 +5323,20 @@ impl SystemRuntimeExecutor {
                 }
             };
         #[cfg(windows)]
-        let tab_strip = match window.add_child(
+        let tab_strip = match self.add_child_bounded(
+            &window,
             WebviewBuilder::new(
                 runtime_label("game-tab-strip", &host_id),
                 WebviewUrl::App("runtime-tabs.html".into()),
             ),
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(target.bounds.width.max(1) as f64, WINDOWS_TAB_STRIP_HEIGHT),
+            &format!("{}:tab-strip", target.window_id),
         ) {
             Ok(tab_strip) => tab_strip,
             Err(error) => {
                 let _ = window.close();
-                return Err(RuntimeError::tauri(error));
+                return Err(error);
             }
         };
 
@@ -5188,16 +5429,14 @@ impl SystemRuntimeExecutor {
             }
         }
         let target = tab.target.clone();
-        let reveal_for_initialization = tab.tab_id.starts_with("attestation-tab-");
-        let (window, host_created) =
-            self.ensure_display_host(&target, &tab.name, reveal_for_initialization)?;
+        let (window, host_created) = self.ensure_display_host(&target, &tab.name)?;
         let window_zoom_factor = self
             .state()?
             .display_hosts
             .get(&target.window_id)
             .map(|host| host.zoom_factor)
             .unwrap_or(1.0);
-        let mut created_webviews = Vec::new();
+        let mut created_surfaces = Vec::new();
         let result = (|| -> RuntimeResult<()> {
             let content_metrics = runtime_window_content_metrics(&window)?;
             let role_inputs = tab
@@ -5270,15 +5509,19 @@ impl SystemRuntimeExecutor {
                 } else {
                     role.zoom_factor.clamp(0.25, 3.0)
                 };
-                let webview = window
-                    .add_child(
-                        builder,
-                        LogicalPosition::new(bounds.x, bounds.y),
-                        LogicalSize::new(bounds.width, bounds.height),
-                    )
-                    .map_err(RuntimeError::tauri)?;
-                created_webviews.push(webview.clone());
-                let lifecycle = install_surface_lifecycle_tracker(&webview)?;
+                let webview = self.add_child_bounded(
+                    &window,
+                    builder,
+                    LogicalPosition::new(bounds.x, bounds.y),
+                    LogicalSize::new(bounds.width, bounds.height),
+                    &role_id,
+                )?;
+                created_surfaces.push((role_id.clone(), webview.clone(), None));
+                let lifecycle = self.install_surface_lifecycle_tracker(&webview)?;
+                created_surfaces
+                    .last_mut()
+                    .expect("role surface was just recorded")
+                    .2 = Some(Arc::clone(&lifecycle));
                 install_platform_security_policy(&webview)
                     .and_then(|()| install_role_zoom_shortcut_handler(&webview, self.app.clone()))
                     .and_then(|()| {
@@ -5314,20 +5557,24 @@ impl SystemRuntimeExecutor {
             let mut dividers = Vec::with_capacity(resolved_dividers.len());
             for (index, descriptor, bounds) in resolved_dividers {
                 let bounds = divider_hit_bounds(&descriptor.axis, bounds);
-                let webview = window
-                    .add_child(
-                        WebviewBuilder::new(
-                            runtime_label("game-divider", &format!("{}:{index}", tab.tab_id)),
-                            WebviewUrl::App(
-                                format!("runtime-divider.html?axis={}", descriptor.axis).into(),
-                            ),
-                        )
-                        .transparent(true),
-                        LogicalPosition::new(bounds.x, bounds.y),
-                        LogicalSize::new(bounds.width, bounds.height),
+                let webview = self.add_child_bounded(
+                    &window,
+                    WebviewBuilder::new(
+                        runtime_label("game-divider", &format!("{}:{index}", tab.tab_id)),
+                        WebviewUrl::App(
+                            format!("runtime-divider.html?axis={}", descriptor.axis).into(),
+                        ),
                     )
-                    .map_err(RuntimeError::tauri)?;
-                created_webviews.push(webview.clone());
+                    .transparent(true),
+                    LogicalPosition::new(bounds.x, bounds.y),
+                    LogicalSize::new(bounds.width, bounds.height),
+                    &format!("{}:divider:{index}", tab.tab_id),
+                )?;
+                created_surfaces.push((
+                    format!("{}:divider:{index}", tab.tab_id),
+                    webview.clone(),
+                    None,
+                ));
                 webview.hide().map_err(RuntimeError::tauri)?;
                 dividers.push(RuntimeDivider {
                     descriptor,
@@ -5361,16 +5608,17 @@ impl SystemRuntimeExecutor {
                     workspace_template: tab.workspace_template,
                 },
             );
-            #[cfg(windows)]
-            if reveal_for_initialization && host_created {
-                window.hide().map_err(RuntimeError::tauri)?;
-            }
             Ok(())
         })();
         if result.is_err() {
-            for webview in created_webviews {
-                let _ = webview.close();
+            for (surface_id, webview, lifecycle) in created_surfaces {
+                if let Some(lifecycle) = lifecycle {
+                    let _ = self.close_surface_and_wait(&webview, &lifecycle, &surface_id);
+                } else {
+                    let _ = webview.close();
+                }
             }
+            let _ = wait_for_tauri_main_thread(&self.app);
             self.remove_empty_display_host(&target.window_id, host_created);
         }
         result
@@ -5594,7 +5842,7 @@ impl SystemRuntimeExecutor {
                 .and_then(|tab_id| snapshot.tabs.iter().find(|tab| tab.id == tab_id))
                 .map(|tab| tab.name.as_str())
                 .unwrap_or(RION_STUDIO_APP_NAME);
-            let (_, created) = self.ensure_display_host(target, title, false)?;
+            let (_, created) = self.ensure_display_host(target, title)?;
             Some((target.window_id.clone(), created))
         } else {
             None
@@ -6135,7 +6383,8 @@ impl SystemRuntimeExecutor {
         if lifecycle.wait(platform) {
             return Ok(());
         }
-        self.runtime_healthy.store(false, Ordering::Release);
+        self.health.mark_unhealthy();
+        self.record_runtime_failure_kind("release-timeout");
         #[cfg(windows)]
         let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
         #[cfg(not(windows))]
@@ -6158,6 +6407,111 @@ impl SystemRuntimeExecutor {
             "SYSTEM_WEBVIEW_CREATION_STALLED",
             message,
         ))
+    }
+
+    fn add_child_bounded(
+        &self,
+        window: &Window,
+        builder: WebviewBuilder<tauri::Wry>,
+        position: LogicalPosition<f64>,
+        size: LogicalSize<f64>,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<Webview> {
+        self.health.require_healthy()?;
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let create_window = window.clone();
+        std::thread::Builder::new()
+            .name("rion-webview-create".to_owned())
+            .spawn(move || {
+                let result = create_window.add_child(builder, position, size);
+                if let Err(mpsc::SendError(Ok(stale_webview))) = sender.send(result) {
+                    // The bounded caller timed out. A late native callback must never
+                    // become the active surface for a newer lifecycle generation.
+                    let _ = stale_webview.close();
+                }
+            })
+            .map_err(|error| {
+                RuntimeError::new("SYSTEM_WEBVIEW_CREATE_WORKER_FAILED", error.to_string())
+            })?;
+        match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+            Ok(Ok(webview)) => Ok(webview),
+            Ok(Err(error)) => Err(RuntimeError::tauri(error)),
+            Err(error) => {
+                self.health.mark_unhealthy();
+                let failure_kind = match error {
+                    mpsc::RecvTimeoutError::Timeout => "creation-timeout",
+                    mpsc::RecvTimeoutError::Disconnected => "creation-worker-disconnected",
+                };
+                self.record_runtime_failure_kind(failure_kind);
+                let message = format!(
+                    "The System WebView surface {lifecycle_id} did not finish native creation within {}ms. Restart Rion Studio before launching another browser role.",
+                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                );
+                let _ = self.app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
+                        "failureKind": failure_kind,
+                        "message": message,
+                        "surfaceId": lifecycle_id,
+                        "windowId": window.label()
+                    }),
+                );
+                Err(RuntimeError::new(
+                    "SYSTEM_WEBVIEW_CREATION_STALLED",
+                    message,
+                ))
+            }
+        }
+    }
+
+    fn create_window_bounded(
+        &self,
+        lifecycle_id: &str,
+        create: impl FnOnce() -> tauri::Result<Window> + Send + 'static,
+    ) -> RuntimeResult<Window> {
+        self.health.require_healthy()?;
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("rion-window-create".to_owned())
+            .spawn(move || {
+                let result = create();
+                if let Err(mpsc::SendError(Ok(stale_window))) = sender.send(result) {
+                    let _ = stale_window.close();
+                }
+            })
+            .map_err(|error| {
+                RuntimeError::new("SYSTEM_WINDOW_CREATE_WORKER_FAILED", error.to_string())
+            })?;
+        match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+            Ok(Ok(window)) => Ok(window),
+            Ok(Err(error)) => Err(RuntimeError::tauri(error)),
+            Err(error) => {
+                self.health.mark_unhealthy();
+                let failure_kind = match error {
+                    mpsc::RecvTimeoutError::Timeout => "window-creation-timeout",
+                    mpsc::RecvTimeoutError::Disconnected => "window-creation-worker-disconnected",
+                };
+                self.record_runtime_failure_kind(failure_kind);
+                let message = format!(
+                    "The native host window {lifecycle_id} did not finish creation within {}ms. Restart Rion Studio before launching another browser role.",
+                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                );
+                let _ = self.app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
+                        "failureKind": failure_kind,
+                        "message": message,
+                        "windowId": lifecycle_id
+                    }),
+                );
+                Err(RuntimeError::new(
+                    "SYSTEM_WEBVIEW_CREATION_STALLED",
+                    message,
+                ))
+            }
+        }
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
@@ -6534,25 +6888,82 @@ fn wait_for_tauri_main_thread(app: &AppHandle) -> RuntimeResult<()> {
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-pub fn start_trusted_input_attestation(
-    app: AppHandle,
-    output_path: PathBuf,
-    runtime: Arc<SystemRuntimeExecutor>,
-) -> Result<(), String> {
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.hide();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputAttestationScenario {
+    Full,
+    Input,
+    Layout,
+    PopupDownload,
+    Recovery,
+    SharedHost,
+    Soak,
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+impl InputAttestationScenario {
+    fn from_environment() -> Result<Self, String> {
+        Self::parse(
+            &std::env::var(INPUT_ATTESTATION_SCENARIO_ENV).unwrap_or_else(|_| "full".to_owned()),
+        )
     }
-    let data_directory = output_path
-        .parent()
-        .ok_or_else(|| "Trusted-input attestation output has no parent directory.".to_owned())?
-        .join("system-webview-data");
+
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "full" => Ok(Self::Full),
+            "input" => Ok(Self::Input),
+            "layout" => Ok(Self::Layout),
+            "popup-download" => Ok(Self::PopupDownload),
+            "recovery" => Ok(Self::Recovery),
+            "shared-host" => Ok(Self::SharedHost),
+            "soak" => Ok(Self::Soak),
+            value => Err(format!(
+                "{INPUT_ATTESTATION_SCENARIO_ENV} has unsupported scenario {value}."
+            )),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Input => "input",
+            Self::Layout => "layout",
+            Self::PopupDownload => "popup-download",
+            Self::Recovery => "recovery",
+            Self::SharedHost => "shared-host",
+            Self::Soak => "soak",
+        }
+    }
+
+    fn needs_input_fixture(self) -> bool {
+        matches!(self, Self::Full | Self::Input)
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+struct InputAttestationFixture {
+    lifecycle: Arc<SurfaceLifecycleTracker>,
+    page_receiver: std::sync::mpsc::Receiver<()>,
+    webview: Webview,
+    window: Window,
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn create_input_attestation_fixture(
+    app: &AppHandle,
+    runtime: &SystemRuntimeExecutor,
+) -> Result<InputAttestationFixture, String> {
+    let data_directory = runtime.user_data_dir.join("attestation-input-browser");
     fs::create_dir_all(&data_directory).map_err(|error| error.to_string())?;
-    let window = WindowBuilder::new(&app, "system-input-attestation-window")
-        .title("Rion Studio System Input Attestation")
-        .inner_size(320.0, 240.0)
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())?;
+    let window_app = app.clone();
+    let window = runtime
+        .create_window_bounded("trusted-input-fixture", move || {
+            WindowBuilder::new(&window_app, "system-input-attestation-window")
+                .title("Rion Studio System Input Attestation")
+                .inner_size(320.0, 240.0)
+                .visible(false)
+                .build()
+        })
+        .map_err(|error| error.message)?;
     eprintln!("System WebView parity: attestation host window created.");
     let (page_sender, page_receiver) = std::sync::mpsc::sync_channel(1);
     let builder = WebviewBuilder::new(
@@ -6570,75 +6981,193 @@ pub fn start_trusted_input_attestation(
             let _ = page_sender.try_send(());
         }
     });
-    let webview = window
-        .add_child(
+    let webview = runtime
+        .add_child_bounded(
+            &window,
             builder,
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(320.0, 240.0),
+            "trusted-input-fixture",
         )
         .map_err(|error| {
             let _ = window.close();
-            error.to_string()
+            error.message
         })?;
     eprintln!("System WebView parity: attestation child WebView created.");
+    let lifecycle = match runtime.install_surface_lifecycle_tracker(&webview) {
+        Ok(lifecycle) => lifecycle,
+        Err(error) => {
+            let _ = webview.close();
+            let _ = window.close();
+            let _ = wait_for_tauri_main_thread(app);
+            return Err(error.message);
+        }
+    };
     if let Err(error) = install_platform_security_policy(&webview) {
-        let _ = webview.close();
+        let _ = runtime.close_surface_and_wait(&webview, &lifecycle, "trusted-input-fixture");
         let _ = window.close();
         return Err(error.message);
     }
+    Ok(InputAttestationFixture {
+        lifecycle,
+        page_receiver,
+        webview,
+        window,
+    })
+}
+
+#[cfg(windows)]
+fn create_attestation_focus_sink(
+    app: &AppHandle,
+    runtime: &SystemRuntimeExecutor,
+) -> Result<Window, String> {
+    let window_app = app.clone();
+    let window = runtime
+        .create_window_bounded("trusted-input-focus-sink", move || {
+            WindowBuilder::new(&window_app, "system-input-attestation-focus-sink")
+                .title("Rion Studio System Input Focus Sink")
+                .position(-32_000.0, -32_000.0)
+                .inner_size(1.0, 1.0)
+                .decorations(false)
+                .skip_taskbar(true)
+                .visible(true)
+                .focused(true)
+                .build()
+        })
+        .map_err(|error| error.message)?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(window)
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+pub fn start_trusted_input_attestation(
+    app: AppHandle,
+    output_path: PathBuf,
+    runtime: Arc<SystemRuntimeExecutor>,
+) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    let scenario = InputAttestationScenario::from_environment()?;
+    let fixture = scenario
+        .needs_input_fixture()
+        .then(|| create_input_attestation_fixture(&app, &runtime))
+        .transpose()?;
+    #[cfg(windows)]
+    let focus_sink = Some(create_attestation_focus_sink(&app, &runtime)?);
+    #[cfg(not(windows))]
+    let focus_sink: Option<Window> = None;
     std::thread::Builder::new()
         .name("rion-system-input-attestation".to_owned())
         .spawn(move || {
-            eprintln!("System WebView parity: trusted-input worker started.");
+            let scenario_name = scenario.as_str();
+            let started = Instant::now();
+            eprintln!("System WebView parity: {scenario_name} worker started.");
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Role parity temporarily reveals native windows on macOS. Run it before the
-                // hidden trusted-input probe so those windows cannot leave the probe document
-                // focused and invalidate its background-input assertion.
-                let role_parity = run_role_count_attestation(&runtime)?;
-                #[cfg(windows)]
-                // Closing the role-parity surfaces can leave WebView2's hidden probe child as
-                // the thread's focused document. Deflect native focus again immediately before
-                // the trusted-input sequence starts.
-                focus_windows_host(&window)?;
-                let mut report = run_trusted_input_attestation(&webview, page_receiver)?;
-                report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
-                report["registration"] =
-                    serde_json::to_value(runtime.registration()).map_err(|error| {
-                        RuntimeError::new("SYSTEM_INPUT_ATTESTATION_INVALID", error.to_string())
-                    })?;
-                report["roleParity"] = role_parity;
-                Ok(report)
+                run_input_attestation_scenario(
+                    &runtime,
+                    scenario,
+                    fixture.as_ref(),
+                    focus_sink.as_ref(),
+                )
             }))
             .unwrap_or_else(|_| {
                 Err(input_attestation_error(
                     "The trusted-input attestation worker panicked.",
                 ))
             });
+            let mut cleanup_errors = Vec::new();
+            if let Some(fixture) = fixture.as_ref() {
+                if let Err(error) = runtime.close_surface_and_wait(
+                    &fixture.webview,
+                    &fixture.lifecycle,
+                    "trusted-input-fixture",
+                ) {
+                    cleanup_errors.push(error.message);
+                }
+                if let Err(error) = fixture.window.close() {
+                    cleanup_errors.push(error.to_string());
+                }
+            }
+            if let Some(focus_sink) = focus_sink.as_ref()
+                && let Err(error) = focus_sink.close()
+            {
+                cleanup_errors.push(error.to_string());
+            }
+            if let Err(error) = wait_for_tauri_main_thread(&app) {
+                cleanup_errors.push(error.message);
+            }
+            if !runtime.health.is_healthy() {
+                cleanup_errors.push(
+                    "The native System WebView lifecycle became unhealthy during cleanup."
+                        .to_owned(),
+                );
+            }
+            let cleanup_completed = cleanup_errors.is_empty();
+            let platform = if cfg!(target_os = "macos") {
+                rion_platform::Platform::Macos
+            } else {
+                rion_platform::Platform::Windows
+            };
+            let webview_version = rion_platform::probe_system_webview(platform).runtime_version;
+            let diagnostics = runtime.runtime_diagnostics();
             let (document, exit_code) = match outcome {
-                Ok(report) => (
+                Ok(report) if cleanup_completed => (
                     json!({
-                        "schemaVersion": 2,
+                        "cleanup": { "completed": true, "errors": cleanup_errors },
+                        "schemaVersion": 3,
                         "ok": true,
                         "platform": if cfg!(windows) { "windows" } else { "macos" },
                         "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
+                        "scenario": scenario_name,
+                        "stage": "completed",
+                        "timings": { "elapsedMs": started.elapsed().as_millis() },
+                        "runtime": {
+                            "browserProcessIds": diagnostics["browserProcessIds"].clone(),
+                            "failureKind": diagnostics["failureKind"].clone(),
+                            "healthy": diagnostics["healthy"].clone(),
+                            "hostProcessId": std::process::id(),
+                            "webViewVersion": webview_version.clone()
+                        },
                         "report": report
                     }),
                     0,
                 ),
-                Err(error) => (
-                    json!({
-                        "schemaVersion": 2,
-                        "ok": false,
-                        "platform": if cfg!(windows) { "windows" } else { "macos" },
-                        "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
-                        "error": { "code": error.code, "message": error.message }
-                    }),
-                    7,
-                ),
+                outcome => {
+                    let error = match outcome {
+                        Err(error) => error,
+                        Ok(_) => RuntimeError::new(
+                            "SYSTEM_WEBVIEW_CLEANUP_FAILED",
+                            cleanup_errors.join("; "),
+                        ),
+                    };
+                    (
+                        json!({
+                            "cleanup": {
+                                "completed": cleanup_completed,
+                                "errors": cleanup_errors
+                            },
+                            "schemaVersion": 3,
+                            "ok": false,
+                            "platform": if cfg!(windows) { "windows" } else { "macos" },
+                            "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
+                            "scenario": scenario_name,
+                            "stage": scenario_name,
+                            "timings": { "elapsedMs": started.elapsed().as_millis() },
+                            "runtime": {
+                                "browserProcessIds": diagnostics["browserProcessIds"].clone(),
+                                "failureKind": diagnostics["failureKind"].clone(),
+                                "healthy": diagnostics["healthy"].clone(),
+                                "hostProcessId": std::process::id(),
+                                "webViewVersion": webview_version
+                            },
+                            "error": { "code": error.code, "message": error.message }
+                        }),
+                        7,
+                    )
+                }
             };
             let write_result = write_attestation_result(&output_path, &document);
-            let _ = webview.close();
-            let _ = window.close();
             if let Err(error) = write_result {
                 eprintln!("Trusted-input attestation output failed: {error}");
                 app.exit(8);
@@ -6651,9 +7180,96 @@ pub fn start_trusted_input_attestation(
 }
 
 #[cfg(any(windows, target_os = "macos"))]
+fn run_input_attestation_scenario(
+    runtime: &Arc<SystemRuntimeExecutor>,
+    scenario: InputAttestationScenario,
+    fixture: Option<&InputAttestationFixture>,
+    focus_sink: Option<&Window>,
+) -> RuntimeResult<Value> {
+    let mut report = match scenario {
+        InputAttestationScenario::Full => {
+            let role_parity = run_role_count_attestation(runtime, focus_sink)?;
+            let fixture = fixture.ok_or_else(|| {
+                input_attestation_error("The trusted-input fixture is unavailable.")
+            })?;
+            #[cfg(windows)]
+            focus_windows_sink(focus_sink.ok_or_else(|| {
+                input_attestation_error("The Windows input focus sink is unavailable.")
+            })?)?;
+            let mut report =
+                run_trusted_input_attestation(&fixture.webview, &fixture.page_receiver)?;
+            report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
+            report["roleParity"] = role_parity;
+            report
+        }
+        InputAttestationScenario::Input => {
+            let fixture = fixture.ok_or_else(|| {
+                input_attestation_error("The trusted-input fixture is unavailable.")
+            })?;
+            #[cfg(windows)]
+            focus_windows_sink(focus_sink.ok_or_else(|| {
+                input_attestation_error("The Windows input focus sink is unavailable.")
+            })?)?;
+            let mut report =
+                run_trusted_input_attestation(&fixture.webview, &fixture.page_receiver)?;
+            report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
+            report
+        }
+        InputAttestationScenario::Layout => {
+            json!({ "roleParity": run_layout_attestation(runtime)? })
+        }
+        InputAttestationScenario::PopupDownload => json!({
+            "roleParity": { "popupDownload": run_popup_download_scenario(runtime)? }
+        }),
+        InputAttestationScenario::Recovery => json!({
+            "roleParity": { "recovery": run_recovery_scenario(runtime, focus_sink)? }
+        }),
+        InputAttestationScenario::SharedHost => {
+            let host = run_shared_host_scenario(runtime)?;
+            json!({
+                "roleParity": {
+                    "compatibility": host["compatibility"].clone(),
+                    "sharedDisplayHost": host["sharedDisplayHost"].clone()
+                }
+            })
+        }
+        InputAttestationScenario::Soak => {
+            let cycles = parse_soak_environment_value(INPUT_ATTESTATION_SOAK_CYCLES_ENV, 10)?;
+            let offset = parse_soak_environment_value(INPUT_ATTESTATION_SOAK_OFFSET_ENV, 0)?;
+            if cycles == 0 || cycles > 100 || offset.saturating_add(cycles) > 100 {
+                return Err(input_attestation_error(
+                    "The create/destroy soak batch must be within the bounded 100-cycle range.",
+                ));
+            }
+            json!({
+                "roleParity": {
+                    "createDestroyCycles": run_create_destroy_attestation(runtime, offset, cycles)?,
+                    "createDestroyOffset": offset
+                }
+            })
+        }
+    };
+    report["registration"] = serde_json::to_value(runtime.registration()).map_err(|error| {
+        RuntimeError::new("SYSTEM_INPUT_ATTESTATION_INVALID", error.to_string())
+    })?;
+    Ok(report)
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn parse_soak_environment_value(name: &str, default: u64) -> RuntimeResult<u64> {
+    let Some(value) = std::env::var_os(name) else {
+        return Ok(default);
+    };
+    value
+        .to_string_lossy()
+        .parse::<u64>()
+        .map_err(|_| input_attestation_error(format!("{name} must be an unsigned integer.")))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
 fn run_trusted_input_attestation(
     webview: &Webview,
-    page_receiver: std::sync::mpsc::Receiver<()>,
+    page_receiver: &std::sync::mpsc::Receiver<()>,
 ) -> RuntimeResult<Value> {
     page_receiver
         .recv_timeout(Duration::from_secs(15))
@@ -6848,94 +7464,91 @@ fn destroy_attestation_tab(
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeResult<Value> {
+fn with_verified_attestation_layout<T>(
+    runtime: &Arc<SystemRuntimeExecutor>,
+    server: &AttestationServer,
+    count: usize,
+    inspect: impl FnOnce(&Arc<SystemRuntimeExecutor>) -> RuntimeResult<T>,
+) -> RuntimeResult<T> {
+    eprintln!("System WebView parity: creating {count}-role layout.");
+    let tab_id = format!("attestation-tab-{count}");
+    let window_id = format!("attestation-layout-{count}");
+    let roles = (0..count)
+        .map(|index| attestation_role(count, index))
+        .collect::<Vec<_>>();
+    runtime.create_tab(EmbeddedTabEffectRecord {
+        tab_id: tab_id.clone(),
+        source_id: format!("attestation-workspace-{count}"),
+        name: format!("System WebView {count}-role attestation"),
+        workspace_id: Some(format!("attestation-workspace-{count}")),
+        workspace_template: Some(
+            match count {
+                1 => "single",
+                3 => "three_columns",
+                6 => "six_grid",
+                _ => "nine_grid",
+            }
+            .to_owned(),
+        ),
+        workspace_appearance: WorkspaceAppearanceSettingsRecord {
+            background: "black".to_owned(),
+            gap: 2,
+        },
+        target: EmbeddedLaunchTargetRecord {
+            window_id: window_id.clone(),
+            display_id: -9_999,
+            work_area: rion_core::StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 960,
+                height: 640,
+            },
+            bounds: rion_core::StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 960,
+                height: 640,
+            },
+            presentation: "normal".to_owned(),
+        },
+        roles,
+    })?;
+    eprintln!("System WebView parity: verifying {count}-role layout.");
+    let verification = verify_attestation_tab(runtime, server, &tab_id, count);
+    let inspection = verification.is_ok().then(|| inspect(runtime));
+    eprintln!("System WebView parity: destroying {count}-role layout.");
+    let cleanup = destroy_attestation_tab(runtime, &tab_id, &window_id);
+    let verification = match verification {
+        Ok(()) => inspection.expect("inspection exists after successful verification"),
+        Err(error) => Err(error),
+    };
+    let report = match (verification, cleanup) {
+        (Ok(report), Ok(())) => report,
+        (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+    };
+    let state = runtime.state()?;
+    if state.tabs.contains_key(&tab_id)
+        || state.display_hosts.contains_key(&window_id)
+        || state
+            .role_tabs
+            .keys()
+            .any(|role_id| role_id.starts_with(&format!("attestation-{count}-")))
+    {
+        return Err(input_attestation_error(format!(
+            "The {count}-role System WebView layout did not fully release its native handles."
+        )));
+    }
+    drop(state);
+    eprintln!("System WebView parity: completed {count}-role layout.");
+    Ok(report)
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn run_layout_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeResult<Value> {
     let server = AttestationServer::start()?;
     let mut layouts = Vec::new();
-    let mut popup_download = None;
-    let mut recovery = None;
-    let mut total_roles = 0_u64;
     for count in [1_usize, 3, 6, 9] {
-        eprintln!("System WebView parity: creating {count}-role layout.");
-        let tab_id = format!("attestation-tab-{count}");
-        let window_id = format!("attestation-layout-{count}");
-        let roles = (0..count)
-            .map(|index| attestation_role(count, index))
-            .collect::<Vec<_>>();
-        runtime.create_tab(EmbeddedTabEffectRecord {
-            tab_id: tab_id.clone(),
-            source_id: format!("attestation-workspace-{count}"),
-            name: format!("System WebView {count}-role attestation"),
-            workspace_id: Some(format!("attestation-workspace-{count}")),
-            workspace_template: Some(
-                match count {
-                    1 => "single",
-                    3 => "three_columns",
-                    6 => "six_grid",
-                    _ => "nine_grid",
-                }
-                .to_owned(),
-            ),
-            workspace_appearance: WorkspaceAppearanceSettingsRecord {
-                background: "black".to_owned(),
-                gap: 2,
-            },
-            target: EmbeddedLaunchTargetRecord {
-                window_id: window_id.clone(),
-                display_id: -9_999,
-                work_area: rion_core::StatePixelBoundsRecord {
-                    x: 0,
-                    y: 0,
-                    width: 960,
-                    height: 640,
-                },
-                bounds: rion_core::StatePixelBoundsRecord {
-                    x: 0,
-                    y: 0,
-                    width: 960,
-                    height: 640,
-                },
-                presentation: "normal".to_owned(),
-            },
-            roles,
-        })?;
-        eprintln!("System WebView parity: verifying {count}-role layout.");
-        let verification = verify_attestation_tab(runtime, &server, &tab_id, count);
-        let edge_verification = if verification.is_ok() && count == 1 {
-            verify_popup_download_attestation(runtime)
-        } else {
-            Ok(None)
-        };
-        let recovery_verification =
-            if verification.is_ok() && edge_verification.is_ok() && count == 1 {
-                verify_surface_recovery_attestation(runtime)
-            } else {
-                Ok(None)
-            };
-        eprintln!("System WebView parity: destroying {count}-role layout.");
-        let cleanup = destroy_attestation_tab(runtime, &tab_id, &window_id);
-        verification?;
-        if let Some(report) = edge_verification? {
-            popup_download = Some(report);
-        }
-        if let Some(report) = recovery_verification? {
-            recovery = Some(report);
-        }
-        cleanup?;
-        let state = runtime.state()?;
-        if state.tabs.contains_key(&tab_id)
-            || state.display_hosts.contains_key(&window_id)
-            || state
-                .role_tabs
-                .keys()
-                .any(|role_id| role_id.starts_with(&format!("attestation-{count}-")))
-        {
-            return Err(input_attestation_error(format!(
-                "The {count}-role System WebView layout did not fully release its native handles."
-            )));
-        }
-        drop(state);
-        total_roles += count as u64;
-        eprintln!("System WebView parity: completed {count}-role layout.");
+        with_verified_attestation_layout(runtime, &server, count, |_| Ok(()))?;
         layouts.push(json!({
             "count": count,
             "loaded": true,
@@ -6943,24 +7556,64 @@ fn run_role_count_attestation(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeRe
             "released": true
         }));
     }
-    let create_destroy_cycles = run_create_destroy_attestation(runtime)?;
+    Ok(json!({
+        "counts": [1, 3, 6, 9],
+        "layouts": layouts,
+        "totalRoles": 19
+    }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn run_popup_download_scenario(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeResult<Value> {
+    let server = AttestationServer::start()?;
+    with_verified_attestation_layout(runtime, &server, 1, |runtime| {
+        verify_popup_download_attestation(runtime)?.ok_or_else(|| {
+            input_attestation_error("The popup/download attestation returned no report.")
+        })
+    })
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn run_recovery_scenario(
+    runtime: &Arc<SystemRuntimeExecutor>,
+    focus_sink: Option<&Window>,
+) -> RuntimeResult<Value> {
+    let server = AttestationServer::start()?;
+    with_verified_attestation_layout(runtime, &server, 1, |runtime| {
+        verify_surface_recovery_attestation(runtime, focus_sink)?.ok_or_else(|| {
+            input_attestation_error("The surface recovery attestation returned no report.")
+        })
+    })
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn run_shared_host_scenario(runtime: &Arc<SystemRuntimeExecutor>) -> RuntimeResult<Value> {
+    let server = AttestationServer::start()?;
     eprintln!("System WebView parity: validating shared display host lifecycle.");
     let shared_display_host = verify_shared_display_host_attestation(runtime, &server)?;
     eprintln!("System WebView parity: shared display host lifecycle complete.");
     eprintln!("System WebView parity: validating compatibility surface lifecycle.");
     let compatibility = verify_compatibility_surface_attestation(runtime, &server)?;
     eprintln!("System WebView parity: compatibility surface lifecycle complete.");
-    drop(server);
     Ok(json!({
-        "counts": [1, 3, 6, 9],
-        "createDestroyCycles": create_destroy_cycles,
         "compatibility": compatibility,
-        "sharedDisplayHost": shared_display_host,
-        "layouts": layouts,
-        "popupDownload": popup_download,
-        "recovery": recovery,
-        "totalRoles": total_roles
+        "sharedDisplayHost": shared_display_host
     }))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn run_role_count_attestation(
+    runtime: &Arc<SystemRuntimeExecutor>,
+    focus_sink: Option<&Window>,
+) -> RuntimeResult<Value> {
+    let mut report = run_layout_attestation(runtime)?;
+    report["popupDownload"] = run_popup_download_scenario(runtime)?;
+    report["recovery"] = run_recovery_scenario(runtime, focus_sink)?;
+    let host = run_shared_host_scenario(runtime)?;
+    report["compatibility"] = host["compatibility"].clone();
+    report["sharedDisplayHost"] = host["sharedDisplayHost"].clone();
+    report["createDestroyCycles"] = json!(run_create_destroy_attestation(runtime, 0, 100)?);
+    Ok(report)
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -6995,8 +7648,10 @@ fn verify_compatibility_surface_attestation(
         Ok(final_url)
     })();
     let first_cleanup = runtime.cleanup_compatibility_surface(game_id);
-    let final_url = verification?;
-    first_cleanup?;
+    let final_url = match (verification, first_cleanup) {
+        (Ok(final_url), Ok(())) => final_url,
+        (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+    };
     if runtime.require_compatibility_surface(game_id).is_ok() {
         return Err(input_attestation_error(
             "The compatibility System WebView remained registered after cleanup.",
@@ -7019,8 +7674,10 @@ fn verify_compatibility_surface_attestation(
         )
     })();
     let second_cleanup = runtime.cleanup_compatibility_surface(game_id);
-    let isolation = isolation?;
-    second_cleanup?;
+    let isolation = match (isolation, second_cleanup) {
+        (Ok(isolation), Ok(())) => isolation,
+        (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+    };
     if isolation["ready"] != json!(true) || !isolation["stored"].is_null() {
         return Err(input_attestation_error(format!(
             "The recreated compatibility System WebView reused isolated storage: {isolation}."
@@ -7231,9 +7888,13 @@ fn verify_shared_display_host_attestation(
             "windowLabelStable": window_label_stable
         }))
     })();
-    let _ = runtime.destroy_tab(first_tab_id);
-    let cleanup = destroy_attestation_tab(runtime, second_tab_id, WINDOW_ID);
-    result.and_then(|report| cleanup.map(|()| report))
+    let first_cleanup = runtime.destroy_tab(first_tab_id);
+    let second_cleanup = destroy_attestation_tab(runtime, second_tab_id, WINDOW_ID);
+    let cleanup = first_cleanup.and(second_cleanup);
+    match (result, cleanup) {
+        (Ok(report), Ok(())) => Ok(report),
+        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -7255,16 +7916,25 @@ fn runtime_window_native_identity(window: &Window) -> RuntimeResult<usize> {
 #[cfg(any(windows, target_os = "macos"))]
 fn verify_surface_recovery_attestation(
     runtime: &Arc<SystemRuntimeExecutor>,
+    focus_sink: Option<&Window>,
 ) -> RuntimeResult<Option<Value>> {
+    #[cfg(not(windows))]
+    let _ = focus_sink;
     let role_id = "attestation-1-0";
+    #[cfg(target_os = "macos")]
     let window = runtime.window_for_role(role_id).ok_or_else(|| {
         input_attestation_error("The System WebView recovery host window was not found.")
     })?;
-    // The role parity probe reveals the host so navigation and popup behavior can be
-    // tested. Hide it before replacing the native surface so the recovery probe
-    // continues to exercise trusted background input rather than focused input.
-    window.hide().map_err(RuntimeError::tauri)?;
-    std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
+    #[cfg(target_os = "macos")]
+    {
+        // WKWebView uses the hidden host as its explicit background-input barrier.
+        window.hide().map_err(RuntimeError::tauri)?;
+        std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
+    }
+    #[cfg(windows)]
+    focus_windows_sink(focus_sink.ok_or_else(|| {
+        input_attestation_error("The Windows recovery focus sink is unavailable.")
+    })?)?;
     let old_webview = runtime.role_webview(role_id)?;
     let old_label = old_webview.label().to_owned();
     eprintln!("System WebView parity: validating OS process-failure recovery callback.");
@@ -7297,13 +7967,16 @@ fn verify_surface_recovery_attestation(
     };
     #[cfg(target_os = "macos")]
     recovered.hide().map_err(RuntimeError::tauri)?;
+    #[cfg(target_os = "macos")]
     recovered
         .eval("window.blur()")
         .map_err(RuntimeError::tauri)?;
     let focus_deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
     loop {
         #[cfg(windows)]
-        focus_windows_host(&window)?;
+        focus_windows_sink(focus_sink.ok_or_else(|| {
+            input_attestation_error("The Windows recovery focus sink is unavailable.")
+        })?)?;
         if let Ok(focus) =
             evaluate_attestation_value(&recovered, "({ focused: document.hasFocus() })")
             && focus.get("focused") == Some(&Value::Bool(false))
@@ -7367,7 +8040,7 @@ fn verify_surface_recovery_attestation(
 }
 
 #[cfg(windows)]
-fn focus_windows_host(window: &Window) -> RuntimeResult<()> {
+fn focus_windows_sink(window: &Window) -> RuntimeResult<()> {
     use std::sync::mpsc::sync_channel;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -7377,12 +8050,9 @@ fn focus_windows_host(window: &Window) -> RuntimeResult<()> {
     window
         .run_on_main_thread(move || {
             let hwnd = HWND(hwnd as *mut std::ffi::c_void);
-            let result = unsafe {
-                let _ = SetFocus(Some(hwnd)).or_else(|_| SetFocus(None));
-                SetFocus(None)
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
-            };
+            let result = unsafe { SetFocus(Some(hwnd)) }
+                .map(|_| ())
+                .map_err(|error| error.to_string());
             let _ = sender.send(result);
         })
         .map_err(RuntimeError::tauri)?;
@@ -7394,7 +8064,7 @@ fn focus_windows_host(window: &Window) -> RuntimeResult<()> {
         )),
         Err(_) => Err(RuntimeError::new(
             "SYSTEM_INPUT_ATTESTATION_FOCUS_TIMEOUT",
-            "The Windows System WebView host did not accept focus deflection.",
+            "The Windows attestation focus sink did not accept native focus.",
         )),
     }
 }
@@ -7722,11 +8392,17 @@ fn wait_for_attestation_popup_release(
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeResult<u64> {
-    const CYCLES: u64 = 100;
-    for cycle in 0..CYCLES {
-        if cycle % 25 == 0 {
-            eprintln!("System WebView parity: create/destroy soak {cycle}/{CYCLES}.");
+fn run_create_destroy_attestation(
+    runtime: &SystemRuntimeExecutor,
+    offset: u64,
+    cycles: u64,
+) -> RuntimeResult<u64> {
+    for batch_cycle in 0..cycles {
+        let cycle = offset + batch_cycle;
+        if batch_cycle % 10 == 0 {
+            eprintln!(
+                "System WebView parity: create/destroy soak batch {batch_cycle}/{cycles} (global cycle {cycle})."
+            );
         }
         let tab_id = format!("attestation-soak-tab-{cycle}");
         let role_id = format!("attestation-soak-role-{cycle}");
@@ -7774,8 +8450,10 @@ fn run_create_destroy_attestation(runtime: &SystemRuntimeExecutor) -> RuntimeRes
             )));
         }
     }
-    eprintln!("System WebView parity: create/destroy soak {CYCLES}/{CYCLES} complete.");
-    Ok(CYCLES)
+    eprintln!(
+        "System WebView parity: create/destroy soak batch {cycles}/{cycles} complete (offset {offset})."
+    );
+    Ok(cycles)
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -7862,23 +8540,7 @@ fn verify_attestation_tab(
             .collect::<RuntimeResult<Vec<_>>>()?;
         (host.window.clone(), surfaces, tab.workspace_appearance.gap)
     };
-    let content_metrics = {
-        let metrics = logical_window_content_metrics(&window)?;
-        #[cfg(windows)]
-        {
-            // The existing native query is stable in the attestation worker. Apply the
-            // Windows-owned tab-strip inset locally instead of re-entering the runtime
-            // wrapper here, which can block WebView2 while the hidden host is settling.
-            let mut metrics = metrics;
-            metrics.top_inset += WINDOWS_TAB_STRIP_HEIGHT;
-            metrics.height = (metrics.height - WINDOWS_TAB_STRIP_HEIGHT).max(1.0);
-            metrics
-        }
-        #[cfg(not(windows))]
-        {
-            metrics
-        }
-    };
+    let content_metrics = runtime_window_content_metrics(&window)?;
     let expected_bounds = runtime
         .resolve_runtime_layout(
             content_metrics,
@@ -8381,11 +9043,6 @@ fn validate_transaction_id(value: &str) -> RuntimeResult<()> {
     } else {
         Ok(())
     }
-}
-
-fn close_hidden_surface(window: Window, webview: Webview) {
-    let _ = webview.close();
-    let _ = window.close();
 }
 
 fn normalized_cookie_domain(value: Option<&str>) -> String {
@@ -10203,7 +10860,7 @@ fn install_role_zoom_shortcut_handler(_webview: &Webview, _app: AppHandle) -> Ru
 }
 
 #[cfg(windows)]
-fn install_surface_lifecycle_tracker(
+fn platform_surface_lifecycle_tracker(
     webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     use webview2_com::{
@@ -10260,7 +10917,7 @@ fn install_surface_lifecycle_tracker(
 }
 
 #[cfg(not(windows))]
-fn install_surface_lifecycle_tracker(
+fn platform_surface_lifecycle_tracker(
     _webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     Ok(Arc::new(SurfaceLifecycleTracker::default()))
@@ -10586,10 +11243,69 @@ mod tests {
     }
 
     #[test]
-    fn stale_surface_generations_cannot_schedule_recovery() {
-        assert!(surface_generation_is_current(7, 7));
-        assert!(!surface_generation_is_current(7, 6));
-        assert!(!surface_generation_is_current(7, 8));
+    fn surface_release_barrier_has_a_bounded_timeout() {
+        let tracker = SurfaceLifecycleTracker::default();
+        let started = Instant::now();
+        assert!(!tracker.wait_for("windows", Duration::from_millis(5)));
+        assert!(started.elapsed() < Duration::from_secs(1));
+
+        tracker.mark_main_thread_released();
+        assert!(tracker.wait_for("macos", Duration::from_millis(5)));
+    }
+
+    #[test]
+    fn unhealthy_runtime_fails_closed_for_future_lifecycle_mutations() {
+        let health = RuntimeHealth::new();
+        assert!(health.require_healthy().is_ok());
+        health.mark_unhealthy();
+        let error = health.require_healthy().unwrap_err();
+        assert_eq!(error.code, "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
+    }
+
+    #[test]
+    fn recovery_callbacks_are_coalesced_and_fenced_by_generation() {
+        let mut recovering_roles = HashSet::new();
+        assert!(claim_surface_recovery(
+            7,
+            7,
+            &mut recovering_roles,
+            "role-a"
+        ));
+        assert!(!claim_surface_recovery(
+            7,
+            7,
+            &mut recovering_roles,
+            "role-a"
+        ));
+        assert!(!claim_surface_recovery(
+            7,
+            6,
+            &mut recovering_roles,
+            "role-b"
+        ));
+        assert!(!claim_surface_recovery(
+            7,
+            8,
+            &mut recovering_roles,
+            "role-c"
+        ));
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn input_attestation_scenarios_are_explicit_and_bounded() {
+        for (value, expected) in [
+            ("full", InputAttestationScenario::Full),
+            ("input", InputAttestationScenario::Input),
+            ("layout", InputAttestationScenario::Layout),
+            ("popup-download", InputAttestationScenario::PopupDownload),
+            ("recovery", InputAttestationScenario::Recovery),
+            ("shared-host", InputAttestationScenario::SharedHost),
+            ("soak", InputAttestationScenario::Soak),
+        ] {
+            assert_eq!(InputAttestationScenario::parse(value), Ok(expected));
+        }
+        assert!(InputAttestationScenario::parse("unknown").is_err());
     }
 
     fn runtime_tab_host_snapshot(active_tab_id: &str) -> BrowserRuntimeSnapshot {

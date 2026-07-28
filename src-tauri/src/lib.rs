@@ -4662,9 +4662,6 @@ pub fn run() {
                             match event {
                                 CoreEvent::CoreEffects { effects } => {
                                     for effect in effects {
-                                        let restore_attestation =
-                                            std::env::var_os(RESTORE_ATTESTATION_OUTPUT_ENV)
-                                                .is_some();
                                         let action_name = core_effect_action_name(&effect.action);
                                         let persist_runtime = matches!(
                                                 &effect.action,
@@ -4676,7 +4673,6 @@ pub fn run() {
                                             effect,
                                             action_name,
                                             persist_runtime,
-                                            restore_attestation,
                                         ) {
                                             eprintln!(
                                                 "System WebView effect executor failed: {error}"
@@ -4795,10 +4791,8 @@ pub fn run() {
                 Some(PendingNativeAttestation::LocalStorageSync(request))
             } else if let Some(output_path) = file_operations_attestation_output {
                 Some(PendingNativeAttestation::FileOperations(output_path))
-            } else if let Some(output_path) = input_attestation_output {
-                Some(PendingNativeAttestation::Input(output_path))
             } else {
-                None
+                input_attestation_output.map(PendingNativeAttestation::Input)
             };
             if let Some(pending_attestation) = pending_attestation {
                 app.manage(PendingNativeAttestationState(Mutex::new(Some(
@@ -4858,11 +4852,27 @@ pub fn run() {
                     let pending = app_handle
                         .try_state::<PendingNativeAttestationState>()
                         .and_then(|state| state.0.lock().ok()?.take());
-                    if let Some(pending) = pending
-                        && let Err(error) = start_pending_native_attestation(app_handle, pending)
-                    {
-                        eprintln!("Native System WebView attestation failed to start: {error}");
-                        app_handle.exit(8);
+                    if let Some(pending) = pending {
+                        let app = app_handle.clone();
+                        let worker_app = app.clone();
+                        if let Err(error) = thread::Builder::new()
+                            .name("rion-native-attestation-start".to_owned())
+                            .spawn(move || {
+                                if let Err(error) =
+                                    start_pending_native_attestation(&worker_app, pending)
+                                {
+                                    eprintln!(
+                                        "Native System WebView attestation failed to start: {error}"
+                                    );
+                                    worker_app.exit(8);
+                                }
+                            })
+                        {
+                            eprintln!(
+                                "Native System WebView attestation worker failed to start: {error}"
+                            );
+                            app.exit(8);
+                        }
                     }
                 }
                 tauri::RunEvent::ExitRequested { .. } => {

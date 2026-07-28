@@ -6,6 +6,7 @@ export type { BrowserOperationLease } from "./BrowserOperationLease";
 export type { BrowserOperationRequest } from "./BrowserOperationRequest";
 export type { BrowserEngineResolutionRecord } from "./BrowserEngineResolutionRecord";
 export type { BrowserFontSettingsRecord } from "./BrowserFontSettingsRecord";
+export type { BrowserPerformanceSettingsRecord } from "./BrowserPerformanceSettingsRecord";
 export type { BrowserHostKind } from "./BrowserHostKind";
 export type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 export type { BrowserRuntimeCommand } from "./BrowserRuntimeCommand";

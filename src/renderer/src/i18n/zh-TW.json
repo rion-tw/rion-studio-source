@@ -480,6 +480,8 @@
   "settings.alwaysHideTabCloseButtonDescription": "隱藏所有遊戲視窗分頁列上的關閉按鈕；仍可從分頁右鍵選單或遊戲視窗管理頁停止分頁。",
   "settings.restoreGameWindowsOnStartup": "啟動時恢復遊戲視窗",
   "settings.restoreGameWindowsOnStartupDescription": "Rion Studio 正常結束後，自動重開退出前可見的遊戲視窗；已隱藏的視窗會保留到你手動開啟。",
+  "settings.macosHighRefreshRate": "實驗性高更新率",
+  "settings.macosHighRefreshRateDescription": "讓 macOS 上可見且聚焦的遊戲畫面更充分使用高更新率螢幕。需要重新啟動 Rion Studio，並可能增加耗電與溫度。",
   "settings.macroBadges": "巨集徽章",
   "settings.macroBadgeHorizontalAlign": "水平對齊",
   "settings.macroBadgeHorizontalAlignDescription": "選擇執行中的巨集徽章在遊戲畫面中的水平位置。",

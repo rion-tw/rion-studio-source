@@ -3571,6 +3571,7 @@ mod tests {
             }))
             .unwrap();
             let settings = normalize_game_browser_settings(settings);
+            assert!(!settings.performance.macos_high_refresh_rate);
             replace_scalar(
                 &mut connection,
                 "gameBrowserSettings",

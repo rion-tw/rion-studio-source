@@ -480,6 +480,8 @@
   "settings.alwaysHideTabCloseButtonDescription": "Hide close buttons in every Game Window tab strip. You can still stop tabs from their context menu or the Game Windows page.",
   "settings.restoreGameWindowsOnStartup": "Restore Game Windows on startup",
   "settings.restoreGameWindowsOnStartupDescription": "Automatically reopen Game Windows that were visible when Rion Studio last closed normally. Hidden windows stay saved until you open them.",
+  "settings.macosHighRefreshRate": "Experimental high refresh rate",
+  "settings.macosHighRefreshRateDescription": "Let visible, focused game views use more of a high-refresh display on macOS. Requires restarting Rion Studio and may increase energy use and temperature.",
   "settings.macroBadges": "Macro badges",
   "settings.macroBadgeHorizontalAlign": "Horizontal alignment",
   "settings.macroBadgeHorizontalAlignDescription": "Choose where active macro badges sit across the game view.",

@@ -450,6 +450,8 @@
   "settings.alwaysHideTabCloseButtonDescription": "すべてのゲームウィンドウのタブバーで閉じるボタンを非表示にします。タブのコンテキストメニューまたはゲームウィンドウ画面から停止できます。",
   "settings.restoreGameWindowsOnStartup": "起動時にゲームウィンドウを復元",
   "settings.restoreGameWindowsOnStartupDescription": "Rion Studio が正常終了したときに表示されていたゲームウィンドウを自動的に開きます。非表示のウィンドウは手動で開くまで保存されます。",
+  "settings.macosHighRefreshRate": "実験的な高リフレッシュレート",
+  "settings.macosHighRefreshRateDescription": "macOS で表示中かつフォーカス中のゲーム画面が高リフレッシュレートディスプレイをより活用できるようにします。Rion Studio の再起動が必要で、消費電力や温度が上がる場合があります。",
   "settings.macroBadges": "マクロバッジ",
   "settings.macroBadgeHorizontalAlign": "水平位置",
   "settings.macroBadgeHorizontalAlignDescription": "実行中のマクロバッジをゲーム画面のどこに表示するか選択します。",

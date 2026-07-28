@@ -5884,6 +5884,20 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {
+        let role_ids = self
+            .state()?
+            .tabs
+            .get(tab_id)
+            .ok_or_else(|| {
+                RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
+            })?
+            .roles
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for role_id in &role_ids {
+            self.persist_local_storage_sync_source_before_stop(role_id)?;
+        }
         let mut state = self.state()?;
         let tab = state.tabs.remove(tab_id).ok_or_else(|| {
             RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")

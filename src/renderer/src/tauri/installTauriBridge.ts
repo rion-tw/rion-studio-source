@@ -476,20 +476,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     toggleCurrentWindowMaximize: () => invokeShell("toggleCurrentWindowMaximize"),
     getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),
     listGameWindows: () => invokeCore({ type: "gameWindowsList" }),
-    createGameWindow: async (input) => {
-      const gameWindow = await invokeCore({ type: "gameWindowCreate", input });
-      try {
-        await invokeShell("showGameWindow", [gameWindow.id]);
-      } catch (error) {
-        try {
-          await invokeCore({ type: "gameWindowDelete", id: gameWindow.id });
-        } catch (cleanupError) {
-          console.error("Failed to roll back a Game Window after its native window failed.", cleanupError);
-        }
-        throw error;
-      }
-      return gameWindow;
-    },
+    createGameWindow: (input) => invokeShell("createGameWindow", [input]),
     updateGameWindow: (id, input) => invokeShell("updateGameWindow", [id, input]),
     reorderGameWindows: (input) =>
       invokeCore({ type: "gameWindowReorder", orderedIds: input.orderedIds }),

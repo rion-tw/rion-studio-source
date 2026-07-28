@@ -716,6 +716,23 @@ async fn rion_shell_invoke(
             Ok(Value::Null)
         }
         "appSnapshot" => app_snapshot(&state, &window),
+        "createGameWindow" => {
+            let input = args
+                .first()
+                .cloned()
+                .ok_or_else(|| {
+                    shell_error(
+                        "TAURI_SHELL_INPUT_INVALID",
+                        "Game window create input is required.",
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value::<GameWindowCreateInputRecord>(value).map_err(|error| {
+                        shell_error("TAURI_SHELL_INPUT_INVALID", error.to_string())
+                    })
+                })?;
+            create_game_window_transaction(&app, &state, input).await
+        }
         "currentWindowState" => Ok(json!({ "fullscreen": window.is_fullscreen()
             .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))? })),
         "refreshQuickMenu" => quick_menu::refresh(
@@ -1478,6 +1495,121 @@ fn runtime_versions(_app: &tauri::AppHandle, state: &CoreState) -> Result<Value,
         "shell": "tauri",
         "shellVersion": tauri::VERSION
     }))
+}
+
+async fn create_game_window_transaction(
+    app: &AppHandle,
+    state: &CoreState,
+    input: GameWindowCreateInputRecord,
+) -> Result<Value, CoreErrorPayload> {
+    let created = Arc::clone(&state.core)
+        .invoke_async(CoreCommand::GameWindowCreate { input })
+        .await
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<StateGameWindowRecord>(value)
+                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })?;
+    let window_id = created.id.clone();
+    let creation_result = async {
+        let target = launch_target_for_game_window(app, &window_id)?;
+        Arc::clone(&state.core)
+            .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
+            .await
+            .map_err(error_payload)?;
+        game_window_record(&state.core, &window_id)
+    }
+    .await;
+
+    match creation_result {
+        Ok(authoritative) => serde_json::to_value(authoritative)
+            .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())),
+        Err(native_error) => {
+            if let Err(rollback_error) = rollback_created_game_window(state, &window_id).await {
+                return Err(game_window_create_rollback_error(
+                    &window_id,
+                    &native_error,
+                    rollback_error,
+                ));
+            }
+            Err(native_error)
+        }
+    }
+}
+
+async fn rollback_created_game_window(state: &CoreState, window_id: &str) -> Result<(), String> {
+    let mut errors = Vec::new();
+    if let Err(error) = Arc::clone(&state.core)
+        .invoke_async(CoreCommand::EmbeddedWindowDelete {
+            window_id: window_id.to_owned(),
+        })
+        .await
+    {
+        errors.push(format!("native cleanup: {}: {}", error.code(), error));
+    }
+    state.runtime.discard_provisional_game_window(window_id);
+    if let Err(error) = Arc::clone(&state.core)
+        .invoke_async(CoreCommand::GameWindowDelete {
+            id: window_id.to_owned(),
+        })
+        .await
+    {
+        errors.push(format!("metadata cleanup: {}: {}", error.code(), error));
+    }
+
+    match state.core.invoke(CoreCommand::GameWindowsList) {
+        Ok(game_windows) => {
+            if game_windows.as_array().is_some_and(|game_windows| {
+                game_windows
+                    .iter()
+                    .any(|game_window| game_window["id"].as_str() == Some(window_id))
+            }) {
+                errors.push("metadata verification: Game Window record still exists".to_owned());
+            }
+        }
+        Err(error) => errors.push(format!(
+            "metadata verification: {}: {}",
+            error.code(),
+            error
+        )),
+    }
+    match state.core.invoke(CoreCommand::BrowserRuntimeSnapshot) {
+        Ok(snapshot) => {
+            if snapshot["windows"].as_array().is_some_and(|windows| {
+                windows
+                    .iter()
+                    .any(|window| window["windowId"].as_str() == Some(window_id))
+            }) {
+                errors.push("runtime verification: Game Window is still registered".to_owned());
+            }
+        }
+        Err(error) => errors.push(format!("runtime verification: {}: {}", error.code(), error)),
+    }
+    if state.runtime.window_for_id(window_id).is_some() {
+        errors.push("native verification: Game Window handle still exists".to_owned());
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn game_window_create_rollback_error(
+    window_id: &str,
+    native_error: &CoreErrorPayload,
+    rollback_error: impl AsRef<str>,
+) -> CoreErrorPayload {
+    shell_error(
+        "SHELL_GAME_WINDOW_ROLLBACK_FAILED",
+        format!(
+            "Game Window {window_id} creation failed ({}: {}); rollback failed: {}",
+            native_error.code,
+            native_error.message,
+            rollback_error.as_ref()
+        ),
+    )
 }
 
 async fn stop_runtime_display(
@@ -3488,6 +3620,21 @@ mod tests {
         assert_eq!(recovery_error.code, "SHELL_GAME_WINDOW_RECONCILE_FAILED");
         assert!(recovery_error.message.contains("move failed"));
         assert!(recovery_error.message.contains("restore failed"));
+    }
+
+    #[test]
+    fn game_window_create_rollback_error_preserves_window_and_both_failures() {
+        let error = game_window_create_rollback_error(
+            "window-created",
+            &shell_error("SHELL_WINDOW_FAILED", "native create failed"),
+            "metadata cleanup failed",
+        );
+
+        assert_eq!(error.code, "SHELL_GAME_WINDOW_ROLLBACK_FAILED");
+        assert!(error.message.contains("window-created"));
+        assert!(error.message.contains("SHELL_WINDOW_FAILED"));
+        assert!(error.message.contains("native create failed"));
+        assert!(error.message.contains("metadata cleanup failed"));
     }
 
     #[test]

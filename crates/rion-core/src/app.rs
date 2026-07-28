@@ -2,11 +2,15 @@ use std::{
     fs::{self, File, OpenOptions},
     io::ErrorKind,
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
     time::Duration,
 };
 
-use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
+use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -182,7 +186,9 @@ pub struct AppCore {
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
     runtime: Mutex<Option<Runtime>>,
+    shutdown_started: AtomicBool,
     embedded_runtime_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
+    event_sender: Sender<Vec<CoreEvent>>,
     state_mutation_guard: Mutex<()>,
     subscribers: Arc<Mutex<Vec<Sender<Vec<CoreEvent>>>>>,
     system_fonts: Mutex<Option<Vec<crate::model::SystemFontFamilyRecord>>>,
@@ -229,11 +235,12 @@ impl AppCore {
             .unwrap_or(LogLevel::Debug);
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
-        let effect_subscribers = Arc::clone(&subscribers);
+        let event_sender = start_event_dispatcher(Arc::clone(&subscribers))?;
+        let effect_event_sender = event_sender.clone();
         let operation_actor = Arc::new(crate::operation_actor::OperationActor::new(Arc::new(
             move |effects| {
-                broadcast_events(
-                    &effect_subscribers,
+                publish_events(
+                    &effect_event_sender,
                     vec![CoreEvent::CoreEffects { effects }],
                 );
             },
@@ -257,28 +264,28 @@ impl AppCore {
         let telemetry = crate::telemetry::TelemetryWorker::start(telemetry_path)?;
         let (browser_action_sender, browser_action_receiver) =
             crate::browser_action_effects::action_queue();
-        let macro_subscribers = Arc::clone(&subscribers);
+        let macro_event_sender = event_sender.clone();
         let macro_browser_action_sender = browser_action_sender.clone();
         let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
-            route_browser_action_events(events, &macro_browser_action_sender, &macro_subscribers);
+            route_browser_action_events(events, &macro_browser_action_sender, &macro_event_sender);
         })));
         let browser_runtime =
             Arc::new(Mutex::new(crate::browser_runtime::BrowserRuntime::default()));
-        let browser_action_subscribers = Arc::clone(&subscribers);
+        let browser_action_event_sender = event_sender.clone();
         let browser_action_effects =
             crate::browser_action_effects::BrowserActionEffectRuntime::start(
                 browser_action_receiver,
-                Arc::new(move |events| broadcast_events(&browser_action_subscribers, events)),
+                Arc::new(move |events| publish_events(&browser_action_event_sender, events)),
             )?;
         let (overlay_event_sender, overlay_event_receiver) = bounded(EVENT_QUEUE_CAPACITY);
         subscribers
             .lock()
             .map_err(|_| CoreError::Internal("subscriber lock poisoned".to_owned()))?
             .push(overlay_event_sender);
-        let overlay_subscribers = Arc::clone(&subscribers);
+        let overlay_event_dispatcher = event_sender.clone();
         let overlay_refresh = crate::overlay::OverlayRefreshRuntime::start(
             overlay_event_receiver,
-            Arc::new(move |events| broadcast_events(&overlay_subscribers, events)),
+            Arc::new(move |events| publish_events(&overlay_event_dispatcher, events)),
         )?;
         let core = Self {
             app_version: options.app_version,
@@ -309,9 +316,11 @@ impl AppCore {
                 scheduler,
                 telemetry,
             })),
+            shutdown_started: AtomicBool::new(false),
             embedded_runtime_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
             ),
+            event_sender,
             state_mutation_guard: Mutex::new(()),
             subscribers,
             system_fonts: Mutex::new(None),
@@ -5432,6 +5441,9 @@ impl AppCore {
     }
 
     pub fn shutdown(&self) {
+        if self.shutdown_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
         self.browser_operations.shutdown();
         self.macro_runtime.shutdown();
         self.browser_action_effects.shutdown();
@@ -5451,9 +5463,6 @@ impl AppCore {
             runtime.state.shutdown();
         }
         self.emit(vec![CoreEvent::Shutdown]);
-        if let Ok(mut subscribers) = self.subscribers.lock() {
-            subscribers.clear();
-        }
         if let Ok(mut lock) = self.instance_lock.lock()
             && let Some(file) = lock.take()
         {
@@ -5580,7 +5589,7 @@ impl AppCore {
     }
 
     fn emit(&self, events: Vec<CoreEvent>) {
-        broadcast_events(&self.subscribers, events);
+        publish_events(&self.event_sender, events);
     }
 }
 
@@ -6234,7 +6243,7 @@ fn next_active_tab_after_removal(
 fn route_browser_action_events(
     events: Vec<CoreEvent>,
     browser_actions: &Sender<Vec<crate::model::BrowserActionRequest>>,
-    subscribers: &Mutex<Vec<Sender<Vec<CoreEvent>>>>,
+    event_sender: &Sender<Vec<CoreEvent>>,
 ) {
     let mut public_events = Vec::with_capacity(events.len());
     for event in events {
@@ -6245,8 +6254,27 @@ fn route_browser_action_events(
         }
     }
     if !public_events.is_empty() {
-        broadcast_events(subscribers, public_events);
+        publish_events(event_sender, public_events);
     }
+}
+
+fn start_event_dispatcher(
+    subscribers: Arc<Mutex<Vec<Sender<Vec<CoreEvent>>>>>,
+) -> CoreResult<Sender<Vec<CoreEvent>>> {
+    let (sender, receiver) = unbounded::<Vec<CoreEvent>>();
+    thread::Builder::new()
+        .name("rion-core-event-dispatch".to_owned())
+        .spawn(move || {
+            while let Ok(events) = receiver.recv() {
+                broadcast_events(&subscribers, events);
+            }
+        })
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+    Ok(sender)
+}
+
+fn publish_events(sender: &Sender<Vec<CoreEvent>>, events: Vec<CoreEvent>) {
+    let _ = sender.send(events);
 }
 
 fn broadcast_events(subscribers: &Mutex<Vec<Sender<Vec<CoreEvent>>>>, events: Vec<CoreEvent>) {
@@ -8737,7 +8765,7 @@ mod tests {
     }
 
     #[test]
-    fn authoritative_events_wait_for_queue_capacity() {
+    fn authoritative_events_leave_core_threads_before_waiting_for_queue_capacity() {
         let authoritative = [
             CoreEvent::CoreEffects {
                 effects: Vec::new(),
@@ -8760,17 +8788,16 @@ mod tests {
             let subscribers = Arc::new(Mutex::new(vec![sender]));
             broadcast_events(&subscribers, vec![CoreEvent::Ready { schema_version: 1 }]);
             let expected = std::mem::discriminant(&event);
-            let (started_tx, started_rx) = std::sync::mpsc::channel();
-            let broadcasting = {
-                let subscribers = Arc::clone(&subscribers);
-                thread::spawn(move || {
-                    started_tx.send(()).unwrap();
-                    broadcast_events(&subscribers, vec![event]);
-                })
-            };
-            started_rx.recv().unwrap();
-            thread::sleep(Duration::from_millis(25));
-            assert!(!broadcasting.is_finished());
+            let dispatcher = start_event_dispatcher(Arc::clone(&subscribers)).unwrap();
+            let (published_tx, published_rx) = std::sync::mpsc::channel();
+            thread::spawn(move || {
+                publish_events(&dispatcher, vec![event]);
+                published_tx.send(()).unwrap();
+            });
+
+            published_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("event producers must not wait for subscriber capacity");
 
             assert!(matches!(
                 receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
@@ -8778,7 +8805,6 @@ mod tests {
             ));
             let delivered = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(std::mem::discriminant(&delivered[0]), expected);
-            broadcasting.join().unwrap();
         }
     }
 
@@ -8804,7 +8830,7 @@ mod tests {
                 CoreEvent::Ready { schema_version: 1 },
             ],
             &action_sender,
-            &subscribers,
+            &start_event_dispatcher(Arc::new(subscribers)).unwrap(),
         );
 
         let routed_actions = action_receiver.recv().unwrap();

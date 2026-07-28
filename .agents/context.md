@@ -104,22 +104,15 @@ Important runtime pieces:
   Storage, IndexedDB, Service Workers, Preferences, extensions, other origins,
   and source modifications are out of scope.
 - Trusted/background macro input is classified from the supported platform and
-  installed System WebView runtime, not from cached or compile-time attestation.
+  installed System WebView runtime, not from a cached or compile-time flag.
   macOS 14+ dispatches native events through the app-owned WKWebView responder
   chain; Windows dispatches per-WebView input through WebView2. Neither path needs
-  Accessibility, Input Monitoring, or another user system permission. The explicit
-  package and CI parity harness verifies `isTrusted` with a bounded representative
-  native key/mouse sequence, then runs 1,000 silent cycles through the production
-  Rust input-state machine. Stress coverage must not emit 1,000 operating-system
-  key events. On macOS the 25 ms input settle applies only when dispatch hands off
-  from one role WebView to another, never to every event for the same role. The
-  harness also verifies 1/3/6/9 pixel layouts, isolated storage, audio mute,
-  same-store popup, byte-exact upload/download, actual web-content process
-  termination and same-engine recovery, plus 100 create/destroy cycles. On macOS
-  upload parity must observe WKWebView's native open-panel delegate. The Windows
-  automated path uses WebView2 CDP only to inject the diagnostic file and does not
-  replace a manual native chooser UI candidate smoke. Local macOS results are not
-  evidence that the Windows gate passed.
+  Accessibility, Input Monitoring, or another user system permission. Deterministic
+  Rust tests cover input ordering, cancellation, held-key release, and macro stress.
+  Build, package, and CI do not launch the application to probe the runner's WebView;
+  environment-specific failures are bounded and reported by the production runtime.
+  On macOS the 25 ms input settle applies only when dispatch hands off from one role
+  WebView to another, never to every event for the same role.
 - macOS layout and mouse coordinates must use `NSWindow.contentLayoutRect`, not
   full-size content-view bounds. The titlebar inset otherwise clips role surfaces
   and offsets trusted mouse events even when the normalized layout math is right.
@@ -129,20 +122,16 @@ Important runtime pieces:
 - Display IDs cross the renderer JSON boundary and must stay within JavaScript's
   `Number.MAX_SAFE_INTEGER`. Hashing a monitor into the full positive `i64` range
   can make an otherwise real display fail core launch-target validation.
-- Runtime restore is covered by a three-process packaged gate: seed a live role
-  on a synthetic display, move it through the production display-removal effect,
-  and bypass clean shutdown. Recover it through the production restore operation
-  from an intentionally unavailable saved display while preserving its role store,
-  exit normally, then verify the next process is auto-restore eligible without an
-  unclean-recovery warning. Async shell commands
+- Runtime restore, unavailable-display fallback, role-store preservation, and clean
+  shutdown eligibility are covered by deterministic core and shell tests. Async shell commands
   that fall back to synchronous core dispatch must use `spawn_blocking`; calling
   a blocking effect plan from Tokio panics.
-- Packaged portable/diagnostics coverage must include successful export/preview,
+- Portable/diagnostics tests must include successful export/preview,
   corrupt input rejection, and a post-temporary-write atomic replacement failure.
-  The failure gate must preserve the existing destination/domain collections and
+  Failure handling must preserve the existing destination/domain collections and
   leave no portable, diagnostics, or log-export temporary files.
 - System WebViews inherit the operating system's network and proxy settings. Rion
-  Studio does not expose, persist, attest, or inject a custom proxy configuration.
+  Studio does not expose, persist, inspect, or inject a custom proxy configuration.
 - Never hold `SystemRuntimeExecutor`'s runtime-state mutex while creating,
   closing, or calling into Tauri/native WebViews. Main-thread window callbacks
   also acquire this state; holding it across a native callback can deadlock a
@@ -204,8 +193,8 @@ text fitting within controls and cards at the app minimum window size of 960x640
 
 Use Rust unit/property/integration tests for core behavior and Vitest for typed
 bridge, architecture, release tooling, and renderer behavior. Prefer dependency injection
-and deterministic fixtures; release validation additionally uses packaged apps
-and a copy of real userData.
+and deterministic fixtures; release validation builds platform packages and verifies
+their artifacts without launching the application.
 
 Common test areas:
 

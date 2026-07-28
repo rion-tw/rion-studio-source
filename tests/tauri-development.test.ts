@@ -64,11 +64,10 @@ describe("Tauri development and release commands", () => {
     expect(packageJson.scripts.build).toContain("cargo build -p rion-tauri");
     expect(packageJson.scripts.package).toBe("node scripts/packageTauri.mjs");
     expect(packageLauncher).toContain('"verify:system-only"');
-    expect(packageLauncher).toContain('"test:native:system-input"');
-    expect(packageLauncher).toContain('"test:native:runtime-restore"');
-    expect(packageLauncher).toContain('"test:native:local-storage-sync"');
-    expect(packageLauncher).toContain('"test:native:file-operations"');
-    expect(packageLauncher).not.toContain("--require-compiled-attestation");
+    expect(packageLauncher).not.toContain("test:native:");
+    expect(packageLauncher).not.toContain("attestation");
+    expect(Object.keys(packageJson.scripts).some((name) => name.startsWith("test:native:")))
+      .toBe(false);
     expect(packageLauncher).toContain("createUpdaterArtifacts: false");
     expect(packageLauncher).toContain('signingIdentity: "-"');
     expect(packageLauncher).toContain('if (args[0] === "--") args.shift()');

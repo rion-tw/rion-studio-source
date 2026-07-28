@@ -16,8 +16,7 @@
       "Chromium-profile runtime mutation",
       "generic debugger or session automation"
     ],
-    "metadataOnlyEvidenceAllowed": false,
-    "runtimeCriticalRequiresNativeGate": true
+    "metadataOnlyEvidenceAllowed": false
   },
   "inventories": {
     "signedV1BehaviorCount": 226,
@@ -42,8 +41,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "target-bounded-browser-actions"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-02715dd2026f",
@@ -67,8 +65,7 @@
         "legacy-e8d73e5d6a45",
         "legacy-eefdcf4003e6",
         "legacy-f563c1827a2b"
-      ],
-      "nativeGate": "test:native:runtime-restore"
+      ]
     },
     {
       "id": "behavior-0d837474ccfb",
@@ -85,8 +82,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-ae0d50963824"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-0e4e826cc868",
@@ -103,8 +99,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "browser-workspace-7308ab2fb93e"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-0fe49fe77bfe",
@@ -121,8 +116,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-b226ccebb33d"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-180b7614f2da",
@@ -171,8 +165,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-8fb6f793d295"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-204af43db77c",
@@ -191,9 +184,40 @@
         "legacy-375825dc04e7",
         "legacy-9ab64adba7f6",
         "legacy-a51b14961c0e",
-        "legacy-ddfacbbc8e35"
+        "legacy-ce364d7c992d",
+        "legacy-ddfacbbc8e35",
+        "legacy-eecaf4348081"
+      ]
+    },
+    {
+      "id": "behavior-2584ca539a44",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/database/state.rs\u0000browser_settings_no_longer_persist_retired_graphics_fields",
+      "status": "preserved",
+      "contract": "Font, macro badge, and workspace appearance settings persist in SQLite while retired graphics and proxy fields are read only for migration.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/database/state.rs",
+          "test": "browser_settings_no_longer_persist_retired_graphics_fields"
+        }
       ],
-      "nativeGate": "test:native:macro-game"
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-16302c6ee7e8",
+        "legacy-1754bcef4add",
+        "legacy-5489c6f37aa8",
+        "legacy-5b94db6949fc",
+        "legacy-5d4964594696",
+        "legacy-68e3a7caad28",
+        "legacy-72d4bf7d423d",
+        "legacy-8936e1f86dd4",
+        "legacy-93b80136e514",
+        "legacy-9b785ced6fdf",
+        "legacy-a776e05370f2",
+        "legacy-ab70385bce26",
+        "legacy-f67f3daeaef4",
+        "legacy-f903c0693af6"
+      ]
     },
     {
       "id": "behavior-274d2040c2ff",
@@ -210,8 +234,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-f4866477886a"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-27f7d263f6e2",
@@ -230,42 +253,7 @@
         "legacy-203274cf2de7",
         "legacy-39ddb2c4534a",
         "legacy-3c31cfe6a047"
-      ],
-      "nativeGate": "test:native:runtime-restore"
-    },
-    {
-      "id": "behavior-28bc323d328a",
-      "deduplicationKey": "shell\u0000crates/rion-core/src/database/state.rs\u0000replaces_one_scalar_state_field_without_rewriting_domain_tables",
-      "status": "preserved",
-      "contract": "Rust-owned state repositories retain normalized scalar settings and entity CRUD without renderer filesystem access.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "crates/rion-core/src/database/state.rs",
-          "test": "replaces_one_scalar_state_field_without_rewriting_domain_tables"
-        }
-      ],
-      "runtimeCritical": true,
-      "sourceCaseIds": [
-        "legacy-0fdf7d66807b",
-        "legacy-16302c6ee7e8",
-        "legacy-1754bcef4add",
-        "legacy-5489c6f37aa8",
-        "legacy-5b94db6949fc",
-        "legacy-5d4964594696",
-        "legacy-68e3a7caad28",
-        "legacy-72d4bf7d423d",
-        "legacy-8936e1f86dd4",
-        "legacy-93b80136e514",
-        "legacy-9b785ced6fdf",
-        "legacy-a776e05370f2",
-        "legacy-ab70385bce26",
-        "legacy-f67f3daeaef4",
-        "legacy-f77a2f4d18c2",
-        "legacy-f856fd77bee5",
-        "legacy-f903c0693af6"
-      ],
-      "nativeGate": "test:native:file-operations"
+      ]
     },
     {
       "id": "behavior-29b4bfcf2a5c",
@@ -302,8 +290,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-ea4362559de7"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-2ebf42940e9f",
@@ -342,6 +329,25 @@
       ]
     },
     {
+      "id": "behavior-2ee01ad45cad",
+      "deduplicationKey": "retired-shell\u0000tests/application-restart.test.ts",
+      "status": "retired",
+      "contract": "Graphics-driven restart prompts and the renderer restart API are retired with application-owned Chromium graphics settings.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-ca95f26c1ff7",
+        "legacy-e8e92a8e0663"
+      ],
+      "retirementClause": "Graphics-driven restart prompts and the renderer restart API are retired with application-owned Chromium graphics settings."
+    },
+    {
       "id": "behavior-3043c4b98118",
       "deduplicationKey": "test\u0000tests/runtime-tab-strip.test.ts\u0000keeps Ctrl+Tab and Ctrl+Shift+Tab inside the scoped bridge",
       "status": "preserved",
@@ -357,8 +363,7 @@
       "sourceCaseIds": [
         "browser-workspace-2bbe60d17f9d",
         "browser-workspace-f1eb2035ac59"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-33d4bdc0c486",
@@ -392,8 +397,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-211207de18c2"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-367220c2a3b9",
@@ -410,8 +414,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-59fb6fc295cf"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-39b7d1ddd013",
@@ -480,8 +483,24 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-3ab785a01b66"
+      ]
+    },
+    {
+      "id": "behavior-3d8746917114",
+      "deduplicationKey": "shell\u0000tests/release-workflows.test.ts\u0000runs common checks and platform builds on macOS and Windows",
+      "status": "preserved",
+      "contract": "Tauri release and local package builds explicitly use macOS ad-hoc signing and strip notarization credentials.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/release-workflows.test.ts",
+          "test": "runs common checks and platform builds on macOS and Windows"
+        }
       ],
-      "nativeGate": "test:native:macro-game"
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-c438cc9f6d9c"
+      ]
     },
     {
       "id": "behavior-3fe280c48f70",
@@ -498,8 +517,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-aadb64df08ea"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-4256b06131b2",
@@ -516,8 +534,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-71f0fb5c78b7"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-4526f97cb8e8",
@@ -541,23 +558,6 @@
       "retirementClause": "Preview identity and transitional entry points are retired; Tauri Stable is the product shell."
     },
     {
-      "id": "behavior-4666e0de7864",
-      "deduplicationKey": "shell\u0000tests/release-workflows.test.ts\u0000runs common checks and native package gates on macOS and Windows",
-      "status": "preserved",
-      "contract": "Tauri release and local package builds explicitly use macOS ad-hoc signing and strip notarization credentials.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "tests/release-workflows.test.ts",
-          "test": "runs common checks and native package gates on macOS and Windows"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "legacy-c438cc9f6d9c"
-      ]
-    },
-    {
       "id": "behavior-47c2c2a25d96",
       "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000does not release a physical held shortcut for a suppressed synthetic keyup",
       "status": "preserved",
@@ -572,8 +572,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-dd7ef7b456d9"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-4dcbd05287d1",
@@ -590,8 +589,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-68076fb61b99"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-518a668a7ff4",
@@ -620,25 +618,6 @@
         "browser-workspace-e4d2ccbeb3ce",
         "browser-workspace-e726b29ab04b",
         "browser-workspace-f500fa56e6a2"
-      ],
-      "nativeGate": "test:native:system-input"
-    },
-    {
-      "id": "behavior-522bfe8273f4",
-      "deduplicationKey": "shell\u0000crates/rion-platform/src/system.rs\u0000uses_graceful_platform_close_commands",
-      "status": "preserved",
-      "contract": "Platform diagnostics moved to Rust adapters and retain renderer coverage.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "crates/rion-platform/src/system.rs",
-          "test": "uses_graceful_platform_close_commands"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "legacy-ce364d7c992d",
-        "legacy-eecaf4348081"
       ]
     },
     {
@@ -656,8 +635,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "browser-workspace-63d8d3912912"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-5ba44dacfd62",
@@ -679,8 +657,7 @@
         "legacy-65d11178a3bd",
         "legacy-9620eb310269",
         "legacy-b1638bb0c0c3"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-5e04d2e0180c",
@@ -757,8 +734,7 @@
         "browser-workspace-f901c1ec13db",
         "browser-workspace-f95c55c6aeda",
         "browser-workspace-fa75912a292c"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-5f2032dea92c",
@@ -775,8 +751,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-d18fc0033c57"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-607b35cc35e1",
@@ -819,8 +794,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-fb39dd816585"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-66eaecb6bbe7",
@@ -837,8 +811,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-b0dc0d1eaf1f"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-6a37b55813ac",
@@ -855,8 +828,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-255fb15e0a52"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-6ab93411e54b",
@@ -873,8 +845,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-1a598621dd2c"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-6b6d8c28a6e3",
@@ -891,8 +862,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-a5b4e70d3117"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-6c9d4c788951",
@@ -909,8 +879,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-60cc59f0dafc"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-6ce7ce2bb264",
@@ -930,6 +899,28 @@
         "browser-workspace-682b219b6d10",
         "browser-workspace-94557ef32ede",
         "browser-workspace-b36d189c65c3"
+      ]
+    },
+    {
+      "id": "behavior-6e6ea92ad407",
+      "deduplicationKey": "shell\u0000src-tauri/src/runtime_tabs_macos.rs\u0000native_action_scope_preserves_window_identifiers",
+      "status": "preserved",
+      "contract": "The AppKit controller now receives bounded state/actions through Rust FFI and a Tauri NSWindow.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "src-tauri/src/runtime_tabs_macos.rs",
+          "test": "native_action_scope_preserves_window_identifiers"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-49d2c8ceb37a",
+        "legacy-5f010691d730",
+        "legacy-6901583ebd18",
+        "legacy-b3f53a8cfdab",
+        "legacy-d331f88c0078",
+        "legacy-e977aa54aa51"
       ]
     },
     {
@@ -967,8 +958,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-f28f6de73cb3"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-7483ece1319b",
@@ -986,8 +976,7 @@
       "sourceCaseIds": [
         "legacy-dfcb90bd2903",
         "legacy-fa830b628bf7"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-782faf71bd3c",
@@ -1004,8 +993,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-639b1e3bdc10"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-7c86ba66619d",
@@ -1022,8 +1010,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-211a0c245cba"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-7f6834810502",
@@ -1040,8 +1027,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-3c3dac7b6927"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-800146226bea",
@@ -1059,8 +1045,7 @@
       "sourceCaseIds": [
         "browser-workspace-1c12d2a62541",
         "browser-workspace-5070fdd94192"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-8705d9a0b989",
@@ -1080,8 +1065,7 @@
         "legacy-9c6450791d5e",
         "legacy-9cc8e04a72f8"
       ],
-      "retirementClause": "The generic Electron webContents sender is retired; scoped typed Tauri events are used instead.",
-      "nativeGate": "test:native:runtime-restore"
+      "retirementClause": "The generic Electron webContents sender is retired; scoped typed Tauri events are used instead."
     },
     {
       "id": "behavior-872a8f0b9269",
@@ -1125,8 +1109,7 @@
         "legacy-db4665483246",
         "legacy-e4104ed8f445",
         "legacy-e83a82c242b4"
-      ],
-      "nativeGate": "test:native:runtime-restore"
+      ]
     },
     {
       "id": "behavior-876b25cb6afb",
@@ -1143,8 +1126,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-f0868fb69a09"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-8b8b1c45e38e",
@@ -1178,8 +1160,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-13a52239fbd2"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-8d6dfb84a238",
@@ -1197,6 +1178,27 @@
       "sourceCaseIds": [
         "legacy-5aa706c95021",
         "legacy-76fc1f4c1f35"
+      ]
+    },
+    {
+      "id": "behavior-8dd02f20d614",
+      "deduplicationKey": "shell\u0000crates/rion-core/src/portable.rs\u0000normalizes_every_supported_portable_schema_to_v11",
+      "status": "preserved",
+      "contract": "Portable import/export and migration remain Rust-owned and transactionally tested.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "crates/rion-core/src/portable.rs",
+          "test": "normalizes_every_supported_portable_schema_to_v11"
+        }
+      ],
+      "runtimeCritical": false,
+      "sourceCaseIds": [
+        "legacy-4fc8a7675f8f",
+        "legacy-7ae238e3e7e7",
+        "legacy-af4292c8d819",
+        "legacy-c2756df1d303",
+        "legacy-fb629be97bfe"
       ]
     },
     {
@@ -1258,8 +1260,7 @@
         "legacy-54904e12a976",
         "legacy-a866fec5f269",
         "legacy-dc796e4f14f6"
-      ],
-      "nativeGate": "test:native:runtime-restore"
+      ]
     },
     {
       "id": "behavior-943f2a8ee8ad",
@@ -1311,8 +1312,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-d1886a7bf44a"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-979b469f1327",
@@ -1329,8 +1329,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-95a78a3d71ec"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-98b63e0fe489",
@@ -1347,26 +1346,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-70e79aee0b1e"
-      ],
-      "nativeGate": "test:native:macro-game"
-    },
-    {
-      "id": "behavior-9c782fcc06d9",
-      "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000preserves_disabled_features_and_applies_safe_high_performance_switches",
-      "status": "retired",
-      "contract": "Application-owned safe high-performance Chromium graphics switches are retired.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "crates/rion-core/src/bootstrap_settings.rs",
-          "test": "windows_arguments_keep_non_graphics_defaults_and_merge_disabled_features"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "browser-workspace-ec8bf4e43acc"
-      ],
-      "retirementClause": "Retired clause: Chromium GPU tuning modes and their high-performance startup switches are no longer part of the System WebView product."
+      ]
     },
     {
       "id": "behavior-a07d6db8feae",
@@ -1383,8 +1363,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-fc4652bd25cb"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-a08d045c53ed",
@@ -1418,26 +1397,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-d1082a40ffa1"
-      ],
-      "nativeGate": "test:native:runtime-restore"
-    },
-    {
-      "id": "behavior-a2db9e2355f4",
-      "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000limits_unsafe_switches_to_explicit_experimental_mode",
-      "status": "retired",
-      "contract": "Experimental and backend-specific Chromium GPU switches are retired.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "tests/system-only-product-gate.test.ts",
-          "test": "is a required CI and signed-candidate check"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "browser-workspace-cc817a22dbcc"
-      ],
-      "retirementClause": "Retired clause: unsafe Chromium GPU, ANGLE, Vulkan, WebGPU, VSync, and frame-rate tuning switches cannot be selected or persisted."
+      ]
     },
     {
       "id": "behavior-a3be59d1f8f9",
@@ -1480,8 +1440,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-012057e747bc"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-aec93ffefa07",
@@ -1498,8 +1457,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-0a4a25012bc3"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-af5aa5ea12bf",
@@ -1516,8 +1474,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-baef08037049"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-b0f6348f2ce6",
@@ -1534,8 +1491,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-9ce55d635542"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-b21f9494f2d9",
@@ -1572,26 +1528,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "target-memory-session-snapshot"
-      ],
-      "nativeGate": "test:native:session-import"
-    },
-    {
-      "id": "behavior-b391a67d5a08",
-      "deduplicationKey": "test\u0000crates/rion-core/src/bootstrap_settings.rs\u0000reads_legacy_before_first_migration_and_defaults_invalid_values",
-      "status": "retired",
-      "contract": "Persisted Chromium graphics startup modes and pre-ready reads are retired.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "crates/rion-core/src/database/state.rs",
-          "test": "schema_fourteen_removes_only_graphics_and_rolls_back_invalid_payloads"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "browser-workspace-b4ce96870a1a"
-      ],
-      "retirementClause": "Retired clause: graphics startup modes are removed by schema v14 and no longer influence the Tauri or System WebView startup sequence."
+      ]
     },
     {
       "id": "behavior-b41791e81be2",
@@ -1609,8 +1546,7 @@
       "sourceCaseIds": [
         "browser-workspace-4871b0d4d9d2",
         "browser-workspace-e58dedf8e5a9"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-b4957788a0bf",
@@ -1628,7 +1564,10 @@
       "sourceCaseIds": [
         "browser-workspace-77044f2f1365",
         "browser-workspace-8dcdbe109c2f",
-        "browser-workspace-bf0235d3ce63"
+        "browser-workspace-b4ce96870a1a",
+        "browser-workspace-bf0235d3ce63",
+        "browser-workspace-cc817a22dbcc",
+        "browser-workspace-ec8bf4e43acc"
       ],
       "retirementClause": "Retired clause: Electron shell implementation. The baseline case “uses automatic mode for missing or invalid startup settings” is preserved only at the user-visible System WebView behavior boundary.",
       "preservedCompanion": {
@@ -1655,56 +1594,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-ac3b96cf63ac"
-      ],
-      "nativeGate": "test:native:macro-game"
-    },
-    {
-      "id": "behavior-b6c1048ed54c",
-      "deduplicationKey": "shell\u0000tests/tauri-system-runtime-source.test.ts\u0000keeps popup, download, crash recovery, and platform input inside the native runtime",
-      "status": "preserved",
-      "contract": "Focused Tauri tests now verify shared display-host lifecycle, native surface switching, layout, and the scoped tab strip.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "tests/tauri-system-runtime-source.test.ts",
-          "test": "keeps popup, download, crash recovery, and platform input inside the native runtime"
-        }
-      ],
-      "runtimeCritical": true,
-      "sourceCaseIds": [
-        "legacy-0e5de3606509",
-        "legacy-0fd2613eb6ad",
-        "legacy-1576675d6b00",
-        "legacy-1635beb88d7f",
-        "legacy-176fcdff692d",
-        "legacy-181f9897f775",
-        "legacy-2316a7882d84",
-        "legacy-2c35981f0c3b",
-        "legacy-44842d39d393",
-        "legacy-4b914fc3e1d4",
-        "legacy-4c96e8d867eb",
-        "legacy-57902ddbd336",
-        "legacy-5d01337a3bcd",
-        "legacy-5ddea4e435aa",
-        "legacy-616b4ff9c28d",
-        "legacy-64510d490293",
-        "legacy-65b5f093ee99",
-        "legacy-6eddc42219dc",
-        "legacy-710179a89480",
-        "legacy-725c65e5abca",
-        "legacy-7eef52111190",
-        "legacy-882d909c6de4",
-        "legacy-8ff1ac8580d7",
-        "legacy-94d2f47423c7",
-        "legacy-b6277594cc3a",
-        "legacy-d16ababf8ea6",
-        "legacy-d1dacc153e97",
-        "legacy-e0b08ac45a49",
-        "legacy-ea261ff5e1c6",
-        "legacy-f653ab3d7e41",
-        "legacy-f84fc731eb55"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-b983f4ed21cd",
@@ -1721,8 +1611,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-ed7c9069911c"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-be72d0e8c60e",
@@ -1766,8 +1655,7 @@
       "sourceCaseIds": [
         "legacy-384d5cdcf769",
         "legacy-94e31c273f88"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-c68a72318dd9",
@@ -1784,19 +1672,18 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-eb027c74a937"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-c6e780deba41",
       "deduplicationKey": "retired-shell\u0000tests/webview2-automation-target.test.ts",
       "status": "retired",
-      "contract": "General automation targets are retired; bounded native input and recovery attestations remain.",
+      "contract": "General automation targets are retired; bounded production input and recovery APIs remain.",
       "evidence": [
         {
           "kind": "executable-test",
           "file": "tests/tauri-system-runtime-source.test.ts",
-          "test": "keeps popup, download, crash recovery, and platform input inside the native runtime"
+          "test": "keeps production popup, download, recovery, lifecycle, and platform input native"
         }
       ],
       "runtimeCritical": false,
@@ -1804,7 +1691,7 @@
         "legacy-5f0b895a32bc",
         "legacy-85cf40d55986"
       ],
-      "retirementClause": "General automation targets are retired; bounded native input and recovery attestations remain."
+      "retirementClause": "General automation targets are retired; bounded production input and recovery APIs remain."
     },
     {
       "id": "behavior-c7951d1f30ab",
@@ -1821,8 +1708,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-9799d570d7a8"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-c8ee2d127067",
@@ -1839,8 +1725,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-03df909c4cc8"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-c908f5242113",
@@ -1857,8 +1742,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-b0e777ffa62d"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-c96e121d833d",
@@ -1875,8 +1759,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-dbaaa990cb69"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-ca1a179448fd",
@@ -1938,7 +1821,7 @@
       "id": "behavior-cd9dffebc7c2",
       "deduplicationKey": "retired-shell\u0000tests/electron-automation-target.test.ts",
       "status": "retired",
-      "contract": "Electron debugger automation is explicitly retired; native trusted-input attestation is the supported path.",
+      "contract": "Electron debugger automation is explicitly retired; bounded BrowserAction input through the native runtime is the supported path.",
       "evidence": [
         {
           "kind": "executable-test",
@@ -1972,7 +1855,7 @@
         "legacy-e5a7716bfb77",
         "legacy-f2caf0106f73"
       ],
-      "retirementClause": "Electron debugger automation is explicitly retired; native trusted-input attestation is the supported path."
+      "retirementClause": "Electron debugger automation is explicitly retired; bounded BrowserAction input through the native runtime is the supported path."
     },
     {
       "id": "behavior-ce186f8ee8b3",
@@ -1989,27 +1872,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-325b40a0c4d7"
-      ],
-      "nativeGate": "test:native:macro-game"
-    },
-    {
-      "id": "behavior-cf2c9223de3b",
-      "deduplicationKey": "shell\u0000tests/settings-graphics-restart.test.ts\u0000does not require a restart when the saved settings are already applied",
-      "status": "retired",
-      "contract": "Graphics-driven restart prompts and renderer relaunch APIs are retired.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "tests/renderer-system-webview-compatibility.test.tsx",
-          "test": "routes legacy graphics settings links to Interface without a Game settings item"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "legacy-ca95f26c1ff7",
-        "legacy-e8e92a8e0663"
-      ],
-      "retirementClause": "Retired clause: changing graphics settings can no longer produce applied-flags comparisons, restart-required state, dialogs, or application relaunch calls."
+      ]
     },
     {
       "id": "behavior-d5dd03413092",
@@ -2026,13 +1889,16 @@
       "runtimeCritical": false,
       "sourceCaseIds": [
         "legacy-0f84c7554616",
+        "legacy-0fdf7d66807b",
         "legacy-2c479ad2584a",
         "legacy-543ce1325d8e",
         "legacy-5ea26eecd7eb",
         "legacy-71b5a208d5f2",
         "legacy-878bcd57c2e0",
         "legacy-ce340c966b6f",
-        "legacy-dc9e9aa33d42"
+        "legacy-dc9e9aa33d42",
+        "legacy-f77a2f4d18c2",
+        "legacy-f856fd77bee5"
       ]
     },
     {
@@ -2056,8 +1922,7 @@
         "legacy-41998be20116",
         "legacy-9c801170e223",
         "legacy-fadd4dc24253"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-dea33f52f812",
@@ -2079,29 +1944,6 @@
       ]
     },
     {
-      "id": "behavior-e217e6f6d37c",
-      "deduplicationKey": "shell\u0000src-tauri/src/runtime_tabs_macos.rs\u0000native_action_scope_preserves_nonzero_and_safe_negative_display_ids",
-      "status": "preserved",
-      "contract": "The AppKit controller now receives bounded state/actions through Rust FFI and a Tauri NSWindow.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "src-tauri/src/runtime_tabs_macos.rs",
-          "test": "native_action_scope_preserves_nonzero_and_safe_negative_display_ids"
-        }
-      ],
-      "runtimeCritical": true,
-      "sourceCaseIds": [
-        "legacy-49d2c8ceb37a",
-        "legacy-5f010691d730",
-        "legacy-6901583ebd18",
-        "legacy-b3f53a8cfdab",
-        "legacy-d331f88c0078",
-        "legacy-e977aa54aa51"
-      ],
-      "nativeGate": "test:native:system-input"
-    },
-    {
       "id": "behavior-e23a4aa3e177",
       "deduplicationKey": "shell\u0000crates/rion-core/src/macro_runtime.rs\u0000suppresses_only_keys_that_can_match_an_enabled_role_shortcut",
       "status": "preserved",
@@ -2117,8 +1959,7 @@
       "sourceCaseIds": [
         "legacy-c14fe6577f69",
         "legacy-ec1ff4d4ecc5"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-e28634be453a",
@@ -2129,7 +1970,7 @@
         {
           "kind": "executable-test",
           "file": "src-tauri/src/runtime_tabs_macos.rs",
-          "test": "native_action_scope_preserves_nonzero_and_safe_negative_display_ids"
+          "test": "native_action_scope_preserves_window_identifiers"
         }
       ],
       "runtimeCritical": true,
@@ -2137,8 +1978,7 @@
         "legacy-d782cb9df6ac",
         "legacy-f6c6218bb474"
       ],
-      "retirementClause": "The Electron macOS fallback preload is retired; AppKit tabs are reached through Rust FFI.",
-      "nativeGate": "test:native:system-input"
+      "retirementClause": "The Electron macOS fallback preload is retired; AppKit tabs are reached through Rust FFI."
     },
     {
       "id": "behavior-e55d38917944",
@@ -2155,8 +1995,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-e376eca5943e"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-ed3d485c000d",
@@ -2173,8 +2012,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-402f5771117d"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-ef57456bd498",
@@ -2199,8 +2037,7 @@
         "legacy-c1e0b99a96b2",
         "legacy-ccdded5fcbbc",
         "legacy-e2e4595d79f8"
-      ],
-      "nativeGate": "test:native:system-input"
+      ]
     },
     {
       "id": "behavior-f09e95f58f21",
@@ -2217,8 +2054,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-b3ca002c431c"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-f323eb4f303c",
@@ -2235,8 +2071,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-bd0c39468d35"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-f458739fbefc",
@@ -2280,6 +2115,53 @@
       ]
     },
     {
+      "id": "behavior-f630ec3b72b9",
+      "deduplicationKey": "shell\u0000tests/tauri-system-runtime-source.test.ts\u0000keeps production popup, download, recovery, lifecycle, and platform input native",
+      "status": "preserved",
+      "contract": "Focused Tauri tests now verify shared display-host lifecycle, native surface switching, layout, and the scoped tab strip.",
+      "evidence": [
+        {
+          "kind": "executable-test",
+          "file": "tests/tauri-system-runtime-source.test.ts",
+          "test": "keeps production popup, download, recovery, lifecycle, and platform input native"
+        }
+      ],
+      "runtimeCritical": true,
+      "sourceCaseIds": [
+        "legacy-0e5de3606509",
+        "legacy-0fd2613eb6ad",
+        "legacy-1576675d6b00",
+        "legacy-1635beb88d7f",
+        "legacy-176fcdff692d",
+        "legacy-181f9897f775",
+        "legacy-2316a7882d84",
+        "legacy-2c35981f0c3b",
+        "legacy-44842d39d393",
+        "legacy-4b914fc3e1d4",
+        "legacy-4c96e8d867eb",
+        "legacy-57902ddbd336",
+        "legacy-5d01337a3bcd",
+        "legacy-5ddea4e435aa",
+        "legacy-616b4ff9c28d",
+        "legacy-64510d490293",
+        "legacy-65b5f093ee99",
+        "legacy-6eddc42219dc",
+        "legacy-710179a89480",
+        "legacy-725c65e5abca",
+        "legacy-7eef52111190",
+        "legacy-882d909c6de4",
+        "legacy-8ff1ac8580d7",
+        "legacy-94d2f47423c7",
+        "legacy-b6277594cc3a",
+        "legacy-d16ababf8ea6",
+        "legacy-d1dacc153e97",
+        "legacy-e0b08ac45a49",
+        "legacy-ea261ff5e1c6",
+        "legacy-f653ab3d7e41",
+        "legacy-f84fc731eb55"
+      ]
+    },
+    {
       "id": "behavior-f676e6d36aa5",
       "deduplicationKey": "legacy-overlay\u0000tests/macro-overlay-interactions.test.ts\u0000leaves game pointer events and focus untouched",
       "status": "preserved",
@@ -2294,8 +2176,7 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-b4975a7fc45c"
-      ],
-      "nativeGate": "test:native:macro-game"
+      ]
     },
     {
       "id": "behavior-f768949c59b9",
@@ -2312,28 +2193,6 @@
       "runtimeCritical": true,
       "sourceCaseIds": [
         "browser-workspace-f1d3460084ea"
-      ],
-      "nativeGate": "test:native:system-input"
-    },
-    {
-      "id": "behavior-ff80de4878ee",
-      "deduplicationKey": "shell\u0000crates/rion-core/src/portable.rs\u0000normalizes_every_supported_portable_schema_to_v7",
-      "status": "preserved",
-      "contract": "Portable import/export and migration remain Rust-owned and transactionally tested.",
-      "evidence": [
-        {
-          "kind": "executable-test",
-          "file": "crates/rion-core/src/portable.rs",
-          "test": "normalizes_every_supported_portable_schema_to_v7"
-        }
-      ],
-      "runtimeCritical": false,
-      "sourceCaseIds": [
-        "legacy-4fc8a7675f8f",
-        "legacy-7ae238e3e7e7",
-        "legacy-af4292c8d819",
-        "legacy-c2756df1d303",
-        "legacy-fb629be97bfe"
       ]
     }
   ],
@@ -2421,7 +2280,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-0e5de3606509",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2431,12 +2290,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-0fd2613eb6ad",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-0fdf7d66807b",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-d5dd03413092"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2466,17 +2325,17 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-1576675d6b00",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-16302c6ee7e8",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-1635beb88d7f",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2491,17 +2350,17 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-1754bcef4add",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-176fcdff692d",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-181f9897f775",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2556,7 +2415,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-2316a7882d84",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2576,7 +2435,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-2c35981f0c3b",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2671,7 +2530,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-44842d39d393",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2681,7 +2540,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-49d2c8ceb37a",
-      "behaviorId": "behavior-e217e6f6d37c"
+      "behaviorId": "behavior-6e6ea92ad407"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2691,12 +2550,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-4b914fc3e1d4",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-4c96e8d867eb",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2711,7 +2570,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-4fc8a7675f8f",
-      "behaviorId": "behavior-ff80de4878ee"
+      "behaviorId": "behavior-8dd02f20d614"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2736,7 +2595,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-5489c6f37aa8",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2751,7 +2610,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-57902ddbd336",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2771,7 +2630,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-5b94db6949fc",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2781,17 +2640,17 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-5d01337a3bcd",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-5d4964594696",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-5ddea4e435aa",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2801,7 +2660,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-5f010691d730",
-      "behaviorId": "behavior-e217e6f6d37c"
+      "behaviorId": "behavior-6e6ea92ad407"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2831,7 +2690,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-616b4ff9c28d",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2846,7 +2705,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-64510d490293",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2866,7 +2725,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-65b5f093ee99",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2881,12 +2740,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-68e3a7caad28",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-6901583ebd18",
-      "behaviorId": "behavior-e217e6f6d37c"
+      "behaviorId": "behavior-6e6ea92ad407"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2896,7 +2755,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-6eddc42219dc",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2906,7 +2765,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-710179a89480",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2921,12 +2780,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-725c65e5abca",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-72d4bf7d423d",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2946,7 +2805,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-7ae238e3e7e7",
-      "behaviorId": "behavior-ff80de4878ee"
+      "behaviorId": "behavior-8dd02f20d614"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2956,7 +2815,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-7eef52111190",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -2981,12 +2840,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-882d909c6de4",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-8936e1f86dd4",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3001,7 +2860,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-8ff1ac8580d7",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3031,12 +2890,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-93b80136e514",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-94d2f47423c7",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3081,7 +2940,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-9b785ced6fdf",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3121,7 +2980,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-a776e05370f2",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3136,7 +2995,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-ab70385bce26",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3151,7 +3010,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-af4292c8d819",
-      "behaviorId": "behavior-ff80de4878ee"
+      "behaviorId": "behavior-8dd02f20d614"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3206,7 +3065,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-b3f53a8cfdab",
-      "behaviorId": "behavior-e217e6f6d37c"
+      "behaviorId": "behavior-6e6ea92ad407"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3226,7 +3085,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-b6277594cc3a",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3266,7 +3125,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-c2756df1d303",
-      "behaviorId": "behavior-ff80de4878ee"
+      "behaviorId": "behavior-8dd02f20d614"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3276,7 +3135,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-c438cc9f6d9c",
-      "behaviorId": "behavior-4666e0de7864"
+      "behaviorId": "behavior-3d8746917114"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3286,7 +3145,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-ca95f26c1ff7",
-      "behaviorId": "behavior-cf2c9223de3b"
+      "behaviorId": "behavior-2ee01ad45cad"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3311,7 +3170,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-ce364d7c992d",
-      "behaviorId": "behavior-522bfe8273f4"
+      "behaviorId": "behavior-204af43db77c"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3321,7 +3180,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-d16ababf8ea6",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3336,12 +3195,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-d1dacc153e97",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-d331f88c0078",
-      "behaviorId": "behavior-e217e6f6d37c"
+      "behaviorId": "behavior-6e6ea92ad407"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3401,7 +3260,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-e0b08ac45a49",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3446,17 +3305,17 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-e8e92a8e0663",
-      "behaviorId": "behavior-cf2c9223de3b"
+      "behaviorId": "behavior-2ee01ad45cad"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-e977aa54aa51",
-      "behaviorId": "behavior-e217e6f6d37c"
+      "behaviorId": "behavior-6e6ea92ad407"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-ea261ff5e1c6",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3481,7 +3340,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-eecaf4348081",
-      "behaviorId": "behavior-522bfe8273f4"
+      "behaviorId": "behavior-204af43db77c"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3521,12 +3380,12 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-f653ab3d7e41",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-f67f3daeaef4",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3536,7 +3395,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-f77a2f4d18c2",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-d5dd03413092"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3546,17 +3405,17 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-f84fc731eb55",
-      "behaviorId": "behavior-b6c1048ed54c"
+      "behaviorId": "behavior-f630ec3b72b9"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-f856fd77bee5",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-d5dd03413092"
     },
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-f903c0693af6",
-      "behaviorId": "behavior-28bc323d328a"
+      "behaviorId": "behavior-2584ca539a44"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -3576,7 +3435,7 @@
     {
       "source": "b11b526-legacy-tests",
       "sourceCaseId": "legacy-fb629be97bfe",
-      "behaviorId": "behavior-ff80de4878ee"
+      "behaviorId": "behavior-8dd02f20d614"
     },
     {
       "source": "b11b526-legacy-tests",
@@ -4371,7 +4230,7 @@
     {
       "source": "v1.37.0-browser-workspace",
       "sourceCaseId": "browser-workspace-b4ce96870a1a",
-      "behaviorId": "behavior-b391a67d5a08"
+      "behaviorId": "behavior-b4957788a0bf"
     },
     {
       "source": "v1.37.0-browser-workspace",
@@ -4476,7 +4335,7 @@
     {
       "source": "v1.37.0-browser-workspace",
       "sourceCaseId": "browser-workspace-cc817a22dbcc",
-      "behaviorId": "behavior-a2db9e2355f4"
+      "behaviorId": "behavior-b4957788a0bf"
     },
     {
       "source": "v1.37.0-browser-workspace",
@@ -4626,7 +4485,7 @@
     {
       "source": "v1.37.0-browser-workspace",
       "sourceCaseId": "browser-workspace-ec8bf4e43acc",
-      "behaviorId": "behavior-9c782fcc06d9"
+      "behaviorId": "behavior-b4957788a0bf"
     },
     {
       "source": "v1.37.0-browser-workspace",

@@ -31,8 +31,7 @@ sibling directory named `rion-studio`. If no valid completion marker exists, it:
 The old `rion-studio` directory is retained as a recovery source. A journal makes
 interrupted installation recoverable, and the completion marker prevents a later
 launch from overwriting newer Tauri data. Release builds reject arbitrary
-`RION_STUDIO_USER_DATA_DIR` overrides; isolated overrides are limited to debug and
-native-attestation runs.
+`RION_STUDIO_USER_DATA_DIR` overrides; isolated overrides are limited to debug builds.
 
 ## Shell behavior parity
 
@@ -50,26 +49,14 @@ fullscreen state. Tab menus, audio state, shortcuts, fullscreen toolbar behavior
 workspace dividers, the application menu and the quick menu use Rust/Tauri state
 and never expose these capabilities to remote pages.
 
-## Native release gates
+## Platform release gates
 
-Every macOS and Windows candidate must pass all five native harnesses before
-bundling and again against the packaged executable:
-
-- `test:native:system-input`
-- `test:native:macro-game`
-- `test:native:session-import`
-- `test:native:runtime-restore`
-- `test:native:file-operations`
-
-The trusted-input harness uses only a bounded representative native event
-sequence. Its 1,000-cycle stress portion exercises the production Rust input-state
-machine without emitting operating-system key events. macOS candidates use the
-explicit ad-hoc signing identity (`-`) and are neither Developer ID signed nor
-notarized. Windows candidates remain unsigned like the legacy release. Both
-platforms still require Tauri-signed updater artifacts.
-
-Local macOS results are not evidence for Windows. A release cannot be promoted
-until both platform jobs and the in-place upgrade matrix pass.
+Every macOS and Windows candidate must pass target-specific Rust lint/tests and
+bundle successfully. The release workflow verifies package structure, updater
+signatures, and upgrade compatibility without launching the application.
+macOS candidates use the explicit ad-hoc signing identity (`-`) and are neither
+Developer ID signed nor notarized. Windows candidates remain unsigned like the
+legacy release. Both platforms still require Tauri-signed updater artifacts.
 
 ## Legacy upgrade compatibility
 
@@ -95,11 +82,10 @@ a higher-version hotfix; signed assets are never overwritten after publication.
 
 ## Developer workflow
 
-`pnpm dev` starts Tauri directly and does not run native parity harnesses. Macro
+`pnpm dev` starts Tauri directly. Macro
 input capability is classified from the supported OS and installed System WebView
-runtime. The five native harnesses remain explicit package and CI gates and never
-promote capability through a cached or compile-time attestation flag. Use
-`pnpm run dev:renderer` for renderer-only UI development.
+runtime. Build, package, and CI do not launch the application as a validation
+step. Use `pnpm run dev:renderer` for renderer-only UI development.
 
 `pnpm run verify:system-only` is the negative architecture gate. It rejects retired
 source roots, build configs, direct package dependencies, and runtime tokens outside

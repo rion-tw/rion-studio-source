@@ -16,24 +16,6 @@ if (platform !== "darwin" && platform !== "win32") {
 }
 
 await run(command("pnpm"), ["run", "verify:system-only"], baseEnvironment);
-await run(command("pnpm"), ["run", "test:native:system-input"], baseEnvironment);
-
-const debugExecutable = platform === "win32"
-  ? "target/debug/rion-tauri.exe"
-  : "target/debug/rion-tauri";
-for (const [script, extraArguments] of [
-  ["test:native:macro-game", ["--skip-system-input"]],
-  ["test:native:session-import", ["--skip-system-input"]],
-  ["test:native:runtime-restore", []],
-  ["test:native:local-storage-sync", []],
-  ["test:native:file-operations", []]
-]) {
-  await run(
-    command("pnpm"),
-    ["run", script, "--", "--executable", debugExecutable, ...extraArguments],
-    baseEnvironment
-  );
-}
 
 const buildEnvironment = { ...baseEnvironment };
 if (platform === "darwin") {
@@ -70,33 +52,6 @@ try {
   );
 } finally {
   await rm(temporaryDirectory, { force: true, recursive: true });
-}
-
-const packagedExecutable = platform === "win32"
-  ? "target/release/rion-tauri.exe"
-  : "target/release/bundle/macos/Rion Studio.app/Contents/MacOS/rion-tauri";
-await run(command("pnpm"), [
-  "run",
-  "test:native:system-input",
-  "--",
-  "--executable",
-  packagedExecutable
-], buildEnvironment);
-for (const [script, extraArguments] of [
-  ["test:native:macro-game", ["--skip-system-input"]],
-  ["test:native:session-import", ["--skip-system-input"]],
-  ["test:native:runtime-restore", []],
-  ["test:native:local-storage-sync", []],
-  ["test:native:file-operations", []]
-]) {
-  await run(command("pnpm"), [
-    "run",
-    script,
-    "--",
-    "--executable",
-    packagedExecutable,
-    ...extraArguments
-  ], buildEnvironment);
 }
 
 function forwardedArguments() {

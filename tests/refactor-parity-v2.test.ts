@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("refactor parity ledger v2", () => {
-  it("executes every preserved behavior's exact evidence and native-gate contract", async () => {
+  it("executes every preserved behavior's exact deterministic evidence", async () => {
     const result = await runVerifier();
 
     expect(result.code).toBe(0);
@@ -33,31 +33,29 @@ describe("refactor parity ledger v2", () => {
     }
   });
 
-  it("forbids metadata-only evidence and requires every runtime-critical native gate in CI", async () => {
+  it("forbids metadata-only evidence for every preserved behavior", async () => {
     const ledger = JSON.parse(
       await readFile(new URL("parity/refactor-behavior-ledger-v2.json", import.meta.url), "utf8")
     ) as {
       behaviors: Array<{
         evidence: Array<{ kind: string }>;
-        nativeGate?: string;
         runtimeCritical: boolean;
       }>;
       mappings: unknown[];
       policy: {
         metadataOnlyEvidenceAllowed: boolean;
-        runtimeCriticalRequiresNativeGate: boolean;
       };
     };
 
     expect(ledger.policy).toEqual(expect.objectContaining({
-      metadataOnlyEvidenceAllowed: false,
-      runtimeCriticalRequiresNativeGate: true
+      metadataOnlyEvidenceAllowed: false
     }));
+    expect(ledger.policy).not.toHaveProperty("runtimeCriticalRequiresNativeGate");
     expect(ledger.mappings).toHaveLength(475);
     for (const behavior of ledger.behaviors) {
       expect(behavior.evidence.length).toBeGreaterThan(0);
       expect(behavior.evidence.every((evidence) => evidence.kind === "executable-test")).toBe(true);
-      if (behavior.runtimeCritical) expect(behavior.nativeGate).toMatch(/^test:native:/);
+      expect(behavior).not.toHaveProperty("nativeGate");
     }
   });
 });

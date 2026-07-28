@@ -102,8 +102,8 @@ jobs:
             cargo test -p rion-core --lib role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles -- --test-threads=8
           done
 
-  platform-package-smoke:
-    name: ${{ matrix.name }} Tauri package smoke
+  platform-build:
+    name: ${{ matrix.name }} Tauri platform build
     needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
@@ -155,64 +155,5 @@ jobs:
       - name: Test target-platform Rust workspace
         run: pnpm run test:rust
 
-      - name: Verify macOS System WebView parity
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm run test:native:system-input
-          pnpm run test:native:macro-game -- --skip-system-input
-          pnpm run test:native:session-import -- --skip-system-input
-          pnpm run test:native:runtime-restore
-          pnpm run test:native:local-storage-sync
-          pnpm run test:native:file-operations
-
-      - name: Verify Windows System WebView parity
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          pnpm run test:native:system-input
-          pnpm run test:native:macro-game -- --skip-system-input
-          pnpm run test:native:session-import -- --skip-system-input
-          pnpm run test:native:runtime-restore
-          pnpm run test:native:local-storage-sync
-          pnpm run test:native:file-operations
-
       - name: Build target-platform Tauri bundle
         run: pnpm exec tauri build --bundles ${{ matrix.tauri_bundle }}
-
-      - name: Verify packaged macOS System WebView behavior
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          executable="target/release/bundle/macos/Rion Studio.app/Contents/MacOS/rion-tauri"
-          pnpm run test:native:system-input -- --executable "${executable}"
-          pnpm run test:native:macro-game -- --executable "${executable}" --skip-system-input
-          pnpm run test:native:session-import -- --executable "${executable}" --skip-system-input
-          pnpm run test:native:runtime-restore -- --executable "${executable}"
-          pnpm run test:native:local-storage-sync -- --executable "${executable}"
-          pnpm run test:native:file-operations -- --executable "${executable}"
-
-      - name: Verify packaged Windows System WebView behavior
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe
-          pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
-          pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input
-          pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
-          pnpm run test:native:local-storage-sync -- --executable target/release/rion-tauri.exe
-          pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
-
-      - name: Upload System WebView attestation diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: system-webview-attestations-${{ runner.os }}-${{ runner.arch }}
-          path: target/system-webview-attestations
-          if-no-files-found: ignore

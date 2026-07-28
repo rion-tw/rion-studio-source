@@ -11,6 +11,7 @@ const LAUNCH_WORKSPACE_PREFIX: &str = "runtime-tab-launch-workspace:";
 const MOVE_PREFIX: &str = "runtime-tab-move:";
 const MOVE_NEW_PREFIX: &str = "runtime-tab-move-new:";
 const MUTE_PREFIX: &str = "runtime-tab-mute:";
+const RELOAD_PREFIX: &str = "runtime-tab-reload:";
 const STOP_PREFIX: &str = "runtime-tab-stop:";
 
 pub fn open_tab(app: &AppHandle, tab_id: &str) -> Result<(), String> {
@@ -68,6 +69,8 @@ pub fn open_tab(app: &AppHandle, tab_id: &str) -> Result<(), String> {
     .build(app)
     .map_err(|error| error.to_string())?;
     let menu = MenuBuilder::new(app)
+        .text(format!("{RELOAD_PREFIX}{tab_id}"), text.reload)
+        .separator()
         .item(&displays)
         .text(
             format!("{MOVE_NEW_PREFIX}{tab_id}"),
@@ -184,6 +187,8 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
                 tab_id: tab_id.to_owned(),
             },
         );
+    } else if let Some(tab_id) = id.strip_prefix(RELOAD_PREFIX) {
+        let _ = state.runtime.reload_tab(tab_id);
     } else if let Some(tab_id) = id.strip_prefix(STOP_PREFIX) {
         if let Some(command) = stop_command(&state.core, tab_id) {
             spawn_command(&state.core, command);
@@ -449,6 +454,7 @@ struct Labels {
     mute: &'static str,
     no_roles: &'static str,
     no_workspaces: &'static str,
+    reload: &'static str,
     roles: &'static str,
     stop: &'static str,
     unmute: &'static str,
@@ -464,6 +470,7 @@ fn labels(language: &str) -> Labels {
             mute: "將分頁靜音",
             no_roles: "沒有角色",
             no_workspaces: "沒有工作區",
+            reload: "重新整理",
             roles: "角色",
             stop: "停止並關閉",
             unmute: "取消分頁靜音",
@@ -476,6 +483,7 @@ fn labels(language: &str) -> Labels {
             mute: "将标签页静音",
             no_roles: "没有角色",
             no_workspaces: "没有工作区",
+            reload: "重新加载",
             roles: "角色",
             stop: "停止并关闭",
             unmute: "取消标签页静音",
@@ -488,6 +496,7 @@ fn labels(language: &str) -> Labels {
             mute: "タブをミュート",
             no_roles: "ロールなし",
             no_workspaces: "ワークスペースなし",
+            reload: "再読み込み",
             roles: "ロール",
             stop: "停止して閉じる",
             unmute: "タブのミュートを解除",
@@ -500,10 +509,28 @@ fn labels(language: &str) -> Labels {
             mute: "Mute Tab",
             no_roles: "No Roles",
             no_workspaces: "No Workspaces",
+            reload: "Reload",
             roles: "Roles",
             stop: "Stop and Close",
             unmute: "Unmute Tab",
             workspaces: "Workspaces",
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reload_label_is_localized_for_every_supported_language() {
+        for (language, expected) in [
+            ("en", "Reload"),
+            ("zh-TW", "重新整理"),
+            ("zh-CN", "重新加载"),
+            ("ja", "再読み込み"),
+        ] {
+            assert_eq!(labels(language).reload, expected, "{language}");
+        }
     }
 }

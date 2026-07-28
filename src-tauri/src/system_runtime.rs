@@ -1283,6 +1283,28 @@ impl SystemRuntimeExecutor {
         None
     }
 
+    pub fn reload_tab(&self, tab_id: &str) -> Result<(), String> {
+        let webviews = {
+            let state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "runtime tab was not found".to_owned())?;
+            let webviews = tab
+                .roles
+                .values()
+                .map(|role| role.webview.clone())
+                .collect::<Vec<_>>();
+            if webviews.is_empty() {
+                return Err("runtime tab has no role surface".to_owned());
+            }
+            webviews
+        };
+        reload_runtime_tab_handles(webviews, |webview| {
+            webview.reload().map_err(|error| error.to_string())
+        })
+    }
+
     pub fn set_tab_audio_muted(&self, tab_id: &str, muted: bool) -> Result<(), String> {
         let role_id = self
             .core
@@ -7896,6 +7918,21 @@ fn refresh_macro_overlay_handles<T, E>(
     }
 }
 
+fn reload_runtime_tab_handles<T, E>(
+    handles: impl IntoIterator<Item = T>,
+    mut reload: impl FnMut(T) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut first_error = None;
+    for handle in handles {
+        if let Err(error) = reload(handle)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
 fn should_release_macros_for_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
@@ -9633,6 +9670,31 @@ mod tests {
             }
         });
         assert_eq!(attempted, ["role-a", "destroyed", "role-b"]);
+    }
+
+    #[test]
+    fn runtime_tab_reload_attempts_every_role_surface_and_reports_the_first_error() {
+        let mut attempted = Vec::new();
+        let error = reload_runtime_tab_handles(["role-a", "destroyed", "role-b"], |label| {
+            attempted.push(label);
+            if label == "destroyed" {
+                Err("WebView was destroyed")
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+
+        assert_eq!(attempted, ["role-a", "destroyed", "role-b"]);
+        assert_eq!(error, "WebView was destroyed");
+
+        let mut single_attempt = Vec::new();
+        reload_runtime_tab_handles(["role-only"], |label| {
+            single_attempt.push(label);
+            Ok::<_, &str>(())
+        })
+        .unwrap();
+        assert_eq!(single_attempt, ["role-only"]);
     }
 
     #[test]

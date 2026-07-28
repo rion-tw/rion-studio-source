@@ -87,6 +87,14 @@ describe("Tauri System WebView runtime source", () => {
       roleLoading.indexOf("pending_navigations.push")
     );
 
+    const reloadTab = runtime.slice(
+      runtime.indexOf("pub fn reload_tab("),
+      runtime.indexOf("pub fn set_tab_audio_muted(")
+    );
+    expect(reloadTab).toMatch(/tab\s*\.roles/);
+    expect(reloadTab).toContain("webview.reload()");
+    expect(reloadTab).not.toContain("popup_roles");
+
     expect(runtime).not.toContain("CompatibilitySurface");
     expect(runtime).not.toContain("create_compatibility_surface");
     expect(runtime).not.toContain("compatibility_session_paths");

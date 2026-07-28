@@ -6944,14 +6944,7 @@ fn verify_surface_recovery_attestation(
     let focus_deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
     loop {
         #[cfg(windows)]
-        recovered
-            .with_webview(|platform_webview| {
-                // WebView2 keeps native focus after its hidden parent loses focus. Returning
-                // focus to the parent is the native equivalent of window.blur(); the child
-                // must remain visible because CDP input is ignored by hidden WebView2 children.
-                let _ = platform_webview.focus_parent();
-            })
-            .map_err(RuntimeError::tauri)?;
+        focus_windows_host(&window)?;
         if let Ok(focus) =
             evaluate_attestation_value(&recovered, "({ focused: document.hasFocus() })")
             && focus.get("focused") == Some(&Value::Bool(false))
@@ -7012,6 +7005,37 @@ fn verify_surface_recovery_attestation(
         "processTerminationObserved": true,
         "roleStorePreserved": true
     })))
+}
+
+#[cfg(windows)]
+fn focus_windows_host(window: &Window) -> RuntimeResult<()> {
+    use std::sync::mpsc::sync_channel;
+    use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let (sender, receiver) = sync_channel(1);
+    window
+        .run_on_main_thread(move || {
+            let result = unsafe {
+                SetFocus(Some(hwnd))
+                    .or_else(|_| SetFocus(None))
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            };
+            let _ = sender.send(result);
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(message)) => Err(RuntimeError::new(
+            "SYSTEM_INPUT_ATTESTATION_FOCUS_FAILED",
+            message,
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "SYSTEM_INPUT_ATTESTATION_FOCUS_TIMEOUT",
+            "The Windows System WebView host did not accept focus deflection.",
+        )),
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]

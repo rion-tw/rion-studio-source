@@ -89,6 +89,7 @@ async function runScenario(executable, scenario, index, diagnosticsDirectory) {
   await writeScenarioState(statePath, { scenario: scenario.name, startedAt, state: "running" });
   let report;
   let scenarioError;
+  let failureStage;
   try {
     console.log(`System WebView parity: starting isolated ${scenario.name} scenario.`);
     const result = await run(executable, [], {
@@ -109,6 +110,7 @@ async function runScenario(executable, scenario, index, diagnosticsDirectory) {
     }
   } catch (error) {
     scenarioError = error;
+    failureStage = await readFailureStage(stderrPath);
   }
   let cleanupError;
   try {
@@ -129,6 +131,7 @@ async function runScenario(executable, scenario, index, diagnosticsDirectory) {
         ? cleanupError.message
         : undefined,
     scenario: scenario.name,
+    stage: report?.stage ?? failureStage ?? scenario.scenario,
     startedAt,
     state: scenarioError || cleanupError ? "failed" : "completed"
   });
@@ -139,6 +142,16 @@ async function runScenario(executable, scenario, index, diagnosticsDirectory) {
 
 async function writeScenarioState(path, state) {
   await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+async function readFailureStage(stderrPath) {
+  try {
+    const stderr = await readFile(stderrPath, "utf8");
+    const matches = [...stderr.matchAll(/System WebView lifecycle: stage=(\S+) /gu)];
+    return matches.at(-1)?.[1];
+  } catch {
+    return undefined;
+  }
 }
 
 function optionValue(name) {
@@ -171,8 +184,12 @@ function validateScenarioReport(value, scenario) {
     value.cleanup?.completed !== true ||
     !Array.isArray(value.cleanup?.errors) ||
     typeof value.timings?.elapsedMs !== "number" ||
+    !value.timings?.stagesMs ||
+    typeof value.timings.stagesMs !== "object" ||
     value.runtime?.healthy !== true ||
     typeof value.runtime?.hostProcessId !== "number" ||
+    typeof value.runtime?.lastStage !== "string" ||
+    value.runtime.lastStage.length === 0 ||
     !Array.isArray(value.runtime?.browserProcessIds) ||
     (expectedPlatform === "windows" && (
       value.runtime.browserProcessIds.length === 0 ||

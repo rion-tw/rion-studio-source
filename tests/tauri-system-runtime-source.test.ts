@@ -64,6 +64,10 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("add_BrowserProcessExited");
     expect(runtime).toContain("fn add_child_bounded(");
     expect(runtime).toContain("fn create_window_bounded(");
+    expect(runtime).toContain("surface_host_initialization_requires_visible_parent");
+    expect(runtime).toContain("set_windows_surface_host_initialization_visibility");
+    expect(runtime).toContain("SW_SHOWNOACTIVATE");
+    expect(runtime).toContain("surface-host-main-thread-flush");
     expect(runtime).toContain("run_serial_runtime_work_loop");
     expect(runtime).toContain("SYSTEM_WEBVIEW_CREATION_STALLED");
     expect(runtime).toContain("system-input-attestation-focus-sink");
@@ -256,6 +260,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(inputVerifier).toContain('scenario: "shared-host"');
     expect(inputVerifier).toContain("schemaVersion !== 3");
     expect(inputVerifier).toContain("browserProcessIds");
+    expect(inputVerifier).toContain("readFailureStage");
+    expect(inputVerifier).toContain("timings.stagesMs");
     expect(inputVerifier).toContain("simulatedStress?.keyDown !== 1000");
     expect(inputVerifier).toContain('simulatedStress?.transport !== "simulated-core-input-state"');
     expect(runtime).toContain("run_simulated_input_stress(&runtime.core)");

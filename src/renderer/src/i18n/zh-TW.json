@@ -630,7 +630,7 @@
   "settings.browserFontsDefault": "瀏覽器預設值",
   "settings.browserFontsCustomEmpty": "已啟用自訂字體，但尚未選擇字體家族。",
   "settings.browserFontsSaved": "已儲存，並已即時套用到開啟中的角色視窗。",
-  "settings.browserFontsForceWarning": "字型覆寫只套用於遊戲頁面，且會優先於頁面樣式。系統會盡量保護可辨識的圖示字型，但少數遊戲 UI 圖示仍可能有所不同。",
+  "settings.browserFontsForceWarning": "字型覆寫會優先於遊戲頁面樣式，也會套用至 Canvas 2D 與透過主執行緒 Canvas 產生的 WebGL 文字。既有 Canvas 像素會在下次重繪時更新。系統會盡量保護圖示；Worker 內渲染及預製 bitmap/SDF 字型不受影響。",
   "settings.browserFontsPresetsGeneral": "常用預設",
   "settings.browserFontsPresetsHandwriting": "手寫風格",
   "settings.browserFonts.preset.systemDefault": "系統字型",

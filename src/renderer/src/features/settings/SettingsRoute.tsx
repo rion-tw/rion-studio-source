@@ -434,6 +434,21 @@ function SettingsViewBase({
                 onLoadSystemFonts={onLoadSystemFonts}
                 onSave={onGameBrowserSettingsChange}
               />
+              {isMacOS ? (
+                <SettingsRow
+                  showDivider={false}
+                  title={t("settings.macosHighRefreshRate")}
+                  description={t("settings.macosHighRefreshRateDescription")}
+                  control={
+                    <Switch
+                      aria-label={t("settings.macosHighRefreshRate")}
+                      checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
+                      disabled={isBrowserPerformanceSaving}
+                      onCheckedChange={updateBrowserPerformanceSettings}
+                    />
+                  }
+                />
+              ) : null}
             </SettingsSection>
 
             <SettingsSection title={t("settings.gameWindows")}>
@@ -478,21 +493,6 @@ function SettingsViewBase({
                   />
                 }
               />
-              {isMacOS ? (
-                <SettingsRow
-                  showDivider={false}
-                  title={t("settings.macosHighRefreshRate")}
-                  description={t("settings.macosHighRefreshRateDescription")}
-                  control={
-                    <Switch
-                      aria-label={t("settings.macosHighRefreshRate")}
-                      checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
-                      disabled={isBrowserPerformanceSaving}
-                      onCheckedChange={updateBrowserPerformanceSettings}
-                    />
-                  }
-                />
-              ) : null}
             </SettingsSection>
 
             <SettingsSection title={t("settings.workspace")}>

@@ -145,6 +145,13 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("Verify macOS manual replacement preserves shared data");
     expect(workflow).toContain("Verify Windows clean install and legacy in-place upgrade");
     expect(workflow).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
+    expect(upgrade).toContain("timeout-minutes: 10");
+    expect(upgrade).toContain("function Invoke-BoundedProcess");
+    expect(upgrade).toContain("$process.WaitForExit($TimeoutSeconds * 1000)");
+    expect(upgrade).toContain("$process.Kill($true)");
+    expect(upgrade).toContain('[Environment]::GetFolderPath("ApplicationData")');
+    expect(upgrade).not.toContain("Start-Process -FilePath $installer -ArgumentList");
+    expect(upgrade).not.toContain("RION_STUDIO_USER_DATA_DIR");
     expect(workflow).toContain("rion-studio.sqlite3");
     expect(workflow).toContain("roles/legacy/browser/data.marker");
     expect(workflow.toLowerCase()).not.toContain("electron");

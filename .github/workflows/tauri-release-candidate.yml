@@ -263,6 +263,7 @@ jobs:
       needs.validate.result == 'success' &&
       needs.manifest.result == 'success'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: true
       matrix:
@@ -306,19 +307,41 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          function Invoke-BoundedProcess {
+            param(
+              [Parameter(Mandatory = $true)][string] $FilePath,
+              [Parameter(Mandatory = $true)][string[]] $ArgumentList,
+              [Parameter(Mandatory = $true)][string] $Stage,
+              [int] $TimeoutSeconds = 120
+            )
+
+            Write-Host "${Stage}: starting"
+            $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru
+            try {
+              if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                try { $process.Kill($true) } catch { Write-Warning "${Stage}: failed to terminate timed-out process tree: $_" }
+                throw "${Stage} timed out after ${TimeoutSeconds} seconds."
+              }
+              if ($process.ExitCode -ne 0) { throw "${Stage} failed with exit code $($process.ExitCode)." }
+            } finally {
+              $process.Dispose()
+            }
+            Write-Host "${Stage}: completed"
+          }
+
           $root = Join-Path $env:RUNNER_TEMP "rion-upgrade-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           $cleanPath = Join-Path $root "clean-install"
           $installPath = Join-Path $root "custom-install"
-          $userData = Join-Path $root "shared-user-data"
+          $userData = Join-Path ([Environment]::GetFolderPath("ApplicationData")) "Rion Studio"
           $installer = (Resolve-Path candidate/Rion.Studio-win.exe).Path
-          New-Item -ItemType Directory -Force -Path $root, $userData | Out-Null
+          if (Test-Path $userData) { throw "The fresh Windows runner already contains Rion Studio user data." }
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-          $clean = Start-Process -FilePath $installer -ArgumentList @("/S", "/D=$cleanPath") -Wait -PassThru
-          if ($clean.ExitCode -ne 0 -or -not (Test-Path (Join-Path $cleanPath "rion-tauri.exe") -PathType Leaf)) { throw "Clean NSIS installation failed." }
+          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "/D=$cleanPath") -Stage "Clean NSIS installation"
+          if (-not (Test-Path (Join-Path $cleanPath "rion-tauri.exe") -PathType Leaf)) { throw "Clean NSIS installation did not create the executable." }
           $cleanUninstaller = Get-ChildItem $cleanPath -Filter "*uninstall*.exe" | Select-Object -First 1
           if ($null -eq $cleanUninstaller) { throw "Clean installation did not create an uninstaller." }
-          $cleanRemoval = Start-Process -FilePath $cleanUninstaller.FullName -ArgumentList "/S" -Wait -PassThru
-          if ($cleanRemoval.ExitCode -ne 0) { throw "Clean NSIS uninstallation failed." }
+          Invoke-BoundedProcess -FilePath $cleanUninstaller.FullName -ArgumentList "/S" -Stage "Clean NSIS uninstallation"
 
           New-Item -ItemType Directory -Force -Path (Join-Path $installPath "resources/native"), (Join-Path $userData "roles/legacy/browser") | Out-Null
           Set-Content -NoNewline -Path (Join-Path $installPath "resources/app.asar") -Value "legacy-runtime"
@@ -329,10 +352,10 @@ jobs:
           Set-Content -NoNewline -Path (Join-Path $userData "roles.json") -Value '{"roles":[]}'
           Set-Content -NoNewline -Path (Join-Path $userData "macros.json") -Value '{"macros":[]}'
           Set-Content -NoNewline -Path (Join-Path $userData "launch-workspaces.json") -Value '{"schemaVersion":7,"workspaces":[]}'
-          $env:RION_STUDIO_USER_DATA_DIR = $userData
 
-          $upgrade = Start-Process -FilePath $installer -ArgumentList @("/S", "--updated", "--force-run", "/D=$installPath") -Wait -PassThru
-          if ($upgrade.ExitCode -ne 0) { throw "Legacy-compatible NSIS installation failed." }
+          # Start-Process -Wait waits for the whole descendant tree. --force-run launches
+          # the app as an installer descendant, so wait only for the installer process.
+          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "--updated", "--force-run", "/D=$installPath") -Stage "Legacy-compatible NSIS installation"
           $installedExecutable = Join-Path $installPath "rion-tauri.exe"
           if (-not (Test-Path $installedExecutable -PathType Leaf)) { throw "The Tauri executable was not installed to the custom path." }
           if (Test-Path (Join-Path $installPath "resources/app.asar")) { throw "Legacy app.asar residue was not removed." }
@@ -350,8 +373,7 @@ jobs:
 
           $uninstaller = Get-ChildItem $installPath -Filter "*uninstall*.exe" | Select-Object -First 1
           if ($null -eq $uninstaller) { throw "The upgraded installation did not create an uninstaller." }
-          $removal = Start-Process -FilePath $uninstaller.FullName -ArgumentList "/S" -Wait -PassThru
-          if ($removal.ExitCode -ne 0) { throw "Upgraded NSIS uninstallation failed." }
+          Invoke-BoundedProcess -FilePath $uninstaller.FullName -ArgumentList "/S" -Stage "Upgraded NSIS uninstallation"
           if (-not (Test-Path (Join-Path $userData "roles/legacy/browser/data.marker") -PathType Leaf)) { throw "Uninstallation removed role browser data." }
           if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Uninstallation removed the SQLite store." }
 

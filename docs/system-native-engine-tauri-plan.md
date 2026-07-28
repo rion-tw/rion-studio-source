@@ -61,6 +61,8 @@ Downstream manifest and upgrade jobs use explicit result guards because automati
 quality validation is intentionally skipped. A final release-ready gate requires
 every release-specific verification before returning the complete artifact name to
 the publishing workflow.
+Windows upgrade checks wait only for each installer process, never its launched App
+descendants, and bound every install or uninstall operation with an explicit timeout.
 macOS candidates use the explicit ad-hoc signing identity (`-`) and are neither
 Developer ID signed nor notarized. Windows candidates remain unsigned like the
 legacy release. Both platforms still require Tauri-signed updater artifacts.

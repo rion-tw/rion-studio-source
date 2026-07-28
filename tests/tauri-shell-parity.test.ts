@@ -115,4 +115,17 @@ describe("Tauri shell parity guard", () => {
     expect(shell).toContain('const LEGACY_DATA_DIRECTORY_NAME: &str = "rion-studio"');
     expect(shell).toContain('const SHARED_DATA_DIRECTORY_NAME: &str = "Rion Studio"');
   });
+
+  it("routes diagnostics exports through the asynchronous core dispatcher", async () => {
+    const shell = await readFile("src-tauri/src/lib.rs", "utf8");
+    const start = shell.indexOf("async fn export_diagnostics(");
+    const end = shell.indexOf("\nfn runtime_versions(", start);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const exportDiagnostics = shell.slice(start, end);
+    expect(exportDiagnostics).toContain("invoke_core_async(");
+    expect(exportDiagnostics).not.toContain("invoke_core_sync(");
+    expect(exportDiagnostics).toMatch(/invoke_core_async\([\s\S]*\)\s*\.await\s*\}\s*$/);
+  });
 });

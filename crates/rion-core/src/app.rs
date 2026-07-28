@@ -6236,7 +6236,7 @@ impl Drop for AppCore {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         sync::{Arc, Mutex},
         thread,
         time::Duration,
@@ -7996,7 +7996,7 @@ mod tests {
                     "roleIds": [
                         role_id.clone(),
                         sibling_role_id.clone(),
-                        unavailable_role_id
+                        unavailable_role_id.clone()
                     ],
                     "trigger": {
                         "code": "KeyQ",
@@ -8038,7 +8038,10 @@ mod tests {
                     }),
                 )
         });
+        let expected_roles = HashSet::from([role_id.clone(), sibling_role_id.clone()]);
+        let mut presses = HashMap::<String, usize>::new();
         let mut releases = HashMap::<String, usize>::new();
+        let mut held_roles = HashSet::<String>::new();
         let mut failed = false;
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while releases.get(&role_id).copied().unwrap_or_default() < 3
@@ -8062,8 +8065,17 @@ mod tests {
                                     &request.action
                             {
                                 assert_eq!(code.as_deref(), Some("Digit1"));
-                                if phase == "release" {
-                                    *releases.entry(request.role_id.clone()).or_default() += 1;
+                                assert!(expected_roles.contains(&request.role_id));
+                                match phase.as_str() {
+                                    "hold" => {
+                                        assert!(held_roles.insert(request.role_id.clone()));
+                                        *presses.entry(request.role_id.clone()).or_default() += 1;
+                                    }
+                                    "release" => {
+                                        assert!(held_roles.remove(&request.role_id));
+                                        *releases.entry(request.role_id.clone()).or_default() += 1;
+                                    }
+                                    phase => panic!("unexpected macro key phase {phase}"),
                                 }
                             }
                             results.push(effect_result(effect, None));
@@ -8086,12 +8098,9 @@ mod tests {
         });
         crate::v1_case!("resource-platform-c06f9afb7ed3", {
             assert!(!failed);
-            // A single subscriber batch can contain effects from more than one
-            // loop iteration under runner load. The loop above stops after the
-            // third release is observed, so the contract here is completion of
-            // at least three iterations for every launched role.
             assert!(releases.get(&role_id).copied().unwrap_or_default() >= 3);
             assert!(releases.get(&sibling_role_id).copied().unwrap_or_default() >= 3);
+            assert!(held_roles.is_empty());
         });
 
         let stop_core = Arc::clone(&core);
@@ -8101,18 +8110,57 @@ mod tests {
                 continue;
             };
             for event in events {
-                if let CoreEvent::CoreEffects { effects } = event {
-                    core.dispatch_core_effect_results(
-                        effects
-                            .into_iter()
-                            .map(|effect| effect_result(effect, None))
-                            .collect(),
-                    )
-                    .unwrap();
+                match event {
+                    CoreEvent::CoreEffects { effects } => {
+                        let mut results = Vec::new();
+                        for effect in effects {
+                            if let CoreEffectAction::BrowserAction { request } = &effect.action
+                                && let crate::model::BrowserAction::Key { code, phase, .. } =
+                                    &request.action
+                            {
+                                assert_eq!(code.as_deref(), Some("Digit1"));
+                                assert!(expected_roles.contains(&request.role_id));
+                                match phase.as_str() {
+                                    "hold" => {
+                                        assert!(held_roles.insert(request.role_id.clone()));
+                                        *presses.entry(request.role_id.clone()).or_default() += 1;
+                                    }
+                                    "release" => {
+                                        assert!(held_roles.remove(&request.role_id));
+                                        *releases.entry(request.role_id.clone()).or_default() += 1;
+                                    }
+                                    phase => panic!("unexpected macro key phase {phase}"),
+                                }
+                            }
+                            results.push(effect_result(effect, None));
+                        }
+                        core.dispatch_core_effect_results(results).unwrap();
+                    }
+                    CoreEvent::MacroStatuses { statuses, .. } => {
+                        failed |= statuses.iter().any(|status| status.state == "failed");
+                    }
+                    _ => {}
                 }
             }
         }
         assert!(stop.join().unwrap().is_ok());
+        assert!(!failed);
+        assert!(held_roles.is_empty());
+        assert!(!presses.contains_key(&unavailable_role_id));
+        assert!(!releases.contains_key(&unavailable_role_id));
+        for expected_role_id in [&role_id, &sibling_role_id] {
+            let press_count = presses.get(expected_role_id).copied().unwrap_or_default();
+            let release_count = releases.get(expected_role_id).copied().unwrap_or_default();
+            assert!(
+                release_count >= 3,
+                "{expected_role_id} completed only {release_count} loops"
+            );
+            assert_eq!(
+                press_count, release_count,
+                "{expected_role_id} key state is unbalanced"
+            );
+        }
+        assert_eq!(releases.get(&role_id), releases.get(&sibling_role_id));
         let (stopped, _) = drive_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedRoleStop {

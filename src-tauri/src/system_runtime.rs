@@ -6856,6 +6856,25 @@ fn verify_surface_recovery_attestation(
         }
         std::thread::sleep(Duration::from_millis(10));
     };
+    recovered.hide().map_err(RuntimeError::tauri)?;
+    recovered
+        .eval("window.blur()")
+        .map_err(RuntimeError::tauri)?;
+    let focus_deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+    loop {
+        if let Ok(focus) =
+            evaluate_attestation_value(&recovered, "({ focused: document.hasFocus() })")
+            && focus.get("focused") == Some(&Value::Bool(false))
+        {
+            break;
+        }
+        if Instant::now() >= focus_deadline {
+            return Err(input_attestation_error(
+                "The recovered System WebView remained focused after its host was hidden.",
+            ));
+        }
+        std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
+    }
     let stored =
         evaluate_system_webview(&recovered, "localStorage.getItem('rion-attestation-role')")?;
     if serde_json::from_str::<Value>(&stored).ok() != Some(json!(role_id)) {

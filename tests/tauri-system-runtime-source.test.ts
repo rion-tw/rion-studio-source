@@ -67,6 +67,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("run_serial_runtime_work_loop");
     expect(runtime).toContain("SYSTEM_WEBVIEW_CREATION_STALLED");
     expect(runtime).toContain("system-input-attestation-focus-sink");
+    expect(runtime).toContain('user_data_dir.join("attestation-downloads")');
+    expect(runtime).not.toContain('PathBuf::from(output).parent()?.join("downloads")');
     expect(runtime).not.toContain("SetFocus(None)");
     expect(shell).toContain("tauri::RunEvent::Ready");
     expect(shell).toContain("rion-native-attestation-start");

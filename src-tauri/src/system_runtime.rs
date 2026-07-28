@@ -629,9 +629,9 @@ struct DownloadAttestationTracker {
 
 #[cfg(any(windows, target_os = "macos"))]
 impl DownloadAttestationTracker {
-    fn from_environment() -> Option<Arc<Self>> {
-        let output = std::env::var_os("RION_STUDIO_INPUT_ATTESTATION_OUTPUT")?;
-        let directory = PathBuf::from(output).parent()?.join("downloads");
+    fn for_attestation(user_data_dir: &Path) -> Option<Arc<Self>> {
+        std::env::var_os("RION_STUDIO_INPUT_ATTESTATION_OUTPUT")?;
+        let directory = user_data_dir.join("attestation-downloads");
         fs::create_dir_all(&directory).ok()?;
         Some(Arc::new(Self {
             changed: Condvar::new(),
@@ -666,7 +666,7 @@ impl DownloadAttestationTracker {
         }
     }
 
-    fn wait(&self) -> RuntimeResult<PathBuf> {
+    fn wait(&self) -> RuntimeResult<(PathBuf, String)> {
         let deadline = Instant::now() + NAVIGATION_TIMEOUT;
         let mut state = self.state.lock().map_err(|_| {
             input_attestation_error("The download attestation state lock was poisoned.")
@@ -697,9 +697,14 @@ impl DownloadAttestationTracker {
                 state.requested, state.success, state.url
             )));
         }
-        state.destination.clone().ok_or_else(|| {
+        let destination = state.destination.clone().ok_or_else(|| {
             input_attestation_error("The System WebView download had no destination.")
-        })
+        })?;
+        let url = state
+            .url
+            .clone()
+            .ok_or_else(|| input_attestation_error("The System WebView download had no URL."))?;
+        Ok((destination, url))
     }
 }
 
@@ -905,7 +910,7 @@ impl SystemRuntimeExecutor {
                 additional_browser_arguments,
                 document_start_script,
                 #[cfg(any(windows, target_os = "macos"))]
-                download_attestation: DownloadAttestationTracker::from_environment(),
+                download_attestation: DownloadAttestationTracker::for_attestation(&user_data_dir),
                 overlay_document_start_script,
             },
             core,
@@ -8152,11 +8157,15 @@ fn verify_popup_download_attestation(
     }
     tracker.reset()?;
     eprintln!("System WebView parity: validating native download.");
-    let download_point = attestation_element_center(&parent, "download")?;
-    dispatch_mouse_effect(&parent, download_point, "left", true)?;
-    std::thread::sleep(Duration::from_millis(2));
-    dispatch_mouse_effect(&parent, download_point, "left", false)?;
-    let destination = tracker.wait()?;
+    parent
+        .eval("document.getElementById('download')?.click()")
+        .map_err(RuntimeError::tauri)?;
+    let (destination, download_url) = tracker.wait()?;
+    if checked_web_url(&download_url)?.path() != "/download" {
+        return Err(input_attestation_error(format!(
+            "The System WebView download used an unexpected URL: {download_url}."
+        )));
+    }
     wait_for_download_attestation_content(&destination)?;
     Ok(Some(json!({
         "downloadCompleted": true,

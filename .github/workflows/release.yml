@@ -121,10 +121,17 @@ jobs:
         with:
           ref: ${{ needs.resolve-release.outputs.release_tag }}
 
+      - name: Validate release candidate output
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.build-tauri-release.outputs.release_artifact_name }}
+          VERSION: ${{ needs.resolve-release.outputs.release_version }}
+        run: test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
+
       - name: Download verified release assets
         uses: actions/download-artifact@v8
         with:
-          name: tauri-release-assets-${{ needs.resolve-release.outputs.release_version }}
+          name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}
           path: release-assets
 
       - name: Verify private release assets

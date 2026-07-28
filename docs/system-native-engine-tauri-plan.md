@@ -57,6 +57,10 @@ commit and reject a release tag whose commit differs from the verified CI SHA;
 manually dispatched candidates rerun CI. The release workflow then rebuilds the
 versioned package and verifies its structure, updater signatures, and upgrade
 compatibility without launching the application.
+Downstream manifest and upgrade jobs use explicit result guards because automatic
+quality validation is intentionally skipped. A final release-ready gate requires
+every release-specific verification before returning the complete artifact name to
+the publishing workflow.
 macOS candidates use the explicit ad-hoc signing identity (`-`) and are neither
 Developer ID signed nor notarized. Windows candidates remain unsigned like the
 legacy release. Both platforms still require Tauri-signed updater artifacts.

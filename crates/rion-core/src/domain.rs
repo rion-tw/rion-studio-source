@@ -50,6 +50,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
 fn default_browser_font_settings() -> BrowserFontSettingsRecord {
     BrowserFontSettingsRecord {
         mode: "custom".to_owned(),
+        font_smoothing_enabled: true,
         preset_id: Some("system-default".to_owned()),
         cjk_variant: "auto".to_owned(),
         slots: HashMap::from([
@@ -2325,6 +2326,7 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
 pub fn normalize_game_browser_settings(
     mut settings: GameBrowserSettingsRecord,
 ) -> GameBrowserSettingsRecord {
+    let font_smoothing_enabled = settings.fonts.font_smoothing_enabled;
     if !matches!(settings.fonts.mode.as_str(), "default" | "custom") {
         settings.fonts.mode = "default".to_owned();
     }
@@ -2380,6 +2382,7 @@ pub fn normalize_game_browser_settings(
     settings.fonts.families.clear();
     if settings.fonts.mode == "default" {
         settings.fonts = default_browser_font_settings();
+        settings.fonts.font_smoothing_enabled = font_smoothing_enabled;
     }
     if !matches!(
         settings.macro_badge_position.horizontal_align.as_str(),
@@ -3045,6 +3048,7 @@ mod tests {
             let defaults = default_game_browser_settings();
             validate_game_browser_settings(&defaults).unwrap();
             assert_eq!(defaults.fonts.mode, "custom");
+            assert!(defaults.fonts.font_smoothing_enabled);
             assert_eq!(defaults.fonts.preset_id.as_deref(), Some("system-default"));
             assert_eq!(
                 serde_json::to_value(&defaults.fonts).unwrap()["slots"]["latin"],
@@ -3060,6 +3064,18 @@ mod tests {
                 serde_json::to_value(normalize_game_browser_settings(legacy_default).fonts)
                     .unwrap(),
                 serde_json::to_value(&defaults.fonts).unwrap()
+            );
+            let opted_out_default: GameBrowserSettingsRecord =
+                serde_json::from_value(json!({
+                    "fonts":{"mode":"default","fontSmoothingEnabled":false},
+                    "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
+                    "workspace":{"background":"material","gap":4}
+                }))
+                .unwrap();
+            assert!(
+                !normalize_game_browser_settings(opted_out_default)
+                    .fonts
+                    .font_smoothing_enabled
             );
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);

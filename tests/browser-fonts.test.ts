@@ -25,6 +25,7 @@ describe("browser font settings normalization", () => {
     ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
     expect(DEFAULT_GAME_BROWSER_SETTINGS.fonts).toEqual({
       cjkVariant: "auto",
+      fontSmoothingEnabled: true,
       mode: "custom",
       presetId: "system-default",
       slots: {
@@ -57,6 +58,7 @@ describe("browser font settings normalization", () => {
     ).toEqual({
       fonts: {
         cjkVariant: "tc",
+        fontSmoothingEnabled: true,
         mode: "custom",
         presetId: "modern-sans",
         slots: {
@@ -86,6 +88,7 @@ describe("browser font settings normalization", () => {
       }).fonts
     ).toEqual({
       cjkVariant: "auto",
+      fontSmoothingEnabled: true,
       mode: "custom",
       slots: {
         latin: { source: "system", family: "Arial" }
@@ -107,6 +110,7 @@ describe("browser font settings normalization", () => {
 
     expect(normalized.fonts).toEqual({
       cjkVariant: "auto",
+      fontSmoothingEnabled: true,
       mode: "custom",
       slots: {
         cjk: { source: "system", family: "Missing But Valid" },
@@ -116,6 +120,40 @@ describe("browser font settings normalization", () => {
         math: { source: "system", family: "Noto Sans Math" }
       }
     });
+  });
+
+  it("persists an explicit font-smoothing opt-out independently of font mode", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          fontSmoothingEnabled: false,
+          mode: "default"
+        }
+      }).fonts
+    ).toEqual({
+      ...DEFAULT_GAME_BROWSER_SETTINGS.fonts,
+      fontSmoothingEnabled: false
+    });
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          fontSmoothingEnabled: false,
+          mode: "custom",
+          slots: {}
+        }
+      }).fonts.fontSmoothingEnabled
+    ).toBe(false);
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          fontSmoothingEnabled: "yes",
+          mode: "custom",
+          slots: {}
+        }
+      }).fonts.fontSmoothingEnabled
+    ).toBe(true);
   });
 
   it("provides language-specific general, handwriting, and personality presets", () => {
@@ -174,9 +212,11 @@ describe("browser font settings normalization", () => {
       source: "google",
       catalogId: "playfair-display"
     });
-    expect(resolveBrowserFontPreset("retro-game", "tc").slots.latin).toEqual({
-      source: "google",
-      catalogId: "press-start-2p"
+    expect(resolveBrowserFontPreset("retro-game", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "pixelify-sans" },
+      numeric: { source: "google", catalogId: "pixelify-sans" },
+      monospace: { source: "google", catalogId: "jetbrains-mono" },
+      math: { source: "google", catalogId: "noto-sans-math" }
     });
   });
 

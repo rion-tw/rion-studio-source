@@ -37,7 +37,7 @@ use crate::model::{
     StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 18;
+pub(crate) const SCHEMA_VERSION: u32 = 19;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1629,6 +1629,21 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         transaction
             .execute(
                 "INSERT INTO schema_migrations(version, applied_at) VALUES (18, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    if newest_version < 19 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        migrate_default_browser_fonts(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (19, ?1)",
                 params![chrono::Utc::now().to_rfc3339()],
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -4387,7 +4402,7 @@ mod tests {
             )
             .unwrap();
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=18", [])
+            .execute("DELETE FROM schema_migrations WHERE version>=18", [])
             .unwrap();
 
         create_schema(&connection, false).unwrap();
@@ -4402,6 +4417,7 @@ mod tests {
         let settings: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(settings["fonts"]["mode"], "custom");
         assert_eq!(settings["fonts"]["presetId"], "system-default");
+        assert_eq!(settings["fonts"]["fontSmoothingEnabled"], true);
         assert_eq!(
             settings["fonts"]["slots"]["cjk"],
             json!({"source":"system","family":"system-ui"})
@@ -4414,6 +4430,58 @@ mod tests {
             settings["fonts"]["slots"]["math"],
             json!({"source":"system","family":"math"})
         );
+    }
+
+    #[test]
+    fn schema_nineteen_persists_the_font_smoothing_default_and_preserves_opt_out() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let mut legacy = serde_json::to_value(default_game_browser_settings()).unwrap();
+        legacy["fonts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("fontSmoothingEnabled");
+        connection
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                [serde_json::to_string(&legacy).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=19", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let read_fonts = || {
+            let payload: String = connection
+                .query_row(
+                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            serde_json::from_str::<Value>(&payload).unwrap()["fonts"].clone()
+        };
+        assert_eq!(read_fonts()["fontSmoothingEnabled"], true);
+
+        let mut opted_out = read_fonts();
+        opted_out["fontSmoothingEnabled"] = json!(false);
+        let mut settings = serde_json::to_value(default_game_browser_settings()).unwrap();
+        settings["fonts"] = opted_out;
+        connection
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                [serde_json::to_string(&settings).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=19", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        assert_eq!(read_fonts()["fontSmoothingEnabled"], false);
     }
 
     #[test]

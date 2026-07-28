@@ -10122,6 +10122,7 @@ mod tests {
         assert!(source.contains("measureText"));
         assert!(source.contains("textRendering"));
         assert!(source.contains("fontKerning"));
+        assert!(source.contains("fontSmoothingEnabled"));
         assert!(source.contains("-webkit-font-smoothing"));
         assert!(source.contains("font-optical-sizing"));
         assert!(source.contains("!important"));

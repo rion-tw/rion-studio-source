@@ -163,6 +163,7 @@ describe("Tauri-only release workflows", () => {
     const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
     const publishIndex = workflow.indexOf("publish-public-release:");
     const build = workflow.slice(buildIndex, verifyIndex);
+    const verify = workflow.slice(verifyIndex, publishIndex);
 
     expect(workflow).toContain("name: Private Tauri Release");
     expect(workflow).toContain("workflow_run:");
@@ -193,6 +194,10 @@ describe("Tauri-only release workflows", () => {
     );
     expect(workflow).toContain("cmp release-assets/SHA256SUMS.txt");
     expect(workflow).toContain("--verify-checksums");
+    expect(verify).toContain(
+      "node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --verify-checksums"
+    );
+    expect(verify).not.toContain("--write-checksums");
     expect(workflow).not.toContain("--clobber");
     expect(buildIndex).toBeGreaterThan(-1);
     expect(verifyIndex).toBeGreaterThan(buildIndex);

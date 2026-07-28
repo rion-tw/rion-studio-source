@@ -135,7 +135,7 @@ jobs:
           path: release-assets
 
       - name: Verify private release assets
-        run: node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --write-checksums
+        run: node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --verify-checksums
 
       - name: Upload immutable private release assets
         shell: bash

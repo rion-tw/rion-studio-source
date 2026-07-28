@@ -83,7 +83,7 @@ describe("Tauri-only release workflows", () => {
     expect(build).not.toContain("pnpm run lint");
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
-    expect(workflow).toContain("pnpm run release:version");
+    expect(workflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
     expect(workflow).toContain("pnpm run dist -- --bundles");
     expect(workflow).toContain("codesign --verify --deep --strict");
     expect(workflow).toContain("Signature=adhoc");

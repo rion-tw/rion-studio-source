@@ -3,8 +3,14 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const version = process.argv[2]?.trim();
-if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+const args = process.argv.slice(2);
+if (args[0] === "--") args.shift();
+const [version, ...unexpectedArgs] = args.map((argument) => argument.trim());
+if (
+  unexpectedArgs.length > 0 ||
+  !version ||
+  !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
+) {
   throw new Error("Usage: pnpm run release:version -- <semantic-version>");
 }
 

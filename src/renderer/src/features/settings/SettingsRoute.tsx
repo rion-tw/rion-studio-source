@@ -1,4 +1,4 @@
-import { ChevronDown, CloudDownload, Download, FileJson, FileText, Laptop, Moon, PenLine, RefreshCw, RotateCcw, Search, Sun, Trash2, Upload } from "lucide-react";
+import { ChevronDown, CloudDownload, Download, FileJson, FileText, Laptop, Moon, PenLine, RefreshCw, RotateCcw, Search, Sparkles, Sun, Trash2, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -168,7 +168,11 @@ const browserFontPresetLabelKeys: Record<BrowserFontPresetId, TranslationKey> = 
   "code-monospace": "settings.browserFonts.preset.codeMonospace",
   "natural-handwriting": "settings.browserFonts.preset.naturalHandwriting",
   "playful-handwriting": "settings.browserFonts.preset.playfulHandwriting",
-  "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwriting"
+  "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwriting",
+  "friendly-rounded": "settings.browserFonts.preset.friendlyRounded",
+  "marker-notes": "settings.browserFonts.preset.markerNotes",
+  "editorial-serif": "settings.browserFonts.preset.editorialSerif",
+  "retro-game": "settings.browserFonts.preset.retroGame"
 };
 
 const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationKey> = {
@@ -180,7 +184,11 @@ const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationK
   "code-monospace": "settings.browserFonts.preset.codeMonospaceDescription",
   "natural-handwriting": "settings.browserFonts.preset.naturalHandwritingDescription",
   "playful-handwriting": "settings.browserFonts.preset.playfulHandwritingDescription",
-  "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwritingDescription"
+  "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwritingDescription",
+  "friendly-rounded": "settings.browserFonts.preset.friendlyRoundedDescription",
+  "marker-notes": "settings.browserFonts.preset.markerNotesDescription",
+  "editorial-serif": "settings.browserFonts.preset.editorialSerifDescription",
+  "retro-game": "settings.browserFonts.preset.retroGameDescription"
 };
 
 function SettingsViewBase({
@@ -760,7 +768,7 @@ function BrowserFontsSettingsRows({
   const [isLoadingFonts, setIsLoadingFonts] = useState(systemFonts.length === 0);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [busyCatalogId, setBusyCatalogId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -1077,7 +1085,7 @@ function BrowserFontsSettingsRows({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(["all", "sans", "serif", "handwriting", "monospace", "math"] as const).map(
+                    {(["all", "sans", "serif", "handwriting", "display", "monospace", "math"] as const).map(
                       (value) => (
                         <SelectItem key={value} value={value}>
                           {t(`settings.browserFonts.category.${value}` as TranslationKey)}
@@ -1218,14 +1226,17 @@ function BrowserFontPresetCards({
 }: BrowserFontPresetCardsProps): JSX.Element {
   return (
     <div className="grid gap-3">
-      {(["general", "handwriting"] as const).map((category) => (
+      {(["general", "handwriting", "personality"] as const).map((category) => (
         <div key={category} className="grid gap-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold leading-5 text-foreground">
             {category === "handwriting" ? <PenLine size={14} /> : null}
+            {category === "personality" ? <Sparkles size={14} /> : null}
             {t(
               category === "general"
                 ? "settings.browserFontsPresetsGeneral"
-                : "settings.browserFontsPresetsHandwriting"
+                : category === "handwriting"
+                  ? "settings.browserFontsPresetsHandwriting"
+                  : "settings.browserFontsPresetsPersonality"
             )}
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

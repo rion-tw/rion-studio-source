@@ -19,6 +19,8 @@ const catalog: BrowserFontCatalogEntry[] = [
   ["iansui", "Iansui", "handwriting", ["tc", "latin"], "body"],
   ["patrick-hand", "Patrick Hand", "handwriting", ["latin"], "body"],
   ["caveat", "Caveat", "handwriting", ["latin"], "accent"],
+  ["chiron-go-round-tc", "Chiron GoRound TC", "sans", ["tc", "latin"], "body"],
+  ["fredoka", "Fredoka", "display", ["latin"], "body"],
   ["jetbrains-mono", "JetBrains Mono", "monospace", ["latin"], "technical"],
   ["noto-sans-math", "Noto Sans Math", "math", ["math", "latin"], "technical"]
 ].map(([catalogId, family, category, scripts, usage]) => ({
@@ -99,6 +101,29 @@ function renderSettings(
 }
 
 describe("browser font settings", () => {
+  it("starts collapsed and toggles the font controls on demand", async () => {
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+
+    renderSettings(vi.fn(async (settings) => settings));
+
+    const toggle = screen.getByRole("button", { name: "Customize fonts" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Distinctive styles")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Distinctive styles")).toBeNull();
+  });
+
   it("shows handwriting presets and downloads every missing pack before applying", async () => {
     const installBrowserFont = vi.fn(async (catalogId: string) => ({
       catalogId,
@@ -115,6 +140,7 @@ describe("browser font settings", () => {
 
     renderSettings(onGameBrowserSettingsChange);
 
+    fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
     expect(await screen.findByText("Handwriting styles")).toBeTruthy();
     expect(screen.getByText("Chinese & Japanese")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Natural handwriting/u }));
@@ -132,6 +158,52 @@ describe("browser font settings", () => {
               cjk: { source: "google", catalogId: "iansui" },
               latin: { source: "google", catalogId: "patrick-hand" },
               numeric: { source: "google", catalogId: "caveat" }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("downloads each distinct pack once for a personality preset before applying", async () => {
+    const installBrowserFont = vi.fn(async (catalogId: string) => ({
+      catalogId,
+      installed: true,
+      cachedBytes: 1024
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
+    expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Friendly rounded/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
+
+    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(4));
+    expect(installBrowserFont).toHaveBeenCalledWith("chiron-go-round-tc");
+    expect(installBrowserFont).toHaveBeenCalledWith("fredoka");
+    expect(installBrowserFont).toHaveBeenCalledWith("jetbrains-mono");
+    expect(installBrowserFont).toHaveBeenCalledWith("noto-sans-math");
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            cjkVariant: "auto",
+            mode: "custom",
+            presetId: "friendly-rounded",
+            slots: expect.objectContaining({
+              cjk: { source: "google", catalogId: "chiron-go-round-tc" },
+              latin: { source: "google", catalogId: "fredoka" },
+              numeric: { source: "google", catalogId: "fredoka" },
+              monospace: { source: "google", catalogId: "jetbrains-mono" },
+              math: { source: "google", catalogId: "noto-sans-math" }
             })
           })
         })

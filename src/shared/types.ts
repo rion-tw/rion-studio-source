@@ -366,7 +366,7 @@ export type BrowserFontSlot = "cjk" | "latin" | "numeric" | "monospace" | "math"
 export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserFontCjkVariant = "auto" | "tc" | "sc" | "jp";
 export type BrowserFontSelection = BrowserFontSelectionRecord;
-export type BrowserFontCategory = "sans" | "serif" | "handwriting" | "monospace" | "math";
+export type BrowserFontCategory = "sans" | "serif" | "handwriting" | "display" | "monospace" | "math";
 export type BrowserFontUsage = "body" | "accent" | "technical";
 
 export type BrowserFontCatalogEntry = BrowserFontCatalogEntryRecord;

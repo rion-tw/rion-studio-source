@@ -1379,6 +1379,7 @@ impl AppCore {
                     .filter_map(|slot| slot.role_id)
                     .collect::<Vec<_>>();
                 role_ids.extend(workspace_update_role_ids(&input));
+                role_ids.push(workspace_operation_key(&id));
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || {
                     core.mutate_with_role_lease(
@@ -2452,22 +2453,6 @@ impl AppCore {
         }]);
     }
 
-    async fn stop_role_runtime(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
-        let core = Arc::clone(self);
-        let role_id = role_id.to_owned();
-        tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))?
-    }
-
-    async fn stop_workspace_runtime(self: &Arc<Self>, workspace_id: &str) -> CoreResult<()> {
-        let core = Arc::clone(self);
-        let workspace_id = workspace_id.to_owned();
-        tokio::task::spawn_blocking(move || core.stop_embedded_workspace(&workspace_id))
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))?
-    }
-
     async fn update_role_runtime_aware(
         self: &Arc<Self>,
         id: String,
@@ -2484,24 +2469,50 @@ impl AppCore {
                 message: "Role not found.".to_owned(),
             })?;
         let candidate = crate::domain::update_role(&games, &mut roles, &id, input.clone())?;
-        if candidate.local_storage_source_role_id != current.local_storage_source_role_id {
-            let core = Arc::clone(self);
-            let binding_candidate = candidate.clone();
-            tokio::task::spawn_blocking(move || {
-                core.refresh_local_storage_source_before_binding(&binding_candidate)
+        let mut role_ids = vec![id.clone()];
+        role_ids.extend(current.local_storage_source_role_id.clone());
+        role_ids.extend(candidate.local_storage_source_role_id.clone());
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids,
+                kind: "recoverableMutation".to_owned(),
             })
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))??;
-        }
-        if candidate.game_id != current.game_id || candidate.launch_url != current.launch_url {
-            self.stop_role_runtime(&id).await?;
-        }
+            .await?;
         let core = Arc::clone(self);
-        tokio::task::spawn_blocking(move || {
-            core.mutate_with_role_lease(vec![id.clone()], StateMutation::RoleUpdate { id, input })
+        let result = tokio::task::spawn_blocking(move || {
+            let games = core.read_typed_state_collection::<StateGameRecord>("games")?;
+            let mut roles = core.read_typed_state_collection::<StateRoleRecord>("roles")?;
+            let current = roles
+                .iter()
+                .find(|role| role.id == id)
+                .cloned()
+                .ok_or_else(|| CoreError::Domain {
+                    code: "ROLE_NOT_FOUND",
+                    message: "Role not found.".to_owned(),
+                })?;
+            let candidate = crate::domain::update_role(&games, &mut roles, &id, input.clone())?;
+            if candidate.local_storage_source_role_id != current.local_storage_source_role_id {
+                core.refresh_local_storage_source_before_binding(&candidate)?;
+            }
+            if candidate.game_id != current.game_id
+                || candidate.launch_url != current.launch_url
+                || candidate.local_storage_source_role_id != current.local_storage_source_role_id
+            {
+                core.stop_embedded_role_under_active_lease(&id)?;
+            }
+            core.mutate_state(StateMutation::RoleUpdate { id, input })
         })
         .await
-        .map_err(|error| CoreError::Internal(error.to_string()))?
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let completion = if result.is_ok() {
+            self.browser_operations.complete(&lease.id)
+        } else {
+            self.browser_operations.abort(&lease.id)
+        };
+        match (result, completion) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
     }
 
     fn refresh_local_storage_source_before_binding(
@@ -2536,11 +2547,29 @@ impl AppCore {
 
     async fn delete_role_runtime_aware(self: &Arc<Self>, id: String) -> CoreResult<Value> {
         self.ensure_role_exists(&id)?;
-        self.stop_role_runtime(&id).await?;
+        self.cancel_embedded_operations(std::slice::from_ref(&id))?;
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: vec![id.clone()],
+                kind: "destructiveMutation".to_owned(),
+            })
+            .await?;
         let core = Arc::clone(self);
-        tokio::task::spawn_blocking(move || core.delete_role_saga(&id))
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))?
+        let result = tokio::task::spawn_blocking(move || {
+            core.stop_embedded_role_under_active_lease(&id)?;
+            core.delete_role_saga_under_active_lease(&id)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let completion = if result.is_ok() {
+            self.browser_operations.complete(&lease.id)
+        } else {
+            self.browser_operations.abort(&lease.id)
+        };
+        match (result, completion) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
     }
 
     async fn delete_roles_runtime_aware(self: &Arc<Self>, ids: Vec<String>) -> CoreResult<Value> {
@@ -2550,46 +2579,116 @@ impl AppCore {
             .into_iter()
             .map(|role| role.id)
             .collect::<std::collections::HashSet<_>>();
-        let mut eligible = Vec::new();
+        let mut candidates = Vec::new();
         let mut skipped = Vec::new();
         for id in ids {
             if !existing.contains(&id) {
                 skipped.push(json!({ "id": id, "reason": "not_found", "relatedNames": [] }));
                 continue;
             }
-            match self.stop_role_runtime(&id).await {
-                Ok(()) => eligible.push(id),
-                Err(error) => skipped.push(classify_runtime_bulk_error(id, &error)),
-            }
+            candidates.push(id);
         }
-        if eligible.is_empty() {
+        if candidates.is_empty() {
             return Ok(json!({ "deletedIds": [], "skipped": skipped }));
         }
+        self.cancel_embedded_operations(&candidates)?;
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: candidates.clone(),
+                kind: "destructiveMutation".to_owned(),
+            })
+            .await?;
         let core = Arc::clone(self);
-        let mut result = tokio::task::spawn_blocking(move || core.delete_roles_saga(eligible))
-            .await
-            .map_err(|error| CoreError::Internal(error.to_string()))??;
-        if let Some(result_skipped) = result.get_mut("skipped").and_then(Value::as_array_mut) {
-            result_skipped.extend(skipped);
+        let result = tokio::task::spawn_blocking(move || {
+            let mut eligible = Vec::new();
+            for id in candidates {
+                match core.stop_embedded_role_under_active_lease(&id) {
+                    Ok(()) => eligible.push(id),
+                    Err(error) => skipped.push(classify_runtime_bulk_error(id, &error)),
+                }
+            }
+            let mut result = if eligible.is_empty() {
+                json!({ "deletedIds": [], "skipped": [] })
+            } else {
+                core.delete_roles_saga_under_active_lease(eligible)?
+            };
+            if let Some(result_skipped) = result.get_mut("skipped").and_then(Value::as_array_mut) {
+                result_skipped.extend(skipped);
+            }
+            Ok::<_, CoreError>(result)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let completion = match &result {
+            Ok(value) => {
+                let deleted_ids = value
+                    .get("deletedIds")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                self.browser_operations
+                    .complete_destructive_with_retained_roles(&lease.id, &deleted_ids)
+            }
+            Err(_) => self.browser_operations.abort(&lease.id),
+        };
+        match (result, completion) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
         }
-        Ok(result)
     }
 
     async fn delete_workspace_runtime_aware(self: &Arc<Self>, id: String) -> CoreResult<Value> {
-        self.read_state_record(
-            "launchWorkspaces",
-            "id",
-            &id,
-            "WORKSPACE_NOT_FOUND",
-            "Launch workspace not found.",
-        )?;
-        self.stop_workspace_runtime(&id).await?;
+        let workspace =
+            serde_json::from_value::<StateLaunchWorkspaceRecord>(self.read_state_record(
+                "launchWorkspaces",
+                "id",
+                &id,
+                "WORKSPACE_NOT_FOUND",
+                "Launch workspace not found.",
+            )?)
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        let mut operation_role_ids = workspace
+            .slots
+            .into_iter()
+            .filter_map(|slot| slot.role_id)
+            .collect::<Vec<_>>();
+        operation_role_ids.extend(
+            self.browser_runtime
+                .lock()
+                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+                .snapshot()
+                .workspaces
+                .into_iter()
+                .find(|workspace| workspace.workspace_id == id)
+                .into_iter()
+                .flat_map(|workspace| workspace.role_ids),
+        );
+        operation_role_ids.push(workspace_operation_key(&id));
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: operation_role_ids,
+                kind: "recoverableMutation".to_owned(),
+            })
+            .await?;
         let core = Arc::clone(self);
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
+            core.stop_embedded_workspace_under_active_lease(&id)?;
             core.mutate_state(StateMutation::WorkspaceDelete { id })
         })
         .await
-        .map_err(|error| CoreError::Internal(error.to_string()))?
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let completion = if result.is_ok() {
+            self.browser_operations.complete(&lease.id)
+        } else {
+            self.browser_operations.abort(&lease.id)
+        };
+        match (result, completion) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
     }
 
     async fn delete_workspaces_runtime_aware(
@@ -2597,10 +2696,11 @@ impl AppCore {
         ids: Vec<String>,
     ) -> CoreResult<Value> {
         let ids = normalize_runtime_bulk_ids(ids)?;
-        let existing = self
-            .read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?
-            .into_iter()
-            .map(|workspace| workspace.id)
+        let workspaces =
+            self.read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?;
+        let existing = workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
             .collect::<std::collections::HashSet<_>>();
         let mut eligible = Vec::new();
         let mut skipped = Vec::new();
@@ -2609,21 +2709,64 @@ impl AppCore {
                 skipped.push(json!({ "id": id, "reason": "not_found", "relatedNames": [] }));
                 continue;
             }
-            match self.stop_workspace_runtime(&id).await {
-                Ok(()) => eligible.push(id),
-                Err(error) => skipped.push(classify_runtime_bulk_error(id, &error)),
-            }
+            eligible.push(id);
         }
+        if eligible.is_empty() {
+            return Ok(json!({ "deletedIds": [], "skipped": skipped }));
+        }
+        let eligible_set = eligible
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::HashSet<_>>();
+        let mut operation_role_ids = workspaces
+            .iter()
+            .filter(|workspace| eligible_set.contains(workspace.id.as_str()))
+            .flat_map(|workspace| workspace.slots.iter())
+            .filter_map(|slot| slot.role_id.clone())
+            .collect::<Vec<_>>();
+        operation_role_ids.extend(
+            self.browser_runtime
+                .lock()
+                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+                .snapshot()
+                .workspaces
+                .into_iter()
+                .filter(|workspace| eligible_set.contains(workspace.workspace_id.as_str()))
+                .flat_map(|workspace| workspace.role_ids),
+        );
+        operation_role_ids.extend(eligible.iter().map(|id| workspace_operation_key(id)));
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: operation_role_ids,
+                kind: "recoverableMutation".to_owned(),
+            })
+            .await?;
         let core = Arc::clone(self);
-        let mut result = tokio::task::spawn_blocking(move || {
-            core.mutate_state(StateMutation::WorkspacesDelete { ids: eligible })
+        let result = tokio::task::spawn_blocking(move || {
+            let mut stopped = Vec::new();
+            for id in eligible {
+                match core.stop_embedded_workspace_under_active_lease(&id) {
+                    Ok(()) => stopped.push(id),
+                    Err(error) => skipped.push(classify_runtime_bulk_error(id, &error)),
+                }
+            }
+            let mut result = core.mutate_state(StateMutation::WorkspacesDelete { ids: stopped })?;
+            if let Some(result_skipped) = result.get_mut("skipped").and_then(Value::as_array_mut) {
+                result_skipped.extend(skipped);
+            }
+            Ok::<_, CoreError>(result)
         })
         .await
-        .map_err(|error| CoreError::Internal(error.to_string()))??;
-        if let Some(result_skipped) = result.get_mut("skipped").and_then(Value::as_array_mut) {
-            result_skipped.extend(skipped);
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let completion = if result.is_ok() {
+            self.browser_operations.complete(&lease.id)
+        } else {
+            self.browser_operations.abort(&lease.id)
+        };
+        match (result, completion) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
         }
-        Ok(result)
     }
 
     fn mutate_with_role_lease(
@@ -2705,65 +2848,11 @@ impl AppCore {
 
     fn delete_role_saga(&self, id: &str) -> CoreResult<Value> {
         self.ensure_role_exists(id)?;
-        self.macro_runtime.stop_role(id)?;
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
             role_ids: vec![id.to_owned()],
             kind: "destructiveMutation".to_owned(),
         })?;
-        let result = (|| {
-            let operation_id = format!("role-delete-{}", uuid::Uuid::new_v4());
-            let mut journal = OperationJournalRecord {
-                id: operation_id.clone(),
-                kind: "role_delete_v1".to_owned(),
-                phase: "prepared".to_owned(),
-                payload: json!({ "roleId": id }),
-            };
-            self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
-            if let Err(error) =
-                crate::role_browser_data::quarantine(&self.user_data_dir, id, &operation_id)
-            {
-                let _ = self.with_runtime(|runtime| {
-                    runtime.state.delete_operation_journal(operation_id.clone())
-                });
-                return Err(error);
-            }
-            journal.phase = "quarantined".to_owned();
-            if let Err(error) =
-                self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))
-            {
-                let _ = crate::role_browser_data::restore_quarantine(
-                    &self.user_data_dir,
-                    id,
-                    &operation_id,
-                );
-                let _ = self.with_runtime(|runtime| {
-                    runtime.state.delete_operation_journal(operation_id.clone())
-                });
-                return Err(error);
-            }
-            let deletion = self.mutate_state(StateMutation::RoleDelete {
-                id: id.to_owned(),
-                operation_id: Some(operation_id.clone()),
-            });
-            let value = match deletion {
-                Ok(value) => value,
-                Err(error) => {
-                    let restore = crate::role_browser_data::restore_quarantine(
-                        &self.user_data_dir,
-                        id,
-                        &operation_id,
-                    );
-                    let _ = self.with_runtime(|runtime| {
-                        runtime.state.delete_operation_journal(operation_id.clone())
-                    });
-                    restore?;
-                    return Err(error);
-                }
-            };
-            crate::role_browser_data::discard_quarantine(&self.user_data_dir, &operation_id)?;
-            self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
-            Ok(value)
-        })();
+        let result = self.delete_role_saga_under_active_lease(id);
         let completion = if result.is_ok() {
             self.browser_operations.complete(&lease.id)
         } else {
@@ -2775,16 +2864,69 @@ impl AppCore {
         }
     }
 
-    fn delete_roles_saga(&self, ids: Vec<String>) -> CoreResult<Value> {
+    fn delete_role_saga_under_active_lease(&self, id: &str) -> CoreResult<Value> {
+        self.ensure_role_exists(id)?;
+        self.macro_runtime.stop_role(id)?;
+        let operation_id = format!("role-delete-{}", uuid::Uuid::new_v4());
+        let mut journal = OperationJournalRecord {
+            id: operation_id.clone(),
+            kind: "role_delete_v1".to_owned(),
+            phase: "prepared".to_owned(),
+            payload: json!({ "roleId": id }),
+        };
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        if let Err(error) =
+            crate::role_browser_data::quarantine(&self.user_data_dir, id, &operation_id)
+        {
+            let _ = self.with_runtime(|runtime| {
+                runtime.state.delete_operation_journal(operation_id.clone())
+            });
+            return Err(error);
+        }
+        journal.phase = "quarantined".to_owned();
+        if let Err(error) =
+            self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))
+        {
+            let _ = crate::role_browser_data::restore_quarantine(
+                &self.user_data_dir,
+                id,
+                &operation_id,
+            );
+            let _ = self.with_runtime(|runtime| {
+                runtime.state.delete_operation_journal(operation_id.clone())
+            });
+            return Err(error);
+        }
+        let deletion = self.mutate_state(StateMutation::RoleDelete {
+            id: id.to_owned(),
+            operation_id: Some(operation_id.clone()),
+        });
+        let value = match deletion {
+            Ok(value) => value,
+            Err(error) => {
+                let restore = crate::role_browser_data::restore_quarantine(
+                    &self.user_data_dir,
+                    id,
+                    &operation_id,
+                );
+                let _ = self.with_runtime(|runtime| {
+                    runtime.state.delete_operation_journal(operation_id.clone())
+                });
+                restore?;
+                return Err(error);
+            }
+        };
+        crate::role_browser_data::discard_quarantine(&self.user_data_dir, &operation_id)?;
+        self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
+        Ok(value)
+    }
+
+    fn delete_roles_saga_under_active_lease(&self, ids: Vec<String>) -> CoreResult<Value> {
         for id in &ids {
             self.ensure_role_exists(id)?;
             self.macro_runtime.stop_role(id)?;
         }
-        let lease = self.browser_operations.acquire(BrowserOperationRequest {
-            role_ids: ids.clone(),
-            kind: "destructiveMutation".to_owned(),
-        })?;
-        let result = (|| {
+        (|| {
             let mut journals = Vec::new();
             for id in &ids {
                 let operation_id = format!("role-delete-{}", uuid::Uuid::new_v4());
@@ -2839,37 +2981,44 @@ impl AppCore {
                 })?;
             }
             Ok(value)
-        })();
-        let completion = if result.is_ok() {
-            self.browser_operations.complete(&lease.id)
-        } else {
-            self.browser_operations.abort(&lease.id)
-        };
-        match (result, completion) {
-            (Ok(value), Ok(())) => Ok(value),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
-        }
+        })()
     }
 
     async fn clear_role_browser_data(self: &Arc<Self>, role_id: String) -> CoreResult<Value> {
-        let role = self
-            .read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .find(|role| role.id == role_id)
-            .ok_or_else(|| CoreError::Domain {
-                code: "ROLE_NOT_FOUND",
-                message: "Role not found.".to_owned(),
-            })?;
-        let game = self.state_game(&role.game_id)?;
-        let local_storage_sync_origin = crate::domain::launch_origin(&role.launch_url)?;
-        self.stop_role_runtime(&role_id).await?;
-        self.macro_runtime.stop_role(&role_id)?;
+        self.ensure_role_exists(&role_id)?;
+        self.cancel_embedded_operations(std::slice::from_ref(&role_id))?;
         let lease = self
             .acquire_browser_operation_async(BrowserOperationRequest {
                 role_ids: vec![role_id.clone()],
                 kind: "recoverableMutation".to_owned(),
             })
             .await?;
+        let core = Arc::clone(self);
+        let prepared_role_id = role_id.clone();
+        let prepared = tokio::task::spawn_blocking(move || {
+            core.stop_embedded_role_under_active_lease(&prepared_role_id)?;
+            core.macro_runtime.stop_role(&prepared_role_id)?;
+            let role = core
+                .read_typed_state_collection::<StateRoleRecord>("roles")?
+                .into_iter()
+                .find(|role| role.id == prepared_role_id)
+                .ok_or_else(|| CoreError::Domain {
+                    code: "ROLE_NOT_FOUND",
+                    message: "Role not found.".to_owned(),
+                })?;
+            let game = core.state_game(&role.game_id)?;
+            let origin = crate::domain::launch_origin(&role.launch_url)?;
+            Ok::<_, CoreError>((game, origin))
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let (game, local_storage_sync_origin) = match prepared {
+            Ok(value) => value,
+            Err(error) => {
+                let _ = self.browser_operations.abort(&lease.id);
+                return Err(error);
+            }
+        };
         let operation_id = format!("role-browser-clear-{}", uuid::Uuid::new_v4());
         let role_paths = crate::role_browser_data::paths(&self.user_data_dir, &role_id)?;
         let journal = OperationJournalRecord {
@@ -4111,11 +4260,22 @@ impl AppCore {
                 })
                 .collect());
         }
+        let mut operation_role_ids = role_ids.clone();
+        operation_role_ids.push(workspace_operation_key(workspace_id));
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
-            role_ids: role_ids.clone(),
+            role_ids: operation_role_ids,
             kind: "normal".to_owned(),
         })?;
-        let result = self.launch_embedded_workspace_with_lease(workspace, role_ids, target);
+        let result = (|| {
+            self.read_state_record(
+                "launchWorkspaces",
+                "id",
+                workspace_id,
+                "WORKSPACE_NOT_FOUND",
+                "Launch workspace not found.",
+            )?;
+            self.launch_embedded_workspace_with_lease(workspace, role_ids, target)
+        })();
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
             (Ok(value), Ok(())) => Ok(value),
@@ -4305,6 +4465,18 @@ impl AppCore {
     }
 
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
+        self.stop_embedded_role_with_operation_lease(role_id, true)
+    }
+
+    fn stop_embedded_role_under_active_lease(&self, role_id: &str) -> CoreResult<()> {
+        self.stop_embedded_role_with_operation_lease(role_id, false)
+    }
+
+    fn stop_embedded_role_with_operation_lease(
+        &self,
+        role_id: &str,
+        acquire_operation_lease: bool,
+    ) -> CoreResult<()> {
         self.cancel_embedded_operations(&[role_id.to_owned()])?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
         let snapshot = self
@@ -4332,10 +4504,14 @@ impl AppCore {
             .iter()
             .find(|tab| tab.id == tab_id)
             .map(|tab| tab.window_id.clone());
-        let lease = self.browser_operations.acquire(BrowserOperationRequest {
-            role_ids: vec![role_id.to_owned()],
-            kind: "normal".to_owned(),
-        })?;
+        let lease = acquire_operation_lease
+            .then(|| {
+                self.browser_operations.acquire(BrowserOperationRequest {
+                    role_ids: vec![role_id.to_owned()],
+                    kind: "normal".to_owned(),
+                })
+            })
+            .transpose()?;
         let result = (|| {
             self.macro_runtime.stop_role(role_id)?;
             self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
@@ -4400,6 +4576,9 @@ impl AppCore {
             self.publish_embedded_runtime_snapshot_with_removed(&removed_window_ids)?;
             Ok(())
         })();
+        let Some(lease) = lease else {
+            return result;
+        };
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
             (Ok(()), Ok(())) => Ok(()),
@@ -4408,6 +4587,18 @@ impl AppCore {
     }
 
     fn stop_embedded_workspace(&self, workspace_id: &str) -> CoreResult<()> {
+        self.stop_embedded_workspace_with_operation_lease(workspace_id, true)
+    }
+
+    fn stop_embedded_workspace_under_active_lease(&self, workspace_id: &str) -> CoreResult<()> {
+        self.stop_embedded_workspace_with_operation_lease(workspace_id, false)
+    }
+
+    fn stop_embedded_workspace_with_operation_lease(
+        &self,
+        workspace_id: &str,
+        acquire_operation_lease: bool,
+    ) -> CoreResult<()> {
         let initial_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
@@ -4448,10 +4639,16 @@ impl AppCore {
             .iter()
             .find(|tab| tab.id == tab_id)
             .map(|tab| tab.window_id.clone());
-        let lease = self.browser_operations.acquire(BrowserOperationRequest {
-            role_ids: workspace.role_ids.clone(),
-            kind: "normal".to_owned(),
-        })?;
+        let lease = acquire_operation_lease
+            .then(|| {
+                let mut operation_role_ids = workspace.role_ids.clone();
+                operation_role_ids.push(workspace_operation_key(workspace_id));
+                self.browser_operations.acquire(BrowserOperationRequest {
+                    role_ids: operation_role_ids,
+                    kind: "normal".to_owned(),
+                })
+            })
+            .transpose()?;
         let result = (|| {
             for role_id in &workspace.role_ids {
                 self.macro_runtime.stop_role(role_id)?;
@@ -4500,6 +4697,9 @@ impl AppCore {
             self.publish_embedded_runtime_snapshot_with_removed(&removed_window_ids)?;
             Ok(())
         })();
+        let Some(lease) = lease else {
+            return result;
+        };
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
             (Ok(()), Ok(())) => Ok(()),
@@ -5804,6 +6004,10 @@ fn workspace_update_role_ids(input: &crate::model::WorkspaceUpdateInputRecord) -
         .flatten()
         .filter_map(|slot| slot.role_id.clone())
         .collect()
+}
+
+fn workspace_operation_key(workspace_id: &str) -> String {
+    format!("workspace:{workspace_id}")
 }
 
 fn normalize_runtime_bulk_ids(ids: Vec<String>) -> CoreResult<Vec<String>> {

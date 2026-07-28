@@ -6583,13 +6583,13 @@ impl SystemRuntimeExecutor {
             self.health.mark_unhealthy();
             self.record_runtime_failure_kind("environment-release-timeout");
             let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
-            return Err(RuntimeError::new(
+            Err(RuntimeError::new(
                 "SYSTEM_WEBVIEW_CREATION_STALLED",
                 format!(
                     "The WebView2 environment for {lifecycle_id} did not release browser process {browser_process_id} within {}ms. Restart Rion Studio before mutating its user-data folder.",
                     PLATFORM_CALLBACK_TIMEOUT.as_millis()
                 ),
-            ));
+            ))
         }
         #[cfg(not(windows))]
         {

@@ -191,6 +191,42 @@ impl BrowserOperationCoordinator {
         Ok(())
     }
 
+    pub fn complete_destructive_with_retained_roles(
+        &self,
+        id: &str,
+        retained_role_ids: &[String],
+    ) -> CoreResult<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| CoreError::Internal("browser operation lock poisoned".to_owned()))?;
+        let (kind, role_ids) = state
+            .tickets
+            .get(id)
+            .map(|ticket| (ticket.kind, ticket.role_ids.clone()))
+            .ok_or_else(|| {
+                domain(
+                    "BROWSER_OPERATION_NOT_FOUND",
+                    "Browser operation lease was not found.",
+                )
+            })?;
+        if kind != OperationKind::DestructiveMutation {
+            return Err(domain(
+                "BROWSER_OPERATION_KIND_INVALID",
+                "Only a destructive browser operation can retain blocked roles.",
+            ));
+        }
+        let retained = retained_role_ids.iter().collect::<HashSet<_>>();
+        for role_id in &role_ids {
+            if !retained.contains(role_id) {
+                state.blocked_role_ids.remove(role_id);
+            }
+        }
+        Self::remove_ticket(&mut state, id);
+        self.changed.notify_all();
+        Ok(())
+    }
+
     pub fn abort(&self, id: &str) -> CoreResult<()> {
         let mut state = self
             .state
@@ -354,6 +390,27 @@ mod tests {
 
         let next = coordinator.acquire(request(&["r1"], "normal")).unwrap();
         coordinator.complete(&next.id).unwrap();
+    }
+
+    #[test]
+    fn destructive_completion_only_retains_committed_roles() {
+        let coordinator = BrowserOperationCoordinator::default();
+        let destructive = coordinator
+            .acquire(request(&["r1", "r2"], "destructiveMutation"))
+            .unwrap();
+        coordinator
+            .complete_destructive_with_retained_roles(&destructive.id, &["r1".to_owned()])
+            .unwrap();
+
+        assert_eq!(
+            coordinator
+                .acquire(request(&["r1"], "normal"))
+                .unwrap_err()
+                .code(),
+            "ROLE_MUTATION_BLOCKED"
+        );
+        let available = coordinator.acquire(request(&["r2"], "normal")).unwrap();
+        coordinator.complete(&available.id).unwrap();
     }
 
     #[test]

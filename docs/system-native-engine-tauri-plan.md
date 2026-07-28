@@ -51,12 +51,13 @@ and never expose these capabilities to remote pages.
 
 ## Platform release gates
 
-Every release source commit must pass target-specific Rust lint/tests and bundle
-successfully in CI. Automatic release candidates inherit that exact successful
-commit and reject a release tag whose commit differs from the verified CI SHA;
-manually dispatched candidates rerun CI. The release workflow then rebuilds the
-versioned package and verifies its structure, updater signatures, and upgrade
-compatibility without launching the application.
+Every release source commit must pass target-specific Rust lint/tests and Tauri
+shell compile validation in CI. Automatic release candidates inherit that exact
+successful commit and reject a release tag whose commit differs from the verified
+CI SHA; manually dispatched candidates rerun CI. The release workflow is the only
+production bundle build, creating the versioned package once and verifying its
+structure, updater signatures, and upgrade compatibility without launching the
+application.
 Downstream manifest and upgrade jobs use explicit result guards because automatic
 quality validation is intentionally skipped. A final release-ready gate requires
 every release-specific verification before returning the complete artifact name to

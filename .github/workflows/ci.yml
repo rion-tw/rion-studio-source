@@ -112,10 +112,8 @@ jobs:
         include:
           - name: macOS arm64
             os: macos-latest
-            tauri_bundle: app
           - name: Windows x64
             os: windows-latest
-            tauri_bundle: nsis
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -155,5 +153,5 @@ jobs:
       - name: Test target-platform Rust workspace
         run: pnpm run test:rust
 
-      - name: Build target-platform Tauri bundle
-        run: pnpm exec tauri build --bundles ${{ matrix.tauri_bundle }}
+      - name: Check target-platform Tauri shell
+        run: cargo check -p rion-tauri --all-targets

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri-only release workflows", () => {
-  it("runs common checks and platform builds on macOS and Windows", async () => {
+  it("runs common checks and platform validation on macOS and Windows", async () => {
     const [workflow, packageJsonSource] = await Promise.all([
       readWorkflow(".github/workflows/ci.yml"),
       readFile("package.json", "utf8")
@@ -40,7 +40,12 @@ describe("Tauri-only release workflows", () => {
     );
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
-    expect(platformChecks).toContain("pnpm exec tauri build --bundles");
+    expect(platformChecks).toContain("cargo check -p rion-tauri --all-targets");
+    expect(platformChecks).toContain(
+      "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
+    );
+    expect(workflow).not.toContain("pnpm exec tauri build");
+    expect(workflow).not.toContain("pnpm run dist");
     expect(workflow).not.toContain("test:native:");
     expect(workflow).not.toContain("attestation");
     expect(Object.keys(packageJson.scripts).some((name) => name.startsWith("test:native:")))
@@ -119,6 +124,9 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(workflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
     expect(workflow).toContain("pnpm run dist -- --bundles");
+    expect(build).toContain(
+      "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
+    );
     expect(workflow).toContain("codesign --verify --deep --strict");
     expect(workflow).toContain("Signature=adhoc");
     expect(workflow).toContain("TeamIdentifier=not set");

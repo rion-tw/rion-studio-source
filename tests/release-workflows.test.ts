@@ -62,6 +62,10 @@ describe("Tauri-only release workflows", () => {
       workflow.indexOf("  quality:"),
       workflow.indexOf("  build:")
     );
+    const validate = workflow.slice(
+      workflow.indexOf("  validate:"),
+      workflow.indexOf("  quality:")
+    );
     const build = workflow.slice(
       workflow.indexOf("  build:"),
       workflow.indexOf("  manifest:")
@@ -72,6 +76,11 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("verified_sha:");
     expect(workflow).toContain('[[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]');
     expect(workflow).toContain('test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"');
+    expect(validate).toContain("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY");
+    expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY");
+    expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
+    expect(validate.indexOf("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY"))
+      .toBeLessThan(validate.indexOf('[[ "${RELEASE_TAG}"'));
     expect(quality).toContain("if: github.event_name == 'workflow_dispatch'");
     expect(quality).toContain("uses: ./.github/workflows/ci.yml");
     expect(build).toContain("always() &&");
@@ -128,6 +137,15 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("uses: ./.github/workflows/tauri-release-candidate.yml");
     expect(workflow).toContain(
       "verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}"
+    );
+    expect(build).toContain(
+      "RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}"
+    );
+    expect(build).toContain(
+      "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+    );
+    expect(build).toContain(
+      "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
     );
     expect(build).toContain("- validate-ci-run");
     expect(build).toContain("- resolve-release");

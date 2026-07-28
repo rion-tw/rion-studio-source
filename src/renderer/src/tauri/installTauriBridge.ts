@@ -221,6 +221,23 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
 
   const latestRevisionByCollection = new Map<string, number>();
   const refreshSequenceByCollection = new Map<string, number>();
+  let runtimeStateRefreshSequence = 0;
+  const refreshRuntimeState = (): void => {
+    const sequence = ++runtimeStateRefreshSequence;
+    void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
+      "embeddedRuntimeState"
+    )
+      .then((runtimeState) => {
+        if (sequence === runtimeStateRefreshSequence) {
+          emit("runtimeState", runtimeState);
+        }
+      })
+      .catch((error) => {
+        if (sequence === runtimeStateRefreshSequence) {
+          console.error("Embedded runtime state refresh failed.", error);
+        }
+      });
+  };
   const refreshCollections = async (
     collections: string[],
     revision?: number
@@ -274,9 +291,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
             break;
           case "browserStatuses":
             emit("roleStatuses", event.statuses);
-            void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
-              "embeddedRuntimeState"
-            ).then((runtimeState) => emit("runtimeState", runtimeState));
+            refreshRuntimeState();
             break;
           case "macroStatuses":
             emit("macroStatuses", event.statuses);
@@ -298,7 +313,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     }),
     () => listen<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
       "rion://runtime-state",
-      ({ payload }) => emit("runtimeState", payload)
+      ({ payload }) => {
+        runtimeStateRefreshSequence += 1;
+        emit("runtimeState", payload);
+      }
     ),
     () => listen<Parameters<Parameters<RionStudioApi["onMacroPageRequested"]>[0]>[0]>(
       "rion://macro-page-request",

@@ -619,7 +619,7 @@ function SettingsViewBase({
           </SettingsSection>
         ) : null}
 
-        {activeSection === "diagnostics" ? <DiagnosticsSettingsSection t={t} onError={onError} /> : null}
+        {activeSection === "diagnostics" ? <DiagnosticsSettingsSection roles={roles ?? []} t={t} onError={onError} /> : null}
 
         {activeSection === "aboutLegal" ? (
           <>

@@ -79,6 +79,23 @@ bool rion_wk_high_refresh_rate_self_test(void) {
   }
 }
 
+double rion_ns_window_display_refresh_rate(void *rawWindow) {
+  @autoreleasepool {
+    if (!rawWindow) return 0;
+    @try {
+      NSWindow *window = (__bridge NSWindow *)rawWindow;
+      NSScreen *screen = window.screen;
+      SEL selector = NSSelectorFromString(@"maximumFramesPerSecond");
+      if (!screen || ![screen respondsToSelector:selector]) return 0;
+      NSInteger framesPerSecond =
+          ((NSInteger (*)(id, SEL))objc_msgSend)(screen, selector);
+      return framesPerSecond > 1 ? (double)framesPerSecond : 0;
+    } @catch (__unused NSException *exception) {
+      return 0;
+    }
+  }
+}
+
 typedef void (*RionRoleZoomShortcutHandler)(void *context,
                                             const char *action);
 typedef void (*RionRoleZoomShortcutDestructor)(void *context);

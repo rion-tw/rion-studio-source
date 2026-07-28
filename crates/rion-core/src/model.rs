@@ -2804,6 +2804,84 @@ pub struct DiagnosticDisplayRecord {
     pub scale_factor: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserPerformanceDiagnosticStatus {
+    Available,
+    NoRunningRole,
+    NoVisibleGameWindow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum HighRefreshRateDiagnosticStatus {
+    Applied,
+    Disabled,
+    Unavailable,
+    Failed,
+    Timeout,
+    ScheduleFailed,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserPerformanceSurfaceDiagnosticRecord {
+    pub role_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub origin: Option<String>,
+    #[ts(type = "\"visible\" | \"hidden\" | \"prerender\" | \"unknown\"")]
+    pub document_visibility_state: String,
+    pub document_has_focus: bool,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
+    pub device_pixel_ratio: f64,
+    pub hardware_concurrency: u32,
+    pub frame_count: u32,
+    pub observed_duration_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub average_fps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub p50_frame_interval_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub p95_frame_interval_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub longest_frame_interval_ms: Option<f64>,
+    pub graphics: StateWebGraphicsRecord,
+    pub high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserPerformanceDiagnosticsRecord {
+    pub captured_at: String,
+    #[ts(type = "\"macos\" | \"windows\"")]
+    pub platform: String,
+    pub status: BrowserPerformanceDiagnosticStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub window_id: Option<String>,
+    pub window_focused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub display_refresh_rate_hz: Option<f64>,
+    pub high_refresh_rate_requested: bool,
+    pub sample_duration_ms: u32,
+    pub surfaces: Vec<BrowserPerformanceSurfaceDiagnosticRecord>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -2822,6 +2900,9 @@ pub struct ApplicationDiagnosticsSnapshotRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub gpu_info_raw_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_performance: Option<BrowserPerformanceDiagnosticsRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

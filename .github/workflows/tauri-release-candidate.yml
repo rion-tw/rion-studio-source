@@ -181,6 +181,14 @@ jobs:
           if ($signature.Status -ne "NotSigned") { throw "Windows candidate must remain unsigned like the legacy release." }
           if (-not (Test-Path "$($installer.FullName).sig" -PathType Leaf)) { throw "Updater signature is missing." }
 
+      - name: Upload System WebView attestation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-webview-attestations-${{ matrix.name }}-${{ needs.validate.outputs.version }}
+          path: target/system-webview-attestations
+          if-no-files-found: ignore
+
       - name: Normalize release assets
         shell: bash
         run: |

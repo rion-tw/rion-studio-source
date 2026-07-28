@@ -173,17 +173,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          $attempt = 1
-          while ($true) {
-            try {
-              pnpm run test:native:system-input
-              break
-            } catch {
-              if ($attempt -ge 2) { throw }
-              Write-Host "Windows System WebView trusted-input verifier failed; retrying once."
-              $attempt++
-            }
-          }
+          pnpm run test:native:system-input
           pnpm run test:native:macro-game -- --skip-system-input
           pnpm run test:native:session-import -- --skip-system-input
           pnpm run test:native:runtime-restore
@@ -212,19 +202,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          $attempt = 1
-          while ($true) {
-            try {
-              pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe
-              break
-            } catch {
-              if ($attempt -ge 2) { throw }
-              Write-Host "Packaged Windows System WebView trusted-input verifier failed; retrying once."
-              $attempt++
-            }
-          }
+          pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe
           pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
           pnpm run test:native:local-storage-sync -- --executable target/release/rion-tauri.exe
           pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
+
+      - name: Upload System WebView attestation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-webview-attestations-${{ runner.os }}-${{ runner.arch }}
+          path: target/system-webview-attestations
+          if-no-files-found: ignore

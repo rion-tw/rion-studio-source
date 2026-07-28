@@ -61,6 +61,15 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain("proxy_attestation");
     expect(runtime).toContain("DOWNLOAD_ATTESTATION_BODY");
     expect(runtime).toContain("add_ProcessFailed");
+    expect(runtime).toContain("add_BrowserProcessExited");
+    expect(runtime).toContain("fn add_child_bounded(");
+    expect(runtime).toContain("fn create_window_bounded(");
+    expect(runtime).toContain("run_serial_runtime_work_loop");
+    expect(runtime).toContain("SYSTEM_WEBVIEW_CREATION_STALLED");
+    expect(runtime).toContain("system-input-attestation-focus-sink");
+    expect(runtime).not.toContain("SetFocus(None)");
+    expect(shell).toContain("tauri::RunEvent::Ready");
+    expect(shell).toContain("rion-native-attestation-start");
     expect(runtime).toContain("PermissionRequestedEventHandler");
     expect(runtime).toContain("ServerCertificateErrorDetectedEventHandler");
     expect(runtime).toContain("COREWEBVIEW2_PERMISSION_STATE_DENY");
@@ -161,13 +170,14 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(destroyAttestationTab).toContain("runtime.destroy_tab(tab_id)?");
     expect(destroyAttestationTab).toContain("runtime.discard_provisional_game_window(window_id)");
-    const roleCountAttestation = runtime.slice(
-      runtime.indexOf("fn run_role_count_attestation("),
-      runtime.indexOf("fn verify_compatibility_surface_attestation(")
+    const layoutLifecycle = runtime.slice(
+      runtime.indexOf("fn with_verified_attestation_layout"),
+      runtime.indexOf("fn run_layout_attestation(")
     );
-    expect(roleCountAttestation).toContain(
+    expect(layoutLifecycle).toContain(
       "destroy_attestation_tab(runtime, &tab_id, &window_id)"
     );
+    expect(layoutLifecycle).toContain("match (verification, cleanup)");
     const sharedHostAttestation = runtime.slice(
       runtime.indexOf("fn verify_shared_display_host_attestation("),
       runtime.indexOf("fn runtime_window_native_identity(")
@@ -205,7 +215,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("role_bounds_for_content");
     expect(runtime).toContain("logical_window_content_metrics");
     expect(runtime).toContain('"pixelParity": true');
-    expect(runtime).toContain("const CYCLES: u64 = 100");
+    expect(runtime).toContain("fn run_create_destroy_attestation(");
+    expect(runtime).toContain("offset.saturating_add(cycles) > 100");
     expect(runtime).toContain("localStorage.setItem('rion-attestation-role'");
     expect(runtime).toContain('"modifierObserved"');
     expect(runtime).toContain('cfg!(target_os = "macos")');
@@ -238,6 +249,11 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("WKPermissionDecisionDeny");
     expect(macInput).not.toContain("CGEventPost");
     expect(inputVerifier).toContain("RION_STUDIO_INPUT_ATTESTATION_OUTPUT");
+    expect(inputVerifier).toContain('scenario: "popup-download"');
+    expect(inputVerifier).toContain('scenario: "recovery"');
+    expect(inputVerifier).toContain('scenario: "shared-host"');
+    expect(inputVerifier).toContain("schemaVersion !== 3");
+    expect(inputVerifier).toContain("browserProcessIds");
     expect(inputVerifier).toContain("simulatedStress?.keyDown !== 1000");
     expect(inputVerifier).toContain('simulatedStress?.transport !== "simulated-core-input-state"');
     expect(runtime).toContain("run_simulated_input_stress(&runtime.core)");

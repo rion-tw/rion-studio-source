@@ -126,12 +126,13 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     id: "retro-game",
     category: "personality",
     cjkCatalog: { tc: "wdxl-lubrifont-tc", sc: "wdxl-lubrifont-sc", jp: "wdxl-lubrifont-jp-n" },
-    slots: { latin: google("press-start-2p"), numeric: google("press-start-2p"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+    slots: { latin: google("pixelify-sans"), numeric: google("pixelify-sans"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   }
 ];
 
 export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   cjkVariant: "auto",
+  fontSmoothingEnabled: true,
   mode: "custom",
   presetId: "system-default",
   slots: {
@@ -208,11 +209,18 @@ export function normalizeBrowserFontSettings(
 ): BrowserFontSettings {
   const input = isRecord(value) ? value : {};
   const hasInput = Object.keys(input).length > 0;
+  const fontSmoothingEnabled =
+    typeof input.fontSmoothingEnabled === "boolean"
+      ? input.fontSmoothingEnabled
+      : fallback.fontSmoothingEnabled;
   if (
     input.mode === "default" ||
     (Object.hasOwn(input, "mode") && input.mode !== "custom")
   ) {
-    return cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS);
+    return {
+      ...cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS),
+      fontSmoothingEnabled
+    };
   }
   const mode = normalizeBrowserFontSettingsMode(input.mode, fallback.mode);
   const cjkVariant = normalizeBrowserFontCjkVariant(input.cjkVariant, fallback.cjkVariant);
@@ -222,8 +230,8 @@ export function normalizeBrowserFontSettings(
     normalizePresetId(input.presetId) ?? (!hasInput ? normalizePresetId(fallback.presetId) : undefined);
 
   return mode === "default"
-    ? cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS)
-    : { cjkVariant, mode, ...(presetId ? { presetId } : {}), slots };
+    ? { ...cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS), fontSmoothingEnabled }
+    : { cjkVariant, fontSmoothingEnabled, mode, ...(presetId ? { presetId } : {}), slots };
 }
 
 function cloneBrowserFontSettings(settings: BrowserFontSettings): BrowserFontSettings {
@@ -335,7 +343,13 @@ export function resolveBrowserFontPreset(
   const slots = { ...preset.slots };
   const cjkCatalogId = preset.cjkCatalog[variant];
   if (cjkCatalogId) slots.cjk = google(cjkCatalogId);
-  return { cjkVariant: variant, mode: "custom", presetId, slots };
+  return {
+    cjkVariant: variant,
+    fontSmoothingEnabled: DEFAULT_BROWSER_FONT_SETTINGS.fontSmoothingEnabled,
+    mode: "custom",
+    presetId,
+    slots
+  };
 }
 
 function normalizeWorkspaceGapSize(

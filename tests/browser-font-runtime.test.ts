@@ -322,6 +322,7 @@ describe("browser font document-start runtime", () => {
       settings: {
         mode: "custom",
         cjkVariant: "tc",
+        fontSmoothingEnabled: true,
         slots: {
           cjk: { source: "system", family: "PingFang TC" },
           latin: { source: "google", catalogId: "inter" },
@@ -384,12 +385,18 @@ describe("browser font document-start runtime", () => {
         settings: {
           mode: "custom",
           cjkVariant: "tc",
+          fontSmoothingEnabled: true,
           slots: { cjk: { source: "system", family: "PingFang TC" } }
         },
         faces: []
       })
       .mockResolvedValueOnce({
-        settings: { mode: "default", cjkVariant: "auto", slots: {} },
+        settings: {
+          mode: "default",
+          cjkVariant: "auto",
+          fontSmoothingEnabled: false,
+          slots: {}
+        },
         faces: []
       });
     const fixture = createRuntimeDocumentFixture(invoke, DeferredFontFace, { platform: "macos" });
@@ -416,6 +423,7 @@ describe("browser font document-start runtime", () => {
       settings: {
         mode: "custom",
         cjkVariant: "tc",
+        fontSmoothingEnabled: true,
         slots: {
           cjk: { source: "system", family: "PingFang TC" },
           latin: { source: "system", family: "Helvetica Neue" },
@@ -499,10 +507,15 @@ describe("browser font document-start runtime", () => {
         return this;
       }
     }
-    const payload = (catalogId: string, mode: "custom" | "default") => ({
+    const payload = (
+      catalogId: string,
+      mode: "custom" | "default",
+      fontSmoothingEnabled: boolean
+    ) => ({
       settings: {
         mode,
         cjkVariant: mode === "custom" ? "tc" : "auto",
+        fontSmoothingEnabled,
         slots: mode === "custom" ? { latin: { source: "google", catalogId } } : {}
       },
       faces:
@@ -521,9 +534,9 @@ describe("browser font document-start runtime", () => {
     });
     const invoke = vi
       .fn()
-      .mockResolvedValueOnce(payload("inter", "custom"))
-      .mockResolvedValueOnce(payload("roboto", "custom"))
-      .mockResolvedValueOnce(payload("unused", "default"));
+      .mockResolvedValueOnce(payload("inter", "custom", true))
+      .mockResolvedValueOnce(payload("roboto", "custom", true))
+      .mockResolvedValueOnce(payload("unused", "default", false));
     const fixture = createRuntimeDocumentFixture(invoke, LoadedFontFace, {
       canvas: true,
       platform: "windows"
@@ -553,6 +566,79 @@ describe("browser font document-start runtime", () => {
     expect(fixture.styles).toHaveLength(0);
   });
 
+  it("toggles font replacement and text quality independently on the next Canvas operation", async () => {
+    class LoadedFontFace {
+      async load(): Promise<this> {
+        return this;
+      }
+    }
+    const invoke = vi
+      .fn()
+      .mockResolvedValueOnce({
+        settings: {
+          mode: "custom",
+          cjkVariant: "auto",
+          fontSmoothingEnabled: false,
+          slots: { latin: { source: "system", family: "Arial" } }
+        },
+        faces: []
+      })
+      .mockResolvedValueOnce({
+        settings: {
+          mode: "default",
+          cjkVariant: "auto",
+          fontSmoothingEnabled: true,
+          slots: {}
+        },
+        faces: []
+      })
+      .mockResolvedValueOnce({
+        settings: {
+          mode: "default",
+          cjkVariant: "auto",
+          fontSmoothingEnabled: false,
+          slots: {}
+        },
+        faces: []
+      });
+    const fixture = createRuntimeDocumentFixture(invoke, LoadedFontFace, {
+      canvas: true,
+      platform: "windows"
+    });
+
+    vm.runInContext(runtimeSource, fixture.context);
+    await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
+    expect(fixture.styles[0].textContent).toContain("font-family:");
+    expect(fixture.styles[0].textContent).not.toContain("font-kerning:");
+
+    const canvas = fixture.createCanvasContext();
+    canvas.font = '16px "Game UI", sans-serif';
+    canvas.fontKerning = "none";
+    canvas.textRendering = "optimizeSpeed";
+    canvas.fillText("font only");
+    expect(canvas.calls.at(-1)?.font).toContain('"Rion Studio latin system"');
+    expect(canvas.calls.at(-1)?.fontKerning).toBe("none");
+    expect(canvas.calls.at(-1)?.textRendering).toBe("optimizeSpeed");
+
+    await fixture.context.__rionStudioBrowserFonts?.refresh();
+    expect(fixture.styles).toHaveLength(1);
+    expect(fixture.styles[0].textContent).not.toContain("font-family:");
+    expect(fixture.styles[0].textContent).toContain("font-kerning:normal!important");
+    canvas.measureText("quality only");
+    expect(canvas.calls.at(-1)?.font).toBe('16px "Game UI", sans-serif');
+    expect(canvas.calls.at(-1)?.fontKerning).toBe("normal");
+    expect(canvas.calls.at(-1)?.textRendering).toBe("optimizeLegibility");
+    expect(canvas.fontKerning).toBe("none");
+    expect(canvas.textRendering).toBe("optimizeSpeed");
+
+    await fixture.context.__rionStudioBrowserFonts?.refresh();
+    expect(fixture.styles).toHaveLength(0);
+    canvas.strokeText("native");
+    expect(canvas.calls.at(-1)?.font).toBe('16px "Game UI", sans-serif');
+    expect(canvas.calls.at(-1)?.fontKerning).toBe("none");
+    expect(canvas.calls.at(-1)?.textRendering).toBe("optimizeSpeed");
+  });
+
   it("covers main-thread OffscreenCanvas glyph sources and installs hooks idempotently", async () => {
     class LoadedFontFace {
       async load(): Promise<this> {
@@ -563,6 +649,7 @@ describe("browser font document-start runtime", () => {
       settings: {
         mode: "custom",
         cjkVariant: "tc",
+        fontSmoothingEnabled: true,
         slots: { latin: { source: "system", family: "Helvetica Neue" } }
       },
       faces: []
@@ -607,6 +694,7 @@ describe("browser font document-start runtime", () => {
           settings: {
             mode: "custom",
             cjkVariant: "auto",
+            fontSmoothingEnabled: true,
             slots: { latin: { source: "system", family: "system-ui" } }
           },
           faces: []
@@ -635,6 +723,7 @@ describe("browser font document-start runtime", () => {
       settings: {
         mode: "custom",
         cjkVariant: "auto",
+        fontSmoothingEnabled: true,
         slots: { latin: { source: "system", family: "system-ui" } }
       },
       faces: []
@@ -682,6 +771,7 @@ describe("browser font document-start runtime", () => {
         settings: {
           mode: "custom",
           cjkVariant: "tc",
+          fontSmoothingEnabled: true,
           slots: { latin: { source: "system", family: "Helvetica Neue" } }
         },
         faces: []

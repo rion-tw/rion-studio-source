@@ -4,7 +4,7 @@
   const RUNTIME_KEY = "__rionStudioBrowserFonts";
   const STYLE_ID = "rion-studio-browser-fonts";
   const CANVAS_HOOK_KEY = "__rionStudioBrowserFontsCanvasHook";
-  const VERSION = 4;
+  const VERSION = 5;
   const CANVAS_TEXT_QUALITY = Object.freeze([
     ["textRendering", "optimizeLegibility"],
     ["fontKerning", "normal"]
@@ -53,9 +53,10 @@
   }
 
   const state = {
-    canvasActive: false,
+    canvasFontsActive: false,
     canvasRevision: 0,
     canvasStacks: { general: [], math: [], monospace: [] },
+    canvasTextQualityActive: false,
     faces: [],
     refreshSequence: 0,
     version: VERSION
@@ -147,7 +148,7 @@
 
   function rewriteCanvasFont(value) {
     const font = String(value || "");
-    if (!state.canvasActive || !canvasFontParser) return font;
+    if (!state.canvasFontsActive || !canvasFontParser) return font;
     try {
       canvasFontParser.cssText = "";
       canvasFontParser.font = font;
@@ -211,7 +212,7 @@
 
   function applyCanvasTextQuality(context) {
     const previous = [];
-    if (!state.canvasActive) return previous;
+    if (!state.canvasTextQualityActive) return previous;
     for (const [property, desired] of CANVAS_TEXT_QUALITY) {
       let captured = false;
       let original;
@@ -418,9 +419,10 @@
   }
 
   function removeAppliedFonts() {
-    state.canvasActive = false;
+    state.canvasFontsActive = false;
     state.canvasRevision += 1;
     state.canvasStacks = { general: [], math: [], monospace: [] };
+    state.canvasTextQualityActive = false;
     document.getElementById(STYLE_ID)?.remove();
     for (const face of state.faces) {
       try {
@@ -494,21 +496,28 @@
     if (sequence !== state.refreshSequence) return;
     removeAppliedFonts();
     const settings = payload?.settings;
-    if (!settings || settings.mode !== "custom") return;
+    if (!settings) return;
+    const fontsActive = settings.mode === "custom";
+    const textQualityActive = settings.fontSmoothingEnabled !== false;
+    if (!fontsActive && !textQualityActive) return;
 
     const facesByCatalog = new Map();
-    for (const face of Array.isArray(payload.faces) ? payload.faces : []) {
-      const id = String(face?.catalogId || "");
-      if (!id) continue;
-      const faces = facesByCatalog.get(id) || [];
-      faces.push(face);
-      facesByCatalog.set(id, faces);
+    if (fontsActive) {
+      for (const face of Array.isArray(payload.faces) ? payload.faces : []) {
+        const id = String(face?.catalogId || "");
+        if (!id) continue;
+        const faces = facesByCatalog.get(id) || [];
+        faces.push(face);
+        facesByCatalog.set(id, faces);
+      }
     }
     const slots = settings.slots && typeof settings.slots === "object" ? settings.slots : {};
     const resolved = {};
-    for (const slot of ["numeric", "latin", "cjk", "monospace", "math"]) {
-      resolved[slot] = await registerSelection(slot, slots[slot], facesByCatalog, sequence);
-      if (sequence !== state.refreshSequence) return;
+    if (fontsActive) {
+      for (const slot of ["numeric", "latin", "cjk", "monospace", "math"]) {
+        resolved[slot] = await registerSelection(slot, slots[slot], facesByCatalog, sequence);
+        if (sequence !== state.refreshSequence) return;
+      }
     }
 
     const bodyStack = [resolved.numeric, resolved.latin, resolved.cjk, "system-ui", "sans-serif"]
@@ -516,29 +525,43 @@
       .join(",");
     const monospaceStack = [resolved.monospace, "ui-monospace", "monospace"].filter(Boolean).join(",");
     const mathStack = [resolved.math, "math", resolved.latin, resolved.cjk, "serif"].filter(Boolean).join(",");
-    state.canvasActive = true;
+    state.canvasFontsActive = fontsActive;
     state.canvasRevision += 1;
     state.canvasStacks = {
       general: [...new Set([resolved.numeric, resolved.latin, resolved.cjk].filter(Boolean))],
       math: [...new Set([resolved.math, resolved.latin, resolved.cjk].filter(Boolean))],
       monospace: [...new Set([resolved.monospace].filter(Boolean))]
     };
+    state.canvasTextQualityActive = textQualityActive;
     const generalSelector = [
       ":where(html,body,button,input,select,textarea)",
       ":where(body *):not(svg):not(svg *):not([class*='icon' i]):not([class^='fa-' i]):not(.fa):not(.fas):not(.far):not(.fab)"
     ].join(",");
-    const css = [
-      `${generalSelector}{font-family:${bodyStack}!important;-webkit-font-smoothing:antialiased!important;text-rendering:optimizeLegibility!important;font-kerning:normal!important;font-optical-sizing:auto!important;}`,
-      `:where(code,kbd,pre,samp){font-family:${monospaceStack}!important;}`,
-      `:where(math,math *){font-family:${mathStack}!important;}`
-    ].join("\n");
+    const generalDeclarations = [];
+    if (fontsActive) generalDeclarations.push(`font-family:${bodyStack}!important`);
+    if (textQualityActive) {
+      generalDeclarations.push(
+        "-webkit-font-smoothing:antialiased!important",
+        "text-rendering:optimizeLegibility!important",
+        "font-kerning:normal!important",
+        "font-optical-sizing:auto!important"
+      );
+    }
+    const css = [`${generalSelector}{${generalDeclarations.join(";")};}`];
+    if (fontsActive) {
+      css.push(
+        `:where(code,kbd,pre,samp){font-family:${monospaceStack}!important;}`,
+        `:where(math,math *){font-family:${mathStack}!important;}`
+      );
+    }
+    const styleText = css.join("\n");
     const installStyle = () => {
       if (sequence !== state.refreshSequence || document.getElementById(STYLE_ID)) return;
       const root = document.documentElement;
       if (!root) return;
       const style = document.createElement("style");
       style.id = STYLE_ID;
-      style.textContent = css;
+      style.textContent = styleText;
       (document.head || root).appendChild(style);
       root.dataset.rionStudioFonts = "custom";
     };

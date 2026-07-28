@@ -2270,6 +2270,8 @@ pub struct BrowserPerformanceSettingsRecord {
 pub struct BrowserFontSettingsRecord {
     #[ts(type = "\"default\" | \"custom\"")]
     pub mode: String,
+    #[serde(default = "default_browser_font_smoothing_enabled")]
+    pub font_smoothing_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub preset_id: Option<String>,
@@ -2288,6 +2290,10 @@ pub struct BrowserFontSettingsRecord {
 
 fn default_browser_font_cjk_variant() -> String {
     "auto".to_owned()
+}
+
+fn default_browser_font_smoothing_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

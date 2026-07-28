@@ -237,6 +237,7 @@ function SettingsViewBase({
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const [isWorkspaceAppearanceSaving, setIsWorkspaceAppearanceSaving] = useState(false);
   const [isBrowserPerformanceSaving, setIsBrowserPerformanceSaving] = useState(false);
+  const [isFontSmoothingSaving, setIsFontSmoothingSaving] = useState(false);
   const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
     useState(false);
   const isMacOS = document.documentElement.dataset.platform === "mac";
@@ -286,6 +287,24 @@ function SettingsViewBase({
     })
       .catch(onError)
       .finally(() => setIsBrowserPerformanceSaving(false));
+  }
+
+  function updateFontSmoothingSetting(fontSmoothingEnabled: boolean): void {
+    if (isFontSmoothingSaving) {
+      return;
+    }
+
+    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+    setIsFontSmoothingSaving(true);
+    void onGameBrowserSettingsChange({
+      ...normalizedSettings,
+      fonts: {
+        ...normalizedSettings.fonts,
+        fontSmoothingEnabled
+      }
+    })
+      .catch(onError)
+      .finally(() => setIsFontSmoothingSaving(false));
   }
 
   function handleOpenPortableExport(): void {
@@ -431,6 +450,18 @@ function SettingsViewBase({
                       ))}
                     </SelectContent>
                   </Select>
+                }
+              />
+              <SettingsRow
+                title={t("settings.browserFontSmoothing")}
+                description={t("settings.browserFontSmoothingDescription")}
+                control={
+                  <Switch
+                    aria-label={t("settings.browserFontSmoothing")}
+                    checked={normalizeGameBrowserSettings(gameBrowserSettings).fonts.fontSmoothingEnabled}
+                    disabled={isFontSmoothingSaving}
+                    onCheckedChange={updateFontSmoothingSetting}
+                  />
                 }
               />
               <BrowserFontsSettingsRows
@@ -910,6 +941,7 @@ function BrowserFontsSettingsRows({
         ...current,
         fonts: {
           cjkVariant: current.fonts.cjkVariant,
+          fontSmoothingEnabled: current.fonts.fontSmoothingEnabled,
           mode: "custom",
           slots
         }
@@ -926,7 +958,8 @@ function BrowserFontsSettingsRows({
           presetId,
           resolveEffectiveBrowserFontCjkVariant(current.fonts.cjkVariant, language)
         ),
-        cjkVariant: current.fonts.cjkVariant
+        cjkVariant: current.fonts.cjkVariant,
+        fontSmoothingEnabled: current.fonts.fontSmoothingEnabled
       }
     }));
   }
@@ -945,7 +978,8 @@ function BrowserFontsSettingsRows({
             preset.id,
             resolveEffectiveBrowserFontCjkVariant(cjkVariant, language)
           ),
-          cjkVariant
+          cjkVariant,
+          fontSmoothingEnabled: current.fonts.fontSmoothingEnabled
         }
       };
     });
@@ -1185,7 +1219,10 @@ function BrowserFontsSettingsRows({
                   void saveSettings(
                     normalizeGameBrowserSettings({
                       ...draft,
-                      fonts: DEFAULT_BROWSER_FONT_SETTINGS
+                      fonts: {
+                        ...DEFAULT_BROWSER_FONT_SETTINGS,
+                        fontSmoothingEnabled: draft.fonts.fontSmoothingEnabled
+                      }
                     })
                   )
                 }

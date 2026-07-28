@@ -343,6 +343,14 @@ const CATALOG: &[CatalogSpec] = &[
         "body",
     ),
     spec(
+        "pixelify-sans",
+        "Pixelify Sans",
+        "display",
+        &["latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
         "press-start-2p",
         "Press Start 2P",
         "display",
@@ -895,6 +903,7 @@ mod tests {
             ("fredoka", "display", "latin", "400,700", "body"),
             ("permanent-marker", "handwriting", "latin", "400", "accent"),
             ("playfair-display", "serif", "latin", "400,700", "body"),
+            ("pixelify-sans", "display", "latin", "400,700", "body"),
             ("press-start-2p", "display", "latin", "400", "accent"),
         ];
 

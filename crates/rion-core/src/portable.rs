@@ -3620,6 +3620,10 @@ mod tests {
             settings["fonts"]
                 .as_object_mut()
                 .unwrap()
+                .remove("fontSmoothingEnabled");
+            settings["fonts"]
+                .as_object_mut()
+                .unwrap()
                 .remove("presetId");
             settings["fonts"]["families"] = json!({
                 "fixed":"Bad\u{0000}Font",
@@ -3658,6 +3662,7 @@ mod tests {
                 json!({"source":"system","family":"Noto Sans Math"})
             );
             assert!(fonts.families.is_empty());
+            assert!(fonts.font_smoothing_enabled);
             assert!(browser_settings.performance.macos_high_refresh_rate);
         });
     }
@@ -3666,6 +3671,7 @@ mod tests {
     fn portable_browser_preferences_do_not_export_retired_graphics_settings() {
         let mut browser_settings = crate::domain::default_game_browser_settings();
         browser_settings.fonts.mode = "custom".to_owned();
+        browser_settings.fonts.font_smoothing_enabled = false;
         browser_settings.fonts.slots.insert(
             "latin".to_owned(),
             serde_json::from_value(json!({"source":"system","family":"Inter"})).unwrap(),
@@ -3706,6 +3712,7 @@ mod tests {
             serialized["fonts"]["slots"]["latin"],
             json!({"source":"system","family":"Inter"})
         );
+        assert_eq!(serialized["fonts"]["fontSmoothingEnabled"], false);
         assert_eq!(serialized["performance"]["macosHighRefreshRate"], true);
     }
 

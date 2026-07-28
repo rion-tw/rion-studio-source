@@ -21,6 +21,8 @@ const catalog: BrowserFontCatalogEntry[] = [
   ["caveat", "Caveat", "handwriting", ["latin"], "accent"],
   ["chiron-go-round-tc", "Chiron GoRound TC", "sans", ["tc", "latin"], "body"],
   ["fredoka", "Fredoka", "display", ["latin"], "body"],
+  ["wdxl-lubrifont-tc", "WDXL Lubrifont TC", "display", ["tc", "latin"], "body"],
+  ["pixelify-sans", "Pixelify Sans", "display", ["latin"], "body"],
   ["jetbrains-mono", "JetBrains Mono", "monospace", ["latin"], "technical"],
   ["noto-sans-math", "Noto Sans Math", "math", ["math", "latin"], "technical"]
 ].map(([catalogId, family, category, scripts, usage]) => ({
@@ -49,13 +51,15 @@ afterEach(() => {
 });
 
 function renderSettings(
-  onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>
+  onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>,
+  gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS
 ): void {
   render(
     <MemoryRouter initialEntries={["/settings?section=interface"]}>
       <ConfirmationProvider>
         <SettingsView
-          gameBrowserSettings={DEFAULT_GAME_BROWSER_SETTINGS}
+          gameBrowserSettings={gameBrowserSettings}
+          hasRunningRoles={false}
           language="zh-TW"
           macroSettings={DEFAULT_MACRO_SETTINGS}
           onApplyPortableImport={async () => {
@@ -208,6 +212,92 @@ describe("browser font settings", () => {
           })
         })
       );
+    });
+  });
+
+  it("uses Pixelify Sans once for retro Latin text and numbers", async () => {
+    const installBrowserFont = vi.fn(async (catalogId: string) => ({
+      catalogId,
+      installed: true,
+      cachedBytes: 1024
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
+    expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Retro game/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
+
+    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(4));
+    expect(installBrowserFont).toHaveBeenCalledWith("wdxl-lubrifont-tc");
+    expect(installBrowserFont).toHaveBeenCalledWith("pixelify-sans");
+    expect(installBrowserFont).toHaveBeenCalledWith("jetbrains-mono");
+    expect(installBrowserFont).toHaveBeenCalledWith("noto-sans-math");
+    expect(installBrowserFont).not.toHaveBeenCalledWith("press-start-2p");
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            cjkVariant: "auto",
+            mode: "custom",
+            presetId: "retro-game",
+            slots: expect.objectContaining({
+              cjk: { source: "google", catalogId: "wdxl-lubrifont-tc" },
+              latin: { source: "google", catalogId: "pixelify-sans" },
+              numeric: { source: "google", catalogId: "pixelify-sans" },
+              monospace: { source: "google", catalogId: "jetbrains-mono" },
+              math: { source: "google", catalogId: "noto-sans-math" }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("preserves a font-smoothing opt-out through preset application and system reset", async () => {
+    const installBrowserFont = vi.fn(async (catalogId: string) => ({
+      catalogId,
+      installed: true,
+      cachedBytes: 1024
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+    const optedOutSettings: GameBrowserSettings = {
+      ...DEFAULT_GAME_BROWSER_SETTINGS,
+      fonts: {
+        ...DEFAULT_GAME_BROWSER_SETTINGS.fonts,
+        fontSmoothingEnabled: false
+      }
+    };
+
+    renderSettings(onGameBrowserSettingsChange, optedOutSettings);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
+    expect(await screen.findByText("Handwriting styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Natural handwriting/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 5 and apply" }));
+
+    await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledTimes(1));
+    expect(onGameBrowserSettingsChange.mock.calls[0][0].fonts.fontSmoothingEnabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset to system fonts" }));
+    await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledTimes(2));
+    expect(onGameBrowserSettingsChange.mock.calls[1][0].fonts).toEqual({
+      ...DEFAULT_GAME_BROWSER_SETTINGS.fonts,
+      fontSmoothingEnabled: false
     });
   });
 });

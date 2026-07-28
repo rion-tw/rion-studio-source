@@ -293,6 +293,14 @@ export function useAppData() {
   }, [setGames]);
 
   useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
+    return window.rionStudio.onRolesChanged(setRoles);
+  }, [setRoles]);
+
+  useEffect(() => {
     if (!window.rionStudio) return;
     return window.rionStudio.onShellError?.(setError);
   }, [setError]);

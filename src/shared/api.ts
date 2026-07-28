@@ -168,6 +168,7 @@ export interface RionStudioApi {
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
+  onRolesChanged: (callback: (roles: Role[]) => void) => () => void;
   onGameWindowsChanged: (callback: (gameWindows: GameWindow[]) => void) => () => void;
   onWorkspacesChanged: (callback: (workspaces: LaunchWorkspace[]) => void) => () => void;
   onDisplaysChanged: (callback: (displays: DisplayInfo[]) => void) => () => void;

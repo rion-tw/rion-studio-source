@@ -3,6 +3,7 @@ import type {
   CreateRoleInput,
   Game,
   GameBrowserSettings,
+  GameBrowserSettingsPatch,
   LaunchWorkspace,
   Macro,
   MacroSettings,
@@ -89,6 +90,18 @@ export class MemoryStateRepository {
 
   replaceGameBrowserSettings(settings: GameBrowserSettings): Promise<GameBrowserSettings> {
     return this.replace("gameBrowserSettings", settings) as Promise<GameBrowserSettings>;
+  }
+
+  patchGameBrowserSettings(patch: GameBrowserSettingsPatch): Promise<GameBrowserSettings> {
+    const current = normalizeGameBrowserSettings(this.state.gameBrowserSettings);
+    const next = normalizeGameBrowserSettings({
+      ...current,
+      ...(patch.macroBadgePosition ? { macroBadgePosition: patch.macroBadgePosition } : {}),
+      ...(patch.performance ? { performance: patch.performance } : {}),
+      ...(patch.workspace ? { workspace: patch.workspace } : {})
+    });
+    this.state.gameBrowserSettings = structuredClone(next);
+    return Promise.resolve(structuredClone(next));
   }
 
   async getMacroSettings(): Promise<MacroSettings> {
@@ -560,6 +573,9 @@ export class MemoryStateRepository {
         break;
       case "gameBrowserSettingsReplace":
         result = await this.replaceGameBrowserSettings(command.settings);
+        break;
+      case "gameBrowserSettingsPatch":
+        result = await this.patchGameBrowserSettings(command.patch);
         break;
       case "macroSettingsGet":
         result = await this.getMacroSettings();

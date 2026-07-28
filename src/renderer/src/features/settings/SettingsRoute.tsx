@@ -41,6 +41,7 @@ import type {
   BrowserFontSelection,
   BrowserFontSlot,
   GameBrowserSettings,
+  GameBrowserSettingsPatch,
   Game,
   MacroBadgeHorizontalAlign,
   MacroBadgePositionSettings,
@@ -105,6 +106,7 @@ interface SettingsViewProps {
   onError: (error: unknown) => void;
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  onGameBrowserSettingsPatch?: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
   onMacroSettingsChange: (settings: MacroSettings) => Promise<MacroSettings>;
   onRuntimeWindowPreferencesChange: (
     preferences: RuntimeWindowPreferences
@@ -210,6 +212,7 @@ function SettingsViewBase({
   onError,
   onExportPortableData,
   onGameBrowserSettingsChange,
+  onGameBrowserSettingsPatch,
   onMacroSettingsChange,
   onRuntimeWindowPreferencesChange,
   onLoadSystemFonts,
@@ -252,6 +255,15 @@ function SettingsViewBase({
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
   const portableExportAvailability = createPortableExportAvailability(portableDataCounts);
+  const saveNonFontPatch = onGameBrowserSettingsPatch ?? (async (patch: GameBrowserSettingsPatch) => {
+    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+    return onGameBrowserSettingsChange({
+      ...normalizedSettings,
+      ...(patch.macroBadgePosition ? { macroBadgePosition: patch.macroBadgePosition } : {}),
+      ...(patch.performance ? { performance: patch.performance } : {}),
+      ...(patch.workspace ? { workspace: patch.workspace } : {})
+    });
+  });
 
   function updateWorkspaceAppearanceSettings(update: Partial<WorkspaceAppearanceSettings>): void {
     if (isWorkspaceAppearanceSaving) {
@@ -260,8 +272,7 @@ function SettingsViewBase({
 
     const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
     setIsWorkspaceAppearanceSaving(true);
-    void onGameBrowserSettingsChange({
-      ...normalizedSettings,
+    void saveNonFontPatch({
       workspace: {
         ...normalizedSettings.workspace,
         ...update
@@ -278,8 +289,7 @@ function SettingsViewBase({
 
     const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
     setIsBrowserPerformanceSaving(true);
-    void onGameBrowserSettingsChange({
-      ...normalizedSettings,
+    void saveNonFontPatch({
       performance: {
         ...normalizedSettings.performance,
         macosHighRefreshRate
@@ -591,7 +601,7 @@ function SettingsViewBase({
                 settings={gameBrowserSettings}
                 t={t}
                 onError={onError}
-                onSave={onGameBrowserSettingsChange}
+                onSave={saveNonFontPatch}
               />
             </SettingsSection>
           </>
@@ -1457,7 +1467,7 @@ interface MacroBadgePositionSettingsRowsProps {
   settings: GameBrowserSettings;
   t: Translator;
   onError: (error: unknown) => void;
-  onSave: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  onSave: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
 }
 
 function MacroBadgePositionSettingsRows({
@@ -1521,10 +1531,7 @@ function MacroBadgePositionSettingsRows({
     saveInFlightRef.current = true;
 
     try {
-      const savedSettings = await onSave({
-        ...normalizeGameBrowserSettings(settingsRef.current),
-        macroBadgePosition: nextPosition
-      });
+      const savedSettings = await onSave({ macroBadgePosition: nextPosition });
       settingsRef.current = savedSettings;
       if (!pendingRef.current) {
         draftRef.current = savedSettings.macroBadgePosition;

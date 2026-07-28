@@ -95,6 +95,11 @@ describe("browser font smoothing settings", () => {
       const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
       renderSettings(platform, onGameBrowserSettingsChange);
 
+      const gameSection = screen.getByRole("heading", { name: "Game" }).parentElement;
+      expect(gameSection).not.toBeNull();
+      expect(gameSection?.contains(screen.getByRole("switch", { name: "Font smoothing" }))).toBe(true);
+      expect(gameSection?.contains(screen.getByRole("button", { name: "Customize fonts" }))).toBe(true);
+
       const toggle = screen.getByRole("switch", { name: "Font smoothing" });
       expect(toggle.getAttribute("data-state")).toBe("checked");
       fireEvent.click(toggle);

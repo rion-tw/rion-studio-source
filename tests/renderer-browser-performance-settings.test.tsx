@@ -92,6 +92,10 @@ describe("browser performance settings", () => {
     const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
     renderSettings("mac", onGameBrowserSettingsChange);
 
+    const gameSection = screen.getByRole("heading", { name: "Game" }).parentElement;
+    expect(gameSection).not.toBeNull();
+    expect(gameSection?.contains(screen.getByRole("switch", { name: "Experimental high refresh rate" }))).toBe(true);
+
     expect(
       screen.getByText(/Requires restarting Rion Studio and may increase energy use and temperature/u)
     ).toBeTruthy();

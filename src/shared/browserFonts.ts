@@ -104,8 +104,15 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
 
 export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   cjkVariant: "auto",
-  mode: "default",
-  slots: {}
+  mode: "custom",
+  presetId: "system-default",
+  slots: {
+    cjk: system("system-ui"),
+    latin: system("system-ui"),
+    numeric: system("system-ui"),
+    monospace: system("ui-monospace"),
+    math: system("math")
+  }
 };
 
 export const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
@@ -172,15 +179,27 @@ export function normalizeBrowserFontSettings(
   fallback: BrowserFontSettings = DEFAULT_BROWSER_FONT_SETTINGS
 ): BrowserFontSettings {
   const input = isRecord(value) ? value : {};
+  const hasInput = Object.keys(input).length > 0;
+  if (
+    input.mode === "default" ||
+    (Object.hasOwn(input, "mode") && input.mode !== "custom")
+  ) {
+    return cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS);
+  }
   const mode = normalizeBrowserFontSettingsMode(input.mode, fallback.mode);
   const cjkVariant = normalizeBrowserFontCjkVariant(input.cjkVariant, fallback.cjkVariant);
-  const slots = normalizeBrowserFontSlots(input.slots, fallback.slots);
+  const slots = normalizeBrowserFontSlots(input.slots, hasInput ? {} : fallback.slots);
   migrateLegacyBrowserFontFamilies(input.families, slots);
-  const presetId = normalizePresetId(input.presetId);
+  const presetId =
+    normalizePresetId(input.presetId) ?? (!hasInput ? normalizePresetId(fallback.presetId) : undefined);
 
   return mode === "default"
-    ? { cjkVariant: "auto", mode, slots: {} }
+    ? cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS)
     : { cjkVariant, mode, ...(presetId ? { presetId } : {}), slots };
+}
+
+function cloneBrowserFontSettings(settings: BrowserFontSettings): BrowserFontSettings {
+  return { ...settings, slots: { ...settings.slots } };
 }
 
 export function normalizeBrowserFontSlots(

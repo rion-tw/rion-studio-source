@@ -3616,6 +3616,11 @@ mod tests {
                 "windowsEcoQosEnabled":false
             });
             settings["fonts"]["mode"] = json!("custom");
+            settings["fonts"]["slots"] = json!({});
+            settings["fonts"]
+                .as_object_mut()
+                .unwrap()
+                .remove("presetId");
             settings["fonts"]["families"] = json!({
                 "fixed":"Bad\u{0000}Font",
                 "math":"Noto Sans Math",

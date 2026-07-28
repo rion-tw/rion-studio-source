@@ -11,7 +11,7 @@ import {
 } from "../src/shared/browserFonts";
 
 describe("browser font settings normalization", () => {
-  it("returns browser defaults for missing or default-mode settings", () => {
+  it("uses the system-font preset for missing and legacy default-mode settings", () => {
     expect(normalizeGameBrowserSettings(undefined)).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
     expect(
       normalizeGameBrowserSettings({
@@ -23,6 +23,18 @@ describe("browser font settings normalization", () => {
         }
       })
     ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
+    expect(DEFAULT_GAME_BROWSER_SETTINGS.fonts).toEqual({
+      cjkVariant: "auto",
+      mode: "custom",
+      presetId: "system-default",
+      slots: {
+        cjk: { source: "system", family: "system-ui" },
+        latin: { source: "system", family: "system-ui" },
+        numeric: { source: "system", family: "system-ui" },
+        monospace: { source: "system", family: "ui-monospace" },
+        math: { source: "system", family: "math" }
+      }
+    });
   });
 
   it("normalizes five routed font slots without adding font size settings", () => {
@@ -58,6 +70,26 @@ describe("browser font settings normalization", () => {
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       performance: DEFAULT_GAME_BROWSER_SETTINGS.performance,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+    });
+  });
+
+  it("keeps an explicit custom selection partial instead of filling system defaults", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          mode: "custom",
+          slots: {
+            latin: { source: "system", family: "Arial" }
+          }
+        }
+      }).fonts
+    ).toEqual({
+      cjkVariant: "auto",
+      mode: "custom",
+      slots: {
+        latin: { source: "system", family: "Arial" }
+      }
     });
   });
 

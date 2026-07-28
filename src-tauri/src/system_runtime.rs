@@ -5794,6 +5794,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
+        self.persist_local_storage_sync_source_before_stop(role_id)?;
         let mut state = self.state()?;
         let tab_id = state.role_tabs.remove(role_id).ok_or_else(|| {
             RuntimeError::new(
@@ -5830,6 +5831,43 @@ impl SystemRuntimeExecutor {
             }
         }
         Ok(())
+    }
+
+    fn persist_local_storage_sync_source_before_stop(&self, role_id: &str) -> RuntimeResult<()> {
+        let (webview, config) = {
+            let state = self.state()?;
+            let Some(tab_id) = state.role_tabs.get(role_id) else {
+                return Ok(());
+            };
+            let Some(surface) = state
+                .tabs
+                .get(tab_id)
+                .and_then(|tab| tab.roles.get(role_id))
+            else {
+                return Ok(());
+            };
+            let Some(config) = surface.local_storage_sync.clone() else {
+                return Ok(());
+            };
+            (surface.webview.clone(), config)
+        };
+        if config.source_role_id.is_some() || config.dependent_role_ids.is_empty() {
+            return Ok(());
+        }
+        if require_exact_local_storage_sync_origin(&webview, &config.origin).is_err() {
+            return Ok(());
+        }
+        let Ok(entries) = read_scoped_local_storage_entries(&webview, &config.keys) else {
+            return Ok(());
+        };
+        // The document observer reports asynchronously. Capture the live source immediately
+        // before closing it so a stop cannot leave the encrypted bootstrap snapshot stale.
+        self.persist_local_storage_sync_snapshot(PersistedLocalStorageSyncSnapshot {
+            schema_version: 1,
+            source_role_id: role_id.to_owned(),
+            origin: config.origin,
+            entries,
+        })
     }
 
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {

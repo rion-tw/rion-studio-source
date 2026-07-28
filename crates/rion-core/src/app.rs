@@ -6649,7 +6649,10 @@ fn broadcast_events(subscribers: &Mutex<Vec<Sender<Vec<CoreEvent>>>>, events: Ve
         matches!(
             event,
             CoreEvent::CoreEffects { .. }
+                | CoreEvent::StateChanged { .. }
+                | CoreEvent::BrowserStatuses { .. }
                 | CoreEvent::MacroStatuses { reliable: true, .. }
+                | CoreEvent::CompatibilityStatuses { .. }
                 | CoreEvent::Shutdown
         )
     });
@@ -9337,54 +9340,52 @@ mod tests {
     }
 
     #[test]
-    fn critical_effect_and_macro_lifecycle_events_wait_for_queue_capacity() {
-        let (sender, receiver) = bounded(1);
-        let subscribers = Arc::new(Mutex::new(vec![sender]));
-        broadcast_events(&subscribers, vec![CoreEvent::Ready { schema_version: 1 }]);
-        let broadcasting = {
-            let subscribers = Arc::clone(&subscribers);
-            thread::spawn(move || {
-                broadcast_events(
-                    &subscribers,
-                    vec![CoreEvent::CoreEffects {
-                        effects: Vec::new(),
-                    }],
-                );
-            })
-        };
+    fn authoritative_events_wait_for_queue_capacity() {
+        let authoritative = [
+            CoreEvent::CoreEffects {
+                effects: Vec::new(),
+            },
+            CoreEvent::StateChanged {
+                revision: 2,
+                changed_collections: Vec::new(),
+            },
+            CoreEvent::BrowserStatuses {
+                statuses: Vec::new(),
+            },
+            CoreEvent::MacroStatuses {
+                reliable: true,
+                statuses: Vec::new(),
+            },
+            CoreEvent::CompatibilityStatuses {
+                statuses: Vec::new(),
+            },
+        ];
 
-        assert!(matches!(
-            receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
-            CoreEvent::Ready { .. }
-        ));
-        assert!(matches!(
-            receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
-            CoreEvent::CoreEffects { .. }
-        ));
-        broadcasting.join().unwrap();
+        for event in authoritative {
+            let (sender, receiver) = bounded(1);
+            let subscribers = Arc::new(Mutex::new(vec![sender]));
+            broadcast_events(&subscribers, vec![CoreEvent::Ready { schema_version: 1 }]);
+            let expected = std::mem::discriminant(&event);
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let broadcasting = {
+                let subscribers = Arc::clone(&subscribers);
+                thread::spawn(move || {
+                    started_tx.send(()).unwrap();
+                    broadcast_events(&subscribers, vec![event]);
+                })
+            };
+            started_rx.recv().unwrap();
+            thread::sleep(Duration::from_millis(25));
+            assert!(!broadcasting.is_finished());
 
-        broadcast_events(&subscribers, vec![CoreEvent::Ready { schema_version: 1 }]);
-        let macro_broadcasting = {
-            let subscribers = Arc::clone(&subscribers);
-            thread::spawn(move || {
-                broadcast_events(
-                    &subscribers,
-                    vec![CoreEvent::MacroStatuses {
-                        reliable: true,
-                        statuses: Vec::new(),
-                    }],
-                );
-            })
-        };
-        assert!(matches!(
-            receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
-            CoreEvent::Ready { .. }
-        ));
-        assert!(matches!(
-            receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
-            CoreEvent::MacroStatuses { reliable: true, .. }
-        ));
-        macro_broadcasting.join().unwrap();
+            assert!(matches!(
+                receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
+                CoreEvent::Ready { .. }
+            ));
+            let delivered = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(std::mem::discriminant(&delivered[0]), expected);
+            broadcasting.join().unwrap();
+        }
     }
 
     #[test]

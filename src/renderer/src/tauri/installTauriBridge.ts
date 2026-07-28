@@ -219,28 +219,57 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     }
   };
 
-  const refreshCollections = async (collections: string[]): Promise<void> => {
+  const latestRevisionByCollection = new Map<string, number>();
+  const refreshSequenceByCollection = new Map<string, number>();
+  const refreshCollections = async (
+    collections: string[],
+    revision?: number
+  ): Promise<void> => {
+    const requested = new Map<string, number>();
+    for (const collection of new Set(collections)) {
+      if (revision !== undefined) {
+        const latestRevision = latestRevisionByCollection.get(collection) ?? 0;
+        if (revision < latestRevision) continue;
+        latestRevisionByCollection.set(collection, revision);
+      }
+      const sequence = (refreshSequenceByCollection.get(collection) ?? 0) + 1;
+      refreshSequenceByCollection.set(collection, sequence);
+      requested.set(collection, sequence);
+    }
+    const isCurrent = (collection: string): boolean =>
+      requested.has(collection)
+      && refreshSequenceByCollection.get(collection) === requested.get(collection);
     const jobs: Promise<void>[] = [];
-    if (collections.includes("games")) {
-      jobs.push(invokeCore({ type: "gamesList" }).then((games) => emit("games", games)));
+    if (requested.has("games")) {
+      jobs.push(invokeCore({ type: "gamesList" }).then((games) => {
+        if (isCurrent("games")) emit("games", games);
+      }));
     }
-    if (collections.includes("launchWorkspaces")) {
+    if (requested.has("launchWorkspaces")) {
       jobs.push(invokeCore({ type: "workspacesList" })
-        .then((workspaces) => emit("workspaces", workspaces)));
+        .then((workspaces) => {
+          if (isCurrent("launchWorkspaces")) emit("workspaces", workspaces);
+        }));
     }
-    if (collections.includes("gameWindows")) {
+    if (requested.has("gameWindows")) {
       jobs.push(invokeCore({ type: "gameWindowsList" })
-        .then((gameWindows) => emit("gameWindows", gameWindows)));
+        .then((gameWindows) => {
+          if (isCurrent("gameWindows")) emit("gameWindows", gameWindows);
+        }));
     }
-    if (collections.includes("macros")) {
-      jobs.push(invokeCore({ type: "macrosList" }).then((macros) => emit("macros", macros)));
+    if (requested.has("macros")) {
+      jobs.push(invokeCore({ type: "macrosList" }).then((macros) => {
+        if (isCurrent("macros")) emit("macros", macros);
+      }));
     }
-    if (collections.includes("compatibilityReports")) {
+    if (requested.has("compatibilityReports")) {
       jobs.push(Promise.all([
         invokeCore({ type: "stateSnapshot" }),
         invokeCore({ type: "compatibilityStatuses" })
       ]).then(([snapshot, statuses]) => {
-        emit("compatibility", snapshot.compatibilityReports, statuses);
+        if (isCurrent("compatibilityReports")) {
+          emit("compatibility", snapshot.compatibilityReports, statuses);
+        }
       }));
     }
     await Promise.all(jobs);
@@ -251,7 +280,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       for (const event of payload) {
         switch (event.type) {
           case "stateChanged":
-            void refreshCollections(event.changedCollections);
+            void refreshCollections(event.changedCollections, event.revision);
             break;
           case "browserStatuses":
             emit("roleStatuses", event.statuses);

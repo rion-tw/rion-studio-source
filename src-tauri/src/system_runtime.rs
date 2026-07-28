@@ -8038,6 +8038,7 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
             "The localStorage synchronization observer could not be encoded.",
         )
     })?;
+    let is_source = config.source_role_id.is_none();
     Ok(format!(
         r#"(() => {{
   if (globalThis.top !== globalThis || globalThis.__rionLocalStorageSyncObserver) return;
@@ -8062,6 +8063,29 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
   }};
   for (const name of ["storage", "pageshow", "visibilitychange"]) addEventListener(name, schedule, true);
   setInterval(schedule, 250);
+  if ({is_source}) {{
+    const storagePrototype = globalThis.Storage?.prototype;
+    if (storagePrototype) {{
+      const setItem = storagePrototype.setItem;
+      const removeItem = storagePrototype.removeItem;
+      const clear = storagePrototype.clear;
+      storagePrototype.setItem = function (key, value) {{
+        const result = setItem.call(this, key, value);
+        if (this === localStorage) publish();
+        return result;
+      }};
+      storagePrototype.removeItem = function (key) {{
+        const result = removeItem.call(this, key);
+        if (this === localStorage) publish();
+        return result;
+      }};
+      storagePrototype.clear = function () {{
+        const result = clear.call(this);
+        if (this === localStorage) publish();
+        return result;
+      }};
+    }}
+  }}
   globalThis.__rionLocalStorageSyncObserver = Object.freeze({{
     configure(next) {{
       if (!next || next.token !== state.token) return false;
@@ -9937,6 +9961,9 @@ mod tests {
         assert!(observer.contains("rion_local_storage_sync_changed"));
         assert!(observer.contains("setInterval(schedule, 250)"));
         assert!(observer.contains("setTimeout(publish, 100)"));
+        assert!(observer.contains("storagePrototype.setItem"));
+        assert!(observer.contains("storagePrototype.removeItem"));
+        assert!(observer.contains("storagePrototype.clear"));
 
         let script = local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
             schema_version: 1,

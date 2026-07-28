@@ -7297,7 +7297,7 @@ fn verify_attestation_tab(
             .collect::<RuntimeResult<Vec<_>>>()?;
         (host.window.clone(), surfaces, tab.workspace_appearance.gap)
     };
-    let content_metrics = logical_window_content_metrics(&window)?;
+    let content_metrics = runtime_window_content_metrics(&window)?;
     let expected_bounds = runtime
         .resolve_runtime_layout(
             content_metrics,

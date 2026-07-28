@@ -171,6 +171,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           pnpm run test:native:system-input
           pnpm run test:native:macro-game -- --skip-system-input
           pnpm run test:native:session-import -- --skip-system-input
@@ -198,6 +200,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe
           pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
           pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input

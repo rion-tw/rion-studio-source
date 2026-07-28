@@ -3,8 +3,6 @@ import type {
   CreateRoleInput,
   Game,
   GameBrowserSettings,
-  GameCompatibilityObservations,
-  GameCompatibilityReport,
   LaunchWorkspace,
   Macro,
   MacroSettings,
@@ -604,36 +602,6 @@ export class MemoryStateRepository {
     };
   }
 
-  listCompatibilityReports(): Promise<GameCompatibilityReport[]> {
-    return this.read("compatibilityReports", []);
-  }
-
-  async saveCompatibilityReport(report: GameCompatibilityReport): Promise<GameCompatibilityReport> {
-    const reports = await this.listCompatibilityReports();
-    const index = reports.findIndex((item) => item.gameId === report.gameId);
-    if (index < 0) reports.push(structuredClone(report));
-    else reports[index] = structuredClone(report);
-    await this.replace("compatibilityReports", reports);
-    return structuredClone(report);
-  }
-
-  async recordCompatibilityObservation(
-    gameId: string,
-    observation: Partial<GameCompatibilityObservations>
-  ): Promise<GameCompatibilityReport> {
-    const current = (await this.listCompatibilityReports()).find((item) => item.gameId === gameId);
-    return this.saveCompatibilityReport({
-      ...(current ?? { gameId, isStale: false }),
-      observations: { ...(current?.observations ?? {}), ...observation }
-    });
-  }
-
-  async deleteCompatibilityReport(gameId: string): Promise<void> {
-    await this.replace(
-      "compatibilityReports",
-      (await this.listCompatibilityReports()).filter((report) => report.gameId !== gameId)
-    );
-  }
 }
 
 function codedError(code: string, message: string): Error {

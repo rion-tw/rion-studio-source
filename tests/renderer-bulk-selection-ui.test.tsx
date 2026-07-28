@@ -49,9 +49,7 @@ describe("bulk selection UI", () => {
     render(
       <GamesRoute
         games={items}
-        reports={[]}
         roles={[]}
-        runStatuses={[]}
         statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
@@ -59,7 +57,6 @@ describe("bulk selection UI", () => {
         onEdit={vi.fn()}
         onNewGame={vi.fn()}
         onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
       />
     );
 
@@ -81,9 +78,7 @@ describe("bulk selection UI", () => {
     render(
       <GamesRoute
         games={[game("game-1", "One")]}
-        reports={[]}
         roles={[]}
-        runStatuses={[]}
         statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
@@ -91,7 +86,6 @@ describe("bulk selection UI", () => {
         onEdit={vi.fn()}
         onNewGame={vi.fn()}
         onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
       />
     );
 

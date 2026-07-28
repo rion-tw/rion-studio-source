@@ -19,8 +19,6 @@ function snapshot(gameId: string): AppSnapshot {
   return {
     displays: [],
     embeddedRuntimeState: { tabs: [], windows: [] },
-    gameCompatibilityReports: [],
-    gameCompatibilityStatuses: [],
     games: [{ id: gameId } as AppSnapshot["games"][number]],
     gameWindows: [],
     launchWorkspaces: [],
@@ -44,7 +42,6 @@ function installAppDataBridge(getAppSnapshot: RionStudioApi["getAppSnapshot"]): 
     getAppSnapshot,
     onDisplaysChanged: () => unsubscribe,
     onEmbeddedRuntimeStateChanged: () => unsubscribe,
-    onGameCompatibilityChanged: () => unsubscribe,
     onGamesChanged: () => unsubscribe,
     onGameWindowsChanged: () => unsubscribe,
     onMacrosChanged: () => unsubscribe,

@@ -41,13 +41,9 @@ describe("games cover UI", () => {
       element: <ConfirmationProvider><GameEditorRoute
         games={[customGame]}
         isSaving={false}
-        reports={[]}
-        runStatuses={[]}
         t={t}
-        onCancelCheck={vi.fn()}
         onError={vi.fn()}
         onReset={vi.fn()}
-        onRunCheck={vi.fn()}
         onSave={onSave}
       /></ConfirmationProvider>
     }], { initialEntries: ["/games/game-keys/edit"] });
@@ -68,13 +64,10 @@ describe("games cover UI", () => {
     const uncovered = game({ id: "uncovered", name: "Uncovered" });
     const onEdit = vi.fn();
     const onNewRole = vi.fn();
-    const onRunCheck = vi.fn();
     const { container } = render(
       <GamesRoute
         games={[covered, uncovered]}
-        reports={[]}
         roles={[]}
-        runStatuses={[]}
         statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
@@ -82,7 +75,6 @@ describe("games cover UI", () => {
         onEdit={onEdit}
         onNewGame={vi.fn()}
         onNewRole={onNewRole}
-        onRunCheck={onRunCheck}
       />
     );
 
@@ -104,186 +96,14 @@ describe("games cover UI", () => {
     onEdit.mockClear();
     const coveredCardQueries = within(coveredCard as HTMLElement);
     await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
+    expect(coveredCardQueries.queryByRole("menuitem", { name: /compatibility/i })).toBeNull();
     await user.click(coveredCardQueries.getByRole("menuitem", { name: "Add role" }));
     expect(onNewRole).toHaveBeenCalledWith("covered");
     expect(onEdit).not.toHaveBeenCalled();
 
     await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
-    await user.click(coveredCardQueries.getByRole("menuitem", { name: "Run compatibility check" }));
-    expect(onRunCheck).toHaveBeenCalledWith("covered");
-
-    await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
     await user.click(coveredCardQueries.getByRole("menuitem", { name: "Edit" }));
     expect(onEdit).toHaveBeenCalledWith(covered);
-  });
-
-  it("replaces the built-in and system-WebView-available badges with a compatibility shield", () => {
-    const builtinGame = game({
-      id: "builtin-flyff-universe",
-      source: "builtin",
-      builtinKey: "flyff-universe",
-      name: "Flyff Universe"
-    });
-    render(
-      <GamesRoute
-        games={[builtinGame]}
-        reports={[{
-          gameId: builtinGame.id,
-          checkedAt: "2026-07-15T01:00:00.000Z",
-          isStale: false,
-          load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
-          recommendation: { reason: "system_webview_available" },
-          observations: {}
-        }]}
-        roles={[]}
-        runStatuses={[]}
-        statusByRole={new Map()}
-        t={t}
-        onDelete={vi.fn()}
-        onDeleteMany={vi.fn().mockResolvedValue(false)}
-        onEdit={vi.fn()}
-        onNewGame={vi.fn()}
-        onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
-      />
-    );
-
-    const card = screen.getByText("Flyff Universe").closest(".glass-panel");
-    const cardQueries = within(card as HTMLElement);
-    const shield = cardQueries.getByRole("img", {
-      name: "System WebView is available; no settings were changed."
-    });
-
-    expect(cardQueries.queryByText("Built-in")).toBeNull();
-    expect(shield.getAttribute("title")).toBe("System WebView is available; no settings were changed.");
-    expect(shield.classList.contains("text-emerald-500")).toBe(true);
-  });
-
-  it("shows an outdated compatibility result beside the game name instead of below the metrics", () => {
-    const staleGame = game({ id: "stale-game", name: "Stale game" });
-    render(
-      <GamesRoute
-        games={[staleGame]}
-        reports={[{
-          gameId: staleGame.id,
-          checkedAt: "2026-07-15T01:00:00.000Z",
-          isStale: true,
-          load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
-          recommendation: { reason: "system_webview_available" },
-          observations: {}
-        }]}
-        roles={[]}
-        runStatuses={[]}
-        statusByRole={new Map()}
-        t={t}
-        onDelete={vi.fn()}
-        onDeleteMany={vi.fn().mockResolvedValue(false)}
-        onEdit={vi.fn()}
-        onNewGame={vi.fn()}
-        onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
-      />
-    );
-
-    const card = screen.getByText("Stale game").closest(".glass-panel");
-    const cardQueries = within(card as HTMLElement);
-    const staleBadge = cardQueries.getByText("Result may be outdated");
-
-    expect(staleBadge.parentElement).toBe(cardQueries.getByText("Stale game").parentElement);
-    expect(staleBadge.closest("button")).toBeTruthy();
-    expect(cardQueries.getAllByText("Result may be outdated")).toHaveLength(1);
-  });
-
-  it("shows the not-checked status beside the game name", () => {
-    const uncheckedGame = game({ id: "unchecked-game", name: "Unchecked game" });
-    render(
-      <GamesRoute
-        games={[uncheckedGame]}
-        reports={[]}
-        roles={[]}
-        runStatuses={[]}
-        statusByRole={new Map()}
-        t={t}
-        onDelete={vi.fn()}
-        onDeleteMany={vi.fn().mockResolvedValue(false)}
-        onEdit={vi.fn()}
-        onNewGame={vi.fn()}
-        onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
-      />
-    );
-
-    const card = screen.getByText("Unchecked game").closest(".glass-panel");
-    const cardQueries = within(card as HTMLElement);
-    const notCheckedBadge = cardQueries.getByText("Not checked");
-
-    expect(notCheckedBadge.parentElement).toBe(cardQueries.getByText("Unchecked game").parentElement);
-    expect(notCheckedBadge.closest("button")).toBeTruthy();
-    expect(cardQueries.getAllByText("Not checked")).toHaveLength(1);
-  });
-
-  it("shows every compatibility status in the shield position beside the game name", () => {
-    const checkingGame = game({ id: "checking-game", name: "Checking game" });
-    const failedGame = game({ id: "failed-game", name: "Failed game" });
-    const cancelledGame = game({ id: "cancelled-game", name: "Cancelled game" });
-    const graphicsGame = game({ id: "graphics-game", name: "Graphics game" });
-    render(
-      <GamesRoute
-        games={[checkingGame, failedGame, cancelledGame, graphicsGame]}
-        reports={[
-          {
-            gameId: failedGame.id,
-            isStale: false,
-            load: { state: "failed", durationMs: 321 },
-            recommendation: { reason: "load_failed" },
-            observations: {}
-          },
-          {
-            gameId: cancelledGame.id,
-            isStale: false,
-            load: { state: "cancelled", durationMs: 321 },
-            observations: {}
-          },
-          {
-            gameId: graphicsGame.id,
-            isStale: false,
-            load: { state: "available", durationMs: 321 },
-            recommendation: { reason: "graphics_unavailable" },
-            observations: {}
-          }
-        ]}
-        roles={[]}
-        runStatuses={[{
-          gameId: checkingGame.id,
-          phase: "loading",
-          startedAt: "2026-07-15T01:00:00.000Z",
-          updatedAt: "2026-07-15T01:00:01.000Z"
-        }]}
-        statusByRole={new Map()}
-        t={t}
-        onDelete={vi.fn()}
-        onDeleteMany={vi.fn().mockResolvedValue(false)}
-        onEdit={vi.fn()}
-        onNewGame={vi.fn()}
-        onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
-      />
-    );
-
-    for (const [gameName, status] of [
-      ["Checking game", "Checking"],
-      ["Failed game", "Embedded failed"],
-      ["Cancelled game", "Check cancelled"],
-      ["Graphics game", "Graphics capability limited"]
-    ]) {
-      const card = screen.getByText(gameName).closest(".glass-panel");
-      const cardQueries = within(card as HTMLElement);
-      const statusBadge = cardQueries.getByText(status);
-
-      expect(statusBadge.parentElement).toBe(cardQueries.getByText(gameName).parentElement);
-      expect(statusBadge.closest("button")).toBeTruthy();
-      expect(cardQueries.getAllByText(status)).toHaveLength(1);
-    }
   });
 
   it("uploads and removes a custom game cover in the editor", async () => {
@@ -298,13 +118,9 @@ describe("games cover UI", () => {
       element: <ConfirmationProvider><GameEditorRoute
         games={[customGame]}
         isSaving={false}
-        reports={[]}
-        runStatuses={[]}
         t={t}
-        onCancelCheck={vi.fn()}
         onError={vi.fn()}
         onReset={vi.fn()}
-        onRunCheck={vi.fn()}
         onSave={vi.fn()}
       /></ConfirmationProvider>
     }], { initialEntries: ["/games/game-1/edit"] });
@@ -335,13 +151,9 @@ describe("games cover UI", () => {
       element: <ConfirmationProvider><GameEditorRoute
         games={[builtinGame]}
         isSaving={false}
-        reports={[]}
-        runStatuses={[]}
         t={t}
-        onCancelCheck={vi.fn()}
         onError={vi.fn()}
         onReset={vi.fn()}
-        onRunCheck={vi.fn()}
         onSave={vi.fn()}
       /></ConfirmationProvider>
     }], { initialEntries: ["/games/builtin-flyff-universe/edit"] });
@@ -351,40 +163,6 @@ describe("games cover UI", () => {
     expect(screen.queryByLabelText("Choose cover")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove cover" })).toBeNull();
     expect(container.querySelector('img[src*="flyff-universe-cover"]')).toBeTruthy();
-  });
-
-  it("shows compatibility information and controls inside the game editor", async () => {
-    const user = userEvent.setup();
-    const customGame = game({ id: "game-1", name: "Custom game" });
-    const onRunCheck = vi.fn();
-    const router = createMemoryRouter([{
-      path: "/games/:id/edit",
-      element: <ConfirmationProvider><GameEditorRoute
-        games={[customGame]}
-        isSaving={false}
-        reports={[{
-          gameId: customGame.id,
-          checkedAt: "2026-07-15T01:00:00.000Z",
-          isStale: false,
-          load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
-          recommendation: { reason: "system_webview_available" },
-          observations: {}
-        }]}
-        runStatuses={[]}
-        t={t}
-        onCancelCheck={vi.fn()}
-        onError={vi.fn()}
-        onReset={vi.fn()}
-        onRunCheck={onRunCheck}
-        onSave={vi.fn()}
-      /></ConfirmationProvider>
-    }], { initialEntries: ["/games/game-1/edit"] });
-    render(<RouterProvider router={router} />);
-
-    expect(screen.getByText("Embedded available")).toBeTruthy();
-    expect(screen.getByText("321 ms")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Run compatibility check" }));
-    expect(onRunCheck).toHaveBeenCalledWith(customGame.id);
   });
 
 });

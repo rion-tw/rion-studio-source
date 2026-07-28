@@ -27,19 +27,17 @@ use crate::domain::{
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
-    EngineCompatibilityCacheKeyRecord, EngineCompatibilityCacheRecord, GameBrowserSettingsRecord,
-    GameCreateInputRecord, GameUpdateInputRecord, GameWindowCreateInputRecord,
-    GameWindowPlacementRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogLevel,
-    MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings,
-    MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
-    RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord,
-    StateCollection, StateCompatibilityObservationsRecord, StateCompatibilityReportRecord,
-    StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
-    StatePixelBoundsRecord, StateRoleRecord, WorkspaceCreateInputRecord,
-    WorkspaceUpdateInputRecord,
+    GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
+    GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowTabRecord,
+    GameWindowUpdateInputRecord, LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord,
+    MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord,
+    RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
+    RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord,
+    StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StatePixelBoundsRecord,
+    StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 15;
+pub(crate) const SCHEMA_VERSION: u32 = 16;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -81,15 +79,6 @@ enum Request {
         Sender<CoreResult<Option<LegacySessionRestoreState>>>,
     ),
     LegacySessionRestorePut(LegacySessionRestoreState, Sender<CoreResult<()>>),
-    EngineCompatibilityCacheGet(
-        EngineCompatibilityCacheKeyRecord,
-        Sender<CoreResult<Option<EngineCompatibilityCacheRecord>>>,
-    ),
-    EngineCompatibilityCachePut(
-        EngineCompatibilityCacheRecord,
-        Sender<CoreResult<EngineCompatibilityCacheRecord>>,
-    ),
-    EngineCompatibilityCacheDeleteGame(String, Sender<CoreResult<u32>>),
     Shutdown(Sender<()>),
 }
 
@@ -183,29 +172,17 @@ pub(crate) enum StateMutation {
     MacrosClearRole {
         role_id: String,
     },
-    CompatibilityReportSave(Box<StateCompatibilityReportRecord>),
-    CompatibilityReportRecordObservation {
-        game_id: String,
-        observation: StateCompatibilityObservationsRecord,
-    },
-    CompatibilityReportDelete {
-        game_id: String,
-    },
 }
 
 impl StateMutation {
     pub(crate) fn changed_collections(&self) -> Vec<StateCollection> {
-        use StateCollection::{
-            CompatibilityReports, GameWindows, Games, LaunchWorkspaces, Macros, Roles,
-        };
+        use StateCollection::{GameWindows, Games, LaunchWorkspaces, Macros, Roles};
 
         match self {
             Self::GameCreate(_) | Self::GameUpdate { .. } | Self::GameResetBuiltin { .. } => {
                 vec![Games]
             }
-            Self::GameDelete { .. } | Self::GamesDelete { .. } => {
-                vec![Games, CompatibilityReports]
-            }
+            Self::GameDelete { .. } | Self::GamesDelete { .. } => vec![Games],
             Self::RoleCreate(_)
             | Self::RoleCreateWithId { .. }
             | Self::RoleUpdate { .. }
@@ -232,9 +209,6 @@ impl StateMutation {
             | Self::MacroDelete { .. }
             | Self::MacrosDelete { .. }
             | Self::MacrosClearRole { .. } => vec![Macros],
-            Self::CompatibilityReportSave(_)
-            | Self::CompatibilityReportRecordObservation { .. }
-            | Self::CompatibilityReportDelete { .. } => vec![CompatibilityReports],
         }
     }
 }
@@ -358,33 +332,6 @@ impl StateDatabaseWorker {
     ) -> CoreResult<()> {
         request(&self.sender, |response| {
             Request::LegacySessionRestorePut(state, response)
-        })
-    }
-
-    pub(crate) fn engine_compatibility_cache_get(
-        &self,
-        key: EngineCompatibilityCacheKeyRecord,
-    ) -> CoreResult<Option<EngineCompatibilityCacheRecord>> {
-        request(&self.sender, |response| {
-            Request::EngineCompatibilityCacheGet(key, response)
-        })
-    }
-
-    pub(crate) fn engine_compatibility_cache_put(
-        &self,
-        record: EngineCompatibilityCacheRecord,
-    ) -> CoreResult<EngineCompatibilityCacheRecord> {
-        request(&self.sender, |response| {
-            Request::EngineCompatibilityCachePut(record, response)
-        })
-    }
-
-    pub(crate) fn engine_compatibility_cache_delete_game(
-        &self,
-        game_id: String,
-    ) -> CoreResult<u32> {
-        request(&self.sender, |response| {
-            Request::EngineCompatibilityCacheDeleteGame(game_id, response)
         })
     }
 
@@ -516,18 +463,6 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             }
             Request::LegacySessionRestorePut(state, response) => {
                 let _ = response.send(put_legacy_session_restore(&connection, &state));
-            }
-            Request::EngineCompatibilityCacheGet(key, response) => {
-                let _ = response.send(read_engine_compatibility_cache(&connection, &key));
-            }
-            Request::EngineCompatibilityCachePut(record, response) => {
-                let _ = response.send(put_engine_compatibility_cache(&connection, record));
-            }
-            Request::EngineCompatibilityCacheDeleteGame(game_id, response) => {
-                let _ = response.send(delete_engine_compatibility_cache_for_game(
-                    &connection,
-                    &game_id,
-                ));
             }
             Request::Shutdown(response) => {
                 let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -979,96 +914,6 @@ fn apply_domain_mutation(
                 sync_macros(&transaction, &macros)?;
                 Ok(json!({ "cleared": true }))
             }
-            StateMutation::CompatibilityReportSave(report) => {
-                let mut report = *report;
-                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-                if !games.iter().any(|game| game.id == report.game_id) {
-                    return Err(CoreError::Domain {
-                        code: "GAME_NOT_FOUND",
-                        message: "Game not found.".to_owned(),
-                    });
-                }
-                let mut reports = read_typed_collection::<StateCompatibilityReportRecord>(
-                    &transaction,
-                    "compatibilityReports",
-                )?;
-                if let Some(index) = reports
-                    .iter()
-                    .position(|current| current.game_id == report.game_id)
-                {
-                    report.observations = merge_compatibility_observations(
-                        &reports[index].observations,
-                        report.observations,
-                    );
-                    reports[index] = report.clone();
-                } else {
-                    reports.push(report.clone());
-                }
-                let ordinal = reports
-                    .iter()
-                    .position(|item| item.game_id == report.game_id)
-                    .unwrap();
-                upsert_compatibility(&transaction, &json_value(&report)?, ordinal)?;
-                serde_json::to_value(report)
-            }
-            StateMutation::CompatibilityReportRecordObservation {
-                game_id,
-                observation,
-            } => {
-                let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
-                if !games.iter().any(|game| game.id == game_id) {
-                    return Err(CoreError::Domain {
-                        code: "GAME_NOT_FOUND",
-                        message: "Game not found.".to_owned(),
-                    });
-                }
-                let mut reports = read_typed_collection::<StateCompatibilityReportRecord>(
-                    &transaction,
-                    "compatibilityReports",
-                )?;
-                let index = reports
-                    .iter()
-                    .position(|current| current.game_id == game_id);
-                let mut report = index
-                    .map(|index| reports[index].clone())
-                    .unwrap_or_else(|| StateCompatibilityReportRecord {
-                        game_id: game_id.clone(),
-                        checked_at: None,
-                        configuration_fingerprint: None,
-                        is_stale: false,
-                        load: None,
-                        graphics: None,
-                        recommendation: None,
-                        runtime: None,
-                        observations: StateCompatibilityObservationsRecord {
-                            last_embedded_success_at: None,
-                            last_launch_failure_at: None,
-                            last_launch_failure_code: None,
-                        },
-                    });
-                report.observations =
-                    merge_compatibility_observations(&report.observations, observation);
-                if let Some(index) = index {
-                    reports[index] = report.clone();
-                } else {
-                    reports.push(report.clone());
-                }
-                let ordinal = reports
-                    .iter()
-                    .position(|item| item.game_id == game_id)
-                    .unwrap();
-                upsert_compatibility(&transaction, &json_value(&report)?, ordinal)?;
-                serde_json::to_value(report)
-            }
-            StateMutation::CompatibilityReportDelete { game_id } => {
-                transaction
-                    .execute(
-                        "DELETE FROM compatibility_reports WHERE game_id=?1",
-                        params![game_id],
-                    )
-                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-                Ok(json!({ "deleted": true }))
-            }
         }
         .map_err(|error| CoreError::Internal(error.to_string()))?;
     let revision = increment_revision(&transaction)?;
@@ -1230,116 +1075,6 @@ fn put_legacy_session_restore(
     Ok(())
 }
 
-fn read_engine_compatibility_cache(
-    connection: &Connection,
-    key: &EngineCompatibilityCacheKeyRecord,
-) -> CoreResult<Option<EngineCompatibilityCacheRecord>> {
-    let cache_key = engine_compatibility_cache_id(key)?;
-    let payload = connection
-        .query_row(
-            "SELECT payload_json FROM engine_compatibility_cache WHERE cache_key=?1",
-            params![cache_key],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    payload
-        .map(|payload| {
-            serde_json::from_str::<EngineCompatibilityCacheRecord>(&payload)
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))
-        })
-        .transpose()
-}
-
-fn put_engine_compatibility_cache(
-    connection: &Connection,
-    record: EngineCompatibilityCacheRecord,
-) -> CoreResult<EngineCompatibilityCacheRecord> {
-    validate_engine_compatibility_cache_key(&record.key)?;
-    let cache_key = engine_compatibility_cache_id(&record.key)?;
-    let engine = serde_json::to_value(record.key.engine)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .ok_or_else(|| CoreError::Internal("browser engine serialization failed".to_owned()))?;
-    let payload = serde_json::to_string(&record)
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    connection
-        .execute(
-            "DELETE FROM engine_compatibility_cache
-             WHERE game_id=?1 AND engine=?2 AND cache_key<>?3",
-            params![record.key.game_id, engine, cache_key],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    connection
-        .execute(
-            "INSERT INTO engine_compatibility_cache(
-               cache_key, game_id, engine, payload_json, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(cache_key) DO UPDATE SET
-               game_id=excluded.game_id,
-               engine=excluded.engine,
-               payload_json=excluded.payload_json,
-               updated_at=excluded.updated_at",
-            params![
-                cache_key,
-                record.key.game_id,
-                engine,
-                payload,
-                chrono::Utc::now().to_rfc3339()
-            ],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(record)
-}
-
-fn delete_engine_compatibility_cache_for_game(
-    connection: &Connection,
-    game_id: &str,
-) -> CoreResult<u32> {
-    if game_id.is_empty() {
-        return Err(CoreError::InvalidInput(
-            "Game id is required for compatibility cache deletion.".to_owned(),
-        ));
-    }
-    let changed = connection
-        .execute(
-            "DELETE FROM engine_compatibility_cache WHERE game_id=?1",
-            params![game_id],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(u32::try_from(changed).unwrap_or(u32::MAX))
-}
-
-fn engine_compatibility_cache_id(key: &EngineCompatibilityCacheKeyRecord) -> CoreResult<String> {
-    validate_engine_compatibility_cache_key(key)?;
-    let encoded =
-        serde_json::to_vec(key).map_err(|error| CoreError::Internal(error.to_string()))?;
-    Ok(format!("{:x}", Sha256::digest(encoded)))
-}
-
-fn validate_engine_compatibility_cache_key(
-    key: &EngineCompatibilityCacheKeyRecord,
-) -> CoreResult<()> {
-    if [
-        &key.app_version,
-        &key.adapter_version,
-        &key.platform,
-        &key.os_build,
-        &key.webview_version,
-        &key.game_id,
-        &key.game_updated_at,
-        &key.settings_fingerprint,
-    ]
-    .into_iter()
-    .any(|value| value.trim().is_empty() || value.len() > 512)
-    {
-        return Err(CoreError::InvalidInput(
-            "Browser engine compatibility cache key is invalid.".to_owned(),
-        ));
-    }
-    Ok(())
-}
-
 fn set_operation_journal_phase(connection: &Connection, id: &str, phase: &str) -> CoreResult<()> {
     let changed = connection
         .execute(
@@ -1389,23 +1124,6 @@ fn validate_macro_role_references(
         })
     } else {
         Ok(())
-    }
-}
-
-fn merge_compatibility_observations(
-    current: &StateCompatibilityObservationsRecord,
-    update: StateCompatibilityObservationsRecord,
-) -> StateCompatibilityObservationsRecord {
-    StateCompatibilityObservationsRecord {
-        last_embedded_success_at: update
-            .last_embedded_success_at
-            .or_else(|| current.last_embedded_success_at.clone()),
-        last_launch_failure_at: update
-            .last_launch_failure_at
-            .or_else(|| current.last_launch_failure_at.clone()),
-        last_launch_failure_code: update
-            .last_launch_failure_code
-            .or_else(|| current.last_launch_failure_code.clone()),
     }
 }
 
@@ -1611,20 +1329,6 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
               singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
               payload_json TEXT NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS compatibility_reports (
-              game_id TEXT PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
-              ordinal INTEGER NOT NULL,
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS engine_compatibility_cache (
-              cache_key TEXT PRIMARY KEY,
-              game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-              engine TEXT NOT NULL,
-              payload_json TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS engine_compatibility_cache_game_idx
-              ON engine_compatibility_cache(game_id, engine);
             CREATE TABLE IF NOT EXISTS operation_journal (
               id TEXT PRIMARY KEY,
               kind TEXT NOT NULL,
@@ -1888,6 +1592,18 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
         transaction
             .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    if newest_version < 16 {
+        connection
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 DROP TABLE IF EXISTS compatibility_reports;
+                 DROP TABLE IF EXISTS engine_compatibility_cache;
+                 INSERT INTO schema_migrations(version, applied_at)
+                 VALUES (16, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 COMMIT;",
+            )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
     repair_optional_log_level(connection)?;
@@ -2367,10 +2083,6 @@ pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
         "gameWindows".to_owned(),
         read_payloads(connection, "game_windows")?,
     );
-    object.insert(
-        "compatibilityReports".to_owned(),
-        read_payloads(connection, "compatibility_reports")?,
-    );
     let mut statement = connection
         .prepare("SELECT key, payload_json FROM settings ORDER BY key")
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -2437,7 +2149,6 @@ fn collection_table(collection: &str) -> CoreResult<(&'static str, &'static str)
         "launchWorkspaces" => Ok(("workspaces", "id")),
         "gameWindows" => Ok(("game_windows", "id")),
         "macros" => Ok(("macros", "id")),
-        "compatibilityReports" => Ok(("compatibility_reports", "game_id")),
         _ => Err(CoreError::InvalidInput(format!(
             "state collection is invalid: {collection}"
         ))),
@@ -2572,7 +2283,6 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
             DELETE FROM macro_steps;
             DELETE FROM macro_roles;
             DELETE FROM macros;
-            DELETE FROM compatibility_reports;
             DELETE FROM role_images;
             DELETE FROM roles;
             DELETE FROM game_images;
@@ -2600,7 +2310,6 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
     )?;
     insert_game_windows(transaction, game_windows)?;
     insert_macros(transaction, array_field(object, "macros")?)?;
-    insert_compatibility(transaction, array_field(object, "compatibilityReports")?)?;
     for key in [
         "gameBrowserSettings",
         "macroSettings",
@@ -2632,7 +2341,6 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         "launchWorkspaces",
         "gameWindows",
         "macros",
-        "compatibilityReports",
     ]
     .into_iter()
     .map(|key| array_field(object, key).map(<[Value]>::len))
@@ -2921,20 +2629,6 @@ fn insert_macros(transaction: &Transaction<'_>, values: &[Value]) -> CoreResult<
     Ok(())
 }
 
-fn insert_compatibility(transaction: &Transaction<'_>, values: &[Value]) -> CoreResult<()> {
-    for (ordinal, value) in values.iter().enumerate() {
-        let object = entity_object(value, "compatibility report")?;
-        let game_id = required_string(object, "gameId", "compatibility report")?;
-        transaction
-            .execute(
-                "INSERT INTO compatibility_reports(game_id, ordinal, payload_json) VALUES (?1, ?2, ?3)",
-                params![game_id, ordinal as i64, serialize_payload(value)?],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    Ok(())
-}
-
 fn upsert_entity(
     transaction: &Transaction<'_>,
     table: &str,
@@ -3074,24 +2768,6 @@ fn upsert_macro(transaction: &Transaction<'_>, value: &Value, ordinal: usize) ->
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
-    Ok(())
-}
-
-fn upsert_compatibility(
-    transaction: &Transaction<'_>,
-    value: &Value,
-    ordinal: usize,
-) -> CoreResult<()> {
-    let object = entity_object(value, "compatibility report")?;
-    let game_id = required_string(object, "gameId", "compatibility report")?;
-    transaction
-        .execute(
-            "INSERT INTO compatibility_reports(game_id, ordinal, payload_json) VALUES (?1, ?2, ?3)
-             ON CONFLICT(game_id) DO UPDATE SET ordinal=excluded.ordinal,
-               payload_json=excluded.payload_json",
-            params![game_id, ordinal as i64, serialize_payload(value)?],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(())
 }
 
@@ -3270,10 +2946,7 @@ mod tests {
             )
             .unwrap();
         connection
-            .execute(
-                "DELETE FROM schema_migrations WHERE version IN (14, 15)",
-                [],
-            )
+            .execute("DELETE FROM schema_migrations WHERE version>=14", [])
             .unwrap();
 
         create_schema(&connection, false).unwrap();
@@ -3293,10 +2966,7 @@ mod tests {
         assert_eq!(migrated["workspace"], legacy["workspace"]);
 
         connection
-            .execute(
-                "DELETE FROM schema_migrations WHERE version IN (14, 15)",
-                [],
-            )
+            .execute("DELETE FROM schema_migrations WHERE version>=14", [])
             .unwrap();
         connection
             .execute(
@@ -3366,7 +3036,7 @@ mod tests {
             )
             .unwrap();
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=15", [])
+            .execute("DELETE FROM schema_migrations WHERE version>=15", [])
             .unwrap();
 
         create_schema(&connection, false).unwrap();
@@ -3408,7 +3078,6 @@ mod tests {
           "launchWorkspaces": [{"id":"w1","name":"Workspace","slots":[{"id":"s1","roleId":"r1"}]}],
           "gameWindows": [],
           "macros": [{"id":"m1","name":"Macro","roleIds":["r1"],"steps":[]}],
-          "compatibilityReports": [],
           "logLevel": "debug"
         });
         replace_snapshot(&mut connection, &snapshot).unwrap();
@@ -3423,8 +3092,7 @@ mod tests {
           "games": [{"id":"g1","name":"Game"}],
           "roles": [{"id":"r1","gameId":"g1","name":"Role"}],
           "launchWorkspaces": [],
-          "macros": [],
-          "compatibilityReports": []
+          "macros": []
         });
         let revision = replace_snapshot(&mut connection, &snapshot).unwrap();
         let stored = read_snapshot(&connection).unwrap();
@@ -3496,7 +3164,7 @@ mod tests {
     }
 
     #[test]
-    fn replaces_snapshots_that_already_have_compatibility_rows() {
+    fn ignores_retired_compatibility_reports_in_imported_snapshots() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         let original = json!({
@@ -3504,19 +3172,9 @@ mod tests {
             "compatibilityReports":[{"gameId":"g1","status":"compatible"}]
         });
         replace_snapshot(&mut connection, &original).unwrap();
-        let replacement = json!({
-            "games":[{"id":"g2","name":"Other"}],
-            "compatibilityReports":[{"gameId":"g2","status":"unknown"}]
-        });
-
-        replace_snapshot(&mut connection, &replacement).unwrap();
-
         let stored = read_snapshot(&connection).unwrap();
-        assert_eq!(stored["games"], replacement["games"]);
-        assert_eq!(
-            stored["compatibilityReports"],
-            replacement["compatibilityReports"]
-        );
+        assert_eq!(stored["games"], original["games"]);
+        assert!(stored.get("compatibilityReports").is_none());
     }
 
     #[test]
@@ -4189,7 +3847,7 @@ mod tests {
     }
 
     #[test]
-    fn bulk_game_delete_classifies_once_and_cascades_compatibility_rows() {
+    fn bulk_game_delete_classifies_once() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         replace_snapshot(
@@ -4222,14 +3880,6 @@ mod tests {
             }),
         )
         .unwrap();
-        connection
-            .execute(
-                "INSERT INTO compatibility_reports(game_id, ordinal, payload_json)
-                 VALUES ('g-delete', 0, '{}')",
-                [],
-            )
-            .unwrap();
-
         let result = apply_domain_mutation(
             &mut connection,
             StateMutation::GamesDelete {
@@ -4252,16 +3902,6 @@ mod tests {
                 {"id":"builtin-flyff-universe","reason":"protected","relatedNames":[]},
                 {"id":"missing","reason":"not_found","relatedNames":[]}
             ])
-        );
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT COUNT(*) FROM compatibility_reports WHERE game_id='g-delete'",
-                    [],
-                    |row| row.get::<_, u32>(0)
-                )
-                .unwrap(),
-            0
         );
     }
 
@@ -4299,7 +3939,7 @@ mod tests {
         import_legacy_files(&mut connection, directory.path()).unwrap();
 
         let snapshot = read_snapshot(&connection).unwrap();
-        assert_eq!(snapshot["compatibilityReports"], json!([]));
+        assert!(snapshot.get("compatibilityReports").is_none());
         assert!(
             snapshot["gameBrowserSettings"]
                 .get("browserEngine")
@@ -4483,84 +4123,40 @@ mod tests {
     }
 
     #[test]
-    fn schema_seven_caches_engine_compatibility_by_full_version_key() {
-        let mut connection = Connection::open_in_memory().unwrap();
+    fn schema_sixteen_removes_retired_compatibility_storage() {
+        let connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
-        replace_snapshot(
-            &mut connection,
-            &json!({"games":[{"id":"g1","name":"Game"}]}),
-        )
-        .unwrap();
-        let key = EngineCompatibilityCacheKeyRecord {
-            app_version: "2.2.0".to_owned(),
-            adapter_version: "webview2-1".to_owned(),
-            platform: "windows".to_owned(),
-            os_build: "10.0.26100".to_owned(),
-            webview_version: "140.0.0.0".to_owned(),
-            engine: crate::model::ResolvedBrowserEngine::Webview2,
-            game_id: "g1".to_owned(),
-            game_updated_at: "2026-07-25T00:00:00Z".to_owned(),
-            settings_fingerprint: "settings-v1".to_owned(),
-        };
-        let record = EngineCompatibilityCacheRecord {
-            key: key.clone(),
-            compatible: false,
-            capability_snapshot: crate::model::EngineCapabilitySnapshotRecord {
-                navigation: crate::model::EngineCapabilityStatus::Supported,
-                persistent_session: crate::model::EngineCapabilityStatus::Supported,
-                trusted_input: crate::model::EngineCapabilityStatus::Unsupported,
-                background_input: crate::model::EngineCapabilityStatus::Unsupported,
-                frame_evaluation: crate::model::EngineCapabilityStatus::Supported,
-                popup: crate::model::EngineCapabilityStatus::Supported,
-                audio_mute: crate::model::EngineCapabilityStatus::Supported,
-                custom_fonts: crate::model::EngineCapabilityStatus::Degraded,
-                downloads: crate::model::EngineCapabilityStatus::Supported,
-                file_upload: crate::model::EngineCapabilityStatus::Supported,
-                permissions: crate::model::EngineCapabilityStatus::Degraded,
-                dialogs: crate::model::EngineCapabilityStatus::Supported,
-                certificate_handling: crate::model::EngineCapabilityStatus::Supported,
-            },
-            issue_reason: Some(crate::model::SystemWebViewIssueReason::CachedCompatibilityFailure),
-            checked_at: "2026-07-25T01:00:00Z".to_owned(),
-        };
-        put_engine_compatibility_cache(&connection, record.clone()).unwrap();
-        assert_eq!(
-            read_engine_compatibility_cache(&connection, &key).unwrap(),
-            Some(record)
-        );
-
-        let mut changed_key = key.clone();
-        changed_key.adapter_version = "webview2-2".to_owned();
-        assert!(
-            read_engine_compatibility_cache(&connection, &changed_key)
-                .unwrap()
-                .is_none()
-        );
-        let mut replacement = read_engine_compatibility_cache(&connection, &key)
-            .unwrap()
-            .unwrap();
-        replacement.key = changed_key.clone();
-        replacement.compatible = true;
-        replacement.issue_reason = None;
-        put_engine_compatibility_cache(&connection, replacement.clone()).unwrap();
-        assert!(
-            read_engine_compatibility_cache(&connection, &key)
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(
-            read_engine_compatibility_cache(&connection, &changed_key).unwrap(),
-            Some(replacement)
-        );
-
+        for table in ["compatibility_reports", "engine_compatibility_cache"] {
+            let count = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0);
+        }
         connection
-            .execute("DELETE FROM games WHERE id='g1'", [])
+            .execute_batch(
+                "CREATE TABLE compatibility_reports(game_id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, payload_json TEXT NOT NULL);
+                 CREATE TABLE engine_compatibility_cache(cache_key TEXT PRIMARY KEY, game_id TEXT NOT NULL, engine TEXT NOT NULL, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+                 CREATE INDEX engine_compatibility_cache_game_idx ON engine_compatibility_cache(game_id, engine);
+                 DELETE FROM schema_migrations WHERE version=16;",
+            )
             .unwrap();
-        assert!(
-            read_engine_compatibility_cache(&connection, &changed_key)
-                .unwrap()
-                .is_none()
-        );
+
+        create_schema(&connection, false).unwrap();
+
+        for table in ["compatibility_reports", "engine_compatibility_cache"] {
+            let count = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, u32>(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0);
+        }
     }
 
     #[test]

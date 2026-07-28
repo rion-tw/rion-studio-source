@@ -289,7 +289,6 @@ export function App(): JSX.Element {
   const gameWorkflow = useGameWorkflow({
     beginErrorOperation: data.beginErrorOperation,
     roles: data.roles,
-    setCompatibilityReports: data.setCompatibilityReports,
     setGames: data.setGames,
     setNotice,
     t: preferences.t
@@ -438,13 +437,9 @@ export function App(): JSX.Element {
     <GameEditorRoute
       games={data.games}
       isSaving={gameWorkflow.isSavingGame}
-      reports={data.gameCompatibilityReports}
-      runStatuses={data.gameCompatibilityStatuses}
       t={preferences.t}
-      onCancelCheck={(gameId) => void gameWorkflow.cancelCompatibilityCheck(gameId)}
       onError={data.setError}
       onReset={gameWorkflow.resetBuiltinGame}
-      onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
       onSave={gameWorkflow.saveGame}
     />
   ) : <BridgeUnavailable t={preferences.t} />;
@@ -521,9 +516,7 @@ export function App(): JSX.Element {
               element={hasBridge ? <GamesRoute
                 games={data.games}
                 isDeleting={gameWorkflow.isDeletingGames}
-                reports={data.gameCompatibilityReports}
                 roles={data.roles}
-                runStatuses={data.gameCompatibilityStatuses}
                 statusByRole={data.statusByRole}
                 t={preferences.t}
                 onDelete={(game) => void gameWorkflow.deleteGame(game)}
@@ -531,7 +524,6 @@ export function App(): JSX.Element {
                 onEdit={(game) => navigateToEditGame(game.id)}
                 onNewGame={navigateToNewGame}
                 onNewRole={navigateToNewRoleForGame}
-                onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
               /> : <BridgeUnavailable t={preferences.t} />}
             />
             <Route path="/games/new" element={gameEditorElement} />

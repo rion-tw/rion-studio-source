@@ -262,16 +262,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
         if (isCurrent("macros")) emit("macros", macros);
       }));
     }
-    if (requested.has("compatibilityReports")) {
-      jobs.push(Promise.all([
-        invokeCore({ type: "stateSnapshot" }),
-        invokeCore({ type: "compatibilityStatuses" })
-      ]).then(([snapshot, statuses]) => {
-        if (isCurrent("compatibilityReports")) {
-          emit("compatibility", snapshot.compatibilityReports, statuses);
-        }
-      }));
-    }
     await Promise.all(jobs);
   };
 
@@ -290,9 +280,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
             break;
           case "macroStatuses":
             emit("macroStatuses", event.statuses);
-            break;
-          case "compatibilityStatuses":
-            void refreshCollections(["compatibilityReports"]);
             break;
           case "logEntriesCaptured":
             event.entries.forEach((entry) => emit("logEntry", entry));
@@ -421,11 +408,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     resetBuiltinGame: (id) => invokeCore({ type: "gameResetBuiltin", id }),
     deleteGame: (id) => invokeCore({ type: "gameDelete", id }).then(() => undefined),
     deleteGames: (input) => invokeCore({ type: "gamesDelete", ids: input.ids }),
-    listGameCompatibilityReports: () =>
-      invokeCore({ type: "stateSnapshot" }).then((snapshot) => snapshot.compatibilityReports),
-    runGameCompatibilityCheck: (id) => invokeShell("runGameCompatibilityCheck", [id]),
-    cancelGameCompatibilityCheck: (id) =>
-      invokeCore({ type: "compatibilityCancel", gameId: id }).then(() => undefined),
     listRoles: () => invokeCore({ type: "rolesList" }),
     createRole: (input) => invokeCore({ type: "roleCreate", input: roleCreateInput(input) }),
     updateRole: (id, input) =>
@@ -522,7 +504,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onGamesChanged: (callback) => on("games", callback as Listener),
     onGameWindowsChanged: (callback) => on("gameWindows", callback as Listener),
     onWorkspacesChanged: (callback) => on("workspaces", callback as Listener),
-    onGameCompatibilityChanged: (callback) => on("compatibility", callback as Listener),
     onDisplaysChanged: (callback) => on("displays", callback as Listener),
     onMacroStatusChanged: (callback) => on("macroStatuses", callback as Listener),
     onMacrosChanged: (callback) => on("macros", callback as Listener),

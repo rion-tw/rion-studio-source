@@ -62,12 +62,12 @@ mod tests {
     fn unavailable_system_reports_a_capability_failure_without_changing_engines() {
         let mut fallback = input(rion_platform::Platform::Windows);
         fallback.system_available = false;
-        fallback.system_failure_reason = Some(SystemWebViewIssueReason::CachedCompatibilityFailure);
+        fallback.system_failure_reason = Some(SystemWebViewIssueReason::RuntimeCreationFailed);
         let resolution = resolve_browser_engine(fallback);
         assert_eq!(resolution.resolved_engine, ResolvedBrowserEngine::Webview2);
         assert_eq!(
             resolution.issue_reason,
-            Some(SystemWebViewIssueReason::CachedCompatibilityFailure)
+            Some(SystemWebViewIssueReason::RuntimeCreationFailed)
         );
     }
 }

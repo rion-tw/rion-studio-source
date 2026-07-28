@@ -12,25 +12,16 @@ import { Textarea } from "../../components/ui/textarea";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type {
-  Game,
-  GameCompatibilityReport,
-  GameCompatibilityRunStatus
-} from "../../../../shared/types";
-import { GameCompatibilityPanel } from "./GameCompatibilityPanel";
+import type { Game } from "../../../../shared/types";
 import { parseLocalStorageSyncKeys } from "./localStorageSyncKeys";
 import { createGameCoverImageDataUrl } from "./gameCover";
 
 interface GameEditorRouteProps {
   games: Game[];
   isSaving: boolean;
-  reports: GameCompatibilityReport[];
-  runStatuses: GameCompatibilityRunStatus[];
   t: Translator;
-  onCancelCheck: (gameId: string) => void;
   onError: (error: unknown | null) => void;
   onReset: (game: Game) => Promise<Game | undefined>;
-  onRunCheck: (gameId: string) => void;
   onSave: (form: GameFormState) => Promise<Game | undefined>;
 }
 
@@ -50,13 +41,9 @@ function GameEditor({
   game,
   initialForm,
   isSaving,
-  reports,
-  runStatuses,
   t,
-  onCancelCheck,
   onError,
   onReset,
-  onRunCheck,
   onSave
 }: GameEditorRouteProps & { game?: Game; initialForm: GameFormState }): JSX.Element {
   const navigate = useNavigate();
@@ -125,15 +112,6 @@ function GameEditor({
           </FormField>
           {!keysValid ? <p className="text-xs text-destructive">{t("games.form.localStorageSyncKeysInvalid")}</p> : null}
         </Surface>
-        {game ? (
-          <GameCompatibilityPanel
-            report={reports.find((item) => item.gameId === game.id)}
-            runStatus={runStatuses.find((item) => item.gameId === game.id)}
-            t={t}
-            onCancel={() => onCancelCheck(game.id)}
-            onRun={() => onRunCheck(game.id)}
-          />
-        ) : null}
       </div>
       <div className="grid gap-4">
         <GameIconEditor form={form} game={game} isSaving={isSaving} t={t} onChange={setForm} onError={onError} />

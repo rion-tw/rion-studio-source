@@ -18,8 +18,6 @@ import type {
   CreateRoleInput,
   GameBrowserSettings,
   Game,
-  GameCompatibilityReport,
-  GameCompatibilityRunStatus,
   DiagnosticExportResult,
   DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
@@ -99,9 +97,6 @@ export interface RionStudioApi {
   resetBuiltinGame: (id: string) => Promise<Game>;
   deleteGame: (id: string) => Promise<void>;
   deleteGames: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
-  listGameCompatibilityReports: () => Promise<GameCompatibilityReport[]>;
-  runGameCompatibilityCheck: (id: string) => Promise<GameCompatibilityReport>;
-  cancelGameCompatibilityCheck: (id: string) => Promise<void>;
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;
@@ -165,9 +160,6 @@ export interface RionStudioApi {
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
   onGameWindowsChanged: (callback: (gameWindows: GameWindow[]) => void) => () => void;
   onWorkspacesChanged: (callback: (workspaces: LaunchWorkspace[]) => void) => () => void;
-  onGameCompatibilityChanged: (
-    callback: (reports: GameCompatibilityReport[], statuses: GameCompatibilityRunStatus[]) => void
-  ) => () => void;
   onDisplaysChanged: (callback: (displays: DisplayInfo[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;

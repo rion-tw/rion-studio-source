@@ -87,13 +87,9 @@ describe("Tauri System WebView runtime source", () => {
       roleLoading.indexOf("pending_navigations.push")
     );
 
-    const compatibilitySurface = runtime.slice(
-      runtime.indexOf("fn create_compatibility_surface("),
-      runtime.indexOf("fn require_compatibility_surface(")
-    );
-    expect(compatibilitySurface.indexOf("let mut state = match self.state()"))
-      .toBeGreaterThan(compatibilitySurface.indexOf("install_platform_security_policy"));
-    expect(compatibilitySurface).toContain("A compatibility surface was created concurrently");
+    expect(runtime).not.toContain("CompatibilitySurface");
+    expect(runtime).not.toContain("create_compatibility_surface");
+    expect(runtime).not.toContain("compatibility_session_paths");
     expect(runtime).toContain("role_bounds_for_content");
     expect(runtime).toContain("logical_window_content_metrics");
 

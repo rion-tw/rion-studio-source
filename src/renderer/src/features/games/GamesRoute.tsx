@@ -1,11 +1,9 @@
 import {
   Gamepad2,
-  Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
-  ShieldCheck,
   Trash2,
   Users
 } from "lucide-react";
@@ -26,13 +24,11 @@ import { Card } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { useListSelection } from "../../hooks/useListSelection";
-import type { Game, GameCompatibilityReport, GameCompatibilityRunStatus, Role, RoleStatus } from "../../../../shared/types";
+import type { Game, Role, RoleStatus } from "../../../../shared/types";
 
 interface GamesRouteProps {
   games: Game[];
-  reports: GameCompatibilityReport[];
   roles: Role[];
-  runStatuses: GameCompatibilityRunStatus[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   isDeleting?: boolean;
@@ -41,14 +37,11 @@ interface GamesRouteProps {
   onEdit: (game: Game) => void;
   onNewGame: () => void;
   onNewRole: (gameId: string) => void;
-  onRunCheck: (gameId: string) => void;
 }
 
 function GamesRoute({
   games,
-  reports,
   roles,
-  runStatuses,
   statusByRole,
   t,
   isDeleting = false,
@@ -56,8 +49,7 @@ function GamesRoute({
   onDeleteMany,
   onEdit,
   onNewGame,
-  onNewRole,
-  onRunCheck
+  onNewRole
 }: GamesRouteProps): JSX.Element {
   const [query, setQuery] = useState("");
   const pageRef = useRef<HTMLElement | null>(null);
@@ -109,32 +101,9 @@ function GamesRoute({
         <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filteredGames.map((game) => {
             const gameRoles = roles.filter((role) => role.gameId === game.id);
-            const report = reports.find((item) => item.gameId === game.id);
             const running = gameRoles.filter((role) => statusByRole.has(role.id)).length;
-            const checking = runStatuses.some((item) => item.gameId === game.id);
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
-            const isReportStale = !checking && report?.isStale === true;
-            const isSystemWebViewAvailable = !checking
-              && !report?.isStale
-              && report?.recommendation?.reason !== "graphics_unavailable"
-              && report?.load?.state === "available";
-            const isGraphicsLimited = !checking
-              && !isReportStale
-              && report?.recommendation?.reason === "graphics_unavailable";
-            const isFailed = !checking
-              && !isReportStale
-              && !isGraphicsLimited
-              && report?.load?.state === "failed";
-            const isCancelled = !checking
-              && !isReportStale
-              && report?.load?.state === "cancelled";
-            const isNotChecked = !checking
-              && !isReportStale
-              && !isSystemWebViewAvailable
-              && !isGraphicsLimited
-              && !isFailed
-              && !isCancelled;
             return (
               <Card
                 key={game.id}
@@ -170,40 +139,6 @@ function GamesRoute({
                       <div className="flex items-center gap-2">
                         <h2 className="truncate text-sm font-semibold">{game.name}</h2>
                         {game.source === "custom" ? <Badge variant="muted">{t("games.custom")}</Badge> : null}
-                        {isReportStale ? (
-                          <Badge className="shrink-0" variant="warning">
-                            {t("games.compatibility.stale")}
-                          </Badge>
-                        ) : isSystemWebViewAvailable ? (
-                          <span
-                            aria-label={t("games.compatibility.recommendation.system_webview_available")}
-                            className="inline-flex shrink-0 text-emerald-500"
-                            role="img"
-                            title={t("games.compatibility.recommendation.system_webview_available")}
-                          >
-                            <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.5} />
-                          </span>
-                        ) : checking ? (
-                          <Badge className="shrink-0" variant="warning">
-                            {t("games.compatibility.running")}
-                          </Badge>
-                        ) : isGraphicsLimited ? (
-                          <Badge className="shrink-0" variant="warning">
-                            {t("games.compatibility.graphicsLimited")}
-                          </Badge>
-                        ) : isFailed ? (
-                          <Badge className="shrink-0" variant="destructive">
-                            {t("games.compatibility.failed")}
-                          </Badge>
-                        ) : isCancelled ? (
-                          <Badge className="shrink-0" variant="muted">
-                            {t("games.compatibility.cancelled")}
-                          </Badge>
-                        ) : isNotChecked ? (
-                          <Badge className="shrink-0" variant="muted">
-                            {t("games.compatibility.notChecked")}
-                          </Badge>
-                        ) : null}
                       </div>
                       <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
                     </div>
@@ -211,17 +146,15 @@ function GamesRoute({
                 </button>
                 <div className="game-motion-opacity pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                   <GameActionMenu
-                    checking={checking}
                     game={game}
                     t={t}
                     onDelete={() => onDelete(game)}
                     onEdit={() => onEdit(game)}
                     onNewRole={() => onNewRole(game.id)}
-                    onRunCheck={() => onRunCheck(game.id)}
                   />
                 </div>
                 <div className="p-4 pt-3">
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="grid grid-cols-2 gap-2 text-center text-xs">
                     <Metric label={t("games.roles")} value={gameRoles.length} />
                     <Metric label={t("games.running")} value={running} />
                   </div>
@@ -238,21 +171,17 @@ function GamesRoute({
 }
 
 function GameActionMenu({
-  checking,
   game,
   t,
   onDelete,
   onEdit,
-  onNewRole,
-  onRunCheck
+  onNewRole
 }: {
-  checking: boolean;
   game: Game;
   t: Translator;
   onDelete: () => void;
   onEdit: () => void;
   onNewRole: () => void;
-  onRunCheck: () => void;
 }): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -313,16 +242,11 @@ function GameActionMenu({
             <Pencil size={14} />
             <span>{t("common.edit")}</span>
           </button>
-          <button className={itemClassName} type="button" role="menuitem" disabled={checking} onClick={() => run(onRunCheck)}>
-            {checking ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}
-            <span>{checking ? t("games.compatibility.running") : t("games.compatibility.run")}</span>
-          </button>
           {game.source === "custom" ? (
             <button
               className={`${itemClassName} text-destructive hover:bg-destructive/10 hover:text-destructive`}
               type="button"
               role="menuitem"
-              disabled={checking}
               onClick={() => run(onDelete)}
             >
               <Trash2 size={14} />

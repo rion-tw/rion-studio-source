@@ -14,19 +14,18 @@ use std::{
 use rion_core::{
     AppCore, BrowserAction, BrowserActionRequest, BrowserPerformanceDiagnosticStatus,
     BrowserPerformanceDiagnosticsRecord, BrowserPerformanceSurfaceDiagnosticRecord,
-    BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord, CompatibilityCheckPlanRecord, CoreCommand,
-    CoreEffectAction, CoreEffectRequest, CoreEffectResult, DisplayTargetRecord,
-    EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
-    EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
-    EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
-    GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
-    LayoutRect, LayoutRoleInput, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
-    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, SessionCookieRecord,
-    SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
-    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
-    SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
-    WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
-    WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord, CoreCommand, CoreEffectAction,
+    CoreEffectRequest, CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord,
+    EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+    EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
+    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
+    HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
+    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
+    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    StateWebGraphicsRecord, SystemWebViewRuntimeRegistrationRecord,
+    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
+    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -536,14 +535,6 @@ pub struct DividerPointerPayload {
     screen_position: Option<f64>,
 }
 
-struct CompatibilitySurface {
-    data_directory: PathBuf,
-    lifecycle: Arc<SurfaceLifecycleTracker>,
-    navigation: Arc<NavigationTracker>,
-    webview: Webview,
-    window: Window,
-}
-
 struct RecoveryBudget {
     attempts: u8,
     window_started: Instant,
@@ -569,7 +560,6 @@ struct RuntimeState {
     allow_window_close_labels: HashSet<String>,
     audible_webviews: HashMap<String, bool>,
     auto_restore_attempted: bool,
-    compatibility: HashMap<String, CompatibilitySurface>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
@@ -1902,7 +1892,6 @@ impl SystemRuntimeExecutor {
         if let Ok(mut state) = self.state.lock() {
             let tabs = std::mem::take(&mut state.tabs);
             let display_hosts = std::mem::take(&mut state.display_hosts);
-            let compatibility = std::mem::take(&mut state.compatibility);
             let popup_labels = std::mem::take(&mut state.popup_roles)
                 .into_keys()
                 .collect::<Vec<_>>();
@@ -1911,12 +1900,7 @@ impl SystemRuntimeExecutor {
             state.allow_window_close_labels.extend(
                 display_hosts
                     .values()
-                    .map(|host| host.window.label().to_owned())
-                    .chain(
-                        compatibility
-                            .values()
-                            .map(|surface| surface.window.label().to_owned()),
-                    ),
+                    .map(|host| host.window.label().to_owned()),
             );
             drop(state);
             for (_, tab) in tabs {
@@ -1926,9 +1910,6 @@ impl SystemRuntimeExecutor {
             }
             for (_, host) in display_hosts {
                 let _ = host.window.close();
-            }
-            for (_, surface) in compatibility {
-                let _ = surface.window.close();
             }
             for label in popup_labels {
                 if let Some(window) = self.app.get_webview_window(&label) {
@@ -3409,25 +3390,6 @@ impl SystemRuntimeExecutor {
                 self.commit_role_session_transfer(&transaction_id)?;
                 Ok(None)
             }
-            CoreEffectAction::CompatibilityCreateWindow { plan } => {
-                self.create_compatibility_surface(plan)?;
-                Ok(None)
-            }
-            CoreEffectAction::CompatibilityConfigureSession { game_id } => {
-                self.require_compatibility_surface(&game_id)?;
-                Ok(None)
-            }
-            CoreEffectAction::CompatibilityLoadUrl { game_id, url } => self
-                .load_compatibility_url(&game_id, &url)
-                .map(|final_url| Some(json!({ "finalUrl": final_url }).to_string())),
-            CoreEffectAction::CompatibilityProbeGraphics { game_id, source } => {
-                let webview = self.compatibility_webview(&game_id)?;
-                self.evaluate_webview(&webview, &source).map(Some)
-            }
-            CoreEffectAction::CompatibilityCleanupWindow { game_id } => {
-                self.cleanup_compatibility_surface(&game_id)?;
-                Ok(None)
-            }
             CoreEffectAction::OverlayOpenMacroPage { role_id } => {
                 let request = json!({ "roleId": role_id });
                 {
@@ -3884,7 +3846,7 @@ impl SystemRuntimeExecutor {
             {
                 // Match browser-like background tabs: keep hidden game pages throttled instead
                 // of accepting WebKit's default full suspension. Role-less utility WebViews keep
-                // the system default so imports and compatibility probes are not delayed.
+                // the system default so imports are not delayed.
                 builder = builder.background_throttling(BackgroundThrottlingPolicy::Throttle);
             }
         }
@@ -4522,150 +4484,6 @@ impl SystemRuntimeExecutor {
         result.and(cleanup)
     }
 
-    fn create_compatibility_surface(
-        &self,
-        plan: CompatibilityCheckPlanRecord,
-    ) -> RuntimeResult<()> {
-        {
-            let state = self.state()?;
-            if state.compatibility.contains_key(&plan.game_id) {
-                return Err(RuntimeError::new(
-                    "COMPATIBILITY_RUN_ALREADY_ACTIVE",
-                    "A compatibility surface already exists for this game.",
-                ));
-            }
-        }
-        let runtime_scope = format!("{}:{}", plan.game_id, plan.started_at);
-        let window_app = self.app.clone();
-        let window_label = runtime_label("compatibility-window", &runtime_scope);
-        let window_title = format!("{} compatibility", plan.game_name);
-        let window = self.create_window_bounded(&plan.game_id, move || {
-            WindowBuilder::new(&window_app, window_label)
-                .title(window_title)
-                .inner_size(960.0, 640.0)
-                .visible(false)
-                .build()
-        })?;
-        let navigation = Arc::new(NavigationTracker::default());
-        let callback_navigation = Arc::clone(&navigation);
-        let paths =
-            compatibility_session_paths(&self.user_data_dir, &plan.game_id, &plan.started_at);
-        if let Err(error) = fs::create_dir_all(&paths.webview2) {
-            let _ = window.close();
-            return Err(RuntimeError::io(error));
-        }
-        let builder = match self.webview_builder(
-            runtime_label("compatibility-webview", &runtime_scope),
-            &paths,
-            None,
-        ) {
-            Ok(builder) => builder
-                .incognito(true)
-                .on_page_load(move |_webview, payload| {
-                    callback_navigation.page_event(payload.event(), payload.url());
-                }),
-            Err(error) => {
-                let _ = window.close();
-                if let Some(directory) = paths.webview2.parent() {
-                    let _ = fs::remove_dir_all(directory);
-                }
-                return Err(error);
-            }
-        };
-        let webview = self
-            .add_child_bounded(
-                &window,
-                builder,
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(960.0, 640.0),
-                &plan.game_id,
-            )
-            .inspect_err(|_| {
-                let _ = window.close();
-                if let Some(directory) = paths.webview2.parent() {
-                    let _ = fs::remove_dir_all(directory);
-                }
-            })?;
-        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
-            Ok(lifecycle) => lifecycle,
-            Err(error) => {
-                let _ = webview.close();
-                let _ = window.close();
-                let _ = wait_for_tauri_main_thread(&self.app);
-                if let Some(directory) = paths.webview2.parent() {
-                    let _ = fs::remove_dir_all(directory);
-                }
-                return Err(error);
-            }
-        };
-        if let Err(error) = install_platform_security_policy(&webview) {
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, &plan.game_id);
-            let _ = window.close();
-            if let Some(directory) = paths.webview2.parent() {
-                let _ = fs::remove_dir_all(directory);
-            }
-            return Err(error);
-        }
-        let mut state = match self.state() {
-            Ok(state) => state,
-            Err(error) => {
-                let _ = self.close_surface_and_wait(&webview, &lifecycle, &plan.game_id);
-                let _ = window.close();
-                if let Some(directory) = paths.webview2.parent() {
-                    let _ = fs::remove_dir_all(directory);
-                }
-                return Err(error);
-            }
-        };
-        if state.compatibility.contains_key(&plan.game_id) {
-            drop(state);
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, &plan.game_id);
-            let _ = window.close();
-            if let Some(directory) = paths.webview2.parent() {
-                let _ = fs::remove_dir_all(directory);
-            }
-            return Err(RuntimeError::new(
-                "COMPATIBILITY_RUN_ALREADY_ACTIVE",
-                "A compatibility surface was created concurrently for this game.",
-            ));
-        }
-        state.compatibility.insert(
-            plan.game_id,
-            CompatibilitySurface {
-                data_directory: paths.webview2,
-                lifecycle,
-                navigation,
-                webview,
-                window,
-            },
-        );
-        Ok(())
-    }
-
-    fn require_compatibility_surface(&self, game_id: &str) -> RuntimeResult<()> {
-        if self.state()?.compatibility.contains_key(game_id) {
-            Ok(())
-        } else {
-            Err(RuntimeError::new(
-                "COMPATIBILITY_RUN_NOT_FOUND",
-                "Compatibility surface was not found.",
-            ))
-        }
-    }
-
-    fn compatibility_webview(&self, game_id: &str) -> RuntimeResult<Webview> {
-        self.state()?
-            .compatibility
-            .get(game_id)
-            .map(|surface| surface.webview.clone())
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "COMPATIBILITY_RUN_NOT_FOUND",
-                    "Compatibility surface was not found.",
-                )
-            })
-    }
-
     fn evaluate_webview(&self, webview: &Webview, source: &str) -> RuntimeResult<String> {
         evaluate_system_webview(webview, source)
     }
@@ -5095,44 +4913,6 @@ impl SystemRuntimeExecutor {
         };
         self.persist_local_storage_sync_snapshot(snapshot.clone())?;
         self.apply_local_storage_sync_to_running_dependents(source_role_id, &snapshot)
-    }
-
-    fn load_compatibility_url(&self, game_id: &str, url: &str) -> RuntimeResult<String> {
-        let (webview, navigation) = {
-            let state = self.state()?;
-            let surface = state.compatibility.get(game_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "COMPATIBILITY_RUN_NOT_FOUND",
-                    "Compatibility surface was not found.",
-                )
-            })?;
-            (surface.webview.clone(), Arc::clone(&surface.navigation))
-        };
-        navigation.reset();
-        webview
-            .navigate(checked_web_url(url)?)
-            .map_err(RuntimeError::tauri)?;
-        navigation
-            .wait()
-            .map_err(|message| RuntimeError::new("GAME_PAGE_LOAD_FAILED", message))?;
-        webview
-            .url()
-            .map(|url| url.to_string())
-            .map_err(RuntimeError::tauri)
-    }
-
-    fn cleanup_compatibility_surface(&self, game_id: &str) -> RuntimeResult<()> {
-        let surface = self.state()?.compatibility.remove(game_id);
-        if let Some(surface) = surface {
-            let _ = surface.webview.clear_all_browsing_data();
-            self.close_surface_and_wait(&surface.webview, &surface.lifecycle, game_id)?;
-            surface.window.close().map_err(RuntimeError::tauri)?;
-            self.wait_for_environment_release(&surface.lifecycle, game_id)?;
-            if let Some(directory) = surface.data_directory.parent() {
-                let _ = fs::remove_dir_all(directory);
-            }
-        }
-        Ok(())
     }
 
     fn resolve_runtime_layout(
@@ -6517,33 +6297,6 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn wait_for_environment_release(
-        &self,
-        lifecycle: &Arc<SurfaceLifecycleTracker>,
-        lifecycle_id: &str,
-    ) -> RuntimeResult<()> {
-        #[cfg(windows)]
-        {
-            if lifecycle.wait_for_browser_process_exit(PLATFORM_CALLBACK_TIMEOUT) {
-                return Ok(());
-            }
-            self.health.mark_unhealthy();
-            let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
-            Err(RuntimeError::new(
-                "SYSTEM_WEBVIEW_CREATION_STALLED",
-                format!(
-                    "The WebView2 environment for {lifecycle_id} did not release browser process {browser_process_id} within {}ms. Restart Rion Studio before mutating its user-data folder.",
-                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
-                ),
-            ))
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = (lifecycle, lifecycle_id);
-            Ok(())
-        }
-    }
-
     fn add_child_bounded(
         &self,
         window: &Window,
@@ -7366,26 +7119,6 @@ fn role_session_paths(user_data_dir: &Path, role_id: &str) -> RuntimeResult<Sess
             .join("browser")
             .join("webview2"),
     })
-}
-
-fn compatibility_session_paths(
-    user_data_dir: &Path,
-    game_id: &str,
-    started_at: &str,
-) -> SessionPaths {
-    let digest = Sha256::digest(format!("rion-studio:compatibility:{game_id}:{started_at}"));
-    let mut identifier = [0_u8; 16];
-    identifier.copy_from_slice(&digest[..16]);
-    identifier[6] = (identifier[6] & 0x0f) | 0x80;
-    identifier[8] = (identifier[8] & 0x3f) | 0x80;
-    let encoded = format!("{digest:x}");
-    SessionPaths {
-        webkit_identifier: identifier,
-        webview2: user_data_dir
-            .join("compatibility")
-            .join(&encoded[..32])
-            .join("webview2"),
-    }
 }
 
 fn checked_web_url(value: &str) -> RuntimeResult<Url> {
@@ -10271,19 +10004,6 @@ mod tests {
             Uuid::from_bytes(paths.webkit_identifier).to_string(),
             "32792c51-c7ee-8dce-afb2-a97ea4a6bc46"
         );
-    }
-
-    #[test]
-    fn compatibility_sessions_never_reuse_role_storage() {
-        let root = Path::new("/tmp/rion");
-        let role = role_session_paths(root, "game-1").unwrap();
-        let first = compatibility_session_paths(root, "game-1", "2026-07-26T00:00:00Z");
-        let second = compatibility_session_paths(root, "game-1", "2026-07-26T00:00:01Z");
-        assert_ne!(first.webkit_identifier, role.webkit_identifier);
-        assert_ne!(first.webkit_identifier, second.webkit_identifier);
-        assert_ne!(first.webview2, role.webview2);
-        assert_ne!(first.webview2, second.webview2);
-        assert!(first.webview2.starts_with(root.join("compatibility")));
     }
 
     #[test]

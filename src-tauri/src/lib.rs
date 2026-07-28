@@ -48,11 +48,6 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
         CoreEffectAction::ChromeProfileImportVerify { .. } => "chromeProfileImportVerify",
         CoreEffectAction::ChromeProfileImportRollback { .. } => "chromeProfileImportRollback",
         CoreEffectAction::ChromeProfileImportCommit { .. } => "chromeProfileImportCommit",
-        CoreEffectAction::CompatibilityCreateWindow { .. } => "compatibilityCreateWindow",
-        CoreEffectAction::CompatibilityConfigureSession { .. } => "compatibilityConfigureSession",
-        CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
-        CoreEffectAction::CompatibilityProbeGraphics { .. } => "compatibilityProbeGraphics",
-        CoreEffectAction::CompatibilityCleanupWindow { .. } => "compatibilityCleanupWindow",
         CoreEffectAction::EmbeddedCreateTab { .. } => "embeddedCreateTab",
         CoreEffectAction::EmbeddedConfigureRoleSessions { .. } => "embeddedConfigureRoleSessions",
         CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
@@ -613,15 +608,9 @@ fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, Core
         .core
         .invoke(CoreCommand::MacroStatuses)
         .map_err(error_payload)?;
-    let compatibility_statuses = state
-        .core
-        .invoke(CoreCommand::CompatibilityStatuses)
-        .map_err(error_payload)?;
     Ok(json!({
         "embeddedRuntimeState": embedded_runtime_state(state)?,
         "games": snapshot["games"].clone(),
-        "gameCompatibilityReports": snapshot["compatibilityReports"].clone(),
-        "gameCompatibilityStatuses": compatibility_statuses,
         "gameWindows": snapshot["gameWindows"].clone(),
         "roles": snapshot["roles"].clone(),
         "roleStatuses": role_statuses,
@@ -1108,19 +1097,6 @@ async fn rion_shell_invoke(
             stop_runtime_display(&state, &window_id).await
         }
         "embeddedRuntimeState" => embedded_runtime_state(&state),
-        "runGameCompatibilityCheck" => {
-            let game_id = string_argument(&args, 0, "Game ID")?;
-            let versions = runtime_versions(&app, &state)?;
-            invoke_core_async(
-                &state,
-                json!({
-                    "type": "compatibilityRun",
-                    "gameId": game_id,
-                    "versions": versions
-                }),
-            )
-            .await
-        }
         "startMacro" => {
             let macro_id = string_argument(&args, 0, "Macro ID")?;
             invoke_core_async(

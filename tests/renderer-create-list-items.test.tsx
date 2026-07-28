@@ -23,9 +23,7 @@ describe("create controls at the end of lists", () => {
     render(
       <GamesRoute
         games={[game()]}
-        reports={[]}
         roles={[]}
-        runStatuses={[]}
         statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
@@ -33,7 +31,6 @@ describe("create controls at the end of lists", () => {
         onEdit={vi.fn()}
         onNewGame={onNewGame}
         onNewRole={vi.fn()}
-        onRunCheck={vi.fn()}
       />
     );
 

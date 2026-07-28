@@ -56,8 +56,21 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
           VERIFIED_SHA: ${{ inputs.verified_sha }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          require_secret() {
+            local name="$1"
+            if [[ -z "${!name}" ]]; then
+              echo "::error::${name} is required for updater-signed release artifacts."
+              exit 1
+            fi
+          }
+          require_secret RION_STUDIO_UPDATER_PUBLIC_KEY
+          require_secret TAURI_SIGNING_PRIVATE_KEY
+          require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           [[ "${UPDATER_BASE_URL}" == https://* ]]
           test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"

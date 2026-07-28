@@ -8100,7 +8100,9 @@ mod tests {
             assert!(!failed);
             assert!(releases.get(&role_id).copied().unwrap_or_default() >= 3);
             assert!(releases.get(&sibling_role_id).copied().unwrap_or_default() >= 3);
-            assert!(held_roles.is_empty());
+            // The loop remains active until MacroStop below, so it may already have
+            // started the next balanced iteration after both roles released three
+            // times. Assert the fully drained key state only after stop completes.
         });
 
         let stop_core = Arc::clone(&core);

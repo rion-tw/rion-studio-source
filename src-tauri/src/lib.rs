@@ -592,6 +592,27 @@ async fn rion_shell_invoke(
                 .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
             Ok(Value::Null)
         }
+        "startCurrentWindowDrag" => {
+            window
+                .start_dragging()
+                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            Ok(Value::Null)
+        }
+        "toggleCurrentWindowMaximize" => {
+            let maximized = window
+                .is_maximized()
+                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            if maximized {
+                window
+                    .unmaximize()
+                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            } else {
+                window
+                    .maximize()
+                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            }
+            Ok(Value::Null)
+        }
         "displays" => display_inventory(&window),
         "launchRole" => {
             let role_id = string_argument(&args, 0, "Role ID")?;

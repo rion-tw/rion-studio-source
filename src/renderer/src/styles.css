@@ -359,6 +359,22 @@
     padding-top: 1.25rem;
   }
 
+  :root .app-sidebar.app-main-sidebar {
+    padding-top: 0;
+  }
+
+  .app-sidebar-brand-region {
+    padding-top: 1.25rem;
+  }
+
+  :root[data-platform="mac"] .app-sidebar-brand-region {
+    padding-top: 54px;
+  }
+
+  :root[data-platform="mac"][data-window-fullscreen="true"] .app-sidebar-brand-region {
+    padding-top: 1.25rem;
+  }
+
   .sidebar-settings {
     margin-right: -0.75rem;
     margin-left: -0.75rem;

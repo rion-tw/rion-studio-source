@@ -19,7 +19,6 @@ rion-core = { path = "../crates/rion-core" }
 rion-platform = { path = "../crates/rion-platform" }
 chrono.workspace = true
 rusqlite.workspace = true
-rusty-leveldb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

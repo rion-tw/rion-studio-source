@@ -1,13 +1,10 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
 #include <math.h>
-#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
 
 typedef void (*RionRoleZoomShortcutHandler)(void *context,
                                             const char *action);
@@ -203,36 +200,6 @@ static void RionDenyMediaCapture(id delegate, SEL selector, WKWebView *webView,
   decisionHandler(WKPermissionDecisionDeny);
 }
 
-static char RionUploadAttestationPathKey;
-static char RionUploadAttestationInvokedKey;
-static char RionUploadAttestationOriginalImplementationKey;
-
-static void RionUploadAttestationPanel(
-    id delegate, SEL selector, WKWebView *webView,
-    WKOpenPanelParameters *parameters, WKFrameInfo *frame,
-    void (^completionHandler)(NSArray<NSURL *> *)) {
-  (void)selector;
-  (void)webView;
-  (void)parameters;
-  (void)frame;
-  NSString *path = objc_getAssociatedObject(delegate,
-                                             &RionUploadAttestationPathKey);
-  NSValue *originalValue = objc_getAssociatedObject(
-      delegate, &RionUploadAttestationOriginalImplementationKey);
-  IMP originalImplementation = originalValue.pointerValue;
-  if (originalImplementation) {
-    Method method = class_getInstanceMethod(object_getClass(delegate), selector);
-    if (method) method_setImplementation(method, originalImplementation);
-  }
-  objc_setAssociatedObject(delegate, &RionUploadAttestationInvokedKey, @YES,
-                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-  if (path.length == 0) {
-    completionHandler(nil);
-    return;
-  }
-  completionHandler(@[[NSURL fileURLWithPath:path]]);
-}
-
 static BOOL RionInstallDelegateMethod(Class delegateClass, SEL selector, IMP implementation) {
   Method existing = class_getInstanceMethod(delegateClass, selector);
   const char *types = existing ? method_getTypeEncoding(existing) : NULL;
@@ -278,59 +245,6 @@ bool rion_wk_install_security_policy(void *rawWebView) {
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
     id<WKUIDelegate> delegate = webView.UIDelegate;
     return RionInstallSecurityPolicyOnDelegate(delegate);
-  }
-}
-
-bool rion_wk_install_upload_attestation(void *rawWebView, const char *path) {
-  @autoreleasepool {
-    if (!rawWebView || !path) return false;
-    WKWebView *webView = (__bridge WKWebView *)rawWebView;
-    id<WKUIDelegate> delegate = webView.UIDelegate;
-    if (!delegate) return false;
-    NSString *uploadPath = [NSString stringWithUTF8String:path];
-    if (uploadPath.length == 0) return false;
-    SEL selector = @selector(webView:runOpenPanelWithParameters:
-                            initiatedByFrame:completionHandler:);
-    Method originalMethod = class_getInstanceMethod(object_getClass(delegate),
-                                                     selector);
-    if (!originalMethod) return false;
-    IMP originalImplementation = method_getImplementation(originalMethod);
-    objc_setAssociatedObject(
-        delegate, &RionUploadAttestationOriginalImplementationKey,
-        [NSValue valueWithPointer:originalImplementation],
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if (!RionInstallDelegateMethod(object_getClass(delegate), selector,
-                                   (IMP)RionUploadAttestationPanel)) {
-      return false;
-    }
-    objc_setAssociatedObject(delegate, &RionUploadAttestationPathKey,
-                             uploadPath, OBJC_ASSOCIATION_COPY_NONATOMIC);
-    objc_setAssociatedObject(delegate, &RionUploadAttestationInvokedKey, @NO,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return true;
-  }
-}
-
-bool rion_wk_upload_attestation_invoked(void *rawWebView) {
-  @autoreleasepool {
-    if (!rawWebView) return false;
-    WKWebView *webView = (__bridge WKWebView *)rawWebView;
-    id<WKUIDelegate> delegate = webView.UIDelegate;
-    NSNumber *invoked = objc_getAssociatedObject(
-        delegate, &RionUploadAttestationInvokedKey);
-    return invoked.boolValue;
-  }
-}
-
-bool rion_wk_terminate_web_content_process(void *rawWebView) {
-  @autoreleasepool {
-    if (!rawWebView) return false;
-    WKWebView *webView = (__bridge WKWebView *)rawWebView;
-    SEL selector = NSSelectorFromString(@"_webProcessIdentifier");
-    if (![webView respondsToSelector:selector]) return false;
-    pid_t pid = ((pid_t (*)(id, SEL))objc_msgSend)(webView, selector);
-    if (pid <= 0 || pid == getpid()) return false;
-    return kill(pid, SIGKILL) == 0;
   }
 }
 

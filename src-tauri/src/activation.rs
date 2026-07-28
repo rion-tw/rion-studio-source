@@ -15,8 +15,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const ACTIVATION_ENDPOINT_FILE: &str = "rion-studio.activation.json";
-const ACTIVATION_TIMEOUT: Duration = Duration::from_secs(3);
-const ACTIVATION_ATTEMPTS: usize = 2;
+const ACTIVATION_TIMEOUT: Duration = Duration::from_millis(1_500);
 const MAX_ACTIVATION_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Deserialize, Serialize)]
@@ -74,14 +73,10 @@ impl ActivationServer {
                         Ok((stream, _)) => {
                             handle_connection(stream, &thread_token, on_activate.as_ref());
                         }
-                        Err(_) if thread_stop.load(Ordering::Acquire) => break,
-                        Err(_) => {
-                            // Nonblocking accept can surface platform-specific transient
-                            // connection errors. Keep the activation endpoint alive until the
-                            // owner explicitly drops the server instead of treating one such
-                            // error as a permanent listener failure.
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(25));
                         }
+                        Err(_) => break,
                     }
                 }
             })?;
@@ -108,52 +103,41 @@ impl Drop for ActivationServer {
 }
 
 pub fn forward_activation(user_data_dir: &Path) -> bool {
-    forward_activation_result(user_data_dir).is_ok()
-}
-
-fn forward_activation_result(user_data_dir: &Path) -> io::Result<()> {
-    let endpoint = read_endpoint(&user_data_dir.join(ACTIVATION_ENDPOINT_FILE))?;
+    let endpoint = match read_endpoint(&user_data_dir.join(ACTIVATION_ENDPOINT_FILE)) {
+        Ok(endpoint) => endpoint,
+        Err(_) => return false,
+    };
     if !valid_endpoint(&endpoint) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "activation endpoint is invalid",
-        ));
+        return false;
     }
-    let address = format!("{}:{}", endpoint.host, endpoint.port)
-        .parse::<SocketAddr>()
-        .map_err(io::Error::other)?;
-    for attempt in 0..ACTIVATION_ATTEMPTS {
-        let mut stream = TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT)?;
-        let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
-        let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
-        let request = ActivationRequest {
-            operation: "activate".to_owned(),
-            token: endpoint.token.clone(),
-        };
-        let Ok(mut body) = serde_json::to_vec(&request) else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "activation request could not be encoded",
-            ));
-        };
-        body.push(b'\n');
-        stream.write_all(&body)?;
-        let response = read_message(&mut stream)?;
-        let accepted = serde_json::from_slice::<serde_json::Value>(&response)
-            .ok()
-            .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
-            == Some(true);
-        if accepted {
-            return Ok(());
-        }
-        if attempt + 1 < ACTIVATION_ATTEMPTS {
-            thread::sleep(Duration::from_millis(25));
-        }
+    let address = match format!("{}:{}", endpoint.host, endpoint.port).parse::<SocketAddr>() {
+        Ok(address) => address,
+        Err(_) => return false,
+    };
+    let mut stream = match TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT) {
+        Ok(stream) => stream,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
+    let request = ActivationRequest {
+        operation: "activate".to_owned(),
+        token: endpoint.token,
+    };
+    let Ok(mut body) = serde_json::to_vec(&request) else {
+        return false;
+    };
+    body.push(b'\n');
+    if stream.write_all(&body).is_err() {
+        return false;
     }
-    Err(io::Error::new(
-        io::ErrorKind::PermissionDenied,
-        "activation endpoint rejected the request",
-    ))
+    let Ok(response) = read_message(&mut stream) else {
+        return false;
+    };
+    serde_json::from_slice::<serde_json::Value>(&response)
+        .ok()
+        .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+        == Some(true)
 }
 
 fn handle_connection(
@@ -277,7 +261,7 @@ mod tests {
         })
         .unwrap();
 
-        forward_activation_result(user_data_dir.path()).unwrap();
+        assert!(forward_activation(user_data_dir.path()));
         assert_eq!(activations.load(Ordering::SeqCst), 1);
         assert!(user_data_dir.path().join(ACTIVATION_ENDPOINT_FILE).exists());
 

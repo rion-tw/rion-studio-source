@@ -182,16 +182,20 @@ async function run(executable, args, env = process.env, timeout = 0) {
       windowsHide: true
     });
     let timedOut = false;
+    let terminationPromise = Promise.resolve();
     const timer = timeout > 0
       ? setTimeout(() => {
           timedOut = true;
-          terminateProcessTree(child);
+          terminationPromise = terminateProcessTree(child);
         }, timeout)
       : undefined;
     child.once("error", reject);
-    child.once("exit", (code, signal) => {
+    child.once("exit", async (code, signal) => {
       if (timer) clearTimeout(timer);
       if (timedOut) {
+        // Do not start a retry while taskkill is still tearing down WebView2's child
+        // processes; a fresh user-data directory does not prevent native process overlap.
+        await terminationPromise;
         reject(new Error(`System WebView trusted-input attestation timed out after ${timeout}ms.`));
       } else if (signal) {
         reject(new Error(`${executable} was terminated by ${signal}.`));
@@ -209,17 +213,25 @@ async function run(executable, args, env = process.env, timeout = 0) {
 function terminateProcessTree(child) {
   if (process.platform !== "win32" || !child.pid) {
     child.kill();
-    return;
+    return Promise.resolve();
   }
-  const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
-    stdio: "ignore",
-    windowsHide: true
+  return new Promise((resolvePromise) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallbackTimer);
+      if (child.exitCode === null) child.kill();
+      resolvePromise();
+    };
+    const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true
+    });
+    const fallbackTimer = setTimeout(finish, 10_000);
+    killer.once("error", finish);
+    killer.once("exit", finish);
   });
-  const fallback = () => {
-    if (child.exitCode === null) child.kill();
-  };
-  killer.once("error", fallback);
-  killer.once("exit", fallback);
 }
 
 main().catch((error) => {

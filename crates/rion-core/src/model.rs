@@ -2452,7 +2452,16 @@ pub struct WorkspaceDividerResizeOutput {
 pub struct GameBrowserSettingsRecord {
     pub fonts: BrowserFontSettingsRecord,
     pub macro_badge_position: MacroBadgePositionRecord,
+    #[serde(default)]
+    pub performance: BrowserPerformanceSettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserPerformanceSettingsRecord {
+    pub macos_high_refresh_rate: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

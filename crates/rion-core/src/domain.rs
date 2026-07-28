@@ -9,15 +9,15 @@ use crate::{
     error::{CoreError, CoreResult},
     model::StateCollection,
     model::{
-        BrowserFontSettingsRecord, DisplayTargetRecord, GameBrowserSettingsRecord,
-        GameCreateInputRecord, GameUpdateInputRecord, GameWindowCreateInputRecord,
-        GameWindowPlacementRecord, GameWindowUpdateInputRecord, LegalAcceptanceRecord,
-        MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord,
-        MacroStepDefinition, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
-        RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
-        RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
-        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
-        StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        BrowserFontSettingsRecord, BrowserPerformanceSettingsRecord, DisplayTargetRecord,
+        GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
+        GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
+        LegalAcceptanceRecord, MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat,
+        MacroSettingsRecord, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
+        MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
+        RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord,
+        StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceSlotInputRecord,
         WorkspaceUpdateInputRecord,
@@ -42,6 +42,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             horizontal_margin_px: 8,
             top_px: 128,
         },
+        performance: BrowserPerformanceSettingsRecord::default(),
         workspace: WorkspaceAppearanceSettingsRecord {
             background: "material".to_owned(),
             gap: 4,
@@ -2917,12 +2918,14 @@ mod tests {
             "graphics":{"mode":"high_performance"},
             "launchMode":"external",
             "macroBadgePosition":{"horizontalAlign":"right","horizontalMarginPx":80,"topPx":280},
+            "performance":{"macosHighRefreshRate":true},
             "workspace":{"background":"black","gap":12}
         }))
         .unwrap();
         let settings = normalize_game_browser_settings(settings);
         assert_eq!(settings.fonts.families["fixed"], "Courier New");
         assert!(!settings.fonts.families.contains_key("bad"));
+        assert!(settings.performance.macos_high_refresh_rate);
         validate_game_browser_settings(&settings).unwrap();
         assert!(
             serde_json::to_value(&settings)
@@ -2949,6 +2952,7 @@ mod tests {
             validate_game_browser_settings(&defaults).unwrap();
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);
+            assert!(!defaults.performance.macos_high_refresh_rate);
         });
         crate::v1_case!("state-migration-53ba1094014a", {
             let defaults = default_macro_settings();

@@ -3621,6 +3621,7 @@ mod tests {
                 "math":"Noto Sans Math",
                 "standard":"  Missing   But   Valid  Font  "
             });
+            settings["performance"]["macosHighRefreshRate"] = json!(true);
             source["preferences"] = json!({"gameBrowserSettings":settings});
             let mut runtime = PortableRuntime::default();
             let preview = runtime
@@ -3647,6 +3648,7 @@ mod tests {
                 Some("Noto Sans Math")
             );
             assert!(!fonts.families.contains_key("fixed"));
+            assert!(browser_settings.performance.macos_high_refresh_rate);
         });
     }
 
@@ -3658,6 +3660,7 @@ mod tests {
             .fonts
             .families
             .insert("standard".to_owned(), "Inter".to_owned());
+        browser_settings.performance.macos_high_refresh_rate = true;
         let exported = export(
             state_fixture(),
             Some(PortablePreferencesRecord {
@@ -3690,6 +3693,7 @@ mod tests {
         let serialized = serde_json::to_value(settings).unwrap();
         assert!(serialized.get("graphics").is_none());
         assert_eq!(serialized["fonts"]["families"]["standard"], "Inter");
+        assert_eq!(serialized["performance"]["macosHighRefreshRate"], true);
     }
 
     #[test]

@@ -2,6 +2,7 @@ import type {
   BrowserFontFamilyRole,
   BrowserFontSettings,
   BrowserFontSettingsMode,
+  BrowserPerformanceSettings,
   GameBrowserSettings,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
@@ -27,6 +28,10 @@ export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   mode: "default"
 };
 
+export const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
+  macosHighRefreshRate: false
+};
+
 export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];
 
 export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings = {
@@ -37,6 +42,7 @@ export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings 
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
+  performance: DEFAULT_BROWSER_PERFORMANCE_SETTINGS,
   workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
 
@@ -52,7 +58,21 @@ export function normalizeGameBrowserSettings(
       input.macroBadgePosition,
       fallback.macroBadgePosition
     ),
+    performance: normalizeBrowserPerformanceSettings(input.performance, fallback.performance),
     workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace)
+  };
+}
+
+export function normalizeBrowserPerformanceSettings(
+  value: unknown,
+  fallback: BrowserPerformanceSettings = DEFAULT_BROWSER_PERFORMANCE_SETTINGS
+): BrowserPerformanceSettings {
+  const input = isRecord(value) ? value : {};
+  return {
+    macosHighRefreshRate:
+      typeof input.macosHighRefreshRate === "boolean"
+        ? input.macosHighRefreshRate
+        : fallback.macosHighRefreshRate
   };
 }
 

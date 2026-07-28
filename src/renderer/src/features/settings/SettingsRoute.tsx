@@ -190,8 +190,10 @@ function SettingsViewBase({
   const [isPortableBusy, setIsPortableBusy] = useState(false);
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const [isWorkspaceAppearanceSaving, setIsWorkspaceAppearanceSaving] = useState(false);
+  const [isBrowserPerformanceSaving, setIsBrowserPerformanceSaving] = useState(false);
   const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
     useState(false);
+  const isMacOS = document.documentElement.dataset.platform === "mac";
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
@@ -220,6 +222,24 @@ function SettingsViewBase({
     })
       .catch(onError)
       .finally(() => setIsWorkspaceAppearanceSaving(false));
+  }
+
+  function updateBrowserPerformanceSettings(macosHighRefreshRate: boolean): void {
+    if (isBrowserPerformanceSaving) {
+      return;
+    }
+
+    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+    setIsBrowserPerformanceSaving(true);
+    void onGameBrowserSettingsChange({
+      ...normalizedSettings,
+      performance: {
+        ...normalizedSettings.performance,
+        macosHighRefreshRate
+      }
+    })
+      .catch(onError)
+      .finally(() => setIsBrowserPerformanceSaving(false));
   }
 
   function handleOpenPortableExport(): void {
@@ -400,7 +420,7 @@ function SettingsViewBase({
                 }
               />
               <SettingsRow
-                showDivider={false}
+                showDivider={isMacOS}
                 title={t("settings.restoreGameWindowsOnStartup")}
                 description={t("settings.restoreGameWindowsOnStartupDescription")}
                 control={
@@ -420,6 +440,21 @@ function SettingsViewBase({
                   />
                 }
               />
+              {isMacOS ? (
+                <SettingsRow
+                  showDivider={false}
+                  title={t("settings.macosHighRefreshRate")}
+                  description={t("settings.macosHighRefreshRateDescription")}
+                  control={
+                    <Switch
+                      aria-label={t("settings.macosHighRefreshRate")}
+                      checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
+                      disabled={isBrowserPerformanceSaving}
+                      onCheckedChange={updateBrowserPerformanceSettings}
+                    />
+                  }
+                />
+              ) : null}
             </SettingsSection>
 
             <SettingsSection title={t("settings.workspace")}>

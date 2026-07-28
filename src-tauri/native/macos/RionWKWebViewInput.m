@@ -1,10 +1,83 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+enum {
+  RionWKHighRefreshRateApplied = 0,
+  RionWKHighRefreshRateUnavailable = 1,
+  RionWKHighRefreshRateFailed = 2,
+};
+
+static id RionWKFeatureWithKey(NSArray *features, NSString *expectedKey) {
+  SEL keySelector = NSSelectorFromString(@"key");
+  for (id feature in features) {
+    if (![feature respondsToSelector:keySelector]) continue;
+    id key = ((id (*)(id, SEL))objc_msgSend)(feature, keySelector);
+    if ([key isKindOfClass:NSString.class] && [key isEqualToString:expectedKey]) {
+      return feature;
+    }
+  }
+  return nil;
+}
+
+int32_t rion_wk_enable_high_refresh_rate(void *rawWebView) {
+  @autoreleasepool {
+    if (!rawWebView) return RionWKHighRefreshRateFailed;
+    @try {
+      WKWebView *webView = (__bridge WKWebView *)rawWebView;
+      WKPreferences *preferences = webView.configuration.preferences;
+      Class preferencesClass = NSClassFromString(@"WKPreferences");
+      SEL featuresSelector = NSSelectorFromString(@"_features");
+      SEL setEnabledSelector =
+          NSSelectorFromString(@"_setEnabled:forFeature:");
+      if (!preferences || !preferencesClass ||
+          ![(id)preferencesClass respondsToSelector:featuresSelector] ||
+          ![preferences respondsToSelector:setEnabledSelector]) {
+        return RionWKHighRefreshRateUnavailable;
+      }
+      id features = ((id (*)(id, SEL))objc_msgSend)(
+          (id)preferencesClass, featuresSelector);
+      if (![features isKindOfClass:NSArray.class]) {
+        return RionWKHighRefreshRateUnavailable;
+      }
+      id feature = RionWKFeatureWithKey(
+          (NSArray *)features,
+          @"PreferPageRenderingUpdatesNear60FPSEnabled");
+      if (!feature) return RionWKHighRefreshRateUnavailable;
+      ((void (*)(id, SEL, BOOL, id))objc_msgSend)(
+          preferences, setEnabledSelector, NO, feature);
+      return RionWKHighRefreshRateApplied;
+    } @catch (__unused NSException *exception) {
+      return RionWKHighRefreshRateFailed;
+    }
+  }
+}
+
+@interface RionWKFeatureFixture : NSObject
+@property(nonatomic, copy) NSString *key;
+@end
+
+@implementation RionWKFeatureFixture
+@end
+
+bool rion_wk_high_refresh_rate_self_test(void) {
+  @autoreleasepool {
+    RionWKFeatureFixture *other = [[RionWKFeatureFixture alloc] init];
+    other.key = @"OtherFeature";
+    RionWKFeatureFixture *target = [[RionWKFeatureFixture alloc] init];
+    target.key = @"PreferPageRenderingUpdatesNear60FPSEnabled";
+    NSArray *features = @[other, @42, target];
+    return RionWKFeatureWithKey(
+               features,
+               @"PreferPageRenderingUpdatesNear60FPSEnabled") == target &&
+        RionWKFeatureWithKey(features, @"MissingFeature") == nil;
+  }
+}
 
 typedef void (*RionRoleZoomShortcutHandler)(void *context,
                                             const char *action);

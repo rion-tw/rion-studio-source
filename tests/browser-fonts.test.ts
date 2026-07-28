@@ -50,8 +50,21 @@ describe("browser font settings normalization", () => {
         mode: "custom"
       },
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
+      performance: DEFAULT_GAME_BROWSER_SETTINGS.performance,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
+  });
+
+  it("defaults and validates the macOS high refresh preference", () => {
+    expect(normalizeGameBrowserSettings({}).performance).toEqual({
+      macosHighRefreshRate: false
+    });
+    expect(
+      normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: true } }).performance
+    ).toEqual({ macosHighRefreshRate: true });
+    expect(
+      normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: "yes" } }).performance
+    ).toEqual({ macosHighRefreshRate: false });
   });
 
   it("removes legacy browser engine settings", () => {

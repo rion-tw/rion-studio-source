@@ -1,6 +1,7 @@
 import type {
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
+  BrowserPerformanceSettingsRecord,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
   ChromeProfileImportResolutionRecord,
@@ -375,6 +376,8 @@ export type WorkspaceBackgroundStyle = "material" | "black";
 export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
 export type BrowserFontSettings = BrowserFontSettingsRecord;
+
+export type BrowserPerformanceSettings = BrowserPerformanceSettingsRecord;
 
 export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 

@@ -450,6 +450,8 @@
   "settings.alwaysHideTabCloseButtonDescription": "隐藏所有游戏窗口标签栏上的关闭按钮；仍可从标签页右键菜单或游戏窗口管理页停止标签页。",
   "settings.restoreGameWindowsOnStartup": "启动时恢复游戏窗口",
   "settings.restoreGameWindowsOnStartupDescription": "Rion Studio 正常退出后，自动重新打开退出前可见的游戏窗口；已隐藏的窗口会保留到你手动打开。",
+  "settings.macosHighRefreshRate": "实验性高刷新率",
+  "settings.macosHighRefreshRateDescription": "让 macOS 上可见且聚焦的游戏画面更充分地使用高刷新率显示器。需要重新启动 Rion Studio，并可能增加耗电和温度。",
   "settings.macroBadges": "宏徽章",
   "settings.macroBadgeHorizontalAlign": "水平对齐",
   "settings.macroBadgeHorizontalAlignDescription": "选择运行中的宏徽章在游戏画面中的水平位置。",

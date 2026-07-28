@@ -520,6 +520,7 @@ struct RuntimeWebViewConfiguration {
     #[cfg_attr(not(windows), allow(dead_code))]
     additional_browser_arguments: String,
     document_start_script: String,
+    macos_high_refresh_rate: bool,
     overlay_document_start_script: String,
 }
 
@@ -718,6 +719,7 @@ impl SystemRuntimeExecutor {
             configuration: RuntimeWebViewConfiguration {
                 additional_browser_arguments,
                 document_start_script,
+                macos_high_refresh_rate: settings.performance.macos_high_refresh_rate,
                 overlay_document_start_script,
             },
             core,
@@ -2818,6 +2820,7 @@ impl SystemRuntimeExecutor {
             LogicalSize::new(bounds.width, bounds.height),
             role_id,
         )?;
+        configure_platform_high_refresh_rate(&webview, self.configuration.macos_high_refresh_rate);
         let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
             Ok(lifecycle) => lifecycle,
             Err(error) => {
@@ -3364,6 +3367,7 @@ impl SystemRuntimeExecutor {
         let popup_role_id = role_id.map(str::to_owned);
         let popup_webview2_data_directory = paths.webview2.clone();
         let popup_webkit_data_store_identifier = paths.webkit_identifier;
+        let popup_high_refresh_rate = self.configuration.macos_high_refresh_rate;
         #[cfg(windows)]
         let popup_additional_browser_arguments =
             self.configuration.additional_browser_arguments.clone();
@@ -3475,6 +3479,10 @@ impl SystemRuntimeExecutor {
                 let popup = popup_builder.build();
                 match popup {
                     Ok(window) => {
+                        configure_platform_high_refresh_rate(
+                            window.as_ref(),
+                            popup_high_refresh_rate,
+                        );
                         if let Err(error) = install_platform_security_policy(window.as_ref()) {
                             let _ = window.close();
                             let _ = popup_app.emit(
@@ -5316,6 +5324,10 @@ impl SystemRuntimeExecutor {
                     LogicalSize::new(bounds.width, bounds.height),
                     &role_id,
                 )?;
+                configure_platform_high_refresh_rate(
+                    &webview,
+                    self.configuration.macos_high_refresh_rate,
+                );
                 created_surfaces.push((role_id.clone(), webview.clone(), None));
                 let lifecycle = self.install_surface_lifecycle_tracker(&webview)?;
                 created_surfaces
@@ -8506,6 +8518,36 @@ fn validate_mouse_button(button: &str) -> RuntimeResult<&str> {
 }
 
 #[cfg(target_os = "macos")]
+fn configure_platform_high_refresh_rate(webview: &Webview, enabled: bool) {
+    if !enabled {
+        return;
+    }
+
+    unsafe extern "C" {
+        fn rion_wk_enable_high_refresh_rate(webview: *mut std::ffi::c_void) -> i32;
+    }
+
+    let label = webview.label().to_owned();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let outcome = match webview.with_webview(move |platform_webview| {
+        let status = unsafe { rion_wk_enable_high_refresh_rate(platform_webview.inner()) };
+        let _ = sender.send(status);
+    }) {
+        Ok(()) => match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+            Ok(0) => "applied",
+            Ok(1) => "unavailable",
+            Ok(_) => "failed",
+            Err(_) => "timeout",
+        },
+        Err(_) => "schedule-failed",
+    };
+    eprintln!("System WebView macOS high refresh rate: label={label} status={outcome}.");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_platform_high_refresh_rate(_webview: &Webview, _enabled: bool) {}
+
+#[cfg(target_os = "macos")]
 fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_install_security_policy(webview: *mut std::ffi::c_void) -> bool;
@@ -9633,6 +9675,15 @@ mod tests {
             fn rion_wk_security_policy_self_test() -> bool;
         }
         assert!(unsafe { rion_wk_security_policy_self_test() });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_high_refresh_rate_finds_only_the_expected_webkit_feature() {
+        unsafe extern "C" {
+            fn rion_wk_high_refresh_rate_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_high_refresh_rate_self_test() });
     }
 
     #[test]

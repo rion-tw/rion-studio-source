@@ -196,6 +196,9 @@ bridge, architecture, release tooling, and renderer behavior. Prefer dependency 
 and deterministic fixtures. Automatic releases inherit the exact successful CI SHA,
 while manually dispatched candidates rerun CI; release validation then builds platform
 packages and verifies their artifacts without launching the application.
+Candidate manifest and upgrade jobs explicitly accept the automatic quality skip,
+and a final release-ready gate prevents a skipped release-specific verification from
+being treated as a successful reusable workflow.
 
 Common test areas:
 

@@ -70,10 +70,22 @@ describe("Tauri-only release workflows", () => {
       workflow.indexOf("  build:"),
       workflow.indexOf("  manifest:")
     );
+    const manifest = workflow.slice(
+      workflow.indexOf("  manifest:"),
+      workflow.indexOf("  upgrade-compatibility:")
+    );
+    const upgrade = workflow.slice(
+      workflow.indexOf("  upgrade-compatibility:"),
+      workflow.indexOf("  release-ready:")
+    );
+    const releaseReady = workflow.slice(workflow.indexOf("  release-ready:"));
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("verified_sha:");
+    expect(workflow).toContain(
+      "value: ${{ jobs.manifest.outputs.release_artifact_name }}"
+    );
     expect(workflow).toContain('[[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]');
     expect(workflow).toContain('test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"');
     expect(validate).toContain("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY");
@@ -90,6 +102,19 @@ describe("Tauri-only release workflows", () => {
     expect(build).not.toContain("pnpm run verify:system-only");
     expect(build).not.toContain("pnpm run test");
     expect(build).not.toContain("pnpm run lint");
+    expect(manifest).toContain("always() &&");
+    expect(manifest).toContain("needs.build.result == 'success'");
+    expect(manifest).toContain("release_artifact_name: ${{ steps.artifact.outputs.name }}");
+    expect(upgrade).toContain("always() &&");
+    expect(upgrade).toContain("needs.manifest.result == 'success'");
+    expect(upgrade).toContain("needs.manifest.outputs.release_artifact_name");
+    expect(releaseReady).toContain("if: always()");
+    expect(releaseReady).toContain(
+      '[[ "${QUALITY_RESULT}" == "success" || "${QUALITY_RESULT}" == "skipped" ]]'
+    );
+    expect(releaseReady).toContain('test "${BUILD_RESULT}" = "success"');
+    expect(releaseReady).toContain('test "${MANIFEST_RESULT}" = "success"');
+    expect(releaseReady).toContain('test "${UPGRADE_RESULT}" = "success"');
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(workflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
@@ -150,6 +175,15 @@ describe("Tauri-only release workflows", () => {
     expect(build).toContain("- validate-ci-run");
     expect(build).toContain("- resolve-release");
     expect(workflow).toContain("tauri-release-assets-");
+    expect(workflow).toContain(
+      "name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}"
+    );
+    expect(workflow).toContain(
+      'run: test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"'
+    );
+    expect(workflow).not.toContain(
+      "name: tauri-release-assets-${{ needs.resolve-release.outputs.release_version }}"
+    );
     expect(workflow).toContain("cmp release-assets/SHA256SUMS.txt");
     expect(workflow).toContain("--verify-checksums");
     expect(workflow).not.toContain("--clobber");

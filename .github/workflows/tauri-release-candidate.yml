@@ -12,6 +12,10 @@ on:
       verified_sha:
         required: true
         type: string
+    outputs:
+      release_artifact_name:
+        description: Name of the complete verified release artifact
+        value: ${{ jobs.manifest.outputs.release_artifact_name }}
     secrets:
       RION_STUDIO_UPDATER_PUBLIC_KEY:
         required: true
@@ -195,7 +199,13 @@ jobs:
     needs:
       - validate
       - build
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      release_artifact_name: ${{ steps.artifact.outputs.name }}
     steps:
       - name: Checkout requested tag
         uses: actions/checkout@v7
@@ -229,10 +239,17 @@ jobs:
             --output-directory candidate
           node scripts/releaseArtifacts.mjs candidate "${VERSION}" --write-checksums
 
+      - name: Record verified release artifact
+        id: artifact
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: echo "name=tauri-release-assets-${VERSION}" >> "${GITHUB_OUTPUT}"
+
       - name: Upload verified release candidate
         uses: actions/upload-artifact@v7
         with:
-          name: tauri-release-assets-${{ needs.validate.outputs.version }}
+          name: ${{ steps.artifact.outputs.name }}
           if-no-files-found: error
           retention-days: 14
           path: candidate
@@ -241,6 +258,10 @@ jobs:
     needs:
       - validate
       - manifest
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.manifest.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -255,7 +276,7 @@ jobs:
       - name: Download complete signed candidate
         uses: actions/download-artifact@v8
         with:
-          name: tauri-release-assets-${{ needs.validate.outputs.version }}
+          name: ${{ needs.manifest.outputs.release_artifact_name }}
           path: candidate
 
       - name: Verify dual updater manifests and immutable checksums
@@ -333,3 +354,29 @@ jobs:
           if ($removal.ExitCode -ne 0) { throw "Upgraded NSIS uninstallation failed." }
           if (-not (Test-Path (Join-Path $userData "roles/legacy/browser/data.marker") -PathType Leaf)) { throw "Uninstallation removed role browser data." }
           if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Uninstallation removed the SQLite store." }
+
+  release-ready:
+    needs:
+      - validate
+      - quality
+      - build
+      - manifest
+      - upgrade-compatibility
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every release-specific verification
+        shell: bash
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          MANIFEST_RESULT: ${{ needs.manifest.result }}
+          UPGRADE_RESULT: ${{ needs.upgrade-compatibility.result }}
+        run: |
+          set -euo pipefail
+          test "${VALIDATE_RESULT}" = "success"
+          [[ "${QUALITY_RESULT}" == "success" || "${QUALITY_RESULT}" == "skipped" ]]
+          test "${BUILD_RESULT}" = "success"
+          test "${MANIFEST_RESULT}" = "success"
+          test "${UPGRADE_RESULT}" = "success"

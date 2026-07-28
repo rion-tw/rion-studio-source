@@ -8,7 +8,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use fs2::FileExt;
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -33,15 +33,15 @@ use crate::{
         ChromeProfileImportUnsupportedCountsRecord, CompatibilityCheckOutcome,
         CompatibilityRunPhase, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
         CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind, CoreEvent,
-        DiagnosticExportResultRecord, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
-        EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
-        GameBrowserSettingsRecord, GameWindowCreateInputRecord, GameWindowTabRecord,
-        LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
-        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
-        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
-        OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
-        RuntimeVersionRecord, RuntimeWindowPreferencesRecord, StateCollection,
-        StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
+        CoreStateSnapshotRecord, DiagnosticExportResultRecord, EmbeddedLaunchResultRecord,
+        EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
+        EmbeddedTabEffectRecord, GameBrowserSettingsRecord, GameWindowCreateInputRecord,
+        GameWindowTabRecord, LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord,
+        LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
+        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
+        MacroStartRequest, OperationCancelResultRecord, RolePathsRecord,
+        RuntimeRestoreSessionRecord, RuntimeVersionRecord, RuntimeWindowPreferencesRecord,
+        StateCollection, StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
         StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         SystemWebViewRuntimeRegistrationRecord,
     },
@@ -803,29 +803,61 @@ impl AppCore {
                 selection,
                 resolutions,
             } => {
-                let _guard = self.state_mutation_guard()?;
-                if selection.game_windows
-                    && self
-                        .browser_runtime
-                        .lock()
-                        .map_err(|_| {
-                            CoreError::Internal("browser runtime lock poisoned".to_owned())
-                        })?
-                        .snapshot()
-                        .roles
-                        .iter()
-                        .any(|role| role.runtime == "embedded")
-                {
+                let runtime_snapshot = self
+                    .browser_runtime
+                    .lock()
+                    .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+                    .snapshot();
+                let running_role_ids = runtime_snapshot
+                    .roles
+                    .iter()
+                    .filter(|role| role.runtime == "embedded")
+                    .map(|role| role.role_id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                let running_workspace_ids = runtime_snapshot
+                    .workspaces
+                    .iter()
+                    .filter(|workspace| workspace.runtime == "embedded")
+                    .map(|workspace| workspace_operation_key(&workspace.workspace_id))
+                    .collect::<std::collections::HashSet<_>>();
+                if selection.game_windows && !running_role_ids.is_empty() {
                     return Err(CoreError::Domain {
                         code: "PORTABLE_IMPORT_GAME_WINDOWS_RUNNING",
                         message: "Stop all running roles before importing Game Windows.".to_owned(),
                     });
                 }
-                let snapshot = self.read_typed_snapshot()?;
-                let mut portable = self.portable()?;
-                let prepared =
-                    portable.prepare_apply(&import_id, selection, resolutions, snapshot)?;
-                let lease_id = if prepared.affected_macro_ids.is_empty() {
+                let (before, prepared) = {
+                    let _guard = self.state_mutation_guard()?;
+                    let snapshot = self.read_typed_snapshot()?;
+                    let prepared = self.portable()?.prepare_apply(
+                        &import_id,
+                        selection,
+                        resolutions,
+                        snapshot.clone(),
+                    )?;
+                    (snapshot, prepared)
+                };
+                let operation_role_ids = portable_operation_role_ids(&before, &prepared.snapshot)?;
+                if operation_role_ids
+                    .iter()
+                    .any(|id| running_role_ids.contains(id) || running_workspace_ids.contains(id))
+                {
+                    return Err(CoreError::Domain {
+                        code: "PORTABLE_IMPORT_ROLES_RUNNING",
+                        message:
+                            "Stop affected roles before importing Games, Roles, or Workspaces."
+                                .to_owned(),
+                    });
+                }
+                let browser_lease = if operation_role_ids.is_empty() {
+                    None
+                } else {
+                    Some(self.browser_operations.acquire(BrowserOperationRequest {
+                        role_ids: operation_role_ids,
+                        kind: "recoverableMutation".to_owned(),
+                    })?)
+                };
+                let macro_lease_id = if prepared.affected_macro_ids.is_empty() {
                     None
                 } else {
                     match self
@@ -837,20 +869,41 @@ impl AppCore {
                             code: "MACRO_MUTATION_BUSY",
                             ..
                         }) => {
+                            if let Some(lease) = &browser_lease {
+                                let _ = self.browser_operations.abort(&lease.id);
+                            }
                             return Err(CoreError::Domain {
                                 code: "PORTABLE_IMPORT_BUSY",
                                 message: "Stop affected macros before importing.".to_owned(),
                             });
                         }
-                        Err(error) => return Err(error),
+                        Err(error) => {
+                            if let Some(lease) = &browser_lease {
+                                let _ = self.browser_operations.abort(&lease.id);
+                            }
+                            return Err(error);
+                        }
                     }
                 };
                 let result = (|| {
+                    let _guard = self.state_mutation_guard()?;
+                    let current = self.read_typed_snapshot()?;
+                    if serde_json::to_value(&current)
+                        .map_err(|error| CoreError::Internal(error.to_string()))?
+                        != serde_json::to_value(&before)
+                            .map_err(|error| CoreError::Internal(error.to_string()))?
+                    {
+                        return Err(CoreError::Domain {
+                            code: "PORTABLE_IMPORT_STATE_CHANGED",
+                            message: "App data changed while the import was waiting. Review and apply the import again."
+                                .to_owned(),
+                        });
+                    }
                     let snapshot = serde_json::to_value(&prepared.snapshot)
                         .map_err(|error| CoreError::Internal(error.to_string()))?;
                     let (revision, changed) =
                         self.with_runtime(|runtime| runtime.state.replace_snapshot(snapshot))?;
-                    portable.discard(&import_id);
+                    self.portable()?.discard(&import_id);
                     if changed {
                         self.emit(vec![CoreEvent::StateChanged {
                             revision,
@@ -858,6 +911,7 @@ impl AppCore {
                                 StateCollection::Games,
                                 StateCollection::Roles,
                                 StateCollection::LaunchWorkspaces,
+                                StateCollection::GameWindows,
                                 StateCollection::Macros,
                                 StateCollection::CompatibilityReports,
                             ],
@@ -866,10 +920,20 @@ impl AppCore {
                     serde_json::to_value(prepared.result)
                         .map_err(|error| CoreError::Internal(error.to_string()))
                 })();
-                if let Some(lease_id) = lease_id {
-                    self.macro_runtime.release_mutation(&lease_id)?;
+                let macro_completion = macro_lease_id.as_deref().map_or(Ok(()), |lease_id| {
+                    self.macro_runtime.release_mutation(lease_id)
+                });
+                let browser_completion = match (&browser_lease, result.is_ok()) {
+                    (Some(lease), true) => self.browser_operations.complete(&lease.id),
+                    (Some(lease), false) => self.browser_operations.abort(&lease.id),
+                    (None, _) => Ok(()),
+                };
+                match (result, macro_completion, browser_completion) {
+                    (Ok(value), Ok(()), Ok(())) => Ok(value),
+                    (Err(error), _, _) | (Ok(_), Err(error), _) | (Ok(_), Ok(()), Err(error)) => {
+                        Err(error)
+                    }
                 }
-                result
             }
             CoreCommand::PortableDiscard { import_id } => {
                 Ok(json!({ "discarded": self.portable()?.discard(&import_id) }))
@@ -6010,6 +6074,108 @@ fn workspace_operation_key(workspace_id: &str) -> String {
     format!("workspace:{workspace_id}")
 }
 
+fn portable_operation_role_ids(
+    before: &CoreStateSnapshotRecord,
+    after: &CoreStateSnapshotRecord,
+) -> CoreResult<Vec<String>> {
+    let before_games = serialized_records_by_id(&before.games, |game| game.id.clone())?;
+    let after_games = serialized_records_by_id(&after.games, |game| game.id.clone())?;
+    let changed_game_ids = changed_record_ids(&before_games, &after_games);
+
+    let before_roles = serialized_records_by_id(&before.roles, |role| role.id.clone())?;
+    let after_roles = serialized_records_by_id(&after.roles, |role| role.id.clone())?;
+    let mut operation_ids = changed_record_ids(&before_roles, &after_roles);
+    operation_ids.extend(
+        before
+            .roles
+            .iter()
+            .chain(after.roles.iter())
+            .filter(|role| changed_game_ids.contains(&role.game_id))
+            .map(|role| role.id.clone()),
+    );
+
+    if serde_json::to_value(&before.game_browser_settings)
+        .map_err(|error| CoreError::Internal(error.to_string()))?
+        != serde_json::to_value(&after.game_browser_settings)
+            .map_err(|error| CoreError::Internal(error.to_string()))?
+    {
+        operation_ids.extend(
+            before
+                .roles
+                .iter()
+                .chain(after.roles.iter())
+                .map(|role| role.id.clone()),
+        );
+    }
+
+    let before_workspaces =
+        serialized_records_by_id(&before.launch_workspaces, |workspace| workspace.id.clone())?;
+    let after_workspaces =
+        serialized_records_by_id(&after.launch_workspaces, |workspace| workspace.id.clone())?;
+    let changed_workspace_ids = changed_record_ids(&before_workspaces, &after_workspaces);
+    for workspace_id in &changed_workspace_ids {
+        operation_ids.insert(workspace_operation_key(workspace_id));
+    }
+    operation_ids.extend(
+        before
+            .launch_workspaces
+            .iter()
+            .chain(after.launch_workspaces.iter())
+            .filter(|workspace| changed_workspace_ids.contains(&workspace.id))
+            .flat_map(|workspace| workspace.slots.iter())
+            .filter_map(|slot| slot.role_id.clone()),
+    );
+
+    let before_windows =
+        serialized_records_by_id(&before.game_windows, |window| window.id.clone())?;
+    let after_windows = serialized_records_by_id(&after.game_windows, |window| window.id.clone())?;
+    let changed_window_ids = changed_record_ids(&before_windows, &after_windows);
+    for tab in before
+        .game_windows
+        .iter()
+        .chain(after.game_windows.iter())
+        .filter(|window| changed_window_ids.contains(&window.id))
+        .flat_map(|window| window.tabs.iter())
+    {
+        operation_ids.extend(tab.role_ids.iter().cloned());
+        if tab.tab_type == "workspace" {
+            operation_ids.insert(workspace_operation_key(&tab.source_id));
+        }
+    }
+
+    let mut operation_ids = operation_ids.into_iter().collect::<Vec<_>>();
+    operation_ids.sort();
+    Ok(operation_ids)
+}
+
+fn serialized_records_by_id<T: Serialize>(
+    records: &[T],
+    id: impl Fn(&T) -> String,
+) -> CoreResult<std::collections::HashMap<String, Value>> {
+    records
+        .iter()
+        .map(|record| {
+            Ok((
+                id(record),
+                serde_json::to_value(record)
+                    .map_err(|error| CoreError::Internal(error.to_string()))?,
+            ))
+        })
+        .collect()
+}
+
+fn changed_record_ids(
+    before: &std::collections::HashMap<String, Value>,
+    after: &std::collections::HashMap<String, Value>,
+) -> std::collections::HashSet<String> {
+    before
+        .keys()
+        .chain(after.keys())
+        .filter(|id| before.get(*id) != after.get(*id))
+        .cloned()
+        .collect()
+}
+
 fn normalize_runtime_bulk_ids(ids: Vec<String>) -> CoreResult<Vec<String>> {
     let mut normalized = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -6569,6 +6735,45 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned()
+    }
+
+    fn seed_running_role(core: &AppCore, role_id: &str) {
+        let window_id = format!("running-window-{role_id}");
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RegisterWindow {
+            window_id: window_id.clone(),
+        })
+        .unwrap();
+        let tab_id = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+                tab_id: Some(uuid::Uuid::new_v4().to_string()),
+                source_id: role_id.to_owned(),
+                name: "Running role".to_owned(),
+                window_id,
+                tab_type: "role".to_owned(),
+                workspace_id: None,
+                role_ids: vec![role_id.to_owned()],
+            })
+            .unwrap()
+            .created_tab_id
+            .unwrap();
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+            role_id: role_id.to_owned(),
+            runtime: "embedded".to_owned(),
+            workspace_id: None,
+            tab_id: Some(tab_id.clone()),
+            state: "launching".to_owned(),
+            launched_at: None,
+        })
+        .unwrap();
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+            role_id: role_id.to_owned(),
+            runtime: "embedded".to_owned(),
+            workspace_id: None,
+            tab_id: Some(tab_id),
+            state: "running".to_owned(),
+            launched_at: Some(chrono::Utc::now().to_rfc3339()),
+        })
+        .unwrap();
     }
 
     fn flyff_game_id(core: &AppCore) -> String {
@@ -7869,6 +8074,49 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.code(), "PORTABLE_IMPORT_GAME_WINDOWS_RUNNING");
+        core.shutdown();
+    }
+
+    #[test]
+    fn portable_role_import_is_blocked_while_the_affected_role_is_running() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let selection = crate::model::PortableDataSelectionRecord {
+            games: true,
+            roles: true,
+            launch_workspaces: false,
+            game_windows: false,
+            macros: false,
+            preferences: false,
+        };
+        let mut portable = core
+            .invoke(CoreCommand::PortableExport {
+                preferences: None,
+                selection: selection.clone(),
+            })
+            .unwrap();
+        portable["roles"][0]["launchUrl"] = json!("https://example.com/imported");
+        let preview = core
+            .invoke(CoreCommand::PortablePreview {
+                raw_json: portable.to_string(),
+                file_path: "/tmp/rion-running-role-import.json".to_owned(),
+            })
+            .unwrap();
+        seed_running_role(&core, &role_id);
+
+        let error = core
+            .invoke(CoreCommand::PortableApply {
+                import_id: preview["importId"].as_str().unwrap().to_owned(),
+                selection,
+                resolutions: Vec::new(),
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code(), "PORTABLE_IMPORT_ROLES_RUNNING");
+        assert_eq!(
+            core.invoke(CoreCommand::RoleGet { id: role_id }).unwrap()["launchUrl"],
+            "https://example.com/play/1"
+        );
         core.shutdown();
     }
 

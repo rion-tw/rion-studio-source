@@ -7010,12 +7010,14 @@ fn verify_surface_recovery_attestation(
 #[cfg(windows)]
 fn focus_windows_host(window: &Window) -> RuntimeResult<()> {
     use std::sync::mpsc::sync_channel;
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 
-    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?.0 as usize;
     let (sender, receiver) = sync_channel(1);
     window
         .run_on_main_thread(move || {
+            let hwnd = HWND(hwnd as *mut std::ffi::c_void);
             let result = unsafe {
                 SetFocus(Some(hwnd))
                     .or_else(|_| SetFocus(None))

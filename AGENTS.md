@@ -100,5 +100,6 @@ pnpm run build
 pnpm run package
 ```
 
-`pnpm run dev` starts Tauri directly. Native System WebView parity harnesses are
-explicit package and CI gates; they must not be added to the development launcher.
+`pnpm run dev` starts Tauri directly. Build, package, and CI commands must not
+launch the application as a validation step; platform jobs compile, test, and
+bundle the macOS and Windows targets without exercising a machine-specific WebView.

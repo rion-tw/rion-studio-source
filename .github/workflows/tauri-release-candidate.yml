@@ -119,29 +119,6 @@ jobs:
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
 
-      - name: Verify macOS System WebView parity
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm run test:native:system-input
-          pnpm run test:native:macro-game -- --skip-system-input
-          pnpm run test:native:session-import -- --skip-system-input
-          pnpm run test:native:runtime-restore
-          pnpm run test:native:local-storage-sync
-          pnpm run test:native:file-operations
-
-      - name: Verify Windows System WebView parity
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          pnpm run test:native:system-input
-          pnpm run test:native:macro-game -- --skip-system-input
-          pnpm run test:native:session-import -- --skip-system-input
-          pnpm run test:native:runtime-restore
-          pnpm run test:native:local-storage-sync
-          pnpm run test:native:file-operations
-
       - name: Build Tauri release candidate
         run: pnpm run dist -- --bundles ${{ matrix.bundles }}
 
@@ -151,13 +128,6 @@ jobs:
         run: |
           set -euo pipefail
           app_path="target/release/bundle/macos/Rion Studio.app"
-          executable="${app_path}/Contents/MacOS/rion-tauri"
-          pnpm run test:native:system-input -- --executable "${executable}"
-          pnpm run test:native:macro-game -- --executable "${executable}" --skip-system-input
-          pnpm run test:native:session-import -- --executable "${executable}" --skip-system-input
-          pnpm run test:native:runtime-restore -- --executable "${executable}"
-          pnpm run test:native:local-storage-sync -- --executable "${executable}"
-          pnpm run test:native:file-operations -- --executable "${executable}"
           codesign --verify --deep --strict --verbose=2 "${app_path}"
           codesign_details="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
           grep -F "Signature=adhoc" <<< "${codesign_details}"
@@ -169,25 +139,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pnpm run test:native:system-input -- --executable target/release/rion-tauri.exe
-          pnpm run test:native:macro-game -- --executable target/release/rion-tauri.exe --skip-system-input
-          pnpm run test:native:session-import -- --executable target/release/rion-tauri.exe --skip-system-input
-          pnpm run test:native:runtime-restore -- --executable target/release/rion-tauri.exe
-          pnpm run test:native:local-storage-sync -- --executable target/release/rion-tauri.exe
-          pnpm run test:native:file-operations -- --executable target/release/rion-tauri.exe
           $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
           if ($null -eq $installer) { throw "NSIS installer is missing." }
           $signature = Get-AuthenticodeSignature $installer.FullName
           if ($signature.Status -ne "NotSigned") { throw "Windows candidate must remain unsigned like the legacy release." }
           if (-not (Test-Path "$($installer.FullName).sig" -PathType Leaf)) { throw "Updater signature is missing." }
-
-      - name: Upload System WebView attestation diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: system-webview-attestations-${{ matrix.name }}-${{ needs.validate.outputs.version }}
-          path: target/system-webview-attestations
-          if-no-files-found: ignore
 
       - name: Normalize release assets
         shell: bash

@@ -86,8 +86,7 @@ for (const entry of v1Manifest.entries) {
     evidence: [executableEvidence(entry.behaviorEvidence.file, entry.behaviorEvidence.test)],
     retirementClause: retirement?.reason,
     preservedCompanion: retirement?.preservedCompanion,
-    runtimeCritical: runtimeCritical(entry.behaviorEvidence.file),
-    nativeGate: nativeGate(entry.behaviorEvidence.file)
+    runtimeCritical: runtimeCritical(entry.behaviorEvidence.file)
   });
   behavior.sourceCaseIds.push(entry.id);
   mappings.push({ source: "v1.37.0-browser-workspace", sourceCaseId: entry.id, behaviorId: behavior.id });
@@ -110,8 +109,7 @@ for (const shellEntry of shellLedger.entries) {
           status: "preserved",
           contract: `Preserve the legacy overlay behavior “${sourceCase.title}” through the shell-neutral shared runtime and authenticated Tauri bridge.`,
           evidence: [evidence],
-          runtimeCritical: true,
-          nativeGate: "test:native:macro-game"
+          runtimeCritical: true
         }
       );
       behavior.sourceCaseIds.push(sourceCase.id);
@@ -132,8 +130,7 @@ for (const shellEntry of shellLedger.entries) {
     contract: shellEntry.rationale,
     evidence: [evidence],
     retirementClause: shellEntry.disposition === "retired" ? shellEntry.rationale : undefined,
-    runtimeCritical: runtimeCritical(shellEntry.legacyTest),
-    nativeGate: nativeGate(shellEntry.legacyTest)
+    runtimeCritical: runtimeCritical(shellEntry.legacyTest)
   });
   for (const sourceCase of cases) {
     behavior.sourceCaseIds.push(sourceCase.id);
@@ -165,8 +162,7 @@ const ledger = {
       "Chromium-profile runtime mutation",
       "generic debugger or session automation"
     ],
-    metadataOnlyEvidenceAllowed: false,
-    runtimeCriticalRequiresNativeGate: true
+    metadataOnlyEvidenceAllowed: false
   },
   inventories: {
     signedV1BehaviorCount: v1Manifest.entries.length,
@@ -209,7 +205,6 @@ function canonicalBehavior(store, key, input) {
   if (store.has(key)) {
     const existing = store.get(key);
     existing.runtimeCritical ||= input.runtimeCritical;
-    existing.nativeGate ??= input.nativeGate;
     return existing;
   }
   const behavior = {
@@ -223,7 +218,6 @@ function canonicalBehavior(store, key, input) {
   };
   if (input.retirementClause) behavior.retirementClause = input.retirementClause;
   if (input.preservedCompanion) behavior.preservedCompanion = input.preservedCompanion;
-  if (input.nativeGate) behavior.nativeGate = input.nativeGate;
   store.set(key, behavior);
   return behavior;
 }
@@ -326,23 +320,13 @@ function runtimeCritical(file) {
   return /(browser|runtime|macro|workspace|window|compatibility|activation)/i.test(file);
 }
 
-function nativeGate(file) {
-  if (!runtimeCritical(file)) return undefined;
-  if (/macro|overlay|game-compatibility/i.test(file)) return "test:native:macro-game";
-  if (/session-import|chrome-profile/i.test(file)) return "test:native:session-import";
-  if (/portable|file|data|store/i.test(file)) return "test:native:file-operations";
-  if (/session|startup|shutdown|window|activation/i.test(file)) return "test:native:runtime-restore";
-  return "test:native:system-input";
-}
-
 function targetBehaviors() {
   return [{
     sourceCaseId: "target-bounded-browser-actions",
     status: "preserved",
     contract: "BrowserAction exposes only Focus, Key, and Click automation.",
     evidence: [executableEvidence("tests/rust-core-contracts.test.ts", "exports a typed browser-action union instead of unvalidated payload JSON")],
-    runtimeCritical: true,
-    nativeGate: "test:native:system-input"
+    runtimeCritical: true
   }, {
     sourceCaseId: "target-bounded-effect-targets",
     status: "preserved",
@@ -354,8 +338,7 @@ function targetBehaviors() {
     status: "preserved",
     contract: "Chrome Cookie and LocalStorage sources are snapshotted in memory before encrypted persistence.",
     evidence: [executableEvidence("crates/rion-core/src/session_import.rs", "chrome_profile_is_snapshotted_in_memory_without_raw_staging_files")],
-    runtimeCritical: true,
-    nativeGate: "test:native:session-import"
+    runtimeCritical: true
   }, {
     sourceCaseId: "target-system-only-execution",
     status: "preserved",

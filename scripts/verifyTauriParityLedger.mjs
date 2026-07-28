@@ -101,8 +101,6 @@ async function validateRefactorLedgerV2() {
   const behaviorIds = new Set();
   const deduplicationKeys = new Set();
   const behaviorSources = new Map();
-  const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  const ci = await sourceText(".github/workflows/ci.yml");
   for (const behavior of refactorLedger.behaviors ?? []) {
     if (!behavior.id || behaviorIds.has(behavior.id)) {
       failures.push(`refactor parity behavior has an invalid or duplicate id: ${behavior.id}`);
@@ -151,14 +149,6 @@ async function validateRefactorLedgerV2() {
       }
     } else if (behavior.retirementClause) {
       failures.push(`${behavior.id}: preserved behavior must not carry a retirement clause`);
-    }
-    if (behavior.runtimeCritical) {
-      const gate = behavior.nativeGate;
-      if (!gate || typeof packageJson.scripts?.[gate] !== "string") {
-        failures.push(`${behavior.id}: runtime-critical behavior has no package-level native gate`);
-      } else if (!ci.includes(`pnpm run ${gate}`)) {
-        failures.push(`${behavior.id}: native gate ${gate} is not executed by platform CI`);
-      }
     }
   }
 

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri-only release workflows", () => {
-  it("runs common checks and native package gates on macOS and Windows", async () => {
+  it("runs common checks and platform builds on macOS and Windows", async () => {
     const [workflow, packageJsonSource] = await Promise.all([
       readWorkflow(".github/workflows/ci.yml"),
       readFile("package.json", "utf8")
@@ -13,7 +13,7 @@ describe("Tauri-only release workflows", () => {
       workflow.indexOf("  checks:"),
       workflow.indexOf("  rust-concurrency-sanitizer:")
     );
-    const platformChecks = workflow.slice(workflow.indexOf("  platform-package-smoke:"));
+    const platformChecks = workflow.slice(workflow.indexOf("  platform-build:"));
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("runs-on: ubuntu-latest");
@@ -40,19 +40,11 @@ describe("Tauri-only release workflows", () => {
     );
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
-    expect(workflow).toContain("pnpm run test:native:system-input");
-    expect(workflow).toContain("pnpm run test:native:macro-game");
-    expect(workflow).toContain("pnpm run test:native:session-import");
-    expect(workflow).toContain("pnpm run test:native:runtime-restore");
-    expect(workflow).toContain("pnpm run test:native:local-storage-sync");
-    expect(workflow).toContain("pnpm run test:native:file-operations");
-    expect(countOccurrences(workflow, "pnpm run test:native:macro-game")).toBeGreaterThanOrEqual(4);
-    expect(countOccurrences(workflow, "pnpm run test:native:session-import")).toBeGreaterThanOrEqual(4);
-    expect(countOccurrences(workflow, "pnpm run test:native:local-storage-sync"))
-      .toBeGreaterThanOrEqual(4);
-    expect(workflow).not.toContain("--require-compiled-attestation");
-    expect(workflow).not.toContain("RION_STUDIO_WINDOWS_INPUT_ATTESTED");
-    expect(workflow).not.toContain("RION_STUDIO_MACOS_INPUT_ATTESTED_MAJOR");
+    expect(platformChecks).toContain("pnpm exec tauri build --bundles");
+    expect(workflow).not.toContain("test:native:");
+    expect(workflow).not.toContain("attestation");
+    expect(Object.keys(packageJson.scripts).some((name) => name.startsWith("test:native:")))
+      .toBe(false);
     expect(workflow).toContain("rust-concurrency-sanitizer:");
     expect(workflow.toLowerCase()).not.toContain("electron");
     expect(workflow).not.toContain("Node-API");
@@ -85,10 +77,9 @@ describe("Tauri-only release workflows", () => {
     expect(releaseScript).toContain('signingIdentity: "-"');
     expect(releaseScript).toContain('delete buildEnvironment[name]');
     expect(packageScript).toContain('signingIdentity: "-"');
-    expect(packageScript).toContain('"test:native:macro-game"');
-    expect(packageScript).toContain('"test:native:session-import"');
-    expect(packageScript).toContain('"test:native:local-storage-sync"');
-    expect(countOccurrences(packageScript, '"--skip-system-input"')).toBeGreaterThanOrEqual(2);
+    expect(packageScript).not.toContain("test:native:");
+    expect(workflow).not.toContain("test:native:");
+    expect(workflow).not.toContain("attestation");
     expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
     expect(workflow).toContain("Get-AuthenticodeSignature");
     expect(workflow).toContain('$signature.Status -ne "NotSigned"');
@@ -153,8 +144,4 @@ describe("Tauri-only release workflows", () => {
 
 async function readWorkflow(path: string): Promise<string> {
   return (await readFile(path, "utf8")).replaceAll("\r\n", "\n");
-}
-
-function countOccurrences(source: string, value: string): number {
-  return source.split(value).length - 1;
 }

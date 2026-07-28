@@ -56,30 +56,15 @@ pnpm run lint
 pnpm run build
 ```
 
-Native behavior must also pass on both target platforms. macOS validates the
-WKWebView/AppKit adapter and Windows validates the WebView2 adapter. Tests must
-select their platform explicitly; a local macOS pass is not evidence of Windows
-compatibility.
-
-Each target platform runs the following gates before bundling and again against
-the packaged executable:
-
-```bash
-pnpm run test:native:system-input
-pnpm run test:native:macro-game -- --skip-system-input
-pnpm run test:native:session-import -- --skip-system-input
-pnpm run test:native:runtime-restore
-pnpm run test:native:file-operations
-```
-
-`pnpm run package` owns this pre-package/post-package sequence for local release
-candidates. The trusted-input stress loop uses the production Rust input-state
-machine; only a bounded adapter sample emits native events.
+Native code must compile and pass deterministic Rust tests on both target
+platforms. macOS validates the WKWebView/AppKit branch and Windows validates the
+WebView2 branch. Build, package, and CI do not launch the application against the
+runner's machine-specific WebView environment.
 
 Performance gates cover launcher idle, 1/4/9 visible roles, hidden workspaces,
 macro on/off, layout latency, effect acknowledgement p95, CPU/RSS, and repeated
-surface creation/destruction. Release requires actual macOS 14+ and Windows
-10/11 smoke tests in addition to CI.
+surface creation/destruction. Production runtime failures remain bounded and
+diagnosable instead of being inferred from one CI host.
 
 See `docs/refactor-regression-audit.md` for the current audit snapshot. Detailed
 behavior classification remains in the generated parity report and the

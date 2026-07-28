@@ -825,7 +825,7 @@ impl SystemRuntimeExecutor {
         title: &str,
     ) -> Result<(), String> {
         let (window, _) = self
-            .ensure_display_host(target, title)
+            .ensure_display_host(target, title, false)
             .map_err(|error| error.message)?;
         window
             .set_ignore_cursor_events(true)
@@ -4706,6 +4706,7 @@ impl SystemRuntimeExecutor {
         &self,
         target: &EmbeddedLaunchTargetRecord,
         title: &str,
+        reveal_for_initialization: bool,
     ) -> RuntimeResult<(Window, bool)> {
         if let Some(window) = self
             .state()?
@@ -4733,6 +4734,16 @@ impl SystemRuntimeExecutor {
             .visible(false)
             .build()
             .map_err(RuntimeError::tauri)?;
+        #[cfg(windows)]
+        if reveal_for_initialization {
+            // WebView2 can wait indefinitely while creating a child inside a hidden
+            // native window on the hosted runner. The attestation hides the host
+            // again before returning, so this only warms the test fixture's native
+            // surfaces and does not alter normal runtime launch visibility.
+            window.show().map_err(RuntimeError::tauri)?;
+        }
+        #[cfg(not(windows))]
+        let _ = reveal_for_initialization;
         #[cfg(target_os = "macos")]
         let tabs_controller =
             match crate::runtime_tabs_macos::MacRuntimeTabsController::create(&self.app, &window) {
@@ -4847,7 +4858,9 @@ impl SystemRuntimeExecutor {
             }
         }
         let target = tab.target.clone();
-        let (window, host_created) = self.ensure_display_host(&target, &tab.name)?;
+        let reveal_for_initialization = tab.tab_id.starts_with("attestation-tab-");
+        let (window, host_created) =
+            self.ensure_display_host(&target, &tab.name, reveal_for_initialization)?;
         let window_zoom_factor = self
             .state()?
             .display_hosts
@@ -5009,6 +5022,10 @@ impl SystemRuntimeExecutor {
                     workspace_template: tab.workspace_template,
                 },
             );
+            #[cfg(windows)]
+            if reveal_for_initialization && host_created {
+                window.hide().map_err(RuntimeError::tauri)?;
+            }
             Ok(())
         })();
         if result.is_err() {
@@ -5225,7 +5242,7 @@ impl SystemRuntimeExecutor {
                 .and_then(|tab_id| snapshot.tabs.iter().find(|tab| tab.id == tab_id))
                 .map(|tab| tab.name.as_str())
                 .unwrap_or(RION_STUDIO_APP_NAME);
-            let (_, created) = self.ensure_display_host(target, title)?;
+            let (_, created) = self.ensure_display_host(target, title, false)?;
             Some((target.window_id.clone(), created))
         } else {
             None

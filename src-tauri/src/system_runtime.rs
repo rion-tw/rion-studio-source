@@ -6807,6 +6807,14 @@ fn verify_surface_recovery_attestation(
     runtime: &Arc<SystemRuntimeExecutor>,
 ) -> RuntimeResult<Option<Value>> {
     let role_id = "attestation-1-0";
+    let window = runtime.window_for_tab(role_id).ok_or_else(|| {
+        input_attestation_error("The System WebView recovery host window was not found.")
+    })?;
+    // The role parity probe reveals the host so navigation and popup behavior can be
+    // tested. Hide it before replacing the native surface so the recovery probe
+    // continues to exercise trusted background input rather than focused input.
+    window.hide().map_err(RuntimeError::tauri)?;
+    std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
     let old_webview = runtime.role_webview(role_id)?;
     let old_label = old_webview.label().to_owned();
     eprintln!("System WebView parity: validating OS process-failure recovery callback.");
@@ -6893,9 +6901,10 @@ fn verify_popup_download_attestation(
     let role_id = "attestation-1-0";
     let parent = runtime.role_webview(role_id)?;
     eprintln!("System WebView parity: validating same-session popup.");
-    dispatch_mouse_effect(&parent, ClickPoint { x: 80, y: 50 }, "left", true)?;
+    let popup_point = attestation_element_center(&parent, "popup")?;
+    dispatch_mouse_effect(&parent, popup_point, "left", true)?;
     std::thread::sleep(Duration::from_millis(2));
-    dispatch_mouse_effect(&parent, ClickPoint { x: 80, y: 50 }, "left", false)?;
+    dispatch_mouse_effect(&parent, popup_point, "left", false)?;
 
     let popup_label = wait_for_attestation_popup(runtime, role_id)?;
     let popup = runtime.app.get_webview(&popup_label).ok_or_else(|| {
@@ -6968,9 +6977,10 @@ fn verify_popup_download_attestation(
     }
     tracker.reset()?;
     eprintln!("System WebView parity: validating native download.");
-    dispatch_mouse_effect(&parent, ClickPoint { x: 80, y: 140 }, "left", true)?;
+    let download_point = attestation_element_center(&parent, "download")?;
+    dispatch_mouse_effect(&parent, download_point, "left", true)?;
     std::thread::sleep(Duration::from_millis(2));
-    dispatch_mouse_effect(&parent, ClickPoint { x: 80, y: 140 }, "left", false)?;
+    dispatch_mouse_effect(&parent, download_point, "left", false)?;
     let destination = tracker.wait()?;
     wait_for_download_attestation_content(&destination)?;
     Ok(Some(json!({
@@ -6984,6 +6994,38 @@ fn verify_popup_download_attestation(
         "uploadContentVerified": true,
         "uploadSelectionMechanism": upload_selection.mechanism
     })))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn attestation_element_center(webview: &Webview, element_id: &str) -> RuntimeResult<ClickPoint> {
+    let element_id = serde_json::to_string(element_id)
+        .map_err(|error| input_attestation_error(error.to_string()))?;
+    let source = format!(
+        r#"(() => {{
+            const element = document.getElementById({element_id});
+            if (!element) return null;
+            const rect = element.getBoundingClientRect();
+            return {{ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }};
+        }})()"#
+    );
+    let value = evaluate_attestation_value(webview, &source)?;
+    let x = value
+        .get("x")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite());
+    let y = value
+        .get("y")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite());
+    match (x, y) {
+        (Some(x), Some(y)) if x >= 0.0 && y >= 0.0 => Ok(ClickPoint {
+            x: x.round() as i64,
+            y: y.round() as i64,
+        }),
+        _ => Err(input_attestation_error(format!(
+            "The System WebView attestation element {element_id} has no usable bounds: {value}."
+        ))),
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -7049,9 +7091,10 @@ fn select_upload_file_for_attestation(
             "WKWebView could not install the diagnostic open-panel callback.",
         ));
     }
-    dispatch_mouse_effect(webview, ClickPoint { x: 130, y: 230 }, "left", true)?;
+    let upload_point = attestation_element_center(webview, "upload")?;
+    dispatch_mouse_effect(webview, upload_point, "left", true)?;
     std::thread::sleep(Duration::from_millis(2));
-    dispatch_mouse_effect(webview, ClickPoint { x: 130, y: 230 }, "left", false)?;
+    dispatch_mouse_effect(webview, upload_point, "left", false)?;
     let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
     loop {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);

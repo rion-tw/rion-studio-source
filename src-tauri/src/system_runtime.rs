@@ -724,6 +724,8 @@ pub struct SystemRuntimeExecutor {
 struct NativeRuntimeDiagnostics {
     browser_process_ids: Mutex<HashSet<u32>>,
     failure_kind: Mutex<Option<String>>,
+    stage: Mutex<String>,
+    stage_timings_ms: Mutex<HashMap<String, u64>>,
 }
 
 struct RuntimeHealth(AtomicBool);
@@ -1087,6 +1089,22 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn record_runtime_stage(&self, stage: impl Into<String>, status: &str, started: Instant) {
+        let stage = stage.into();
+        eprintln!(
+            "System WebView lifecycle: stage={stage} status={status} elapsedMs={}",
+            started.elapsed().as_millis()
+        );
+        if let Ok(mut current) = self.diagnostics.stage.lock() {
+            *current = stage.clone();
+        }
+        if status != "started"
+            && let Ok(mut timings) = self.diagnostics.stage_timings_ms.lock()
+        {
+            timings.insert(stage, started.elapsed().as_millis() as u64);
+        }
+    }
+
     fn runtime_diagnostics(&self) -> Value {
         let mut browser_process_ids = self
             .diagnostics
@@ -1101,10 +1119,24 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|value| value.clone());
+        let stage = self
+            .diagnostics
+            .stage
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default();
+        let stage_timings_ms = self
+            .diagnostics
+            .stage_timings_ms
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default();
         json!({
             "browserProcessIds": browser_process_ids,
             "failureKind": failure_kind,
-            "healthy": self.health.is_healthy()
+            "healthy": self.health.is_healthy(),
+            "stage": stage,
+            "stageTimingsMs": stage_timings_ms
         })
     }
 
@@ -5318,8 +5350,13 @@ impl SystemRuntimeExecutor {
                 .inner_size(bounds.width.max(1) as f64, bounds.height.max(1) as f64)
                 .min_inner_size(640.0, 480.0)
                 .visible(false)
+                .focused(false)
                 .build()
         })?;
+        if let Err(error) = self.begin_surface_host_initialization(&window, &target.window_id) {
+            let _ = window.close();
+            return Err(error);
+        }
         #[cfg(target_os = "macos")]
         let tabs_controller =
             match crate::runtime_tabs_macos::MacRuntimeTabsController::create(&self.app, &window) {
@@ -5590,6 +5627,7 @@ impl SystemRuntimeExecutor {
                 });
             }
             wait_for_tauri_main_thread(&self.app)?;
+            self.finish_surface_host_initialization(&window, host_created, &target.window_id)?;
             let tab_id = tab.tab_id;
             let mut state = self.state()?;
             if state.tabs.contains_key(&tab_id) {
@@ -6030,6 +6068,13 @@ impl SystemRuntimeExecutor {
             }
         }
 
+        if let Some((window_id, created)) = &ensured_target_host
+            && *created
+            && let Some(window) = self.window_for_id(window_id)
+        {
+            self.finish_surface_host_initialization(&window, true, window_id)?;
+        }
+
         let host_updates = {
             let state = self.state()?;
             state
@@ -6425,6 +6470,10 @@ impl SystemRuntimeExecutor {
         lifecycle_id: &str,
     ) -> RuntimeResult<Webview> {
         self.health.require_healthy()?;
+        let restore_parent = self.prepare_surface_parent_for_creation(window, lifecycle_id)?;
+        let stage = format!("native-webview-create:{lifecycle_id}");
+        let started = Instant::now();
+        self.record_runtime_stage(&stage, "started", started);
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let create_window = window.clone();
         std::thread::Builder::new()
@@ -6441,9 +6490,30 @@ impl SystemRuntimeExecutor {
                 RuntimeError::new("SYSTEM_WEBVIEW_CREATE_WORKER_FAILED", error.to_string())
             })?;
         match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-            Ok(Ok(webview)) => Ok(webview),
-            Ok(Err(error)) => Err(RuntimeError::tauri(error)),
+            Ok(result) => {
+                self.record_runtime_stage(
+                    stage,
+                    if result.is_ok() {
+                        "completed"
+                    } else {
+                        "failed"
+                    },
+                    started,
+                );
+                let release =
+                    self.finish_surface_host_initialization(window, restore_parent, lifecycle_id);
+                match (result, release) {
+                    (Ok(webview), Ok(())) => Ok(webview),
+                    (Ok(webview), Err(error)) => {
+                        let _ = webview.close();
+                        Err(error)
+                    }
+                    (Err(error), Ok(())) => Err(RuntimeError::tauri(error)),
+                    (Err(_), Err(error)) => Err(error),
+                }
+            }
             Err(error) => {
+                self.record_runtime_stage(stage, "failed", started);
                 self.health.mark_unhealthy();
                 let failure_kind = match error {
                     mpsc::RecvTimeoutError::Timeout => "creation-timeout",
@@ -6472,12 +6542,40 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn prepare_surface_parent_for_creation(
+        &self,
+        window: &Window,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<bool> {
+        #[cfg(windows)]
+        {
+            if window.is_visible().map_err(RuntimeError::tauri)? {
+                return Ok(false);
+            }
+            self.begin_surface_host_initialization(window, lifecycle_id)?;
+            Ok(true)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            self.begin_surface_host_initialization(window, lifecycle_id)?;
+            Ok(true)
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            let _ = (window, lifecycle_id);
+            Ok(false)
+        }
+    }
+
     fn create_window_bounded(
         &self,
         lifecycle_id: &str,
         create: impl FnOnce() -> tauri::Result<Window> + Send + 'static,
     ) -> RuntimeResult<Window> {
         self.health.require_healthy()?;
+        let stage = format!("native-window-create:{lifecycle_id}");
+        let started = Instant::now();
+        self.record_runtime_stage(&stage, "started", started);
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         std::thread::Builder::new()
             .name("rion-window-create".to_owned())
@@ -6491,9 +6589,16 @@ impl SystemRuntimeExecutor {
                 RuntimeError::new("SYSTEM_WINDOW_CREATE_WORKER_FAILED", error.to_string())
             })?;
         match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-            Ok(Ok(window)) => Ok(window),
-            Ok(Err(error)) => Err(RuntimeError::tauri(error)),
+            Ok(Ok(window)) => {
+                self.record_runtime_stage(stage, "completed", started);
+                Ok(window)
+            }
+            Ok(Err(error)) => {
+                self.record_runtime_stage(stage, "failed", started);
+                Err(RuntimeError::tauri(error))
+            }
             Err(error) => {
+                self.record_runtime_stage(stage, "failed", started);
                 self.health.mark_unhealthy();
                 let failure_kind = match error {
                     mpsc::RecvTimeoutError::Timeout => "window-creation-timeout",
@@ -6519,6 +6624,84 @@ impl SystemRuntimeExecutor {
                 ))
             }
         }
+    }
+
+    fn begin_surface_host_initialization(
+        &self,
+        window: &Window,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<()> {
+        let requires_visible_parent =
+            surface_host_initialization_requires_visible_parent(if cfg!(windows) {
+                "windows"
+            } else {
+                "macos"
+            });
+        #[cfg(windows)]
+        {
+            debug_assert!(requires_visible_parent);
+            let stage = format!("surface-host-visible:{lifecycle_id}");
+            let started = Instant::now();
+            self.record_runtime_stage(&stage, "started", started);
+            if let Err(error) = set_windows_surface_host_initialization_visibility(window, true) {
+                self.record_runtime_stage(stage, "failed", started);
+                self.health.mark_unhealthy();
+                self.record_runtime_failure_kind("host-initialization-timeout");
+                return Err(error);
+            }
+            self.record_runtime_stage(stage, "completed", started);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = window;
+            debug_assert!(!requires_visible_parent);
+            let stage = format!("surface-host-main-thread-flush:{lifecycle_id}");
+            let started = Instant::now();
+            self.record_runtime_stage(&stage, "started", started);
+            wait_for_tauri_main_thread(&self.app)?;
+            self.record_runtime_stage(stage, "completed", started);
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            let _ = (requires_visible_parent, window, lifecycle_id);
+        }
+        Ok(())
+    }
+
+    fn finish_surface_host_initialization(
+        &self,
+        window: &Window,
+        initialized_for_operation: bool,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<()> {
+        if !initialized_for_operation {
+            return Ok(());
+        }
+        #[cfg(windows)]
+        {
+            let stage = format!("surface-host-hidden:{lifecycle_id}");
+            let started = Instant::now();
+            self.record_runtime_stage(&stage, "started", started);
+            if let Err(error) = set_windows_surface_host_initialization_visibility(window, false) {
+                self.record_runtime_stage(stage, "failed", started);
+                self.health.mark_unhealthy();
+                self.record_runtime_failure_kind("host-initialization-release-timeout");
+                return Err(error);
+            }
+            self.record_runtime_stage(stage, "completed", started);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = window;
+            let stage = format!("surface-host-release-flush:{lifecycle_id}");
+            let started = Instant::now();
+            self.record_runtime_stage(&stage, "started", started);
+            wait_for_tauri_main_thread(&self.app)?;
+            self.record_runtime_stage(stage, "completed", started);
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let _ = (window, lifecycle_id);
+        Ok(())
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
@@ -6894,6 +7077,46 @@ fn wait_for_tauri_main_thread(app: &AppHandle) -> RuntimeResult<()> {
         })
 }
 
+fn surface_host_initialization_requires_visible_parent(platform: &str) -> bool {
+    platform == "windows"
+}
+
+#[cfg(windows)]
+fn set_windows_surface_host_initialization_visibility(
+    window: &Window,
+    visible: bool,
+) -> RuntimeResult<()> {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow},
+    };
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?.0 as usize;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    window
+        .run_on_main_thread(move || {
+            let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+            let command = if visible { SW_SHOWNOACTIVATE } else { SW_HIDE };
+            unsafe {
+                let _ = ShowWindow(hwnd, command);
+            }
+            let _ = sender.send(());
+        })
+        .map_err(RuntimeError::tauri)?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|error| {
+            let action = if visible { "show" } else { "hide" };
+            RuntimeError::new(
+                "SYSTEM_WEBVIEW_CREATION_STALLED",
+                format!(
+                    "The Windows WebView2 parent window did not {action} within {}ms ({error}). Restart Rion Studio before launching another browser role.",
+                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                ),
+            )
+        })
+}
+
 #[cfg(any(windows, target_os = "macos"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InputAttestationScenario {
@@ -7083,6 +7306,11 @@ pub fn start_trusted_input_attestation(
                     "The trusted-input attestation worker panicked.",
                 ))
             });
+            let outcome_stage = runtime.runtime_diagnostics()["stage"]
+                .as_str()
+                .filter(|stage| !stage.is_empty())
+                .unwrap_or(scenario_name)
+                .to_owned();
             let mut cleanup_errors = Vec::new();
             if let Some(fixture) = fixture.as_ref() {
                 if let Err(error) = runtime.close_surface_and_wait(
@@ -7128,12 +7356,16 @@ pub fn start_trusted_input_attestation(
                         "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
                         "scenario": scenario_name,
                         "stage": "completed",
-                        "timings": { "elapsedMs": started.elapsed().as_millis() },
+                        "timings": {
+                            "elapsedMs": started.elapsed().as_millis(),
+                            "stagesMs": diagnostics["stageTimingsMs"].clone()
+                        },
                         "runtime": {
                             "browserProcessIds": diagnostics["browserProcessIds"].clone(),
                             "failureKind": diagnostics["failureKind"].clone(),
                             "healthy": diagnostics["healthy"].clone(),
                             "hostProcessId": std::process::id(),
+                            "lastStage": diagnostics["stage"].clone(),
                             "webViewVersion": webview_version.clone()
                         },
                         "report": report
@@ -7159,13 +7391,17 @@ pub fn start_trusted_input_attestation(
                             "platform": if cfg!(windows) { "windows" } else { "macos" },
                             "engine": if cfg!(windows) { "webview2" } else { "wkwebview" },
                             "scenario": scenario_name,
-                            "stage": scenario_name,
-                            "timings": { "elapsedMs": started.elapsed().as_millis() },
+                            "stage": outcome_stage,
+                            "timings": {
+                                "elapsedMs": started.elapsed().as_millis(),
+                                "stagesMs": diagnostics["stageTimingsMs"].clone()
+                            },
                             "runtime": {
                                 "browserProcessIds": diagnostics["browserProcessIds"].clone(),
                                 "failureKind": diagnostics["failureKind"].clone(),
                                 "healthy": diagnostics["healthy"].clone(),
                                 "hostProcessId": std::process::id(),
+                                "lastStage": diagnostics["stage"].clone(),
                                 "webViewVersion": webview_version
                             },
                             "error": { "code": error.code, "message": error.message }
@@ -11788,6 +12024,17 @@ mod tests {
                 runtime_host_should_be_visible(reveal, retain_visibility, currently_visible),
                 expected,
                 "unexpected runtime host visibility on {platform}"
+            );
+        }
+    }
+
+    #[test]
+    fn surface_host_initialization_requires_a_visible_parent_only_on_windows() {
+        for (platform, expected) in [("windows", true), ("macos", false), ("linux", false)] {
+            assert_eq!(
+                surface_host_initialization_requires_visible_parent(platform),
+                expected,
+                "unexpected parent-window initialization policy on {platform}"
             );
         }
     }

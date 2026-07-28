@@ -6,7 +6,7 @@ use std::{
 };
 
 use rion_core::{BrowserRuntimeSnapshot, CoreCommand, RuntimeWindowPreferencesRecord};
-use tauri::{AppHandle, Emitter, Manager, Window};
+use tauri::{AppHandle, Manager, Window};
 
 #[repr(C)]
 struct NativeTabInput {
@@ -397,6 +397,10 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             cancelled,
         } = action;
         let Some(state) = app.try_state::<crate::CoreState>() else {
+            crate::reveal_shell_error(
+                &app,
+                crate::shell_error("SHELL_STATE_UNAVAILABLE", "App state is unavailable."),
+            );
             return;
         };
         let host_window_id = state.runtime.window_id_for_label(&window_label);
@@ -429,14 +433,31 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             if let Err(error) =
                 crate::handle_game_window_tab_drag(&app, &state, &source_window_id, &action).await
             {
-                let _ = app.emit(
-                    "rion://shell-error",
-                    serde_json::json!({ "code": error.code, "message": error.message }),
+                crate::reveal_shell_error(
+                    &app,
+                    rion_core::CoreErrorPayload {
+                        code: error.code,
+                        message: error.message,
+                    },
                 );
             }
             return;
         }
         let target_window_id = target_window_id.or(host_window_id);
+        if matches!(
+            action_type.as_str(),
+            "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
+        ) && tab_id.is_none()
+        {
+            crate::reveal_shell_error(
+                &app,
+                crate::shell_error(
+                    "TAURI_RUNTIME_TAB_MENU_FAILED",
+                    "Runtime tab ID is required.",
+                ),
+            );
+            return;
+        }
         let command = match action_type.as_str() {
             "activate" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabActivate { tab_id }),
             "hide" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabHide { tab_id }),
@@ -445,24 +466,44 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                 before_tab_id,
             }),
             "move" => tab_id.and_then(|tab_id| {
-                target_window_id
-                    .as_deref()
-                    .and_then(|window_id| {
-                        crate::launch_target_for_game_window(&app, window_id).ok()
-                    })
-                    .map(|target| CoreCommand::EmbeddedTabMove { tab_id, target })
+                let Some(window_id) = target_window_id.as_deref() else {
+                    crate::reveal_shell_error(
+                        &app,
+                        crate::shell_error(
+                            "TAURI_RUNTIME_TAB_MENU_FAILED",
+                            "Target Game Window was not found.",
+                        ),
+                    );
+                    return None;
+                };
+                match crate::launch_target_for_game_window(&app, window_id) {
+                    Ok(target) => Some(CoreCommand::EmbeddedTabMove { tab_id, target }),
+                    Err(error) => {
+                        crate::reveal_shell_error(&app, error);
+                        None
+                    }
+                }
             }),
-            "stop" => tab_id.and_then(|tab_id| stop_command_for_tab(&state.core, &tab_id)),
+            "stop" => tab_id.and_then(|tab_id| {
+                let command = stop_command_for_tab(&state.core, &tab_id);
+                if command.is_none() {
+                    crate::reveal_shell_error(
+                        &app,
+                        crate::shell_error(
+                            "TAURI_RUNTIME_TAB_MENU_FAILED",
+                            "Runtime tab was not found.",
+                        ),
+                    );
+                }
+                command
+            }),
             "openLauncher" => {
                 if let Some(window_id) = target_window_id.as_deref()
                     && let Err(message) = crate::runtime_tab_menu::open_launcher(&app, window_id)
                 {
-                    let _ = app.emit(
-                        "rion://shell-error",
-                        serde_json::json!({
-                            "code": "TAURI_RUNTIME_TAB_MENU_FAILED",
-                            "message": message
-                        }),
+                    crate::reveal_shell_error(
+                        &app,
+                        crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
                     );
                 }
                 None
@@ -471,12 +512,9 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                 if let Some(tab_id) = tab_id.as_deref()
                     && let Err(message) = crate::runtime_tab_menu::open_tab(&app, tab_id)
                 {
-                    let _ = app.emit(
-                        "rion://shell-error",
-                        serde_json::json!({
-                            "code": "TAURI_RUNTIME_TAB_MENU_FAILED",
-                            "message": message
-                        }),
+                    crate::reveal_shell_error(
+                        &app,
+                        crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
                     );
                 }
                 None
@@ -487,10 +525,7 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         if let Some(command) = command
             && let Err(error) = state.core.invoke_async(command).await
         {
-            let _ = app.emit(
-                "rion://shell-error",
-                serde_json::json!({ "code": error.code(), "message": error.to_string() }),
-            );
+            crate::reveal_shell_error(&app, error.payload());
         }
     });
 }

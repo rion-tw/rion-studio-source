@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -8,6 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { resolveCargoExecutable } from "./cargoExecutable.mjs";
+import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const supported = new Set(["darwin", "win32"]);
@@ -181,7 +181,7 @@ function command(name) {
 
 async function run(executable, args, env = process.env, timeout = 0) {
   return await new Promise((resolvePromise, reject) => {
-    const child = spawn(executable, args, {
+    const child = spawnPlatformCommand(executable, args, {
       cwd: repositoryRoot,
       env,
       stdio: "inherit",

@@ -326,6 +326,7 @@ struct RoleSurface {
     generation: u64,
     lifecycle: Arc<SurfaceLifecycleTracker>,
     local_storage_sync: Option<LocalStorageRuntimeConfig>,
+    local_storage_sync_sequence: u64,
     navigation: Arc<NavigationTracker>,
     rect: rion_core::StateNormalizedRectRecord,
     webview: Webview,
@@ -335,8 +336,9 @@ struct RoleSurface {
 
 #[derive(Default)]
 struct SurfaceReleaseState {
+    #[cfg_attr(not(windows), allow(dead_code))]
     browser_process_exited: bool,
-    main_thread_released: bool,
+    controller_released: bool,
 }
 
 #[derive(Default)]
@@ -356,23 +358,30 @@ impl SurfaceLifecycleTracker {
         }
     }
 
-    fn mark_main_thread_released(&self) {
+    fn mark_controller_released(&self) {
         if let Ok(mut release) = self.release.lock() {
-            release.main_thread_released = true;
+            release.controller_released = true;
             self.changed.notify_all();
         }
     }
 
-    fn wait(&self, platform: &str) -> bool {
-        self.wait_for(platform, PLATFORM_CALLBACK_TIMEOUT)
+    fn wait_for_controller_release(&self, platform: &str, timeout: Duration) -> bool {
+        self.wait_for(timeout, |release| {
+            surface_release_complete(platform, release)
+        })
     }
 
-    fn wait_for(&self, platform: &str, timeout: Duration) -> bool {
+    #[cfg(windows)]
+    fn wait_for_browser_process_exit(&self, timeout: Duration) -> bool {
+        self.wait_for(timeout, |release| release.browser_process_exited)
+    }
+
+    fn wait_for(&self, timeout: Duration, complete: impl Fn(&SurfaceReleaseState) -> bool) -> bool {
         let deadline = Instant::now() + timeout;
         let Ok(mut release) = self.release.lock() else {
             return false;
         };
-        while !surface_release_complete(platform, &release) {
+        while !complete(&release) {
             let now = Instant::now();
             if now >= deadline {
                 return false;
@@ -384,7 +393,7 @@ impl SurfaceLifecycleTracker {
                 return false;
             };
             release = next;
-            if timeout.timed_out() && !surface_release_complete(platform, &release) {
+            if timeout.timed_out() && !complete(&release) {
                 return false;
             }
         }
@@ -393,11 +402,19 @@ impl SurfaceLifecycleTracker {
 }
 
 fn surface_release_complete(platform: &str, release: &SurfaceReleaseState) -> bool {
-    release.main_thread_released && (platform != "windows" || release.browser_process_exited)
+    matches!(platform, "windows" | "macos") && release.controller_released
 }
 
 fn surface_generation_is_current(active: u64, reported: u64) -> bool {
     active == reported
+}
+
+fn accept_local_storage_sync_sequence(last_accepted: &mut u64, incoming: u64) -> bool {
+    if incoming == 0 || incoming <= *last_accepted {
+        return false;
+    }
+    *last_accepted = incoming;
+    true
 }
 
 fn claim_surface_recovery(
@@ -413,6 +430,7 @@ fn claim_surface_recovery(
 #[derive(Clone)]
 struct LocalStorageRuntimeConfig {
     dependent_role_ids: Vec<String>,
+    generation: u64,
     keys: Vec<String>,
     origin: String,
     source_role_id: Option<String>,
@@ -716,6 +734,7 @@ pub struct SystemRuntimeExecutor {
     effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
     health: RuntimeHealth,
     language: Mutex<String>,
+    local_storage_sync_lane: Mutex<()>,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
 }
@@ -920,6 +939,7 @@ impl SystemRuntimeExecutor {
             effect_sender: OnceLock::new(),
             health: RuntimeHealth::new(),
             language: Mutex::new("en".to_owned()),
+            local_storage_sync_lane: Mutex::new(()),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -2970,6 +2990,12 @@ impl SystemRuntimeExecutor {
     }
 
     fn rebuild_role_surface(&self, role_id: &str) -> RuntimeResult<()> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_LANE_POISONED",
+                "The localStorage synchronization lifecycle lane is unavailable.",
+            )
+        })?;
         let (
             window,
             old_webview,
@@ -3079,6 +3105,11 @@ impl SystemRuntimeExecutor {
                 let _ = window.close();
             }
         }
+        let local_storage_sync = local_storage_sync.map(|mut config| {
+            config.generation = config.generation.saturating_add(1);
+            config.token = uuid::Uuid::new_v4().to_string();
+            config
+        });
         wait_for_tauri_main_thread(&self.app)?;
         self.close_surface_and_wait(&old_webview, &old_lifecycle, role_id)?;
         #[cfg(target_os = "macos")]
@@ -3087,7 +3118,7 @@ impl SystemRuntimeExecutor {
         let callback_navigation = Arc::clone(&navigation);
         let paths = role_session_paths(&self.user_data_dir, role_id)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-        let builder = self
+        let mut builder = self
             .webview_builder(
                 format!(
                     "{}-recovery-{generation}",
@@ -3099,6 +3130,20 @@ impl SystemRuntimeExecutor {
             .on_page_load(move |_webview, payload| {
                 callback_navigation.page_event(payload.event(), payload.url());
             });
+        if let Some(config) = local_storage_sync.as_ref() {
+            builder = builder
+                .initialization_script_for_all_frames(&local_storage_sync_observer_script(config)?);
+            if let Some(source_role_id) = config.source_role_id.as_deref() {
+                let snapshot = self.load_local_storage_sync_snapshot(
+                    source_role_id,
+                    &config.origin,
+                    &config.keys,
+                )?;
+                builder = builder.initialization_script_for_all_frames(
+                    &local_storage_sync_apply_script(&snapshot)?,
+                );
+            }
+        }
         let bounds = role_bounds_for_content(runtime_window_content_metrics(&window)?, &rect);
         let webview = self.add_child_bounded(
             &window,
@@ -3179,6 +3224,7 @@ impl SystemRuntimeExecutor {
                 generation,
                 lifecycle,
                 local_storage_sync,
+                local_storage_sync_sequence: 0,
                 navigation,
                 rect,
                 webview,
@@ -4653,6 +4699,12 @@ impl SystemRuntimeExecutor {
         origin: &str,
         keys: &[String],
     ) -> RuntimeResult<()> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_LANE_POISONED",
+                "The localStorage synchronization lifecycle lane is unavailable.",
+            )
+        })?;
         validate_local_storage_sync_contract(origin, keys)?;
         let live = {
             let state = self.state()?;
@@ -4815,8 +4867,13 @@ impl SystemRuntimeExecutor {
         &self,
         webview_label: &str,
         token: &str,
+        generation: u64,
+        sequence: u64,
         entries: Vec<(String, Option<String>)>,
     ) -> Result<(), String> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            "The localStorage synchronization lifecycle lane is unavailable.".to_owned()
+        })?;
         let role_id = self.role_id_for_webview(webview_label)?;
         let (config, webview) = {
             let state = self.state().map_err(|error| error.message)?;
@@ -4834,7 +4891,7 @@ impl SystemRuntimeExecutor {
             })?;
             (config, surface.webview.clone())
         };
-        if config.token != token {
+        if config.token != token || config.generation != generation {
             return Err("The localStorage synchronization capability is invalid.".to_owned());
         }
         require_exact_local_storage_sync_origin(&webview, &config.origin)
@@ -4846,6 +4903,36 @@ impl SystemRuntimeExecutor {
                 .any(|((key, _), expected)| key != expected)
         {
             return Err("The localStorage synchronization key set is invalid.".to_owned());
+        }
+        {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let tab_id = state
+                .role_tabs
+                .get(&role_id)
+                .cloned()
+                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
+            let surface = state
+                .tabs
+                .get_mut(&tab_id)
+                .and_then(|tab| tab.roles.get_mut(&role_id))
+                .filter(|surface| surface.webview.label() == webview_label)
+                .ok_or_else(|| {
+                    "Runtime role generation changed during localStorage synchronization."
+                        .to_owned()
+                })?;
+            if !surface
+                .local_storage_sync
+                .as_ref()
+                .is_some_and(|config| config.token == token && config.generation == generation)
+            {
+                return Err("The localStorage synchronization capability is stale.".to_owned());
+            }
+            if !accept_local_storage_sync_sequence(
+                &mut surface.local_storage_sync_sequence,
+                sequence,
+            ) {
+                return Ok(());
+            }
         }
         if let Some(source_role_id) = config.source_role_id.as_deref() {
             let snapshot = self
@@ -4876,6 +4963,9 @@ impl SystemRuntimeExecutor {
         roles: &[StateRoleRecord],
         games: &[StateGameRecord],
     ) -> Result<(), String> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            "The localStorage synchronization lifecycle lane is unavailable.".to_owned()
+        })?;
         let roles_by_id = roles
             .iter()
             .map(|role| (role.id.as_str(), role))
@@ -4907,6 +4997,10 @@ impl SystemRuntimeExecutor {
                             .as_ref()
                             .map(|config| config.token.clone())
                             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                        let generation = surface
+                            .local_storage_sync
+                            .as_ref()
+                            .map_or(1, |config| config.generation.saturating_add(1));
                         Some(LocalStorageRuntimeConfig {
                             dependent_role_ids: roles
                                 .iter()
@@ -4916,6 +5010,7 @@ impl SystemRuntimeExecutor {
                                 })
                                 .map(|candidate| candidate.id.clone())
                                 .collect(),
+                            generation,
                             keys: game.local_storage_sync_keys.clone(),
                             origin,
                             source_role_id: role.local_storage_source_role_id.clone(),
@@ -4923,6 +5018,7 @@ impl SystemRuntimeExecutor {
                         })
                     });
                     surface.local_storage_sync = next.clone();
+                    surface.local_storage_sync_sequence = 0;
                     if let Some(config) = next {
                         updates.push((
                             surface.webview.clone(),
@@ -4938,6 +5034,7 @@ impl SystemRuntimeExecutor {
                 local_storage_sync_observer_script(&config).map_err(|error| error.message)?;
             let configuration = json!({
                 "token": config.token,
+                "generation": config.generation,
                 "origin": config.origin,
                 "keys": config.keys,
             });
@@ -5002,6 +5099,12 @@ impl SystemRuntimeExecutor {
         origin: &str,
         keys: &[String],
     ) -> RuntimeResult<()> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_LANE_POISONED",
+                "The localStorage synchronization lifecycle lane is unavailable.",
+            )
+        })?;
         if keys.is_empty() {
             return Ok(());
         }
@@ -5045,11 +5148,11 @@ impl SystemRuntimeExecutor {
         if let Some(surface) = surface {
             let _ = surface.webview.clear_all_browsing_data();
             self.close_surface_and_wait(&surface.webview, &surface.lifecycle, game_id)?;
-            let close_result = surface.window.close().map_err(RuntimeError::tauri);
+            surface.window.close().map_err(RuntimeError::tauri)?;
+            self.wait_for_environment_release(&surface.lifecycle, game_id)?;
             if let Some(directory) = surface.data_directory.parent() {
                 let _ = fs::remove_dir_all(directory);
             }
-            close_result?;
         }
         Ok(())
     }
@@ -5511,6 +5614,7 @@ impl SystemRuntimeExecutor {
                         .as_ref()
                         .map(|sync| LocalStorageRuntimeConfig {
                             dependent_role_ids: sync.dependent_role_ids.clone(),
+                            generation: 1,
                             keys: sync.keys.clone(),
                             origin: sync.origin.clone(),
                             source_role_id: sync
@@ -5590,6 +5694,7 @@ impl SystemRuntimeExecutor {
                         generation,
                         lifecycle,
                         local_storage_sync: sync_config,
+                        local_storage_sync_sequence: 0,
                         navigation,
                         rect: role.rect.clone(),
                         webview,
@@ -6427,38 +6532,70 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let label = webview.label().to_owned();
         webview.close().map_err(RuntimeError::tauri)?;
-        let callback_lifecycle = Arc::clone(lifecycle);
-        self.app
-            .run_on_main_thread(move || callback_lifecycle.mark_main_thread_released())
-            .map_err(RuntimeError::tauri)?;
+        wait_for_tauri_main_thread(&self.app)?;
         let platform = if cfg!(windows) { "windows" } else { "macos" };
-        if lifecycle.wait(platform) {
-            return Ok(());
+        let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+        while self.app.get_webview(&label).is_some() {
+            if Instant::now() >= deadline {
+                self.health.mark_unhealthy();
+                self.record_runtime_failure_kind("controller-release-timeout");
+                #[cfg(windows)]
+                let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
+                #[cfg(not(windows))]
+                let browser_process_id = 0;
+                let message = format!(
+                    "The System WebView surface {label} did not release its native controller within {}ms. Restart Rion Studio before launching another browser role.",
+                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                );
+                let _ = self.app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "browserProcessId": browser_process_id,
+                        "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
+                        "failureKind": "controller-release-timeout",
+                        "message": message,
+                        "roleId": role_id,
+                        "webviewLabel": label
+                    }),
+                );
+                return Err(RuntimeError::new(
+                    "SYSTEM_WEBVIEW_CREATION_STALLED",
+                    message,
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        self.health.mark_unhealthy();
-        self.record_runtime_failure_kind("release-timeout");
+        lifecycle.mark_controller_released();
+        debug_assert!(lifecycle.wait_for_controller_release(platform, Duration::from_millis(0)));
+        Ok(())
+    }
+
+    fn wait_for_environment_release(
+        &self,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<()> {
         #[cfg(windows)]
-        let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
+        {
+            if lifecycle.wait_for_browser_process_exit(PLATFORM_CALLBACK_TIMEOUT) {
+                return Ok(());
+            }
+            self.health.mark_unhealthy();
+            self.record_runtime_failure_kind("environment-release-timeout");
+            let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
+            return Err(RuntimeError::new(
+                "SYSTEM_WEBVIEW_CREATION_STALLED",
+                format!(
+                    "The WebView2 environment for {lifecycle_id} did not release browser process {browser_process_id} within {}ms. Restart Rion Studio before mutating its user-data folder.",
+                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                ),
+            ));
+        }
         #[cfg(not(windows))]
-        let browser_process_id = 0;
-        let message = format!(
-            "The System WebView surface {label} did not release its native lifecycle within {}ms. Restart Rion Studio before launching another browser role.",
-            PLATFORM_CALLBACK_TIMEOUT.as_millis()
-        );
-        let _ = self.app.emit(
-            "rion://shell-error",
-            json!({
-                "browserProcessId": browser_process_id,
-                "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
-                "message": message,
-                "roleId": role_id,
-                "webviewLabel": label
-            }),
-        );
-        Err(RuntimeError::new(
-            "SYSTEM_WEBVIEW_CREATION_STALLED",
-            message,
-        ))
+        {
+            let _ = (lifecycle, lifecycle_id);
+            Ok(())
+        }
     }
 
     fn add_child_bounded(
@@ -6705,6 +6842,12 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_LANE_POISONED",
+                "The localStorage synchronization lifecycle lane is unavailable.",
+            )
+        })?;
         self.persist_local_storage_sync_source_before_stop(role_id)?;
         let mut state = self.state()?;
         let tab_id = state.role_tabs.remove(role_id).ok_or_else(|| {
@@ -6783,6 +6926,12 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {
+        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_LANE_POISONED",
+                "The localStorage synchronization lifecycle lane is unavailable.",
+            )
+        })?;
         let role_ids = self
             .state()?
             .tabs
@@ -9524,28 +9673,67 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
         )
     })?;
     let is_source = config.source_role_id.is_none();
+    let generation = config.generation;
     Ok(format!(
         r#"(() => {{
   if (globalThis.top !== globalThis || globalThis.__rionLocalStorageSyncObserver) return;
-  const state = {{ token: {token}, origin: {origin}, keys: {keys}, lastError: null, pending: null, previous: null, timer: 0 }};
+  const state = {{ token: {token}, origin: {origin}, keys: {keys}, generation: {generation}, inFlight: null, lastError: null, nextSequence: 1, previous: null, queued: null, timer: 0 }};
   const capture = () => state.keys.map((key) => [key, localStorage.getItem(key)]);
-  const publish = () => {{
+  function schedule() {{
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(publish, 100);
+  }}
+  function dispatch(item) {{
+    if (item.generation !== state.generation) return;
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== "function") {{
+      state.queued = item;
+      schedule();
+      return;
+    }}
+    const request = {{ ...item, sequence: state.nextSequence++, token: state.token }};
+    state.inFlight = request;
+    void internals.invoke("rion_local_storage_sync_changed", {{
+      token: request.token,
+      generation: request.generation,
+      sequence: request.sequence,
+      entries: request.entries
+    }}).then(
+      () => {{
+        if (request.generation === state.generation) {{
+          state.lastError = null;
+          state.previous = request.serialized;
+        }}
+      }},
+      (error) => {{
+        if (request.generation === state.generation) state.lastError = String(error);
+      }}
+    ).then(() => {{
+      if (state.inFlight !== request) return;
+      state.inFlight = null;
+      if (request.generation !== state.generation) {{
+        schedule();
+        return;
+      }}
+      const queued = state.queued;
+      state.queued = null;
+      if (queued && queued.serialized !== state.previous) dispatch(queued);
+      else schedule();
+    }});
+  }}
+  function publish() {{
     state.timer = 0;
     if (location.origin !== state.origin) return;
     const entries = capture();
     const serialized = JSON.stringify(entries);
-    if (serialized === state.previous || serialized === state.pending) return;
-    const internals = globalThis.__TAURI_INTERNALS__;
-    if (!internals || typeof internals.invoke !== "function") return;
-    state.pending = serialized;
-    void internals.invoke("rion_local_storage_sync_changed", {{ token: state.token, entries }})
-      .then(() => {{ if (state.pending === serialized) {{ state.lastError = null; state.previous = serialized; state.pending = null; }} }})
-      .catch((error) => {{ state.lastError = String(error); if (state.pending === serialized) state.pending = null; schedule(); }});
-  }};
-  const schedule = () => {{
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = setTimeout(publish, 100);
-  }};
+    const item = {{ entries, generation: state.generation, serialized }};
+    if (state.inFlight) {{
+      state.queued = serialized === state.inFlight.serialized ? null : item;
+      return;
+    }}
+    if (serialized === state.previous) return;
+    dispatch(item);
+  }}
   for (const name of ["storage", "pageshow", "visibilitychange"]) addEventListener(name, schedule, true);
   setInterval(schedule, 250);
   if ({is_source}) {{
@@ -9576,12 +9764,14 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
       if (!next || next.token !== state.token) return false;
       state.origin = next.origin;
       state.keys = [...next.keys];
-      state.pending = null;
+      state.generation = next.generation;
+      state.nextSequence = 1;
+      state.queued = null;
       state.previous = null;
       schedule();
       return true;
     }},
-    snapshot() {{ return {{ hasPrevious: state.previous !== null, lastError: state.lastError, pending: state.pending !== null }}; }}
+    snapshot() {{ return {{ hasPrevious: state.previous !== null, lastError: state.lastError, pending: state.inFlight !== null || state.queued !== null }}; }}
   }});
   schedule();
 }})();"#,
@@ -11468,11 +11658,11 @@ mod tests {
 
     #[test]
     fn surface_release_barrier_is_platform_explicit() {
-        for (platform, main_thread_released, browser_process_exited, expected) in [
+        for (platform, controller_released, browser_process_exited, expected) in [
             ("macos", false, false, false),
             ("macos", true, false, true),
             ("windows", false, true, false),
-            ("windows", true, false, false),
+            ("windows", true, false, true),
             ("windows", true, true, true),
         ] {
             assert_eq!(
@@ -11480,11 +11670,11 @@ mod tests {
                     platform,
                     &SurfaceReleaseState {
                         browser_process_exited,
-                        main_thread_released,
+                        controller_released,
                     }
                 ),
                 expected,
-                "{platform}: main={main_thread_released}, browser={browser_process_exited}"
+                "{platform}: controller={controller_released}, browser={browser_process_exited}"
             );
         }
     }
@@ -11493,11 +11683,18 @@ mod tests {
     fn surface_release_barrier_has_a_bounded_timeout() {
         let tracker = SurfaceLifecycleTracker::default();
         let started = Instant::now();
-        assert!(!tracker.wait_for("windows", Duration::from_millis(5)));
+        assert!(!tracker.wait_for_controller_release("windows", Duration::from_millis(5)));
         assert!(started.elapsed() < Duration::from_secs(1));
 
-        tracker.mark_main_thread_released();
-        assert!(tracker.wait_for("macos", Duration::from_millis(5)));
+        tracker.mark_controller_released();
+        assert!(tracker.wait_for_controller_release("macos", Duration::from_millis(5)));
+        assert!(tracker.wait_for_controller_release("windows", Duration::from_millis(5)));
+
+        #[cfg(windows)]
+        {
+            tracker.mark_browser_process_exited();
+            assert!(tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
+        }
     }
 
     #[test]
@@ -11622,6 +11819,7 @@ mod tests {
     fn local_storage_sync_scripts_are_top_frame_origin_scoped_and_mirror_deletions() {
         let config = LocalStorageRuntimeConfig {
             dependent_role_ids: vec!["follower".to_owned()],
+            generation: 1,
             keys: vec!["game_client_settings".to_owned()],
             origin: "https://example.test".to_owned(),
             source_role_id: None,
@@ -11631,6 +11829,10 @@ mod tests {
         assert!(observer.contains("globalThis.top !== globalThis"));
         assert!(observer.contains("location.origin !== state.origin"));
         assert!(observer.contains("rion_local_storage_sync_changed"));
+        assert!(observer.contains("state.inFlight = request"));
+        assert!(observer.contains("state.queued = serialized === state.inFlight.serialized"));
+        assert!(observer.contains("generation: request.generation"));
+        assert!(observer.contains("sequence: request.sequence"));
         assert!(observer.contains("setInterval(schedule, 250)"));
         assert!(observer.contains("setTimeout(publish, 100)"));
         assert!(observer.contains("storagePrototype.setItem"));
@@ -11651,6 +11853,17 @@ mod tests {
         assert!(script.contains("localStorage.removeItem(key)"));
         assert!(script.contains("localStorage.setItem(key, value)"));
         assert!(!script.contains("localStorage.clear()"));
+    }
+
+    #[test]
+    fn local_storage_sync_sequence_fences_duplicates_and_out_of_order_callbacks() {
+        let mut last_accepted = 0;
+        assert!(accept_local_storage_sync_sequence(&mut last_accepted, 2));
+        assert!(!accept_local_storage_sync_sequence(&mut last_accepted, 1));
+        assert!(!accept_local_storage_sync_sequence(&mut last_accepted, 2));
+        assert!(!accept_local_storage_sync_sequence(&mut last_accepted, 0));
+        assert!(accept_local_storage_sync_sequence(&mut last_accepted, 3));
+        assert_eq!(last_accepted, 3);
     }
 
     #[test]

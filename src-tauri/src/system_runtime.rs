@@ -10120,11 +10120,16 @@ mod tests {
         assert!(source.contains("OffscreenCanvasRenderingContext2D"));
         assert!(source.contains("fillText"));
         assert!(source.contains("measureText"));
+        assert!(source.contains("textRendering"));
+        assert!(source.contains("fontKerning"));
+        assert!(source.contains("-webkit-font-smoothing"));
+        assert!(source.contains("font-optical-sizing"));
         assert!(source.contains("!important"));
         assert!(source.contains("numeric"));
         assert!(source.contains("monospace"));
         assert!(!source.contains("fonts.googleapis.com"));
         assert!(!source.contains("WebGLRenderingContext"));
+        assert!(!source.contains("imageSmoothingEnabled"));
     }
 
     #[test]

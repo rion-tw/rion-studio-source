@@ -600,7 +600,7 @@
   "settings.browserFontsDefault": "系统字体",
   "settings.browserFontsCustomEmpty": "已启用自定义字体，但尚未选择字体家族。",
   "settings.browserFontsSaved": "已保存，并已实时应用到打开的角色窗口。",
-  "settings.browserFontsForceWarning": "字体覆盖会优先于游戏页面样式，也会应用于 Canvas 2D 以及通过主线程 Canvas 生成的 WebGL 文字。现有 Canvas 像素会在下次重绘时更新。系统会尽量保护图标；Worker 内渲染及预制 bitmap/SDF 字体不受影响。",
+  "settings.browserFontsForceWarning": "字体覆盖会优先于游戏页面样式，也会应用于 Canvas 2D 以及通过主线程 Canvas 生成的 WebGL 文字。同时会启用字体平滑、字距微调和光学尺寸；字距微调可能使文字测量宽度略有变化。现有 Canvas 像素会在下次重绘时更新。系统会尽量保护图标；Worker 内渲染及预制 bitmap/SDF 字体不受影响。",
   "settings.browserFontsPresetsGeneral": "常用预设",
   "settings.browserFontsPresetsHandwriting": "手写风格",
   "settings.browserFonts.preset.systemDefault": "系统字体",

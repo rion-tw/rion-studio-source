@@ -2594,6 +2594,7 @@ impl SystemRuntimeExecutor {
                 *next_generation,
             )
         };
+        let host_visible = window.is_visible().map_err(RuntimeError::tauri)?;
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let paths = role_session_paths(&self.user_data_dir, role_id)?;
@@ -2618,6 +2619,13 @@ impl SystemRuntimeExecutor {
                 LogicalSize::new(bounds.width, bounds.height),
             )
             .map_err(RuntimeError::tauri)?;
+        if !host_visible {
+            // Keep recovery in the same hidden state as the host. WebView2 can otherwise
+            // treat a newly-created child as an input target during navigation even when its
+            // native parent is hidden, which makes the recovery attestation report focused
+            // input instead of trusted background input.
+            webview.hide().map_err(RuntimeError::tauri)?;
+        }
         install_platform_security_policy(&webview)?;
         install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
         install_process_failure_monitor(&webview, self.app.clone(), role_id.to_owned())?;

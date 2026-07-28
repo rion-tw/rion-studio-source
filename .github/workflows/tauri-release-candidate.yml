@@ -9,6 +9,9 @@ on:
       updater_base_url:
         required: true
         type: string
+      verified_sha:
+        required: true
+        type: string
     secrets:
       RION_STUDIO_UPDATER_PUBLIC_KEY:
         required: true
@@ -52,15 +55,21 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+          VERIFIED_SHA: ${{ inputs.verified_sha }}
         run: |
           set -euo pipefail
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           [[ "${UPDATER_BASE_URL}" == https://* ]]
           test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"
+          if [[ -n "${VERIFIED_SHA}" ]]; then
+            [[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"
+          fi
           echo "version=${RELEASE_TAG#v}" >> "${GITHUB_OUTPUT}"
 
   quality:
     needs: validate
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ inputs.tag }}
@@ -69,6 +78,10 @@ jobs:
     needs:
       - validate
       - quality
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      (needs.quality.result == 'success' || needs.quality.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -115,9 +128,6 @@ jobs:
 
       - name: Apply release version
         run: pnpm run release:version -- ${{ needs.validate.outputs.version }}
-
-      - name: Verify Tauri-only product boundary
-        run: pnpm run verify:system-only
 
       - name: Build Tauri release candidate
         run: pnpm run dist -- --bundles ${{ matrix.bundles }}

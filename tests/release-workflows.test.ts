@@ -58,10 +58,29 @@ describe("Tauri-only release workflows", () => {
       readWorkflow("src-tauri/tauri.macos.conf.json")
     ]);
     const macConfig = JSON.parse(macConfigSource);
+    const quality = workflow.slice(
+      workflow.indexOf("  quality:"),
+      workflow.indexOf("  build:")
+    );
+    const build = workflow.slice(
+      workflow.indexOf("  build:"),
+      workflow.indexOf("  manifest:")
+    );
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("uses: ./.github/workflows/ci.yml");
+    expect(workflow).toContain("verified_sha:");
+    expect(workflow).toContain('[[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]');
+    expect(workflow).toContain('test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"');
+    expect(quality).toContain("if: github.event_name == 'workflow_dispatch'");
+    expect(quality).toContain("uses: ./.github/workflows/ci.yml");
+    expect(build).toContain("always() &&");
+    expect(build).toContain("needs.validate.result == 'success'");
+    expect(build).toContain("needs.quality.result == 'success'");
+    expect(build).toContain("needs.quality.result == 'skipped'");
+    expect(build).not.toContain("pnpm run verify:system-only");
+    expect(build).not.toContain("pnpm run test");
+    expect(build).not.toContain("pnpm run lint");
     expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(workflow).toContain("pnpm run release:version");
@@ -102,10 +121,16 @@ describe("Tauri-only release workflows", () => {
     const buildIndex = workflow.indexOf("build-tauri-release:");
     const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
     const publishIndex = workflow.indexOf("publish-public-release:");
+    const build = workflow.slice(buildIndex, verifyIndex);
 
     expect(workflow).toContain("name: Private Tauri Release");
     expect(workflow).toContain("workflow_run:");
     expect(workflow).toContain("uses: ./.github/workflows/tauri-release-candidate.yml");
+    expect(workflow).toContain(
+      "verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}"
+    );
+    expect(build).toContain("- validate-ci-run");
+    expect(build).toContain("- resolve-release");
     expect(workflow).toContain("tauri-release-assets-");
     expect(workflow).toContain("cmp release-assets/SHA256SUMS.txt");
     expect(workflow).toContain("--verify-checksums");

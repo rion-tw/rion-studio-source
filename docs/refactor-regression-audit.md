@@ -81,7 +81,9 @@ repository.
 - Keep deterministic coverage for multi-role ordering, deadlines, partial
   failure, cancellation, and handle cleanup at the Rust effect/runtime boundary.
 - Require Linux checks/sanitizer plus macOS and Windows platform build jobs for
-  every release candidate. A local macOS build is not Windows evidence.
+  each release source commit. Automatic releases pin the candidate tag to that
+  successful CI SHA instead of repeating the same tests; manually dispatched
+  candidates rerun CI. A local macOS build is not Windows evidence.
 - Complete manual Windows 10/11 multi-display and legacy in-place-upgrade checks
   when preparing a release; these product checks are intentionally separate from
   normal build and package commands.

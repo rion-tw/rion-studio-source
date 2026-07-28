@@ -51,9 +51,12 @@ and never expose these capabilities to remote pages.
 
 ## Platform release gates
 
-Every macOS and Windows candidate must pass target-specific Rust lint/tests and
-bundle successfully. The release workflow verifies package structure, updater
-signatures, and upgrade compatibility without launching the application.
+Every release source commit must pass target-specific Rust lint/tests and bundle
+successfully in CI. Automatic release candidates inherit that exact successful
+commit and reject a release tag whose commit differs from the verified CI SHA;
+manually dispatched candidates rerun CI. The release workflow then rebuilds the
+versioned package and verifies its structure, updater signatures, and upgrade
+compatibility without launching the application.
 macOS candidates use the explicit ad-hoc signing identity (`-`) and are neither
 Developer ID signed nor notarized. Windows candidates remain unsigned like the
 legacy release. Both platforms still require Tauri-signed updater artifacts.

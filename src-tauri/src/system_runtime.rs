@@ -7297,7 +7297,23 @@ fn verify_attestation_tab(
             .collect::<RuntimeResult<Vec<_>>>()?;
         (host.window.clone(), surfaces, tab.workspace_appearance.gap)
     };
-    let content_metrics = runtime_window_content_metrics(&window)?;
+    let content_metrics = {
+        let metrics = logical_window_content_metrics(&window)?;
+        #[cfg(windows)]
+        {
+            // The existing native query is stable in the attestation worker. Apply the
+            // Windows-owned tab-strip inset locally instead of re-entering the runtime
+            // wrapper here, which can block WebView2 while the hidden host is settling.
+            let mut metrics = metrics;
+            metrics.top_inset += WINDOWS_TAB_STRIP_HEIGHT;
+            metrics.height = (metrics.height - WINDOWS_TAB_STRIP_HEIGHT).max(1.0);
+            metrics
+        }
+        #[cfg(not(windows))]
+        {
+            metrics
+        }
+    };
     let expected_bounds = runtime
         .resolve_runtime_layout(
             content_metrics,

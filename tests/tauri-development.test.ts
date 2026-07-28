@@ -121,6 +121,9 @@ describe("Tauri development and release commands", () => {
     expect(releaseLauncher).toContain(
       'if (forwardedArguments[0] === "--") forwardedArguments.shift()'
     );
+    expect(releaseLauncher).toContain('import { spawnPlatformCommand }');
+    expect(releaseLauncher).toContain("spawnPlatformCommand(executable, args");
+    expect(releaseLauncher).not.toContain("spawnSync");
     expect(releaseLauncher).toContain('signingIdentity: "-"');
     expect(releaseLauncher).not.toContain("verifyWindowsCertificatePublisher");
     expect(releaseLauncher).not.toContain("certificateThumbprint");

@@ -185,6 +185,11 @@ export async function reportRendererStartupFailure(message: string): Promise<voi
   await invokeShell("rendererStartupFailed", [message]);
 }
 
+export async function waitForNativeStartup(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invokeShell("waitForNativeStartup");
+}
+
 export async function installTauriBridgeIfNeeded(): Promise<void> {
   if (window.rionStudio || !isTauriRuntime()) return;
 

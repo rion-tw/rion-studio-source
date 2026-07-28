@@ -20,6 +20,15 @@ afterEach(() => {
 });
 
 describe("pre-React startup fallback", () => {
+  it("preserves structured native startup errors", async () => {
+    const { startupFailureMessage } = await import("../src/renderer/src/app/startupFallback");
+
+    expect(startupFailureMessage({
+      code: "SHELL_STARTUP_FAILED",
+      message: "native database failed"
+    })).toBe("native database failed");
+  });
+
   it("restores the original error card and treats native details as text", async () => {
     const { showStartupFailure } = await import("../src/renderer/src/app/startupFallback");
     const unsafeDetail = '<img src=x onerror="window.__unsafe=true">';

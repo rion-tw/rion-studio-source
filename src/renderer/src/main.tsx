@@ -10,7 +10,8 @@ import { RendererReadyReporter } from "./components/RendererReadyReporter";
 import { showStartupFailure, startupFailureMessage } from "./app/startupFallback";
 import {
   installTauriBridgeIfNeeded,
-  reportRendererStartupFailure
+  reportRendererStartupFailure,
+  waitForNativeStartup
 } from "./tauri/installTauriBridge";
 import "./styles.css";
 
@@ -32,6 +33,7 @@ function detectPlatform(): "linux" | "mac" | "windows" {
 async function bootstrapRenderer(): Promise<void> {
   try {
     await installTauriBridgeIfNeeded();
+    await waitForNativeStartup();
   } catch (error) {
     const message = startupFailureMessage(error);
     showStartupFailure(message);

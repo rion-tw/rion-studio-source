@@ -200,6 +200,11 @@ async function run(executable, args, env = process.env, timeout = 0) {
       } else if (signal) {
         reject(new Error(`${executable} was terminated by ${signal}.`));
       } else if (timeout > 0) {
+        if (code !== 0 && process.platform === "win32") {
+          // A failed attestation can leave WebView2 descendants alive after the Tauri
+          // process exits; clean them before the workflow starts its retry.
+          await terminateProcessTree(child);
+        }
         resolvePromise({ code: code ?? 1 });
       } else if (code === 0) {
         resolvePromise({ code });

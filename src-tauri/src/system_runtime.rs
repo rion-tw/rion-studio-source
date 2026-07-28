@@ -7024,8 +7024,8 @@ fn focus_windows_host(window: &Window) -> RuntimeResult<()> {
         .run_on_main_thread(move || {
             let hwnd = HWND(hwnd as *mut std::ffi::c_void);
             let result = unsafe {
-                SetFocus(Some(hwnd))
-                    .or_else(|_| SetFocus(None))
+                let _ = SetFocus(Some(hwnd)).or_else(|_| SetFocus(None));
+                SetFocus(None)
                     .map(|_| ())
                     .map_err(|error| error.to_string())
             };

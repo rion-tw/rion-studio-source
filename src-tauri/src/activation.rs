@@ -73,18 +73,14 @@ impl ActivationServer {
                         Ok((stream, _)) => {
                             handle_connection(stream, &thread_token, on_activate.as_ref());
                         }
-                        Err(error)
-                            if matches!(
-                                error.kind(),
-                                io::ErrorKind::WouldBlock
-                                    | io::ErrorKind::Interrupted
-                                    | io::ErrorKind::ConnectionAborted
-                                    | io::ErrorKind::ConnectionReset
-                            ) =>
-                        {
+                        Err(_) if thread_stop.load(Ordering::Acquire) => break,
+                        Err(_) => {
+                            // Nonblocking accept can surface platform-specific transient
+                            // connection errors. Keep the activation endpoint alive until the
+                            // owner explicitly drops the server instead of treating one such
+                            // error as a permanent listener failure.
                             thread::sleep(Duration::from_millis(25));
                         }
-                        Err(_) => break,
                     }
                 }
             })?;

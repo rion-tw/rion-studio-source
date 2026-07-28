@@ -1,11 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "system-role-overlay-remote",
-  "description": "Allows game role WebViews to call only role-bound overlay, audio-state, and allowlisted localStorage synchronization endpoints.",
+  "description": "Allows game role WebViews to call only role-bound font, overlay, audio-state, and allowlisted localStorage synchronization endpoints.",
   "remote": {
     "urls": ["http://*", "http://*:*", "https://*", "https://*:*"]
   },
   "local": false,
   "webviews": ["game-role-*"],
-  "permissions": ["allow-rion-overlay-request", "allow-rion-local-storage-sync-changed", "allow-rion-runtime-audio-state"]
+  "permissions": ["allow-rion-browser-font-payload", "allow-rion-overlay-request", "allow-rion-local-storage-sync-changed", "allow-rion-runtime-audio-state"]
 }

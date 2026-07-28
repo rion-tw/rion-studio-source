@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GAME_BROWSER_SETTINGS,
   DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
+  browserFontPresets,
   normalizeBrowserFontFamily,
   normalizeGameBrowserSettings,
+  resolveBrowserFontPreset,
   workspaceGapSizes
 } from "../src/shared/browserFonts";
 
@@ -23,35 +25,84 @@ describe("browser font settings normalization", () => {
     ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
   });
 
-  it("normalizes custom font families without adding font size settings", () => {
+  it("normalizes five routed font slots without adding font size settings", () => {
     expect(
       normalizeGameBrowserSettings({
         fonts: {
-          families: {
-            fixed: "  Courier   New  ",
-            math: "Noto Sans Math",
-            sansserif: "Helvetica",
-            serif: "Times New Roman",
-            standard: "Arial",
-            unknown: "Ignored"
+          cjkVariant: "tc",
+          mode: "custom",
+          presetId: "modern-sans",
+          slots: {
+            cjk: { source: "google", catalogId: "NOTO-SANS-TC" },
+            latin: { source: "system", family: "  Helvetica   Neue  " },
+            numeric: { source: "google", catalogId: "roboto-mono" },
+            monospace: { source: "system", family: "  Courier   New  " },
+            math: { source: "google", catalogId: "noto-sans-math" },
+            unknown: { source: "system", family: "Ignored" }
           },
-          mode: "custom"
         }
       })
     ).toEqual({
       fonts: {
-        families: {
-          fixed: "Courier New",
-          math: "Noto Sans Math",
-          sansserif: "Helvetica",
-          serif: "Times New Roman",
-          standard: "Arial"
+        cjkVariant: "tc",
+        mode: "custom",
+        presetId: "modern-sans",
+        slots: {
+          cjk: { source: "google", catalogId: "noto-sans-tc" },
+          latin: { source: "system", family: "Helvetica Neue" },
+          numeric: { source: "google", catalogId: "roboto-mono" },
+          monospace: { source: "system", family: "Courier New" },
+          math: { source: "google", catalogId: "noto-sans-math" }
         },
-        mode: "custom"
       },
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       performance: DEFAULT_GAME_BROWSER_SETTINGS.performance,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+    });
+  });
+
+  it("migrates legacy Chrome-style family roles into the new slots", () => {
+    const normalized = normalizeGameBrowserSettings({
+      fonts: {
+        mode: "custom",
+        families: {
+          standard: "  Missing   But Valid  ",
+          fixed: "Courier New",
+          math: "Noto Sans Math"
+        }
+      }
+    });
+
+    expect(normalized.fonts).toEqual({
+      cjkVariant: "auto",
+      mode: "custom",
+      slots: {
+        cjk: { source: "system", family: "Missing But Valid" },
+        latin: { source: "system", family: "Missing But Valid" },
+        numeric: { source: "system", family: "Missing But Valid" },
+        monospace: { source: "system", family: "Courier New" },
+        math: { source: "system", family: "Noto Sans Math" }
+      }
+    });
+  });
+
+  it("provides language-specific general and handwriting presets", () => {
+    expect(browserFontPresets.filter((preset) => preset.category === "handwriting")).toHaveLength(3);
+    expect(resolveBrowserFontPreset("natural-handwriting", "tc").slots.cjk).toEqual({
+      source: "google",
+      catalogId: "iansui"
+    });
+    expect(resolveBrowserFontPreset("natural-handwriting", "sc").slots.cjk).toEqual({
+      source: "google",
+      catalogId: "ma-shan-zheng"
+    });
+    expect(resolveBrowserFontPreset("natural-handwriting", "jp").slots.cjk).toEqual({
+      source: "google",
+      catalogId: "klee-one"
+    });
+    expect(resolveBrowserFontPreset("clear-numbers", "tc").slots.numeric).toEqual({
+      source: "google",
+      catalogId: "roboto-mono"
     });
   });
 

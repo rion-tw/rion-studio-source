@@ -111,6 +111,7 @@ describe("Tauri shell parity guard", () => {
       local: false,
       webviews: ["game-role-*"],
       permissions: [
+        "allow-rion-browser-font-payload",
         "allow-rion-overlay-request",
         "allow-rion-local-storage-sync-changed",
         "allow-rion-runtime-audio-state"

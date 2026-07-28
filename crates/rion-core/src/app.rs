@@ -577,6 +577,34 @@ impl AppCore {
                 serde_json::to_value(settings)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::BrowserFontCatalogList => {
+                serde_json::to_value(crate::font_catalog::list(&self.user_data_dir))
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserFontPackInstall { catalog_id } => serde_json::to_value(
+                crate::font_catalog::install(&self.user_data_dir, &catalog_id)?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserFontPackRemove { catalog_id } => serde_json::to_value(
+                crate::font_catalog::remove(&self.user_data_dir, &catalog_id)?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserFontRuntimePayload { settings } => {
+                let settings = if let Some(settings) = settings {
+                    settings
+                } else {
+                    self.read_scalar_state::<GameBrowserSettingsRecord>(
+                        "gameBrowserSettings",
+                        "game browser settings are missing",
+                    )?
+                    .fonts
+                };
+                serde_json::to_value(crate::font_catalog::runtime_payload(
+                    &self.user_data_dir,
+                    settings,
+                )?)
+                .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::MacroSettingsGet => {
                 serde_json::to_value(self.read_scalar_state::<MacroSettingsRecord>(
                     "macroSettings",

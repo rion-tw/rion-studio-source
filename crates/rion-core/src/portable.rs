@@ -3639,15 +3639,20 @@ mod tests {
                     .is_none()
             );
             let fonts = &browser_settings.fonts;
+            let serialized_fonts = serde_json::to_value(fonts).unwrap();
             assert_eq!(
-                fonts.families.get("standard").map(String::as_str),
-                Some("Missing But Valid Font")
+                serialized_fonts["slots"]["cjk"],
+                json!({"source":"system","family":"Missing But Valid Font"})
             );
             assert_eq!(
-                fonts.families.get("math").map(String::as_str),
-                Some("Noto Sans Math")
+                serialized_fonts["slots"]["latin"],
+                json!({"source":"system","family":"Missing But Valid Font"})
             );
-            assert!(!fonts.families.contains_key("fixed"));
+            assert_eq!(
+                serialized_fonts["slots"]["math"],
+                json!({"source":"system","family":"Noto Sans Math"})
+            );
+            assert!(fonts.families.is_empty());
             assert!(browser_settings.performance.macos_high_refresh_rate);
         });
     }
@@ -3656,10 +3661,10 @@ mod tests {
     fn portable_browser_preferences_do_not_export_retired_graphics_settings() {
         let mut browser_settings = crate::domain::default_game_browser_settings();
         browser_settings.fonts.mode = "custom".to_owned();
-        browser_settings
-            .fonts
-            .families
-            .insert("standard".to_owned(), "Inter".to_owned());
+        browser_settings.fonts.slots.insert(
+            "latin".to_owned(),
+            serde_json::from_value(json!({"source":"system","family":"Inter"})).unwrap(),
+        );
         browser_settings.performance.macos_high_refresh_rate = true;
         let exported = export(
             state_fixture(),
@@ -3692,7 +3697,10 @@ mod tests {
         let settings = preview.preferences.unwrap().game_browser_settings.unwrap();
         let serialized = serde_json::to_value(settings).unwrap();
         assert!(serialized.get("graphics").is_none());
-        assert_eq!(serialized["fonts"]["families"]["standard"], "Inter");
+        assert_eq!(
+            serialized["fonts"]["slots"]["latin"],
+            json!({"source":"system","family":"Inter"})
+        );
         assert_eq!(serialized["performance"]["macosHighRefreshRate"], true);
     }
 

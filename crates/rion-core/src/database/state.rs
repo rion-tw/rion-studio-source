@@ -37,7 +37,7 @@ use crate::model::{
     StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 16;
+pub(crate) const SCHEMA_VERSION: u32 = 17;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1606,7 +1606,104 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 17 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        migrate_browser_font_profiles(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (17, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn migrate_browser_font_profiles(transaction: &Transaction<'_>) -> CoreResult<()> {
+    let payload = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    let Some(payload) = payload else {
+        return Ok(());
+    };
+    let mut value = parse_payload(&payload)?;
+    let settings = value.as_object_mut().ok_or_else(|| {
+        CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
+    })?;
+    let fonts = settings
+        .entry("fonts".to_owned())
+        .or_insert_with(|| json!({"mode":"default"}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            CoreError::StateDatabase("browser font settings must be an object".to_owned())
+        })?;
+    if fonts.contains_key("slots") {
+        return Ok(());
+    }
+
+    let mode = fonts
+        .get("mode")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "default" | "custom"))
+        .unwrap_or("default")
+        .to_owned();
+    let legacy = fonts
+        .get("families")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut slots = serde_json::Map::new();
+    let family_selection = |family: &str| json!({"source":"system","family":family});
+    if mode == "custom" {
+        let proportional = ["standard", "sansserif", "serif"]
+            .into_iter()
+            .find_map(|key| legacy.get(key).and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|family| !family.is_empty());
+        if let Some(family) = proportional {
+            for slot in ["cjk", "latin", "numeric"] {
+                slots.insert(slot.to_owned(), family_selection(family));
+            }
+        }
+        if let Some(family) = legacy
+            .get("fixed")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|family| !family.is_empty())
+        {
+            slots.insert("monospace".to_owned(), family_selection(family));
+        }
+        if let Some(family) = legacy
+            .get("math")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|family| !family.is_empty())
+        {
+            slots.insert("math".to_owned(), family_selection(family));
+        }
+    }
+    fonts.insert("mode".to_owned(), json!(mode));
+    fonts.insert("cjkVariant".to_owned(), json!("auto"));
+    fonts.insert("slots".to_owned(), Value::Object(slots));
+    fonts.remove("families");
+    fonts.remove("presetId");
+    transaction
+        .execute(
+            "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+            params![serialize_payload(&value)?],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(())
 }
 
@@ -2961,7 +3058,15 @@ mod tests {
         )
         .unwrap();
         assert!(migrated.get("graphics").is_none());
-        assert_eq!(migrated["fonts"], legacy["fonts"]);
+        assert_eq!(migrated["fonts"]["mode"], "custom");
+        assert_eq!(migrated["fonts"]["cjkVariant"], "auto");
+        for slot in ["cjk", "latin", "numeric"] {
+            assert_eq!(
+                migrated["fonts"]["slots"][slot],
+                json!({"source":"system","family":"Inter"})
+            );
+        }
+        assert!(migrated["fonts"].get("families").is_none());
         assert_eq!(migrated["macroBadgePosition"], legacy["macroBadgePosition"]);
         assert_eq!(migrated["workspace"], legacy["workspace"]);
 
@@ -3242,20 +3347,23 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
-            assert_eq!(stored.fonts.families["fixed"], "Courier New");
-            assert!(!stored.fonts.families.contains_key("bad"));
+            assert_eq!(
+                serde_json::to_value(&stored.fonts).unwrap()["slots"]["monospace"],
+                json!({"source":"system","family":"Courier New"})
+            );
+            assert!(stored.fonts.families.is_empty());
             let mut changed_copy = stored.clone();
-            changed_copy
-                .fonts
-                .families
-                .insert("standard".to_owned(), "Changed".to_owned());
+            changed_copy.fonts.slots.insert(
+                "latin".to_owned(),
+                serde_json::from_value(json!({"source":"system","family":"Changed"})).unwrap(),
+            );
             let reloaded: GameBrowserSettingsRecord = serde_json::from_value(
                 read_scalar(&connection, "gameBrowserSettings")
                     .unwrap()
                     .unwrap(),
             )
             .unwrap();
-            assert!(!reloaded.fonts.families.contains_key("standard"));
+            assert!(!reloaded.fonts.slots.contains_key("latin"));
         });
 
         crate::v1_case!("state-migration-b46be2776736", {
@@ -4141,7 +4249,7 @@ mod tests {
                 "CREATE TABLE compatibility_reports(game_id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, payload_json TEXT NOT NULL);
                  CREATE TABLE engine_compatibility_cache(cache_key TEXT PRIMARY KEY, game_id TEXT NOT NULL, engine TEXT NOT NULL, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
                  CREATE INDEX engine_compatibility_cache_game_idx ON engine_compatibility_cache(game_id, engine);
-                 DELETE FROM schema_migrations WHERE version=16;",
+                 DELETE FROM schema_migrations WHERE version>=16;",
             )
             .unwrap();
 
@@ -4157,6 +4265,67 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 0);
         }
+    }
+
+    #[test]
+    fn schema_seventeen_migrates_legacy_browser_font_roles_to_routed_slots() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let legacy = json!({
+            "fonts": {
+                "mode": "custom",
+                "families": {
+                    "standard": "Noto Sans TC",
+                    "fixed": "Courier New",
+                    "math": "Noto Sans Math"
+                }
+            },
+            "macroBadgePosition": {"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
+            "performance": {"macosHighRefreshRate":false},
+            "workspace": {"background":"material","gap":4}
+        });
+        connection
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                [serde_json::to_string(&legacy).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=17", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let payload: String = connection
+            .query_row(
+                "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let settings: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(settings["fonts"]["cjkVariant"], "auto");
+        assert_eq!(
+            settings["fonts"]["slots"]["cjk"],
+            json!({"source":"system","family":"Noto Sans TC"})
+        );
+        assert_eq!(
+            settings["fonts"]["slots"]["latin"],
+            json!({"source":"system","family":"Noto Sans TC"})
+        );
+        assert_eq!(
+            settings["fonts"]["slots"]["numeric"],
+            json!({"source":"system","family":"Noto Sans TC"})
+        );
+        assert_eq!(
+            settings["fonts"]["slots"]["monospace"],
+            json!({"source":"system","family":"Courier New"})
+        );
+        assert_eq!(
+            settings["fonts"]["slots"]["math"],
+            json!({"source":"system","family":"Noto Sans Math"})
+        );
+        assert!(settings["fonts"].get("families").is_none());
     }
 
     #[test]

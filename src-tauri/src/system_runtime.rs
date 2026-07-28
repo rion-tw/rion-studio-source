@@ -73,6 +73,9 @@ const RUNTIME_INDICATOR_RUNTIME_SOURCE: &str =
 const RUNTIME_INDICATOR_CSS: &str =
     include_str!("../../src/shared/browser-overlay/runtimeIndicators.css");
 const RUNTIME_INDICATOR_CSS_TOKEN: &str = "__RION_STUDIO_RUNTIME_INDICATOR_CSS__";
+const BROWSER_FONTS_RUNTIME_SOURCE: &str =
+    include_str!("../../src/shared/browser-overlay/browserFontsRuntime.js");
+const BROWSER_FONTS_REFRESH_SOURCE: &str = "void globalThis.__rionStudioBrowserFonts?.refresh?.()";
 const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
 Object.defineProperty(window, "__rionSystemWebView", {
   configurable: false,
@@ -763,7 +766,7 @@ impl SystemRuntimeExecutor {
             RUNTIME_TAB_SHORTCUT_SCRIPT.to_owned(),
             RUNTIME_AUDIO_OBSERVER_SCRIPT.to_owned(),
             runtime_indicator_script,
-            native_font_document_start_script(&settings),
+            native_font_document_start_script(),
         ]
         .into_iter()
         .filter(|source| !source.is_empty())
@@ -2567,6 +2570,31 @@ impl SystemRuntimeExecutor {
         }
         refresh_macro_overlay_handles(webviews, |webview| {
             webview.eval(MACRO_OVERLAY_REFRESH_SOURCE)
+        });
+    }
+
+    pub fn refresh_browser_fonts(&self) {
+        let (mut webviews, popup_labels) = {
+            let Ok(state) = self.state.lock() else {
+                return;
+            };
+            let webviews = state
+                .tabs
+                .values()
+                .flat_map(|tab| tab.roles.values())
+                .map(|surface| surface.webview.clone())
+                .collect::<Vec<_>>();
+            let popup_labels = state.popup_roles.keys().cloned().collect::<Vec<_>>();
+            (webviews, popup_labels)
+        };
+
+        for label in popup_labels {
+            if let Some(webview) = self.app.get_webview(&label) {
+                webviews.push(webview);
+            }
+        }
+        refresh_macro_overlay_handles(webviews, |webview| {
+            webview.eval(BROWSER_FONTS_REFRESH_SOURCE)
         });
     }
 
@@ -7894,84 +7922,8 @@ fn replace_single_script_token(
     ))
 }
 
-fn native_font_document_start_script(settings: &GameBrowserSettingsRecord) -> String {
-    if settings.fonts.mode != "custom" || settings.fonts.families.is_empty() {
-        return String::new();
-    }
-    let families = &settings.fonts.families;
-    let mut rules = Vec::new();
-    push_font_rule(
-        &mut rules,
-        ":where(html,body,button,input,select,textarea)",
-        families
-            .get("standard")
-            .or_else(|| families.get("sansserif")),
-    );
-    push_font_rule(
-        &mut rules,
-        ":where(button,input,select,textarea)",
-        families
-            .get("sansserif")
-            .or_else(|| families.get("standard")),
-    );
-    push_font_rule(
-        &mut rules,
-        ":where(article,blockquote,q)",
-        families.get("serif"),
-    );
-    push_font_rule(
-        &mut rules,
-        ":where(code,kbd,pre,samp,textarea)",
-        families.get("fixed"),
-    );
-    push_font_rule(&mut rules, "math", families.get("math"));
-    if rules.is_empty() {
-        return String::new();
-    }
-    let css = serde_json::to_string(&rules.join("\n")).unwrap_or_else(|_| "\"\"".to_owned());
-    format!(
-        r#"(() => {{
-  const styleId = "rion-studio-native-browser-fonts";
-  const css = {css};
-  const install = () => {{
-    const root = document.documentElement;
-    if (!root || document.getElementById(styleId)) return false;
-    try {{
-      if (typeof CSSStyleSheet === "function" && "adoptedStyleSheets" in document) {{
-        const sheet = new CSSStyleSheet();
-        sheet.replaceSync(css);
-        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-        root.dataset.rionStudioNativeFonts = "adopted";
-        return true;
-      }}
-    }} catch {{}}
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = css;
-    (document.head || root).appendChild(style);
-    root.dataset.rionStudioNativeFonts = "style";
-    return true;
-  }};
-  if (!install()) {{
-    document.addEventListener("readystatechange", install, {{ once: true }});
-    document.addEventListener("DOMContentLoaded", install, {{ once: true }});
-  }}
-}})();"#
-    )
-}
-
-fn push_font_rule(rules: &mut Vec<String>, selector: &str, family: Option<&String>) {
-    let Some(family) = family else {
-        return;
-    };
-    let family = family
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\a ")
-        .replace('\r', "\\d ");
-    rules.push(format!(
-        "{selector}{{font-family:\"{family}\" !important;}}"
-    ));
+fn native_font_document_start_script() -> String {
+    BROWSER_FONTS_RUNTIME_SOURCE.to_owned()
 }
 
 #[derive(Clone, Copy)]
@@ -10097,27 +10049,15 @@ mod tests {
     }
 
     #[test]
-    fn native_font_script_uses_valid_escaped_css_and_skips_default_settings() {
-        let default = serde_json::from_value::<GameBrowserSettingsRecord>(json!({
-            "fonts": {"mode":"default","families":{}},
-            "graphics": {"mode":"automatic"},
-            "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
-            "workspace":{"background":"material","gap":4}
-        }))
-        .unwrap();
-        assert!(native_font_document_start_script(&default).is_empty());
-
-        let mut custom = default;
-        custom.fonts.mode = "custom".to_owned();
-        custom
-            .fonts
-            .families
-            .insert("standard".to_owned(), "A \\\"quoted\\\" font".to_owned());
-        let source = native_font_document_start_script(&custom);
-        assert!(source.contains("rion-studio-native-browser-fonts"));
-        assert!(source.contains("quoted"));
-        assert!(!source.contains("font-family:\"A \"quoted\" font\""));
-        assert!(source.contains("font-family"));
+    fn native_font_script_loads_current_settings_through_the_role_bound_bridge() {
+        let source = native_font_document_start_script();
+        assert!(source.contains("rion_browser_font_payload"));
+        assert!(source.contains("rion-studio-browser-fonts"));
+        assert!(source.contains("FontFace"));
+        assert!(source.contains("!important"));
+        assert!(source.contains("numeric"));
+        assert!(source.contains("monospace"));
+        assert!(!source.contains("fonts.googleapis.com"));
     }
 
     #[test]

@@ -12,6 +12,7 @@ chrono.workspace = true
 crossbeam-channel.workspace = true
 fs2.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 rion-platform = { path = "../rion-platform" }
 rusqlite.workspace = true
 rusty-leveldb.workspace = true

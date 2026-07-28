@@ -6,6 +6,10 @@ import type {
   AppWindowState,
   BulkDeleteInput,
   BulkDeleteResult,
+  BrowserFontCatalogEntry,
+  BrowserFontInstallResult,
+  BrowserFontRuntimePayload,
+  BrowserFontSettings,
   BrowserPerformanceDiagnostics,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
@@ -137,6 +141,10 @@ export interface RionStudioApi {
   discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  listBrowserFontCatalog: () => Promise<BrowserFontCatalogEntry[]>;
+  installBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;
+  removeBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;
+  getBrowserFontPreview: (settings: BrowserFontSettings) => Promise<BrowserFontRuntimePayload>;
   getLogStatus: () => Promise<LogStorageStatus>;
   queryLogs: (query?: LogQuery) => Promise<LogPage>;
   setLogLevel: (level: LogLevel) => Promise<LogStorageStatus>;

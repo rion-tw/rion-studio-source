@@ -275,6 +275,15 @@ fn core_command_refreshes_runtime_projection(command: &CoreCommand) -> bool {
     matches!(command, CoreCommand::RuntimeWindowPreferencesReplace { .. })
 }
 
+fn core_command_refreshes_browser_fonts(command: &CoreCommand) -> bool {
+    matches!(
+        command,
+        CoreCommand::GameBrowserSettingsReplace { .. }
+            | CoreCommand::BrowserFontPackInstall { .. }
+            | CoreCommand::BrowserFontPackRemove { .. }
+    )
+}
+
 fn overlay_request_activates_webview(payload: &Value) -> bool {
     payload.get("type").and_then(Value::as_str) == Some("activate")
 }
@@ -295,6 +304,7 @@ async fn rion_core_invoke(
         _ => None,
     };
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
+    let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
     let result = if command.requires_async_dispatch() {
         Arc::clone(&state.core)
             .invoke_async(command)
@@ -325,7 +335,31 @@ async fn rion_core_invoke(
             let _ = application_menu::install(&app, &state.core, &language);
         }
     }
+    if result.is_ok() && browser_fonts_changed {
+        state.runtime.refresh_browser_fonts();
+    }
     result
+}
+
+#[tauri::command]
+async fn rion_browser_font_payload(
+    webview: Webview,
+    state: State<'_, CoreState>,
+) -> Result<Value, CoreErrorPayload> {
+    state
+        .runtime
+        .role_id_for_webview(webview.label())
+        .map_err(|message| shell_error("BROWSER_FONT_ROLE_UNAVAILABLE", message))?;
+    let core = Arc::clone(&state.core);
+    tauri::async_runtime::spawn_blocking(move || {
+        core.invoke(CoreCommand::BrowserFontRuntimePayload { settings: None })
+    })
+    .await
+    .map_err(|error| CoreErrorPayload {
+        code: "CORE_INTERNAL_FAILED".to_owned(),
+        message: error.to_string(),
+    })?
+    .map_err(error_payload)
 }
 
 #[tauri::command]
@@ -3132,6 +3166,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             rion_core_invoke,
+            rion_browser_font_payload,
             rion_divider_pointer,
             rion_overlay_request,
             rion_local_storage_sync_changed,

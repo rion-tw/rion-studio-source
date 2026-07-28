@@ -476,6 +476,13 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     getGameBrowserSettings: () => invokeCore({ type: "gameBrowserSettingsGet" }),
     updateGameBrowserSettings: (settings) =>
       invokeCore({ type: "gameBrowserSettingsReplace", settings }),
+    listBrowserFontCatalog: () => invokeCore({ type: "browserFontCatalogList" }),
+    installBrowserFont: (catalogId) =>
+      invokeCore({ type: "browserFontPackInstall", catalogId }),
+    removeBrowserFont: (catalogId) =>
+      invokeCore({ type: "browserFontPackRemove", catalogId }),
+    getBrowserFontPreview: (settings) =>
+      invokeCore({ type: "browserFontRuntimePayload", settings }),
     getLogStatus: () => invokeCore({ type: "logsStatus" }),
     queryLogs: (query) => invokeCore({ type: "logsQuery", query: query ?? {} }),
     setLogLevel: (level) =>

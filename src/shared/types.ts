@@ -1,6 +1,10 @@
 import type {
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
+  BrowserFontSelectionRecord,
+  BrowserFontCatalogEntryRecord,
+  BrowserFontInstallResultRecord,
+  BrowserFontRuntimePayloadRecord,
   BrowserPerformanceDiagnosticsRecord,
   BrowserPerformanceSettingsRecord,
   ChromeProfileImportPreviewRecord,
@@ -358,8 +362,16 @@ export interface AppErrorPayload {
   message: string;
 }
 
-export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
+export type BrowserFontSlot = "cjk" | "latin" | "numeric" | "monospace" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
+export type BrowserFontCjkVariant = "auto" | "tc" | "sc" | "jp";
+export type BrowserFontSelection = BrowserFontSelectionRecord;
+export type BrowserFontCategory = "sans" | "serif" | "handwriting" | "monospace" | "math";
+export type BrowserFontUsage = "body" | "accent" | "technical";
+
+export type BrowserFontCatalogEntry = BrowserFontCatalogEntryRecord;
+export type BrowserFontInstallResult = BrowserFontInstallResultRecord;
+export type BrowserFontRuntimePayload = BrowserFontRuntimePayloadRecord;
 export type BrowserRuntimeMode = "embedded";
 export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
 export type BrowserHostKind = RustBrowserHostKind;

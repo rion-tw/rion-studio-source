@@ -68,6 +68,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Built-in games cannot be deleted.": "error.gameBuiltinDeleteForbidden",
   "Move or delete assigned roles before deleting this game.": "error.gameInUse",
   "A compatibility check is already running for this game.": "error.gameCompatibilityRunning",
+  "The game cannot be deleted while its compatibility check is running.": "error.gameCompatibilityRunning",
   "Launch workspace not found.": "error.workspaceNotFound",
   "Launch workspace data file is invalid.": "error.workspaceDataInvalid",
   "Launch workspace order is invalid.": "error.workspaceOrderInvalid",

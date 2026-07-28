@@ -322,12 +322,15 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let Some(main_window) = app.get_webview_window("main") else {
                 return;
             };
-            let Ok(target) = crate::game_window_launch_target(app, &state, &main_window, None)
-            else {
-                show_main_window(app);
-                return;
+            let target = match crate::game_window_launch_target(app, &state, &main_window, None) {
+                Ok(target) => target,
+                Err(error) => {
+                    reveal_launch_error(app, error);
+                    return;
+                }
             };
             let core = Arc::clone(core);
+            let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let command = if workspace {
                     CoreCommand::BrowserWorkspaceLaunch {
@@ -341,7 +344,9 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                         zoom_factor: None,
                     }
                 };
-                let _ = core.invoke_async(command).await;
+                if let Err(error) = core.invoke_async(command).await {
+                    reveal_launch_error(&app, error.payload());
+                }
             });
         }
         _ => {}
@@ -382,6 +387,11 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn reveal_launch_error(app: &AppHandle, error: rion_core::CoreErrorPayload) {
+    show_main_window(app);
+    let _ = app.emit("rion://shell-error", error);
 }
 
 fn display_label(app: &AppHandle, display_id: i64) -> String {

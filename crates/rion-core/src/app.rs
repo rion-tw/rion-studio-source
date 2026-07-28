@@ -398,10 +398,8 @@ impl AppCore {
             CoreCommand::GameResetBuiltin { id } => {
                 self.mutate_state(StateMutation::GameResetBuiltin { id })
             }
-            CoreCommand::GameDelete { id } => self.mutate_state(StateMutation::GameDelete { id }),
-            CoreCommand::GamesDelete { ids } => {
-                self.mutate_state(StateMutation::GamesDelete { ids })
-            }
+            CoreCommand::GameDelete { id } => self.delete_game_compatibility_aware(id),
+            CoreCommand::GamesDelete { ids } => self.delete_games_compatibility_aware(ids),
             CoreCommand::RolesList => self.read_state_collection("roles"),
             CoreCommand::RoleGet { id } => {
                 self.read_state_record("roles", "id", &id, "ROLE_NOT_FOUND", "Role not found.")
@@ -612,18 +610,22 @@ impl AppCore {
                 Ok(json!({ "updated": true }))
             }
             CoreCommand::CompatibilityComplete { game_id, outcome } => {
+                let _guard = self.state_mutation_guard()?;
                 let report = self
                     .compatibility_runtime()?
-                    .build_report(&game_id, outcome)?;
-                let saved =
-                    self.mutate_state(StateMutation::CompatibilityReportSave(Box::new(report)))?;
+                    .build_report(&game_id, outcome);
+                let saved = report.and_then(|report| {
+                    self.mutate_state_under_guard(StateMutation::CompatibilityReportSave(Box::new(
+                        report,
+                    )))
+                });
                 let statuses = {
                     let mut runtime = self.compatibility_runtime()?;
                     runtime.finish(&game_id);
                     runtime.statuses()
                 };
                 self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-                Ok(saved)
+                saved
             }
             CoreCommand::CompatibilityCancel { game_id } => {
                 let (requested, operation_id) =
@@ -3338,31 +3340,36 @@ impl AppCore {
             }
         };
 
-        self.transition_compatibility(&game_id, CompatibilityRunPhase::CleaningUp)?;
-        self.compatibility_runtime()?
-            .set_effect_operation(&game_id, None)?;
-        if window_created {
-            let _ = self
-                .request_core_effect(
-                    &game_id,
-                    CoreEffectAction::CompatibilityCleanupWindow {
-                        game_id: game_id.clone(),
-                    },
-                    Duration::from_secs(10),
-                )
-                .await;
+        let report = async {
+            self.transition_compatibility(&game_id, CompatibilityRunPhase::CleaningUp)?;
+            self.compatibility_runtime()?
+                .set_effect_operation(&game_id, None)?;
+            if window_created {
+                let _ = self
+                    .request_core_effect(
+                        &game_id,
+                        CoreEffectAction::CompatibilityCleanupWindow {
+                            game_id: game_id.clone(),
+                        },
+                        Duration::from_secs(10),
+                    )
+                    .await;
+            }
+            self.compatibility_runtime()?
+                .build_report(&game_id, outcome)
         }
-        let report = self
-            .compatibility_runtime()?
-            .build_report(&game_id, outcome)?;
-        let saved = self.mutate_state(StateMutation::CompatibilityReportSave(Box::new(report)))?;
+        .await;
+        let _guard = self.state_mutation_guard()?;
+        let saved = report.and_then(|report| {
+            self.mutate_state_under_guard(StateMutation::CompatibilityReportSave(Box::new(report)))
+        });
         let statuses = {
             let mut runtime = self.compatibility_runtime()?;
             runtime.finish(&game_id);
             runtime.statuses()
         };
         self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-        Ok(saved)
+        saved
     }
 
     async fn request_compatibility_effect(
@@ -3425,6 +3432,69 @@ impl AppCore {
                 code: "GAME_NOT_FOUND",
                 message: "Game not found.".to_owned(),
             })
+    }
+
+    fn delete_game_compatibility_aware(&self, id: String) -> CoreResult<Value> {
+        let _guard = self.state_mutation_guard()?;
+        if self.compatibility_runtime()?.is_active(&id) {
+            let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
+            let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
+            if games
+                .iter()
+                .find(|game| game.id == id)
+                .is_some_and(|game| game.source == "custom")
+                && !roles.iter().any(|role| role.game_id == id)
+            {
+                return Err(CoreError::Domain {
+                    code: "COMPATIBILITY_CHECK_ACTIVE",
+                    message: "The game cannot be deleted while its compatibility check is running."
+                        .to_owned(),
+                });
+            }
+        }
+        self.mutate_state_under_guard(StateMutation::GameDelete { id })
+    }
+
+    fn delete_games_compatibility_aware(&self, ids: Vec<String>) -> CoreResult<Value> {
+        let _guard = self.state_mutation_guard()?;
+        let active = self
+            .compatibility_runtime()?
+            .statuses()
+            .into_iter()
+            .map(|status| status.game_id)
+            .collect::<std::collections::HashSet<_>>();
+        let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
+        let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
+        let mut blocked = Vec::new();
+        let eligible = ids
+            .into_iter()
+            .filter(|id| {
+                let should_block = active.contains(id)
+                    && games
+                        .iter()
+                        .find(|game| &game.id == id)
+                        .is_some_and(|game| game.source == "custom")
+                    && !roles.iter().any(|role| &role.game_id == id);
+                if should_block {
+                    blocked.push(id.clone());
+                }
+                !should_block
+            })
+            .collect();
+        let mut result =
+            self.mutate_state_under_guard(StateMutation::GamesDelete { ids: eligible })?;
+        let skipped = result
+            .get_mut("skipped")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| CoreError::Internal("bulk game delete result is invalid".to_owned()))?;
+        skipped.extend(blocked.into_iter().map(|id| {
+            json!({
+                "id": id,
+                "reason": "busy",
+                "relatedNames": []
+            })
+        }));
+        Ok(result)
     }
 
     fn state_workspace(&self, workspace_id: &str) -> CoreResult<StateLaunchWorkspaceRecord> {
@@ -6806,6 +6876,30 @@ mod tests {
             .to_owned()
     }
 
+    fn create_custom_game(core: &AppCore, name: &str) -> String {
+        core.invoke(command(json!({
+            "type": "gameCreate",
+            "input": {
+                "name": name,
+                "defaultLaunchUrl": "https://example.com/play",
+                "localStorageSyncKeys": []
+            }
+        })))
+        .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    fn compatibility_versions() -> RuntimeVersionRecord {
+        RuntimeVersionRecord {
+            engine: crate::model::ResolvedBrowserEngine::Webview2,
+            engine_version: "140".to_owned(),
+            shell: "test".to_owned(),
+            shell_version: "1".to_owned(),
+        }
+    }
+
     fn create_role(core: &AppCore, game_id: &str, index: usize) -> String {
         core.invoke(command(json!({
             "type": "roleCreate",
@@ -8306,6 +8400,78 @@ mod tests {
                 CoreEffectAction::CompatibilityProbeGraphics { .. },
                 CoreEffectAction::CompatibilityCleanupWindow { .. }
             ]
+        ));
+        assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
+        core.shutdown();
+    }
+
+    #[test]
+    fn active_compatibility_checks_block_single_and_bulk_game_deletion() {
+        let (_directory, core) = core();
+        let game_id = create_custom_game(&core, "Busy game");
+        core.invoke(CoreCommand::CompatibilityPrepare {
+            game_id: game_id.clone(),
+            versions: compatibility_versions(),
+        })
+        .unwrap();
+
+        let single = core
+            .invoke(CoreCommand::GameDelete {
+                id: game_id.clone(),
+            })
+            .unwrap_err();
+        let bulk = core
+            .invoke(CoreCommand::GamesDelete {
+                ids: vec![game_id.clone()],
+            })
+            .unwrap();
+
+        assert_eq!(single.code(), "COMPATIBILITY_CHECK_ACTIVE");
+        assert!(bulk["deletedIds"].as_array().unwrap().is_empty());
+        assert_eq!(bulk["skipped"][0]["id"], game_id);
+        assert_eq!(bulk["skipped"][0]["reason"], "busy");
+        assert!(core.invoke(CoreCommand::GameGet { id: game_id }).is_ok());
+        core.shutdown();
+    }
+
+    #[test]
+    fn compatibility_run_finishes_when_the_report_cannot_be_persisted() {
+        let (_directory, core) = core();
+        let game_id = create_custom_game(&core, "Removed during cleanup");
+        let mutation_core = Arc::clone(&core);
+        let mutation_game_id = game_id.clone();
+        let mut removed = false;
+
+        let (result, actions, _) = drive_async_command_with(
+            Arc::clone(&core),
+            CoreCommand::CompatibilityRun {
+                game_id: game_id.clone(),
+                versions: compatibility_versions(),
+            },
+            move |effect| {
+                if !removed
+                    && matches!(
+                        &effect.action,
+                        CoreEffectAction::CompatibilityCleanupWindow { .. }
+                    )
+                {
+                    mutation_core
+                        .with_runtime(|runtime| {
+                            runtime.state.mutate(StateMutation::GameDelete {
+                                id: mutation_game_id.clone(),
+                            })
+                        })
+                        .unwrap();
+                    removed = true;
+                }
+                effect_result(effect, None)
+            },
+        );
+
+        assert_eq!(result.unwrap_err().code(), "GAME_NOT_FOUND");
+        assert!(matches!(
+            actions.last(),
+            Some(CoreEffectAction::CompatibilityCleanupWindow { .. })
         ));
         assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
         core.shutdown();

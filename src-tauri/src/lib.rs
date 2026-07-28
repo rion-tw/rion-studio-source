@@ -246,6 +246,36 @@ fn shell_error(code: &str, message: impl Into<String>) -> CoreErrorPayload {
     }
 }
 
+fn game_window_update_input_from_record(
+    record: &StateGameWindowRecord,
+) -> GameWindowUpdateInputRecord {
+    GameWindowUpdateInputRecord {
+        name: Some(record.name.clone()),
+        target_display: Some(record.target_display.clone()),
+        placement: Some(record.placement.clone()),
+        tabs: Some(record.tabs.clone()),
+        active_tab_id: Some(record.active_tab_id.clone()),
+    }
+}
+
+fn game_window_record(
+    core: &AppCore,
+    window_id: &str,
+) -> Result<StateGameWindowRecord, CoreErrorPayload> {
+    core.invoke(CoreCommand::GameWindowGet {
+        id: window_id.to_owned(),
+    })
+    .map_err(error_payload)
+    .and_then(|value| {
+        serde_json::from_value::<StateGameWindowRecord>(value)
+            .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+    })
+}
+
+fn same_game_window_record(left: &StateGameWindowRecord, right: &StateGameWindowRecord) -> bool {
+    serde_json::to_value(left).ok() == serde_json::to_value(right).ok()
+}
+
 fn core_command_refreshes_runtime_projection(command: &CoreCommand) -> bool {
     matches!(command, CoreCommand::RuntimeWindowPreferencesReplace { .. })
 }
@@ -897,6 +927,7 @@ async fn rion_shell_invoke(
                     })
                 })?;
             let should_relocate = input.target_display.is_some() || input.placement.is_some();
+            let previous = game_window_record(&state.core, &window_id)?;
             let updated = state
                 .core
                 .invoke(CoreCommand::GameWindowUpdate {
@@ -910,17 +941,53 @@ async fn rion_shell_invoke(
                     })
                 })?;
             if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
-                runtime_window
+                let native_result = runtime_window
                     .set_title(crate::system_runtime::native_runtime_window_title(
                         &updated.name,
                     ))
-                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-                if should_relocate {
-                    let target = launch_target_for_game_window(&app, &window_id)?;
-                    state
-                        .runtime
-                        .relocate_game_window(target)
-                        .map_err(|error| shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", error))?;
+                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))
+                    .and_then(|()| {
+                        if !should_relocate {
+                            return Ok(());
+                        }
+                        let target = launch_target_for_game_window(&app, &window_id)?;
+                        state
+                            .runtime
+                            .relocate_game_window(target)
+                            .map_err(|error| shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", error))
+                    });
+                if let Err(native_error) = native_result {
+                    let current = game_window_record(&state.core, &window_id)?;
+                    let authoritative = if same_game_window_record(&current, &updated) {
+                        state
+                            .core
+                            .invoke(CoreCommand::GameWindowUpdate {
+                                id: window_id.clone(),
+                                input: game_window_update_input_from_record(&previous),
+                            })
+                            .map_err(error_payload)
+                            .and_then(|value| {
+                                serde_json::from_value::<StateGameWindowRecord>(value).map_err(
+                                    |error| {
+                                        shell_error(
+                                            "SHELL_GAME_WINDOW_ROLLBACK_FAILED",
+                                            error.to_string(),
+                                        )
+                                    },
+                                )
+                            })?
+                    } else {
+                        current
+                    };
+                    let _ = runtime_window.set_title(
+                        crate::system_runtime::native_runtime_window_title(&authoritative.name),
+                    );
+                    if should_relocate
+                        && let Ok(target) = launch_target_for_game_window(&app, &window_id)
+                    {
+                        let _ = state.runtime.relocate_game_window(target);
+                    }
+                    return Err(native_error);
                 }
             }
             serde_json::to_value(updated)
@@ -3283,6 +3350,42 @@ mod tests {
         assert!(!core_command_refreshes_runtime_projection(
             &CoreCommand::RuntimeWindowPreferencesGet
         ));
+    }
+
+    #[test]
+    fn game_window_native_compensation_restores_every_mutable_field() {
+        let record = serde_json::from_value::<StateGameWindowRecord>(json!({
+            "id": "window-1",
+            "name": "Before",
+            "targetDisplay": { "id": 7 },
+            "placement": {
+                "normalBounds": { "x": 20, "y": 30, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
+            },
+            "tabs": [{
+                "id": "tab-1",
+                "tabType": "role",
+                "sourceId": "role-1",
+                "name": "Role",
+                "roleIds": ["role-1"],
+                "hidden": false,
+                "audioMuted": false,
+                "roleViews": []
+            }],
+            "activeTabId": "tab-1",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+
+        let input = game_window_update_input_from_record(&record);
+
+        assert_eq!(input.name.as_deref(), Some("Before"));
+        assert_eq!(input.target_display.unwrap().id, 7);
+        assert_eq!(input.placement.unwrap().normal_bounds.x, 20);
+        assert_eq!(input.tabs.unwrap()[0].id, "tab-1");
+        assert_eq!(input.active_tab_id, Some(Some("tab-1".to_owned())));
     }
 
     #[test]

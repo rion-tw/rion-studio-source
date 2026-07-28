@@ -322,6 +322,7 @@ function GameActionMenu({
               className={`${itemClassName} text-destructive hover:bg-destructive/10 hover:text-destructive`}
               type="button"
               role="menuitem"
+              disabled={checking}
               onClick={() => run(onDelete)}
             >
               <Trash2 size={14} />

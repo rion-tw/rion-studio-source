@@ -327,6 +327,11 @@ export function useAppData() {
     });
   }, [setCompatibilityReports, setCompatibilityStatuses]);
 
+  useEffect(() => {
+    if (!window.rionStudio) return;
+    return window.rionStudio.onShellError?.(setError);
+  }, [setError]);
+
   return {
     beginErrorOperation,
     embeddedRuntime,

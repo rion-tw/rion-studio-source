@@ -389,20 +389,52 @@ static NSView *RionWKContentView(NSView *root) {
   return nil;
 }
 
+@protocol RionFirstResponderHost <NSObject>
+- (nullable NSResponder *)firstResponder;
+- (BOOL)makeFirstResponder:(nullable NSResponder *)responder;
+@end
+
+static BOOL RionResponderBelongsToView(NSResponder *responder, NSView *root) {
+  if (![responder isKindOfClass:NSView.class]) return false;
+  NSView *view = (NSView *)responder;
+  return view == root || [view isDescendantOf:root];
+}
+
 static NSResponder *RionKeyResponder(WKWebView *webView) {
   NSWindow *window = webView.window;
   if (!window) return nil;
-  [window makeFirstResponder:webView];
+  NSResponder *candidate = window.firstResponder;
+  if (RionResponderBelongsToView(candidate, webView)) return candidate;
   NSView *content = RionWKContentView(webView);
   if (content) return content;
-  NSResponder *candidate = window.firstResponder;
-  if ([candidate isKindOfClass:NSView.class]) {
-    NSView *candidateView = (NSView *)candidate;
-    if (candidateView == webView || [candidateView isDescendantOf:webView]) {
-      return candidate;
-    }
-  }
   return webView;
+}
+
+static BOOL RionRestoreFirstResponder(
+    id<RionFirstResponderHost> host, NSResponder *preservedResponder,
+    NSView *dispatchTarget) {
+  NSResponder *current = host.firstResponder;
+  if (current == preservedResponder) return true;
+  // A foreground action inside the same role may intentionally move focus from
+  // the WKWebView to one of its internal content responders. Preserve that
+  // role-local transition, but undo any background dispatch that crossed roles.
+  if (preservedResponder && current &&
+      RionResponderBelongsToView(preservedResponder, dispatchTarget) &&
+      RionResponderBelongsToView(current, dispatchTarget)) {
+    return true;
+  }
+  return [host makeFirstResponder:preservedResponder];
+}
+
+static void RionDispatchKeyEvent(NSResponder *responder, NSEvent *event,
+                                 NSEventType type, bool keyDown) {
+  if (type == NSEventTypeFlagsChanged) {
+    [responder flagsChanged:event];
+  } else if (keyDown) {
+    [responder keyDown:event];
+  } else {
+    [responder keyUp:event];
+  }
 }
 
 bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
@@ -410,6 +442,9 @@ bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
   @autoreleasepool {
     if (!rawWebView || !rawCode) return false;
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
+    NSWindow *window = webView.window;
+    if (!window) return false;
+    NSResponder *preservedResponder = window.firstResponder;
     NSString *code = [NSString stringWithUTF8String:rawCode];
     NSNumber *virtualCode = RionVirtualKeyCode(code);
     NSString *base = RionBaseCharacter(code);
@@ -431,26 +466,21 @@ bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
                                       location:NSZeroPoint
                                  modifierFlags:flags
                                      timestamp:NSProcessInfo.processInfo.systemUptime
-                                  windowNumber:webView.window.windowNumber
+                                  windowNumber:window.windowNumber
                                        context:nil
                                     characters:characters
                    charactersIgnoringModifiers:base ?: @""
                                      isARepeat:repeat
                                        keyCode:virtualCode.unsignedShortValue];
     if (!event) return false;
-    // WKWebView installs an internal content responder. A hidden sibling may not
-    // become the window responder, so verify ownership and fall back to that
-    // role's own content view instead of sending input across role boundaries.
+    // Send directly to this role's own WebKit responder. Background automation
+    // must not become the window first responder or steal subsequent shortcuts
+    // from the role the user selected.
     NSResponder *responder = RionKeyResponder(webView);
     if (!responder) return false;
-    if (type == NSEventTypeFlagsChanged) {
-      [responder flagsChanged:event];
-    } else if (keyDown) {
-      [responder keyDown:event];
-    } else {
-      [responder keyUp:event];
-    }
-    return true;
+    RionDispatchKeyEvent(responder, event, type, keyDown);
+    return RionRestoreFirstResponder(
+        (id<RionFirstResponderHost>)window, preservedResponder, webView);
   }
 }
 
@@ -493,7 +523,7 @@ bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
                                      clickCount:1
                                        pressure:mouseDown ? 1.0 : 0.0];
     if (!event) return false;
-    if (mouseDown) [window makeFirstResponder:webView];
+    NSResponder *preservedResponder = window.firstResponder;
     NSView *target = [webView hitTest:viewPoint] ?: webView;
     if (button == 0) {
       if (mouseDown) [target mouseDown:event]; else [target mouseUp:event];
@@ -502,6 +532,73 @@ bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
     } else {
       if (mouseDown) [target rightMouseDown:event]; else [target rightMouseUp:event];
     }
-    return true;
+    return RionRestoreFirstResponder(
+        (id<RionFirstResponderHost>)window, preservedResponder, webView);
+  }
+}
+
+@interface RionInputResponderFixture : NSView
+@property(nonatomic, assign) NSUInteger keyDownCount;
+@end
+
+@implementation RionInputResponderFixture
+- (void)keyDown:(NSEvent *)event {
+  (void)event;
+  self.keyDownCount += 1;
+}
+@end
+
+@interface RionFirstResponderHostFixture : NSObject <RionFirstResponderHost>
+@property(nonatomic, strong, nullable) NSResponder *responder;
+@property(nonatomic, assign) NSUInteger focusChangeCount;
+@end
+
+@implementation RionFirstResponderHostFixture
+- (NSResponder *)firstResponder {
+  return self.responder;
+}
+- (BOOL)makeFirstResponder:(NSResponder *)responder {
+  self.responder = responder;
+  self.focusChangeCount += 1;
+  return true;
+}
+@end
+
+bool rion_wk_background_input_focus_self_test(void) {
+  @autoreleasepool {
+    NSView *targetRoot = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    RionInputResponderFixture *target =
+        [[RionInputResponderFixture alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    NSView *targetNext = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    NSView *foreground = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    [targetRoot addSubview:target];
+    [targetRoot addSubview:targetNext];
+
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                      location:NSZeroPoint
+                                 modifierFlags:0
+                                     timestamp:0
+                                  windowNumber:0
+                                       context:nil
+                                    characters:@"a"
+                   charactersIgnoringModifiers:@"a"
+                                     isARepeat:false
+                                       keyCode:0];
+    if (!event) return false;
+    RionDispatchKeyEvent(target, event, NSEventTypeKeyDown, true);
+
+    RionFirstResponderHostFixture *host =
+        [[RionFirstResponderHostFixture alloc] init];
+    host.responder = target;
+    BOOL restored = RionRestoreFirstResponder(
+        host, foreground, targetRoot);
+    host.responder = targetNext;
+    BOOL preservedRoleLocalFocus = RionRestoreFirstResponder(
+        host, target, targetRoot);
+    return target.keyDownCount == 1 &&
+        RionResponderBelongsToView(target, targetRoot) &&
+        !RionResponderBelongsToView(foreground, targetRoot) && restored &&
+        preservedRoleLocalFocus && host.firstResponder == targetNext &&
+        host.focusChangeCount == 1;
   }
 }

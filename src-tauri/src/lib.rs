@@ -241,6 +241,15 @@ fn shell_error(code: &str, message: impl Into<String>) -> CoreErrorPayload {
     }
 }
 
+pub(crate) fn reveal_shell_error(app: &AppHandle, error: CoreErrorPayload) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    let _ = app.emit("rion://shell-error", error);
+}
+
 fn game_window_update_input_from_record(
     record: &StateGameWindowRecord,
 ) -> GameWindowUpdateInputRecord {

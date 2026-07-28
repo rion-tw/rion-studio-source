@@ -325,7 +325,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let target = match crate::game_window_launch_target(app, &state, &main_window, None) {
                 Ok(target) => target,
                 Err(error) => {
-                    reveal_launch_error(app, error);
+                    crate::reveal_shell_error(app, error);
                     return;
                 }
             };
@@ -345,7 +345,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     }
                 };
                 if let Err(error) = core.invoke_async(command).await {
-                    reveal_launch_error(&app, error.payload());
+                    crate::reveal_shell_error(&app, error.payload());
                 }
             });
         }
@@ -387,11 +387,6 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
-}
-
-fn reveal_launch_error(app: &AppHandle, error: rion_core::CoreErrorPayload) {
-    show_main_window(app);
-    let _ = app.emit("rion://shell-error", error);
 }
 
 fn display_label(app: &AppHandle, display_id: i64) -> String {

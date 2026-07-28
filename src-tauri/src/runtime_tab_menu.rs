@@ -170,11 +170,16 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
 }
 
 pub fn handle_event(app: &AppHandle, id: &str) -> bool {
-    let Some(state) = app.try_state::<crate::CoreState>() else {
+    if !is_runtime_menu_event(id) {
         return false;
+    }
+    let Some(state) = app.try_state::<crate::CoreState>() else {
+        reveal_menu_error(app, "runtime state is unavailable");
+        return true;
     };
     if let Some(tab_id) = id.strip_prefix(ACTIVATE_PREFIX) {
         spawn_command(
+            app,
             &state.core,
             CoreCommand::EmbeddedTabActivate {
                 tab_id: tab_id.to_owned(),
@@ -182,60 +187,79 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
         );
     } else if let Some(tab_id) = id.strip_prefix(HIDE_PREFIX) {
         spawn_command(
+            app,
             &state.core,
             CoreCommand::EmbeddedTabHide {
                 tab_id: tab_id.to_owned(),
             },
         );
     } else if let Some(tab_id) = id.strip_prefix(RELOAD_PREFIX) {
-        let _ = state.runtime.reload_tab(tab_id);
+        if let Err(message) = state.runtime.reload_tab(tab_id) {
+            reveal_menu_error(app, message);
+        }
     } else if let Some(tab_id) = id.strip_prefix(STOP_PREFIX) {
-        if let Some(command) = stop_command(&state.core, tab_id) {
-            spawn_command(&state.core, command);
+        match stop_command(&state.core, tab_id) {
+            Ok(command) => spawn_command(app, &state.core, command),
+            Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(tab_id) = id.strip_prefix(MUTE_PREFIX) {
-        let projection = snapshot(&state.core).map(|snapshot| state.runtime.projection(&snapshot));
-        let muted = projection
-            .ok()
-            .and_then(|projection| {
-                projection["tabs"].as_array().and_then(|tabs| {
-                    tabs.iter()
-                        .find(|tab| tab["id"] == tab_id)
-                        .and_then(|tab| tab["audioMuted"].as_bool())
-                })
-            })
-            .unwrap_or(false);
-        let _ = state.runtime.set_tab_audio_muted(tab_id, !muted);
+        let result = current_tab_muted(&state, tab_id)
+            .and_then(|muted| state.runtime.set_tab_audio_muted(tab_id, !muted));
+        if let Err(message) = result {
+            reveal_menu_error(app, message);
+        }
     } else if let Some(tab_id) = id.strip_prefix(MOVE_NEW_PREFIX) {
         let app = app.clone();
         let tab_id = tab_id.to_owned();
         tauri::async_runtime::spawn(async move {
             let Some(state) = app.try_state::<crate::CoreState>() else {
+                reveal_menu_error(&app, "runtime state is unavailable");
                 return;
             };
-            let _ = crate::move_game_window_tab_to_new_window(&app, &state, &tab_id, None).await;
+            if let Err(error) =
+                crate::move_game_window_tab_to_new_window(&app, &state, &tab_id, None).await
+            {
+                crate::reveal_shell_error(&app, error);
+            }
         });
     } else if let Some(value) = id.strip_prefix(MOVE_PREFIX) {
         let Some((tab_id, window_id)) = value.rsplit_once(':') else {
+            reveal_menu_error(app, "runtime move menu target is invalid");
             return true;
         };
-        if let Ok(target) = crate::launch_target_for_game_window(app, window_id) {
-            spawn_command(
+        match crate::launch_target_for_game_window(app, window_id) {
+            Ok(target) => spawn_command(
+                app,
                 &state.core,
                 CoreCommand::EmbeddedTabMove {
                     tab_id: tab_id.to_owned(),
                     target,
                 },
-            );
+            ),
+            Err(error) => crate::reveal_shell_error(app, error),
         }
     } else if let Some(value) = id.strip_prefix(LAUNCH_ROLE_PREFIX) {
         launch_from_menu(app, &state, value, false);
     } else if let Some(value) = id.strip_prefix(LAUNCH_WORKSPACE_PREFIX) {
         launch_from_menu(app, &state, value, true);
-    } else {
-        return false;
     }
     true
+}
+
+fn is_runtime_menu_event(id: &str) -> bool {
+    [
+        ACTIVATE_PREFIX,
+        HIDE_PREFIX,
+        LAUNCH_ROLE_PREFIX,
+        LAUNCH_WORKSPACE_PREFIX,
+        MOVE_PREFIX,
+        MOVE_NEW_PREFIX,
+        MUTE_PREFIX,
+        RELOAD_PREFIX,
+        STOP_PREFIX,
+    ]
+    .iter()
+    .any(|prefix| id.starts_with(prefix))
 }
 
 pub async fn handle_scoped_action(
@@ -351,8 +375,7 @@ pub async fn handle_scoped_action(
         "hide" => CoreCommand::EmbeddedTabHide {
             tab_id: tab_id.to_owned(),
         },
-        "stop" => stop_command(&state.core, tab_id)
-            .ok_or_else(|| "runtime tab was not found".to_owned())?,
+        "stop" => stop_command(&state.core, tab_id)?,
         "move" => {
             let target_window_id = action["windowId"]
                 .as_str()
@@ -397,10 +420,15 @@ pub async fn handle_scoped_action(
 
 fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, workspace: bool) {
     let Some((window_id, source_id)) = value.split_once(':') else {
+        reveal_menu_error(app, "runtime launch menu target is invalid");
         return;
     };
-    let Ok(target) = crate::launch_target_for_game_window(app, window_id) else {
-        return;
+    let target = match crate::launch_target_for_game_window(app, window_id) {
+        Ok(target) => target,
+        Err(error) => {
+            crate::reveal_shell_error(app, error);
+            return;
+        }
     };
     let command = if workspace {
         CoreCommand::BrowserWorkspaceLaunch {
@@ -414,14 +442,36 @@ fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, work
             zoom_factor: None,
         }
     };
-    spawn_command(&state.core, command);
+    spawn_command(app, &state.core, command);
 }
 
-fn spawn_command(core: &std::sync::Arc<rion_core::AppCore>, command: CoreCommand) {
+fn spawn_command(app: &AppHandle, core: &std::sync::Arc<rion_core::AppCore>, command: CoreCommand) {
+    let app = app.clone();
     let core = std::sync::Arc::clone(core);
     tauri::async_runtime::spawn(async move {
-        let _ = core.invoke_async(command).await;
+        if let Err(error) = core.invoke_async(command).await {
+            crate::reveal_shell_error(&app, error.payload());
+        }
     });
+}
+
+fn reveal_menu_error(app: &AppHandle, message: impl Into<String>) {
+    crate::reveal_shell_error(
+        app,
+        rion_core::CoreErrorPayload {
+            code: "TAURI_RUNTIME_TAB_MENU_FAILED".to_owned(),
+            message: message.into(),
+        },
+    );
+}
+
+fn current_tab_muted(state: &crate::CoreState, tab_id: &str) -> Result<bool, String> {
+    let projection = state.runtime.projection(&snapshot(&state.core)?);
+    projection["tabs"]
+        .as_array()
+        .and_then(|tabs| tabs.iter().find(|tab| tab["id"] == tab_id))
+        .and_then(|tab| tab["audioMuted"].as_bool())
+        .ok_or_else(|| "runtime tab audio state was not found".to_owned())
 }
 
 fn snapshot(core: &rion_core::AppCore) -> Result<BrowserRuntimeSnapshot, String> {
@@ -430,13 +480,13 @@ fn snapshot(core: &rion_core::AppCore) -> Result<BrowserRuntimeSnapshot, String>
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
 }
 
-fn stop_command(core: &rion_core::AppCore, tab_id: &str) -> Option<CoreCommand> {
-    let tab = snapshot(core)
-        .ok()?
+fn stop_command(core: &rion_core::AppCore, tab_id: &str) -> Result<CoreCommand, String> {
+    let tab = snapshot(core)?
         .tabs
         .into_iter()
-        .find(|tab| tab.id == tab_id)?;
-    Some(if tab.tab_type == "workspace" {
+        .find(|tab| tab.id == tab_id)
+        .ok_or_else(|| "runtime tab was not found".to_owned())?;
+    Ok(if tab.tab_type == "workspace" {
         CoreCommand::BrowserWorkspaceStop {
             workspace_id: tab.source_id,
         }
@@ -532,5 +582,23 @@ mod tests {
         ] {
             assert_eq!(labels(language).reload, expected, "{language}");
         }
+    }
+
+    #[test]
+    fn runtime_menu_events_are_recognized_before_app_state_resolution() {
+        for id in [
+            "runtime-tab-activate:tab-1",
+            "runtime-tab-hide:tab-1",
+            "runtime-tab-launch-role:window-1:role-1",
+            "runtime-tab-launch-workspace:window-1:workspace-1",
+            "runtime-tab-move:tab-1:window-2",
+            "runtime-tab-move-new:tab-1",
+            "runtime-tab-mute:tab-1",
+            "runtime-tab-reload:tab-1",
+            "runtime-tab-stop:tab-1",
+        ] {
+            assert!(is_runtime_menu_event(id), "{id}");
+        }
+        assert!(!is_runtime_menu_event("open-app"));
     }
 }

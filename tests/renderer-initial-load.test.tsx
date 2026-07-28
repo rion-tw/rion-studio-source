@@ -46,6 +46,7 @@ function installAppDataBridge(getAppSnapshot: RionStudioApi["getAppSnapshot"]): 
     onGameWindowsChanged: () => unsubscribe,
     onMacrosChanged: () => unsubscribe,
     onMacroStatusChanged: () => unsubscribe,
+    onRolesChanged: () => unsubscribe,
     onRoleStatusChanged: () => unsubscribe,
     onWorkspacesChanged: () => unsubscribe
   } as unknown as RionStudioApi;

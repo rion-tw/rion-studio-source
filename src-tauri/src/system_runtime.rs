@@ -6241,6 +6241,11 @@ pub fn start_trusted_input_attestation(
                 // hidden trusted-input probe so those windows cannot leave the probe document
                 // focused and invalidate its background-input assertion.
                 let role_parity = run_role_count_attestation(&runtime)?;
+                #[cfg(windows)]
+                // Closing the role-parity surfaces can leave WebView2's hidden probe child as
+                // the thread's focused document. Deflect native focus again immediately before
+                // the trusted-input sequence starts.
+                focus_windows_host(&window)?;
                 let mut report = run_trusted_input_attestation(&webview, page_receiver)?;
                 report["simulatedStress"] = run_simulated_input_stress(&runtime.core)?;
                 report["registration"] =

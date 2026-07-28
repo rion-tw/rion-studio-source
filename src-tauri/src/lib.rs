@@ -1169,6 +1169,20 @@ async fn rion_shell_invoke(
         }
         "previewChromeProfileImport" => preview_chrome_profile_import(&state).await,
         "revealLogs" => reveal_logs(&state).await,
+        "collectBrowserPerformanceDiagnostics" => {
+            let runtime = Arc::clone(&state.runtime);
+            let diagnostics = tauri::async_runtime::spawn_blocking(move || {
+                thread::sleep(std::time::Duration::from_millis(1_500));
+                runtime.collect_browser_performance_diagnostics(std::time::Duration::from_millis(
+                    1_500,
+                ))
+            })
+            .await
+            .map_err(|error| shell_error("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string()))?
+            .map_err(|error| shell_error("PERFORMANCE_DIAGNOSTIC_FAILED", error))?;
+            serde_json::to_value(diagnostics)
+                .map_err(|error| shell_error("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string()))
+        }
         "exportDiagnostics" => export_diagnostics(&app, &window, &state).await,
         "appVersion" => Ok(Value::String(app.package_info().version.to_string())),
         "updateStatus" => Ok(state.updates.status()),
@@ -1378,7 +1392,8 @@ async fn export_diagnostics(
                 "locale": "system",
                 "systemVersion": std::env::consts::OS,
                 "displays": displays,
-                "gpuFeatureStatusRawJson": "{}"
+                "gpuFeatureStatusRawJson": "{}",
+                "browserPerformance": state.runtime.last_browser_performance_diagnostics()
             }
         }),
     )

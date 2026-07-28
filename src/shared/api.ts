@@ -6,6 +6,7 @@ import type {
   AppWindowState,
   BulkDeleteInput,
   BulkDeleteResult,
+  BrowserPerformanceDiagnostics,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportProgress,
@@ -146,6 +147,7 @@ export interface RionStudioApi {
   setLogLevel: (level: LogLevel) => Promise<LogStorageStatus>;
   clearLogs: () => Promise<LogStorageStatus>;
   revealLogs: () => Promise<void>;
+  collectBrowserPerformanceDiagnostics: () => Promise<BrowserPerformanceDiagnostics>;
   exportDiagnostics: () => Promise<DiagnosticExportResult | null>;
   reportRendererLog: (event: RendererLogEvent) => void;
   listSystemFonts: () => Promise<SystemFontFamily[]>;

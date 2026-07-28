@@ -7,20 +7,23 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
+    thread,
     time::{Duration, Instant},
 };
 
 use rion_core::{
-    AppCore, BrowserAction, BrowserActionRequest, BrowserRuntimeSnapshot,
-    BrowserRuntimeWindowRecord, CompatibilityCheckPlanRecord, CoreCommand, CoreEffectAction,
-    CoreEffectRequest, CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord,
-    EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-    EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, ResolvedBrowserEngine,
-    RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
-    SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
-    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    AppCore, BrowserAction, BrowserActionRequest, BrowserPerformanceDiagnosticStatus,
+    BrowserPerformanceDiagnosticsRecord, BrowserPerformanceSurfaceDiagnosticRecord,
+    BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord, CompatibilityCheckPlanRecord, CoreCommand,
+    CoreEffectAction, CoreEffectRequest, CoreEffectResult, DisplayTargetRecord,
+    EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
+    EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
+    EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
+    GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
+    LayoutRect, LayoutRoleInput, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
+    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, SessionCookieRecord,
+    SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
+    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
     SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
     WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -78,6 +81,96 @@ Object.defineProperty(window, "__rionSystemWebView", {
   value: Object.freeze({ version: 1 })
 });
 "#;
+const PERFORMANCE_DIAGNOSTIC_START_SOURCE: &str = r#"(() => {
+  const key = "__rionStudioPerformanceDiagnostics";
+  const previous = globalThis[key];
+  if (previous && typeof previous.rafId === "number") cancelAnimationFrame(previous.rafId);
+  const probe = {
+    frameCount: 0,
+    intervals: [],
+    lastFrameAt: undefined,
+    rafId: undefined,
+    running: true,
+    startedAt: performance.now(),
+    webgpu: "unavailable",
+    webgpuError: undefined
+  };
+  globalThis[key] = probe;
+  if (navigator.gpu && typeof navigator.gpu.requestAdapter === "function") {
+    probe.webgpu = "unknown";
+    Promise.resolve(navigator.gpu.requestAdapter()).then((adapter) => {
+      probe.webgpu = adapter ? "available" : "unavailable";
+    }).catch((error) => {
+      probe.webgpu = "unavailable";
+      probe.webgpuError = error instanceof Error ? error.message : String(error);
+    });
+  }
+  const tick = (now) => {
+    if (!probe.running) return;
+    if (typeof probe.lastFrameAt === "number" && probe.intervals.length < 2048) {
+      probe.intervals.push(now - probe.lastFrameAt);
+    }
+    probe.lastFrameAt = now;
+    probe.frameCount += 1;
+    probe.rafId = requestAnimationFrame(tick);
+  };
+  probe.rafId = requestAnimationFrame(tick);
+  return JSON.stringify({ started: true });
+})()"#;
+const PERFORMANCE_DIAGNOSTIC_READ_SOURCE: &str = r#"(() => {
+  const key = "__rionStudioPerformanceDiagnostics";
+  const probe = globalThis[key];
+  if (!probe) return JSON.stringify({ error: "Performance sample was not started." });
+  probe.running = false;
+  if (typeof probe.rafId === "number") cancelAnimationFrame(probe.rafId);
+  const duration = Math.max(0, performance.now() - probe.startedAt);
+  const intervals = [...probe.intervals].filter(Number.isFinite).sort((a, b) => a - b);
+  const percentile = (fraction) => intervals.length
+    ? intervals[Math.min(intervals.length - 1, Math.floor((intervals.length - 1) * fraction))]
+    : undefined;
+  const graphics = { webgl: "unavailable", webgl2: "unavailable", webgpu: probe.webgpu || "unknown" };
+  try {
+    const canvas = document.createElement("canvas");
+    const webgl2 = canvas.getContext("webgl2", { failIfMajorPerformanceCaveat: true });
+    const webgl = webgl2 || canvas.getContext("webgl", { failIfMajorPerformanceCaveat: true });
+    graphics.webgl2 = webgl2 ? "available" : "unavailable";
+    graphics.webgl = webgl ? "available" : "unavailable";
+    if (webgl) {
+      const extension = webgl.getExtension("WEBGL_debug_renderer_info");
+      if (extension) {
+        graphics.renderer = String(webgl.getParameter(extension.UNMASKED_RENDERER_WEBGL) || "");
+        graphics.vendor = String(webgl.getParameter(extension.UNMASKED_VENDOR_WEBGL) || "");
+      }
+    }
+  } catch (error) {
+    graphics.error = error instanceof Error ? error.message : String(error);
+  }
+  if (probe.webgpuError) {
+    graphics.error = graphics.error ? `${graphics.error}; ${probe.webgpuError}` : probe.webgpuError;
+  }
+  const visibility = ["visible", "hidden", "prerender"].includes(document.visibilityState)
+    ? document.visibilityState
+    : "unknown";
+  const averageFps = duration > 0 && probe.frameCount > 0
+    ? probe.frameCount * 1000 / duration
+    : undefined;
+  delete globalThis[key];
+  return JSON.stringify({
+    documentVisibilityState: visibility,
+    documentHasFocus: document.hasFocus(),
+    viewportWidth: Number.isFinite(innerWidth) ? innerWidth : 0,
+    viewportHeight: Number.isFinite(innerHeight) ? innerHeight : 0,
+    devicePixelRatio: Number.isFinite(globalThis.devicePixelRatio) ? globalThis.devicePixelRatio : 1,
+    hardwareConcurrency: Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 0,
+    frameCount: probe.frameCount,
+    observedDurationMs: duration,
+    averageFps,
+    p50FrameIntervalMs: percentile(0.5),
+    p95FrameIntervalMs: percentile(0.95),
+    longestFrameIntervalMs: intervals.at(-1),
+    graphics
+  });
+})()"#;
 const RUNTIME_TAB_SHORTCUT_SCRIPT: &str = r#"
 addEventListener("keydown", (event) => {
   if (event.isComposing || event.key !== "Tab" || !event.ctrlKey || event.altKey || event.metaKey) return;
@@ -221,6 +314,7 @@ impl NavigationTracker {
 struct RoleSurface {
     current_url: Option<Url>,
     generation: u64,
+    high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
     lifecycle: Arc<SurfaceLifecycleTracker>,
     local_storage_sync: Option<LocalStorageRuntimeConfig>,
     local_storage_sync_sequence: u64,
@@ -524,6 +618,38 @@ struct RuntimeWebViewConfiguration {
     overlay_document_start_script: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PerformanceDiagnosticReadback {
+    document_visibility_state: String,
+    document_has_focus: bool,
+    viewport_width: f64,
+    viewport_height: f64,
+    device_pixel_ratio: f64,
+    hardware_concurrency: u32,
+    frame_count: u32,
+    observed_duration_ms: f64,
+    average_fps: Option<f64>,
+    p50_frame_interval_ms: Option<f64>,
+    p95_frame_interval_ms: Option<f64>,
+    longest_frame_interval_ms: Option<f64>,
+    graphics: StateWebGraphicsRecord,
+}
+
+struct PerformanceDiagnosticSurface {
+    high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
+    origin: Option<String>,
+    role_id: String,
+    webview: Webview,
+}
+
+struct PerformanceDiagnosticWindow {
+    focused: bool,
+    surfaces: Vec<PerformanceDiagnosticSurface>,
+    window: Window,
+    window_id: String,
+}
+
 pub struct SystemRuntimeExecutor {
     app: AppHandle,
     configuration: RuntimeWebViewConfiguration,
@@ -531,6 +657,7 @@ pub struct SystemRuntimeExecutor {
     effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
     health: RuntimeHealth,
     language: Mutex<String>,
+    last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
     local_storage_sync_lane: Mutex<()>,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
@@ -726,6 +853,7 @@ impl SystemRuntimeExecutor {
             effect_sender: OnceLock::new(),
             health: RuntimeHealth::new(),
             language: Mutex::new("en".to_owned()),
+            last_performance_diagnostics: Mutex::new(None),
             local_storage_sync_lane: Mutex::new(()),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
@@ -1454,6 +1582,192 @@ impl SystemRuntimeExecutor {
             .set_fullscreen(!fullscreen)
             .map_err(|error| error.to_string())?;
         Ok(true)
+    }
+
+    pub fn collect_browser_performance_diagnostics(
+        &self,
+        sample_duration: Duration,
+    ) -> Result<BrowserPerformanceDiagnosticsRecord, String> {
+        self.collect_browser_performance_diagnostics_inner(sample_duration)
+            .map_err(|error| error.message)
+    }
+
+    fn collect_browser_performance_diagnostics_inner(
+        &self,
+        sample_duration: Duration,
+    ) -> RuntimeResult<BrowserPerformanceDiagnosticsRecord> {
+        let captured_at = chrono::Utc::now().to_rfc3339();
+        let platform = if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "windows"
+        }
+        .to_owned();
+        let sample_duration =
+            sample_duration.clamp(Duration::from_millis(500), Duration::from_millis(5_000));
+        let snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string()))
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
+                    RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string())
+                })
+            })?;
+        let candidates = {
+            let state = self.state()?;
+            snapshot
+                .windows
+                .iter()
+                .filter_map(|runtime_window| {
+                    let tab_id = runtime_window.active_tab_id.as_deref()?;
+                    let host = state.display_hosts.get(&runtime_window.window_id)?;
+                    let tab = state.tabs.get(tab_id)?;
+                    let surfaces = tab
+                        .roles
+                        .iter()
+                        .map(|(role_id, surface)| PerformanceDiagnosticSurface {
+                            high_refresh_rate_status: surface.high_refresh_rate_status,
+                            origin: surface.current_url.as_ref().and_then(|url| {
+                                let origin = url.origin().ascii_serialization();
+                                (origin != "null").then_some(origin)
+                            }),
+                            role_id: role_id.clone(),
+                            webview: surface.webview.clone(),
+                        })
+                        .collect::<Vec<_>>();
+                    (!surfaces.is_empty()).then(|| PerformanceDiagnosticWindow {
+                        focused: false,
+                        surfaces,
+                        window: host.window.clone(),
+                        window_id: runtime_window.window_id.clone(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        if candidates.is_empty() {
+            return Ok(
+                self.store_performance_diagnostics(empty_performance_diagnostics(
+                    captured_at,
+                    platform,
+                    BrowserPerformanceDiagnosticStatus::NoRunningRole,
+                    self.configuration.macos_high_refresh_rate,
+                    sample_duration,
+                )),
+            );
+        }
+        let mut visible = candidates
+            .into_iter()
+            .filter_map(|mut candidate| {
+                let is_visible = candidate.window.is_visible().unwrap_or(false)
+                    && !candidate.window.is_minimized().unwrap_or(false);
+                if !is_visible {
+                    return None;
+                }
+                candidate.focused = candidate.window.is_focused().unwrap_or(false);
+                Some(candidate)
+            })
+            .collect::<Vec<_>>();
+        if visible.is_empty() {
+            return Ok(
+                self.store_performance_diagnostics(empty_performance_diagnostics(
+                    captured_at,
+                    platform,
+                    BrowserPerformanceDiagnosticStatus::NoVisibleGameWindow,
+                    self.configuration.macos_high_refresh_rate,
+                    sample_duration,
+                )),
+            );
+        }
+        visible.sort_by_key(|candidate| !candidate.focused);
+        let selected = visible.remove(0);
+        let display_refresh_rate_hz = platform_display_refresh_rate(&selected.window);
+        let mut samples = selected
+            .surfaces
+            .into_iter()
+            .map(|surface| {
+                let error = surface
+                    .webview
+                    .eval(PERFORMANCE_DIAGNOSTIC_START_SOURCE)
+                    .err()
+                    .map(|error| error.to_string());
+                (surface, error)
+            })
+            .collect::<Vec<_>>();
+        thread::sleep(sample_duration);
+        let pending_reads = samples
+            .drain(..)
+            .map(|(surface, start_error)| {
+                if let Some(error) = start_error {
+                    return (surface, Err(error));
+                }
+                let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+                match surface.webview.eval_with_callback(
+                    PERFORMANCE_DIAGNOSTIC_READ_SOURCE,
+                    move |value| {
+                        let _ = sender.send(value);
+                    },
+                ) {
+                    Ok(()) => (surface, Ok(receiver)),
+                    Err(error) => (surface, Err(error.to_string())),
+                }
+            })
+            .collect::<Vec<_>>();
+        let read_deadline = Instant::now() + Duration::from_secs(5);
+        let surfaces = pending_reads
+            .into_iter()
+            .map(|(surface, pending)| {
+                let readback = pending
+                    .map_err(|error| RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error))
+                    .and_then(|receiver| {
+                        receiver
+                            .recv_timeout(read_deadline.saturating_duration_since(Instant::now()))
+                            .map_err(|_| {
+                                RuntimeError::new(
+                                    "PERFORMANCE_DIAGNOSTIC_TIMEOUT",
+                                    "System WebView performance diagnostic timed out.",
+                                )
+                            })
+                    })
+                    .and_then(|raw| decode_performance_diagnostic_readback(&raw));
+                match readback {
+                    Ok(readback) => completed_performance_surface(surface, readback),
+                    Err(error) => failed_performance_surface(surface, error.message),
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(
+            self.store_performance_diagnostics(BrowserPerformanceDiagnosticsRecord {
+                captured_at,
+                platform,
+                status: BrowserPerformanceDiagnosticStatus::Available,
+                window_id: Some(selected.window_id),
+                window_focused: selected.focused,
+                display_refresh_rate_hz,
+                high_refresh_rate_requested: self.configuration.macos_high_refresh_rate,
+                sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
+                surfaces,
+            }),
+        )
+    }
+
+    pub fn last_browser_performance_diagnostics(
+        &self,
+    ) -> Option<BrowserPerformanceDiagnosticsRecord> {
+        self.last_performance_diagnostics
+            .lock()
+            .ok()
+            .and_then(|record| record.clone())
+    }
+
+    fn store_performance_diagnostics(
+        &self,
+        record: BrowserPerformanceDiagnosticsRecord,
+    ) -> BrowserPerformanceDiagnosticsRecord {
+        if let Ok(mut last) = self.last_performance_diagnostics.lock() {
+            *last = Some(record.clone());
+        }
+        record
     }
 
     pub fn zoom_focused_runtime(&self, action: &str) -> Result<bool, String> {
@@ -2820,7 +3134,10 @@ impl SystemRuntimeExecutor {
             LogicalSize::new(bounds.width, bounds.height),
             role_id,
         )?;
-        configure_platform_high_refresh_rate(&webview, self.configuration.macos_high_refresh_rate);
+        let high_refresh_rate_status = configure_platform_high_refresh_rate(
+            &webview,
+            self.configuration.macos_high_refresh_rate,
+        );
         let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
             Ok(lifecycle) => lifecycle,
             Err(error) => {
@@ -2891,6 +3208,7 @@ impl SystemRuntimeExecutor {
             RoleSurface {
                 current_url: Some(current_url),
                 generation,
+                high_refresh_rate_status,
                 lifecycle,
                 local_storage_sync,
                 local_storage_sync_sequence: 0,
@@ -5324,7 +5642,7 @@ impl SystemRuntimeExecutor {
                     LogicalSize::new(bounds.width, bounds.height),
                     &role_id,
                 )?;
-                configure_platform_high_refresh_rate(
+                let high_refresh_rate_status = configure_platform_high_refresh_rate(
                     &webview,
                     self.configuration.macos_high_refresh_rate,
                 );
@@ -5356,6 +5674,7 @@ impl SystemRuntimeExecutor {
                     RoleSurface {
                         current_url: None,
                         generation,
+                        high_refresh_rate_status,
                         lifecycle,
                         local_storage_sync: sync_config,
                         local_storage_sync_sequence: 0,
@@ -6794,6 +7113,171 @@ fn evaluate_system_webview(webview: &Webview, source: &str) -> RuntimeResult<Str
             "System WebView JavaScript evaluation timed out.",
         )
     })
+}
+
+fn empty_performance_diagnostics(
+    captured_at: String,
+    platform: String,
+    status: BrowserPerformanceDiagnosticStatus,
+    high_refresh_rate_requested: bool,
+    sample_duration: Duration,
+) -> BrowserPerformanceDiagnosticsRecord {
+    BrowserPerformanceDiagnosticsRecord {
+        captured_at,
+        platform,
+        status,
+        window_id: None,
+        window_focused: false,
+        display_refresh_rate_hz: None,
+        high_refresh_rate_requested,
+        sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
+        surfaces: Vec::new(),
+    }
+}
+
+fn decode_performance_diagnostic_readback(
+    raw: &str,
+) -> RuntimeResult<PerformanceDiagnosticReadback> {
+    let value = serde_json::from_str::<Value>(raw).map_err(|error| {
+        RuntimeError::new(
+            "PERFORMANCE_DIAGNOSTIC_INVALID",
+            format!("System WebView returned invalid diagnostic JSON: {error}"),
+        )
+    })?;
+    let value = if let Some(nested) = value.as_str() {
+        serde_json::from_str::<Value>(nested).map_err(|error| {
+            RuntimeError::new(
+                "PERFORMANCE_DIAGNOSTIC_INVALID",
+                format!("System WebView returned invalid nested diagnostic JSON: {error}"),
+            )
+        })?
+    } else {
+        value
+    };
+    serde_json::from_value(value).map_err(|error| {
+        RuntimeError::new(
+            "PERFORMANCE_DIAGNOSTIC_INVALID",
+            format!("System WebView returned an invalid diagnostic result: {error}"),
+        )
+    })
+}
+
+fn completed_performance_surface(
+    surface: PerformanceDiagnosticSurface,
+    mut readback: PerformanceDiagnosticReadback,
+) -> BrowserPerformanceSurfaceDiagnosticRecord {
+    readback.graphics.error = readback.graphics.error.and_then(bounded_diagnostic_text);
+    readback.graphics.renderer = readback.graphics.renderer.and_then(bounded_diagnostic_text);
+    readback.graphics.vendor = readback.graphics.vendor.and_then(bounded_diagnostic_text);
+    readback.graphics.webgl = diagnostic_availability(&readback.graphics.webgl);
+    readback.graphics.webgl2 = diagnostic_availability(&readback.graphics.webgl2);
+    readback.graphics.webgpu = diagnostic_availability(&readback.graphics.webgpu);
+    BrowserPerformanceSurfaceDiagnosticRecord {
+        role_id: surface.role_id,
+        origin: surface.origin,
+        document_visibility_state: match readback.document_visibility_state.as_str() {
+            "visible" | "hidden" | "prerender" => readback.document_visibility_state,
+            _ => "unknown".to_owned(),
+        },
+        document_has_focus: readback.document_has_focus,
+        viewport_width: finite_non_negative(readback.viewport_width).unwrap_or(0.0),
+        viewport_height: finite_non_negative(readback.viewport_height).unwrap_or(0.0),
+        device_pixel_ratio: finite_non_negative(readback.device_pixel_ratio).unwrap_or(1.0),
+        hardware_concurrency: readback.hardware_concurrency.min(1_024),
+        frame_count: readback.frame_count,
+        observed_duration_ms: finite_non_negative(readback.observed_duration_ms).unwrap_or(0.0),
+        average_fps: readback
+            .average_fps
+            .and_then(finite_non_negative)
+            .map(|value| value.min(1_000.0)),
+        p50_frame_interval_ms: readback.p50_frame_interval_ms.and_then(finite_non_negative),
+        p95_frame_interval_ms: readback.p95_frame_interval_ms.and_then(finite_non_negative),
+        longest_frame_interval_ms: readback
+            .longest_frame_interval_ms
+            .and_then(finite_non_negative),
+        graphics: readback.graphics,
+        high_refresh_rate_status: surface.high_refresh_rate_status,
+        error: None,
+    }
+}
+
+fn failed_performance_surface(
+    surface: PerformanceDiagnosticSurface,
+    error: String,
+) -> BrowserPerformanceSurfaceDiagnosticRecord {
+    BrowserPerformanceSurfaceDiagnosticRecord {
+        role_id: surface.role_id,
+        origin: surface.origin,
+        document_visibility_state: "unknown".to_owned(),
+        document_has_focus: false,
+        viewport_width: 0.0,
+        viewport_height: 0.0,
+        device_pixel_ratio: 1.0,
+        hardware_concurrency: 0,
+        frame_count: 0,
+        observed_duration_ms: 0.0,
+        average_fps: None,
+        p50_frame_interval_ms: None,
+        p95_frame_interval_ms: None,
+        longest_frame_interval_ms: None,
+        graphics: StateWebGraphicsRecord {
+            error: None,
+            renderer: None,
+            vendor: None,
+            webgl: "unknown".to_owned(),
+            webgl2: "unknown".to_owned(),
+            webgpu: "unknown".to_owned(),
+        },
+        high_refresh_rate_status: surface.high_refresh_rate_status,
+        error: bounded_diagnostic_text(error),
+    }
+}
+
+fn bounded_diagnostic_text(value: String) -> Option<String> {
+    (!value.is_empty()).then(|| value.chars().take(512).collect())
+}
+
+fn diagnostic_availability(value: &str) -> String {
+    if matches!(value, "available" | "unavailable" | "unknown") {
+        value.to_owned()
+    } else {
+        "unknown".to_owned()
+    }
+}
+
+fn finite_non_negative(value: f64) -> Option<f64> {
+    (value.is_finite() && value >= 0.0).then_some(value)
+}
+
+#[cfg(target_os = "macos")]
+fn platform_display_refresh_rate(window: &Window) -> Option<f64> {
+    unsafe extern "C" {
+        fn rion_ns_window_display_refresh_rate(window: *mut std::ffi::c_void) -> f64;
+    }
+    let raw_window = window.ns_window().ok()?;
+    finite_non_negative(unsafe { rion_ns_window_display_refresh_rate(raw_window) })
+        .filter(|value| *value > 1.0)
+}
+
+#[cfg(windows)]
+fn platform_display_refresh_rate(window: &Window) -> Option<f64> {
+    use windows::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, ReleaseDC, VREFRESH};
+
+    let hwnd = window.hwnd().ok()?;
+    let device_context = unsafe { GetDC(Some(hwnd)) };
+    if device_context.0.is_null() {
+        return None;
+    }
+    let refresh_rate = unsafe { GetDeviceCaps(Some(device_context), VREFRESH) };
+    unsafe {
+        ReleaseDC(Some(hwnd), device_context);
+    }
+    (refresh_rate > 1).then_some(refresh_rate as f64)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn platform_display_refresh_rate(_window: &Window) -> Option<f64> {
+    None
 }
 
 fn wait_for_tauri_main_thread(app: &AppHandle) -> RuntimeResult<()> {
@@ -8518,9 +9002,12 @@ fn validate_mouse_button(button: &str) -> RuntimeResult<&str> {
 }
 
 #[cfg(target_os = "macos")]
-fn configure_platform_high_refresh_rate(webview: &Webview, enabled: bool) {
+fn configure_platform_high_refresh_rate(
+    webview: &Webview,
+    enabled: bool,
+) -> HighRefreshRateDiagnosticStatus {
     if !enabled {
-        return;
+        return HighRefreshRateDiagnosticStatus::Disabled;
     }
 
     unsafe extern "C" {
@@ -8534,18 +9021,39 @@ fn configure_platform_high_refresh_rate(webview: &Webview, enabled: bool) {
         let _ = sender.send(status);
     }) {
         Ok(()) => match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-            Ok(0) => "applied",
-            Ok(1) => "unavailable",
-            Ok(_) => "failed",
-            Err(_) => "timeout",
+            Ok(0) => HighRefreshRateDiagnosticStatus::Applied,
+            Ok(1) => HighRefreshRateDiagnosticStatus::Unavailable,
+            Ok(_) => HighRefreshRateDiagnosticStatus::Failed,
+            Err(_) => HighRefreshRateDiagnosticStatus::Timeout,
         },
-        Err(_) => "schedule-failed",
+        Err(_) => HighRefreshRateDiagnosticStatus::ScheduleFailed,
     };
-    eprintln!("System WebView macOS high refresh rate: label={label} status={outcome}.");
+    eprintln!(
+        "System WebView macOS high refresh rate: label={label} status={}.",
+        high_refresh_rate_status_label(outcome)
+    );
+    outcome
 }
 
 #[cfg(not(target_os = "macos"))]
-fn configure_platform_high_refresh_rate(_webview: &Webview, _enabled: bool) {}
+fn configure_platform_high_refresh_rate(
+    _webview: &Webview,
+    _enabled: bool,
+) -> HighRefreshRateDiagnosticStatus {
+    HighRefreshRateDiagnosticStatus::NotApplicable
+}
+
+fn high_refresh_rate_status_label(status: HighRefreshRateDiagnosticStatus) -> &'static str {
+    match status {
+        HighRefreshRateDiagnosticStatus::Applied => "applied",
+        HighRefreshRateDiagnosticStatus::Disabled => "disabled",
+        HighRefreshRateDiagnosticStatus::Unavailable => "unavailable",
+        HighRefreshRateDiagnosticStatus::Failed => "failed",
+        HighRefreshRateDiagnosticStatus::Timeout => "timeout",
+        HighRefreshRateDiagnosticStatus::ScheduleFailed => "schedule-failed",
+        HighRefreshRateDiagnosticStatus::NotApplicable => "not-applicable",
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
@@ -9684,6 +10192,76 @@ mod tests {
             fn rion_wk_high_refresh_rate_self_test() -> bool;
         }
         assert!(unsafe { rion_wk_high_refresh_rate_self_test() });
+    }
+
+    #[test]
+    fn performance_diagnostic_probe_is_foreground_scoped_and_privacy_bounded() {
+        assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("requestAnimationFrame(tick)"));
+        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("document.visibilityState"));
+        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("document.hasFocus()"));
+        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("failIfMajorPerformanceCaveat: true"));
+        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("WEBGL_debug_renderer_info"));
+        for source in [
+            PERFORMANCE_DIAGNOSTIC_START_SOURCE,
+            PERFORMANCE_DIAGNOSTIC_READ_SOURCE,
+        ] {
+            assert!(!source.contains("localStorage"));
+            assert!(!source.contains("document.cookie"));
+            assert!(!source.contains("location.href"));
+        }
+    }
+
+    #[test]
+    fn performance_diagnostic_readback_accepts_nested_webview_json() {
+        let value = json!({
+            "documentVisibilityState": "visible",
+            "documentHasFocus": true,
+            "viewportWidth": 1280.0,
+            "viewportHeight": 720.0,
+            "devicePixelRatio": 2.0,
+            "hardwareConcurrency": 8,
+            "frameCount": 188,
+            "observedDurationMs": 1500.0,
+            "averageFps": 125.3,
+            "p50FrameIntervalMs": 8.0,
+            "p95FrameIntervalMs": 8.4,
+            "longestFrameIntervalMs": 16.1,
+            "graphics": {
+                "renderer": "Apple GPU",
+                "vendor": "Apple",
+                "webgl": "available",
+                "webgl2": "available",
+                "webgpu": "available"
+            }
+        });
+        let nested = serde_json::to_string(&serde_json::to_string(&value).unwrap()).unwrap();
+        let readback = decode_performance_diagnostic_readback(&nested).unwrap();
+        assert_eq!(readback.document_visibility_state, "visible");
+        assert!(readback.document_has_focus);
+        assert_eq!(readback.frame_count, 188);
+        assert_eq!(readback.average_fps, Some(125.3));
+        assert_eq!(readback.graphics.renderer.as_deref(), Some("Apple GPU"));
+    }
+
+    #[test]
+    fn high_refresh_diagnostic_status_labels_are_stable() {
+        for (status, expected) in [
+            (HighRefreshRateDiagnosticStatus::Applied, "applied"),
+            (HighRefreshRateDiagnosticStatus::Disabled, "disabled"),
+            (HighRefreshRateDiagnosticStatus::Unavailable, "unavailable"),
+            (HighRefreshRateDiagnosticStatus::Failed, "failed"),
+            (HighRefreshRateDiagnosticStatus::Timeout, "timeout"),
+            (
+                HighRefreshRateDiagnosticStatus::ScheduleFailed,
+                "schedule-failed",
+            ),
+            (
+                HighRefreshRateDiagnosticStatus::NotApplicable,
+                "not-applicable",
+            ),
+        ] {
+            assert_eq!(high_refresh_rate_status_label(status), expected);
+        }
     }
 
     #[test]

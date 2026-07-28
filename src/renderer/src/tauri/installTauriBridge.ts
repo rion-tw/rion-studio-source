@@ -501,6 +501,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     clearLogs: () =>
       invokeCore({ type: "logsClear" }).then(() => invokeCore({ type: "logsStatus" })),
     revealLogs: () => invokeShell("revealLogs"),
+    collectBrowserPerformanceDiagnostics: () =>
+      invokeShell("collectBrowserPerformanceDiagnostics"),
     exportDiagnostics: () => invokeShell("exportDiagnostics"),
     reportRendererLog: (event) =>
       void invokeCore({ type: "logsCapture", entries: [rendererLogRecord(event)] }),

@@ -5997,6 +5997,7 @@ impl AppCore {
                 "activeRoles": browser_role_statuses,
                 "activeWorkspaces": browser_workspace_statuses,
                 "compatibilityCache": engine_compatibility_cache,
+                "foregroundPerformance": snapshot.browser_performance,
             },
             "windowsGraphicsEvents": windows_graphics_events,
             "windowsGraphicsEventWindow": {

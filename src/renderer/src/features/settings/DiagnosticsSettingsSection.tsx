@@ -1,7 +1,14 @@
-import { Download, ExternalLink, RefreshCw, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Gauge, RefreshCw, Trash2 } from "lucide-react";
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 
-import type { LogEntry, LogLevel, LogSource, LogStorageStatus } from "../../../../shared/types";
+import type {
+  BrowserPerformanceDiagnostics,
+  LogEntry,
+  LogLevel,
+  LogSource,
+  LogStorageStatus,
+  Role
+} from "../../../../shared/types";
 import { useConfirmation } from "../../components/confirmation";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -11,7 +18,15 @@ import type { Translator } from "../../i18n";
 
 const ALL = "all";
 
-export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onError: (error: unknown) => void }): JSX.Element {
+export function DiagnosticsSettingsSection({
+  roles,
+  t,
+  onError
+}: {
+  roles: Role[];
+  t: Translator;
+  onError: (error: unknown) => void;
+}): JSX.Element {
   const confirm = useConfirmation();
   const [status, setStatus] = useState<LogStorageStatus | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -21,6 +36,8 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
   const [source, setSource] = useState<LogSource | typeof ALL>(ALL);
   const [live, setLive] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [performanceBusy, setPerformanceBusy] = useState(false);
+  const [performance, setPerformance] = useState<BrowserPerformanceDiagnostics | null>(null);
 
   const query = useMemo(() => ({
     ...(search.trim() ? { search: search.trim() } : {}),
@@ -76,8 +93,43 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
     finally { setBusy(false); }
   }
 
+  async function runPerformanceDiagnostics(): Promise<void> {
+    setPerformanceBusy(true);
+    try {
+      setPerformance(await window.rionStudio.collectBrowserPerformanceDiagnostics());
+    } catch (error) {
+      onError(error);
+    } finally {
+      setPerformanceBusy(false);
+    }
+  }
+
   return (
     <div className="grid gap-5">
+      <section className="grid gap-2">
+        <Surface className="settings-group overflow-hidden" radius="md">
+          <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.performanceDiagnosticsTitle")}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.performanceDiagnosticsDescription")}</p>
+              <p className="mt-1 text-[11px] leading-4 text-amber-700 dark:text-amber-300">{t("settings.performanceDiagnosticsHint")}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={performanceBusy}
+              onClick={() => void runPerformanceDiagnostics()}
+            >
+              <Gauge className={performanceBusy ? "animate-pulse" : undefined} size={14} />
+              {t(performanceBusy ? "settings.performanceDiagnosticsRunning" : "settings.performanceDiagnosticsRun")}
+            </Button>
+          </div>
+          {performance ? (
+            <PerformanceDiagnosticsResult performance={performance} roles={roles} t={t} />
+          ) : null}
+        </Surface>
+      </section>
+
       <section className="grid gap-2">
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -142,6 +194,107 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
       </section>
     </div>
   );
+}
+
+function PerformanceDiagnosticsResult({
+  performance,
+  roles,
+  t
+}: {
+  performance: BrowserPerformanceDiagnostics;
+  roles: Role[];
+  t: Translator;
+}): JSX.Element {
+  if (performance.status !== "available") {
+    return (
+      <div className="border-t border-border/50 px-4 py-3 text-xs leading-5 text-muted-foreground">
+        {t(performance.status === "noRunningRole"
+          ? "settings.performanceDiagnosticsNoRunningRole"
+          : "settings.performanceDiagnosticsNoVisibleWindow")}
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-3 border-t border-border/50 px-4 py-3">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
+        <span>{t("settings.performanceDiagnosticsDisplay")}: {formatHertz(performance.displayRefreshRateHz, t)}</span>
+        <span>{t("settings.performanceDiagnosticsWindowFocus")}: {t(performance.windowFocused
+          ? "settings.performanceDiagnosticsFocused"
+          : "settings.performanceDiagnosticsUnfocused")}</span>
+        <span>{new Date(performance.capturedAt).toLocaleString()}</span>
+      </div>
+      {performance.surfaces.map((surface) => {
+        const roleName = roles.find((role) => role.id === surface.roleId)?.name ?? surface.roleId;
+        return (
+          <div key={surface.roleId} className="rounded-lg border border-border/60 bg-background/40 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold text-foreground">{roleName}</p>
+                {surface.origin ? <p className="text-[10px] text-muted-foreground">{surface.origin}</p> : null}
+              </div>
+              <p className="font-mono text-lg font-semibold tabular-nums text-foreground">
+                {formatFps(surface.averageFps)} FPS
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-4">
+              <DiagnosticValue label={t("settings.performanceDiagnosticsVisibility")} value={t(`settings.performanceDiagnosticsVisibility.${surface.documentVisibilityState}`)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsPageFocus")} value={t(surface.documentHasFocus ? "settings.performanceDiagnosticsFocused" : "settings.performanceDiagnosticsUnfocused")} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsP95")} value={formatMilliseconds(surface.p95FrameIntervalMs, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsViewport")} value={`${Math.round(surface.viewportWidth)} × ${Math.round(surface.viewportHeight)} @ ${surface.devicePixelRatio.toFixed(2)}×`} />
+              <DiagnosticValue label="WebGL 2" value={t(`games.compatibility.capability.${surface.graphics.webgl2}`)} />
+              <DiagnosticValue label="WebGPU" value={t(`games.compatibility.capability.${surface.graphics.webgpu}`)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsFrames")} value={String(surface.frameCount)} />
+            </div>
+            <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
+              {performanceFinding(performance, surface, t)}
+            </p>
+            {surface.graphics.renderer ? (
+              <p className="mt-1 break-all text-[10px] text-muted-foreground">GPU: {surface.graphics.renderer}</p>
+            ) : null}
+            {surface.error || surface.graphics.error ? (
+              <p className="mt-2 break-words text-[10px] text-destructive">{surface.error ?? surface.graphics.error}</p>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DiagnosticValue({ label, value }: { label: string; value: string }): JSX.Element {
+  return <div><p className="text-muted-foreground">{label}</p><p className="mt-0.5 break-words font-medium text-foreground">{value}</p></div>;
+}
+
+function performanceFinding(
+  performance: BrowserPerformanceDiagnostics,
+  surface: BrowserPerformanceDiagnostics["surfaces"][number],
+  t: Translator
+): string {
+  if (surface.error) return t("settings.performanceDiagnosticsFindingFailed");
+  if (surface.documentVisibilityState !== "visible") return t("settings.performanceDiagnosticsFindingHidden");
+  if (!surface.documentHasFocus) return t("settings.performanceDiagnosticsFindingUnfocused");
+  if (surface.averageFps === undefined || performance.displayRefreshRateHz === undefined) {
+    return t("settings.performanceDiagnosticsFindingIncomplete");
+  }
+  if (surface.averageFps < performance.displayRefreshRateHz * 0.8) {
+    return t("settings.performanceDiagnosticsFindingBelowRefresh")
+      .replace("{fps}", surface.averageFps.toFixed(1))
+      .replace("{hz}", performance.displayRefreshRateHz.toFixed(0));
+  }
+  return t("settings.performanceDiagnosticsFindingNearRefresh");
+}
+
+function formatFps(value: number | undefined): string {
+  return value === undefined ? "—" : value.toFixed(1);
+}
+
+function formatHertz(value: number | undefined, t: Translator): string {
+  return value === undefined ? t("settings.performanceDiagnosticsUnknown") : `${value.toFixed(0)} Hz`;
+}
+
+function formatMilliseconds(value: number | undefined, t: Translator): string {
+  return value === undefined ? t("settings.performanceDiagnosticsUnknown") : `${value.toFixed(2)} ms`;
 }
 
 function LogEntryRow({ entry, t }: { entry: LogEntry; t: Translator }): JSX.Element {

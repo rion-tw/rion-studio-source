@@ -1,6 +1,7 @@
 import type {
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
+  BrowserPerformanceDiagnosticsRecord,
   BrowserPerformanceSettingsRecord,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
@@ -531,3 +532,5 @@ export interface RendererLogEvent {
 }
 
 export type DiagnosticExportResult = DiagnosticExportResultRecord;
+
+export type BrowserPerformanceDiagnostics = BrowserPerformanceDiagnosticsRecord;

@@ -107,21 +107,21 @@ impl Drop for ActivationServer {
 }
 
 pub fn forward_activation(user_data_dir: &Path) -> bool {
-    let endpoint = match read_endpoint(&user_data_dir.join(ACTIVATION_ENDPOINT_FILE)) {
-        Ok(endpoint) => endpoint,
-        Err(_) => return false,
-    };
+    forward_activation_result(user_data_dir).is_ok()
+}
+
+fn forward_activation_result(user_data_dir: &Path) -> io::Result<()> {
+    let endpoint = read_endpoint(&user_data_dir.join(ACTIVATION_ENDPOINT_FILE))?;
     if !valid_endpoint(&endpoint) {
-        return false;
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "activation endpoint is invalid",
+        ));
     }
-    let address = match format!("{}:{}", endpoint.host, endpoint.port).parse::<SocketAddr>() {
-        Ok(address) => address,
-        Err(_) => return false,
-    };
-    let mut stream = match TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT) {
-        Ok(stream) => stream,
-        Err(_) => return false,
-    };
+    let address = format!("{}:{}", endpoint.host, endpoint.port)
+        .parse::<SocketAddr>()
+        .map_err(io::Error::other)?;
+    let mut stream = TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT)?;
     let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
     let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
     let request = ActivationRequest {
@@ -129,19 +129,26 @@ pub fn forward_activation(user_data_dir: &Path) -> bool {
         token: endpoint.token,
     };
     let Ok(mut body) = serde_json::to_vec(&request) else {
-        return false;
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "activation request could not be encoded",
+        ));
     };
     body.push(b'\n');
-    if stream.write_all(&body).is_err() {
-        return false;
-    }
-    let Ok(response) = read_message(&mut stream) else {
-        return false;
-    };
-    serde_json::from_slice::<serde_json::Value>(&response)
+    stream.write_all(&body)?;
+    let response = read_message(&mut stream)?;
+    let accepted = serde_json::from_slice::<serde_json::Value>(&response)
         .ok()
         .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
-        == Some(true)
+        == Some(true);
+    if accepted {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "activation endpoint rejected the request",
+        ))
+    }
 }
 
 fn handle_connection(
@@ -265,7 +272,7 @@ mod tests {
         })
         .unwrap();
 
-        assert!(forward_activation(user_data_dir.path()));
+        forward_activation_result(user_data_dir.path()).unwrap();
         assert_eq!(activations.load(Ordering::SeqCst), 1);
         assert!(user_data_dir.path().join(ACTIVATION_ENDPOINT_FILE).exists());
 

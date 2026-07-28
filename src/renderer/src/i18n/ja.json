@@ -600,7 +600,7 @@
   "settings.browserFontsDefault": "ブラウザ既定値",
   "settings.browserFontsCustomEmpty": "カスタムフォントは有効ですが、フォントファミリーは未選択です。",
   "settings.browserFontsSaved": "保存し、開いているロールウィンドウにもすぐ適用しました。",
-  "settings.browserFontsForceWarning": "フォントの上書きはゲームページだけに適用され、ページ側のスタイルより優先されます。識別できるアイコンフォントは保護しますが、一部のゲーム UI アイコンの見た目が変わる場合があります。",
+  "settings.browserFontsForceWarning": "フォントの上書きはゲームページのスタイルより優先され、Canvas 2D とメインスレッドの Canvas で生成される WebGL テキストにも適用されます。描画済みの Canvas は次回の再描画時に更新されます。アイコンは可能な限り保護されますが、Worker 内の描画と作成済みの bitmap/SDF フォントは変更されません。",
   "settings.browserFontsPresetsGeneral": "標準プリセット",
   "settings.browserFontsPresetsHandwriting": "手書きスタイル",
   "settings.browserFonts.preset.systemDefault": "システムフォント",

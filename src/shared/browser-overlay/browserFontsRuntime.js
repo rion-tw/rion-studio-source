@@ -3,7 +3,8 @@
 
   const RUNTIME_KEY = "__rionStudioBrowserFonts";
   const STYLE_ID = "rion-studio-browser-fonts";
-  const VERSION = 2;
+  const CANVAS_HOOK_KEY = "__rionStudioBrowserFontsCanvasHook";
+  const VERSION = 3;
   const SLOT_RANGES = Object.freeze({
     cjk: [
       [0x2e80, 0x2fff],
@@ -48,15 +49,284 @@
   }
 
   const state = {
+    canvasActive: false,
+    canvasRevision: 0,
+    canvasStacks: { general: [], math: [], monospace: [] },
     faces: [],
     refreshSequence: 0,
     version: VERSION
   };
+  const canvasContexts = new WeakMap();
+  const canvasFontParser = (() => {
+    try {
+      return document.createElement("span").style;
+    } catch {
+      return undefined;
+    }
+  })();
 
   function quoteFamily(value) {
     const family = String(value || "").trim();
     if (GENERIC_FAMILIES.has(family.toLowerCase())) return family;
     return `"${family.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  }
+
+  function splitFontFamilies(value) {
+    const families = [];
+    let current = "";
+    let escaped = false;
+    let quote = "";
+    for (const character of String(value || "")) {
+      if (escaped) {
+        current += character;
+        escaped = false;
+        continue;
+      }
+      if (character === "\\") {
+        current += character;
+        escaped = true;
+        continue;
+      }
+      if (quote) {
+        current += character;
+        if (character === quote) quote = "";
+        continue;
+      }
+      if (character === '"' || character === "'") {
+        current += character;
+        quote = character;
+        continue;
+      }
+      if (character === ",") {
+        if (current.trim()) families.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += character;
+    }
+    if (current.trim()) families.push(current.trim());
+    return families;
+  }
+
+  function fontFamilyKey(value) {
+    let family = String(value || "").trim();
+    if (
+      family.length >= 2 &&
+      ((family.startsWith('"') && family.endsWith('"')) ||
+        (family.startsWith("'") && family.endsWith("'")))
+    ) {
+      family = family.slice(1, -1);
+    }
+    return family.replace(/\\([\\"'])/g, "$1").toLowerCase();
+  }
+
+  function canvasStackForFamily(fontFamily) {
+    const families = splitFontFamilies(fontFamily).map(fontFamilyKey);
+    if (families.includes("math")) return state.canvasStacks.math;
+    if (families.includes("monospace") || families.includes("ui-monospace")) {
+      return state.canvasStacks.monospace;
+    }
+    return state.canvasStacks.general;
+  }
+
+  function prependCanvasFamilies(fontFamily, customFamilies) {
+    const existing = new Set(splitFontFamilies(fontFamily).map(fontFamilyKey));
+    const prepended = [];
+    for (const family of customFamilies) {
+      const key = fontFamilyKey(family);
+      if (!key || existing.has(key)) continue;
+      existing.add(key);
+      prepended.push(family);
+    }
+    return prepended.length > 0 ? `${prepended.join(",")},${fontFamily}` : fontFamily;
+  }
+
+  function rewriteCanvasFont(value) {
+    const font = String(value || "");
+    if (!state.canvasActive || !canvasFontParser) return font;
+    try {
+      canvasFontParser.cssText = "";
+      canvasFontParser.font = font;
+      const parsedFont = canvasFontParser.font;
+      const fontFamily = canvasFontParser.fontFamily;
+      if (!parsedFont || !fontFamily) return font;
+      const customFamilies = canvasStackForFamily(fontFamily);
+      if (customFamilies.length === 0) return font;
+      canvasFontParser.fontFamily = prependCanvasFamilies(fontFamily, customFamilies);
+      return canvasFontParser.font || font;
+    } catch {
+      return font;
+    }
+  }
+
+  function synchronizeCanvasContext(context, fontDescriptor) {
+    const nativeFont = fontDescriptor.get.call(context);
+    let record = canvasContexts.get(context);
+    if (!record) {
+      record = {
+        effectiveFont: nativeFont,
+        originalFont: nativeFont,
+        revision: -1,
+        savedFonts: []
+      };
+      canvasContexts.set(context, record);
+      return record;
+    }
+    if (nativeFont !== record.effectiveFont) {
+      record.effectiveFont = nativeFont;
+      record.originalFont = nativeFont;
+      record.revision = -1;
+      record.savedFonts = [];
+    }
+    return record;
+  }
+
+  function applyCanvasFont(context, fontDescriptor, record) {
+    const nativeFont = fontDescriptor.get.call(context);
+    if (record.revision === state.canvasRevision && nativeFont === record.effectiveFont) {
+      return record;
+    }
+    const desiredFont = rewriteCanvasFont(record.originalFont);
+    if (nativeFont !== desiredFont) fontDescriptor.set.call(context, desiredFont);
+    record.effectiveFont = fontDescriptor.get.call(context);
+    record.revision = state.canvasRevision;
+    return record;
+  }
+
+  function prepareCanvasContext(context, fontDescriptor) {
+    try {
+      return applyCanvasFont(
+        context,
+        fontDescriptor,
+        synchronizeCanvasContext(context, fontDescriptor)
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  function installCanvasContextHook(Context) {
+    const prototype = Context?.prototype;
+    if (!prototype || Object.prototype.hasOwnProperty.call(prototype, CANVAS_HOOK_KEY)) return;
+    const fontDescriptor = Object.getOwnPropertyDescriptor(prototype, "font");
+    const methodNames = ["fillText", "strokeText", "measureText", "save", "restore"];
+    const methodDescriptors = new Map(
+      methodNames.map((name) => [name, Object.getOwnPropertyDescriptor(prototype, name)])
+    );
+    if (
+      typeof fontDescriptor?.get !== "function" ||
+      typeof fontDescriptor?.set !== "function" ||
+      fontDescriptor.configurable === false ||
+      methodNames.some((name) => {
+        const descriptor = methodDescriptors.get(name);
+        return (
+          typeof descriptor?.value !== "function" ||
+          (descriptor.configurable === false && descriptor.writable === false)
+        );
+      })
+    ) {
+      return;
+    }
+
+    const originals = new Map([["font", fontDescriptor], ...methodDescriptors]);
+    const applied = [];
+    try {
+      Object.defineProperty(prototype, "font", {
+        ...fontDescriptor,
+        get() {
+          try {
+            return synchronizeCanvasContext(this, fontDescriptor).originalFont;
+          } catch {
+            return fontDescriptor.get.call(this);
+          }
+        },
+        set(value) {
+          let record;
+          try {
+            record = synchronizeCanvasContext(this, fontDescriptor);
+            fontDescriptor.set.call(this, record.originalFont);
+          } catch {
+            fontDescriptor.set.call(this, value);
+            return;
+          }
+          fontDescriptor.set.call(this, value);
+          record.originalFont = fontDescriptor.get.call(this);
+          record.effectiveFont = record.originalFont;
+          record.revision = -1;
+          applyCanvasFont(this, fontDescriptor, record);
+        }
+      });
+      applied.push("font");
+
+      for (const name of ["fillText", "strokeText", "measureText"]) {
+        const descriptor = methodDescriptors.get(name);
+        const nativeMethod = descriptor.value;
+        Object.defineProperty(prototype, name, {
+          ...descriptor,
+          value(...args) {
+            prepareCanvasContext(this, fontDescriptor);
+            return nativeMethod.apply(this, args);
+          }
+        });
+        applied.push(name);
+      }
+
+      const saveDescriptor = methodDescriptors.get("save");
+      const nativeSave = saveDescriptor.value;
+      Object.defineProperty(prototype, "save", {
+        ...saveDescriptor,
+        value(...args) {
+          const record = prepareCanvasContext(this, fontDescriptor);
+          const result = nativeSave.apply(this, args);
+          if (record) record.savedFonts.push(record.originalFont);
+          return result;
+        }
+      });
+      applied.push("save");
+
+      const restoreDescriptor = methodDescriptors.get("restore");
+      const nativeRestore = restoreDescriptor.value;
+      Object.defineProperty(prototype, "restore", {
+        ...restoreDescriptor,
+        value(...args) {
+          let record;
+          try {
+            record = synchronizeCanvasContext(this, fontDescriptor);
+          } catch {
+            // Let the native method report invalid receivers or state.
+          }
+          const result = nativeRestore.apply(this, args);
+          if (record?.savedFonts.length) {
+            record.originalFont = record.savedFonts.pop();
+            record.effectiveFont = fontDescriptor.get.call(this);
+            record.revision = -1;
+            applyCanvasFont(this, fontDescriptor, record);
+          } else {
+            prepareCanvasContext(this, fontDescriptor);
+          }
+          return result;
+        }
+      });
+      applied.push("restore");
+
+      Object.defineProperty(prototype, CANVAS_HOOK_KEY, {
+        configurable: true,
+        value: VERSION
+      });
+    } catch {
+      for (const name of applied.reverse()) {
+        try {
+          Object.defineProperty(prototype, name, originals.get(name));
+        } catch {
+          // A partially unhookable engine must keep the remaining native behavior intact.
+        }
+      }
+    }
+  }
+
+  function installCanvasHooks() {
+    installCanvasContextHook(globalThis.CanvasRenderingContext2D);
+    installCanvasContextHook(globalThis.OffscreenCanvasRenderingContext2D);
   }
 
   function parseUnicodeRange(value) {
@@ -104,6 +374,9 @@
   }
 
   function removeAppliedFonts() {
+    state.canvasActive = false;
+    state.canvasRevision += 1;
+    state.canvasStacks = { general: [], math: [], monospace: [] };
     document.getElementById(STYLE_ID)?.remove();
     for (const face of state.faces) {
       try {
@@ -199,6 +472,13 @@
       .join(",");
     const monospaceStack = [resolved.monospace, "ui-monospace", "monospace"].filter(Boolean).join(",");
     const mathStack = [resolved.math, "math", resolved.latin, resolved.cjk, "serif"].filter(Boolean).join(",");
+    state.canvasActive = true;
+    state.canvasRevision += 1;
+    state.canvasStacks = {
+      general: [...new Set([resolved.numeric, resolved.latin, resolved.cjk].filter(Boolean))],
+      math: [...new Set([resolved.math, resolved.latin, resolved.cjk].filter(Boolean))],
+      monospace: [...new Set([resolved.monospace].filter(Boolean))]
+    };
     const generalSelector = [
       ":where(html,body,button,input,select,textarea)",
       ":where(body *):not(svg):not(svg *):not([class*='icon' i]):not([class^='fa-' i]):not(.fa):not(.fas):not(.far):not(.fab)"
@@ -243,5 +523,6 @@
     enumerable: false,
     value: state
   });
+  installCanvasHooks();
   void refresh();
 })();

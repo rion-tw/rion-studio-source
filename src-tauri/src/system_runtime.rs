@@ -10054,10 +10054,15 @@ mod tests {
         assert!(source.contains("rion_browser_font_payload"));
         assert!(source.contains("rion-studio-browser-fonts"));
         assert!(source.contains("FontFace"));
+        assert!(source.contains("CanvasRenderingContext2D"));
+        assert!(source.contains("OffscreenCanvasRenderingContext2D"));
+        assert!(source.contains("fillText"));
+        assert!(source.contains("measureText"));
         assert!(source.contains("!important"));
         assert!(source.contains("numeric"));
         assert!(source.contains("monospace"));
         assert!(!source.contains("fonts.googleapis.com"));
+        assert!(!source.contains("WebGLRenderingContext"));
     }
 
     #[test]

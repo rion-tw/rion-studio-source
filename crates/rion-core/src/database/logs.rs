@@ -778,7 +778,7 @@ fn placeholders(existing: usize, count: usize) -> String {
 
 fn stored_log_source_values(source: &LogSource) -> &'static [&'static str] {
     match source {
-        // Older Electron releases persisted authentication events under a dedicated
+        // Older desktop-shell releases persisted authentication events under a dedicated
         // source. Authentication is no longer a public log source, so expose those
         // retained entries through the closest current source instead.
         LogSource::Main => &["main", LEGACY_AUTH_LOG_SOURCE],

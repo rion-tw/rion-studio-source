@@ -54,8 +54,7 @@ never mutates the source profile.
 
 ### Packaging Notes
 
-Game roles use the operating system WebView runtime. Compatibility checks use a
-short-lived isolated System WebView surface.
+Game roles use the operating system WebView runtime directly.
 
 Linux CI validates only the portable Rust crates because Linux is not a supported
 Tauri shell target. Run the same portable gates locally with:

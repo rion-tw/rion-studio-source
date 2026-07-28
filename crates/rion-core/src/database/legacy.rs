@@ -61,31 +61,11 @@ pub(super) fn build_snapshot(user_data_dir: &Path) -> CoreResult<Value> {
     )?;
     validate_macro_graph(&macros)?;
 
-    let game_ids = games
-        .iter()
-        .filter_map(|game| game.get("id").and_then(Value::as_str))
-        .collect::<HashSet<_>>();
-    let compatibility =
-        read_lenient_array(user_data_dir.join("game-compatibility.json"), "reports")
-            .into_iter()
-            .filter_map(normalize_compatibility_report)
-            .filter(|report| {
-                report
-                    .get("gameId")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| game_ids.contains(id))
-            })
-            .collect::<Vec<_>>();
-
     let mut snapshot = Map::new();
     snapshot.insert("games".to_owned(), Value::Array(games));
     snapshot.insert("roles".to_owned(), Value::Array(roles));
     snapshot.insert("launchWorkspaces".to_owned(), Value::Array(workspaces));
     snapshot.insert("macros".to_owned(), Value::Array(macros));
-    snapshot.insert(
-        "compatibilityReports".to_owned(),
-        Value::Array(compatibility),
-    );
     snapshot.insert(
         "gameBrowserSettings".to_owned(),
         normalize_browser_settings(read_optional_object(
@@ -943,16 +923,6 @@ fn normalize_legal_acceptance(value: Option<Map<String, Value>>) -> Option<Value
     Some(Value::Object(source))
 }
 
-fn normalize_compatibility_report(value: Value) -> Option<Value> {
-    let mut source = value.as_object()?.clone();
-    optional_string(source.get("gameId"))?;
-    let observations = source.get_mut("observations")?.as_object_mut()?;
-    observations.remove("lastAuthSuccessAt");
-    observations.remove("lastAuthFailureAt");
-    source.insert("isStale".to_owned(), Value::Bool(false));
-    Some(Value::Object(source))
-}
-
 fn normalize_target_display(source: &Map<String, Value>) -> CoreResult<Option<Value>> {
     if let Some(target) = source.get("targetDisplay") {
         if target.is_null() {
@@ -1082,14 +1052,6 @@ fn read_array(path: PathBuf, key: &str) -> CoreResult<Vec<Value>> {
         .and_then(Value::as_array)
         .cloned()
         .ok_or_else(|| invalid(format!("legacy {key} must be an array")))
-}
-
-fn read_lenient_array(path: PathBuf, key: &str) -> Vec<Value> {
-    read_optional_object(path, true)
-        .ok()
-        .flatten()
-        .and_then(|object| object.get(key).and_then(Value::as_array).cloned())
-        .unwrap_or_default()
 }
 
 fn read_optional_object(path: PathBuf, lenient: bool) -> CoreResult<Option<Map<String, Value>>> {
@@ -2285,37 +2247,6 @@ mod tests {
                     .join("roles/role-2/browser/legacy.txt")
                     .is_file()
             );
-        });
-    }
-
-    #[test]
-    fn removes_legacy_login_observations_from_compatibility_reports() {
-        let directory = tempdir().unwrap();
-        fs::write(
-            directory.path().join("game-compatibility.json"),
-            json!({
-                "reports": [{
-                    "gameId": "builtin-flyff-universe",
-                    "observations": {
-                        "lastAuthFailureAt": "2026-07-15T00:00:00.000Z",
-                        "lastAuthSuccessAt": "2026-07-15T00:01:00.000Z",
-                        "lastEmbeddedLaunchAt": "2026-07-15T00:02:00.000Z"
-                    }
-                }]
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let snapshot = build_snapshot(directory.path()).unwrap();
-        let observations = &snapshot["compatibilityReports"][0]["observations"];
-        crate::v1_case!("browser-workspace-df5ebcde1ab5", {
-            assert_eq!(
-                observations["lastEmbeddedLaunchAt"],
-                "2026-07-15T00:02:00.000Z"
-            );
-            assert!(observations.get("lastAuthSuccessAt").is_none());
-            assert!(observations.get("lastAuthFailureAt").is_none());
         });
     }
 }

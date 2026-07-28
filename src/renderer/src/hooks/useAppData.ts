@@ -11,8 +11,6 @@ import {
 import type {
   EmbeddedRuntimeState,
   Game,
-  GameCompatibilityReport,
-  GameCompatibilityRunStatus,
   GameWindow,
   LaunchWorkspace,
   Macro,
@@ -56,8 +54,6 @@ function useVersionedState<T>(initialValue: T): VersionedState<T> {
 
 export function useAppData() {
   const gameState = useVersionedState<Game[]>([]);
-  const compatibilityReportState = useVersionedState<GameCompatibilityReport[]>([]);
-  const compatibilityStatusState = useVersionedState<GameCompatibilityRunStatus[]>([]);
   const roleState = useVersionedState<Role[]>([]);
   const embeddedRuntimeState = useVersionedState<EmbeddedRuntimeState>({ windows: [], tabs: [] });
   const workspaceState = useVersionedState<LaunchWorkspace[]>([]);
@@ -77,18 +73,6 @@ export function useAppData() {
     setValue: setGames,
     value: games
   } = gameState;
-  const {
-    beginRequest: beginCompatibilityReportsRequest,
-    commitRequest: commitCompatibilityReportsRequest,
-    setValue: setCompatibilityReports,
-    value: gameCompatibilityReports
-  } = compatibilityReportState;
-  const {
-    beginRequest: beginCompatibilityStatusesRequest,
-    commitRequest: commitCompatibilityStatusesRequest,
-    setValue: setCompatibilityStatuses,
-    value: gameCompatibilityStatuses
-  } = compatibilityStatusState;
   const {
     beginRequest: beginEmbeddedRuntimeRequest,
     commitRequest: commitEmbeddedRuntimeRequest,
@@ -178,8 +162,6 @@ export function useAppData() {
 
   const loadData = useCallback(async (options: { markInitialLoad?: boolean; resetError?: boolean } = {}) => {
     const gamesRequest = beginGamesRequest();
-    const compatibilityReportsRequest = beginCompatibilityReportsRequest();
-    const compatibilityStatusesRequest = beginCompatibilityStatusesRequest();
     const rolesRequest = beginRolesRequest();
     const embeddedRuntimeRequest = beginEmbeddedRuntimeRequest();
     const statusesRequest = beginStatusesRequest();
@@ -207,8 +189,6 @@ export function useAppData() {
       );
       commitEmbeddedRuntimeRequest(embeddedRuntimeRequest, snapshot.embeddedRuntimeState);
       commitGamesRequest(gamesRequest, snapshot.games);
-      commitCompatibilityReportsRequest(compatibilityReportsRequest, snapshot.gameCompatibilityReports);
-      commitCompatibilityStatusesRequest(compatibilityStatusesRequest, snapshot.gameCompatibilityStatuses);
       commitRolesRequest(rolesRequest, snapshot.roles);
       commitStatusesRequest(statusesRequest, snapshot.roleStatuses);
       commitWorkspacesRequest(workspacesRequest, snapshot.launchWorkspaces);
@@ -226,8 +206,6 @@ export function useAppData() {
       }
     }
   }, [
-    beginCompatibilityReportsRequest,
-    beginCompatibilityStatusesRequest,
     beginEmbeddedRuntimeRequest,
     beginGamesRequest,
     beginGameWindowsRequest,
@@ -239,8 +217,6 @@ export function useAppData() {
     beginDisplaysRequest,
     beginWorkspacesRequest,
     captureErrorReporter,
-    commitCompatibilityReportsRequest,
-    commitCompatibilityStatusesRequest,
     commitEmbeddedRuntimeRequest,
     commitGamesRequest,
     commitGameWindowsRequest,
@@ -317,17 +293,6 @@ export function useAppData() {
   }, [setGames]);
 
   useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onGameCompatibilityChanged((reports, statuses) => {
-      setCompatibilityReports(reports);
-      setCompatibilityStatuses(statuses);
-    });
-  }, [setCompatibilityReports, setCompatibilityStatuses]);
-
-  useEffect(() => {
     if (!window.rionStudio) return;
     return window.rionStudio.onShellError?.(setError);
   }, [setError]);
@@ -336,8 +301,6 @@ export function useAppData() {
     beginErrorOperation,
     embeddedRuntime,
     error,
-    gameCompatibilityReports,
-    gameCompatibilityStatuses,
     gameWindows,
     games,
     initialLoadState,
@@ -350,8 +313,6 @@ export function useAppData() {
     setError,
     setGames,
     setGameWindows,
-    setCompatibilityReports,
-    setCompatibilityStatuses,
     setMacros,
     setMacroStatuses,
     setRoles,

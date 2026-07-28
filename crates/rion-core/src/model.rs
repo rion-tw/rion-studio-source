@@ -45,7 +45,6 @@ pub enum EngineCapabilityStatus {
 pub enum SystemWebViewIssueReason {
     WebkitSpiUnavailable,
     MacroInputUnavailable,
-    CachedCompatibilityFailure,
     RuntimeCreationFailed,
     RuntimeCrashed,
 }
@@ -78,34 +77,6 @@ pub struct BrowserEngineResolutionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub issue_reason: Option<SystemWebViewIssueReason>,
-}
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct EngineCompatibilityCacheKeyRecord {
-    pub app_version: String,
-    pub adapter_version: String,
-    pub platform: String,
-    pub os_build: String,
-    pub webview_version: String,
-    pub engine: ResolvedBrowserEngine,
-    pub game_id: String,
-    pub game_updated_at: String,
-    pub settings_fingerprint: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct EngineCompatibilityCacheRecord {
-    pub key: EngineCompatibilityCacheKeyRecord,
-    pub compatible: bool,
-    pub capability_snapshot: EngineCapabilitySnapshotRecord,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub issue_reason: Option<SystemWebViewIssueReason>,
-    pub checked_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -461,56 +432,9 @@ pub enum CoreCommand {
         #[ts(rename = "roleId")]
         role_id: String,
     },
-    CompatibilityReportRecordObservation {
-        #[ts(rename = "gameId")]
-        game_id: String,
-        observation: StateCompatibilityObservationsRecord,
-    },
-    CompatibilityReportDelete {
-        #[ts(rename = "gameId")]
-        game_id: String,
-    },
-    CompatibilityStatuses,
-    CompatibilityPrepare {
-        #[ts(rename = "gameId")]
-        game_id: String,
-        versions: RuntimeVersionRecord,
-    },
-    CompatibilityTransition {
-        #[ts(rename = "gameId")]
-        game_id: String,
-        phase: CompatibilityRunPhase,
-    },
-    CompatibilityComplete {
-        #[ts(rename = "gameId")]
-        game_id: String,
-        outcome: CompatibilityCheckOutcome,
-    },
-    CompatibilityCancel {
-        #[ts(rename = "gameId")]
-        game_id: String,
-    },
-    CompatibilityReportsCurrent {
-        versions: RuntimeVersionRecord,
-    },
-    CompatibilityRun {
-        #[ts(rename = "gameId")]
-        game_id: String,
-        versions: RuntimeVersionRecord,
-    },
     GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
-    },
-    EngineCompatibilityCacheGet {
-        key: EngineCompatibilityCacheKeyRecord,
-    },
-    EngineCompatibilityCachePut {
-        record: EngineCompatibilityCacheRecord,
-    },
-    EngineCompatibilityCacheDeleteGame {
-        #[ts(rename = "gameId")]
-        game_id: String,
     },
     MacroSettingsGet,
     MacroSettingsReplace {
@@ -821,7 +745,6 @@ impl CoreCommand {
                 | Self::MacroUpdate { .. }
                 | Self::MacroDelete { .. }
                 | Self::MacrosDelete { .. }
-                | Self::CompatibilityRun { .. }
                 | Self::DiagnosticsExport { .. }
                 | Self::OverlayRequest { .. }
                 | Self::BrowserRoleLaunch { .. }
@@ -1621,7 +1544,6 @@ pub enum StateCollection {
     LaunchWorkspaces,
     GameWindows,
     Macros,
-    CompatibilityReports,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1873,49 +1795,6 @@ pub struct StateMacroRecord {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateCompatibilityReportRecord {
-    pub game_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub checked_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub configuration_fingerprint: Option<String>,
-    pub is_stale: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub load: Option<StateCompatibilityLoadRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub graphics: Option<StateWebGraphicsRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub recommendation: Option<StateCompatibilityRecommendationRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub runtime: Option<RuntimeVersionRecord>,
-    pub observations: StateCompatibilityObservationsRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateCompatibilityLoadRecord {
-    #[ts(type = "\"available\" | \"failed\" | \"cancelled\"")]
-    pub state: String,
-    #[ts(type = "number")]
-    pub duration_ms: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub final_origin: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub error_code: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWebGraphicsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1935,95 +1814,6 @@ pub struct StateWebGraphicsRecord {
     pub webgpu: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateCompatibilityRecommendationRecord {
-    #[ts(type = "\"system_webview_available\" | \"load_failed\" | \"graphics_unavailable\"")]
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateCompatibilityObservationsRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub last_embedded_success_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub last_launch_failure_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string")]
-    pub last_launch_failure_code: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum CompatibilityRunPhase {
-    Preparing,
-    Loading,
-    Probing,
-    CleaningUp,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct CompatibilityRunStatusRecord {
-    pub game_id: String,
-    pub phase: CompatibilityRunPhase,
-    pub started_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct RuntimeVersionRecord {
-    pub engine: ResolvedBrowserEngine,
-    pub engine_version: String,
-    pub shell: String,
-    pub shell_version: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct CompatibilityCheckPlanRecord {
-    pub game_id: String,
-    pub game_name: String,
-    pub launch_url: String,
-    pub started_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum CompatibilityCheckOutcome {
-    Loaded {
-        #[ts(type = "number")]
-        duration_ms: u64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        final_origin: Option<String>,
-        graphics: StateWebGraphicsRecord,
-    },
-    Failed {
-        #[ts(type = "number")]
-        duration_ms: u64,
-        error_code: String,
-    },
-    Cancelled {
-        #[ts(type = "number")]
-        duration_ms: u64,
-    },
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -2039,8 +1829,7 @@ pub struct CoreStateSnapshotRecord {
     #[serde(default)]
     pub macros: Vec<StateMacroRecord>,
     #[serde(default)]
-    pub compatibility_reports: Vec<StateCompatibilityReportRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub game_browser_settings: Option<GameBrowserSettingsRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2098,9 +1887,6 @@ pub enum CoreEvent {
     OverlayChanged {
         #[ts(rename = "roleIds")]
         role_ids: Vec<String>,
-    },
-    CompatibilityStatuses {
-        statuses: Vec<CompatibilityRunStatusRecord>,
     },
     ChromeProfileImportProgress {
         progress: ChromeProfileImportProgressRecord,
@@ -3163,23 +2949,6 @@ pub enum CoreEffectAction {
     },
     ChromeProfileImportCommit {
         transaction_id: String,
-    },
-    CompatibilityCreateWindow {
-        plan: CompatibilityCheckPlanRecord,
-    },
-    CompatibilityConfigureSession {
-        game_id: String,
-    },
-    CompatibilityLoadUrl {
-        game_id: String,
-        url: String,
-    },
-    CompatibilityProbeGraphics {
-        game_id: String,
-        source: String,
-    },
-    CompatibilityCleanupWindow {
-        game_id: String,
     },
     EmbeddedCreateTab {
         tab: Box<EmbeddedTabEffectRecord>,

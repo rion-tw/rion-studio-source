@@ -4,12 +4,11 @@ import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { GameFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Game, GameCompatibilityReport, Role } from "../../../shared/types";
+import type { Game, Role } from "../../../shared/types";
 
 interface UseGameWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   setGames: Dispatch<SetStateAction<Game[]>>;
-  setCompatibilityReports: Dispatch<SetStateAction<GameCompatibilityReport[]>>;
   roles: Role[];
   setNotice?: (message: string | null) => void;
   t: Translator;
@@ -18,7 +17,6 @@ interface UseGameWorkflowOptions {
 export function useGameWorkflow({
   beginErrorOperation,
   setGames,
-  setCompatibilityReports,
   roles,
   setNotice,
   t
@@ -119,12 +117,8 @@ export function useGameWorkflow({
     setNotice?.(null);
     try {
       const result = await window.rionStudio.deleteGames({ ids: games.map((game) => game.id) });
-      const [nextGames, nextReports] = await Promise.all([
-        window.rionStudio.listGames(),
-        window.rionStudio.listGameCompatibilityReports()
-      ]);
+      const nextGames = await window.rionStudio.listGames();
       setGames(nextGames);
-      setCompatibilityReports(nextReports);
       setNotice?.(formatBulkDeleteResult(result, t));
       return true;
     } catch (error) {
@@ -140,32 +134,12 @@ export function useGameWorkflow({
     return deleteGames([game]);
   }
 
-  async function runCompatibilityCheck(gameId: string): Promise<void> {
-    const reportError = beginErrorOperation();
-    try {
-      await window.rionStudio.runGameCompatibilityCheck(gameId);
-    } catch (error) {
-      reportError(error);
-    }
-  }
-
-  async function cancelCompatibilityCheck(gameId: string): Promise<void> {
-    const reportError = beginErrorOperation();
-    try {
-      await window.rionStudio.cancelGameCompatibilityCheck(gameId);
-    } catch (error) {
-      reportError(error);
-    }
-  }
-
   return {
-    cancelCompatibilityCheck,
     deleteGame,
     deleteGames,
     isDeletingGames,
     isSavingGame,
     resetBuiltinGame,
-    runCompatibilityCheck,
     saveGame
   };
 }

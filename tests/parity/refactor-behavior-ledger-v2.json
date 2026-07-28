@@ -170,15 +170,16 @@
     {
       "id": "behavior-204af43db77c",
       "deduplicationKey": "shell\u0000crates/rion-core/src/compatibility_runtime.rs\u0000owns_duplicate_prevention_transitions_and_completion_decisions",
-      "status": "preserved",
+      "status": "retired",
       "contract": "Compatibility decisions remain in Rust and resolve only to System WebViews.",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/compatibility_runtime.rs",
-          "test": "owns_duplicate_prevention_transitions_and_completion_decisions"
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
         }
       ],
+      "retirementClause": "Retired clause: manual compatibility decisions, duplicate-check state, and temporary probe sessions no longer exist because every role launches directly in a System WebView.",
       "runtimeCritical": true,
       "sourceCaseIds": [
         "legacy-375825dc04e7",
@@ -368,15 +369,16 @@
     {
       "id": "behavior-33d4bdc0c486",
       "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up",
-      "status": "preserved",
+      "status": "retired",
       "contract": "times out, prevents duplicate checks, and allows the user to cancel by closing the window",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/app.rs",
-          "test": "compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up"
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
         }
       ],
+      "retirementClause": "Retired clause: compatibility check timeouts, cancellation, and duplicate prevention were removed together with the manual check workflow.",
       "runtimeCritical": false,
       "sourceCaseIds": [
         "browser-workspace-4f62d15e31bf"
@@ -623,15 +625,16 @@
     {
       "id": "behavior-5acb6ed79d0c",
       "deduplicationKey": "test\u0000crates/rion-core/src/compatibility_runtime.rs\u0000owns_duplicate_prevention_transitions_and_completion_decisions",
-      "status": "preserved",
+      "status": "retired",
       "contract": "reports the Chrome blocker when embedded loading fails without Chrome",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/compatibility_runtime.rs",
-          "test": "owns_duplicate_prevention_transitions_and_completion_decisions"
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
         }
       ],
+      "retirementClause": "Retired clause: Chrome-blocker compatibility recommendations cannot occur because external browser fallback and compatibility decisions are removed.",
       "runtimeCritical": true,
       "sourceCaseIds": [
         "browser-workspace-63d8d3912912"
@@ -884,15 +887,16 @@
     {
       "id": "behavior-6ce7ce2bb264",
       "deduplicationKey": "test\u0000crates/rion-core/src/app.rs\u0000compatibility_run_owns_effect_order_report_outcome_and_cleanup",
-      "status": "preserved",
+      "status": "retired",
       "contract": "hides a %s host closed during launch and still performs auto compatibility fallback (darwin)",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/app.rs",
-          "test": "compatibility_run_owns_effect_order_report_outcome_and_cleanup"
+          "file": "tests/system-only-product-gate.test.ts",
+          "test": "is a required CI and signed-candidate check"
         }
       ],
+      "retirementClause": "Retired clause: automatic compatibility fallback, temporary host cleanup, and compatibility outcome persistence no longer exist in the direct System WebView launch model.",
       "runtimeCritical": false,
       "sourceCaseIds": [
         "browser-workspace-42a9d8ab83ad",
@@ -1368,15 +1372,16 @@
     {
       "id": "behavior-a08d045c53ed",
       "deduplicationKey": "test\u0000crates/rion-core/src/database/legacy.rs\u0000removes_legacy_login_observations_from_compatibility_reports",
-      "status": "preserved",
+      "status": "retired",
       "contract": "removes legacy login observations when compatibility data is read",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/database/legacy.rs",
-          "test": "removes_legacy_login_observations_from_compatibility_reports"
+          "file": "crates/rion-core/src/database/state.rs",
+          "test": "schema_sixteen_removes_retired_compatibility_storage"
         }
       ],
+      "retirementClause": "Retired clause: compatibility report import and normalization are removed; schema version 16 deletes the retired report storage.",
       "runtimeCritical": false,
       "sourceCaseIds": [
         "browser-workspace-df5ebcde1ab5"
@@ -2181,15 +2186,16 @@
     {
       "id": "behavior-f768949c59b9",
       "deduplicationKey": "test\u0000crates/rion-core/src/compatibility_runtime.rs\u0000stale_reports_are_resolved_from_current_rust_domain_state",
-      "status": "preserved",
+      "status": "retired",
       "contract": "marks the saved report stale when network or graphics conditions change",
       "evidence": [
         {
           "kind": "executable-test",
-          "file": "crates/rion-core/src/compatibility_runtime.rs",
-          "test": "stale_reports_are_resolved_from_current_rust_domain_state"
+          "file": "crates/rion-core/src/database/state.rs",
+          "test": "schema_sixteen_removes_retired_compatibility_storage"
         }
       ],
+      "retirementClause": "Retired clause: saved compatibility reports and stale-state resolution are removed; launch behavior now depends only on the live System WebView runtime.",
       "runtimeCritical": true,
       "sourceCaseIds": [
         "browser-workspace-f1d3460084ea"

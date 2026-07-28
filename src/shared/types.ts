@@ -7,8 +7,6 @@ import type {
   ChromeProfileImportProgressRecord,
   ChromeProfileImportResolutionRecord,
   ChromeProfileImportResultRecord,
-  CompatibilityRunPhase,
-  CompatibilityRunStatusRecord,
   DiagnosticExportResultRecord,
   DisplayFingerprintRecord,
   DisplayInfoRecord,
@@ -58,10 +56,6 @@ import type {
   PortableRoleRecord,
   StateGameRecord,
   StateGameWindowRecord,
-  StateCompatibilityLoadRecord,
-  StateCompatibilityObservationsRecord,
-  StateCompatibilityRecommendationRecord,
-  StateCompatibilityReportRecord,
   StateLaunchWorkspaceRecord,
   StateMacroRecord,
   StateNormalizedRectRecord,
@@ -317,8 +311,6 @@ export type DisplayInfo = DisplayInfoRecord;
 export interface AppSnapshot {
   embeddedRuntimeState: EmbeddedRuntimeState;
   games: Game[];
-  gameCompatibilityReports: GameCompatibilityReport[];
-  gameCompatibilityStatuses: GameCompatibilityRunStatus[];
   gameWindows: GameWindow[];
   roles: Role[];
   roleStatuses: RoleStatus[];
@@ -389,18 +381,6 @@ export type MacroBadgePositionSettings = MacroBadgePositionRecord;
 export type GameBrowserSettings = GameBrowserSettingsRecord;
 
 export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
-
-export type GameCompatibilityRunPhase = CompatibilityRunPhase;
-
-export type GameCompatibilityRunStatus = CompatibilityRunStatusRecord;
-
-export type GameCompatibilityLoadResult = StateCompatibilityLoadRecord;
-
-export type GameCompatibilityRecommendation = StateCompatibilityRecommendationRecord;
-
-export type GameCompatibilityObservations = StateCompatibilityObservationsRecord;
-
-export type GameCompatibilityReport = StateCompatibilityReportRecord;
 
 export type SystemFontFamily = SystemFontFamilyRecord;
 

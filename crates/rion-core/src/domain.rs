@@ -16,8 +16,8 @@ use crate::{
         MacroSettingsRecord, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
         MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
         RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord,
-        StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateGameRecord,
+        StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceSlotInputRecord,
         WorkspaceUpdateInputRecord,
@@ -2461,9 +2461,6 @@ pub fn validate_collection_record(collection: StateCollection, value: &Value) ->
             normalize_game_window(decode(value, "game window")?).map(|_| ())
         }
         StateCollection::Macros => validate_macro(decode(value, "macro")?),
-        StateCollection::CompatibilityReports => {
-            validate_compatibility_report(decode(value, "compatibility report")?)
-        }
     }
 }
 
@@ -2646,62 +2643,6 @@ fn validate_macro(macro_record: MacroRecord) -> CoreResult<()> {
     timestamps(&macro_record.created_at, &macro_record.updated_at, "macro")
 }
 
-fn validate_compatibility_report(report: StateCompatibilityReportRecord) -> CoreResult<()> {
-    non_empty(&report.game_id, "compatibility report gameId")?;
-    if let Some(checked_at) = report.checked_at {
-        timestamp(&checked_at, "compatibility report checkedAt")?;
-    }
-    if let Some(load) = report.load {
-        one_of(
-            &load.state,
-            &["available", "failed", "cancelled"],
-            "compatibility load state",
-        )?;
-        if let Some(origin) = load.final_origin {
-            http_url(&origin, "compatibility final origin")?;
-        }
-    }
-    if let Some(graphics) = report.graphics {
-        for (label, availability) in [
-            ("WebGL", graphics.webgl),
-            ("WebGL2", graphics.webgl2),
-            ("WebGPU", graphics.webgpu),
-        ] {
-            one_of(
-                &availability,
-                &["available", "unavailable", "unknown"],
-                label,
-            )?;
-        }
-    }
-    if let Some(recommendation) = report.recommendation {
-        one_of(
-            &recommendation.reason,
-            &[
-                "system_webview_available",
-                "load_failed",
-                "graphics_unavailable",
-            ],
-            "compatibility recommendation reason",
-        )?;
-    }
-    for (label, value) in [
-        (
-            "lastEmbeddedSuccessAt",
-            report.observations.last_embedded_success_at,
-        ),
-        (
-            "lastLaunchFailureAt",
-            report.observations.last_launch_failure_at,
-        ),
-    ] {
-        if let Some(value) = value {
-            timestamp(&value, label)?;
-        }
-    }
-    Ok(())
-}
-
 fn non_empty(value: &str, label: &str) -> CoreResult<()> {
     if value.trim().is_empty() {
         Err(CoreError::InvalidInput(format!("{label} is required")))
@@ -2737,12 +2678,6 @@ fn timestamps(created_at: &str, updated_at: &str, label: &str) -> CoreResult<()>
         )));
     }
     Ok(())
-}
-
-fn timestamp(value: &str, label: &str) -> CoreResult<()> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|_| ())
-        .map_err(|_| CoreError::InvalidInput(format!("{label} is invalid")))
 }
 
 #[cfg(test)]

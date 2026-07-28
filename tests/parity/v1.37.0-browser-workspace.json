@@ -2659,7 +2659,9 @@
         "file": "tests/browser-manager.test.ts",
         "test": "hides a %s host closed during launch and still performs auto compatibility fallback [darwin]"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: automatic compatibility fallback and its hidden temporary host are removed; roles launch directly in the System WebView.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -2669,8 +2671,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/app.rs",
-        "test": "compatibility_run_owns_effect_order_report_outcome_and_cleanup"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -2681,7 +2683,9 @@
         "file": "tests/browser-manager.test.ts",
         "test": "hides a %s host closed during launch and still performs auto compatibility fallback [win32]"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: automatic compatibility fallback and its hidden temporary host are removed; roles launch directly in the System WebView.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -2691,8 +2695,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/app.rs",
-        "test": "compatibility_run_owns_effect_order_report_outcome_and_cleanup"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -4359,7 +4363,9 @@
         "file": "tests/game-compatibility-manager.test.ts",
         "test": "uses a visible non-persistent sandbox window and cleans its session after a successful probe"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: the manual compatibility probe and its non-persistent sandbox window are removed from the product.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4369,8 +4375,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/app.rs",
-        "test": "compatibility_run_owns_effect_order_report_outcome_and_cleanup"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -4405,7 +4411,9 @@
         "file": "tests/game-compatibility-manager.test.ts",
         "test": "reports the Chrome blocker when embedded loading fails without Chrome"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: compatibility recommendations and Chrome blockers are removed with the external-browser fallback model.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -4415,8 +4423,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/compatibility_runtime.rs",
-        "test": "owns_duplicate_prevention_transitions_and_completion_decisions"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -4427,7 +4435,9 @@
         "file": "tests/game-compatibility-manager.test.ts",
         "test": "degrades safely when one cleanup operation fails"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: compatibility probe cleanup no longer runs because the temporary compatibility surface was removed.",
       "baselineEvidenceState": "stale",
       "current": [
         {
@@ -4437,8 +4447,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/app.rs",
-        "test": "compatibility_run_owns_effect_order_report_outcome_and_cleanup"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -4449,7 +4459,9 @@
         "file": "tests/game-compatibility-manager.test.ts",
         "test": "times out, prevents duplicate checks, and allows the user to cancel by closing the window"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: manual compatibility check timeout, cancellation, and duplicate prevention are removed with the workflow.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -4459,8 +4471,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/app.rs",
-        "test": "compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -4471,7 +4483,9 @@
         "file": "tests/game-compatibility-manager.test.ts",
         "test": "marks the saved report stale when network or graphics conditions change"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: saved compatibility reports and stale-result resolution are removed and no longer influence launch.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -4481,8 +4495,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/compatibility_runtime.rs",
-        "test": "stale_reports_are_resolved_from_current_rust_domain_state"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {
@@ -4493,7 +4507,9 @@
         "file": "tests/game-compatibility-manager.test.ts",
         "test": "removes legacy login observations when compatibility data is read"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/system-native-engine-tauri-plan.md",
+      "reason": "Retired clause: legacy compatibility report import and observation normalization are removed with report storage.",
       "baselineEvidenceState": "resolvable",
       "current": [
         {
@@ -4503,8 +4519,8 @@
         }
       ],
       "behaviorEvidence": {
-        "file": "crates/rion-core/src/database/legacy.rs",
-        "test": "removes_legacy_login_observations_from_compatibility_reports"
+        "file": "tests/system-only-product-gate.test.ts",
+        "test": "is a required CI and signed-candidate check"
       }
     },
     {

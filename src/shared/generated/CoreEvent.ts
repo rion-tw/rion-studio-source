@@ -2,11 +2,10 @@
 import type { BrowserActionRequest } from "./BrowserActionRequest";
 import type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 import type { ChromeProfileImportProgressRecord } from "./ChromeProfileImportProgressRecord";
-import type { CompatibilityRunStatusRecord } from "./CompatibilityRunStatusRecord";
 import type { CoreEffectRequest } from "./CoreEffectRequest";
 import type { LegacySessionRestoreRecord } from "./LegacySessionRestoreRecord";
 import type { LogEntry } from "./LogEntry";
 import type { MacroRunStatus } from "./MacroRunStatus";
 import type { StateCollection } from "./StateCollection";
 
-export type CoreEvent = { "type": "ready", schemaVersion: number, } | { "type": "stateChanged", revision: number, changedCollections: Array<StateCollection>, } | { "type": "logsChanged" } | { "type": "logEntriesCaptured", entries: Array<LogEntry>, } | { "type": "browserActions", actions: Array<BrowserActionRequest>, } | { "type": "coreEffects", effects: Array<CoreEffectRequest>, } | { "type": "browserStatuses", statuses: Array<BrowserRoleStatusRecord>, } | { "type": "macroStatuses", reliable: boolean, statuses: Array<MacroRunStatus>, } | { "type": "overlayChanged", roleIds: Array<string>, } | { "type": "compatibilityStatuses", statuses: Array<CompatibilityRunStatusRecord>, } | { "type": "chromeProfileImportProgress", progress: ChromeProfileImportProgressRecord, } | { "type": "legacySessionsRestored", records: Array<LegacySessionRestoreRecord>, } | { "type": "shutdown" };
+export type CoreEvent = { "type": "ready", schemaVersion: number, } | { "type": "stateChanged", revision: number, changedCollections: Array<StateCollection>, } | { "type": "logsChanged" } | { "type": "logEntriesCaptured", entries: Array<LogEntry>, } | { "type": "browserActions", actions: Array<BrowserActionRequest>, } | { "type": "coreEffects", effects: Array<CoreEffectRequest>, } | { "type": "browserStatuses", statuses: Array<BrowserRoleStatusRecord>, } | { "type": "macroStatuses", reliable: boolean, statuses: Array<MacroRunStatus>, } | { "type": "overlayChanged", roleIds: Array<string>, } | { "type": "chromeProfileImportProgress", progress: ChromeProfileImportProgressRecord, } | { "type": "legacySessionsRestored", records: Array<LegacySessionRestoreRecord>, } | { "type": "shutdown" };

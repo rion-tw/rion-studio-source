@@ -10,7 +10,6 @@ use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::{
     database::{
@@ -30,19 +29,18 @@ use crate::{
         BrowserOperationRequest, BrowserRuntimeCommand, ChromeProfileImportAuthStateRecord,
         ChromeProfileImportItemResultRecord, ChromeProfileImportProgressRecord,
         ChromeProfileImportResolutionRecord, ChromeProfileImportResultRecord,
-        ChromeProfileImportUnsupportedCountsRecord, CompatibilityCheckOutcome,
-        CompatibilityRunPhase, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
-        CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind, CoreEvent,
-        CoreStateSnapshotRecord, DiagnosticExportResultRecord, EmbeddedLaunchResultRecord,
-        EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
-        EmbeddedTabEffectRecord, GameBrowserSettingsRecord, GameWindowCreateInputRecord,
-        GameWindowTabRecord, LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord,
-        LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
-        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
-        MacroStartRequest, OperationCancelResultRecord, RolePathsRecord,
-        RuntimeRestoreSessionRecord, RuntimeVersionRecord, RuntimeWindowPreferencesRecord,
-        StateCollection, StateCompatibilityReportRecord, StateGameRecord, StateGameWindowRecord,
-        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        ChromeProfileImportUnsupportedCountsRecord, CoreCommand, CoreEffectAction,
+        CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind,
+        CoreEvent, CoreStateSnapshotRecord, DiagnosticExportResultRecord,
+        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
+        GameWindowCreateInputRecord, GameWindowTabRecord, LegacySessionRestoreRecord,
+        LegalAcceptanceRecord, LogCaptureRecord, LogLevel, MacroOverlayRequestRecord,
+        MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
+        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
+        RolePathsRecord, RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord,
+        StateCollection, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
+        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
@@ -99,14 +97,6 @@ fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
         }
     })?;
     Ok(file)
-}
-
-fn compatibility_load_timeout() -> Duration {
-    if cfg!(test) {
-        Duration::from_millis(100)
-    } else {
-        Duration::from_secs(20)
-    }
 }
 
 struct Runtime {
@@ -178,7 +168,6 @@ pub struct AppCore {
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
-    compatibility_runtime: Mutex<crate::compatibility_runtime::CompatibilityRuntime>,
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
     system_webview_issues:
@@ -299,9 +288,6 @@ impl AppCore {
             chrome_profile_import: Mutex::new(
                 crate::chrome_profile_import::ChromeProfileImportRuntime::default(),
             ),
-            compatibility_runtime: Mutex::new(
-                crate::compatibility_runtime::CompatibilityRuntime::default(),
-            ),
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             system_webview_issues: RwLock::new(std::collections::HashMap::new()),
@@ -398,8 +384,10 @@ impl AppCore {
             CoreCommand::GameResetBuiltin { id } => {
                 self.mutate_state(StateMutation::GameResetBuiltin { id })
             }
-            CoreCommand::GameDelete { id } => self.delete_game_compatibility_aware(id),
-            CoreCommand::GamesDelete { ids } => self.delete_games_compatibility_aware(ids),
+            CoreCommand::GameDelete { id } => self.mutate_state(StateMutation::GameDelete { id }),
+            CoreCommand::GamesDelete { ids } => {
+                self.mutate_state(StateMutation::GamesDelete { ids })
+            }
             CoreCommand::RolesList => self.read_state_collection("roles"),
             CoreCommand::RoleGet { id } => {
                 self.read_state_record("roles", "id", &id, "ROLE_NOT_FOUND", "Role not found.")
@@ -575,79 +563,6 @@ impl AppCore {
             CoreCommand::MacrosClearRole { role_id } => {
                 self.mutate_state(StateMutation::MacrosClearRole { role_id })
             }
-            CoreCommand::CompatibilityReportRecordObservation {
-                game_id,
-                observation,
-            } => self.mutate_state(StateMutation::CompatibilityReportRecordObservation {
-                game_id,
-                observation,
-            }),
-            CoreCommand::CompatibilityReportDelete { game_id } => {
-                self.mutate_state(StateMutation::CompatibilityReportDelete { game_id })
-            }
-            CoreCommand::CompatibilityStatuses => {
-                serde_json::to_value(self.compatibility_runtime()?.statuses())
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::CompatibilityPrepare { game_id, versions } => {
-                let _guard = self.state_mutation_guard()?;
-                let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-                let (plan, statuses) = {
-                    let mut runtime = self.compatibility_runtime()?;
-                    let plan = runtime.prepare(&games, &game_id, &versions)?;
-                    (plan, runtime.statuses())
-                };
-                self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-                serde_json::to_value(plan).map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::CompatibilityTransition { game_id, phase } => {
-                let statuses = {
-                    let mut runtime = self.compatibility_runtime()?;
-                    runtime.transition(&game_id, phase)?;
-                    runtime.statuses()
-                };
-                self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-                Ok(json!({ "updated": true }))
-            }
-            CoreCommand::CompatibilityComplete { game_id, outcome } => {
-                let _guard = self.state_mutation_guard()?;
-                let report = self
-                    .compatibility_runtime()?
-                    .build_report(&game_id, outcome);
-                let saved = report.and_then(|report| {
-                    self.mutate_state_under_guard(StateMutation::CompatibilityReportSave(Box::new(
-                        report,
-                    )))
-                });
-                let statuses = {
-                    let mut runtime = self.compatibility_runtime()?;
-                    runtime.finish(&game_id);
-                    runtime.statuses()
-                };
-                self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-                saved
-            }
-            CoreCommand::CompatibilityCancel { game_id } => {
-                let (requested, operation_id) =
-                    self.compatibility_runtime()?.request_cancel(&game_id);
-                if let Some(operation_id) = operation_id {
-                    let _ = self.operation_actor.cancel(&operation_id)?;
-                }
-                Ok(json!({ "requested": requested }))
-            }
-            CoreCommand::CompatibilityReportsCurrent { versions } => {
-                let _guard = self.state_mutation_guard()?;
-                let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-                let reports = self.read_typed_state_collection::<StateCompatibilityReportRecord>(
-                    "compatibilityReports",
-                )?;
-                serde_json::to_value(
-                    crate::compatibility_runtime::CompatibilityRuntime::current_reports(
-                        &games, &reports, &versions,
-                    )?,
-                )
-                .map_err(|error| CoreError::Internal(error.to_string()))
-            }
             CoreCommand::GameBrowserSettingsGet => {
                 serde_json::to_value(self.read_scalar_state::<GameBrowserSettingsRecord>(
                     "gameBrowserSettings",
@@ -661,22 +576,6 @@ impl AppCore {
                 self.replace_scalar_state("gameBrowserSettings", settings.clone())?;
                 serde_json::to_value(settings)
                     .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::EngineCompatibilityCacheGet { key } => serde_json::to_value(
-                self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_get(key))?,
-            )
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::EngineCompatibilityCachePut { record } => serde_json::to_value(
-                self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_put(record))?,
-            )
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::EngineCompatibilityCacheDeleteGame { game_id } => {
-                let deleted = self.with_runtime(|runtime| {
-                    runtime
-                        .state
-                        .engine_compatibility_cache_delete_game(game_id)
-                })?;
-                Ok(json!({ "deletedCount": deleted }))
             }
             CoreCommand::MacroSettingsGet => {
                 serde_json::to_value(self.read_scalar_state::<MacroSettingsRecord>(
@@ -915,7 +814,6 @@ impl AppCore {
                                 StateCollection::LaunchWorkspaces,
                                 StateCollection::GameWindows,
                                 StateCollection::Macros,
-                                StateCollection::CompatibilityReports,
                             ],
                         }]);
                     }
@@ -1339,7 +1237,6 @@ impl AppCore {
             CoreCommand::RoleBrowserDataClear { .. }
             | CoreCommand::ChromeProfileRequestQuit { .. }
             | CoreCommand::ChromeProfileApply { .. }
-            | CoreCommand::CompatibilityRun { .. }
             | CoreCommand::DiagnosticsExport { .. }
             | CoreCommand::OverlayRequest { .. }
             | CoreCommand::BrowserRoleLaunch { .. }
@@ -1496,9 +1393,6 @@ impl AppCore {
                 })
                 .await
                 .map_err(|error| CoreError::Internal(error.to_string()))?
-            }
-            CoreCommand::CompatibilityRun { game_id, versions } => {
-                self.run_compatibility_check(game_id, versions).await
             }
             CoreCommand::DiagnosticsExport { path, snapshot } => {
                 serde_json::to_value(self.export_diagnostics(path, snapshot).await?)
@@ -3248,182 +3142,6 @@ impl AppCore {
         }
     }
 
-    async fn run_compatibility_check(
-        self: &Arc<Self>,
-        game_id: String,
-        versions: RuntimeVersionRecord,
-    ) -> CoreResult<Value> {
-        let plan = {
-            let _guard = self.state_mutation_guard()?;
-            let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-            let (plan, statuses) = {
-                let mut runtime = self.compatibility_runtime()?;
-                let plan = runtime.prepare(&games, &game_id, &versions)?;
-                (plan, runtime.statuses())
-            };
-            self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-            plan
-        };
-        let started = std::time::Instant::now();
-        let mut window_created = false;
-        let operation = async {
-            self.request_compatibility_effect(
-                &game_id,
-                CoreEffectAction::CompatibilityCreateWindow { plan: plan.clone() },
-                Duration::from_secs(5),
-            )
-            .await?;
-            window_created = true;
-            self.request_compatibility_effect(
-                &game_id,
-                CoreEffectAction::CompatibilityConfigureSession {
-                    game_id: game_id.clone(),
-                },
-                Duration::from_secs(10),
-            )
-            .await?;
-            self.transition_compatibility(&game_id, CompatibilityRunPhase::Loading)?;
-            let loaded = self
-                .request_compatibility_effect(
-                    &game_id,
-                    CoreEffectAction::CompatibilityLoadUrl {
-                        game_id: game_id.clone(),
-                        url: plan.launch_url.clone(),
-                    },
-                    compatibility_load_timeout(),
-                )
-                .await
-                .map_err(compatibility_load_error)?;
-            let loaded: Value = effect_value(&loaded)?;
-            let final_origin = loaded
-                .get("finalUrl")
-                .and_then(Value::as_str)
-                .and_then(|value| url::Url::parse(value).ok())
-                .map(|url| url.origin().ascii_serialization());
-
-            self.transition_compatibility(&game_id, CompatibilityRunPhase::Probing)?;
-            let graphics = match self
-                .request_compatibility_effect(
-                    &game_id,
-                    CoreEffectAction::CompatibilityProbeGraphics {
-                        game_id: game_id.clone(),
-                        source: crate::web_graphics_probe::WEB_GRAPHICS_PROBE_SOURCE.to_owned(),
-                    },
-                    Duration::from_secs(2),
-                )
-                .await
-            {
-                Ok(result) => {
-                    crate::web_graphics_probe::normalize_web_graphics(effect_value(&result)?)
-                }
-                Err(error) => crate::web_graphics_probe::unavailable_probe(Some(error.to_string())),
-            };
-            Ok::<_, CoreError>((final_origin, graphics))
-        }
-        .await;
-
-        let cancelled = self.compatibility_runtime()?.is_cancel_requested(&game_id);
-        let duration_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
-        let outcome = if cancelled {
-            CompatibilityCheckOutcome::Cancelled { duration_ms }
-        } else {
-            match operation {
-                Ok((final_origin, graphics)) => CompatibilityCheckOutcome::Loaded {
-                    duration_ms,
-                    final_origin,
-                    graphics,
-                },
-                Err(error) => CompatibilityCheckOutcome::Failed {
-                    duration_ms,
-                    error_code: error.code().to_owned(),
-                },
-            }
-        };
-
-        let report = async {
-            self.transition_compatibility(&game_id, CompatibilityRunPhase::CleaningUp)?;
-            self.compatibility_runtime()?
-                .set_effect_operation(&game_id, None)?;
-            if window_created {
-                let _ = self
-                    .request_core_effect(
-                        &game_id,
-                        CoreEffectAction::CompatibilityCleanupWindow {
-                            game_id: game_id.clone(),
-                        },
-                        Duration::from_secs(10),
-                    )
-                    .await;
-            }
-            self.compatibility_runtime()?
-                .build_report(&game_id, outcome)
-        }
-        .await;
-        let _guard = self.state_mutation_guard()?;
-        let saved = report.and_then(|report| {
-            self.mutate_state_under_guard(StateMutation::CompatibilityReportSave(Box::new(report)))
-        });
-        let statuses = {
-            let mut runtime = self.compatibility_runtime()?;
-            runtime.finish(&game_id);
-            runtime.statuses()
-        };
-        self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-        saved
-    }
-
-    async fn request_compatibility_effect(
-        &self,
-        game_id: &str,
-        action: CoreEffectAction,
-        timeout: Duration,
-    ) -> CoreResult<CoreEffectResult> {
-        if self.compatibility_runtime()?.is_cancel_requested(game_id) {
-            return Err(CoreError::Effect {
-                code: "CORE_OPERATION_CANCELLED".to_owned(),
-                message: "The compatibility check was cancelled.".to_owned(),
-            });
-        }
-        let handle = self
-            .operation_actor
-            .start(crate::operation_actor::OperationPlan {
-                steps: vec![effect_step(game_id, action, timeout, None)],
-            })?;
-        self.compatibility_runtime()?
-            .set_effect_operation(game_id, Some(handle.operation_id.clone()))?;
-        if self.compatibility_runtime()?.is_cancel_requested(game_id) {
-            let _ = self.operation_actor.cancel(&handle.operation_id)?;
-        }
-        let outcome = handle.outcome.await.map_err(|_| {
-            CoreError::Internal("compatibility effect operation stopped".to_owned())
-        })?;
-        self.compatibility_runtime()?
-            .set_effect_operation(game_id, None)?;
-        if let Some(error) = outcome.error {
-            return Err(CoreError::Effect {
-                code: error.code,
-                message: error.message,
-            });
-        }
-        outcome.results.into_iter().next().ok_or_else(|| {
-            CoreError::Internal("compatibility effect returned no result".to_owned())
-        })
-    }
-
-    fn transition_compatibility(
-        &self,
-        game_id: &str,
-        phase: CompatibilityRunPhase,
-    ) -> CoreResult<()> {
-        let statuses = {
-            let mut runtime = self.compatibility_runtime()?;
-            runtime.transition(game_id, phase)?;
-            runtime.statuses()
-        };
-        self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
-        Ok(())
-    }
-
     fn state_game(&self, game_id: &str) -> CoreResult<StateGameRecord> {
         self.read_typed_state_collection::<StateGameRecord>("games")?
             .into_iter()
@@ -3432,69 +3150,6 @@ impl AppCore {
                 code: "GAME_NOT_FOUND",
                 message: "Game not found.".to_owned(),
             })
-    }
-
-    fn delete_game_compatibility_aware(&self, id: String) -> CoreResult<Value> {
-        let _guard = self.state_mutation_guard()?;
-        if self.compatibility_runtime()?.is_active(&id) {
-            let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-            let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
-            if games
-                .iter()
-                .find(|game| game.id == id)
-                .is_some_and(|game| game.source == "custom")
-                && !roles.iter().any(|role| role.game_id == id)
-            {
-                return Err(CoreError::Domain {
-                    code: "COMPATIBILITY_CHECK_ACTIVE",
-                    message: "The game cannot be deleted while its compatibility check is running."
-                        .to_owned(),
-                });
-            }
-        }
-        self.mutate_state_under_guard(StateMutation::GameDelete { id })
-    }
-
-    fn delete_games_compatibility_aware(&self, ids: Vec<String>) -> CoreResult<Value> {
-        let _guard = self.state_mutation_guard()?;
-        let active = self
-            .compatibility_runtime()?
-            .statuses()
-            .into_iter()
-            .map(|status| status.game_id)
-            .collect::<std::collections::HashSet<_>>();
-        let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-        let roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
-        let mut blocked = Vec::new();
-        let eligible = ids
-            .into_iter()
-            .filter(|id| {
-                let should_block = active.contains(id)
-                    && games
-                        .iter()
-                        .find(|game| &game.id == id)
-                        .is_some_and(|game| game.source == "custom")
-                    && !roles.iter().any(|role| &role.game_id == id);
-                if should_block {
-                    blocked.push(id.clone());
-                }
-                !should_block
-            })
-            .collect();
-        let mut result =
-            self.mutate_state_under_guard(StateMutation::GamesDelete { ids: eligible })?;
-        let skipped = result
-            .get_mut("skipped")
-            .and_then(Value::as_array_mut)
-            .ok_or_else(|| CoreError::Internal("bulk game delete result is invalid".to_owned()))?;
-        skipped.extend(blocked.into_iter().map(|id| {
-            json!({
-                "id": id,
-                "reason": "busy",
-                "relatedNames": []
-            })
-        }));
-        Ok(result)
     }
 
     fn state_workspace(&self, workspace_id: &str) -> CoreResult<StateLaunchWorkspaceRecord> {
@@ -3990,8 +3645,8 @@ impl AppCore {
     fn system_runtime_preflight(
         &self,
         role: &StateRoleRecord,
-        game: &StateGameRecord,
-        settings: &GameBrowserSettingsRecord,
+        _game: &StateGameRecord,
+        _settings: &GameBrowserSettingsRecord,
         runtime: &SystemWebViewRuntimeRegistrationRecord,
     ) -> CoreResult<(bool, Option<crate::model::SystemWebViewIssueReason>)> {
         if let Some(reason) = self
@@ -4022,106 +3677,21 @@ impl AppCore {
                 Some(crate::model::SystemWebViewIssueReason::MacroInputUnavailable),
             ));
         }
-        let cache_key = self.engine_compatibility_cache_key(game, settings, runtime)?;
-        if self
-            .with_runtime(|runtime| runtime.state.engine_compatibility_cache_get(cache_key))?
-            .is_some_and(|record| !record.compatible)
-        {
-            return Ok((
-                false,
-                Some(crate::model::SystemWebViewIssueReason::CachedCompatibilityFailure),
-            ));
-        }
         Ok((true, None))
     }
 
     fn reset_system_launch_retry_state(&self, roles: &[StateRoleRecord]) -> CoreResult<()> {
-        let game_ids = roles
-            .iter()
-            .map(|role| role.game_id.clone())
-            .collect::<std::collections::HashSet<_>>();
-        {
-            let mut issues = self.system_webview_issues.write().map_err(|_| {
-                CoreError::Internal("system WebView issue lock poisoned".to_owned())
-            })?;
-            for role in roles {
-                let retryable = matches!(
-                    issues.get(&role.id),
-                    Some(
-                        crate::model::SystemWebViewIssueReason::CachedCompatibilityFailure
-                            | crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
-                    )
-                );
-                if retryable {
-                    issues.remove(&role.id);
-                }
+        let mut issues = self
+            .system_webview_issues
+            .write()
+            .map_err(|_| CoreError::Internal("system WebView issue lock poisoned".to_owned()))?;
+        for role in roles {
+            if matches!(
+                issues.get(&role.id),
+                Some(crate::model::SystemWebViewIssueReason::RuntimeCreationFailed)
+            ) {
+                issues.remove(&role.id);
             }
-        }
-        for game_id in game_ids {
-            self.with_runtime(|runtime| {
-                runtime
-                    .state
-                    .engine_compatibility_cache_delete_game(game_id)
-            })?;
-        }
-        Ok(())
-    }
-
-    fn engine_compatibility_cache_key(
-        &self,
-        game: &StateGameRecord,
-        settings: &GameBrowserSettingsRecord,
-        runtime: &SystemWebViewRuntimeRegistrationRecord,
-    ) -> CoreResult<crate::model::EngineCompatibilityCacheKeyRecord> {
-        let settings_json = serde_json::to_vec(&json!({
-            "defaultLaunchUrl": &game.default_launch_url,
-            "fonts": &settings.fonts,
-            "workspace": &settings.workspace
-        }))
-        .map_err(|error| CoreError::Internal(error.to_string()))?;
-        let probe = rion_platform::probe_system_webview(self.platform);
-        Ok(crate::model::EngineCompatibilityCacheKeyRecord {
-            app_version: self.app_version.clone(),
-            adapter_version: runtime.adapter_version.clone(),
-            platform: runtime.platform.clone(),
-            os_build: sysinfo::System::kernel_version()
-                .or_else(sysinfo::System::os_version)
-                .unwrap_or_else(|| "unknown".to_owned()),
-            webview_version: probe
-                .runtime_version
-                .unwrap_or_else(|| "unknown".to_owned()),
-            engine: runtime.engine,
-            game_id: game.id.clone(),
-            game_updated_at: game.updated_at.clone(),
-            settings_fingerprint: format!("{:x}", Sha256::digest(settings_json)),
-        })
-    }
-
-    fn record_system_engine_compatibility(
-        &self,
-        roles: &[StateRoleRecord],
-        compatible: bool,
-        issue_reason: Option<crate::model::SystemWebViewIssueReason>,
-    ) -> CoreResult<()> {
-        let runtime = self.system_webview_runtime()?;
-        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-            "gameBrowserSettings",
-            "game browser settings are missing",
-        )?;
-        let games = self
-            .read_typed_state_collection::<StateGameRecord>("games")?
-            .into_iter()
-            .map(|game| (game.id.clone(), game))
-            .collect::<std::collections::HashMap<_, _>>();
-        for game in roles.iter().filter_map(|role| games.get(&role.game_id)) {
-            let record = crate::model::EngineCompatibilityCacheRecord {
-                key: self.engine_compatibility_cache_key(game, &settings, &runtime)?,
-                compatible,
-                capability_snapshot: runtime.capability_snapshot.clone(),
-                issue_reason,
-                checked_at: chrono::Utc::now().to_rfc3339(),
-            };
-            self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_put(record))?;
         }
         Ok(())
     }
@@ -4917,10 +4487,7 @@ impl AppCore {
             &role_ids,
         );
         let error = match launch {
-            Ok(outcome) => {
-                self.record_system_engine_compatibility(roles, true, None)?;
-                return Ok(outcome);
-            }
+            Ok(outcome) => return Ok(outcome),
             Err(error) => error,
         };
         if error.code() == "LAUNCH_CANCELLED" {
@@ -4928,7 +4495,6 @@ impl AppCore {
         }
         let failure_reason = crate::model::SystemWebViewIssueReason::RuntimeCreationFailed;
         self.record_system_webview_issue(&role_ids, failure_reason)?;
-        self.record_system_engine_compatibility(roles, false, Some(failure_reason))?;
         Err(error)
     }
 
@@ -4958,16 +4524,6 @@ impl AppCore {
                 message: "Runtime tab was not found.".to_owned(),
             })?;
         let _ = self.macro_runtime.stop_role(role_id);
-        let roles = self
-            .read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .filter(|role| role_ids.contains(&role.id))
-            .collect::<Vec<_>>();
-        let _ = self.record_system_engine_compatibility(
-            &roles,
-            false,
-            Some(crate::model::SystemWebViewIssueReason::RuntimeCrashed),
-        );
         let failure_reason = if reason == Some("popup-unsupported") {
             crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
         } else {
@@ -5016,11 +4572,6 @@ impl AppCore {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),
             })?;
-        let roles = self
-            .read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .filter(|role| role_ids.contains(&role.id))
-            .collect::<Vec<_>>();
         {
             let mut issues = self.system_webview_issues.write().map_err(|_| {
                 CoreError::Internal("system WebView issue lock poisoned".to_owned())
@@ -5029,7 +4580,6 @@ impl AppCore {
                 issues.remove(role_id);
             }
         }
-        self.record_system_engine_compatibility(&roles, true, None)?;
         let statuses = self
             .browser_statuses()?
             .into_iter()
@@ -5809,15 +5359,6 @@ impl AppCore {
             .map_err(|_| CoreError::Internal("portable runtime lock poisoned".to_owned()))
     }
 
-    fn compatibility_runtime(
-        &self,
-    ) -> CoreResult<std::sync::MutexGuard<'_, crate::compatibility_runtime::CompatibilityRuntime>>
-    {
-        self.compatibility_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("compatibility runtime lock poisoned".to_owned()))
-    }
-
     fn state_mutation_guard(&self) -> CoreResult<std::sync::MutexGuard<'_, ()>> {
         self.state_mutation_guard
             .lock()
@@ -5931,26 +5472,6 @@ impl AppCore {
         let browser_role_statuses = self.browser_statuses()?;
         let browser_workspace_statuses = self.browser_workspace_statuses()?;
         let system_webview_runtime = self.system_webview_runtime()?;
-        let browser_settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
-            "gameBrowserSettings",
-            "game browser settings are missing",
-        )?;
-        let engine_compatibility_cache = state
-            .games
-            .iter()
-            .filter_map(|game| {
-                let key = self
-                    .engine_compatibility_cache_key(
-                        game,
-                        &browser_settings,
-                        &system_webview_runtime,
-                    )
-                    .ok()?;
-                self.with_runtime(|runtime| runtime.state.engine_compatibility_cache_get(key))
-                    .ok()
-                    .flatten()
-            })
-            .collect::<Vec<_>>();
         let gpu_feature_status =
             serde_json::from_str::<Value>(&snapshot.gpu_feature_status_raw_json)
                 .unwrap_or(Value::Null);
@@ -5996,7 +5517,6 @@ impl AppCore {
                 "systemRuntime": system_webview_runtime,
                 "activeRoles": browser_role_statuses,
                 "activeWorkspaces": browser_workspace_statuses,
-                "compatibilityCache": engine_compatibility_cache,
                 "foregroundPerformance": snapshot.browser_performance,
             },
             "windowsGraphicsEvents": windows_graphics_events,
@@ -6385,17 +5905,6 @@ fn rollback_role_browser_data_clear(
     })
 }
 
-fn compatibility_load_error(error: CoreError) -> CoreError {
-    if error.code() == "CORE_EFFECT_TIMEOUT" {
-        CoreError::Effect {
-            code: "COMPATIBILITY_LOAD_TIMEOUT".to_owned(),
-            message: "The compatibility test page did not load before the deadline.".to_owned(),
-        }
-    } else {
-        error
-    }
-}
-
 fn chrome_import_cancelled() -> CoreError {
     CoreError::Domain {
         code: "IMPORT_CANCELLED",
@@ -6723,7 +6232,6 @@ fn broadcast_events(subscribers: &Mutex<Vec<Sender<Vec<CoreEvent>>>>, events: Ve
                 | CoreEvent::StateChanged { .. }
                 | CoreEvent::BrowserStatuses { .. }
                 | CoreEvent::MacroStatuses { reliable: true, .. }
-                | CoreEvent::CompatibilityStatuses { .. }
                 | CoreEvent::Shutdown
         )
     });
@@ -6875,30 +6383,6 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned()
-    }
-
-    fn create_custom_game(core: &AppCore, name: &str) -> String {
-        core.invoke(command(json!({
-            "type": "gameCreate",
-            "input": {
-                "name": name,
-                "defaultLaunchUrl": "https://example.com/play",
-                "localStorageSyncKeys": []
-            }
-        })))
-        .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned()
-    }
-
-    fn compatibility_versions() -> RuntimeVersionRecord {
-        RuntimeVersionRecord {
-            engine: crate::model::ResolvedBrowserEngine::Webview2,
-            engine_version: "140".to_owned(),
-            shell: "test".to_owned(),
-            shell_version: "1".to_owned(),
-        }
     }
 
     fn create_role(core: &AppCore, game_id: &str, index: usize) -> String {
@@ -7266,26 +6750,10 @@ mod tests {
             CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
             CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
             CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
-            CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
-            CoreEffectAction::CompatibilityProbeGraphics { .. } => "compatibilityProbeGraphics",
             _ => "other",
         };
         let failed = fail_action == Some(action_name);
-        let value_json = match &effect.action {
-            CoreEffectAction::CompatibilityLoadUrl { .. } => {
-                Some(json!({ "finalUrl": "https://example.com/play?session=private" }).to_string())
-            }
-            CoreEffectAction::CompatibilityProbeGraphics { .. } => Some(
-                json!({
-                    "webgl":"available",
-                    "webgl2":"available",
-                    "webgpu":"unavailable",
-                    "renderer":"Fixture GPU"
-                })
-                .to_string(),
-            ),
-            _ => None,
-        };
+        let value_json = None;
         CoreEffectResult {
             effect_id: effect.effect_id,
             operation_id: effect.operation_id,
@@ -8369,272 +7837,6 @@ mod tests {
     }
 
     #[test]
-    fn compatibility_run_owns_effect_order_report_outcome_and_cleanup() {
-        let (_directory, core) = core();
-        let game_id = first_game_id(&core);
-
-        let (result, actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::CompatibilityRun {
-                game_id: game_id.clone(),
-                versions: RuntimeVersionRecord {
-                    engine: crate::model::ResolvedBrowserEngine::Webview2,
-                    engine_version: "140".to_owned(),
-                    shell: "test".to_owned(),
-                    shell_version: "1".to_owned(),
-                },
-            },
-            None,
-        );
-
-        let report = result.unwrap();
-        assert_eq!(report["gameId"], game_id);
-        assert_eq!(report["load"]["state"], "available");
-        assert_eq!(report["load"]["finalOrigin"], "https://example.com");
-        assert_eq!(report["graphics"]["renderer"], "Fixture GPU");
-        assert!(matches!(
-            actions.as_slice(),
-            [
-                CoreEffectAction::CompatibilityCreateWindow { .. },
-                CoreEffectAction::CompatibilityConfigureSession { .. },
-                CoreEffectAction::CompatibilityLoadUrl { .. },
-                CoreEffectAction::CompatibilityProbeGraphics { .. },
-                CoreEffectAction::CompatibilityCleanupWindow { .. }
-            ]
-        ));
-        assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
-        core.shutdown();
-    }
-
-    #[test]
-    fn active_compatibility_checks_block_single_and_bulk_game_deletion() {
-        let (_directory, core) = core();
-        let game_id = create_custom_game(&core, "Busy game");
-        core.invoke(CoreCommand::CompatibilityPrepare {
-            game_id: game_id.clone(),
-            versions: compatibility_versions(),
-        })
-        .unwrap();
-
-        let single = core
-            .invoke(CoreCommand::GameDelete {
-                id: game_id.clone(),
-            })
-            .unwrap_err();
-        let bulk = core
-            .invoke(CoreCommand::GamesDelete {
-                ids: vec![game_id.clone()],
-            })
-            .unwrap();
-
-        assert_eq!(single.code(), "COMPATIBILITY_CHECK_ACTIVE");
-        assert!(bulk["deletedIds"].as_array().unwrap().is_empty());
-        assert_eq!(bulk["skipped"][0]["id"], game_id);
-        assert_eq!(bulk["skipped"][0]["reason"], "busy");
-        assert!(core.invoke(CoreCommand::GameGet { id: game_id }).is_ok());
-        core.shutdown();
-    }
-
-    #[test]
-    fn compatibility_run_finishes_when_the_report_cannot_be_persisted() {
-        let (_directory, core) = core();
-        let game_id = create_custom_game(&core, "Removed during cleanup");
-        let mutation_core = Arc::clone(&core);
-        let mutation_game_id = game_id.clone();
-        let mut removed = false;
-
-        let (result, actions, _) = drive_async_command_with(
-            Arc::clone(&core),
-            CoreCommand::CompatibilityRun {
-                game_id: game_id.clone(),
-                versions: compatibility_versions(),
-            },
-            move |effect| {
-                if !removed
-                    && matches!(
-                        &effect.action,
-                        CoreEffectAction::CompatibilityCleanupWindow { .. }
-                    )
-                {
-                    mutation_core
-                        .with_runtime(|runtime| {
-                            runtime.state.mutate(StateMutation::GameDelete {
-                                id: mutation_game_id.clone(),
-                            })
-                        })
-                        .unwrap();
-                    removed = true;
-                }
-                effect_result(effect, None)
-            },
-        );
-
-        assert_eq!(result.unwrap_err().code(), "GAME_NOT_FOUND");
-        assert!(matches!(
-            actions.last(),
-            Some(CoreEffectAction::CompatibilityCleanupWindow { .. })
-        ));
-        assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
-        core.shutdown();
-    }
-
-    #[test]
-    fn compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up() {
-        let (_directory, core) = core();
-        let game_id = first_game_id(&core);
-        let receiver = core.subscribe().unwrap();
-        let invocation_core = Arc::clone(&core);
-        let invocation_game_id = game_id.clone();
-        let invocation = thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(invocation_core.invoke_async(CoreCommand::CompatibilityRun {
-                    game_id: invocation_game_id,
-                    versions: RuntimeVersionRecord {
-                        engine: crate::model::ResolvedBrowserEngine::Webview2,
-                        engine_version: "140".to_owned(),
-                        shell: "test".to_owned(),
-                        shell_version: "1".to_owned(),
-                    },
-                }))
-        });
-        let mut saw_cleanup = false;
-        let mut duplicate_error_code = None;
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while !invocation.is_finished() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "compatibility timeout fixture did not complete"
-            );
-            let Ok(events) = receiver.recv_timeout(Duration::from_millis(50)) else {
-                continue;
-            };
-            for event in events {
-                let CoreEvent::CoreEffects { effects } = event else {
-                    continue;
-                };
-                let results = effects
-                    .into_iter()
-                    .filter_map(|effect| {
-                        if matches!(
-                            effect.action,
-                            CoreEffectAction::CompatibilityCreateWindow { .. }
-                        ) && duplicate_error_code.is_none()
-                        {
-                            let duplicate = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .unwrap()
-                                .block_on(core.invoke_async(CoreCommand::CompatibilityRun {
-                                    game_id: game_id.clone(),
-                                    versions: RuntimeVersionRecord {
-                                        engine: crate::model::ResolvedBrowserEngine::Webview2,
-                                        engine_version: "140".to_owned(),
-                                        shell: "test".to_owned(),
-                                        shell_version: "1".to_owned(),
-                                    },
-                                }))
-                                .unwrap_err();
-                            duplicate_error_code = Some(duplicate.code().to_owned());
-                        }
-                        if matches!(effect.action, CoreEffectAction::CompatibilityLoadUrl { .. }) {
-                            return None;
-                        }
-                        if matches!(
-                            effect.action,
-                            CoreEffectAction::CompatibilityCleanupWindow { .. }
-                        ) {
-                            saw_cleanup = true;
-                        }
-                        Some(effect_result(effect, None))
-                    })
-                    .collect::<Vec<_>>();
-                if !results.is_empty() {
-                    core.dispatch_core_effect_results(results).unwrap();
-                }
-            }
-        }
-        let report = invocation.join().unwrap().unwrap();
-        assert_eq!(report["load"]["state"], "failed");
-        assert_eq!(report["load"]["errorCode"], "COMPATIBILITY_LOAD_TIMEOUT");
-        assert!(saw_cleanup);
-
-        let cancel_core = Arc::clone(&core);
-        let cancel_game_id = game_id.clone();
-        let cancelled_invocation = thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(cancel_core.invoke_async(CoreCommand::CompatibilityRun {
-                    game_id: cancel_game_id,
-                    versions: RuntimeVersionRecord {
-                        engine: crate::model::ResolvedBrowserEngine::Webview2,
-                        engine_version: "140".to_owned(),
-                        shell: "test".to_owned(),
-                        shell_version: "1".to_owned(),
-                    },
-                }))
-        });
-        let mut cancel_requested = false;
-        let mut saw_cancel_cleanup = false;
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while !cancelled_invocation.is_finished() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "compatibility cancellation fixture did not complete"
-            );
-            let Ok(events) = receiver.recv_timeout(Duration::from_millis(50)) else {
-                continue;
-            };
-            for event in events {
-                let CoreEvent::CoreEffects { effects } = event else {
-                    continue;
-                };
-                let mut results = Vec::new();
-                for effect in effects {
-                    if matches!(effect.action, CoreEffectAction::CompatibilityLoadUrl { .. }) {
-                        let requested = core
-                            .invoke(CoreCommand::CompatibilityCancel {
-                                game_id: game_id.clone(),
-                            })
-                            .unwrap();
-                        cancel_requested = requested["requested"] == true;
-                        continue;
-                    }
-                    if matches!(
-                        effect.action,
-                        CoreEffectAction::CompatibilityCleanupWindow { .. }
-                    ) {
-                        saw_cancel_cleanup = true;
-                    }
-                    results.push(effect_result(effect, None));
-                }
-                if !results.is_empty() {
-                    core.dispatch_core_effect_results(results).unwrap();
-                }
-            }
-        }
-        let cancelled_report = cancelled_invocation.join().unwrap().unwrap();
-        crate::v1_case!("browser-workspace-4f62d15e31bf", {
-            assert_eq!(
-                duplicate_error_code.as_deref(),
-                Some("COMPATIBILITY_CHECK_ACTIVE")
-            );
-            assert_eq!(report["load"]["state"], "failed");
-            assert_eq!(report["load"]["errorCode"], "COMPATIBILITY_LOAD_TIMEOUT");
-            assert!(saw_cleanup);
-            assert!(cancel_requested);
-            assert_eq!(cancelled_report["load"]["state"], "cancelled");
-            assert!(saw_cancel_cleanup);
-            assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
-        });
-        core.shutdown();
-    }
-
-    #[test]
     fn launches_and_stops_an_embedded_role_through_typed_effects() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
@@ -9521,9 +8723,6 @@ mod tests {
             },
             CoreEvent::MacroStatuses {
                 reliable: true,
-                statuses: Vec::new(),
-            },
-            CoreEvent::CompatibilityStatuses {
                 statuses: Vec::new(),
             },
         ];

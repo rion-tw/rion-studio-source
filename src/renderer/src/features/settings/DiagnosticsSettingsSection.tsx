@@ -241,8 +241,8 @@ function PerformanceDiagnosticsResult({
               <DiagnosticValue label={t("settings.performanceDiagnosticsPageFocus")} value={t(surface.documentHasFocus ? "settings.performanceDiagnosticsFocused" : "settings.performanceDiagnosticsUnfocused")} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsP95")} value={formatMilliseconds(surface.p95FrameIntervalMs, t)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsViewport")} value={`${Math.round(surface.viewportWidth)} × ${Math.round(surface.viewportHeight)} @ ${surface.devicePixelRatio.toFixed(2)}×`} />
-              <DiagnosticValue label="WebGL 2" value={t(`games.compatibility.capability.${surface.graphics.webgl2}`)} />
-              <DiagnosticValue label="WebGPU" value={t(`games.compatibility.capability.${surface.graphics.webgpu}`)} />
+              <DiagnosticValue label="WebGL 2" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgl2}`)} />
+              <DiagnosticValue label="WebGPU" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgpu}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsFrames")} value={String(surface.frameCount)} />
             </div>

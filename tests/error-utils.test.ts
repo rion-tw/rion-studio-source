@@ -58,9 +58,6 @@ describe("renderer error localization", () => {
     expect(localizeErrorMessage("Move or delete assigned roles before deleting this game.", "zh-TW")).toBe(
       "請先改派或刪除關聯角色，再刪除此遊戲。"
     );
-    expect(localizeErrorMessage("A compatibility check is already running for this game.", "zh-TW")).toBe(
-      "此遊戲已有相容性檢查正在執行。"
-    );
   });
 
   it("localizes game cover validation and processing errors", async () => {

@@ -3665,4 +3665,28 @@ mod command_tests {
             json!(["roles", "launchWorkspaces"])
         );
     }
+
+    #[test]
+    fn diagnostics_export_requires_async_dispatch() {
+        let command = serde_json::from_value::<CoreCommand>(json!({
+            "type": "diagnosticsExport",
+            "path": "diagnostics.zip",
+            "snapshot": {
+                "applicationName": "Rion Studio",
+                "applicationVersion": "test",
+                "packaged": true,
+                "engine": "wkwebview",
+                "engineVersion": "test",
+                "shell": "tauri",
+                "shellVersion": "test",
+                "locale": "en",
+                "systemVersion": "macos",
+                "displays": [],
+                "gpuFeatureStatusRawJson": "{}"
+            }
+        }))
+        .unwrap();
+
+        assert!(command.requires_async_dispatch());
+    }
 }

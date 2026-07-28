@@ -1190,7 +1190,7 @@ async fn export_diagnostics(
         })
         .collect::<Vec<_>>();
     let versions = runtime_versions(app, state)?;
-    invoke_core_sync(
+    invoke_core_async(
         state,
         json!({
             "type": "diagnosticsExport",
@@ -1210,6 +1210,7 @@ async fn export_diagnostics(
             }
         }),
     )
+    .await
 }
 
 fn runtime_versions(_app: &tauri::AppHandle, state: &CoreState) -> Result<Value, CoreErrorPayload> {

@@ -445,6 +445,7 @@
   "settings.macroSave": "保存",
   "settings.macroSettingsSaved": "已保存，新启动的宏会使用这组时序。",
   "settings.workspace": "工作区",
+  "settings.game": "游戏",
   "settings.gameWindows": "游戏窗口",
   "settings.alwaysHideTabCloseButton": "始终隐藏标签页关闭按钮",
   "settings.alwaysHideTabCloseButtonDescription": "隐藏所有游戏窗口标签栏上的关闭按钮；仍可从标签页右键菜单或游戏窗口管理页停止标签页。",

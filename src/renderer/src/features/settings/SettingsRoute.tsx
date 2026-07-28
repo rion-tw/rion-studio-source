@@ -452,6 +452,9 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.game")}>
               <SettingsRow
                 title={t("settings.browserFontSmoothing")}
                 description={t("settings.browserFontSmoothingDescription")}

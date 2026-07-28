@@ -475,6 +475,7 @@
   "settings.macroSave": "Save",
   "settings.macroSettingsSaved": "Saved. New macro runs will use these timings.",
   "settings.workspace": "Workspace",
+  "settings.game": "Game",
   "settings.gameWindows": "Game windows",
   "settings.alwaysHideTabCloseButton": "Always hide tab close buttons",
   "settings.alwaysHideTabCloseButtonDescription": "Hide close buttons in every Game Window tab strip. You can still stop tabs from their context menu or the Game Windows page.",

@@ -445,6 +445,7 @@
   "settings.macroSave": "保存",
   "settings.macroSettingsSaved": "保存しました。新しく開始するマクロに適用されます。",
   "settings.workspace": "ワークスペース",
+  "settings.game": "ゲーム",
   "settings.gameWindows": "ゲームウィンドウ",
   "settings.alwaysHideTabCloseButton": "タブの閉じるボタンを常に非表示",
   "settings.alwaysHideTabCloseButtonDescription": "すべてのゲームウィンドウのタブバーで閉じるボタンを非表示にします。タブのコンテキストメニューまたはゲームウィンドウ画面から停止できます。",

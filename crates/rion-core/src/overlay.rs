@@ -104,7 +104,8 @@ fn validate_request(request: &MacroOverlayRequestRecord) -> CoreResult<()> {
             }
             Ok(())
         }
-        MacroOverlayRequestRecord::GameInputContext { .. }
+        MacroOverlayRequestRecord::Activate
+        | MacroOverlayRequestRecord::GameInputContext { .. }
         | MacroOverlayRequestRecord::List
         | MacroOverlayRequestRecord::Open => Ok(()),
     }
@@ -417,6 +418,7 @@ mod tests {
 
     #[test]
     fn validates_requests_and_filters_unassigned_dependency_graphs() {
+        assert!(parse_request(r#"{"type":"activate"}"#).is_ok());
         assert!(parse_request(r#"{"type":"list"}"#).is_ok());
         assert!(
             parse_request(

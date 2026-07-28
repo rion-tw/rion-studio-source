@@ -5,7 +5,7 @@
     ...Array.from({ length: 54 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-26.1";
+  const scriptVersion = "2026-07-29.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -248,6 +248,7 @@
   }
 
   function handleGameSurfacePointerDown(event) {
+    void Promise.resolve(binding({ type: "activate" })).catch(() => undefined);
     if (eventPathIncludesCanvas(event)) {
       reportGameInputContext(true);
       return;

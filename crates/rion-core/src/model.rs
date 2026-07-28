@@ -3554,6 +3554,7 @@ pub struct MacroLastClick {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum MacroOverlayRequestRecord {
+    Activate,
     GameInputContext {
         active: bool,
     },

@@ -69,7 +69,7 @@ describe("macro overlay interactions", () => {
 
   it("leaves game pointer events and focus untouched", () => {
     const { button, canvas } = createGameSurface(document);
-    const binding = vi.fn(async () => ({ macros: [], statuses: [] }));
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [], statuses: [] }));
     installOverlay(window, binding);
     const pagePointerDown = vi.fn();
     document.addEventListener("pointerdown", pagePointerDown);
@@ -83,11 +83,24 @@ describe("macro overlay interactions", () => {
     expect(pagePointerDown).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(button);
     expect(document.activeElement).not.toBe(canvas);
+    expect(binding).toHaveBeenCalledWith({ type: "activate" });
 
     const canvasPointerDown = createMouseEvent(window, "pointerdown");
     expect(canvas.dispatchEvent(canvasPointerDown)).toBe(true);
     expect(canvasPointerDown.defaultPrevented).toBe(false);
     expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "activate"
+    )).toHaveLength(2);
+
+    expect(canvas.dispatchEvent(createMouseEvent(window, "pointerdown"))).toBe(true);
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "activate"
+    )).toHaveLength(3);
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "game-input-context" && request.active === true
+    )).toHaveLength(1);
+    expect(document.activeElement).toBe(button);
   });
 
   it("opens the app once from a physical trigger click while keeping the action menu hidden", async () => {

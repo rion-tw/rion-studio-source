@@ -3246,7 +3246,8 @@ impl AppCore {
         let request = crate::overlay::parse_request(request_json)?;
         let mut start_summary = None;
         match request {
-            MacroOverlayRequestRecord::GameInputContext { .. }
+            MacroOverlayRequestRecord::Activate
+            | MacroOverlayRequestRecord::GameInputContext { .. }
             | MacroOverlayRequestRecord::List => {}
             MacroOverlayRequestRecord::Open => {
                 self.request_core_effect(

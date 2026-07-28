@@ -155,6 +155,16 @@ describe("Tauri System WebView runtime source", () => {
     expect(shell).toContain("effect_runtime.refresh_macro_overlays(&role_ids);");
     expect(shell).toContain("renderer_events.push(CoreEvent::OverlayChanged { role_ids });");
 
+    const overlayRequest = shell.slice(
+      shell.indexOf("async fn rion_overlay_request("),
+      shell.indexOf("async fn rion_runtime_audio_state(")
+    );
+    expect(overlayRequest).toContain("overlay_request_activates_webview(&payload)");
+    expect(overlayRequest).toContain("webview.set_focus()");
+    expect(overlayRequest).toContain('"OVERLAY_WEBVIEW_FOCUS_FAILED"');
+    expect(overlayRequest.indexOf("role_id_for_webview(webview.label())"))
+      .toBeLessThan(overlayRequest.indexOf("webview.set_focus()"));
+
     const openMacroPage = runtime.slice(
       runtime.indexOf("CoreEffectAction::OverlayOpenMacroPage { role_id } => {"),
       runtime.indexOf("CoreEffectAction::OverlayCopyCoordinate")

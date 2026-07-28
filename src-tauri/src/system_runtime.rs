@@ -5164,15 +5164,28 @@ impl SystemRuntimeExecutor {
             webview
                 .eval(&self.configuration.overlay_document_start_script)
                 .map_err(RuntimeError::tauri)?;
-            let ready = self.evaluate_webview(
-                &webview,
-                "typeof globalThis.rionStudioMacroOverlay === 'function' && typeof globalThis.__rionStudioMacroOverlay === 'object'",
-            )?;
-            if !matches!(serde_json::from_str::<bool>(&ready), Ok(true)) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_OVERLAY_BRIDGE_UNAVAILABLE",
-                    "The System WebView overlay bridge is unavailable.",
-                ));
+            let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+            let mut last_error = None;
+            loop {
+                match self.evaluate_webview(
+                    &webview,
+                    "typeof globalThis.rionStudioMacroOverlay === 'function' && typeof globalThis.__rionStudioMacroOverlay === 'object'",
+                ) {
+                    Ok(ready) if matches!(serde_json::from_str::<bool>(&ready), Ok(true)) => {
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(error) => last_error = Some(error),
+                }
+                if Instant::now() >= deadline {
+                    return Err(last_error.unwrap_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_OVERLAY_BRIDGE_UNAVAILABLE",
+                            "The System WebView overlay bridge did not become ready.",
+                        )
+                    }));
+                }
+                std::thread::sleep(TRUSTED_INPUT_EVENT_INTERVAL);
             }
         }
         Ok(())

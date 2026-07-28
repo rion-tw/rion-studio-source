@@ -4,7 +4,11 @@
   const RUNTIME_KEY = "__rionStudioBrowserFonts";
   const STYLE_ID = "rion-studio-browser-fonts";
   const CANVAS_HOOK_KEY = "__rionStudioBrowserFontsCanvasHook";
-  const VERSION = 3;
+  const VERSION = 4;
+  const CANVAS_TEXT_QUALITY = Object.freeze([
+    ["textRendering", "optimizeLegibility"],
+    ["fontKerning", "normal"]
+  ]);
   const SLOT_RANGES = Object.freeze({
     cjk: [
       [0x2e80, 0x2fff],
@@ -205,6 +209,41 @@
     }
   }
 
+  function applyCanvasTextQuality(context) {
+    const previous = [];
+    if (!state.canvasActive) return previous;
+    for (const [property, desired] of CANVAS_TEXT_QUALITY) {
+      let captured = false;
+      let original;
+      try {
+        if (!(property in context)) continue;
+        original = context[property];
+        captured = true;
+        if (original === desired) continue;
+        context[property] = desired;
+        previous.push([property, original]);
+      } catch {
+        if (!captured) continue;
+        try {
+          context[property] = original;
+        } catch {
+          // An optional typography property must never block the native text operation.
+        }
+      }
+    }
+    return previous;
+  }
+
+  function restoreCanvasTextQuality(context, previous) {
+    for (const [property, value] of previous.reverse()) {
+      try {
+        context[property] = value;
+      } catch {
+        // Preserve the native result even if an engine refuses to restore an optional property.
+      }
+    }
+  }
+
   function installCanvasContextHook(Context) {
     const prototype = Context?.prototype;
     if (!prototype || Object.prototype.hasOwnProperty.call(prototype, CANVAS_HOOK_KEY)) return;
@@ -265,7 +304,12 @@
           ...descriptor,
           value(...args) {
             prepareCanvasContext(this, fontDescriptor);
-            return nativeMethod.apply(this, args);
+            const previousQuality = applyCanvasTextQuality(this);
+            try {
+              return nativeMethod.apply(this, args);
+            } finally {
+              restoreCanvasTextQuality(this, previousQuality);
+            }
           }
         });
         applied.push(name);
@@ -484,7 +528,7 @@
       ":where(body *):not(svg):not(svg *):not([class*='icon' i]):not([class^='fa-' i]):not(.fa):not(.fas):not(.far):not(.fab)"
     ].join(",");
     const css = [
-      `${generalSelector}{font-family:${bodyStack}!important;}`,
+      `${generalSelector}{font-family:${bodyStack}!important;-webkit-font-smoothing:antialiased!important;text-rendering:optimizeLegibility!important;font-kerning:normal!important;font-optical-sizing:auto!important;}`,
       `:where(code,kbd,pre,samp){font-family:${monospaceStack}!important;}`,
       `:where(math,math *){font-family:${mathStack}!important;}`
     ].join("\n");

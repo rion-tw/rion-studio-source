@@ -569,8 +569,11 @@ impl BrowserRuntime {
         windows.sort_by(|left, right| left.window_id.cmp(&right.window_id));
         let mut roles = self.roles.values().cloned().collect::<Vec<_>>();
         roles.sort_by(|left, right| left.role_id.cmp(&right.role_id));
-        let mut tabs = self.tabs.values().cloned().collect::<Vec<_>>();
-        tabs.sort_by(|left, right| left.id.cmp(&right.id));
+        let tabs = windows
+            .iter()
+            .flat_map(|window| &window.tab_ids)
+            .filter_map(|tab_id| self.tabs.get(tab_id).cloned())
+            .collect::<Vec<_>>();
         let mut workspaces = self.workspaces.values().cloned().collect::<Vec<_>>();
         workspaces.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));
         BrowserRuntimeSnapshot {
@@ -709,5 +712,55 @@ mod tests {
             })))
             .unwrap();
         assert_eq!(adjacent.snapshot.windows[0].active_tab_id, Some(first));
+    }
+
+    #[test]
+    fn snapshots_tabs_in_window_order_and_appends_new_tabs_last() {
+        let mut runtime = BrowserRuntime::default();
+        let first = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        let second = "00000000-0000-4000-8000-000000000000";
+        let third = "88888888-8888-4888-8888-888888888888";
+
+        for (tab_id, role_id, name) in [(first, "r1", "First"), (second, "r2", "Second")] {
+            runtime
+                .invoke(command(json!({
+                    "type":"createTab","tabId":tab_id,"sourceId":role_id,"name":name,
+                    "windowId":"window-1","tabType":"role","roleIds":[role_id]
+                })))
+                .unwrap();
+        }
+
+        assert_eq!(
+            runtime
+                .snapshot()
+                .tabs
+                .iter()
+                .map(|tab| tab.id.as_str())
+                .collect::<Vec<_>>(),
+            [first, second]
+        );
+
+        runtime
+            .invoke(command(json!({
+                "type":"reorderTab","tabId":second,"beforeTabId":first
+            })))
+            .unwrap();
+        let created = runtime
+            .invoke(command(json!({
+                "type":"createTab","tabId":third,"sourceId":"r3","name":"Third",
+                "windowId":"window-1","tabType":"role","roleIds":["r3"]
+            })))
+            .unwrap();
+
+        assert_eq!(created.snapshot.windows[0].tab_ids, [second, first, third]);
+        assert_eq!(
+            created
+                .snapshot
+                .tabs
+                .iter()
+                .map(|tab| tab.id.as_str())
+                .collect::<Vec<_>>(),
+            [second, first, third]
+        );
     }
 }

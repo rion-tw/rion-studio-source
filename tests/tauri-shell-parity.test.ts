@@ -57,9 +57,10 @@ describe("Tauri shell parity guard", () => {
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {
-    const [menu, quickMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, roleCapability] = await Promise.all([
+    const [menu, quickMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, roleCapability] = await Promise.all([
       readFile("src-tauri/src/application_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu.rs", "utf8"),
+      readFile("src-tauri/src/runtime_tab_menu.rs", "utf8"),
       readFile("src-tauri/src/system_runtime.rs", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.mm", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
@@ -80,6 +81,8 @@ describe("Tauri shell parity guard", () => {
     expect(tabs).toContain('unwrap_or(RION_STUDIO_APP_NAME)');
     expect(tabs).toContain("LayoutResizeDivider");
     expect(tabs).toContain("tab_strip_window_for_webview");
+    expect(tabMenu).toContain('format!("{RELOAD_PREFIX}{tab_id}")');
+    expect(tabMenu).toContain("state.runtime.reload_tab(tab_id)");
     expect(shell).toContain("rion_runtime_tab_action");
     expect(tabs).toContain("runtime-divider.html");
     expect(nativeTabs).toContain("contentLayoutRect");

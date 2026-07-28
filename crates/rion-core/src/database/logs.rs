@@ -15,7 +15,10 @@ use serde_json::Value;
 
 use crate::{
     error::{CoreError, CoreResult},
-    model::{LogEntry, LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogStorageStatusRecord},
+    model::{
+        LogEntry, LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogSource,
+        LogStorageStatusRecord,
+    },
 };
 
 const RETENTION_DAYS: i64 = 14;
@@ -24,6 +27,7 @@ const RETENTION_TARGET_BYTES: i64 = 90 * 1024 * 1024;
 const RETENTION_DELETE_BATCH_SIZE: usize = 1_000;
 const BATCH_INTERVAL: Duration = Duration::from_millis(250);
 const BATCH_MAX_ENTRIES: usize = 50;
+const LEGACY_AUTH_LOG_SOURCE: &str = "auth";
 
 #[derive(Debug, Clone, Copy)]
 struct RetentionPolicy {
@@ -440,14 +444,18 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
     }
     let sources = query.sources.as_deref().unwrap_or_default();
     if !sources.is_empty() {
+        let stored_sources = sources
+            .iter()
+            .flat_map(|source| stored_log_source_values(source).iter().copied())
+            .collect::<Vec<_>>();
         conditions.push(format!(
             "source IN ({})",
-            placeholders(values.len(), sources.len())
+            placeholders(values.len(), stored_sources.len())
         ));
         values.extend(
-            sources
+            stored_sources
                 .iter()
-                .map(|source| SqlValue::Text(source.as_str().to_owned())),
+                .map(|source| SqlValue::Text((*source).to_owned())),
         );
     }
     if let Some(from) = &query.from {
@@ -516,8 +524,7 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
             timestamp,
             level: serde_json::from_value(Value::String(level))
                 .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
-            source: serde_json::from_value(Value::String(source))
-                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+            source: parse_stored_log_source(&source)?,
             event,
             message,
             session_id,
@@ -615,8 +622,7 @@ fn write_jsonl(connection: &Connection, output: &mut impl Write) -> CoreResult<(
             timestamp,
             level: serde_json::from_value(Value::String(level))
                 .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
-            source: serde_json::from_value(Value::String(source))
-                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+            source: parse_stored_log_source(&source)?,
             event,
             message,
             session_id,
@@ -770,6 +776,32 @@ fn placeholders(existing: usize, count: usize) -> String {
         .join(",")
 }
 
+fn stored_log_source_values(source: &LogSource) -> &'static [&'static str] {
+    match source {
+        // Older Electron releases persisted authentication events under a dedicated
+        // source. Authentication is no longer a public log source, so expose those
+        // retained entries through the closest current source instead.
+        LogSource::Main => &["main", LEGACY_AUTH_LOG_SOURCE],
+        LogSource::Preload => &["preload"],
+        LogSource::Renderer => &["renderer"],
+        LogSource::Ipc => &["ipc"],
+        LogSource::Browser => &["browser"],
+        LogSource::Macro => &["macro"],
+        LogSource::Persistence => &["persistence"],
+        LogSource::Update => &["update"],
+    }
+}
+
+fn parse_stored_log_source(source: &str) -> CoreResult<LogSource> {
+    let source = if source == LEGACY_AUTH_LOG_SOURCE {
+        LogSource::Main.as_str()
+    } else {
+        source
+    };
+    serde_json::from_value(Value::String(source.to_owned()))
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))
+}
+
 fn parse_context_json(value: &str) -> CoreResult<BTreeMap<String, Value>> {
     serde_json::from_str(value).map_err(|error| CoreError::LogDatabase(error.to_string()))
 }
@@ -870,6 +902,43 @@ mod tests {
             assert_eq!(status.file_count, 1);
             assert!(status.total_bytes > 0);
         });
+    }
+
+    #[test]
+    fn reads_filters_and_exports_retained_auth_logs_as_main() {
+        let directory = tempdir().unwrap();
+        let mut connection = Connection::open(directory.path().join("logs.sqlite3")).unwrap();
+        create_schema(&connection, false).unwrap();
+        append_entries(
+            &mut connection,
+            &[entry("legacy-auth", "Authentication status changed.")],
+        )
+        .unwrap();
+        connection
+            .execute(
+                "UPDATE log_entries SET source = ?1 WHERE id = ?2",
+                params![LEGACY_AUTH_LOG_SOURCE, "legacy-auth"],
+            )
+            .unwrap();
+
+        let page = query_entries(
+            &connection,
+            &LogQuery {
+                sources: Some(vec![LogSource::Main]),
+                ..LogQuery::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].id, "legacy-auth");
+        assert_eq!(page.entries[0].source, LogSource::Main);
+
+        let mut exported = Vec::new();
+        write_jsonl(&connection, &mut exported).unwrap();
+        let exported = String::from_utf8(exported).unwrap();
+        assert!(exported.contains("\"id\":\"legacy-auth\""));
+        assert!(exported.contains("\"source\":\"main\""));
+        assert!(!exported.contains("\"source\":\"auth\""));
     }
 
     #[test]

@@ -5075,25 +5075,21 @@ impl AppCore {
             .iter()
             .find(|window| window.window_id == source_window_id)
             .is_some_and(|window| window.tab_ids.len() == 1);
-        let mut game_windows =
+        let mut validation_windows =
             self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
-        let removed_source = source_will_empty
-            .then(|| {
-                game_windows
-                    .iter()
-                    .position(|window| window.id == source_window_id)
-                    .map(|index| game_windows.remove(index))
-            })
-            .flatten();
-        let created = crate::domain::create_game_window(&mut game_windows, input)?;
-        if created.id != target.window_id {
+        if source_will_empty
+            && let Some(index) = validation_windows
+                .iter()
+                .position(|window| window.id == source_window_id)
+        {
+            validation_windows.remove(index);
+        }
+        let candidate = crate::domain::create_game_window(&mut validation_windows, input.clone())?;
+        if candidate.id != target.window_id {
             return Err(CoreError::Domain {
                 code: "GAME_WINDOW_TARGET_INVALID",
                 message: "The reserved Game Window id must match the runtime target.".to_owned(),
             });
-        }
-        if let Some(source) = removed_source {
-            game_windows.push(source);
         }
         let mut next_runtime = previous.clone();
         next_runtime.invoke(BrowserRuntimeCommand::MoveTab {
@@ -5132,19 +5128,46 @@ impl AppCore {
             Duration::from_secs(15),
             Some(compensation.clone()),
         )])?;
-        let (projected, _) =
-            self.project_game_windows_from_runtime(game_windows, &next, &removed_window_ids);
-        if let Err(error) = self.mutate_state(StateMutation::GameWindowsSync {
-            windows: projected.clone(),
-        }) {
-            let _ = self.run_effect_plan(vec![effect_step(
-                "embedded-runtime-create-window-move-tab-rollback",
-                compensation,
-                Duration::from_secs(15),
-                None,
-            )]);
-            return Err(error);
-        }
+        let persistence = (|| {
+            let _guard = self.state_mutation_guard()?;
+            let mut game_windows =
+                self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
+            let removed_source = source_will_empty
+                .then(|| {
+                    game_windows
+                        .iter()
+                        .position(|window| window.id == source_window_id)
+                        .map(|index| game_windows.remove(index))
+                })
+                .flatten();
+            let created = crate::domain::create_game_window(&mut game_windows, input)?;
+            if let Some(source) = removed_source {
+                game_windows.push(source);
+            }
+            let (projected, _) =
+                self.project_game_windows_from_runtime(game_windows, &next, &removed_window_ids);
+            self.mutate_state_under_guard(StateMutation::GameWindowsSync {
+                windows: projected.clone(),
+            })?;
+            projected
+                .into_iter()
+                .find(|window| window.id == created.id)
+                .ok_or_else(|| {
+                    CoreError::Internal("created Game Window was not persisted".to_owned())
+                })
+        })();
+        let created = match persistence {
+            Ok(created) => created,
+            Err(error) => {
+                let _ = self.run_effect_plan(vec![effect_step(
+                    "embedded-runtime-create-window-move-tab-rollback",
+                    compensation,
+                    Duration::from_secs(15),
+                    None,
+                )]);
+                return Err(error);
+            }
+        };
         if !removed_window_ids.is_empty() {
             for window_id in &removed_window_ids {
                 next_runtime.invoke(BrowserRuntimeCommand::RemoveWindow {
@@ -5174,10 +5197,7 @@ impl AppCore {
         *runtime = next_runtime;
         drop(runtime);
         self.emit_browser_statuses();
-        projected
-            .into_iter()
-            .find(|window| window.id == created.id)
-            .ok_or_else(|| CoreError::Internal("created Game Window was not persisted".to_owned()))
+        Ok(created)
     }
 
     fn apply_embedded_runtime_command(
@@ -5335,12 +5355,13 @@ impl AppCore {
         snapshot: &crate::model::BrowserRuntimeSnapshot,
         removed_window_ids: &std::collections::HashSet<String>,
     ) -> CoreResult<()> {
+        let _guard = self.state_mutation_guard()?;
         let game_windows =
             self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
         let (game_windows, changed) =
             self.project_game_windows_from_runtime(game_windows, snapshot, removed_window_ids);
         if changed {
-            self.mutate_state(StateMutation::GameWindowsSync {
+            self.mutate_state_under_guard(StateMutation::GameWindowsSync {
                 windows: game_windows,
             })?;
         }
@@ -5651,6 +5672,10 @@ impl AppCore {
 
     fn mutate_state(&self, mutation: StateMutation) -> CoreResult<Value> {
         let _guard = self.state_mutation_guard()?;
+        self.mutate_state_under_guard(mutation)
+    }
+
+    fn mutate_state_under_guard(&self, mutation: StateMutation) -> CoreResult<Value> {
         let changed_collections = mutation.changed_collections();
         let result = self.with_runtime(|runtime| runtime.state.mutate(mutation))?;
         let revision = result
@@ -7351,6 +7376,75 @@ mod tests {
             assert_eq!(windows[0]["id"], torn_out_id, "{platform}");
             core.shutdown();
         }
+    }
+
+    #[test]
+    fn runtime_game_window_projection_preserves_metadata_committed_while_waiting_for_the_guard() {
+        let (_directory, core) = core();
+        let window_id = core
+            .invoke(command(json!({
+                "type": "gameWindowCreate",
+                "input": {
+                    "name": "Original",
+                    "targetDisplay": { "id": 1 },
+                    "placement": {
+                        "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                        "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                        "presentation": "normal"
+                    }
+                }
+            })))
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        core.invoke_browser_runtime(BrowserRuntimeCommand::RegisterWindow {
+            window_id: window_id.clone(),
+        })
+        .unwrap();
+        let snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+                tab_id: None,
+                source_id: "projection-role".to_owned(),
+                name: "Projected role".to_owned(),
+                window_id: window_id.clone(),
+                tab_type: "role".to_owned(),
+                workspace_id: None,
+                role_ids: vec!["projection-role".to_owned()],
+            })
+            .unwrap()
+            .snapshot;
+
+        let guard = core.state_mutation_guard().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let projection_core = Arc::clone(&core);
+        let projection = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            projection_core.sync_game_windows_from_runtime(&snapshot, &HashSet::new())
+        });
+        started_rx.recv().unwrap();
+        thread::sleep(Duration::from_millis(50));
+        core.with_runtime(|runtime| {
+            runtime.state.mutate(StateMutation::GameWindowUpdate {
+                id: window_id.clone(),
+                input: crate::model::GameWindowUpdateInputRecord {
+                    name: Some("Concurrent edit".to_owned()),
+                    ..Default::default()
+                },
+            })
+        })
+        .unwrap();
+        drop(guard);
+        projection.join().unwrap().unwrap();
+
+        let persisted = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(persisted["name"], "Concurrent edit");
+        assert_eq!(persisted["tabs"][0]["sourceId"], "projection-role");
+        core.shutdown();
     }
 
     #[test]

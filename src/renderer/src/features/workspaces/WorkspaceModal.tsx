@@ -13,7 +13,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Checkbox } from "../../components/ui/checkbox";
 import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
@@ -418,34 +418,48 @@ function WorkspaceLayoutFormEditor({
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-4 min-[1200px]:grid-cols-3">
-        <Surface className="p-4" padding="none" variant="inset">
+        <Surface className="col-span-full p-4" padding="none" variant="inset">
           <FormField
-            htmlFor="workspace-layout-template"
             label={t("workspaces.layout")}
             description={t("workspaces.layoutDescription")}
           >
-            <Select
-              value={form.template}
-              onValueChange={(value) => handleTemplateChange(value as WorkspaceLayoutTemplate)}
-              disabled={isSaving}
+            <div
+              aria-label={t("workspaces.layout")}
+              className="grid gap-2 min-[640px]:grid-cols-2 min-[1000px]:grid-cols-3 min-[1400px]:grid-cols-4"
+              data-workspace-layout-options
+              role="group"
             >
-              <SelectTrigger id="workspace-layout-template">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {workspaceLayoutTemplates.map((template) => {
-                  const Icon = workspaceTemplateIcons[template];
-                  const label = t(workspaceTemplateLabelKeys[template]);
+              {workspaceLayoutTemplates.map((template) => {
+                const Icon = workspaceTemplateIcons[template];
+                const label = t(workspaceTemplateLabelKeys[template]);
+                const isSelected = form.template === template;
 
-                  return (
-                    <SelectItem key={template} value={template} textValue={label}>
-                      <Icon className="size-4 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{label}</span>
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+                return (
+                  <label
+                    key={template}
+                    className={cn(
+                      "glass-inset flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 transition-[background-color,border-color,box-shadow]",
+                      isSaving ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                      isSelected && "border-primary/45 bg-primary/12"
+                    )}
+                    data-workspace-layout-option={template}
+                  >
+                    <Checkbox
+                      aria-label={label}
+                      checked={isSelected}
+                      disabled={isSaving}
+                      onCheckedChange={(checked) => {
+                        if (checked === true) {
+                          handleTemplateChange(template);
+                        }
+                      }}
+                    />
+                    <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</span>
+                  </label>
+                );
+              })}
+            </div>
           </FormField>
         </Surface>
 

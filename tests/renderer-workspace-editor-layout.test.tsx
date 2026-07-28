@@ -10,6 +10,7 @@ import { mergeWorkspaceRoleZoomOverrides } from "../src/renderer/src/features/wo
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Game, LaunchWorkspace, Role } from "../src/shared/types";
+import { workspaceLayoutTemplates } from "../src/shared/workspaceLayout";
 
 beforeAll(() => {
   vi.stubGlobal("ResizeObserver", class ResizeObserver {
@@ -31,6 +32,67 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
+  it("shows every workspace layout as an expanded single-select checkbox option", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/workspaces/:id/edit",
+          element: (
+            <WorkspaceEditorRoute
+              games={[game()]}
+              isSaving={false}
+              roles={[role(1), role(2)]}
+              statusByRole={new Map()}
+              t={t}
+              workspaces={[workspace()]}
+              onSave={onSave}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    const layoutOptions = container.querySelector<HTMLElement>("[data-workspace-layout-options]");
+    const layoutCheckboxes = screen.getAllByRole("checkbox");
+    const selectedCheckbox = screen.getByRole("checkbox", { name: "Two columns" });
+    const nineGridCheckbox = screen.getByRole("checkbox", { name: "Nine grid" });
+
+    expect(screen.queryByRole("combobox", { name: "Layout" })).toBeNull();
+    expect(layoutOptions?.parentElement?.parentElement?.className).toContain("col-span-full");
+    expect(layoutOptions?.className).toContain("min-[640px]:grid-cols-2");
+    expect(layoutOptions?.className).toContain("min-[1000px]:grid-cols-3");
+    expect(layoutOptions?.className).toContain("min-[1400px]:grid-cols-4");
+    expect(layoutOptions?.querySelectorAll("[data-workspace-layout-option]")).toHaveLength(workspaceLayoutTemplates.length);
+    expect(layoutCheckboxes).toHaveLength(workspaceLayoutTemplates.length);
+    expect(selectedCheckbox.getAttribute("data-state")).toBe("checked");
+    expect(nineGridCheckbox.getAttribute("data-state")).toBe("unchecked");
+
+    fireEvent.click(nineGridCheckbox);
+
+    expect(screen.getByRole("checkbox", { name: "Two columns" }).getAttribute("data-state")).toBe("unchecked");
+    expect(screen.getByRole("checkbox", { name: "Nine grid" }).getAttribute("data-state")).toBe("checked");
+    expect(container.querySelectorAll("[data-workspace-slot-index]")).toHaveLength(9);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      template: "nine_grid",
+      slots: expect.arrayContaining([
+        expect.objectContaining({ roleId: "role-1" }),
+        expect.objectContaining({ roleId: "role-2" })
+      ])
+    });
+    expect(onSave.mock.calls[0][0].slots).toHaveLength(9);
+  });
+
   it("merges background runtime zoom changes into hidden form state", () => {
     const previous = workspace().slots.map((slot) => slot.roleId === "role-1"
       ? { ...slot, browserZoomPercent: 110 }

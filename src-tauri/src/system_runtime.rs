@@ -6943,6 +6943,15 @@ fn verify_surface_recovery_attestation(
         .map_err(RuntimeError::tauri)?;
     let focus_deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
     loop {
+        #[cfg(windows)]
+        recovered
+            .with_webview(|platform_webview| {
+                // WebView2 keeps native focus after its hidden parent loses focus. Returning
+                // focus to the parent is the native equivalent of window.blur(); the child
+                // must remain visible because CDP input is ignored by hidden WebView2 children.
+                let _ = platform_webview.focus_parent();
+            })
+            .map_err(RuntimeError::tauri)?;
         if let Ok(focus) =
             evaluate_attestation_value(&recovered, "({ focused: document.hasFocus() })")
             && focus.get("focused") == Some(&Value::Bool(false))

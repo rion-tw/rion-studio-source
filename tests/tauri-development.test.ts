@@ -1,6 +1,13 @@
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
+
+const execFileAsync = promisify(execFile);
 
 describe("Tauri development and release commands", () => {
   it("starts Tauri development directly without native parity or attestation gates", async () => {
@@ -46,11 +53,49 @@ describe("Tauri development and release commands", () => {
 
   it("uses semantic release version synchronization for every public version source", async () => {
     const script = await readFile("scripts/applyReleaseVersion.mjs", "utf8");
+    expect(script).toContain('if (args[0] === "--") args.shift()');
+    expect(script).toContain("unexpectedArgs.length > 0");
     expect(script).toContain('updateJson("package.json"');
     expect(script).toContain('updateJson("src-tauri/tauri.conf.json"');
     expect(script).toContain("[workspace\\.package\\]");
     expect(script).toContain('["rion-core", "rion-platform", "rion-tauri"]');
     expect(script).toContain('await write("Cargo.lock", cargoLock)');
+  });
+
+  it("accepts the argument separator forwarded by pnpm 11", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "rion-release-version-"));
+    try {
+      await mkdir(join(fixtureRoot, "scripts"));
+      await mkdir(join(fixtureRoot, "src-tauri"));
+      await Promise.all([
+        copyFile("scripts/applyReleaseVersion.mjs", join(fixtureRoot, "scripts/applyReleaseVersion.mjs")),
+        copyFile("package.json", join(fixtureRoot, "package.json")),
+        copyFile("Cargo.toml", join(fixtureRoot, "Cargo.toml")),
+        copyFile("Cargo.lock", join(fixtureRoot, "Cargo.lock")),
+        copyFile("src-tauri/tauri.conf.json", join(fixtureRoot, "src-tauri/tauri.conf.json"))
+      ]);
+
+      await execFileAsync(process.execPath, [
+        join(fixtureRoot, "scripts/applyReleaseVersion.mjs"),
+        "--",
+        "3.3.1"
+      ]);
+
+      const [packageSource, tauriSource, cargoSource, lockSource] = await Promise.all([
+        readFile(join(fixtureRoot, "package.json"), "utf8"),
+        readFile(join(fixtureRoot, "src-tauri/tauri.conf.json"), "utf8"),
+        readFile(join(fixtureRoot, "Cargo.toml"), "utf8"),
+        readFile(join(fixtureRoot, "Cargo.lock"), "utf8")
+      ]);
+      expect(JSON.parse(packageSource).version).toBe("3.3.1");
+      expect(JSON.parse(tauriSource).version).toBe("3.3.1");
+      expect(cargoSource).toMatch(/\[workspace\.package\][\s\S]*?\nversion = "3\.3\.1"/);
+      for (const name of ["rion-core", "rion-platform", "rion-tauri"]) {
+        expect(lockSource).toContain(`name = "${name}"\nversion = "3.3.1"`);
+      }
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps canonical build, package, and updater-signed distribution entry points", async () => {

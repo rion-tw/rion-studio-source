@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { environmentWithCargoExecutable } from "./cargoExecutable.mjs";
+import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const platform = process.platform;
@@ -111,7 +111,7 @@ function command(name) {
 
 async function run(executable, args, env) {
   await new Promise((resolveRun, reject) => {
-    const child = spawn(executable, args, {
+    const child = spawnPlatformCommand(executable, args, {
       cwd: repositoryRoot,
       env,
       stdio: "inherit",

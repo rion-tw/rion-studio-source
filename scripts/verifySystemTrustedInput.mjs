@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -184,7 +185,7 @@ async function run(executable, args, env = process.env, timeout = 0) {
     const timer = timeout > 0
       ? setTimeout(() => {
           timedOut = true;
-          child.kill();
+          terminateProcessTree(child);
         }, timeout)
       : undefined;
     child.once("error", reject);
@@ -203,6 +204,22 @@ async function run(executable, args, env = process.env, timeout = 0) {
       }
     });
   });
+}
+
+function terminateProcessTree(child) {
+  if (process.platform !== "win32" || !child.pid) {
+    child.kill();
+    return;
+  }
+  const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+    stdio: "ignore",
+    windowsHide: true
+  });
+  const fallback = () => {
+    if (child.exitCode === null) child.kill();
+  };
+  killer.once("error", fallback);
+  killer.once("exit", fallback);
 }
 
 main().catch((error) => {

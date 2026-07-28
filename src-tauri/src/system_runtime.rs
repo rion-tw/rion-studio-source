@@ -3,8 +3,9 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicU64, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{self, Receiver, Sender},
     },
     time::{Duration, Instant},
 };
@@ -620,9 +621,31 @@ pub struct SystemRuntimeExecutor {
     app: AppHandle,
     configuration: RuntimeWebViewConfiguration,
     core: Arc<AppCore>,
+    effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
     language: Mutex<String>,
+    runtime_healthy: AtomicBool,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
+}
+
+enum SystemRuntimeWork {
+    Effect {
+        action_name: &'static str,
+        effect: CoreEffectRequest,
+        persist_runtime: bool,
+        trace: bool,
+    },
+    RecoverSurface {
+        allowed: bool,
+        reason: String,
+        role_id: String,
+    },
+}
+
+fn run_serial_runtime_work_loop<T>(receiver: Receiver<T>, mut execute: impl FnMut(T)) {
+    while let Ok(work) = receiver.recv() {
+        execute(work);
+    }
 }
 
 impl SystemRuntimeExecutor {
@@ -728,7 +751,9 @@ impl SystemRuntimeExecutor {
                 overlay_document_start_script,
             },
             core,
+            effect_sender: OnceLock::new(),
             language: Mutex::new("en".to_owned()),
+            runtime_healthy: AtomicBool::new(true),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -736,6 +761,94 @@ impl SystemRuntimeExecutor {
             }),
             user_data_dir,
         })
+    }
+
+    pub fn start_effect_executor(self: &Arc<Self>) -> Result<(), String> {
+        let (sender, receiver) = mpsc::channel();
+        self.effect_sender
+            .set(sender)
+            .map_err(|_| "The System WebView effect executor was already started.".to_owned())?;
+        let runtime = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("rion-tauri-core-effects".to_owned())
+            .spawn(move || {
+                run_serial_runtime_work_loop(receiver, |work| {
+                    if let Some(runtime) = runtime.upgrade() {
+                        runtime.execute_serial_work(work);
+                    }
+                });
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn enqueue_effect(
+        &self,
+        effect: CoreEffectRequest,
+        action_name: &'static str,
+        persist_runtime: bool,
+        trace: bool,
+    ) -> Result<(), String> {
+        self.effect_sender
+            .get()
+            .ok_or_else(|| "The System WebView effect executor is unavailable.".to_owned())?
+            .send(SystemRuntimeWork::Effect {
+                action_name,
+                effect,
+                persist_runtime,
+                trace,
+            })
+            .map_err(|_| "The System WebView effect executor stopped unexpectedly.".to_owned())
+    }
+
+    fn execute_serial_work(&self, work: SystemRuntimeWork) {
+        match work {
+            SystemRuntimeWork::Effect {
+                action_name,
+                effect,
+                persist_runtime,
+                trace,
+            } => {
+                let effect_id = effect.effect_id.clone();
+                let started = Instant::now();
+                if trace {
+                    eprintln!("System WebView effect: {action_name} started (effect={effect_id}).");
+                }
+                let result = if self.runtime_healthy.load(Ordering::Acquire) {
+                    self.execute(effect)
+                } else {
+                    CoreEffectResult {
+                        effect_id: effect.effect_id,
+                        operation_id: effect.operation_id,
+                        ok: false,
+                        value_json: None,
+                        error: Some(rion_core::CoreErrorPayload {
+                            code: "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY".to_owned(),
+                            message: "The System WebView runtime stopped accepting native lifecycle operations after a stalled callback. Restart Rion Studio to recover safely.".to_owned(),
+                        }),
+                    }
+                };
+                let succeeded = result.ok;
+                if trace {
+                    eprintln!(
+                        "System WebView effect: {action_name} completed (effect={effect_id}, ok={succeeded}, elapsedMs={}).",
+                        started.elapsed().as_millis()
+                    );
+                }
+                if self.core.dispatch_core_effect_results(vec![result]).is_ok()
+                    && succeeded
+                    && persist_runtime
+                {
+                    let _ = self.persist_restore_session(false);
+                    self.publish_projection();
+                }
+            }
+            SystemRuntimeWork::RecoverSurface {
+                allowed,
+                reason,
+                role_id,
+            } => self.recover_system_surface(role_id, reason, allowed),
+        }
     }
 
     pub fn registration(&self) -> SystemWebViewRuntimeRegistrationRecord {
@@ -2478,10 +2591,29 @@ impl SystemRuntimeExecutor {
                 });
             budget.claim(now)
         };
-        let runtime = Arc::clone(self);
-        let _ = std::thread::Builder::new()
-            .name("rion-system-surface-recovery".to_owned())
-            .spawn(move || runtime.recover_system_surface(role_id, reason, allowed));
+        let queued = self.effect_sender.get().ok_or(()).and_then(|sender| {
+            sender
+                .send(SystemRuntimeWork::RecoverSurface {
+                    allowed,
+                    reason: reason.clone(),
+                    role_id: role_id.clone(),
+                })
+                .map_err(|_| ())
+        });
+        if queued.is_err() {
+            if let Ok(mut state) = self.state.lock() {
+                state.recovering_roles.remove(&role_id);
+            }
+            let _ = self.app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "SYSTEM_SURFACE_RECOVERY_QUEUE_UNAVAILABLE",
+                    "message": "The System WebView recovery queue is unavailable. Restart Rion Studio to recover safely.",
+                    "roleId": role_id,
+                    "reason": reason
+                }),
+            );
+        }
     }
 
     fn recover_system_surface(&self, role_id: String, reason: String, allowed: bool) {
@@ -10108,7 +10240,38 @@ impl RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
     use uuid::Uuid;
+
+    #[test]
+    fn native_runtime_work_loop_is_fifo_and_non_overlapping() {
+        let (sender, receiver) = mpsc::channel();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let worker_observed = Arc::clone(&observed);
+        let worker_active = Arc::clone(&active);
+        let worker_peak = Arc::clone(&peak);
+        let worker = std::thread::spawn(move || {
+            run_serial_runtime_work_loop(receiver, |value| {
+                let current = worker_active.fetch_add(1, Ordering::SeqCst) + 1;
+                worker_peak.fetch_max(current, Ordering::SeqCst);
+                worker_observed.lock().unwrap().push(value);
+                std::thread::yield_now();
+                worker_active.fetch_sub(1, Ordering::SeqCst);
+            });
+        });
+
+        for value in 0..64 {
+            sender.send(value).unwrap();
+        }
+        drop(sender);
+        worker.join().unwrap();
+
+        assert_eq!(*observed.lock().unwrap(), (0..64).collect::<Vec<_>>());
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
 
     fn runtime_tab_host_snapshot(active_tab_id: &str) -> BrowserRuntimeSnapshot {
         serde_json::from_value(json!({

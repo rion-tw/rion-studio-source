@@ -4580,6 +4580,7 @@ pub fn run() {
                 user_data_dir.clone(),
                 Arc::clone(&core),
             )?);
+            runtime.start_effect_executor()?;
             core.invoke(CoreCommand::SystemWebViewRuntimeRegister {
                 registration: runtime.registration(),
             })?;
@@ -4608,8 +4609,6 @@ pub fn run() {
                             match event {
                                 CoreEvent::CoreEffects { effects } => {
                                     for effect in effects {
-                                        let result_core = Arc::clone(&effect_core);
-                                        let result_runtime = Arc::clone(&effect_runtime);
                                         let restore_attestation =
                                             std::env::var_os(RESTORE_ATTESTATION_OUTPUT_ENV)
                                                 .is_some();
@@ -4620,32 +4619,18 @@ pub fn run() {
                                                 | rion_core::CoreEffectAction::EmbeddedDestroyRole { .. }
                                                 | rion_core::CoreEffectAction::EmbeddedDestroyTab { .. }
                                         );
-                                        let _ = thread::Builder::new()
-                                            .name("rion-tauri-core-effect".to_owned())
-                                            .spawn(move || {
-                                                if restore_attestation {
-                                                    eprintln!(
-                                                        "Runtime restore attestation: executing {action_name}."
-                                                    );
-                                                }
-                                                let result = result_runtime.execute(effect);
-                                                let succeeded = result.ok;
-                                                if restore_attestation {
-                                                    eprintln!(
-                                                        "Runtime restore attestation: {action_name} completed (ok={succeeded})."
-                                                    );
-                                                }
-                                                if result_core
-                                                    .dispatch_core_effect_results(vec![result])
-                                                    .is_ok()
-                                                    && succeeded
-                                                    && persist_runtime
-                                                {
-                                                    let _ = result_runtime
-                                                        .persist_restore_session(false);
-                                                    result_runtime.publish_projection();
-                                                }
-                                            });
+                                        if let Err(error) = effect_runtime.enqueue_effect(
+                                            effect,
+                                            action_name,
+                                            persist_runtime,
+                                            restore_attestation,
+                                        ) {
+                                            eprintln!(
+                                                "System WebView effect executor failed: {error}"
+                                            );
+                                            app_handle.exit(9);
+                                            break;
+                                        }
                                     }
                                 }
                                 CoreEvent::OverlayChanged { role_ids } => {

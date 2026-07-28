@@ -23,16 +23,13 @@ vi.mock("@tauri-apps/api/event", () => ({ listen }));
 import { installTauriBridgeIfNeeded } from "../src/renderer/src/tauri/installTauriBridge";
 
 describe("Tauri Game Window bridge compensation", () => {
-  it("deletes newly persisted metadata when the native window cannot be shown", async () => {
+  it("delegates creation and native rollback to one transactional shell operation", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {}
     });
     const nativeError = new Error("native window failed");
-    invoke
-      .mockResolvedValueOnce({ id: "window-failed" })
-      .mockRejectedValueOnce(nativeError)
-      .mockResolvedValueOnce({ deleted: true });
+    invoke.mockRejectedValueOnce(nativeError);
     await installTauriBridgeIfNeeded();
     const onShellError = vi.fn();
     window.rionStudio.onShellError(onShellError);
@@ -47,15 +44,10 @@ describe("Tauri Game Window bridge compensation", () => {
       }
     })).rejects.toBe(nativeError);
 
-    expect(invoke).toHaveBeenNthCalledWith(1, "rion_core_invoke", {
-      command: expect.objectContaining({ type: "gameWindowCreate" })
-    });
-    expect(invoke).toHaveBeenNthCalledWith(2, "rion_shell_invoke", {
-      operation: "showGameWindow",
-      args: ["window-failed"]
-    });
-    expect(invoke).toHaveBeenNthCalledWith(3, "rion_core_invoke", {
-      command: { type: "gameWindowDelete", id: "window-failed" }
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
+      operation: "createGameWindow",
+      args: [expect.objectContaining({ name: "Failed window" })]
     });
 
     bridgeListeners.get("rion://shell-error")?.({

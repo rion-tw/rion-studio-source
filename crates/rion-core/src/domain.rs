@@ -33,13 +33,7 @@ const FLYFF_LOCAL_STORAGE_SYNC_KEY: &str = "game_client_settings";
 
 pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
     GameBrowserSettingsRecord {
-        fonts: BrowserFontSettingsRecord {
-            mode: "default".to_owned(),
-            preset_id: None,
-            cjk_variant: "auto".to_owned(),
-            slots: HashMap::new(),
-            families: HashMap::new(),
-        },
+        fonts: default_browser_font_settings(),
         macro_badge_position: MacroBadgePositionRecord {
             horizontal_align: "center".to_owned(),
             horizontal_margin_px: 8,
@@ -50,6 +44,47 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             background: "material".to_owned(),
             gap: 4,
         },
+    }
+}
+
+fn default_browser_font_settings() -> BrowserFontSettingsRecord {
+    BrowserFontSettingsRecord {
+        mode: "custom".to_owned(),
+        preset_id: Some("system-default".to_owned()),
+        cjk_variant: "auto".to_owned(),
+        slots: HashMap::from([
+            (
+                "cjk".to_owned(),
+                crate::model::BrowserFontSelectionRecord::System {
+                    family: "system-ui".to_owned(),
+                },
+            ),
+            (
+                "latin".to_owned(),
+                crate::model::BrowserFontSelectionRecord::System {
+                    family: "system-ui".to_owned(),
+                },
+            ),
+            (
+                "numeric".to_owned(),
+                crate::model::BrowserFontSelectionRecord::System {
+                    family: "system-ui".to_owned(),
+                },
+            ),
+            (
+                "monospace".to_owned(),
+                crate::model::BrowserFontSelectionRecord::System {
+                    family: "ui-monospace".to_owned(),
+                },
+            ),
+            (
+                "math".to_owned(),
+                crate::model::BrowserFontSelectionRecord::System {
+                    family: "math".to_owned(),
+                },
+            ),
+        ]),
+        families: HashMap::new(),
     }
 }
 
@@ -2344,9 +2379,7 @@ pub fn normalize_game_browser_settings(
     });
     settings.fonts.families.clear();
     if settings.fonts.mode == "default" {
-        settings.fonts.preset_id = None;
-        settings.fonts.cjk_variant = "auto".to_owned();
-        settings.fonts.slots.clear();
+        settings.fonts = default_browser_font_settings();
     }
     if !matches!(
         settings.macro_badge_position.horizontal_align.as_str(),
@@ -3011,6 +3044,23 @@ mod tests {
         crate::v1_case!("state-migration-16455f5cd61d", {
             let defaults = default_game_browser_settings();
             validate_game_browser_settings(&defaults).unwrap();
+            assert_eq!(defaults.fonts.mode, "custom");
+            assert_eq!(defaults.fonts.preset_id.as_deref(), Some("system-default"));
+            assert_eq!(
+                serde_json::to_value(&defaults.fonts).unwrap()["slots"]["latin"],
+                json!({"source":"system","family":"system-ui"})
+            );
+            let legacy_default: GameBrowserSettingsRecord = serde_json::from_value(json!({
+                "fonts":{"mode":"default"},
+                "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
+                "workspace":{"background":"material","gap":4}
+            }))
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(normalize_game_browser_settings(legacy_default).fonts)
+                    .unwrap(),
+                serde_json::to_value(&defaults.fonts).unwrap()
+            );
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);
             assert!(!defaults.performance.macos_high_refresh_rate);

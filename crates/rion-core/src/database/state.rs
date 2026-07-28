@@ -37,7 +37,7 @@ use crate::model::{
     StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 17;
+pub(crate) const SCHEMA_VERSION: u32 = 18;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1621,7 +1621,49 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 18 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        migrate_default_browser_fonts(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (18, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn migrate_default_browser_fonts(transaction: &Transaction<'_>) -> CoreResult<()> {
+    let payload = transaction
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    let Some(payload) = payload else {
+        return Ok(());
+    };
+    let settings = serde_json::from_str::<GameBrowserSettingsRecord>(&payload)
+        .map(normalize_game_browser_settings)
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    transaction
+        .execute(
+            "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+            params![
+                serde_json::to_string(&settings)
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+            ],
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(())
 }
 
@@ -4291,7 +4333,7 @@ mod tests {
             )
             .unwrap();
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=17", [])
+            .execute("DELETE FROM schema_migrations WHERE version>=17", [])
             .unwrap();
 
         create_schema(&connection, false).unwrap();
@@ -4326,6 +4368,52 @@ mod tests {
             json!({"source":"system","family":"Noto Sans Math"})
         );
         assert!(settings["fonts"].get("families").is_none());
+    }
+
+    #[test]
+    fn schema_eighteen_migrates_browser_defaults_to_system_fonts() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let legacy = json!({
+            "fonts": {"mode":"default"},
+            "macroBadgePosition": {"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
+            "performance": {"macosHighRefreshRate":false},
+            "workspace": {"background":"material","gap":4}
+        });
+        connection
+            .execute(
+                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
+                [serde_json::to_string(&legacy).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=18", [])
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let payload: String = connection
+            .query_row(
+                "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let settings: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(settings["fonts"]["mode"], "custom");
+        assert_eq!(settings["fonts"]["presetId"], "system-default");
+        assert_eq!(
+            settings["fonts"]["slots"]["cjk"],
+            json!({"source":"system","family":"system-ui"})
+        );
+        assert_eq!(
+            settings["fonts"]["slots"]["monospace"],
+            json!({"source":"system","family":"ui-monospace"})
+        );
+        assert_eq!(
+            settings["fonts"]["slots"]["math"],
+            json!({"source":"system","family":"math"})
+        );
     }
 
     #[test]

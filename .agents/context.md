@@ -199,6 +199,8 @@ packages and verifies their artifacts without launching the application.
 Candidate manifest and upgrade jobs explicitly accept the automatic quality skip,
 and a final release-ready gate prevents a skipped release-specific verification from
 being treated as a successful reusable workflow.
+Windows installer verification must use a parent-only bounded process wait because
+`Start-Process -Wait` also waits for the App launched by `--force-run`.
 
 Common test areas:
 

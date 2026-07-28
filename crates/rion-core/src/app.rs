@@ -8086,8 +8086,12 @@ mod tests {
         });
         crate::v1_case!("resource-platform-c06f9afb7ed3", {
             assert!(!failed);
-            assert_eq!(releases.get(&role_id), Some(&3));
-            assert_eq!(releases.get(&sibling_role_id), Some(&3));
+            // A single subscriber batch can contain effects from more than one
+            // loop iteration under runner load. The loop above stops after the
+            // third release is observed, so the contract here is completion of
+            // at least three iterations for every launched role.
+            assert!(releases.get(&role_id).copied().unwrap_or_default() >= 3);
+            assert!(releases.get(&sibling_role_id).copied().unwrap_or_default() >= 3);
         });
 
         let stop_core = Arc::clone(&core);

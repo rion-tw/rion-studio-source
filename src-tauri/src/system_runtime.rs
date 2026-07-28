@@ -2594,6 +2594,7 @@ impl SystemRuntimeExecutor {
                 *next_generation,
             )
         };
+        #[cfg(target_os = "macos")]
         let host_visible = window.is_visible().map_err(RuntimeError::tauri)?;
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
@@ -2619,11 +2620,10 @@ impl SystemRuntimeExecutor {
                 LogicalSize::new(bounds.width, bounds.height),
             )
             .map_err(RuntimeError::tauri)?;
+        #[cfg(target_os = "macos")]
         if !host_visible {
-            // Keep recovery in the same hidden state as the host. WebView2 can otherwise
-            // treat a newly-created child as an input target during navigation even when its
-            // native parent is hidden, which makes the recovery attestation report focused
-            // input instead of trusted background input.
+            // Keep WKWebView recovery in the same hidden state as its host so a newly-created
+            // child does not become the active input target during navigation.
             webview.hide().map_err(RuntimeError::tauri)?;
         }
         install_platform_security_policy(&webview)?;
@@ -6909,6 +6909,7 @@ fn verify_surface_recovery_attestation(
         }
         std::thread::sleep(Duration::from_millis(10));
     };
+    #[cfg(target_os = "macos")]
     recovered.hide().map_err(RuntimeError::tauri)?;
     recovered
         .eval("window.blur()")

@@ -726,9 +726,6 @@ export function App(): JSX.Element {
                 <SettingsRoute
                   games={data.games}
                   gameBrowserSettings={gameBrowserSettings}
-                  hasRunningRoles={data.statuses.some(
-                    (status) => status.state === "launching" || status.state === "running"
-                  )}
                   roles={data.roles}
                   language={preferences.language}
                   macroSettings={macroSettings}

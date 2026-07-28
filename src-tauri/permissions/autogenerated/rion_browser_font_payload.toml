@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-browser-font-payload"
+description = "Enables the rion_browser_font_payload command without any pre-configured scope."
+commands.allow = ["rion_browser_font_payload"]
+
+[[permission]]
+identifier = "deny-rion-browser-font-payload"
+description = "Denies the rion_browser_font_payload command without any pre-configured scope."
+commands.deny = ["rion_browser_font_payload"]

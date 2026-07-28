@@ -436,6 +436,20 @@ pub enum CoreCommand {
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
     },
+    BrowserFontCatalogList,
+    BrowserFontPackInstall {
+        #[ts(rename = "catalogId")]
+        catalog_id: String,
+    },
+    BrowserFontPackRemove {
+        #[ts(rename = "catalogId")]
+        catalog_id: String,
+    },
+    BrowserFontRuntimePayload {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        settings: Option<BrowserFontSettingsRecord>,
+    },
     MacroSettingsGet,
     MacroSettingsReplace {
         settings: MacroSettingsRecord,
@@ -2256,10 +2270,84 @@ pub struct BrowserPerformanceSettingsRecord {
 pub struct BrowserFontSettingsRecord {
     #[ts(type = "\"default\" | \"custom\"")]
     pub mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preset_id: Option<String>,
+    #[serde(default = "default_browser_font_cjk_variant")]
+    #[ts(type = "\"auto\" | \"tc\" | \"sc\" | \"jp\"")]
+    pub cjk_variant: String,
+    #[serde(default)]
     #[ts(
-        type = "Partial<Record<\"standard\" | \"serif\" | \"sansserif\" | \"fixed\" | \"math\", string>>"
+        type = "Partial<Record<\"cjk\" | \"latin\" | \"numeric\" | \"monospace\" | \"math\", { source: \"system\", family: string } | { source: \"google\", catalogId: string }>>"
     )]
+    pub slots: std::collections::HashMap<String, BrowserFontSelectionRecord>,
+    #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub families: std::collections::HashMap<String, String>,
+}
+
+fn default_browser_font_cjk_variant() -> String {
+    "auto".to_owned()
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "source",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserFontSelectionRecord {
+    System { family: String },
+    Google { catalog_id: String },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserFontCatalogEntryRecord {
+    pub catalog_id: String,
+    pub family: String,
+    #[ts(type = "\"sans\" | \"serif\" | \"handwriting\" | \"monospace\" | \"math\"")]
+    pub category: String,
+    #[ts(type = "Array<\"latin\" | \"tc\" | \"sc\" | \"jp\" | \"math\">")]
+    pub scripts: Vec<String>,
+    pub weights: Vec<u16>,
+    #[ts(type = "\"body\" | \"accent\" | \"technical\"")]
+    pub usage: String,
+    pub installed: bool,
+    #[ts(type = "number")]
+    pub cached_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserFontInstallResultRecord {
+    pub catalog_id: String,
+    pub installed: bool,
+    #[ts(type = "number")]
+    pub cached_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserFontRuntimeFaceRecord {
+    pub catalog_id: String,
+    pub family: String,
+    pub style: String,
+    pub weight: String,
+    pub unicode_range: String,
+    pub data_base64: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserFontRuntimePayloadRecord {
+    pub settings: BrowserFontSettingsRecord,
+    pub faces: Vec<BrowserFontRuntimeFaceRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

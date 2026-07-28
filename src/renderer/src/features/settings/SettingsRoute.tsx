@@ -1,4 +1,4 @@
-import { ChevronDown, Download, FileJson, FileText, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
+import { ChevronDown, CloudDownload, Download, FileJson, FileText, Laptop, Moon, PenLine, RefreshCw, RotateCcw, Search, Sun, Trash2, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -21,8 +21,11 @@ import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type TranslationKey, type Translator } from "../../i18n";
 import {
   DEFAULT_BROWSER_FONT_SETTINGS,
-  browserFontFamilyRoles,
+  browserFontPresets,
+  browserFontSlots,
   normalizeGameBrowserSettings,
+  resolveBrowserFontPreset,
+  type BrowserFontPresetId,
   workspaceGapSizes
 } from "../../../../shared/browserFonts";
 import {
@@ -32,7 +35,11 @@ import {
 import { CURRENT_LEGAL_RELEASE, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
   AppUpdateStatus,
-  BrowserFontFamilyRole,
+  BrowserFontCatalogEntry,
+  BrowserFontCategory,
+  BrowserFontCjkVariant,
+  BrowserFontSelection,
+  BrowserFontSlot,
   GameBrowserSettings,
   Game,
   MacroBadgeHorizontalAlign,
@@ -82,7 +89,7 @@ interface PortableDataCounts {
 interface SettingsViewProps {
   games?: Game[];
   gameBrowserSettings: GameBrowserSettings;
-  hasRunningRoles: boolean;
+  hasRunningRoles?: boolean;
   roles?: Role[];
   language: Language;
   macroSettings: MacroSettings;
@@ -136,19 +143,50 @@ const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> 
   diagnostics: "settings.diagnosticsDescription"
 };
 
-const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = {
-  fixed: "settings.browserFonts.fixed",
-  math: "settings.browserFonts.math",
-  sansserif: "settings.browserFonts.sansSerif",
-  serif: "settings.browserFonts.serif",
-  standard: "settings.browserFonts.standard"
+const browserFontSlotLabelKeys: Record<BrowserFontSlot, TranslationKey> = {
+  cjk: "settings.browserFonts.slot.cjk",
+  latin: "settings.browserFonts.slot.latin",
+  numeric: "settings.browserFonts.slot.numeric",
+  monospace: "settings.browserFonts.slot.monospace",
+  math: "settings.browserFonts.slot.math"
+};
+
+const browserFontSlotDescriptionKeys: Record<BrowserFontSlot, TranslationKey> = {
+  cjk: "settings.browserFonts.slot.cjkDescription",
+  latin: "settings.browserFonts.slot.latinDescription",
+  numeric: "settings.browserFonts.slot.numericDescription",
+  monospace: "settings.browserFonts.slot.monospaceDescription",
+  math: "settings.browserFonts.slot.mathDescription"
+};
+
+const browserFontPresetLabelKeys: Record<BrowserFontPresetId, TranslationKey> = {
+  "system-default": "settings.browserFonts.preset.systemDefault",
+  "modern-sans": "settings.browserFonts.preset.modernSans",
+  "comfortable-reading": "settings.browserFonts.preset.comfortableReading",
+  "clear-interface": "settings.browserFonts.preset.clearInterface",
+  "clear-numbers": "settings.browserFonts.preset.clearNumbers",
+  "code-monospace": "settings.browserFonts.preset.codeMonospace",
+  "natural-handwriting": "settings.browserFonts.preset.naturalHandwriting",
+  "playful-handwriting": "settings.browserFonts.preset.playfulHandwriting",
+  "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwriting"
+};
+
+const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationKey> = {
+  "system-default": "settings.browserFonts.preset.systemDefaultDescription",
+  "modern-sans": "settings.browserFonts.preset.modernSansDescription",
+  "comfortable-reading": "settings.browserFonts.preset.comfortableReadingDescription",
+  "clear-interface": "settings.browserFonts.preset.clearInterfaceDescription",
+  "clear-numbers": "settings.browserFonts.preset.clearNumbersDescription",
+  "code-monospace": "settings.browserFonts.preset.codeMonospaceDescription",
+  "natural-handwriting": "settings.browserFonts.preset.naturalHandwritingDescription",
+  "playful-handwriting": "settings.browserFonts.preset.playfulHandwritingDescription",
+  "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwritingDescription"
 };
 
 function SettingsViewBase({
   activeSection,
   games = [],
   gameBrowserSettings,
-  hasRunningRoles,
   roles = [],
   language,
   macroSettings,
@@ -388,7 +426,7 @@ function SettingsViewBase({
                 }
               />
               <BrowserFontsSettingsRows
-                hasRunningRoles={hasRunningRoles}
+                language={language}
                 settings={gameBrowserSettings}
                 systemFonts={systemFonts}
                 t={t}
@@ -696,7 +734,7 @@ function SettingsViewBase({
 }
 
 interface BrowserFontsSettingsRowsProps {
-  hasRunningRoles: boolean;
+  language: Language;
   settings: GameBrowserSettings;
   systemFonts: SystemFontFamily[];
   t: Translator;
@@ -706,7 +744,7 @@ interface BrowserFontsSettingsRowsProps {
 }
 
 function BrowserFontsSettingsRows({
-  hasRunningRoles,
+  language,
   settings,
   systemFonts,
   t,
@@ -716,12 +754,28 @@ function BrowserFontsSettingsRows({
 }: BrowserFontsSettingsRowsProps): JSX.Element {
   const [draft, setDraft] = useState<GameBrowserSettings>(() => normalizeGameBrowserSettings(settings));
   const [availableFonts, setAvailableFonts] = useState<SystemFontFamily[]>(systemFonts);
+  const [catalog, setCatalog] = useState<BrowserFontCatalogEntry[]>([]);
+  const [category, setCategory] = useState<"all" | BrowserFontCategory>("all");
+  const [fontSearch, setFontSearch] = useState("");
   const [isLoadingFonts, setIsLoadingFonts] = useState(systemFonts.length === 0);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [busyCatalogId, setBusyCatalogId] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const fontOptions = getBrowserFontOptions(availableFonts, draft);
+  const [previewFamilies, setPreviewFamilies] = useState<Record<string, string>>({});
+  const fontOptions = getBrowserSystemFontOptions(availableFonts, draft);
   const isDirty = JSON.stringify(normalizeGameBrowserSettings(draft)) !== JSON.stringify(normalizeGameBrowserSettings(settings));
+  const selectedCatalogIds = getSelectedBrowserFontCatalogIds(draft);
+  const installedCatalogIds = new Set(catalog.filter((font) => font.installed).map((font) => font.catalogId));
+  const missingCatalogIds = selectedCatalogIds.filter((catalogId) => !installedCatalogIds.has(catalogId));
+  const installedFonts = catalog.filter((font) => font.installed);
+  const effectiveCjkVariant = resolveEffectiveBrowserFontCjkVariant(draft.fonts.cjkVariant, language);
+  const previewKey = `${JSON.stringify(draft.fonts)}:${catalog
+    .filter((font) => font.installed)
+    .map((font) => `${font.catalogId}:${font.cachedBytes}`)
+    .join("|")}`;
 
   useEffect(() => {
     setDraft(normalizeGameBrowserSettings(settings));
@@ -760,32 +814,184 @@ function BrowserFontsSettingsRows({
     };
   }, [onError, onLoadSystemFonts, systemFonts.length]);
 
-  function handleFontFamilyChange(role: BrowserFontFamilyRole, value: string): void {
+  useEffect(() => {
+    let isDisposed = false;
+    if (!window.rionStudio?.listBrowserFontCatalog) {
+      setIsLoadingCatalog(false);
+      return () => undefined;
+    }
+    setIsLoadingCatalog(true);
+    void window.rionStudio
+      .listBrowserFontCatalog()
+      .then((fonts) => {
+        if (!isDisposed) setCatalog(fonts);
+      })
+      .catch(onError)
+      .finally(() => {
+        if (!isDisposed) setIsLoadingCatalog(false);
+      });
+    return () => {
+      isDisposed = true;
+    };
+  }, [onError]);
+
+  useEffect(() => {
+    let isDisposed = false;
+    const loadedFaces: FontFace[] = [];
+    setPreviewFamilies({});
+    if (
+      draft.fonts.mode !== "custom" ||
+      selectedCatalogIds.length === 0 ||
+      !window.rionStudio?.getBrowserFontPreview
+    ) {
+      return () => undefined;
+    }
+
+    void window.rionStudio
+      .getBrowserFontPreview(draft.fonts)
+      .then(async (payload) => {
+        const families: Record<string, string> = {};
+        const pendingFaces = payload.faces.map(async (asset) => {
+          const alias = `Rion Settings Preview ${asset.catalogId}`;
+          try {
+            const bytes = decodeBrowserFontBase64(asset.dataBase64);
+            const face = new FontFace(alias, bytes.buffer, {
+              style: asset.style,
+              unicodeRange: asset.unicodeRange || "U+0-10FFFF",
+              weight: asset.weight
+            });
+            await face.load();
+            return { alias, catalogId: asset.catalogId, face };
+          } catch {
+            // A failed preview face does not prevent saving or using the verified game cache.
+            return undefined;
+          }
+        });
+        const resolvedFaces = await Promise.all(pendingFaces);
+        if (isDisposed) return;
+        for (const loaded of resolvedFaces) {
+          if (!loaded) continue;
+          try {
+            const { alias, catalogId, face } = loaded;
+            document.fonts.add(face);
+            loadedFaces.push(face);
+            families[catalogId] = alias;
+          } catch {
+            // A failed preview face does not prevent saving or using the verified game cache.
+          }
+        }
+        if (!isDisposed) setPreviewFamilies(families);
+      })
+      .catch((error) => {
+        if (!isDisposed) onError(error);
+      });
+
+    return () => {
+      isDisposed = true;
+      for (const face of loadedFaces) document.fonts.delete(face);
+    };
+  }, [draft.fonts, onError, previewKey, selectedCatalogIds.length]);
+
+  function handleFontSelectionChange(slot: BrowserFontSlot, selection: BrowserFontSelection | undefined): void {
     setMessage(null);
-    setDraft((current) =>
-      normalizeGameBrowserSettings({
+    setDraft((current) => {
+      const slots = { ...current.fonts.slots };
+      if (selection) slots[slot] = selection;
+      else delete slots[slot];
+      return normalizeGameBrowserSettings({
         ...current,
         fonts: {
-          families: {
-            ...current.fonts.families,
-            [role]: value
-          },
-          mode: "custom"
+          cjkVariant: current.fonts.cjkVariant,
+          mode: "custom",
+          slots
         }
-      })
-    );
+      });
+    });
+  }
+
+  function handlePresetChange(presetId: BrowserFontPresetId): void {
+    setMessage(null);
+    setDraft((current) => ({
+      ...current,
+      fonts: {
+        ...resolveBrowserFontPreset(
+          presetId,
+          resolveEffectiveBrowserFontCjkVariant(current.fonts.cjkVariant, language)
+        ),
+        cjkVariant: current.fonts.cjkVariant
+      }
+    }));
+  }
+
+  function handleCjkVariantChange(cjkVariant: BrowserFontCjkVariant): void {
+    setMessage(null);
+    setDraft((current) => {
+      const preset = browserFontPresets.find((candidate) => candidate.id === current.fonts.presetId);
+      if (!preset) {
+        return { ...current, fonts: { ...current.fonts, cjkVariant } };
+      }
+      return {
+        ...current,
+        fonts: {
+          ...resolveBrowserFontPreset(
+            preset.id,
+            resolveEffectiveBrowserFontCjkVariant(cjkVariant, language)
+          ),
+          cjkVariant
+        }
+      };
+    });
+  }
+
+  async function reloadCatalog(): Promise<BrowserFontCatalogEntry[]> {
+    const fonts = await window.rionStudio.listBrowserFontCatalog();
+    setCatalog(fonts);
+    return fonts;
+  }
+
+  async function removeCatalogFont(catalogId: string): Promise<void> {
+    setBusyCatalogId(catalogId);
+    try {
+      await window.rionStudio.removeBrowserFont(catalogId);
+      await reloadCatalog();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusyCatalogId(null);
+    }
   }
 
   async function saveSettings(settingsToSave: GameBrowserSettings): Promise<void> {
     setIsSaving(true);
+    setMessage(null);
 
     try {
+      const normalized = normalizeGameBrowserSettings(settingsToSave);
+      const requiredCatalogIds = getSelectedBrowserFontCatalogIds(normalized);
+      const currentInstalledIds = new Set(
+        catalog.filter((font) => font.installed).map((font) => font.catalogId)
+      );
+      const downloads = requiredCatalogIds.filter((catalogId) => !currentInstalledIds.has(catalogId));
+      for (const [index, catalogId] of downloads.entries()) {
+        const font = catalog.find((candidate) => candidate.catalogId === catalogId);
+        setBusyCatalogId(catalogId);
+        setDownloadProgress(
+          t("settings.browserFontsDownloading")
+            .replace("{family}", font?.family ?? catalogId)
+            .replace("{current}", String(index + 1))
+            .replace("{total}", String(downloads.length))
+        );
+        await window.rionStudio.installBrowserFont(catalogId);
+      }
+      if (downloads.length > 0) await reloadCatalog();
       const savedSettings = await onSave(settingsToSave);
       setDraft(normalizeGameBrowserSettings(savedSettings));
-      setMessage(hasRunningRoles ? t("settings.browserFontsRestartNotice") : t("settings.browserFontsSaved"));
+      setMessage(t("settings.browserFontsSaved"));
     } catch (error) {
       onError(error);
     } finally {
+      setBusyCatalogId(null);
+      setDownloadProgress(null);
       setIsSaving(false);
     }
   }
@@ -816,24 +1022,150 @@ function BrowserFontsSettingsRows({
       {isExpanded ? (
         <div className="glass-divider border-b px-4 pb-4 pt-1">
           <div className="mb-4 h-px bg-border/35" />
-          <div className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {browserFontFamilyRoles.map((role) => (
-                <BrowserFontFamilyInput
-                  key={role}
-                  disabled={isSaving}
-                  fontOptions={fontOptions}
-                  label={t(browserFontRoleLabelKeys[role])}
-                  role={role}
-                  value={draft.fonts.families[role] ?? ""}
-                  onValueChange={handleFontFamilyChange}
-                />
-              ))}
+          <div className="grid gap-5">
+            <div className="rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs leading-5 text-muted-foreground">
+              {t("settings.browserFontsForceWarning")}
             </div>
 
-            <BrowserFontsPreview settings={draft} t={t} />
-            {isLoadingFonts ? (
+            <BrowserFontPresetCards
+              activePresetId={draft.fonts.presetId}
+              disabled={isSaving}
+              t={t}
+              onSelect={handlePresetChange}
+            />
+
+            <div className="grid gap-2">
+              <p className="text-xs font-semibold leading-5 text-foreground">
+                {t("settings.browserFontsCjkVariant")}
+              </p>
+              <SegmentedControl<BrowserFontCjkVariant>
+                className="grid-cols-4"
+                disabled={isSaving}
+                items={(["auto", "tc", "sc", "jp"] as const).map((value) => ({
+                  value,
+                  label: t(`settings.browserFonts.cjk.${value}` as TranslationKey)
+                }))}
+                value={draft.fonts.cjkVariant}
+                onValueChange={handleCjkVariantChange}
+              />
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                {t("settings.browserFontsCjkResolved").replace(
+                  "{variant}",
+                  t(`settings.browserFonts.cjk.${effectiveCjkVariant}` as TranslationKey)
+                )}
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <label className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+                  <Input
+                    className="pl-8"
+                    disabled={isSaving}
+                    placeholder={t("settings.browserFontsSearchPlaceholder")}
+                    value={fontSearch}
+                    onChange={(event) => setFontSearch(event.target.value)}
+                  />
+                </label>
+                <Select
+                  disabled={isSaving}
+                  value={category}
+                  onValueChange={(value) => setCategory(value as "all" | BrowserFontCategory)}
+                >
+                  <SelectTrigger className="w-full sm:w-44" aria-label={t("settings.browserFontsCategory")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(["all", "sans", "serif", "handwriting", "monospace", "math"] as const).map(
+                      (value) => (
+                        <SelectItem key={value} value={value}>
+                          {t(`settings.browserFonts.category.${value}` as TranslationKey)}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {browserFontSlots.map((slot) => (
+                  <BrowserFontSelectionPicker
+                    key={slot}
+                    catalog={catalog}
+                    category={category}
+                    cjkVariant={effectiveCjkVariant}
+                    disabled={isSaving}
+                    label={t(browserFontSlotLabelKeys[slot])}
+                    description={t(browserFontSlotDescriptionKeys[slot])}
+                    search={fontSearch}
+                    selection={draft.fonts.slots[slot]}
+                    slot={slot}
+                    systemFonts={fontOptions}
+                    t={t}
+                    onChange={handleFontSelectionChange}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <BrowserFontsPreview
+              previewFamilies={previewFamilies}
+              settings={draft}
+              t={t}
+            />
+
+            {isLoadingFonts || isLoadingCatalog ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
+            ) : null}
+
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {t("settings.browserFontsGoogleNotice")}
+            </p>
+
+            <details className="rounded-md border border-border/25 px-3 py-2">
+              <summary className="cursor-pointer select-none text-xs font-semibold leading-5 text-foreground">
+                {t("settings.browserFontsCache")} · {formatBrowserFontBytes(
+                  installedFonts.reduce((total, font) => total + font.cachedBytes, 0)
+                )}
+              </summary>
+              <div className="mt-2 grid gap-2">
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t("settings.browserFontsCacheDescription")}
+                </p>
+                {installedFonts.length === 0 ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("settings.browserFontsCacheEmpty")}
+                  </p>
+                ) : (
+                  installedFonts.map((font) => {
+                    const isSelected = selectedCatalogIds.includes(font.catalogId);
+                    return (
+                      <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
+                          <p className="text-[10px] text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("settings.browserFontsRemove")}
+                          disabled={isSaving || busyCatalogId === font.catalogId || isSelected}
+                          title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
+                          onClick={() => void removeCatalogFont(font.catalogId)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </details>
+
+            {downloadProgress ? (
+              <p className="text-xs font-medium leading-5 text-primary">{downloadProgress}</p>
             ) : null}
 
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -853,8 +1185,15 @@ function BrowserFontsSettingsRows({
                 <RotateCcw size={14} />
                 {t("settings.browserFontsReset")}
               </Button>
-              <Button type="button" disabled={isSaving || !isDirty} onClick={() => void saveSettings(draft)}>
-                {t("settings.browserFontsSave")}
+              <Button
+                type="button"
+                disabled={isSaving || busyCatalogId !== null || (!isDirty && missingCatalogIds.length === 0)}
+                onClick={() => void saveSettings(draft)}
+              >
+                {missingCatalogIds.length > 0 ? <CloudDownload size={14} /> : null}
+                {missingCatalogIds.length > 0
+                  ? t("settings.browserFontsDownloadApply").replace("{count}", String(missingCatalogIds.length))
+                  : t("settings.browserFontsApply")}
               </Button>
             </div>
           </div>
@@ -864,56 +1203,171 @@ function BrowserFontsSettingsRows({
   );
 }
 
-interface BrowserFontFamilyInputProps {
+interface BrowserFontPresetCardsProps {
+  activePresetId?: string;
   disabled: boolean;
-  fontOptions: SystemFontFamily[];
-  label: string;
-  role: BrowserFontFamilyRole;
-  value: string;
-  onValueChange: (role: BrowserFontFamilyRole, value: string) => void;
+  t: Translator;
+  onSelect: (presetId: BrowserFontPresetId) => void;
 }
 
-function BrowserFontFamilyInput({
+function BrowserFontPresetCards({
+  activePresetId,
   disabled,
-  fontOptions,
+  t,
+  onSelect
+}: BrowserFontPresetCardsProps): JSX.Element {
+  return (
+    <div className="grid gap-3">
+      {(["general", "handwriting"] as const).map((category) => (
+        <div key={category} className="grid gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold leading-5 text-foreground">
+            {category === "handwriting" ? <PenLine size={14} /> : null}
+            {t(
+              category === "general"
+                ? "settings.browserFontsPresetsGeneral"
+                : "settings.browserFontsPresetsHandwriting"
+            )}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {browserFontPresets
+              .filter((preset) => preset.category === category)
+              .map((preset) => {
+                const isActive = activePresetId === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    disabled={disabled}
+                    className={`min-h-[74px] rounded-md border px-3 py-2 text-left transition-colors disabled:opacity-45 ${
+                      isActive
+                        ? "border-primary/45 bg-primary/[0.08] text-foreground"
+                        : "border-border/30 bg-muted/10 text-muted-foreground hover:bg-accent/30 hover:text-foreground"
+                    }`}
+                    onClick={() => onSelect(preset.id)}
+                  >
+                    <span className="block text-xs font-semibold leading-5">
+                      {t(browserFontPresetLabelKeys[preset.id])}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-4">
+                      {t(browserFontPresetDescriptionKeys[preset.id])}
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface BrowserFontSelectionPickerProps {
+  catalog: BrowserFontCatalogEntry[];
+  category: "all" | BrowserFontCategory;
+  cjkVariant: Exclude<BrowserFontCjkVariant, "auto">;
+  disabled: boolean;
+  label: string;
+  description: string;
+  search: string;
+  selection?: BrowserFontSelection;
+  slot: BrowserFontSlot;
+  systemFonts: SystemFontFamily[];
+  t: Translator;
+  onChange: (slot: BrowserFontSlot, selection: BrowserFontSelection | undefined) => void;
+}
+
+function BrowserFontSelectionPicker({
+  catalog,
+  category,
+  cjkVariant,
+  disabled,
   label,
-  role,
-  value,
-  onValueChange
-}: BrowserFontFamilyInputProps): JSX.Element {
-  const listId = `browser-font-${role}-options`;
+  description,
+  search,
+  selection,
+  slot,
+  systemFonts,
+  t,
+  onChange
+}: BrowserFontSelectionPickerProps): JSX.Element {
+  const query = search.trim().toLocaleLowerCase();
+  const selectedCatalogId = selection?.source === "google" ? selection.catalogId : undefined;
+  const selectedSystemFamily = selection?.source === "system" ? selection.family : undefined;
+  const filteredSystemFonts = systemFonts.filter(
+    (font) => !query || font.family.toLocaleLowerCase().includes(query) || font.label.toLocaleLowerCase().includes(query)
+  );
+  const filteredCatalog = catalog.filter((font) => {
+    const matchesSearch = !query || font.family.toLocaleLowerCase().includes(query);
+    const matchesCategory = category === "all" || font.category === category;
+    const matchesScript = slot !== "cjk" || font.scripts.includes(cjkVariant);
+    return font.catalogId === selectedCatalogId || (matchesSearch && matchesCategory && matchesScript);
+  });
+  const value = browserFontSelectionValue(selection);
 
   return (
-    <label className="grid gap-1.5">
+    <label className="grid min-w-0 gap-1.5 rounded-md border border-border/20 bg-muted/[0.08] p-2.5">
       <span className="text-xs font-semibold leading-5 text-foreground">{label}</span>
-      <Input
-        list={listId}
+      <span className="min-h-8 text-[10px] leading-4 text-muted-foreground">{description}</span>
+      <Select
         disabled={disabled}
-        placeholder={label}
         value={value}
-        onChange={(event) => onValueChange(role, event.target.value)}
-      />
-      <datalist id={listId}>
-        {fontOptions.map((font) => (
-          <option key={`${role}-${font.family}`} value={font.family}>
-            {font.label}
-          </option>
-        ))}
-      </datalist>
+        onValueChange={(nextValue) => onChange(slot, parseBrowserFontSelectionValue(nextValue))}
+      >
+        <SelectTrigger className="w-full" aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper">
+          <SelectItem value="fallback">{t("settings.browserFontsFallback")}</SelectItem>
+          {selectedSystemFamily && !filteredSystemFonts.some((font) => font.family === selectedSystemFamily) ? (
+            <SelectItem value={`system:${selectedSystemFamily}`}>{selectedSystemFamily}</SelectItem>
+          ) : null}
+          {selectedCatalogId && !filteredCatalog.some((font) => font.catalogId === selectedCatalogId) ? (
+            <SelectItem value={`google:${selectedCatalogId}`}>{selectedCatalogId}</SelectItem>
+          ) : null}
+          {filteredSystemFonts.map((font) => (
+            <SelectItem key={`system:${font.family}`} value={`system:${font.family}`}>
+              {font.label} · {t("settings.browserFontsSourceSystem")}
+            </SelectItem>
+          ))}
+          {filteredCatalog.map((font) => (
+            <SelectItem key={`google:${font.catalogId}`} value={`google:${font.catalogId}`}>
+              {font.family} · {font.installed
+                ? t("settings.browserFontsInstalled")
+                : t("settings.browserFontsNotDownloaded")}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </label>
   );
 }
 
-function BrowserFontsPreview({ settings, t }: { settings: GameBrowserSettings; t: Translator }): JSX.Element {
-  const families = settings.fonts.families;
-  const standardFamily = families.standard || families.sansserif || families.serif || undefined;
-  const fixedFamily = families.fixed || undefined;
-  const mathFamily = families.math || standardFamily;
+function BrowserFontsPreview({
+  previewFamilies,
+  settings,
+  t
+}: {
+  previewFamilies: Record<string, string>;
+  settings: GameBrowserSettings;
+  t: Translator;
+}): JSX.Element {
+  const cjkFamily = browserFontPreviewFamily(settings.fonts.slots.cjk, previewFamilies);
+  const latinFamily = browserFontPreviewFamily(settings.fonts.slots.latin, previewFamilies);
+  const numericFamily = browserFontPreviewFamily(settings.fonts.slots.numeric, previewFamilies);
+  const monospaceFamily = browserFontPreviewFamily(settings.fonts.slots.monospace, previewFamilies);
+  const mathFamily = browserFontPreviewFamily(settings.fonts.slots.math, previewFamilies);
 
   return (
     <div className="grid gap-2 rounded-md border border-border/25 px-3 py-3 text-xs leading-5 text-muted-foreground">
-      <p style={{ fontFamily: standardFamily }}>{t("settings.browserFontsPreviewText")}</p>
-      <p style={{ fontFamily: fixedFamily }}>0123456789 ABC abc</p>
+      <p className="font-semibold text-foreground">{t("settings.browserFontsPreview")}</p>
+      <p className="text-base leading-7">
+        <span style={{ fontFamily: cjkFamily }}>繁體中文 · 简体中文 · 日本語 </span>
+        <span style={{ fontFamily: latinFamily }}>Rion Studio </span>
+        <span style={{ fontFamily: numericFamily }}>0123456789</span>
+      </p>
+      <p style={{ fontFamily: latinFamily }}>{t("settings.browserFontsPreviewText")}</p>
+      <p style={{ fontFamily: monospaceFamily }}>const hp = 100; // 0123456789</p>
       <div
         style={{ fontFamily: mathFamily }}
         dangerouslySetInnerHTML={{
@@ -1159,22 +1613,26 @@ function formatBrowserFontSettingsSummary(settings: GameBrowserSettings, t: Tran
     return t("settings.browserFontsDefault");
   }
 
-  const selectedFamilies = browserFontFamilyRoles.map((role) => settings.fonts.families[role]).filter(Boolean);
-  return selectedFamilies.length > 0
-    ? selectedFamilies.join(" / ")
+  const preset = browserFontPresets.find((candidate) => candidate.id === settings.fonts.presetId);
+  if (preset) return t(browserFontPresetLabelKeys[preset.id]);
+  const count = browserFontSlots.filter((slot) => settings.fonts.slots[slot]).length;
+  return count > 0
+    ? t("settings.browserFontsCustomSummary").replace("{count}", String(count))
     : t("settings.browserFontsCustomEmpty");
 }
 
-function getBrowserFontOptions(
+function getBrowserSystemFontOptions(
   systemFonts: SystemFontFamily[],
   settings: GameBrowserSettings
 ): SystemFontFamily[] {
-  const selectedFonts = browserFontFamilyRoles
-    .map((role) => settings.fonts.families[role])
-    .filter((fontFamily): fontFamily is string => Boolean(fontFamily));
+  const selectedFonts = browserFontSlots
+    .map((slot) => settings.fonts.slots[slot])
+    .filter((selection): selection is Extract<BrowserFontSelection, { source: "system" }> => selection?.source === "system")
+    .map((selection) => selection.family);
   const fontsByKey = new Map<string, SystemFontFamily>();
+  const genericFonts = ["system-ui", "ui-monospace", "math"].map((family) => ({ family, label: family }));
 
-  for (const font of [...systemFonts, ...selectedFonts.map((family) => ({ family, label: family }))]) {
+  for (const font of [...genericFonts, ...systemFonts, ...selectedFonts.map((family) => ({ family, label: family }))]) {
     const key = font.family.toLocaleLowerCase();
     if (!fontsByKey.has(key)) {
       fontsByKey.set(key, font);
@@ -1182,6 +1640,61 @@ function getBrowserFontOptions(
   }
 
   return [...fontsByKey.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function getSelectedBrowserFontCatalogIds(settings: GameBrowserSettings): string[] {
+  return [...new Set(
+    browserFontSlots
+      .map((slot) => settings.fonts.slots[slot])
+      .filter((selection): selection is Extract<BrowserFontSelection, { source: "google" }> => selection?.source === "google")
+      .map((selection) => selection.catalogId)
+  )];
+}
+
+function resolveEffectiveBrowserFontCjkVariant(
+  variant: BrowserFontCjkVariant,
+  language: Language
+): Exclude<BrowserFontCjkVariant, "auto"> {
+  if (variant !== "auto") return variant;
+  if (language === "zh-CN") return "sc";
+  if (language === "ja") return "jp";
+  return "tc";
+}
+
+function browserFontSelectionValue(selection?: BrowserFontSelection): string {
+  if (!selection) return "fallback";
+  return selection.source === "system"
+    ? `system:${selection.family}`
+    : `google:${selection.catalogId}`;
+}
+
+function parseBrowserFontSelectionValue(value: string): BrowserFontSelection | undefined {
+  if (value.startsWith("system:")) return { source: "system", family: value.slice(7) };
+  if (value.startsWith("google:")) return { source: "google", catalogId: value.slice(7) };
+  return undefined;
+}
+
+function browserFontPreviewFamily(
+  selection: BrowserFontSelection | undefined,
+  previewFamilies: Record<string, string>
+): string | undefined {
+  if (!selection) return undefined;
+  return selection.source === "system"
+    ? selection.family
+    : previewFamilies[selection.catalogId];
+}
+
+function decodeBrowserFontBase64(value: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(value);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function formatBrowserFontBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function createPortableExportAvailability(counts: PortableDataCounts): PortableDataAvailability {

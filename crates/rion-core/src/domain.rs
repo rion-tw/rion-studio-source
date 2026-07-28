@@ -35,6 +35,9 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
     GameBrowserSettingsRecord {
         fonts: BrowserFontSettingsRecord {
             mode: "default".to_owned(),
+            preset_id: None,
+            cjk_variant: "auto".to_owned(),
+            slots: HashMap::new(),
             families: HashMap::new(),
         },
         macro_badge_position: MacroBadgePositionRecord {
@@ -2204,16 +2207,55 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
         &["default", "custom"],
         "browser font mode",
     )?;
-    if settings.fonts.families.iter().any(|(key, value)| {
-        !matches!(
-            key.as_str(),
-            "standard" | "serif" | "sansserif" | "fixed" | "math"
-        ) || value.trim().is_empty()
-            || value.len() > 120
+    one_of(
+        &settings.fonts.cjk_variant,
+        &["auto", "tc", "sc", "jp"],
+        "browser font CJK variant",
+    )?;
+    if settings.fonts.preset_id.as_ref().is_some_and(|value| {
+        value.is_empty()
+            || value.len() > 64
+            || !value.chars().all(|character| {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+            })
     }) {
         return Err(CoreError::InvalidInput(
-            "browser font families are invalid".to_owned(),
+            "browser font preset is invalid".to_owned(),
         ));
+    }
+    for (slot, selection) in &settings.fonts.slots {
+        if !matches!(
+            slot.as_str(),
+            "cjk" | "latin" | "numeric" | "monospace" | "math"
+        ) {
+            return Err(CoreError::InvalidInput(
+                "browser font slot is invalid".to_owned(),
+            ));
+        }
+        match selection {
+            crate::model::BrowserFontSelectionRecord::System { family } => {
+                if normalize_font_family(family).as_deref() != Some(family.as_str()) {
+                    return Err(CoreError::InvalidInput(
+                        "browser system font family is invalid".to_owned(),
+                    ));
+                }
+            }
+            crate::model::BrowserFontSelectionRecord::Google { catalog_id } => {
+                if catalog_id.is_empty()
+                    || catalog_id.len() > 64
+                    || !crate::font_catalog::contains(catalog_id)
+                    || !catalog_id.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                    })
+                {
+                    return Err(CoreError::InvalidInput(
+                        "browser Google font catalog id is invalid".to_owned(),
+                    ));
+                }
+            }
+        }
     }
     one_of(
         &settings.macro_badge_position.horizontal_align,
@@ -2251,25 +2293,60 @@ pub fn normalize_game_browser_settings(
     if !matches!(settings.fonts.mode.as_str(), "default" | "custom") {
         settings.fonts.mode = "default".to_owned();
     }
-    settings.fonts.families.retain(|key, value| {
+    migrate_legacy_browser_font_families(&mut settings.fonts);
+    if !matches!(
+        settings.fonts.cjk_variant.as_str(),
+        "auto" | "tc" | "sc" | "jp"
+    ) {
+        settings.fonts.cjk_variant = "auto".to_owned();
+    }
+    settings.fonts.preset_id = settings.fonts.preset_id.and_then(|value| {
+        let normalized = value.trim().to_ascii_lowercase();
+        (!normalized.is_empty()
+            && normalized.len() <= 64
+            && normalized.chars().all(|character| {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+            }))
+        .then_some(normalized)
+    });
+    settings.fonts.slots.retain(|slot, selection| {
         if !matches!(
-            key.as_str(),
-            "standard" | "serif" | "sansserif" | "fixed" | "math"
+            slot.as_str(),
+            "cjk" | "latin" | "numeric" | "monospace" | "math"
         ) {
             return false;
         }
-        let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
-        if normalized.is_empty()
-            || normalized.len() > 120
-            || normalized.chars().any(char::is_control)
-        {
-            return false;
+        match selection {
+            crate::model::BrowserFontSelectionRecord::System { family } => {
+                let Some(normalized) = normalize_font_family(family) else {
+                    return false;
+                };
+                *family = normalized;
+                true
+            }
+            crate::model::BrowserFontSelectionRecord::Google { catalog_id } => {
+                let normalized = catalog_id.trim().to_ascii_lowercase();
+                if normalized.is_empty()
+                    || normalized.len() > 64
+                    || !crate::font_catalog::contains(&normalized)
+                    || !normalized.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                    })
+                {
+                    return false;
+                }
+                *catalog_id = normalized;
+                true
+            }
         }
-        *value = normalized;
-        true
     });
+    settings.fonts.families.clear();
     if settings.fonts.mode == "default" {
-        settings.fonts.families.clear();
+        settings.fonts.preset_id = None;
+        settings.fonts.cjk_variant = "auto".to_owned();
+        settings.fonts.slots.clear();
     }
     if !matches!(
         settings.macro_badge_position.horizontal_align.as_str(),
@@ -2297,6 +2374,52 @@ pub fn normalize_game_browser_settings(
         settings.workspace.gap = 4;
     }
     settings
+}
+
+fn normalize_font_family(value: &str) -> Option<String> {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!normalized.is_empty() && normalized.len() <= 120 && !normalized.chars().any(char::is_control))
+        .then_some(normalized)
+}
+
+fn migrate_legacy_browser_font_families(fonts: &mut BrowserFontSettingsRecord) {
+    if fonts.families.is_empty() || !fonts.slots.is_empty() {
+        return;
+    }
+    let proportional = ["standard", "sansserif", "serif"]
+        .into_iter()
+        .find_map(|key| fonts.families.get(key))
+        .and_then(|family| normalize_font_family(family));
+    if let Some(family) = proportional {
+        for slot in ["cjk", "latin", "numeric"] {
+            fonts.slots.insert(
+                slot.to_owned(),
+                crate::model::BrowserFontSelectionRecord::System {
+                    family: family.clone(),
+                },
+            );
+        }
+    }
+    if let Some(family) = fonts
+        .families
+        .get("fixed")
+        .and_then(|family| normalize_font_family(family))
+    {
+        fonts.slots.insert(
+            "monospace".to_owned(),
+            crate::model::BrowserFontSelectionRecord::System { family },
+        );
+    }
+    if let Some(family) = fonts
+        .families
+        .get("math")
+        .and_then(|family| normalize_font_family(family))
+    {
+        fonts.slots.insert(
+            "math".to_owned(),
+            crate::model::BrowserFontSelectionRecord::System { family },
+        );
+    }
 }
 
 pub fn normalize_macro_settings(mut settings: MacroSettingsRecord) -> MacroSettingsRecord {
@@ -2858,8 +2981,11 @@ mod tests {
         }))
         .unwrap();
         let settings = normalize_game_browser_settings(settings);
-        assert_eq!(settings.fonts.families["fixed"], "Courier New");
-        assert!(!settings.fonts.families.contains_key("bad"));
+        assert_eq!(
+            serde_json::to_value(&settings.fonts).unwrap()["slots"]["monospace"],
+            json!({"source":"system","family":"Courier New"})
+        );
+        assert!(settings.fonts.families.is_empty());
         assert!(settings.performance.macos_high_refresh_rate);
         validate_game_browser_settings(&settings).unwrap();
         assert!(

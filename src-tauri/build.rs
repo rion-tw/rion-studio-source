@@ -38,6 +38,7 @@ fn main() {
     }
     let manifest = tauri_build::AppManifest::new().commands(&[
         "rion_core_invoke",
+        "rion_browser_font_payload",
         "rion_divider_pointer",
         "rion_overlay_request",
         "rion_local_storage_sync_changed",

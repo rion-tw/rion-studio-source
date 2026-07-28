@@ -1,7 +1,9 @@
 import type {
-  BrowserFontFamilyRole,
+  BrowserFontCjkVariant,
+  BrowserFontSelection,
   BrowserFontSettings,
   BrowserFontSettingsMode,
+  BrowserFontSlot,
   BrowserPerformanceSettings,
   GameBrowserSettings,
   WorkspaceAppearanceSettings,
@@ -13,19 +15,97 @@ import {
   normalizeMacroBadgePositionSettings
 } from "./macroOverlay";
 
-export const browserFontFamilyRoles = ["standard", "serif", "sansserif", "fixed", "math"] as const;
+export const browserFontSlots = ["cjk", "latin", "numeric", "monospace", "math"] as const;
+export const browserFontCjkVariants = ["auto", "tc", "sc", "jp"] as const;
 
-export const browserFontFamilyPrefKeys: Record<BrowserFontFamilyRole, string> = {
-  fixed: "webkit.webprefs.fonts.fixed.Zyyy",
-  math: "webkit.webprefs.fonts.math.Zyyy",
-  sansserif: "webkit.webprefs.fonts.sansserif.Zyyy",
-  serif: "webkit.webprefs.fonts.serif.Zyyy",
-  standard: "webkit.webprefs.fonts.standard.Zyyy"
-};
+export type BrowserFontPresetId =
+  | "system-default"
+  | "modern-sans"
+  | "comfortable-reading"
+  | "clear-interface"
+  | "clear-numbers"
+  | "code-monospace"
+  | "natural-handwriting"
+  | "playful-handwriting"
+  | "calligraphic-handwriting";
+
+export interface BrowserFontPresetDefinition {
+  id: BrowserFontPresetId;
+  category: "general" | "handwriting";
+  slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>;
+  cjkCatalog: Record<Exclude<BrowserFontCjkVariant, "auto">, string>;
+}
+
+const system = (family: string): BrowserFontSelection => ({ source: "system", family });
+const google = (catalogId: string): BrowserFontSelection => ({ source: "google", catalogId });
+
+export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
+  {
+    id: "system-default",
+    category: "general",
+    cjkCatalog: { tc: "", sc: "", jp: "" },
+    slots: {
+      cjk: system("system-ui"),
+      latin: system("system-ui"),
+      numeric: system("system-ui"),
+      monospace: system("ui-monospace"),
+      math: system("math")
+    }
+  },
+  {
+    id: "modern-sans",
+    category: "general",
+    cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
+    slots: { latin: google("inter"), numeric: google("inter"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "comfortable-reading",
+    category: "general",
+    cjkCatalog: { tc: "noto-serif-tc", sc: "noto-serif-sc", jp: "noto-serif-jp" },
+    slots: { latin: google("source-serif-4"), numeric: google("source-serif-4"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "clear-interface",
+    category: "general",
+    cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
+    slots: { latin: google("roboto"), numeric: google("roboto"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "clear-numbers",
+    category: "general",
+    cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
+    slots: { latin: google("inter"), numeric: google("roboto-mono"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "code-monospace",
+    category: "general",
+    cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
+    slots: { latin: google("jetbrains-mono"), numeric: google("jetbrains-mono"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "natural-handwriting",
+    category: "handwriting",
+    cjkCatalog: { tc: "iansui", sc: "ma-shan-zheng", jp: "klee-one" },
+    slots: { latin: google("patrick-hand"), numeric: google("caveat"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "playful-handwriting",
+    category: "handwriting",
+    cjkCatalog: { tc: "lxgw-wenkai-tc", sc: "long-cang", jp: "yomogi" },
+    slots: { latin: google("caveat"), numeric: google("caveat"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "calligraphic-handwriting",
+    category: "handwriting",
+    cjkCatalog: { tc: "lxgw-wenkai-tc", sc: "zhi-mang-xing", jp: "klee-one" },
+    slots: { latin: google("kalam"), numeric: google("kalam"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  }
+];
 
 export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
-  families: {},
-  mode: "default"
+  cjkVariant: "auto",
+  mode: "default",
+  slots: {}
 };
 
 export const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
@@ -93,33 +173,35 @@ export function normalizeBrowserFontSettings(
 ): BrowserFontSettings {
   const input = isRecord(value) ? value : {};
   const mode = normalizeBrowserFontSettingsMode(input.mode, fallback.mode);
-  const families = normalizeBrowserFontFamilies(input.families, fallback.families);
+  const cjkVariant = normalizeBrowserFontCjkVariant(input.cjkVariant, fallback.cjkVariant);
+  const slots = normalizeBrowserFontSlots(input.slots, fallback.slots);
+  migrateLegacyBrowserFontFamilies(input.families, slots);
+  const presetId = normalizePresetId(input.presetId);
 
-  return {
-    families: mode === "custom" ? families : {},
-    mode
-  };
+  return mode === "default"
+    ? { cjkVariant: "auto", mode, slots: {} }
+    : { cjkVariant, mode, ...(presetId ? { presetId } : {}), slots };
 }
 
-export function normalizeBrowserFontFamilies(
+export function normalizeBrowserFontSlots(
   value: unknown,
-  fallback: Partial<Record<BrowserFontFamilyRole, string>> = {}
-): Partial<Record<BrowserFontFamilyRole, string>> {
+  fallback: Partial<Record<BrowserFontSlot, BrowserFontSelection>> = {}
+): Partial<Record<BrowserFontSlot, BrowserFontSelection>> {
   const input = isRecord(value) ? value : {};
-  const normalized: Partial<Record<BrowserFontFamilyRole, string>> = {};
+  const normalized: Partial<Record<BrowserFontSlot, BrowserFontSelection>> = {};
 
-  for (const role of browserFontFamilyRoles) {
-    const fontFamily = normalizeBrowserFontFamily(input[role], fallback[role]);
-    if (fontFamily) {
-      normalized[role] = fontFamily;
+  for (const slot of browserFontSlots) {
+    const selection = normalizeBrowserFontSelection(input[slot], fallback[slot]);
+    if (selection) {
+      normalized[slot] = selection;
     }
   }
 
   return normalized;
 }
 
-export function isBrowserFontFamilyRole(value: unknown): value is BrowserFontFamilyRole {
-  return browserFontFamilyRoles.includes(value as BrowserFontFamilyRole);
+export function isBrowserFontSlot(value: unknown): value is BrowserFontSlot {
+  return browserFontSlots.includes(value as BrowserFontSlot);
 }
 
 export function normalizeBrowserFontFamily(value: unknown, fallback?: string): string | undefined {
@@ -147,6 +229,66 @@ function normalizeBrowserFontSettingsMode(
   fallback: BrowserFontSettingsMode
 ): BrowserFontSettingsMode {
   return value === "default" || value === "custom" ? value : fallback;
+}
+
+function normalizeBrowserFontCjkVariant(
+  value: unknown,
+  fallback: BrowserFontCjkVariant
+): BrowserFontCjkVariant {
+  return browserFontCjkVariants.includes(value as BrowserFontCjkVariant)
+    ? (value as BrowserFontCjkVariant)
+    : fallback;
+}
+
+function normalizeBrowserFontSelection(
+  value: unknown,
+  fallback?: BrowserFontSelection
+): BrowserFontSelection | undefined {
+  if (!isRecord(value)) return fallback;
+  if (value.source === "system") {
+    const family = normalizeBrowserFontFamily(value.family);
+    return family ? { source: "system", family } : fallback;
+  }
+  if (value.source === "google" && typeof value.catalogId === "string") {
+    const catalogId = value.catalogId.trim().toLocaleLowerCase();
+    return /^[a-z0-9-]{1,64}$/.test(catalogId) ? { source: "google", catalogId } : fallback;
+  }
+  return fallback;
+}
+
+function migrateLegacyBrowserFontFamilies(
+  value: unknown,
+  slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>
+): void {
+  if (!isRecord(value) || Object.keys(slots).length > 0) return;
+  const proportional = [value.standard, value.sansserif, value.serif]
+    .map((family) => normalizeBrowserFontFamily(family))
+    .find(Boolean);
+  if (proportional) {
+    for (const slot of ["cjk", "latin", "numeric"] as const) slots[slot] = system(proportional);
+  }
+  const fixed = normalizeBrowserFontFamily(value.fixed);
+  if (fixed) slots.monospace = system(fixed);
+  const math = normalizeBrowserFontFamily(value.math);
+  if (math) slots.math = system(math);
+}
+
+function normalizePresetId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLocaleLowerCase();
+  return /^[a-z0-9-]{1,64}$/.test(normalized) ? normalized : undefined;
+}
+
+export function resolveBrowserFontPreset(
+  presetId: BrowserFontPresetId,
+  variant: Exclude<BrowserFontCjkVariant, "auto">
+): BrowserFontSettings {
+  const preset = browserFontPresets.find((candidate) => candidate.id === presetId);
+  if (!preset) return DEFAULT_BROWSER_FONT_SETTINGS;
+  const slots = { ...preset.slots };
+  const cjkCatalogId = preset.cjkCatalog[variant];
+  if (cjkCatalogId) slots.cjk = google(cjkCatalogId);
+  return { cjkVariant: variant, mode: "custom", presetId, slots };
 }
 
 function normalizeWorkspaceGapSize(

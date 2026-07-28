@@ -4069,6 +4069,13 @@ impl SystemRuntimeExecutor {
         let entries = if let Some(webview) = live {
             require_exact_local_storage_sync_origin(&webview, origin)?;
             read_scoped_local_storage_entries(&webview, keys)?
+        } else if let Ok(snapshot) =
+            self.load_local_storage_sync_snapshot(source_role_id, origin, keys)
+        {
+            // A stopped source may still have a native storage write in flight. The
+            // encrypted observer snapshot is updated before dependents are allowed
+            // to observe a value, so prefer it over rereading the just-closed store.
+            snapshot.entries
         } else {
             let launch = checked_web_url(source_launch_url)?;
             if launch.origin().ascii_serialization() != origin {

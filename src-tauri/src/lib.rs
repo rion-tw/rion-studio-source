@@ -193,6 +193,10 @@ fn core_command_refreshes_runtime_projection(command: &CoreCommand) -> bool {
     matches!(command, CoreCommand::RuntimeWindowPreferencesReplace { .. })
 }
 
+fn overlay_request_activates_webview(payload: &Value) -> bool {
+    payload.get("type").and_then(Value::as_str) == Some("activate")
+}
+
 #[tauri::command]
 async fn rion_core_invoke(
     app: AppHandle,
@@ -262,6 +266,14 @@ async fn rion_overlay_request(
         .runtime
         .role_id_for_webview(webview.label())
         .map_err(|message| shell_error("OVERLAY_ROLE_UNAVAILABLE", message))?;
+    if overlay_request_activates_webview(&payload) {
+        webview.set_focus().map_err(|error| {
+            shell_error(
+                "OVERLAY_WEBVIEW_FOCUS_FAILED",
+                format!("Unable to focus the active role WebView: {error}"),
+            )
+        })?;
+    }
     Arc::clone(&state.core)
         .invoke_async(CoreCommand::OverlayRequest {
             role_id,
@@ -3167,6 +3179,26 @@ mod tests {
         assert!(!core_command_refreshes_runtime_projection(
             &CoreCommand::RuntimeWindowPreferencesGet
         ));
+    }
+
+    #[test]
+    fn only_overlay_activation_requests_focus_the_invoking_webview() {
+        assert!(overlay_request_activates_webview(&json!({
+            "type": "activate"
+        })));
+        assert!(overlay_request_activates_webview(&json!({
+            "type": "activate",
+            "roleId": "untrusted-role"
+        })));
+        for payload in [
+            json!({ "type": "list" }),
+            json!({ "type": "toggle", "macroId": "macro-a" }),
+            json!({ "type": "press", "macroId": "macro-a", "pressId": "press-a" }),
+            json!({ "type": "release", "macroId": "macro-a", "pressId": "press-a" }),
+            json!({ "active": true, "type": "game-input-context" }),
+        ] {
+            assert!(!overlay_request_activates_webview(&payload));
+        }
     }
 
     #[test]

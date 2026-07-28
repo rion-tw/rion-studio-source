@@ -1,4 +1,4 @@
-import { Gamepad2, Keyboard, LayoutDashboard, PanelsTopLeft, Settings, Users } from "lucide-react";
+import { Gamepad2, House, Keyboard, LayoutDashboard, PanelsTopLeft, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -23,19 +23,21 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
 
   return (
     <aside data-tauri-drag-region className="app-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
-      <div className="pb-5">
-        <button
-          aria-label={t("app.home")}
-          className="app-no-drag flex w-full items-center gap-2 rounded-md px-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
-          onClick={() => navigate("/dashboard")}
-          type="button"
-        >
+      <div data-tauri-drag-region="deep" className="pb-5">
+        <div className="flex w-full items-center gap-2 rounded-md px-2 text-left">
           <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />
           <span className="min-w-0 truncate text-[15px] font-semibold leading-5">Rion Studio</span>
-        </button>
+        </div>
       </div>
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
+        <NavItem
+          active={location.pathname === "/dashboard"}
+          icon={House}
+          label={t("app.home")}
+          noDrag
+          onClick={() => navigate("/dashboard")}
+        />
         <div className="grid gap-1 pt-2" role="group" aria-label={t("app.navigation.play")}>
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
             {t("app.navigation.play")}

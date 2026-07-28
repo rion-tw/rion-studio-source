@@ -24,6 +24,7 @@
     "src/renderer/src/app/reorderItems.ts",
     "src/renderer/src/app/roleCoverPlaceholder.ts",
     "src/renderer/src/app/types.ts",
+    "src/renderer/src/components/AppSidebar.tsx",
     "src/renderer/src/components/AppRouteError.tsx",
     "src/renderer/src/components/ConfirmationDialog.tsx",
     "src/renderer/src/components/CreateListItem.tsx",

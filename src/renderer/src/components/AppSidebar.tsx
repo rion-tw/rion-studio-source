@@ -61,7 +61,7 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
           noDrag
           onClick={() => navigate("/dashboard")}
         />
-        <div className="grid gap-1 pt-2" role="group" aria-label={t("app.navigation.play")}>
+        <div className="grid gap-1 pt-5" role="group" aria-label={t("app.navigation.play")}>
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
             {t("app.navigation.play")}
           </p>

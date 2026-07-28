@@ -95,8 +95,18 @@ struct GameWindowTabDragSession {
 #[derive(Default)]
 struct StartupWindowState {
     failure: Mutex<Option<String>>,
+    native_startup_changed: tokio::sync::Notify,
+    native_startup_phase: Mutex<NativeStartupPhase>,
     renderer_ready: AtomicBool,
     revealed: AtomicBool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum NativeStartupPhase {
+    #[default]
+    Pending,
+    Ready,
+    Failed(String),
 }
 
 impl StartupWindowState {
@@ -106,8 +116,58 @@ impl StartupWindowState {
 
     fn mark_renderer_ready(&self) {
         self.renderer_ready.store(true, Ordering::Release);
-        if let Ok(mut failure) = self.failure.lock() {
+        let native_startup_failed = self
+            .native_startup_phase
+            .lock()
+            .map(|phase| matches!(*phase, NativeStartupPhase::Failed(_)))
+            .unwrap_or(true);
+        if !native_startup_failed && let Ok(mut failure) = self.failure.lock() {
             *failure = None;
+        }
+    }
+
+    fn mark_native_startup_failed(&self, message: String) {
+        if let Ok(mut phase) = self.native_startup_phase.lock()
+            && matches!(*phase, NativeStartupPhase::Pending)
+        {
+            *phase = NativeStartupPhase::Failed(message.clone());
+        }
+        self.set_failure(message);
+        self.native_startup_changed.notify_waiters();
+    }
+
+    fn mark_native_startup_ready(&self) {
+        if let Ok(mut phase) = self.native_startup_phase.lock()
+            && matches!(*phase, NativeStartupPhase::Pending)
+        {
+            *phase = NativeStartupPhase::Ready;
+        }
+        self.native_startup_changed.notify_waiters();
+    }
+
+    fn native_startup_result(&self) -> Result<Option<()>, CoreErrorPayload> {
+        let phase = self.native_startup_phase.lock().map_err(|_| {
+            shell_error(
+                "SHELL_STARTUP_FAILED",
+                "Rion Studio could not read the native startup state.",
+            )
+        })?;
+        match &*phase {
+            NativeStartupPhase::Pending => Ok(None),
+            NativeStartupPhase::Ready => Ok(Some(())),
+            NativeStartupPhase::Failed(message) => {
+                Err(shell_error("SHELL_STARTUP_FAILED", message.clone()))
+            }
+        }
+    }
+
+    async fn wait_for_native_startup(&self) -> Result<(), CoreErrorPayload> {
+        loop {
+            let changed = self.native_startup_changed.notified();
+            if self.native_startup_result()?.is_some() {
+                return Ok(());
+            }
+            changed.await;
         }
     }
 
@@ -144,11 +204,8 @@ fn show_startup_failure_message(app: &AppHandle, message: String) {
     }
 }
 
-fn show_startup_failure(app: &AppHandle, error: &dyn std::fmt::Display) {
-    show_startup_failure_message(
-        app,
-        format!("Rion Studio could not finish starting.\n\n{error}"),
-    );
+fn startup_failure_message(error: &dyn std::fmt::Display) -> String {
+    format!("Rion Studio could not finish starting.\n\n{error}")
 }
 
 fn platform_name() -> Result<&'static str, String> {
@@ -549,22 +606,37 @@ fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, Core
 async fn rion_shell_invoke(
     app: tauri::AppHandle,
     window: WebviewWindow,
-    state: State<'_, CoreState>,
     startup: State<'_, StartupWindowState>,
     operation: String,
     args: Vec<Value>,
 ) -> Result<Value, CoreErrorPayload> {
+    match operation.as_str() {
+        "waitForNativeStartup" => {
+            startup.wait_for_native_startup().await?;
+            return Ok(Value::Null);
+        }
+        "rendererStartupFailed" => {
+            let message = string_argument(&args, 0, "Renderer startup failure")?;
+            show_startup_failure_message(&app, message);
+            return Ok(Value::Null);
+        }
+        _ => {}
+    }
+
+    startup.wait_for_native_startup().await?;
+    let state = app.try_state::<CoreState>().ok_or_else(|| {
+        shell_error(
+            "SHELL_STARTUP_FAILED",
+            "Rion Studio native startup completed without managed core state.",
+        )
+    })?;
+
     match operation.as_str() {
         "rendererReady" => {
             startup.mark_renderer_ready();
             window
                 .show()
                 .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-            Ok(Value::Null)
-        }
-        "rendererStartupFailed" => {
-            let message = string_argument(&args, 0, "Renderer startup failure")?;
-            show_startup_failure_message(&app, message);
             Ok(Value::Null)
         }
         "appSnapshot" => app_snapshot(&state, &window),
@@ -2984,8 +3056,19 @@ pub fn run() {
                 })?;
                 Ok(())
             })();
-            if let Err(error) = setup_result {
-                show_startup_failure(app.handle(), error.as_ref());
+            match setup_result {
+                Ok(()) => {
+                    if let Some(startup) = app.try_state::<StartupWindowState>() {
+                        startup.mark_native_startup_ready();
+                    }
+                }
+                Err(error) => {
+                    let message = startup_failure_message(error.as_ref());
+                    if let Some(startup) = app.try_state::<StartupWindowState>() {
+                        startup.mark_native_startup_failed(message.clone());
+                    }
+                    show_startup_failure_message(app.handle(), message);
+                }
             }
             Ok(())
         })
@@ -3244,5 +3327,36 @@ mod tests {
 
         assert!(!state.should_report_timeout());
         assert_eq!(state.failure(), None);
+    }
+
+    #[tokio::test]
+    async fn native_startup_readiness_releases_pending_waiters() {
+        let state = Arc::new(StartupWindowState::default());
+        let first_state = Arc::clone(&state);
+        let second_state = Arc::clone(&state);
+        let first = tokio::spawn(async move { first_state.wait_for_native_startup().await });
+        let second = tokio::spawn(async move { second_state.wait_for_native_startup().await });
+
+        tokio::task::yield_now().await;
+        assert!(!first.is_finished());
+        assert!(!second.is_finished());
+
+        state.mark_native_startup_ready();
+
+        assert!(first.await.unwrap().is_ok());
+        assert!(second.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn native_startup_failure_preserves_the_original_message() {
+        let state = StartupWindowState::default();
+        state.mark_native_startup_failed("native database failed".to_owned());
+
+        state.mark_renderer_ready();
+
+        let error = state.wait_for_native_startup().await.unwrap_err();
+        assert_eq!(error.code, "SHELL_STARTUP_FAILED");
+        assert_eq!(error.message, "native database failed");
+        assert_eq!(state.failure().as_deref(), Some("native database failed"));
     }
 }

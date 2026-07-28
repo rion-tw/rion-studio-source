@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 const ACTIVATION_ENDPOINT_FILE: &str = "rion-studio.activation.json";
 const ACTIVATION_TIMEOUT: Duration = Duration::from_secs(3);
+const ACTIVATION_ATTEMPTS: usize = 2;
 const MAX_ACTIVATION_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Deserialize, Serialize)]
@@ -121,34 +122,38 @@ fn forward_activation_result(user_data_dir: &Path) -> io::Result<()> {
     let address = format!("{}:{}", endpoint.host, endpoint.port)
         .parse::<SocketAddr>()
         .map_err(io::Error::other)?;
-    let mut stream = TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT)?;
-    let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
-    let request = ActivationRequest {
-        operation: "activate".to_owned(),
-        token: endpoint.token,
-    };
-    let Ok(mut body) = serde_json::to_vec(&request) else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "activation request could not be encoded",
-        ));
-    };
-    body.push(b'\n');
-    stream.write_all(&body)?;
-    let response = read_message(&mut stream)?;
-    let accepted = serde_json::from_slice::<serde_json::Value>(&response)
-        .ok()
-        .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
-        == Some(true);
-    if accepted {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "activation endpoint rejected the request",
-        ))
+    for attempt in 0..ACTIVATION_ATTEMPTS {
+        let mut stream = TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT)?;
+        let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
+        let request = ActivationRequest {
+            operation: "activate".to_owned(),
+            token: endpoint.token.clone(),
+        };
+        let Ok(mut body) = serde_json::to_vec(&request) else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "activation request could not be encoded",
+            ));
+        };
+        body.push(b'\n');
+        stream.write_all(&body)?;
+        let response = read_message(&mut stream)?;
+        let accepted = serde_json::from_slice::<serde_json::Value>(&response)
+            .ok()
+            .and_then(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+            == Some(true);
+        if accepted {
+            return Ok(());
+        }
+        if attempt + 1 < ACTIVATION_ATTEMPTS {
+            thread::sleep(Duration::from_millis(25));
+        }
     }
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "activation endpoint rejected the request",
+    ))
 }
 
 fn handle_connection(

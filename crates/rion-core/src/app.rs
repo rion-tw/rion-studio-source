@@ -7956,7 +7956,7 @@ mod tests {
     }
 
     #[test]
-    fn embedded_macro_from_one_role_runs_three_iterations_for_all_assigned_roles() {
+    fn embedded_macro_from_one_role_runs_balanced_iterations_for_each_available_role() {
         let (_directory, core) = core();
         let game_id = first_game_id(&core);
         let role_id = create_role(&core, &game_id, 1);
@@ -8150,6 +8150,9 @@ mod tests {
         assert!(held_roles.is_empty());
         assert!(!presses.contains_key(&unavailable_role_id));
         assert!(!releases.contains_key(&unavailable_role_id));
+        // Each role advances on its own worker. A role may complete another balanced
+        // iteration before the global stop reaches every worker, so cross-role totals
+        // are not required to match.
         for expected_role_id in [&role_id, &sibling_role_id] {
             let press_count = presses.get(expected_role_id).copied().unwrap_or_default();
             let release_count = releases.get(expected_role_id).copied().unwrap_or_default();
@@ -8162,7 +8165,6 @@ mod tests {
                 "{expected_role_id} key state is unbalanced"
             );
         }
-        assert_eq!(releases.get(&role_id), releases.get(&sibling_role_id));
         let (stopped, _) = drive_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedRoleStop {

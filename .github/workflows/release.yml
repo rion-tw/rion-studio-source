@@ -96,12 +96,15 @@ jobs:
           echo "release_version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
   build-tauri-release:
-    needs: resolve-release
+    needs:
+      - validate-ci-run
+      - resolve-release
     if: needs.resolve-release.outputs.has_release == 'true'
     uses: ./.github/workflows/tauri-release-candidate.yml
     with:
       tag: ${{ needs.resolve-release.outputs.release_tag }}
       updater_base_url: https://github.com/rion-tw/rion-studio/releases/latest/download
+      verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}
     secrets:
       RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

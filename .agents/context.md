@@ -193,8 +193,9 @@ text fitting within controls and cards at the app minimum window size of 960x640
 
 Use Rust unit/property/integration tests for core behavior and Vitest for typed
 bridge, architecture, release tooling, and renderer behavior. Prefer dependency injection
-and deterministic fixtures; release validation builds platform packages and verifies
-their artifacts without launching the application.
+and deterministic fixtures. Automatic releases inherit the exact successful CI SHA,
+while manually dispatched candidates rerun CI; release validation then builds platform
+packages and verifies their artifacts without launching the application.
 
 Common test areas:
 

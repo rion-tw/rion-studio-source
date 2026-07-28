@@ -1,3 +1,3 @@
 fn main() {
-    rion_tauri::run();
+    rion_studio_lib::run();
 }

@@ -7,7 +7,7 @@ license.workspace = true
 build = "build.rs"
 
 [lib]
-name = "rion_tauri"
+name = "rion_studio_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

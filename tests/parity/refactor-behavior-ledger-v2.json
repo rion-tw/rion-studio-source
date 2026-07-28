@@ -487,14 +487,14 @@
     },
     {
       "id": "behavior-3d8746917114",
-      "deduplicationKey": "shell\u0000tests/release-workflows.test.ts\u0000runs common checks and platform builds on macOS and Windows",
+      "deduplicationKey": "shell\u0000tests/release-workflows.test.ts\u0000runs common checks and platform validation on macOS and Windows",
       "status": "preserved",
       "contract": "Tauri release and local package builds explicitly use macOS ad-hoc signing and strip notarization credentials.",
       "evidence": [
         {
           "kind": "executable-test",
           "file": "tests/release-workflows.test.ts",
-          "test": "runs common checks and platform builds on macOS and Windows"
+          "test": "runs common checks and platform validation on macOS and Windows"
         }
       ],
       "runtimeCritical": false,

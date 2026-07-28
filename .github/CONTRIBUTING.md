@@ -78,14 +78,15 @@ cargo check -p rion-tauri
 pnpm run verify:system-only
 ```
 
-`pnpm run build` links the Rust core directly into the application. Release
-CI must build on both `macos-latest` and `windows-latest`, verify the resulting
-Tauri bundle, and run the platform-aware Rust and renderer tests. macOS releases
-target 14+, use the explicit ad-hoc signing identity (`-`), and must not import a
-Developer ID certificate or submit for notarization. Windows releases remain
-unsigned, matching the legacy release, and require a WebView2 runtime presence
-check. The updater archives on both platforms still require Tauri's independent
-cryptographic signature.
+`pnpm run build` links the Rust core directly into the application. CI must validate
+both `macos-latest` and `windows-latest` with platform-aware Rust lint, tests, and
+`cargo check -p rion-tauri --all-targets`. After that quality gate succeeds, the
+release candidate workflow is the only production Tauri bundle build and verifies
+the resulting installers on both platforms. macOS releases target 14+, use the
+explicit ad-hoc signing identity (`-`), and must not import a Developer ID certificate
+or submit for notarization. Windows releases remain unsigned, matching the legacy
+release, and require a WebView2 runtime presence check. The updater archives on both
+platforms still require Tauri's independent cryptographic signature.
 
 Releases use Tauri's updater-signed `latest.json`; the two-version/90-day upgrade
 window additionally publishes `latest.yml` and `latest-mac.yml` for legacy

@@ -194,8 +194,10 @@ text fitting within controls and cards at the app minimum window size of 960x640
 Use Rust unit/property/integration tests for core behavior and Vitest for typed
 bridge, architecture, release tooling, and renderer behavior. Prefer dependency injection
 and deterministic fixtures. Automatic releases inherit the exact successful CI SHA,
-while manually dispatched candidates rerun CI; release validation then builds platform
-packages and verifies their artifacts without launching the application.
+while manually dispatched candidates rerun CI. CI validates the macOS and Windows
+shells with target-platform lint, tests, and `cargo check`; release validation is the
+only production Tauri bundle build and verifies its artifacts without launching the
+application.
 Candidate manifest and upgrade jobs explicitly accept the automatic quality skip,
 and a final release-ready gate prevents a skipped release-specific verification from
 being treated as a successful reusable workflow.

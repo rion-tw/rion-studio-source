@@ -114,6 +114,17 @@ struct LocalStorageSyncAttestationRequest {
     output_path: PathBuf,
 }
 
+enum PendingNativeAttestation {
+    FileOperations(PathBuf),
+    Input(PathBuf),
+    LocalStorageSync(LocalStorageSyncAttestationRequest),
+    MacroGame(MacroGameAttestationRequest),
+    RuntimeRestore(RuntimeRestoreAttestationRequest),
+    SessionImport(SessionImportAttestationRequest),
+}
+
+struct PendingNativeAttestationState(Mutex<Option<PendingNativeAttestation>>);
+
 struct CoreState {
     _activation: ActivationServer,
     _quick_menu: tauri::tray::TrayIcon,
@@ -123,6 +134,49 @@ struct CoreState {
     runtime: Arc<SystemRuntimeExecutor>,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
     updates: Arc<update_manager::UpdateManager>,
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn start_pending_native_attestation(
+    app: &AppHandle,
+    pending: PendingNativeAttestation,
+) -> Result<(), String> {
+    match pending {
+        PendingNativeAttestation::RuntimeRestore(request) => {
+            start_runtime_restore_attestation(app.clone(), request)
+        }
+        PendingNativeAttestation::MacroGame(request) => {
+            start_macro_game_attestation(app.clone(), request)
+        }
+        PendingNativeAttestation::SessionImport(request) => {
+            start_session_import_attestation(app.clone(), request)
+        }
+        PendingNativeAttestation::LocalStorageSync(request) => {
+            start_local_storage_sync_attestation(app.clone(), request)
+        }
+        PendingNativeAttestation::FileOperations(output_path) => {
+            start_file_operations_attestation(app.clone(), output_path)
+        }
+        PendingNativeAttestation::Input(output_path) => {
+            eprintln!(
+                "System WebView parity: starting trusted-input attestation at {} after the Tauri event loop became ready.",
+                output_path.display()
+            );
+            let runtime = app
+                .try_state::<CoreState>()
+                .map(|state| Arc::clone(&state.runtime))
+                .ok_or_else(|| "The System WebView runtime state is unavailable.".to_owned())?;
+            system_runtime::start_trusted_input_attestation(app.clone(), output_path, runtime)
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn start_pending_native_attestation(
+    _app: &AppHandle,
+    _pending: PendingNativeAttestation,
+) -> Result<(), String> {
+    Err("Native System WebView attestation supports only macOS and Windows.".to_owned())
 }
 
 #[derive(Clone)]
@@ -4595,7 +4649,6 @@ pub fn run() {
                 app.package_info().version.to_string(),
                 &user_data_dir,
             ));
-            let attestation_runtime = Arc::clone(&runtime);
             let app_handle = app.handle().clone();
             let effect_core = Arc::clone(&core);
             let effect_runtime = Arc::clone(&runtime);
@@ -4732,49 +4785,25 @@ pub fn run() {
             if let Some(state) = app.try_state::<CoreState>() {
                 application_menu::install(app.handle(), &state.core, "en")?;
             }
-            if let Some(request) = restore_attestation {
-                #[cfg(any(windows, target_os = "macos"))]
-                start_runtime_restore_attestation(app.handle().clone(), request)?;
-                #[cfg(not(any(windows, target_os = "macos")))]
-                return Err("Runtime restore attestation supports only macOS and Windows.".into());
+            let pending_attestation = if let Some(request) = restore_attestation {
+                Some(PendingNativeAttestation::RuntimeRestore(request))
             } else if let Some(request) = macro_game_attestation {
-                #[cfg(any(windows, target_os = "macos"))]
-                start_macro_game_attestation(app.handle().clone(), request)?;
-                #[cfg(not(any(windows, target_os = "macos")))]
-                return Err("Macro-game attestation supports only macOS and Windows.".into());
+                Some(PendingNativeAttestation::MacroGame(request))
             } else if let Some(request) = session_import_attestation {
-                #[cfg(any(windows, target_os = "macos"))]
-                start_session_import_attestation(app.handle().clone(), request)?;
-                #[cfg(not(any(windows, target_os = "macos")))]
-                return Err("Session-import attestation supports only macOS and Windows.".into());
+                Some(PendingNativeAttestation::SessionImport(request))
             } else if let Some(request) = local_storage_sync_attestation {
-                #[cfg(any(windows, target_os = "macos"))]
-                start_local_storage_sync_attestation(app.handle().clone(), request)?;
-                #[cfg(not(any(windows, target_os = "macos")))]
-                return Err(
-                    "localStorage sync attestation supports only macOS and Windows.".into(),
-                );
+                Some(PendingNativeAttestation::LocalStorageSync(request))
             } else if let Some(output_path) = file_operations_attestation_output {
-                #[cfg(any(windows, target_os = "macos"))]
-                start_file_operations_attestation(app.handle().clone(), output_path)?;
-                #[cfg(not(any(windows, target_os = "macos")))]
-                return Err(
-                    "File-operations attestation supports only macOS and Windows.".into(),
-                );
+                Some(PendingNativeAttestation::FileOperations(output_path))
             } else if let Some(output_path) = input_attestation_output {
-                #[cfg(any(windows, target_os = "macos"))]
-                eprintln!(
-                    "System WebView parity: starting trusted-input attestation at {}.",
-                    output_path.display()
-                );
-                #[cfg(any(windows, target_os = "macos"))]
-                system_runtime::start_trusted_input_attestation(
-                    app.handle().clone(),
-                    output_path,
-                    attestation_runtime,
-                )?;
-                #[cfg(not(any(windows, target_os = "macos")))]
-                return Err("System input attestation supports only macOS and Windows.".into());
+                Some(PendingNativeAttestation::Input(output_path))
+            } else {
+                None
+            };
+            if let Some(pending_attestation) = pending_attestation {
+                app.manage(PendingNativeAttestationState(Mutex::new(Some(
+                    pending_attestation,
+                ))));
             } else {
                 start_display_watcher(app.handle().clone())?;
                 let ready_app = app.handle().clone();
@@ -4825,6 +4854,17 @@ pub fn run() {
         .expect("failed to build Rion Studio")
         .run(|app_handle, event| {
             match event {
+                tauri::RunEvent::Ready => {
+                    let pending = app_handle
+                        .try_state::<PendingNativeAttestationState>()
+                        .and_then(|state| state.0.lock().ok()?.take());
+                    if let Some(pending) = pending
+                        && let Err(error) = start_pending_native_attestation(app_handle, pending)
+                    {
+                        eprintln!("Native System WebView attestation failed to start: {error}");
+                        app_handle.exit(8);
+                    }
+                }
                 tauri::RunEvent::ExitRequested { .. } => {
                     let Some(state) = app_handle.try_state::<CoreState>() else {
                         return;

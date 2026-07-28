@@ -271,6 +271,20 @@ fn same_game_window_record(left: &StateGameWindowRecord, right: &StateGameWindow
     serde_json::to_value(left).ok() == serde_json::to_value(right).ok()
 }
 
+fn game_window_recovery_error(
+    code: &str,
+    native_error: &CoreErrorPayload,
+    recovery_error: impl std::fmt::Display,
+) -> CoreErrorPayload {
+    shell_error(
+        code,
+        format!(
+            "Game Window update failed ({}: {}), and native reconciliation also failed: {recovery_error}",
+            native_error.code, native_error.message
+        ),
+    )
+}
+
 fn core_command_refreshes_runtime_projection(command: &CoreCommand) -> bool {
     matches!(command, CoreCommand::RuntimeWindowPreferencesReplace { .. })
 }
@@ -963,26 +977,30 @@ async fn rion_shell_invoke(
                         shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
                     })
                 })?;
+            let mut operation_record = updated;
             if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
-                let native_result = runtime_window
-                    .set_title(crate::system_runtime::native_runtime_window_title(
-                        &updated.name,
-                    ))
-                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))
-                    .and_then(|()| {
-                        if !should_relocate {
-                            return Ok(());
-                        }
+                let native_result = (|| {
+                    runtime_window
+                        .set_title(crate::system_runtime::native_runtime_window_title(
+                            &operation_record.name,
+                        ))
+                        .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+                    if should_relocate {
                         let target = launch_target_for_game_window(&app, &window_id)?;
+                        operation_record = game_window_record(&state.core, &window_id)?;
                         state
                             .runtime
                             .relocate_game_window(target)
-                            .map_err(|error| shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", error))
-                    });
+                            .map_err(|error| {
+                                shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", error)
+                            })?;
+                    }
+                    Ok::<(), CoreErrorPayload>(())
+                })();
                 if let Err(native_error) = native_result {
                     let current = game_window_record(&state.core, &window_id)?;
-                    let authoritative = if same_game_window_record(&current, &updated) {
-                        state
+                    let authoritative = if same_game_window_record(&current, &operation_record) {
+                        match state
                             .core
                             .invoke(CoreCommand::GameWindowUpdate {
                                 id: window_id.clone(),
@@ -998,22 +1016,53 @@ async fn rion_shell_invoke(
                                         )
                                     },
                                 )
-                            })?
+                            }) {
+                            Ok(record) => record,
+                            Err(rollback_error) => {
+                                return Err(game_window_recovery_error(
+                                    "SHELL_GAME_WINDOW_ROLLBACK_FAILED",
+                                    &native_error,
+                                    format!("{}: {}", rollback_error.code, rollback_error.message),
+                                ));
+                            }
+                        }
                     } else {
                         current
                     };
-                    let _ = runtime_window.set_title(
+                    if let Err(error) = runtime_window.set_title(
                         crate::system_runtime::native_runtime_window_title(&authoritative.name),
-                    );
-                    if should_relocate
-                        && let Ok(target) = launch_target_for_game_window(&app, &window_id)
-                    {
-                        let _ = state.runtime.relocate_game_window(target);
+                    ) {
+                        return Err(game_window_recovery_error(
+                            "SHELL_GAME_WINDOW_RECONCILE_FAILED",
+                            &native_error,
+                            error,
+                        ));
+                    }
+                    if should_relocate {
+                        let target =
+                            launch_target_for_game_window(&app, &window_id).map_err(|error| {
+                                game_window_recovery_error(
+                                    "SHELL_GAME_WINDOW_RECONCILE_FAILED",
+                                    &native_error,
+                                    format!("{}: {}", error.code, error.message),
+                                )
+                            })?;
+                        state
+                            .runtime
+                            .relocate_game_window(target)
+                            .map_err(|error| {
+                                game_window_recovery_error(
+                                    "SHELL_GAME_WINDOW_RECONCILE_FAILED",
+                                    &native_error,
+                                    error,
+                                )
+                            })?;
                     }
                     return Err(native_error);
                 }
             }
-            serde_json::to_value(updated)
+            let authoritative = game_window_record(&state.core, &window_id)?;
+            serde_json::to_value(authoritative)
                 .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
         }
         "closeGameWindow" => {
@@ -3412,6 +3461,24 @@ mod tests {
         assert_eq!(input.placement.unwrap().normal_bounds.x, 20);
         assert_eq!(input.tabs.unwrap()[0].id, "tab-1");
         assert_eq!(input.active_tab_id, Some(Some("tab-1".to_owned())));
+
+        let mut remapped = record.clone();
+        remapped.target_display.id = 8;
+        remapped.updated_at = "2026-01-02T00:00:00Z".to_owned();
+        let current_after_own_remap = remapped.clone();
+        assert!(same_game_window_record(&current_after_own_remap, &remapped));
+        let mut concurrent = remapped.clone();
+        concurrent.name = "Concurrent edit".to_owned();
+        assert!(!same_game_window_record(&concurrent, &remapped));
+
+        let recovery_error = game_window_recovery_error(
+            "SHELL_GAME_WINDOW_RECONCILE_FAILED",
+            &shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", "move failed"),
+            "restore failed",
+        );
+        assert_eq!(recovery_error.code, "SHELL_GAME_WINDOW_RECONCILE_FAILED");
+        assert!(recovery_error.message.contains("move failed"));
+        assert!(recovery_error.message.contains("restore failed"));
     }
 
     #[test]

@@ -116,6 +116,10 @@ impl CompatibilityRuntime {
             .is_some_and(|active| active.cancel_requested)
     }
 
+    pub fn is_active(&self, game_id: &str) -> bool {
+        self.active.contains_key(game_id)
+    }
+
     pub fn build_report(
         &self,
         game_id: &str,

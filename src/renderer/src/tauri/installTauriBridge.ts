@@ -331,7 +331,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     ),
     () => listen<{ code: string; message: string }>(
       "rion://shell-error",
-      ({ payload }) => console.error(`[${payload.code}] ${payload.message}`)
+      ({ payload }) => {
+        console.error(`[${payload.code}] ${payload.message}`);
+        emit("shellError", payload);
+      }
     ),
     () => listen("rion://quick-menu-restore", () => {
       void invokeShell("restoreSavedGameWindows", [{ scope: "all" }])
@@ -369,7 +372,16 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     listGameWindows: () => invokeCore({ type: "gameWindowsList" }),
     createGameWindow: async (input) => {
       const gameWindow = await invokeCore({ type: "gameWindowCreate", input });
-      await invokeShell("showGameWindow", [gameWindow.id]);
+      try {
+        await invokeShell("showGameWindow", [gameWindow.id]);
+      } catch (error) {
+        try {
+          await invokeCore({ type: "gameWindowDelete", id: gameWindow.id });
+        } catch (cleanupError) {
+          console.error("Failed to roll back a Game Window after its native window failed.", cleanupError);
+        }
+        throw error;
+      }
       return gameWindow;
     },
     updateGameWindow: (id, input) => invokeShell("updateGameWindow", [id, input]),
@@ -514,6 +526,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onMacrosChanged: (callback) => on("macros", callback as Listener),
     onMacroPageRequested: (callback) => on("macroPageRequest", callback as Listener),
     onUpdateStatusChanged: (callback) => on("updateStatus", callback as Listener),
+    onShellError: (callback) => on("shellError", callback as Listener),
     onLogEntryAdded: (callback) => on("logEntry", callback as Listener),
     onChromeProfileImportProgress: (callback) =>
       on("chromeProfileImportProgress", callback as Listener),

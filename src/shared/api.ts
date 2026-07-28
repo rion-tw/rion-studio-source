@@ -59,6 +59,7 @@ import type {
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "./types";
+import type { CoreErrorPayload } from "./generated";
 
 export interface RionStudioApi {
   notifyRendererReady: () => Promise<void>;
@@ -170,6 +171,7 @@ export interface RionStudioApi {
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
+  onShellError: (callback: (error: CoreErrorPayload) => void) => () => void;
   onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;
   onChromeProfileImportProgress: (
     callback: (progress: ChromeProfileImportProgress) => void

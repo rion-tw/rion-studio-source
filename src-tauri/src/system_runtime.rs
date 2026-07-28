@@ -1142,6 +1142,7 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    #[cfg(target_os = "macos")]
     fn window_for_role(&self, role_id: &str) -> Option<Window> {
         self.state.lock().ok().and_then(|state| {
             let tab_id = state.role_tabs.get(role_id)?;
@@ -2575,6 +2576,7 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Overlay WebView is not associated with a running role.".to_owned())
     }
 
+    #[cfg(target_os = "macos")]
     fn recovery_target_for_webview(&self, webview_label: &str) -> Option<(String, u64)> {
         let state = self.state.lock().ok()?;
         let role_id = state.popup_roles.get(webview_label).cloned().or_else(|| {

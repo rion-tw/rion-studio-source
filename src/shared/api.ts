@@ -21,6 +21,7 @@ import type {
   CreateMacroInput,
   CreateRoleInput,
   GameBrowserSettings,
+  GameBrowserSettingsPatch,
   Game,
   DiagnosticExportResult,
   DiscardSavedGameWindowsInput,
@@ -141,6 +142,7 @@ export interface RionStudioApi {
   discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  patchGameBrowserSettings: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
   listBrowserFontCatalog: () => Promise<BrowserFontCatalogEntry[]>;
   installBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;
   removeBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;

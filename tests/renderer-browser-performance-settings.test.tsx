@@ -10,7 +10,7 @@ import en from "../src/renderer/src/i18n/en.json";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
 import type { Translator } from "../src/renderer/src/i18n";
-import type { GameBrowserSettings } from "../src/shared/types";
+import type { GameBrowserSettings, GameBrowserSettingsPatch } from "../src/shared/types";
 
 const t: Translator = (key) => en[key] ?? key;
 
@@ -34,7 +34,7 @@ afterAll(() => {
 
 function renderSettings(
   platform: "mac" | "windows",
-  onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>
+  onGameBrowserSettingsPatch: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>
 ): void {
   document.documentElement.dataset.platform = platform;
   render(
@@ -52,7 +52,8 @@ function renderSettings(
           onDiscardPortableImport={async () => undefined}
           onError={vi.fn()}
           onExportPortableData={async () => null}
-          onGameBrowserSettingsChange={onGameBrowserSettingsChange}
+          onGameBrowserSettingsChange={async (settings) => settings}
+          onGameBrowserSettingsPatch={onGameBrowserSettingsPatch}
           onInstallDownloadedUpdate={async () => undefined}
           onSetAutoUpdateEnabled={async () => undefined}
           onLanguageChange={() => undefined}
@@ -89,8 +90,11 @@ function renderSettings(
 
 describe("browser performance settings", () => {
   it("shows and persists the experimental high refresh preference on macOS", async () => {
-    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
-    renderSettings("mac", onGameBrowserSettingsChange);
+    const onGameBrowserSettingsPatch = vi.fn(async () => ({
+      ...DEFAULT_GAME_BROWSER_SETTINGS,
+      performance: { macosHighRefreshRate: true }
+    }));
+    renderSettings("mac", onGameBrowserSettingsPatch);
 
     const gameSection = screen.getByRole("heading", { name: "Game" }).parentElement;
     expect(gameSection).not.toBeNull();
@@ -102,15 +106,14 @@ describe("browser performance settings", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Experimental high refresh rate" }));
 
     await waitFor(() => {
-      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith({
-        ...DEFAULT_GAME_BROWSER_SETTINGS,
+      expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
         performance: { macosHighRefreshRate: true }
       });
     });
   });
 
   it("does not expose the macOS-only control on Windows", () => {
-    renderSettings("windows", async (settings) => settings);
+    renderSettings("windows", async () => DEFAULT_GAME_BROWSER_SETTINGS);
 
     expect(
       screen.queryByRole("switch", { name: "Experimental high refresh rate" })

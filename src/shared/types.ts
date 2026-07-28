@@ -18,6 +18,7 @@ import type {
   EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
   SystemWebViewIssueReason as RustSystemWebViewIssueReason,
   GameCreateRequest,
+  GameBrowserSettingsPatchRecord,
   GameBrowserSettingsRecord,
   GameUpdateRequest,
   GameWindowCreateInputRecord,
@@ -391,6 +392,7 @@ export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
 export type MacroBadgePositionSettings = MacroBadgePositionRecord;
 
 export type GameBrowserSettings = GameBrowserSettingsRecord;
+export type GameBrowserSettingsPatch = GameBrowserSettingsPatchRecord;
 
 export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
 

@@ -37,14 +37,14 @@ use crate::{
         CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind,
         CoreEvent, CoreStateSnapshotRecord, DiagnosticExportResultRecord,
         EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsRecord,
-        GameWindowCreateInputRecord, GameWindowTabRecord, LegacySessionRestoreRecord,
-        LegalAcceptanceRecord, LogCaptureRecord, LogLevel, MacroOverlayRequestRecord,
-        MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
-        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
-        RolePathsRecord, RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord,
-        StateCollection, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsPatchRecord,
+        GameBrowserSettingsRecord, GameWindowCreateInputRecord, GameWindowTabRecord,
+        LegacySessionRestoreRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
+        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
+        RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
+        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
@@ -584,6 +584,10 @@ impl AppCore {
                 validate_game_browser_settings(&settings)?;
                 self.replace_scalar_state("gameBrowserSettings", settings.clone())?;
                 serde_json::to_value(settings)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::GameBrowserSettingsPatch { patch } => {
+                serde_json::to_value(self.patch_game_browser_settings(patch)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserFontCatalogList => {
@@ -5284,6 +5288,14 @@ impl AppCore {
 
     fn replace_scalar_state<T: serde::Serialize>(&self, key: &str, value: T) -> CoreResult<Value> {
         let _guard = self.state_mutation_guard()?;
+        self.replace_scalar_state_under_guard(key, value)
+    }
+
+    fn replace_scalar_state_under_guard<T: serde::Serialize>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> CoreResult<Value> {
         let value =
             serde_json::to_value(value).map_err(|error| CoreError::Internal(error.to_string()))?;
         self.with_runtime(|runtime| {
@@ -5294,6 +5306,43 @@ impl AppCore {
             }]);
             Ok(json!({ "revision": revision }))
         })
+    }
+
+    fn patch_game_browser_settings(
+        &self,
+        patch: GameBrowserSettingsPatchRecord,
+    ) -> CoreResult<GameBrowserSettingsRecord> {
+        let _guard = self.state_mutation_guard()?;
+        let mut settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        let patch_macro_badge_position = patch.macro_badge_position.is_some();
+        let patch_performance = patch.performance.is_some();
+        let patch_workspace = patch.workspace.is_some();
+        let mut candidate = settings.clone();
+        if let Some(macro_badge_position) = patch.macro_badge_position {
+            candidate.macro_badge_position = macro_badge_position;
+        }
+        if let Some(performance) = patch.performance {
+            candidate.performance = performance;
+        }
+        if let Some(workspace) = patch.workspace {
+            candidate.workspace = workspace;
+        }
+        let candidate = normalize_game_browser_settings(candidate);
+        validate_game_browser_settings(&candidate)?;
+        if patch_macro_badge_position {
+            settings.macro_badge_position = candidate.macro_badge_position;
+        }
+        if patch_performance {
+            settings.performance = candidate.performance;
+        }
+        if patch_workspace {
+            settings.workspace = candidate.workspace;
+        }
+        self.replace_scalar_state_under_guard("gameBrowserSettings", settings.clone())?;
+        Ok(settings)
     }
 
     fn read_optional_scalar_state<T: serde::de::DeserializeOwned>(
@@ -7380,6 +7429,51 @@ mod tests {
             })
             .unwrap();
         core.browser_operations.complete(&lease.id).unwrap();
+        core.shutdown();
+    }
+
+    #[test]
+    fn game_browser_setting_patches_merge_non_font_sections_atomically() {
+        let (_directory, core) = core();
+        let initial = core.invoke(CoreCommand::GameBrowserSettingsGet).unwrap();
+        let initial_fonts = initial["fonts"].clone();
+        let workspace_core = Arc::clone(&core);
+        let performance_core = Arc::clone(&core);
+
+        let workspace = thread::spawn(move || {
+            workspace_core.invoke(command(json!({
+                "type": "gameBrowserSettingsPatch",
+                "patch": { "workspace": { "background": "black", "gap": 12 } }
+            })))
+        });
+        let performance = thread::spawn(move || {
+            performance_core.invoke(command(json!({
+                "type": "gameBrowserSettingsPatch",
+                "patch": { "performance": { "macosHighRefreshRate": true } }
+            })))
+        });
+        workspace.join().unwrap().unwrap();
+        performance.join().unwrap().unwrap();
+        core.invoke(command(json!({
+            "type": "gameBrowserSettingsPatch",
+            "patch": {
+                "macroBadgePosition": {
+                    "horizontalAlign": "right",
+                    "horizontalMarginPx": 16,
+                    "topPx": 240
+                }
+            }
+        })))
+        .unwrap();
+
+        let settings = core.invoke(CoreCommand::GameBrowserSettingsGet).unwrap();
+        assert_eq!(settings["fonts"], initial_fonts);
+        assert_eq!(
+            settings["workspace"],
+            json!({ "background": "black", "gap": 12 })
+        );
+        assert_eq!(settings["performance"]["macosHighRefreshRate"], true);
+        assert_eq!(settings["macroBadgePosition"]["horizontalAlign"], "right");
         core.shutdown();
     }
 

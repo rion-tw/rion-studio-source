@@ -34,6 +34,7 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type {
   GameBrowserSettings,
+  GameBrowserSettingsPatch,
   MacroSettings,
   PortableExportInput,
   PortableExportResult,
@@ -67,6 +68,7 @@ export function App(): JSX.Element {
   const hasBridge = Boolean(window.rionStudio);
   const legal = useLegalAcceptance(hasBridge);
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
+  const gameBrowserSettingsPatchQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
   const [runtimeWindowPreferences, setRuntimeWindowPreferences] =
     useState<RuntimeWindowPreferences>({
@@ -167,6 +169,25 @@ export function App(): JSX.Element {
     setGameBrowserSettings(nextSettings);
     return nextSettings;
   }, []);
+  const patchGameBrowserSettings = useCallback(
+    (patch: GameBrowserSettingsPatch): Promise<GameBrowserSettings> => {
+      const operation = gameBrowserSettingsPatchQueueRef.current.then(async () => {
+        if (!window.rionStudio) {
+          throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
+        }
+
+        const nextSettings = await window.rionStudio.patchGameBrowserSettings(patch);
+        setGameBrowserSettings(nextSettings);
+        return nextSettings;
+      });
+      gameBrowserSettingsPatchQueueRef.current = operation.then(
+        () => undefined,
+        () => undefined
+      );
+      return operation;
+    },
+    []
+  );
   const updateMacroSettings = useCallback(async (settings: MacroSettings): Promise<MacroSettings> => {
     if (!window.rionStudio) {
       throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
@@ -748,6 +769,7 @@ export function App(): JSX.Element {
                   onError={data.setError}
                   onExportPortableData={exportPortableData}
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
+                  onGameBrowserSettingsPatch={patchGameBrowserSettings}
                   onMacroSettingsChange={updateMacroSettings}
                   onRuntimeWindowPreferencesChange={updateRuntimeWindowPreferences}
                   onLoadSystemFonts={loadSystemFonts}

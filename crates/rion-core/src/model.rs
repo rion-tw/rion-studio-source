@@ -436,6 +436,9 @@ pub enum CoreCommand {
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
     },
+    GameBrowserSettingsPatch {
+        patch: GameBrowserSettingsPatchRecord,
+    },
     BrowserFontCatalogList,
     BrowserFontPackInstall {
         #[ts(rename = "catalogId")]
@@ -2255,6 +2258,21 @@ pub struct GameBrowserSettingsRecord {
     #[serde(default)]
     pub performance: BrowserPerformanceSettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameBrowserSettingsPatchRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub macro_badge_position: Option<MacroBadgePositionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub performance: Option<BrowserPerformanceSettingsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace: Option<WorkspaceAppearanceSettingsRecord>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]

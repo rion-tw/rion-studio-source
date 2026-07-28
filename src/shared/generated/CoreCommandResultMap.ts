@@ -93,6 +93,7 @@ type TypedCoreCommandResultMap = {
   macrosDelete: BulkDeleteResultRecord;
   gameBrowserSettingsGet: GameBrowserSettingsRecord;
   gameBrowserSettingsReplace: GameBrowserSettingsRecord;
+  gameBrowserSettingsPatch: GameBrowserSettingsRecord;
   browserFontCatalogList: BrowserFontCatalogEntryRecord[];
   browserFontPackInstall: BrowserFontInstallResultRecord;
   browserFontPackRemove: BrowserFontInstallResultRecord;

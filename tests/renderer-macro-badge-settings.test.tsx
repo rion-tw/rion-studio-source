@@ -34,6 +34,7 @@ describe("macro badge interface settings", () => {
   it("renders shadcn sliders and saves the latest position after the debounce", async () => {
     vi.useFakeTimers();
     const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+    const onGameBrowserSettingsPatch = vi.fn(async () => DEFAULT_GAME_BROWSER_SETTINGS);
 
     render(
       <MemoryRouter initialEntries={["/settings?section=interface"]}>
@@ -51,6 +52,7 @@ describe("macro badge interface settings", () => {
             onError={vi.fn()}
             onExportPortableData={async () => null}
             onGameBrowserSettingsChange={onGameBrowserSettingsChange}
+            onGameBrowserSettingsPatch={onGameBrowserSettingsPatch}
             onInstallDownloadedUpdate={async () => undefined}
             onSetAutoUpdateEnabled={async () => undefined}
             onLanguageChange={() => undefined}
@@ -98,11 +100,10 @@ describe("macro badge interface settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Right" }));
 
-    expect(onGameBrowserSettingsChange).not.toHaveBeenCalled();
+    expect(onGameBrowserSettingsPatch).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(250);
 
-    expect(onGameBrowserSettingsChange).toHaveBeenCalledWith({
-      ...DEFAULT_GAME_BROWSER_SETTINGS,
+    expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
       macroBadgePosition: {
         horizontalAlign: "right",
         horizontalMarginPx: 8,

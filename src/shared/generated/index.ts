@@ -65,6 +65,7 @@ export type { EngineCapabilitySnapshotRecord } from "./EngineCapabilitySnapshotR
 export type { EngineCapabilityStatus } from "./EngineCapabilityStatus";
 export type { SystemWebViewIssueReason } from "./SystemWebViewIssueReason";
 export type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
+export type { GameBrowserSettingsPatchRecord } from "./GameBrowserSettingsPatchRecord";
 export type { GameCreateInputRecord } from "./GameCreateInputRecord";
 export type { GameCreateRequest } from "./GameCreateRequest";
 export type { GameUpdateInputRecord } from "./GameUpdateInputRecord";

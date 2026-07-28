@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+
+import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
 
 const publicKey = process.env.RION_STUDIO_UPDATER_PUBLIC_KEY?.trim();
 const privateKey = process.env.TAURI_SIGNING_PRIVATE_KEY?.trim();
@@ -73,16 +74,27 @@ try {
       delete buildEnvironment[name];
     }
   }
-  const result = spawnSync(
+  await run(
     command,
     ["exec", "tauri", "build", "--config", configPath, ...forwardedArguments],
-    {
-      env: buildEnvironment,
-      stdio: "inherit"
-    }
+    buildEnvironment
   );
-  if (result.error) throw result.error;
-  process.exitCode = result.status ?? 1;
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
+}
+
+async function run(executable, args, environment) {
+  await new Promise((resolveRun, reject) => {
+    const child = spawnPlatformCommand(executable, args, {
+      env: environment,
+      stdio: "inherit",
+      windowsHide: true
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (signal) reject(new Error(`${executable} was terminated by ${signal}.`));
+      else if (code === 0) resolveRun();
+      else reject(new Error(`${executable} exited with code ${code ?? "unknown"}.`));
+    });
+  });
 }

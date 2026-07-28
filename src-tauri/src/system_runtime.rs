@@ -8225,8 +8225,8 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
         })?;
     if macos_key_dispatch_needs_settle(previous_role_label.as_deref(), &role_label) {
         // WKWebView forwards AppKit key events to the web-content process
-        // asynchronously. Let the previous role consume its event before the
-        // next role becomes first responder. Same-role key sequences stay fast.
+        // asynchronously. Let the previous role consume its direct responder
+        // dispatch before handing off to another role. Same-role sequences stay fast.
         std::thread::sleep(MACOS_KEY_DISPATCH_SETTLE_INTERVAL);
     }
     let code = CString::new(effect.code.as_str()).map_err(|_| {
@@ -9967,6 +9967,15 @@ mod tests {
             fn rion_wk_role_zoom_shortcut_self_test() -> bool;
         }
         assert!(unsafe { rion_wk_role_zoom_shortcut_self_test() });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_background_input_preserves_the_foreground_responder() {
+        unsafe extern "C" {
+            fn rion_wk_background_input_focus_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_background_input_focus_self_test() });
     }
 
     #[test]

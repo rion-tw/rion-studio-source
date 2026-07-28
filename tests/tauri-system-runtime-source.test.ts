@@ -111,9 +111,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("rion_wk_install_security_policy");
     expect(macInput).toContain("rion_wk_window_content_layout_metrics");
     expect(macInput).toContain("window.contentLayoutRect");
-    expect(macInput).toContain("[window makeFirstResponder:webView]");
+    expect(macInput).not.toContain("[window makeFirstResponder:webView]");
     expect(macInput).toContain("RionWKContentView(webView)");
-    expect(macInput).toContain("[candidateView isDescendantOf:webView]");
+    expect(macInput).toContain("RionResponderBelongsToView(candidate, webView)");
+    expect(macInput).toContain("RionRestoreFirstResponder(");
+    expect(macInput).toContain("(id<RionFirstResponderHost>)window");
+    expect(macInput).toContain("rion_wk_background_input_focus_self_test");
     expect(macInput).not.toContain("CGEventPost");
 
     expect(runtime).toContain("MACOS_KEY_DISPATCH_STATE");

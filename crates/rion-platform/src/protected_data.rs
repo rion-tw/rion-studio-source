@@ -288,8 +288,8 @@ mod tests {
         let plaintext = br#"{"game_client_settings":"private"}"#;
         let Ok(mut protected) = protect_local_storage_sync(platform, plaintext) else {
             // Sandboxed local test runners may not expose the login Keychain. The
-            // native System WebView attestation is the release gate that requires
-            // the platform protection service to be available.
+            // production call fails closed when the platform protection service
+            // is unavailable; portable runners cover the deterministic branches.
             return;
         };
         assert_ne!(protected, plaintext);

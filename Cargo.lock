@@ -2963,7 +2963,6 @@ dependencies = [
  "rion-core",
  "rion-platform",
  "rusqlite",
- "rusty-leveldb",
  "serde",
  "serde_json",
  "sha2",

@@ -28,6 +28,18 @@ type Unlisten = () => void;
 type ListenerRegistration = () => Promise<Unlisten>;
 
 export const TAURI_BRIDGE_TIMEOUT_MS = 10_000;
+const COLLECTION_REFRESH_RETRY_DELAYS_MS = [100, 500] as const;
+const SNAPSHOT_COLLECTIONS = [
+  "games",
+  "roles",
+  "launchWorkspaces",
+  "gameWindows",
+  "macros"
+] as const;
+
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
 export async function registerBridgeListeners(
   registrations: ListenerRegistration[],
@@ -222,6 +234,9 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
   const latestRevisionByCollection = new Map<string, number>();
   const refreshSequenceByCollection = new Map<string, number>();
   let runtimeStateRefreshSequence = 0;
+  let roleStatusesRefreshSequence = 0;
+  let macroStatusesRefreshSequence = 0;
+  let displaysRefreshSequence = 0;
   const refreshRuntimeState = (): void => {
     const sequence = ++runtimeStateRefreshSequence;
     void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
@@ -256,30 +271,111 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     const isCurrent = (collection: string): boolean =>
       requested.has(collection)
       && refreshSequenceByCollection.get(collection) === requested.get(collection);
-    const jobs: Promise<void>[] = [];
+    const refreshCollection = async <T>(
+      collection: string,
+      query: () => Promise<T>,
+      event: string
+    ): Promise<void> => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt <= COLLECTION_REFRESH_RETRY_DELAYS_MS.length; attempt += 1) {
+        if (!isCurrent(collection)) return;
+        if (attempt > 0) {
+          await wait(COLLECTION_REFRESH_RETRY_DELAYS_MS[attempt - 1]);
+          if (!isCurrent(collection)) return;
+        }
+        try {
+          const value = await query();
+          if (isCurrent(collection)) emit(event, value);
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (isCurrent(collection)) throw lastError;
+    };
+    const jobs: Array<{ collection: string; promise: Promise<void> }> = [];
     if (requested.has("games")) {
-      jobs.push(invokeCore({ type: "gamesList" }).then((games) => {
-        if (isCurrent("games")) emit("games", games);
-      }));
+      jobs.push({
+        collection: "games",
+        promise: refreshCollection("games", () => invokeCore({ type: "gamesList" }), "games")
+      });
+    }
+    if (requested.has("roles")) {
+      jobs.push({
+        collection: "roles",
+        promise: refreshCollection("roles", () => invokeCore({ type: "rolesList" }), "roles")
+      });
     }
     if (requested.has("launchWorkspaces")) {
-      jobs.push(invokeCore({ type: "workspacesList" })
-        .then((workspaces) => {
-          if (isCurrent("launchWorkspaces")) emit("workspaces", workspaces);
-        }));
+      jobs.push({
+        collection: "launchWorkspaces",
+        promise: refreshCollection(
+          "launchWorkspaces",
+          () => invokeCore({ type: "workspacesList" }),
+          "workspaces"
+        )
+      });
     }
     if (requested.has("gameWindows")) {
-      jobs.push(invokeCore({ type: "gameWindowsList" })
-        .then((gameWindows) => {
-          if (isCurrent("gameWindows")) emit("gameWindows", gameWindows);
-        }));
+      jobs.push({
+        collection: "gameWindows",
+        promise: refreshCollection(
+          "gameWindows",
+          () => invokeCore({ type: "gameWindowsList" }),
+          "gameWindows"
+        )
+      });
     }
     if (requested.has("macros")) {
-      jobs.push(invokeCore({ type: "macrosList" }).then((macros) => {
-        if (isCurrent("macros")) emit("macros", macros);
-      }));
+      jobs.push({
+        collection: "macros",
+        promise: refreshCollection("macros", () => invokeCore({ type: "macrosList" }), "macros")
+      });
     }
-    await Promise.all(jobs);
+    const results = await Promise.allSettled(jobs.map(({ promise }) => promise));
+    const hasCurrentFailure = results.some(
+      (result, index) => result.status === "rejected" && isCurrent(jobs[index].collection)
+    );
+    if (!hasCurrentFailure) return;
+
+    const snapshotSequences = new Map<string, number>();
+    for (const collection of SNAPSHOT_COLLECTIONS) {
+      if (revision !== undefined) {
+        const latestRevision = latestRevisionByCollection.get(collection) ?? 0;
+        latestRevisionByCollection.set(collection, Math.max(latestRevision, revision));
+      }
+      const sequence = (refreshSequenceByCollection.get(collection) ?? 0) + 1;
+      refreshSequenceByCollection.set(collection, sequence);
+      snapshotSequences.set(collection, sequence);
+    }
+    const runtimeSequence = ++runtimeStateRefreshSequence;
+    const roleStatusesSequence = ++roleStatusesRefreshSequence;
+    const macroStatusesSequence = ++macroStatusesRefreshSequence;
+    const displaySequence = ++displaysRefreshSequence;
+    try {
+      const snapshot = await invokeShell<Awaited<ReturnType<RionStudioApi["getAppSnapshot"]>>>(
+        "appSnapshot"
+      );
+      const snapshotIsCurrent = (collection: string): boolean =>
+        refreshSequenceByCollection.get(collection) === snapshotSequences.get(collection);
+      if (snapshotIsCurrent("games")) emit("games", snapshot.games);
+      if (snapshotIsCurrent("roles")) emit("roles", snapshot.roles);
+      if (snapshotIsCurrent("launchWorkspaces")) emit("workspaces", snapshot.launchWorkspaces);
+      if (snapshotIsCurrent("gameWindows")) emit("gameWindows", snapshot.gameWindows);
+      if (snapshotIsCurrent("macros")) emit("macros", snapshot.macros);
+      if (roleStatusesSequence === roleStatusesRefreshSequence) {
+        emit("roleStatuses", snapshot.roleStatuses);
+      }
+      if (macroStatusesSequence === macroStatusesRefreshSequence) {
+        emit("macroStatuses", snapshot.macroStatuses);
+      }
+      if (displaySequence === displaysRefreshSequence) emit("displays", snapshot.displays);
+      if (runtimeSequence === runtimeStateRefreshSequence) {
+        emit("runtimeState", snapshot.embeddedRuntimeState);
+      }
+    } catch (error) {
+      console.error("Renderer state snapshot recovery failed.", error);
+    }
   };
 
   const unlistenBridge = await registerBridgeListeners([
@@ -290,10 +386,12 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
             void refreshCollections(event.changedCollections, event.revision);
             break;
           case "browserStatuses":
+            roleStatusesRefreshSequence += 1;
             emit("roleStatuses", event.statuses);
             refreshRuntimeState();
             break;
           case "macroStatuses":
+            macroStatusesRefreshSequence += 1;
             emit("macroStatuses", event.statuses);
             break;
           case "logEntriesCaptured":
@@ -328,7 +426,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     ),
     () => listen<Awaited<ReturnType<RionStudioApi["listDisplays"]>>>(
       "rion://displays",
-      ({ payload }) => emit("displays", payload)
+      ({ payload }) => {
+        displaysRefreshSequence += 1;
+        emit("displays", payload);
+      }
     ),
     () => listen<Awaited<ReturnType<RionStudioApi["getUpdateStatus"]>>>(
       "rion://update-status",
@@ -529,6 +630,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
     onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
     onGamesChanged: (callback) => on("games", callback as Listener),
+    onRolesChanged: (callback) => on("roles", callback as Listener),
     onGameWindowsChanged: (callback) => on("gameWindows", callback as Listener),
     onWorkspacesChanged: (callback) => on("workspaces", callback as Listener),
     onDisplaysChanged: (callback) => on("displays", callback as Listener),

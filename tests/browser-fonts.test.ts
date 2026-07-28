@@ -118,8 +118,9 @@ describe("browser font settings normalization", () => {
     });
   });
 
-  it("provides language-specific general and handwriting presets", () => {
+  it("provides language-specific general, handwriting, and personality presets", () => {
     expect(browserFontPresets.filter((preset) => preset.category === "handwriting")).toHaveLength(3);
+    expect(browserFontPresets.filter((preset) => preset.category === "personality")).toHaveLength(4);
     expect(resolveBrowserFontPreset("natural-handwriting", "tc").slots.cjk).toEqual({
       source: "google",
       catalogId: "iansui"
@@ -135,6 +136,47 @@ describe("browser font settings normalization", () => {
     expect(resolveBrowserFontPreset("clear-numbers", "tc").slots.numeric).toEqual({
       source: "google",
       catalogId: "roboto-mono"
+    });
+
+    const personalityCjkCases = [
+      ["friendly-rounded", "tc", "chiron-go-round-tc"],
+      ["friendly-rounded", "sc", "zcool-kuaile"],
+      ["friendly-rounded", "jp", "zen-maru-gothic"],
+      ["marker-notes", "tc", "lxgw-marker-gothic"],
+      ["marker-notes", "sc", "zcool-qingke-huangyou"],
+      ["marker-notes", "jp", "yusei-magic"],
+      ["editorial-serif", "tc", "cactus-classical-serif"],
+      ["editorial-serif", "sc", "zcool-xiaowei"],
+      ["editorial-serif", "jp", "hina-mincho"],
+      ["retro-game", "tc", "wdxl-lubrifont-tc"],
+      ["retro-game", "sc", "wdxl-lubrifont-sc"],
+      ["retro-game", "jp", "wdxl-lubrifont-jp-n"]
+    ] as const;
+
+    for (const [presetId, variant, catalogId] of personalityCjkCases) {
+      expect(resolveBrowserFontPreset(presetId, variant).slots.cjk).toEqual({
+        source: "google",
+        catalogId
+      });
+    }
+
+    expect(resolveBrowserFontPreset("friendly-rounded", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "fredoka" },
+      numeric: { source: "google", catalogId: "fredoka" },
+      monospace: { source: "google", catalogId: "jetbrains-mono" },
+      math: { source: "google", catalogId: "noto-sans-math" }
+    });
+    expect(resolveBrowserFontPreset("marker-notes", "tc").slots.latin).toEqual({
+      source: "google",
+      catalogId: "permanent-marker"
+    });
+    expect(resolveBrowserFontPreset("editorial-serif", "tc").slots.latin).toEqual({
+      source: "google",
+      catalogId: "playfair-display"
+    });
+    expect(resolveBrowserFontPreset("retro-game", "tc").slots.latin).toEqual({
+      source: "google",
+      catalogId: "press-start-2p"
     });
   });
 

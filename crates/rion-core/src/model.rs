@@ -2308,7 +2308,7 @@ pub enum BrowserFontSelectionRecord {
 pub struct BrowserFontCatalogEntryRecord {
     pub catalog_id: String,
     pub family: String,
-    #[ts(type = "\"sans\" | \"serif\" | \"handwriting\" | \"monospace\" | \"math\"")]
+    #[ts(type = "\"sans\" | \"serif\" | \"handwriting\" | \"display\" | \"monospace\" | \"math\"")]
     pub category: String,
     #[ts(type = "Array<\"latin\" | \"tc\" | \"sc\" | \"jp\" | \"math\">")]
     pub scripts: Vec<String>,

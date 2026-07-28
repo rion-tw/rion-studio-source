@@ -222,6 +222,134 @@ const CATALOG: &[CatalogSpec] = &[
         &[300, 400, 700],
         "body",
     ),
+    cjk_spec(
+        "chiron-go-round-tc",
+        "Chiron GoRound TC",
+        "sans",
+        &["tc", "latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
+        "zcool-kuaile",
+        "ZCOOL KuaiLe",
+        "display",
+        &["sc", "latin"],
+        &[400],
+        "accent",
+    ),
+    cjk_spec(
+        "zen-maru-gothic",
+        "Zen Maru Gothic",
+        "display",
+        &["jp", "latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
+        "lxgw-marker-gothic",
+        "LXGW Marker Gothic",
+        "handwriting",
+        &["tc", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "zcool-qingke-huangyou",
+        "ZCOOL QingKe HuangYou",
+        "display",
+        &["sc", "latin"],
+        &[400],
+        "accent",
+    ),
+    spec(
+        "yusei-magic",
+        "Yusei Magic",
+        "handwriting",
+        &["jp", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "cactus-classical-serif",
+        "Cactus Classical Serif",
+        "serif",
+        &["tc", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "zcool-xiaowei",
+        "ZCOOL XiaoWei",
+        "serif",
+        &["sc", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "hina-mincho",
+        "Hina Mincho",
+        "serif",
+        &["jp", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "wdxl-lubrifont-tc",
+        "WDXL Lubrifont TC",
+        "display",
+        &["tc", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "wdxl-lubrifont-sc",
+        "WDXL Lubrifont SC",
+        "display",
+        &["sc", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "wdxl-lubrifont-jp-n",
+        "WDXL Lubrifont JP N",
+        "display",
+        &["jp", "latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "fredoka",
+        "Fredoka",
+        "display",
+        &["latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
+        "permanent-marker",
+        "Permanent Marker",
+        "handwriting",
+        &["latin"],
+        &[400],
+        "accent",
+    ),
+    spec(
+        "playfair-display",
+        "Playfair Display",
+        "serif",
+        &["latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
+        "press-start-2p",
+        "Press Start 2P",
+        "display",
+        &["latin"],
+        &[400],
+        "accent",
+    ),
 ];
 
 const fn spec(
@@ -732,6 +860,61 @@ mod tests {
                 spec.id
             );
             assert!(!css_url(spec).contains(";"));
+        }
+    }
+
+    #[test]
+    fn personality_catalog_entries_expose_curated_metadata() {
+        let directory = tempdir().unwrap();
+        let entries = list(directory.path());
+        let expected = [
+            ("chiron-go-round-tc", "sans", "tc,latin", "400,700", "body"),
+            ("zcool-kuaile", "display", "sc,latin", "400", "accent"),
+            ("zen-maru-gothic", "display", "jp,latin", "400,700", "body"),
+            (
+                "lxgw-marker-gothic",
+                "handwriting",
+                "tc,latin",
+                "400",
+                "body",
+            ),
+            (
+                "zcool-qingke-huangyou",
+                "display",
+                "sc,latin",
+                "400",
+                "accent",
+            ),
+            ("yusei-magic", "handwriting", "jp,latin", "400", "body"),
+            ("cactus-classical-serif", "serif", "tc,latin", "400", "body"),
+            ("zcool-xiaowei", "serif", "sc,latin", "400", "body"),
+            ("hina-mincho", "serif", "jp,latin", "400", "body"),
+            ("wdxl-lubrifont-tc", "display", "tc,latin", "400", "body"),
+            ("wdxl-lubrifont-sc", "display", "sc,latin", "400", "body"),
+            ("wdxl-lubrifont-jp-n", "display", "jp,latin", "400", "body"),
+            ("fredoka", "display", "latin", "400,700", "body"),
+            ("permanent-marker", "handwriting", "latin", "400", "accent"),
+            ("playfair-display", "serif", "latin", "400,700", "body"),
+            ("press-start-2p", "display", "latin", "400", "accent"),
+        ];
+
+        for (catalog_id, category, scripts, weights, usage) in expected {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.catalog_id == catalog_id)
+                .unwrap_or_else(|| panic!("missing personality font {catalog_id}"));
+            assert_eq!(entry.category, category);
+            assert_eq!(entry.scripts.join(","), scripts);
+            assert_eq!(
+                entry
+                    .weights
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                weights
+            );
+            assert_eq!(entry.usage, usage);
         }
     }
 

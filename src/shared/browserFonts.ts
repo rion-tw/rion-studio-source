@@ -27,11 +27,15 @@ export type BrowserFontPresetId =
   | "code-monospace"
   | "natural-handwriting"
   | "playful-handwriting"
-  | "calligraphic-handwriting";
+  | "calligraphic-handwriting"
+  | "friendly-rounded"
+  | "marker-notes"
+  | "editorial-serif"
+  | "retro-game";
 
 export interface BrowserFontPresetDefinition {
   id: BrowserFontPresetId;
-  category: "general" | "handwriting";
+  category: "general" | "handwriting" | "personality";
   slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>;
   cjkCatalog: Record<Exclude<BrowserFontCjkVariant, "auto">, string>;
 }
@@ -99,6 +103,30 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     category: "handwriting",
     cjkCatalog: { tc: "lxgw-wenkai-tc", sc: "zhi-mang-xing", jp: "klee-one" },
     slots: { latin: google("kalam"), numeric: google("kalam"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "friendly-rounded",
+    category: "personality",
+    cjkCatalog: { tc: "chiron-go-round-tc", sc: "zcool-kuaile", jp: "zen-maru-gothic" },
+    slots: { latin: google("fredoka"), numeric: google("fredoka"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "marker-notes",
+    category: "personality",
+    cjkCatalog: { tc: "lxgw-marker-gothic", sc: "zcool-qingke-huangyou", jp: "yusei-magic" },
+    slots: { latin: google("permanent-marker"), numeric: google("permanent-marker"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "editorial-serif",
+    category: "personality",
+    cjkCatalog: { tc: "cactus-classical-serif", sc: "zcool-xiaowei", jp: "hina-mincho" },
+    slots: { latin: google("playfair-display"), numeric: google("playfair-display"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "retro-game",
+    category: "personality",
+    cjkCatalog: { tc: "wdxl-lubrifont-tc", sc: "wdxl-lubrifont-sc", jp: "wdxl-lubrifont-jp-n" },
+    slots: { latin: google("press-start-2p"), numeric: google("press-start-2p"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   }
 ];
 

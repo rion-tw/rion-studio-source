@@ -1,7 +1,7 @@
 {
   "app.roles": "ロール",
   "app.workspaces": "ワークスペース",
-  "app.gameWindows": "ゲームウィンドウ",
+  "app.gameWindows": "ウィンドウ",
   "gameWindows.kicker": "ウィンドウ",
   "gameWindows.title": "ゲームウィンドウ",
   "gameWindows.description": "永続的なゲームウィンドウ、対象ディスプレイ、実行中のタブを管理します。",

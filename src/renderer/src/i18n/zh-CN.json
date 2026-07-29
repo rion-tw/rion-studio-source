@@ -1,7 +1,7 @@
 {
   "app.roles": "角色",
   "app.workspaces": "工作区",
-  "app.gameWindows": "游戏窗口",
+  "app.gameWindows": "窗口",
   "gameWindows.kicker": "窗口",
   "gameWindows.title": "游戏窗口",
   "gameWindows.description": "管理永久游戏窗口、目标显示器和运行中的标签页。",

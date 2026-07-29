@@ -494,14 +494,28 @@ async fn rion_local_storage_sync_changed(
 
 #[tauri::command]
 async fn rion_divider_pointer(
+    app: AppHandle,
     webview: Webview,
     state: State<'_, CoreState>,
     payload: system_runtime::DividerPointerPayload,
 ) -> Result<(), CoreErrorPayload> {
-    state
+    match state
         .runtime
         .handle_divider_pointer(webview.label(), payload)
-        .map_err(|message| shell_error("TAURI_DIVIDER_FAILED", message))
+    {
+        Ok(()) => Ok(()),
+        Err(message) => {
+            let error = shell_error("TAURI_DIVIDER_FAILED", message);
+            reveal_shell_error(
+                &app,
+                CoreErrorPayload {
+                    code: error.code.clone(),
+                    message: error.message.clone(),
+                },
+            );
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -1942,6 +1956,19 @@ async fn restore_saved_game_windows(
                 };
             if saved.active_tab_id.as_deref() == Some(tab.id.as_str()) {
                 active_runtime_tab_id = Some(restored_tab_id.clone());
+            }
+            if let Err(error) = state
+                .runtime
+                .restore_tab_role_views(&restored_tab_id, &tab.role_views)
+            {
+                failures.push(json!({
+                    "windowId": saved.id,
+                    "tabId": tab.id,
+                    "sourceId": tab.source_id,
+                    "code": "TAURI_RESTORE_LAYOUT_FAILED",
+                    "message": error
+                }));
+                window_failed = true;
             }
             if tab.audio_muted
                 && let Err(error) = state.runtime.restore_tab_audio_muted(&tab.source_id, true)

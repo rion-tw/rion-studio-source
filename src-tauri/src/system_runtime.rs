@@ -18,14 +18,15 @@ use rion_core::{
     CoreEffectRequest, CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord,
     EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
     EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-    HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput,
-    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
-    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
-    StateWebGraphicsRecord, SystemWebViewRuntimeRegistrationRecord,
-    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
-    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowRoleViewRecord,
+    GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
+    LayoutRect, LayoutRoleInput, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
+    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, SessionCookieRecord,
+    SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
+    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
+    SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
+    WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
+    WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1464,8 +1465,10 @@ impl SystemRuntimeExecutor {
             if payload.phase == "end" {
                 let active = tab.active_divider_resize.take();
                 let role_ids = active.map(|value| value.role_ids).unwrap_or_default();
+                let tab_id = tab_id.clone();
                 drop(state);
                 self.send_divider_indicators(&role_ids, "hide");
+                self.persist_runtime_tab_role_views(&tab_id)?;
                 return Ok(());
             }
             let previous = tab
@@ -1599,9 +1602,90 @@ impl SystemRuntimeExecutor {
         self.send_divider_indicators(&result.role_ids, indicator_type);
         if payload.phase == "reset" {
             self.send_divider_indicators(&result.role_ids, "hide");
+            self.persist_runtime_tab_role_views(&tab_id)?;
         }
-        let _ = self.persist_restore_session(false);
         Ok(())
+    }
+
+    fn persist_runtime_tab_role_views(&self, tab_id: &str) -> Result<(), String> {
+        let role_views = {
+            let state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "Runtime tab was not found while saving its layout.".to_owned())?;
+            let mut role_views = tab
+                .roles
+                .iter()
+                .map(|(role_id, surface)| GameWindowRoleViewRecord {
+                    role_id: role_id.clone(),
+                    rect: surface.rect.clone(),
+                    browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
+                })
+                .collect::<Vec<_>>();
+            role_views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+            role_views
+        };
+        let mut game_windows = self
+            .core
+            .invoke(CoreCommand::GameWindowsList)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let game_window = game_windows
+            .iter_mut()
+            .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
+            .ok_or_else(|| "Saved Game Window was not found while saving its layout.".to_owned())?;
+        let tab = game_window
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == tab_id)
+            .ok_or_else(|| "Saved runtime tab was not found while saving its layout.".to_owned())?;
+        tab.role_views = role_views;
+        self.core
+            .invoke(CoreCommand::GameWindowUpdate {
+                id: game_window.id.clone(),
+                input: GameWindowUpdateInputRecord {
+                    tabs: Some(game_window.tabs.clone()),
+                    active_tab_id: Some(game_window.active_tab_id.clone()),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn restore_tab_role_views(
+        &self,
+        tab_id: &str,
+        role_views: &[GameWindowRoleViewRecord],
+    ) -> Result<(), String> {
+        if role_views.is_empty() {
+            return Ok(());
+        }
+        let restored = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
+                "Runtime tab was not found while restoring its layout.".to_owned()
+            })?;
+            let mut restored = 0;
+            for view in role_views {
+                if let Some(surface) = tab.roles.get_mut(&view.role_id) {
+                    surface.rect = view.rect.clone();
+                    surface.zoom_factor = (view.browser_zoom_percent / 100.0).clamp(0.25, 5.0);
+                    surface.zoom_mode = "fixed".to_owned();
+                    restored += 1;
+                }
+            }
+            restored
+        };
+        if restored == 0 {
+            return Err("No saved role view matched the restored runtime tab.".to_owned());
+        }
+        self.layout_runtime_tab(tab_id)
+            .map_err(|error| error.message)
     }
 
     fn send_divider_indicators(&self, role_ids: &[String], indicator_type: &str) {

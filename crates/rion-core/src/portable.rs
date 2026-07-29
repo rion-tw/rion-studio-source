@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     domain::{
         normalize_game_browser_settings, normalize_macro_settings, validate_game_browser_settings,
-        validate_macro_settings,
+        validate_macro_settings, validate_role_local_storage_binding,
     },
     error::{CoreError, CoreResult},
     layout::normalize_rect_edges,
@@ -26,8 +26,9 @@ use crate::{
         PortableImportResultRecord, PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
         PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
         PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
-        PortableRoleRecord, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
+        PortableRoleRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
+        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        StateWorkspaceSlotRecord,
     },
 };
 
@@ -1021,6 +1022,7 @@ impl PortableRuntime {
                 message: "Resolve every ambiguous macro before importing.".to_owned(),
             });
         }
+        validate_portable_target_snapshot(&plan.snapshot)?;
         let preferences = selection
             .preferences
             .then(|| pending.data.preferences.clone())
@@ -1057,6 +1059,165 @@ impl PortableRuntime {
             now.saturating_duration_since(pending.created_at) <= PENDING_IMPORT_TTL
         });
     }
+}
+
+fn validate_portable_target_snapshot(snapshot: &CoreStateSnapshotRecord) -> CoreResult<()> {
+    fn validate_records(
+        collection: StateCollection,
+        records: impl IntoIterator<Item = Value>,
+    ) -> CoreResult<()> {
+        records
+            .into_iter()
+            .try_for_each(|record| crate::domain::validate_collection_record(collection, &record))
+    }
+
+    fn unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) -> CoreResult<()> {
+        let mut seen = HashSet::new();
+        if ids.into_iter().any(|id| !seen.insert(id)) {
+            Err(CoreError::InvalidInput(format!(
+                "portable import target contains a duplicate {label} id"
+            )))
+        } else {
+            Ok(())
+        }
+    }
+
+    validate_records(
+        StateCollection::Games,
+        snapshot
+            .games
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::Internal(error.to_string()))?,
+    )?;
+    validate_records(
+        StateCollection::Roles,
+        snapshot
+            .roles
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::Internal(error.to_string()))?,
+    )?;
+    validate_records(
+        StateCollection::LaunchWorkspaces,
+        snapshot
+            .launch_workspaces
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::Internal(error.to_string()))?,
+    )?;
+    validate_records(
+        StateCollection::GameWindows,
+        snapshot
+            .game_windows
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::Internal(error.to_string()))?,
+    )?;
+    validate_records(
+        StateCollection::Macros,
+        snapshot
+            .macros
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| CoreError::Internal(error.to_string()))?,
+    )?;
+    unique_ids(snapshot.games.iter().map(|game| game.id.as_str()), "game")?;
+    unique_ids(snapshot.roles.iter().map(|role| role.id.as_str()), "role")?;
+    unique_ids(
+        snapshot
+            .launch_workspaces
+            .iter()
+            .map(|workspace| workspace.id.as_str()),
+        "workspace",
+    )?;
+    unique_ids(
+        snapshot
+            .game_windows
+            .iter()
+            .map(|window| window.id.as_str()),
+        "game window",
+    )?;
+    unique_ids(
+        snapshot.macros.iter().map(|record| record.id.as_str()),
+        "macro",
+    )?;
+
+    let game_ids = snapshot
+        .games
+        .iter()
+        .map(|game| game.id.as_str())
+        .collect::<HashSet<_>>();
+    let role_ids = snapshot
+        .roles
+        .iter()
+        .map(|role| role.id.as_str())
+        .collect::<HashSet<_>>();
+    let workspace_ids = snapshot
+        .launch_workspaces
+        .iter()
+        .map(|workspace| workspace.id.as_str())
+        .collect::<HashSet<_>>();
+    for role in &snapshot.roles {
+        if !game_ids.contains(role.game_id.as_str()) {
+            return Err(invalid(
+                "portable import target role references a missing game",
+            ));
+        }
+        validate_role_local_storage_binding(role, &snapshot.roles)?;
+    }
+    if snapshot.launch_workspaces.iter().any(|workspace| {
+        workspace
+            .slots
+            .iter()
+            .filter_map(|slot| slot.role_id.as_deref())
+            .any(|role_id| !role_ids.contains(role_id))
+    }) {
+        return Err(invalid(
+            "portable import target workspace references a missing role",
+        ));
+    }
+    crate::domain::validate_game_window_collection(&snapshot.game_windows)?;
+    for tab in snapshot.game_windows.iter().flat_map(|window| &window.tabs) {
+        let source_exists = if tab.tab_type == "workspace" {
+            workspace_ids.contains(tab.source_id.as_str())
+        } else {
+            role_ids.contains(tab.source_id.as_str())
+        };
+        if !source_exists
+            || tab
+                .role_ids
+                .iter()
+                .any(|role_id| !role_ids.contains(role_id.as_str()))
+        {
+            return Err(invalid(
+                "portable import target game window references a missing source",
+            ));
+        }
+    }
+    if snapshot
+        .macros
+        .iter()
+        .flat_map(|record| &record.role_ids)
+        .any(|role_id| !role_ids.contains(role_id.as_str()))
+    {
+        return Err(invalid(
+            "portable import target macro references a missing role",
+        ));
+    }
+    validate_macro_records(&snapshot.macros)?;
+    if let Some(settings) = snapshot.game_browser_settings.as_ref() {
+        validate_game_browser_settings(settings)?;
+    }
+    if let Some(settings) = snapshot.macro_settings.as_ref() {
+        validate_macro_settings(settings)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn export(
@@ -2561,6 +2722,19 @@ mod tests {
             "compatibilityReports": []
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn portable_target_validation_precedes_persistence_and_checks_relationships() {
+        let valid = state_fixture();
+        validate_portable_target_snapshot(&valid).unwrap();
+
+        let mut invalid = valid;
+        invalid.roles[0].game_id = "missing-game".to_owned();
+        let error = validate_portable_target_snapshot(&invalid).unwrap_err();
+
+        assert_eq!(error.code(), "CORE_INPUT_INVALID");
+        assert!(error.to_string().contains("missing game"));
     }
 
     #[test]

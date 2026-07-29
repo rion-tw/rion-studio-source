@@ -3292,10 +3292,11 @@ mod tests {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         let valid = json!({"games":[{"id":"g1","name":"Game"}]});
-        replace_snapshot(&mut connection, &valid).unwrap();
+        let revision = replace_snapshot(&mut connection, &valid).unwrap();
         let invalid = json!({"games":[{"name":"Missing id"}]});
         crate::v1_case!("portable-profile-6ce7f4b873a7", {
             assert!(replace_snapshot(&mut connection, &invalid).is_err());
+            assert_eq!(read_revision(&connection).unwrap(), revision);
             assert_eq!(read_snapshot(&connection).unwrap()["games"][0]["id"], "g1");
             let retry = json!({"games":[{"id":"g2","name":"Retry"}]});
             replace_snapshot(&mut connection, &retry).unwrap();

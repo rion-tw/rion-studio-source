@@ -6,7 +6,7 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use crossbeam_channel::{Receiver, Sender, bounded};
+use crossbeam_channel::{Receiver, RecvTimeoutError, SendTimeoutError, Sender, bounded};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -38,6 +38,8 @@ use crate::model::{
 };
 
 pub(crate) const SCHEMA_VERSION: u32 = 19;
+const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -226,9 +228,20 @@ impl StateDatabaseWorker {
             .name("rion-state-db".to_owned())
             .spawn(move || run_worker(path, receiver, ready_sender))
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        ready_receiver.recv().map_err(|_| {
-            CoreError::StateDatabase("state worker stopped during startup".to_owned())
-        })??;
+        match ready_receiver.recv_timeout(WORKER_START_TIMEOUT) {
+            Ok(result) => result?,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(CoreError::StateDatabase(format!(
+                    "state worker startup timed out after {} seconds",
+                    WORKER_START_TIMEOUT.as_secs()
+                )));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(CoreError::StateDatabase(
+                    "state worker stopped during startup".to_owned(),
+                ));
+            }
+        }
         Ok(Self {
             sender,
             join: Some(join),
@@ -240,65 +253,39 @@ impl StateDatabaseWorker {
     }
 
     pub fn read_collection(&self, collection: String) -> CoreResult<Value> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::ReadCollection(collection, response_sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| {
+            Request::ReadCollection(collection, response)
+        })
     }
 
     pub fn read_record(&self, collection: String, id: String) -> CoreResult<Option<Value>> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::ReadRecord {
-                collection,
-                id,
-                response: response_sender,
-            })
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| Request::ReadRecord {
+            collection,
+            id,
+            response,
+        })
     }
 
     pub fn read_scalar(&self, key: String) -> CoreResult<Option<Value>> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::ReadScalar(key, response_sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| Request::ReadScalar(key, response))
     }
 
     pub fn replace_snapshot(&self, snapshot: Value) -> CoreResult<(u64, bool)> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::ReplaceSnapshot(snapshot, response_sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| {
+            Request::ReplaceSnapshot(snapshot, response)
+        })
     }
 
     pub fn replace_scalar(&self, key: String, value: Value) -> CoreResult<u64> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::ReplaceScalar(key, value, response_sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| {
+            Request::ReplaceScalar(key, value, response)
+        })
     }
 
     pub(crate) fn mutate(&self, mutation: StateMutation) -> CoreResult<Value> {
-        let (response, receiver) = bounded(1);
-        self.sender
-            .send(Request::DomainMutation(Box::new(mutation), response))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| {
+            Request::DomainMutation(Box::new(mutation), response)
+        })
     }
 
     pub(crate) fn operation_journals(&self) -> CoreResult<Vec<OperationJournalRecord>> {
@@ -350,16 +337,9 @@ impl StateDatabaseWorker {
     }
 
     pub fn recover_portable_import(&self, user_data_dir: PathBuf) -> CoreResult<bool> {
-        let (response_sender, response_receiver) = bounded(1);
-        self.sender
-            .send(Request::RecoverPortableImport(
-                user_data_dir,
-                response_sender,
-            ))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        response_receiver
-            .recv()
-            .map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| {
+            Request::RecoverPortableImport(user_data_dir, response)
+        })
     }
 
     pub fn shutdown(&mut self) {
@@ -382,13 +362,33 @@ fn request<T>(
     sender: &Sender<Request>,
     create: impl FnOnce(Sender<CoreResult<T>>) -> Request,
 ) -> CoreResult<T> {
+    request_with_timeout(sender, create, WORKER_REQUEST_TIMEOUT)
+}
+
+fn request_with_timeout<T>(
+    sender: &Sender<Request>,
+    create: impl FnOnce(Sender<CoreResult<T>>) -> Request,
+    timeout: Duration,
+) -> CoreResult<T> {
     let (response_sender, response_receiver) = bounded(1);
-    sender
-        .send(create(response_sender))
-        .map_err(|_| CoreError::ShuttingDown)?;
-    response_receiver
-        .recv()
-        .map_err(|_| CoreError::ShuttingDown)?
+    match sender.send_timeout(create(response_sender), timeout) {
+        Ok(()) => {}
+        Err(SendTimeoutError::Timeout(_)) => {
+            return Err(CoreError::StateDatabase(format!(
+                "state worker queue timed out after {} milliseconds",
+                timeout.as_millis()
+            )));
+        }
+        Err(SendTimeoutError::Disconnected(_)) => return Err(CoreError::ShuttingDown),
+    }
+    match response_receiver.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => Err(CoreError::StateDatabase(format!(
+            "state worker response timed out after {} milliseconds; the operation may still complete",
+            timeout.as_millis()
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(CoreError::ShuttingDown),
+    }
 }
 
 fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResult<()>>) {
@@ -3066,6 +3066,21 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn state_worker_requests_bound_queue_and_response_waits() {
+        let (blocked_sender, _blocked_receiver) = bounded::<Request>(0);
+        let queue_error =
+            request_with_timeout(&blocked_sender, Request::Snapshot, Duration::ZERO).unwrap_err();
+        assert_eq!(queue_error.code(), "CORE_STATE_DATABASE_FAILED");
+        assert!(queue_error.to_string().contains("queue timed out"));
+
+        let (queued_sender, _queued_receiver) = bounded::<Request>(1);
+        let response_error =
+            request_with_timeout(&queued_sender, Request::Snapshot, Duration::ZERO).unwrap_err();
+        assert_eq!(response_error.code(), "CORE_STATE_DATABASE_FAILED");
+        assert!(response_error.to_string().contains("response timed out"));
+    }
 
     #[test]
     fn browser_settings_no_longer_persist_retired_graphics_fields() {

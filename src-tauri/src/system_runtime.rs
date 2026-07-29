@@ -61,6 +61,8 @@ static MACOS_KEY_DISPATCH_STATE: std::sync::OnceLock<Mutex<Option<String>>> =
 static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/macroOverlayRuntime.js");
 const MACRO_OVERLAY_CSS: &str = include_str!("../../src/shared/browser-overlay/macroOverlay.css");
@@ -604,6 +606,7 @@ impl RecoveryBudget {
 
 #[derive(Default)]
 struct RuntimeState {
+    active_window_placement_workers: HashSet<String>,
     active_window_resize_workers: HashSet<String>,
     allow_window_close_labels: HashSet<String>,
     audible_webviews: HashMap<String, bool>,
@@ -611,6 +614,7 @@ struct RuntimeState {
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
+    pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
     pending_window_close_labels: HashSet<String>,
     popup_roles: HashMap<String, String>,
@@ -1164,7 +1168,11 @@ impl SystemRuntimeExecutor {
         let Ok(size) = window.outer_size() else {
             return false;
         };
-        let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+        let scale = if cfg!(windows) {
+            1.0
+        } else {
+            window.scale_factor().unwrap_or(1.0).max(f64::EPSILON)
+        };
         let left = position.x as f64 / scale;
         let top = position.y as f64 / scale;
         let width = size.width as f64 / scale;
@@ -1522,10 +1530,11 @@ impl SystemRuntimeExecutor {
         let requested_position = if payload.phase == "reset" {
             divider.default_position
         } else {
-            let screen_position = payload
-                .screen_position
-                .filter(|value| value.is_finite())
-                .ok_or_else(|| "divider screen position is invalid".to_owned())?;
+            let event_screen_position =
+                payload
+                    .screen_position
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "divider screen position is invalid".to_owned())?;
             let scale = window.scale_factor().map_err(|error| error.to_string())?;
             let position = window.inner_position().map_err(|error| error.to_string())?;
             #[cfg(windows)]
@@ -1536,6 +1545,19 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.message)?;
             #[cfg(not(windows))]
             let metrics = runtime_window_content_metrics(&window).map_err(|error| error.message)?;
+            let screen_position = if cfg!(windows) {
+                let cursor = self
+                    .app
+                    .cursor_position()
+                    .map_err(|error| error.to_string())?;
+                if divider.axis == "vertical" {
+                    cursor.x / scale
+                } else {
+                    cursor.y / scale
+                }
+            } else {
+                event_screen_position
+            };
             if divider.axis == "vertical" {
                 (screen_position - position.x as f64 / scale) / metrics.width.max(1.0)
             } else {
@@ -2369,7 +2391,7 @@ impl SystemRuntimeExecutor {
         true
     }
 
-    pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) {
+    pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) -> bool {
         let Some((window_id, window)) = self.state.lock().ok().and_then(|state| {
             state
                 .display_hosts
@@ -2377,8 +2399,15 @@ impl SystemRuntimeExecutor {
                 .find(|(_, host)| host.window.label() == label)
                 .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
         }) else {
-            return;
+            return false;
         };
+        if !runtime_window_resize_is_actionable(
+            physical_width,
+            physical_height,
+            window.is_minimized().unwrap_or(false),
+        ) {
+            return false;
+        }
         let scale_factor = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
         let width = (physical_width as f64 / scale_factor).max(1.0);
         let height = (physical_height as f64 / scale_factor).max(1.0);
@@ -2406,14 +2435,24 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let mut layout_errors = Vec::new();
         for tab_id in tab_ids {
-            let _ = self.layout_runtime_tab(&tab_id);
+            if let Err(error) = self.layout_runtime_tab(&tab_id) {
+                layout_errors.push(format!("{tab_id}: {}: {}", error.code, error.message));
+            }
+        }
+        if !layout_errors.is_empty() {
+            self.emit_runtime_shell_error(
+                "TAURI_RUNTIME_WINDOW_LAYOUT_FAILED",
+                layout_errors.join("; "),
+                label,
+            );
         }
         self.publish_projection();
-        let _ = self.persist_game_window_placement(label);
+        true
     }
 
-    pub fn move_window(&self, label: &str, physical_x: i32, physical_y: i32) {
+    pub fn move_window(self: &Arc<Self>, label: &str, physical_x: i32, physical_y: i32) {
         // Tauri window queries can synchronously marshal to AppKit's main thread.
         // Snapshot the native window while holding the runtime lock, then release
         // the lock before making any of those calls to avoid lock inversion with
@@ -2465,7 +2504,7 @@ impl SystemRuntimeExecutor {
                 host.target.work_area = work_area;
             }
         }
-        let _ = self.persist_game_window_placement(label);
+        self.schedule_window_placement_persistence(label.to_owned());
     }
 
     pub fn relocate_game_window(&self, target: EmbeddedLaunchTargetRecord) -> Result<(), String> {
@@ -2520,7 +2559,7 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    pub fn focus_window(&self, label: &str) {
+    pub fn focus_window(self: &Arc<Self>, label: &str) {
         let Some(window_id) = self.window_id_for_label(label) else {
             return;
         };
@@ -2538,7 +2577,7 @@ impl SystemRuntimeExecutor {
                 .core
                 .invoke(CoreCommand::RuntimeRestoreSessionReplace { session });
         }
-        let _ = self.persist_game_window_placement(label);
+        self.schedule_window_placement_persistence(label.to_owned());
     }
 
     pub fn persist_all_game_window_placements(&self) -> Result<(), String> {
@@ -2650,7 +2689,9 @@ impl SystemRuntimeExecutor {
                     let Some((width, height)) = next else {
                         break;
                     };
-                    runtime.resize_window(&worker_label, width, height);
+                    if runtime.resize_window(&worker_label, width, height) {
+                        runtime.schedule_window_placement_persistence(worker_label.clone());
+                    }
                 }
             })
             .is_err()
@@ -2659,6 +2700,69 @@ impl SystemRuntimeExecutor {
             state.active_window_resize_workers.remove(&label);
             state.pending_window_resizes.remove(&label);
         }
+    }
+
+    fn schedule_window_placement_persistence(self: &Arc<Self>, label: String) {
+        let sequence = WINDOW_PLACEMENT_PERSIST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let should_spawn = self.state.lock().ok().is_some_and(|mut state| {
+            state
+                .pending_window_placement_writes
+                .insert(label.clone(), sequence);
+            state.active_window_placement_workers.insert(label.clone())
+        });
+        if !should_spawn {
+            return;
+        }
+        let runtime = Arc::clone(self);
+        let worker_label = label.clone();
+        let spawn_result = thread::Builder::new()
+            .name("rion-runtime-window-placement".to_owned())
+            .spawn(move || {
+                let mut observed = sequence;
+                loop {
+                    thread::sleep(WINDOW_PLACEMENT_PERSIST_DEBOUNCE);
+                    let settled = runtime.state.lock().ok().is_none_or(|mut state| {
+                        let current = state
+                            .pending_window_placement_writes
+                            .get(&worker_label)
+                            .copied();
+                        if current.is_some_and(|current| current != observed) {
+                            observed = current.expect("checked placement sequence");
+                            return false;
+                        }
+                        state.pending_window_placement_writes.remove(&worker_label);
+                        state.active_window_placement_workers.remove(&worker_label);
+                        true
+                    });
+                    if !settled {
+                        continue;
+                    }
+                    if let Err(error) = runtime.persist_game_window_placement(&worker_label) {
+                        runtime.emit_runtime_shell_error(
+                            "TAURI_RUNTIME_WINDOW_PERSIST_FAILED",
+                            error,
+                            &worker_label,
+                        );
+                    }
+                    break;
+                }
+            });
+        if spawn_result.is_err() {
+            if let Ok(mut state) = self.state.lock() {
+                state.active_window_placement_workers.remove(&label);
+                state.pending_window_placement_writes.remove(&label);
+            }
+            if let Err(error) = self.persist_game_window_placement(&label) {
+                self.emit_runtime_shell_error("TAURI_RUNTIME_WINDOW_PERSIST_FAILED", error, &label);
+            }
+        }
+    }
+
+    fn emit_runtime_shell_error(&self, code: &str, message: String, label: &str) {
+        let _ = self.app.emit(
+            "rion://shell-error",
+            json!({ "code": code, "message": message, "windowLabel": label }),
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -8206,6 +8310,10 @@ fn logical_window_position(physical_x: i32, physical_y: i32, scale: f64) -> (i32
     )
 }
 
+fn runtime_window_resize_is_actionable(width: u32, height: u32, minimized: bool) -> bool {
+    width > 0 && height > 0 && !minimized
+}
+
 fn role_bounds_for_size(
     width: f64,
     height: f64,
@@ -9659,6 +9767,22 @@ mod tests {
         prepare_restore_session_for_persist(&mut session, true);
         assert!(session.clean_exit);
         assert!(session.restore_in_progress_window_ids.is_empty());
+    }
+
+    #[test]
+    fn minimized_and_zero_sized_windows_do_not_relayout_game_surfaces() {
+        for (width, height, minimized, expected) in [
+            (1280, 720, false, true),
+            (0, 720, false, false),
+            (1280, 0, false, false),
+            (1280, 720, true, false),
+        ] {
+            assert_eq!(
+                runtime_window_resize_is_actionable(width, height, minimized),
+                expected,
+                "{width}x{height}, minimized={minimized}"
+            );
+        }
     }
 
     #[test]

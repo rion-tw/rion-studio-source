@@ -1,7 +1,10 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -16,6 +19,7 @@ const DEFAULT_RELEASE_REPOSITORY: &str = "rion-tw/rion-studio";
 const UPDATE_STATUS_EVENT: &str = "rion://update-status";
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_PREFERENCES_FILE: &str = "app-update-preferences.json";
+static UPDATE_PREFERENCES_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +38,7 @@ pub struct UpdateManager {
     current_version: String,
     packaged: bool,
     pending: Mutex<Option<PendingUpdate>>,
+    preference_write: Mutex<()>,
     preferences_path: PathBuf,
     status: Mutex<Value>,
 }
@@ -50,6 +55,7 @@ impl UpdateManager {
             current_version: current_version.clone(),
             packaged,
             pending: Mutex::new(None),
+            preference_write: Mutex::new(()),
             preferences_path,
             status: Mutex::new(json!({
                 "currentVersion": current_version,
@@ -74,6 +80,10 @@ impl UpdateManager {
     }
 
     pub fn set_auto_update_enabled(&self, enabled: bool) -> Result<Value, String> {
+        let _write_guard = self
+            .preference_write
+            .lock()
+            .map_err(|_| "Update preference writer is unavailable.".to_owned())?;
         write_auto_update_enabled(&self.preferences_path, enabled)?;
         let mut current = self
             .auto_update_enabled
@@ -283,8 +293,9 @@ fn write_auto_update_enabled(path: &Path, enabled: bool) -> Result<(), String> {
         .ok_or_else(|| "Update preferences path has no parent directory.".to_owned())?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let temporary = parent.join(format!(
-        ".{UPDATE_PREFERENCES_FILE}.{}.tmp",
-        std::process::id()
+        ".{UPDATE_PREFERENCES_FILE}.{}.{}.tmp",
+        std::process::id(),
+        UPDATE_PREFERENCES_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
     let result = (|| {
         let content = serde_json::to_vec(&UpdatePreferences {
@@ -292,7 +303,7 @@ fn write_auto_update_enabled(path: &Path, enabled: bool) -> Result<(), String> {
         })
         .map_err(|error| error.to_string())?;
         fs::write(&temporary, content).map_err(|error| error.to_string())?;
-        fs::rename(&temporary, path).map_err(|error| error.to_string())
+        rion_platform::atomic_replace_file(&temporary, path).map_err(|error| error.to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -371,6 +382,15 @@ mod tests {
 
         write_auto_update_enabled(&path, false).unwrap();
         assert!(!load_auto_update_enabled(&path));
+        write_auto_update_enabled(&path, true).unwrap();
+        assert!(load_auto_update_enabled(&path));
+        assert!(fs::read_dir(directory.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")
+        }));
 
         fs::write(&path, b"not-json").unwrap();
         assert!(load_auto_update_enabled(&path));

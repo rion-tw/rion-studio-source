@@ -408,7 +408,7 @@ impl SurfaceLifecycleTracker {
         })
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, test))]
     fn wait_for_browser_process_exit(&self, timeout: Duration) -> bool {
         self.wait_for(timeout, |release| release.browser_process_exited)
     }
@@ -8865,6 +8865,7 @@ fn configure_platform_high_refresh_rate(
     HighRefreshRateDiagnosticStatus::NotApplicable
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn high_refresh_rate_status_label(status: HighRefreshRateDiagnosticStatus) -> &'static str {
     match status {
         HighRefreshRateDiagnosticStatus::Applied => "applied",

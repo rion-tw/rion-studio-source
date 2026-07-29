@@ -9,7 +9,7 @@ import {
 import { TriangleAlert } from "lucide-react";
 
 import { Button } from "./ui/button";
-import { Surface } from "./ui/patterns";
+import { StatusCallout, Surface } from "./ui/patterns";
 import { ConfirmationContext, type ConfirmationOptions, type Confirm } from "./confirmation";
 
 interface PendingConfirmation extends ConfirmationOptions {
@@ -85,10 +85,10 @@ function ConfirmationDialog({
       {pending ? (
         <Surface className="grid gap-4 p-5" radius="lg" variant="modal">
           <div className="grid gap-1.5">
-            <h2 id="confirmation-dialog-title" className="text-base font-semibold leading-6">
+            <h2 id="confirmation-dialog-title" className="text-title font-semibold">
               {pending.title}
             </h2>
-            <div id="confirmation-dialog-description" className="grid gap-3 text-xs font-medium leading-5 text-muted-foreground">
+            <div id="confirmation-dialog-description" className="grid gap-3 text-control font-medium text-muted-foreground">
               <p>{pending.description}</p>
               {pending.details?.length ? (
                 <ul className="grid list-disc gap-1 pl-4">
@@ -96,10 +96,10 @@ function ConfirmationDialog({
                 </ul>
               ) : null}
               {pending.warning ? (
-                <div className="flex gap-2 rounded-md border border-destructive/25 bg-destructive/8 p-3 text-destructive">
+                <StatusCallout className="p-3" tone="destructive">
                   <TriangleAlert className="mt-0.5 shrink-0" size={15} />
                   <p>{pending.warning}</p>
-                </div>
+                </StatusCallout>
               ) : null}
             </div>
           </div>

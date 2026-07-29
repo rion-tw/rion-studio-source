@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri shell parity guard", () => {
   it("keeps the hidden-inset-equivalent main window and bundled startup failure UI", async () => {
-    const [baseSource, macSource, shell, startup, startupFallback, rendererMain] = await Promise.all([
+    const [baseSource, macSource, shell, startup, bootStyles, startupFallback, rendererMain] = await Promise.all([
       readFile("src-tauri/tauri.conf.json", "utf8"),
       readFile("src-tauri/tauri.macos.conf.json", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src/renderer/index.html", "utf8"),
+      readFile("src/renderer/src/boot.css", "utf8"),
       readFile("src/renderer/src/app/startupFallback.ts", "utf8"),
       readFile("src/renderer/src/main.tsx", "utf8")
     ]);
@@ -48,8 +49,9 @@ describe("Tauri shell parity guard", () => {
     expect(shellInvokeSignature).not.toContain("State<'_, CoreState>");
     expect(startupFallback).toContain("__rionShowStartupFailure");
     expect(startup).toContain("startupFallback.ts");
-    expect(startup).toContain("boot-fallback-error-mark");
-    expect(startup).toContain("prefers-reduced-motion: reduce");
+    expect(startup).toContain("boot.css");
+    expect(bootStyles).toContain("boot-fallback-error-mark");
+    expect(bootStyles).toContain("prefers-reduced-motion: reduce");
     expect(rendererMain).toContain("await waitForNativeStartup()");
     expect(rendererMain).toContain("createHashRouter([");
     expect(rendererMain.indexOf("await waitForNativeStartup()"))

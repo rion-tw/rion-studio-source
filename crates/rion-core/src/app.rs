@@ -992,6 +992,10 @@ impl AppCore {
                 self.overlay_refresh.invalidate(Vec::new());
                 Ok(json!({ "language": language }))
             }
+            CoreCommand::RuntimeThemeSet { theme } => {
+                validate_runtime_theme(&theme)?;
+                Ok(json!({ "theme": theme }))
+            }
             CoreCommand::MacroStart { request } => {
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
@@ -5893,6 +5897,16 @@ fn validate_overlay_language(language: &str) -> CoreResult<()> {
     }
 }
 
+fn validate_runtime_theme(theme: &str) -> CoreResult<()> {
+    if matches!(theme, "light" | "dark") {
+        Ok(())
+    } else {
+        Err(CoreError::InvalidInput(
+            "runtime theme is invalid".to_owned(),
+        ))
+    }
+}
+
 fn effect_step(
     handle_id: &str,
     action: CoreEffectAction,
@@ -6564,6 +6578,32 @@ mod tests {
             let replacement = AppCore::create(options()).unwrap();
             replacement.shutdown();
         }
+    }
+
+    #[test]
+    fn runtime_theme_command_accepts_only_resolved_themes() {
+        let (_directory, core) = core();
+
+        assert_eq!(
+            core.invoke(CoreCommand::RuntimeThemeSet {
+                theme: "light".to_owned(),
+            })
+            .unwrap(),
+            json!({ "theme": "light" })
+        );
+        assert_eq!(
+            core.invoke(CoreCommand::RuntimeThemeSet {
+                theme: "dark".to_owned(),
+            })
+            .unwrap(),
+            json!({ "theme": "dark" })
+        );
+        let error = core
+            .invoke(CoreCommand::RuntimeThemeSet {
+                theme: "system".to_owned(),
+            })
+            .unwrap_err();
+        assert_eq!(error.code(), "CORE_INPUT_INVALID");
     }
 
     #[test]

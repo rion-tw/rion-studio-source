@@ -4,15 +4,15 @@ import { parseLegalMarkdown } from "./legalMarkdownParser";
 
 export function LegalMarkdown({ markdown }: { markdown: string }): JSX.Element {
   return (
-    <article className="legal-document mx-auto w-full max-w-3xl text-[13px] leading-6 text-foreground">
+    <article className="legal-document mx-auto w-full max-w-3xl text-body text-foreground">
       {parseLegalMarkdown(markdown).map((block, index) => {
         if (block.type === "heading") {
           return block.level === 1 ? (
-            <h1 key={index} className="mb-5 text-2xl font-semibold tracking-tight">
+            <h1 key={index} className="mb-5 text-page-title font-semibold tracking-tight">
               {renderInline(block.text)}
             </h1>
           ) : (
-            <h2 key={index} className="mb-2 mt-6 text-base font-semibold">
+            <h2 key={index} className="mb-2 mt-6 text-heading font-semibold">
               {renderInline(block.text)}
             </h2>
           );

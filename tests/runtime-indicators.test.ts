@@ -66,17 +66,13 @@ describe("System WebView runtime indicators", () => {
         : undefined;
       expect(injectedCss).toBeTruthy();
 
-      // jsdom does not apply shadow-root styles to getComputedStyle, so mirror
-      // the exact injected CSS into its document CSSOM for the length check.
-      const probeStyle = document.createElement("style");
-      probeStyle.textContent = injectedCss ?? "";
-      const probe = document.createElement("div");
-      probe.className = "indicator";
-      document.head.append(probeStyle);
-      document.body.append(probe);
-      expect(getComputedStyle(probe).fontSize).toBe("13px");
-      expect(getComputedStyle(probe).paddingTop).toBe("6px");
-      expect(getComputedStyle(probe).paddingLeft).toBe("10px");
+      // jsdom does not resolve :host custom properties in computed Shadow DOM
+      // styles, so assert the injected CSS-pixel token contract directly.
+      expect(injectedCss).toContain("--type-body-size: 13px");
+      expect(injectedCss).toContain("--space-1-5: 6px");
+      expect(injectedCss).toContain("--space-2-5: 10px");
+      expect(injectedCss).toContain("font-size:var(--type-body-size)");
+      expect(injectedCss).toContain("padding:var(--space-1-5) var(--space-2-5)");
     }
   );
 
@@ -108,7 +104,8 @@ describe("System WebView runtime indicators", () => {
   });
 
   it("keeps all injected overlay dimensions in the WebView-scaled CSS-pixel system", async () => {
-    const [macroCss, indicatorCss, macroRuntime] = await Promise.all([
+    const [tokens, macroCss, indicatorCss, macroRuntime] = await Promise.all([
+      readFile("src/shared/designTokens.css", "utf8"),
       readFile("src/shared/browser-overlay/macroOverlay.css", "utf8"),
       readFile("src/shared/browser-overlay/runtimeIndicators.css", "utf8"),
       readFile("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8")
@@ -117,21 +114,24 @@ describe("System WebView runtime indicators", () => {
 
     expect(macroCss).not.toMatch(rootRelativeLength);
     expect(indicatorCss).not.toMatch(rootRelativeLength);
-    expect(macroCss).toContain("font-size:10px");
-    expect(indicatorCss).toContain("font-size:13px");
+    expect(tokens).toContain("--type-micro-size: 10px");
+    expect(tokens).toContain("--type-body-size: 13px");
+    expect(macroCss).toContain("font-size:var(--type-micro-size)");
+    expect(indicatorCss).toContain("font-size:var(--type-body-size)");
     expect(macroRuntime).toContain('String(measurement.xPx) + "px"');
     expect(macroRuntime).toContain('String(measurement.yPx) + "px"');
   });
 });
 
 async function assembledSource() {
-  const [runtime, css] = await Promise.all([
+  const [runtime, tokens, css] = await Promise.all([
     readFile("src/shared/browser-overlay/runtimeIndicators.js", "utf8"),
+    readFile("src/shared/designTokens.css", "utf8"),
     readFile("src/shared/browser-overlay/runtimeIndicators.css", "utf8")
   ]);
   const token = JSON.stringify(cssToken);
   expect(runtime.split(token)).toHaveLength(2);
-  const source = runtime.replace(token, JSON.stringify(css));
+  const source = runtime.replace(token, JSON.stringify(`${tokens}\n${css}`));
   expect(source).not.toContain(cssToken);
   return source;
 }

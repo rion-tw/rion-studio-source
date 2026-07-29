@@ -48,7 +48,7 @@ export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
   return (
     <aside data-tauri-drag-region className="app-sidebar settings-mode-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
       <button
-        className="settings-back app-no-drag flex h-8 w-full items-center gap-2 rounded-md border border-transparent px-2 text-[13px] font-medium text-sidebar-foreground/68 transition-[background-color,border-color,color,box-shadow] duration-150 hover:bg-accent/35 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
+        className="settings-back app-no-drag flex h-[var(--control-height)] w-full items-center gap-2 rounded-sm border border-transparent px-2 text-control font-medium text-sidebar-foreground/68 transition-[background-color,border-color,color,box-shadow] duration-150 hover:bg-accent/35 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
         type="button"
         onClick={() => navigate(returnTo, { replace: true })}
       >
@@ -56,7 +56,7 @@ export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
         <span className="truncate">{t("settings.backToApp")}</span>
       </button>
 
-      <p className="px-2 pb-2 pt-6 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
+      <p className="px-2 pb-2 pt-6 text-caption font-semibold uppercase text-sidebar-foreground/42">
         {t("settings.general")}
       </p>
       <nav className="app-no-drag grid gap-1" aria-label={t("settings.general")}>
@@ -72,7 +72,7 @@ export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
         ))}
       </nav>
 
-      <p className="px-2 pb-2 pt-6 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
+      <p className="px-2 pb-2 pt-6 text-caption font-semibold uppercase text-sidebar-foreground/42">
         {t("settings.system")}
       </p>
       <nav className="app-no-drag grid gap-1" aria-label={t("settings.system")}>

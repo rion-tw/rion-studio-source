@@ -114,7 +114,7 @@ export function MacroSettingsSection({
                     className={`inline-flex items-start gap-1.5 ${
                       isInvalid
                         ? "text-destructive"
-                        : "text-amber-600 dark:text-amber-300"
+                        : "text-warning"
                     }`}
                     role={isInvalid ? "alert" : "status"}
                   >
@@ -143,7 +143,7 @@ export function MacroSettingsSection({
                       setDraft((current) => ({ ...current, [key]: event.target.value }));
                     }}
                   />
-                  <span className="w-5 text-[12px] font-normal text-muted-foreground">ms</span>
+                  <span className="w-5 text-control font-normal text-muted-foreground">ms</span>
                 </label>
               }
             />
@@ -199,7 +199,7 @@ function MacroSettingsRow({
   return (
     <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="text-[13px] font-semibold leading-5 text-foreground">{title}</p>
+        <p className="text-body font-semibold text-foreground">{title}</p>
         <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div>
       </div>
       <div className="min-w-0 shrink-0 sm:w-auto">{control}</div>

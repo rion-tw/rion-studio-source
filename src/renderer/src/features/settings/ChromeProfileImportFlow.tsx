@@ -15,7 +15,7 @@ import { useConfirmation } from "../../components/confirmation";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { Surface } from "../../components/ui/patterns";
+import { StatusCallout, Surface } from "../../components/ui/patterns";
 
 interface ChromeProfileImportFlowProps {
   games: Game[];
@@ -319,12 +319,12 @@ export function ChromeProfileImportFlow({
           )}
         >
           {preview.sourceInUse ? (
-            <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <StatusCallout className="items-center justify-between gap-3 p-3" tone="warning">
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.chromeImportRunning")}</p>
               <Button type="button" variant="outline" disabled={busy} onClick={() => void closeChrome()}>
                 {t("settings.chromeImportQuit")}
               </Button>
-            </div>
+            </StatusCallout>
           ) : null}
 
           {result ? (
@@ -347,7 +347,7 @@ export function ChromeProfileImportFlow({
                       .replace("{storage}", String(item.localStorageCount))}
                   </p>
                   {unsupportedCount(item.unsupported) > 0 ? (
-                    <p className="text-amber-600">
+                    <p className="text-warning">
                       {t("settings.chromeImportUnsupportedCounts")
                         .replace("{partitioned}", String(item.unsupported.partitionedCookieCount))
                         .replace("{appBound}", String(item.unsupported.appBoundCookieCount))
@@ -356,7 +356,7 @@ export function ChromeProfileImportFlow({
                     </p>
                   ) : null}
                   {item.warnings.length > 0 ? (
-                    <p className="break-words text-amber-600">
+                    <p className="break-words text-warning">
                       {item.warnings.map((warning) => chromeImportWarningLabel(warning, t)).join(" · ")}
                     </p>
                   ) : null}
@@ -461,7 +461,7 @@ function Modal({
   const descriptionId = useId();
 
   return createPortal(
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
+    <div className="app-modal-backdrop app-no-drag fixed inset-0 z-[var(--layer-modal)] grid place-items-center p-5">
       <Surface
         className={`flex max-h-[calc(100vh-2.5rem)] w-full ${wide ? "max-w-[680px]" : "max-w-[520px]"} flex-col overflow-hidden`}
         radius="lg"
@@ -472,7 +472,7 @@ function Modal({
         aria-describedby={descriptionId}
       >
         <div className="glass-divider border-b px-5 py-4">
-          <h2 id={titleId} className="text-[15px] font-semibold leading-6 text-foreground">{title}</h2>
+          <h2 id={titleId} className="text-heading font-semibold text-foreground">{title}</h2>
           <p id={descriptionId} className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
         </div>
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 py-4">{children}</div>
@@ -513,7 +513,7 @@ function ChromeImportProgressPanel({
       aria-live="polite"
     >
       <div className="grid w-full max-w-md gap-4">
-        <div className="mx-auto grid size-11 place-items-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+        <div className="mx-auto grid size-11 place-items-center rounded-full border border-activity/20 bg-activity/10 text-activity">
           <Loader2 size={20} className="animate-spin" />
         </div>
         <div>
@@ -536,7 +536,7 @@ function ChromeImportProgressPanel({
           aria-valuenow={percent}
         >
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-300"
+            className="h-full rounded-full bg-activity transition-[width] duration-300"
             style={{ width: `${percent}%` }}
           />
         </div>
@@ -598,8 +598,8 @@ function unsupportedCount(value: ChromeProfileImportResult["items"][number]["uns
 }
 
 function chromeImportStatusClass(status: ChromeProfileImportResult["items"][number]["status"]): string {
-  if (status === "imported" || status === "alreadyAuthenticated") return "text-emerald-600";
-  if (status === "cancelled" || status === "needsLogin") return "text-amber-600";
+  if (status === "imported" || status === "alreadyAuthenticated") return "text-success";
+  if (status === "cancelled" || status === "needsLogin") return "text-warning";
   return "text-destructive";
 }
 

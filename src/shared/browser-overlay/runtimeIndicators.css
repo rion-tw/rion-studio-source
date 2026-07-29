@@ -4,7 +4,5 @@
  * inherit arbitrary game-page font settings.
  */
 *{box-sizing:border-box;-webkit-font-smoothing:antialiased;}
-.stack{align-items:center;display:grid;gap:6px;justify-items:center;}
-.indicator{-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);border:1px solid rgba(255,255,255,.2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:white;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;font-weight:600;line-height:1.2;padding:6px 10px;white-space:nowrap;}
-.indicator[data-kind="resize"]{background:rgba(15,23,42,.88);}
-.indicator[data-kind="zoom"]{background:rgba(15,23,42,.9);}
+.stack{align-items:center;display:grid;gap:var(--space-1-5);justify-items:center;}
+.indicator{-webkit-backdrop-filter:blur(var(--blur-popover)) saturate(1.4);backdrop-filter:blur(var(--blur-popover)) saturate(1.4);background:hsl(var(--glass-popover));border:1px solid hsl(var(--glass-border));border-radius:var(--radius-md);box-shadow:0 8px 24px hsl(var(--glass-shadow-strong));color:hsl(var(--on-media));font-family:var(--font-ui);font-size:var(--type-body-size);font-weight:var(--weight-semibold);line-height:var(--type-body-line);padding:var(--space-1-5) var(--space-2-5);white-space:nowrap;}

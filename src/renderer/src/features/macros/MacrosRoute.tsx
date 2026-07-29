@@ -252,7 +252,7 @@ function MacrosRoute({
           <Surface className="mac-list-surface w-full overflow-hidden" variant="panel">
             <div className="overflow-auto">
               <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
-              <thead className="glass-divider border-b text-[11px] uppercase tracking-normal text-muted-foreground">
+              <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
                 <tr>
                   <th className="w-9 px-2 py-1" aria-hidden="true" />
                   <MacroSortHeader
@@ -300,12 +300,12 @@ function MacrosRoute({
                   <th className="w-32 px-4 py-1" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/45 text-[13px] leading-5">
+              <tbody className="divide-y divide-border/45 text-body">
                 {filteredMacros.map((macro) => (
                   <tr
                     key={macro.id}
                     ref={selection.registerItem(macro.id)}
-                    className={cn("group align-middle transition-colors", selection.isSelected(macro.id) && "bg-blue-500/10")}
+                    className={cn("group align-middle transition-colors", selection.isSelected(macro.id) && "bg-activity/10")}
                     data-selection-id={macro.id}
                     onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                   >
@@ -322,7 +322,7 @@ function MacrosRoute({
                     </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">
                       <button
-                        className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                        className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                         type="button"
                         title={t("macros.edit")}
                         disabled={activeMacroIds.has(macro.id)}
@@ -439,7 +439,7 @@ function MacroFailureMessage({
 
   return (
     <span
-      className="mt-0.5 flex max-w-full items-center gap-1 text-[11px] leading-4 text-destructive"
+      className="mt-0.5 flex max-w-full items-center gap-1 text-caption text-destructive"
       title={`${roleName}: ${message}`}
     >
       <CircleAlert aria-hidden="true" className="shrink-0" size={12} />
@@ -459,7 +459,7 @@ function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderPro
       aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <button
-        className="-mx-1 inline-flex h-[30px] max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+        className="-mx-1 inline-flex h-[var(--control-height)] max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         type="button"
         title={t("macros.sortBy").replace("{column}", label)}
         onClick={() => onSort(sortKey)}
@@ -702,7 +702,7 @@ function MacroActionMenu({
       ? createPortal(
           <Surface
             ref={menuRef}
-            className="z-50 min-w-32 overflow-hidden text-popover-foreground"
+            className="z-[var(--layer-popover)] min-w-32 overflow-hidden text-popover-foreground"
             padding="xs"
             variant="popover"
             role="menu"
@@ -746,7 +746,7 @@ function MacroActionMenu({
   return (
     <div className="relative flex shrink-0 items-center gap-0.5">
       <Button
-        className={cn("h-7 w-7", isRunning && "text-primary hover:text-primary")}
+        className={cn("h-7 w-7", isRunning && "text-activity hover:text-activity")}
         type="button"
         variant="ghost"
         size="icon"

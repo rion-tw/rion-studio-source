@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { type JSX, useEffect } from "react";
 
 import { Button } from "../../components/ui/button";
-import { Surface } from "../../components/ui/patterns";
+import { DialogLayer, Surface } from "../../components/ui/patterns";
 import type { Language, Translator } from "../../i18n";
 import { CURRENT_LEGAL_RELEASE } from "../../../../shared/legal";
 import { getLegalDocument, type LegalDocumentKind } from "./legalDocuments";
@@ -34,10 +34,9 @@ export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumen
   }, [onClose]);
 
   return (
-    <div className="app-no-drag fixed inset-0 z-[70] grid place-items-center p-4">
-      <button className="app-modal-backdrop absolute inset-0" type="button" aria-label={t("legal.close")} onClick={onClose} />
+    <DialogLayer backdropLabel={t("legal.close")} className="p-4" onDismiss={onClose}>
       <Surface
-        className="relative z-10 flex h-[min(760px,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden"
+        className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden"
         radius="lg"
         variant="modal"
         role="dialog"
@@ -46,7 +45,7 @@ export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumen
       >
         <header className="glass-divider flex items-center justify-between gap-4 border-b px-5 py-4">
           <div>
-            <h2 id="legal-document-title" className="text-base font-semibold">{t(titleKeys[kind])}</h2>
+            <h2 id="legal-document-title" className="text-heading font-semibold">{t(titleKeys[kind])}</h2>
             <p className="mt-1 text-xs text-muted-foreground">{t("legal.version").replace("{version}", CURRENT_LEGAL_RELEASE)}</p>
           </div>
           <Button type="button" variant="ghost" size="icon" title={t("legal.close")} onClick={onClose}>
@@ -57,6 +56,6 @@ export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumen
           <LegalMarkdown markdown={getLegalDocument(kind, language)} />
         </div>
       </Surface>
-    </div>
+    </DialogLayer>
   );
 }

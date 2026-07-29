@@ -96,6 +96,7 @@ export type WorkspaceLayoutTemplate =
 export type WorkspaceSlotBrowserZoomPercent = number;
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
+export type ResolvedTheme = "light" | "dark";
 
 export interface AppWindowState {
   fullscreen: boolean;

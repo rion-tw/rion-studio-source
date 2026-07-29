@@ -29,7 +29,7 @@ export const SelectTrigger = forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "glass-control glass-select inline-flex h-[30px] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] max-w-full items-center justify-between gap-2 overflow-hidden rounded-md px-2.5 text-[12px] leading-none text-foreground transition-colors hover:text-foreground focus-visible:border-ring/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:text-left",
+      "glass-control glass-select inline-flex h-[var(--control-height)] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] max-w-full items-center justify-between gap-2 overflow-hidden rounded-sm px-2.5 text-control leading-none text-foreground transition-colors hover:text-foreground focus-visible:border-ring/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-45 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:text-left",
       className
     )}
     {...props}
@@ -49,7 +49,7 @@ export const SelectScrollUpButton = forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.ScrollUpButton
     ref={ref}
-    className={cn("flex h-[30px] min-h-[var(--control-min-size)] cursor-default items-center justify-center", className)}
+    className={cn("flex h-[var(--control-height)] min-h-[var(--control-min-size)] cursor-default items-center justify-center", className)}
     {...props}
   >
     <ChevronUp className="size-3.5" aria-hidden="true" />
@@ -64,7 +64,7 @@ export const SelectScrollDownButton = forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.ScrollDownButton
     ref={ref}
-    className={cn("flex h-[30px] min-h-[var(--control-min-size)] cursor-default items-center justify-center", className)}
+    className={cn("flex h-[var(--control-height)] min-h-[var(--control-min-size)] cursor-default items-center justify-center", className)}
     {...props}
   >
     <ChevronDown className="size-3.5" aria-hidden="true" />
@@ -82,7 +82,7 @@ export const SelectContent = forwardRef<
       ref={ref}
       data-selection-ignore
       className={cn(
-        "glass-popover relative z-[100] max-h-[min(18rem,var(--radix-select-content-available-height))] max-w-[calc(100vw-1rem)] min-w-[8rem] overflow-hidden rounded-md border border-border/60 text-[12px] text-popover-foreground shadow-md data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
+        "glass-popover relative z-[var(--layer-tooltip)] max-h-[min(18rem,var(--radix-select-content-available-height))] max-w-[calc(100vw-1rem)] min-w-[8rem] overflow-hidden rounded-sm border border-border/60 text-control text-popover-foreground shadow-md data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
         position === "popper" &&
           "w-[var(--radix-select-trigger-width)] data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
@@ -113,7 +113,7 @@ export const SelectLabel = forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1.5 text-[11px] font-semibold text-muted-foreground", className)}
+    className={cn("px-2 py-1.5 text-caption font-semibold text-muted-foreground", className)}
     {...props}
   />
 ));
@@ -127,7 +127,7 @@ export const SelectItem = forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-[var(--control-min-size)] w-full max-w-full cursor-default select-none items-center overflow-hidden rounded-[5px] py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1 [&>span:last-child]:overflow-hidden",
+      "relative flex min-h-[var(--control-min-size)] w-full max-w-full cursor-default select-none items-center overflow-hidden rounded-sm py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1 [&>span:last-child]:overflow-hidden",
       className
     )}
     {...props}

@@ -1,5 +1,5 @@
 import { ChevronDown, CloudDownload, Download, FileJson, FileText, Laptop, Moon, PenLine, RefreshCw, RotateCcw, Search, Sparkles, Sun, Trash2, Upload } from "lucide-react";
-import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
@@ -10,7 +10,7 @@ import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Slider } from "../../components/ui/slider";
 import { Switch } from "../../components/ui/switch";
-import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
+import { PageFrame, SegmentedControl, SettingsRow, SettingsSection, StatusCallout, Surface } from "../../components/ui/patterns";
 import {
   languageLabelKeys,
   resolvedThemeLabelKeys,
@@ -417,8 +417,8 @@ function SettingsViewBase({
       contentClassName="mx-auto flex min-h-full w-full max-w-[840px] flex-col gap-8"
     >
       <header className="settings-page-header">
-        <h1 className="text-[26px] font-semibold leading-tight text-foreground">{pageTitle}</h1>
-        <p className="mt-2 max-w-2xl text-[13px] leading-5 text-muted-foreground">{pageDescription}</p>
+        <h1 className="text-page-title font-bold text-foreground">{pageTitle}</h1>
+        <p className="mt-2 max-w-2xl text-body text-muted-foreground">{pageDescription}</p>
       </header>
 
       <div className="grid gap-8">
@@ -1098,9 +1098,9 @@ function BrowserFontsSettingsRows({
         <div className="glass-divider border-b px-4 pb-4 pt-1">
           <div className="mb-4 h-px bg-border/35" />
           <div className="grid gap-5">
-            <div className="rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <StatusCallout tone="warning">
               {t("settings.browserFontsForceWarning")}
-            </div>
+            </StatusCallout>
 
             <BrowserFontPresetCards
               activePresetId={draft.fonts.presetId}
@@ -1123,7 +1123,7 @@ function BrowserFontsSettingsRows({
                 value={draft.fonts.cjkVariant}
                 onValueChange={handleCjkVariantChange}
               />
-              <p className="text-[11px] leading-4 text-muted-foreground">
+              <p className="text-caption text-muted-foreground">
                 {t("settings.browserFontsCjkResolved").replace(
                   "{variant}",
                   t(`settings.browserFonts.cjk.${effectiveCjkVariant}` as TranslationKey)
@@ -1194,7 +1194,7 @@ function BrowserFontsSettingsRows({
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
             ) : null}
 
-            <p className="text-[11px] leading-4 text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {t("settings.browserFontsGoogleNotice")}
             </p>
 
@@ -1205,7 +1205,7 @@ function BrowserFontsSettingsRows({
                 )}
               </summary>
               <div className="mt-2 grid gap-2">
-                <p className="text-[11px] leading-4 text-muted-foreground">
+                <p className="text-caption text-muted-foreground">
                   {t("settings.browserFontsCacheDescription")}
                 </p>
                 {installedFonts.length === 0 ? (
@@ -1219,7 +1219,7 @@ function BrowserFontsSettingsRows({
                       <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
-                          <p className="text-[10px] text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                          <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
                         </div>
                         <Button
                           type="button"
@@ -1240,7 +1240,7 @@ function BrowserFontsSettingsRows({
             </details>
 
             {downloadProgress ? (
-              <p className="text-xs font-medium leading-5 text-primary">{downloadProgress}</p>
+              <p className="text-control font-medium text-activity">{downloadProgress}</p>
             ) : null}
 
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1322,7 +1322,7 @@ function BrowserFontPresetCards({
                     disabled={disabled}
                     className={`min-h-[74px] rounded-md border px-3 py-2 text-left transition-colors disabled:opacity-45 ${
                       isActive
-                        ? "border-primary/45 bg-primary/[0.08] text-foreground"
+                        ? "border-activity/45 bg-activity/[0.08] text-foreground"
                         : "border-border/30 bg-muted/10 text-muted-foreground hover:bg-accent/30 hover:text-foreground"
                     }`}
                     onClick={() => onSelect(preset.id)}
@@ -1330,7 +1330,7 @@ function BrowserFontPresetCards({
                     <span className="block text-xs font-semibold leading-5">
                       {t(browserFontPresetLabelKeys[preset.id])}
                     </span>
-                    <span className="mt-0.5 block text-[10px] leading-4">
+                    <span className="mt-0.5 block text-micro">
                       {t(browserFontPresetDescriptionKeys[preset.id])}
                     </span>
                   </button>
@@ -1389,7 +1389,7 @@ function BrowserFontSelectionPicker({
   return (
     <label className="grid min-w-0 gap-1.5 rounded-md border border-border/20 bg-muted/[0.08] p-2.5">
       <span className="text-xs font-semibold leading-5 text-foreground">{label}</span>
-      <span className="min-h-8 text-[10px] leading-4 text-muted-foreground">{description}</span>
+      <span className="min-h-8 text-micro text-muted-foreground">{description}</span>
       <Select
         disabled={disabled}
         value={value}
@@ -1458,29 +1458,6 @@ function BrowserFontsPreview({
       />
     </div>
   );
-}
-
-interface SettingsSectionProps {
-  children: ReactNode;
-  title?: string;
-}
-
-function SettingsSection({ children, title }: SettingsSectionProps): JSX.Element {
-  return (
-    <section className="grid gap-2">
-      {title ? <h2 className="px-1 text-xs font-semibold leading-5 text-muted-foreground">{title}</h2> : null}
-      <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
-        {children}
-      </Surface>
-    </section>
-  );
-}
-
-interface SettingsRowProps {
-  control: ReactNode;
-  description: ReactNode;
-  showDivider?: boolean;
-  title: ReactNode;
 }
 
 interface MacroBadgePositionSettingsRowsProps {
@@ -1662,25 +1639,9 @@ function MacroBadgePositionSettingsRows({
   );
 }
 
-function SettingsRow({ control, description, showDivider = true, title }: SettingsRowProps): JSX.Element {
-  const dividerClassName = showDivider ? "glass-divider border-b last:border-b-0" : "";
-
-  return (
-    <div
-      className={`settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${dividerClassName}`}
-    >
-      <div className="min-w-0">
-        <p className="text-[13px] font-semibold leading-5 text-foreground">{title}</p>
-        <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div>
-      </div>
-      <div className="min-w-0 shrink-0 sm:w-auto">{control}</div>
-    </div>
-  );
-}
-
 function ReadOnlyValue({ value }: { value: string }): JSX.Element {
   return (
-    <span className="glass-inset inline-flex h-[30px] max-w-full items-center truncate rounded-md px-2.5 text-[12px] font-semibold leading-none text-foreground sm:max-w-[320px]">
+    <span className="glass-inset inline-flex h-[var(--control-height)] max-w-full items-center truncate rounded-sm px-2.5 text-control font-semibold leading-none text-foreground sm:max-w-[320px]">
       {value}
     </span>
   );
@@ -1819,7 +1780,7 @@ function PortableExportDialog({
   onConfirm
 }: PortableExportDialogProps): JSX.Element {
   return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
+    <div className="app-modal-backdrop app-no-drag fixed inset-0 z-[var(--layer-modal)] grid place-items-center p-5">
       <Surface
         className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[560px] flex-col overflow-hidden"
         radius="lg"
@@ -1829,10 +1790,10 @@ function PortableExportDialog({
         aria-labelledby="portable-export-title"
       >
         <div className="glass-divider border-b px-5 py-4">
-          <h2 id="portable-export-title" className="text-[15px] font-semibold leading-6 text-foreground">
+          <h2 id="portable-export-title" className="text-heading font-semibold text-foreground">
             {t("settings.exportSelectionTitle")}
           </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          <p className="mt-1 text-control text-muted-foreground">
             {t("settings.exportSelectionDescription")}
           </p>
         </div>
@@ -1846,7 +1807,7 @@ function PortableExportDialog({
             t={t}
             onChange={onChange}
           />
-          <p className="rounded-md border border-border/40 bg-background/25 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+          <p className="rounded-sm border border-border/40 bg-background/25 px-3 py-2 text-caption text-muted-foreground">
             {t("settings.portableSafetyNotice")}
           </p>
         </div>
@@ -1917,7 +1878,7 @@ function PortableImportDialog({
   }
 
   return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
+    <div className="app-modal-backdrop app-no-drag fixed inset-0 z-[var(--layer-modal)] grid place-items-center p-5">
       <Surface
         className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[560px] flex-col overflow-hidden"
         radius="lg"
@@ -1927,10 +1888,10 @@ function PortableImportDialog({
         aria-labelledby="portable-import-title"
       >
         <div className="glass-divider border-b px-5 py-4">
-          <h2 id="portable-import-title" className="text-[15px] font-semibold leading-6 text-foreground">
+          <h2 id="portable-import-title" className="text-heading font-semibold text-foreground">
             {t("settings.importPreview")}
           </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.importPreviewDescription")}</p>
+          <p className="mt-1 text-control text-muted-foreground">{t("settings.importPreviewDescription")}</p>
         </div>
 
         <div className="grid gap-4 overflow-y-auto px-5 py-4">
@@ -1950,10 +1911,10 @@ function PortableImportDialog({
           />
 
           {selection.macros && preview.conflicts.length > 0 ? (
-            <div className="grid gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
+            <StatusCallout className="grid gap-3 px-3 py-3" tone="warning">
               <div>
-                <p className="text-xs font-semibold leading-5 text-foreground">{t("settings.importConflictsTitle")}</p>
-                <p className="text-[11px] leading-4 text-muted-foreground">
+                <p className="text-control font-semibold text-foreground">{t("settings.importConflictsTitle")}</p>
+                <p className="text-caption text-muted-foreground">
                   {t("settings.importConflictsDescription")}
                 </p>
               </div>
@@ -1964,11 +1925,11 @@ function PortableImportDialog({
                   : resolution?.action ?? "";
                 return (
                   <label key={conflict.id} className="grid gap-1.5">
-                    <span className="text-xs font-semibold text-foreground">
+                    <span className="text-control font-semibold text-foreground">
                       {conflict.name} · {conflict.roleNames.join(", ")}
                     </span>
                     <select
-                      className="h-9 rounded-md border border-border/50 bg-background px-2 text-xs text-foreground"
+                      className="h-[var(--control-height)] rounded-sm border border-border/50 bg-background px-2 text-control text-foreground"
                       disabled={isBusy}
                       value={value}
                       onChange={(event) => updateConflictResolution(conflict.id, event.target.value)}
@@ -1988,22 +1949,22 @@ function PortableImportDialog({
                   </label>
                 );
               })}
-            </div>
+            </StatusCallout>
           ) : null}
 
-          <div className="min-w-0 rounded-md border border-border/40 bg-background/25 px-3 py-2">
-            <p className="truncate text-[11px] font-medium leading-4 text-muted-foreground">{preview.filePath}</p>
-            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+          <div className="min-w-0 rounded-sm border border-border/40 bg-background/25 px-3 py-2">
+            <p className="truncate text-caption font-medium text-muted-foreground">{preview.filePath}</p>
+            <p className="mt-1 text-caption text-muted-foreground">
               {formatPortableSource(preview, t)}
             </p>
           </div>
 
           {selectedWarnings.length > 0 ? (
             <div className="grid gap-2">
-              <p className="text-xs font-semibold leading-5 text-foreground">
+              <p className="text-control font-semibold text-foreground">
                 {t("settings.importWarnings").replace("{count}", String(selectedWarnings.length))}
               </p>
-              <ul className="app-scroll-region max-h-36 space-y-1 overflow-auto text-xs leading-5 text-muted-foreground">
+              <ul className="app-scroll-region max-h-36 space-y-1 overflow-auto text-control text-muted-foreground">
                 {selectedWarnings.map((warning, index) => (
                   <li key={`${warning.code}-${warning.itemName ?? index}`}>
                     {formatPortableWarning(warning, t)}
@@ -2012,9 +1973,9 @@ function PortableImportDialog({
               </ul>
             </div>
           ) : (
-            <p className="text-xs leading-5 text-muted-foreground">{t("settings.importNoWarnings")}</p>
+            <p className="text-control text-muted-foreground">{t("settings.importNoWarnings")}</p>
           )}
-          <p className="rounded-md border border-border/40 bg-background/25 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+          <p className="rounded-sm border border-border/40 bg-background/25 px-3 py-2 text-caption text-muted-foreground">
             {t("settings.importMergeSafetyNotice")}
           </p>
         </div>
@@ -2058,11 +2019,11 @@ function PortableImportOperationsSummary({
     { key: "macros", labelKey: "settings.importMacros", selected: selection.macros }
   ];
   return (
-    <div className="grid gap-1.5 rounded-md border border-border/40 bg-background/25 px-3 py-2">
+    <div className="grid gap-1.5 rounded-sm border border-border/40 bg-background/25 px-3 py-2">
       {items.filter((item) => item.selected).map((item) => {
         const summary = operations[item.key];
         return (
-          <div key={item.key} className="flex items-center justify-between gap-3 text-[11px] leading-4">
+          <div key={item.key} className="flex items-center justify-between gap-3 text-caption">
             <span className="font-semibold text-foreground">{t(item.labelKey)}</span>
             <span className="text-right text-muted-foreground">
               {t("settings.importOperationSummary")
@@ -2200,7 +2161,7 @@ function PortableDataSelectionControls({
               />
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-semibold leading-5 text-foreground">{t(labelKey)}</span>
-                <span className="block text-[11px] leading-4 text-muted-foreground">
+                <span className="block text-caption text-muted-foreground">
                   {isAvailable ? description : t("settings.portableUnavailable")}
                 </span>
               </span>

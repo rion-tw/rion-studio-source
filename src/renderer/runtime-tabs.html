@@ -1,38 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost" />
     <title>Rion Studio Tabs</title>
-    <style>
-      :root { color-scheme: dark; font-family: system-ui, "Segoe UI", sans-serif; font-variant-numeric: lining-nums tabular-nums; }
-      * { box-sizing: border-box; }
-      html, body { height: 100%; margin: 0; overflow: hidden; background: #17181b; color: #e7e8eb; user-select: none; }
-      body { display: flex; align-items: center; gap: 6px; padding: 6px 9px; border-bottom: 1px solid rgba(255,255,255,.1); }
-      body[data-toolbar-visible="false"] { padding: 0; border: 0; background: transparent; }
-      body[data-toolbar-visible="false"] > * { visibility: hidden; }
-      #tabs { min-width: 0; flex: 1; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
-      #tabs::-webkit-scrollbar { display: none; }
-      .scroll { width: 24px; height: 31px; flex: none; border: 0; border-radius: 6px; padding: 0; background: transparent; color: #c7c9cf; font-size: 18px; line-height: 1; }
-      .scroll:hover:not(:disabled) { background: rgba(255,255,255,.08); color: white; }
-      .scroll:disabled { color: #666970; opacity: .45; }
-      .scroll[hidden] { display: none; }
-      .tab { height: 31px; min-width: 138px; max-width: 260px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aeb1b8; cursor: default; }
-      .tab:hover { background: rgba(255,255,255,.06); color: #f4f4f5; }
-      .tab.active { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.1); color: white; }
-      .tab.dragging { opacity: .5; }
-      .icon { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: cover; }
-      .fallback { display: grid; place-items: center; background: rgba(255,255,255,.12); font-size: 10px; }
-      .name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-      .audio, .more, .close { width: 19px; height: 23px; display: grid; place-items: center; flex: none; border: 0; padding: 0; border-radius: 4px; color: inherit; background: transparent; font: inherit; }
-      .more { opacity: .48; }
-      .close { opacity: .5; font-size: 16px; }
-      .tab:hover .more, .tab.active .more, .tab:hover .close, .tab.active .close { opacity: .9; }
-      .more:hover, .close:hover { background: rgba(255,255,255,.09); }
-      #add { width: 31px; height: 31px; flex: none; border: 0; border-radius: 7px; background: transparent; color: #c7c9cf; font-size: 20px; line-height: 1; }
-      #add:hover { background: rgba(255,255,255,.08); color: white; }
-    </style>
+    <link rel="stylesheet" href="/runtime-tabs.css" />
   </head>
-  <body><button id="scroll-left" class="scroll" type="button" aria-controls="tabs" hidden>‹</button><div id="tabs" role="tablist"></div><button id="scroll-right" class="scroll" type="button" aria-controls="tabs" hidden>›</button><button id="add" type="button" aria-label="Open role or workspace">+</button><script type="module" src="/runtime-shell/runtimeTabStrip.ts"></script></body>
+  <body>
+    <button id="scroll-left" class="scroll" type="button" aria-controls="tabs" hidden>‹</button>
+    <div id="tabs" role="tablist"></div>
+    <button id="scroll-right" class="scroll" type="button" aria-controls="tabs" hidden>›</button>
+    <button id="add" type="button" aria-label="Open role or workspace">+</button>
+    <script type="module" src="/runtime-shell/runtimeTabStrip.ts"></script>
+  </body>
 </html>

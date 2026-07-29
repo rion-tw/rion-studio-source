@@ -175,7 +175,7 @@ describe("macro editor controls", () => {
       expect(macroHelp.querySelector("svg")).toBeNull();
       expect(macroHelp.querySelectorAll("section")).toHaveLength(1);
       expect(macroHelp.querySelector("section")?.className).toContain("max-w-[72ch]");
-      expect(macroHelp.className).toContain("rounded-lg");
+      expect(macroHelp.className).toContain("rounded-md");
       expect(macroHelp.className).toContain("p-4");
     });
     expect(macroHelps[2].parentElement?.lastElementChild).toBe(macroHelps[2]);

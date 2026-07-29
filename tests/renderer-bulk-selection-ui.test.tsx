@@ -218,7 +218,7 @@ describe("bulk selection UI", () => {
     expect(checkbox.className).not.toContain("size-[var(--control-min-size)]");
     const checkboxVisual = checkbox.querySelector<HTMLElement>('[data-slot="checkbox-visual"]');
     expect(checkboxVisual?.className).toContain("size-3.5");
-    expect(checkboxVisual?.className).toContain("group-data-[state=checked]/checkbox:bg-blue-500");
+    expect(checkboxVisual?.className).toContain("group-data-[state=checked]/checkbox:bg-activity");
     expect(checkbox.className).toContain("opacity-100");
     expect(checkbox.className).not.toContain("shadow-sm");
     const checkboxLayout = checkbox.closest("[data-macro-selection-control]");
@@ -315,8 +315,8 @@ function setBounds(element: HTMLElement, left: number, top: number, width: numbe
 function expectSelectedCardOverlay(card: HTMLElement): void {
   const overlay = card.querySelector<HTMLElement>("[data-selection-overlay]");
   expect(overlay).not.toBeNull();
-  expect(overlay!.className).toContain("bg-blue-500/10");
-  expect(overlay!.className).toContain("outline-blue-500/90");
+  expect(overlay!.className).toContain("bg-activity/10");
+  expect(overlay!.className).toContain("outline-activity/90");
   expect(overlay!.className).toContain("outline-1");
 }
 

@@ -512,7 +512,7 @@ export function App(): JSX.Element {
       <main className="app-content relative min-w-0 flex-1 overflow-hidden">
         {data.error !== null ? (
           <Surface
-            className="pointer-events-none absolute bottom-5 left-1/2 z-40 flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-destructive/30 px-4 py-3 text-sm text-destructive md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"
+            className="pointer-events-none absolute bottom-5 left-1/2 z-[var(--layer-toast)] flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-destructive/30 px-4 py-3 text-body text-destructive md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"
             role="alert"
             variant="strong"
           >
@@ -522,11 +522,11 @@ export function App(): JSX.Element {
         ) : null}
         {data.error === null && notice !== null ? (
           <Surface
-            className="pointer-events-none absolute bottom-5 left-1/2 z-40 flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-primary/30 px-4 py-3 text-sm text-foreground md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"
+            className="pointer-events-none absolute bottom-5 left-1/2 z-[var(--layer-toast)] flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-activity/30 px-4 py-3 text-body text-foreground md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"
             role="status"
             variant="strong"
           >
-            <AlertCircle className="mt-0.5 shrink-0 text-primary" size={17} />
+            <AlertCircle className="mt-0.5 shrink-0 text-activity" size={17} />
             <span className="min-w-0 break-words">{localizeErrorMessage(notice, preferences.language)}</span>
           </Surface>
         ) : null}
@@ -818,7 +818,7 @@ function BootLoadingScreen({
         className="app-no-drag grid w-full max-w-[420px] justify-items-center gap-5 text-center"
       >
         <img
-          className="size-16 rounded-lg shadow-lg shadow-black/10"
+          className="size-16 rounded-md shadow-lg"
           src={appIconUrl}
           alt=""
           aria-hidden="true"

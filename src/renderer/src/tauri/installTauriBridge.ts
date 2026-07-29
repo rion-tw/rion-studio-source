@@ -613,6 +613,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     consumePendingMacroPageRequest: () => invokeShell("consumePendingMacroPageRequest"),
     setOverlayLanguage: (language) =>
       invokeCore({ type: "overlayLanguageSet", language }).then(() => undefined),
+    setRuntimeTheme: (theme) =>
+      invokeCore({ type: "runtimeThemeSet", theme }).then(() => undefined),
     getAppVersion: () => invokeShell("appVersion"),
     getUpdateStatus: () => invokeShell("updateStatus"),
     checkForUpdates: () => invokeShell("checkForUpdates"),

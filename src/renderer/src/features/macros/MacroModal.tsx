@@ -37,6 +37,7 @@ import {
   FormField,
   HelpPanel,
   SegmentedControl,
+  StatusCallout,
   Surface
 } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createMacroFormState, createNewMacroForm } from "../../app/editorFormState";
@@ -393,7 +394,7 @@ function MacroForm({
                   onChange={(trigger) => update((current) => ({ ...current, trigger }))}
                 />
                 {shortcutConflict ? (
-                  <p className="mt-2 text-[11px] font-semibold leading-4 text-destructive">
+                  <p className="mt-2 text-caption font-semibold text-destructive">
                     {shortcutConflict}
                   </p>
                 ) : null}
@@ -462,15 +463,12 @@ function MacroForm({
             {form.repeat.type === "loop" || form.steps.some(
               (step) => step.type === "key" && step.action === "hold_until_stop"
             ) ? (
-              <Surface
-                className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-4"
-                variant="inset"
-              >
-                <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
-                <p className="text-[11px] font-medium leading-5 text-foreground">
+              <StatusCallout className="p-4" tone="warning">
+                <AlertTriangle className="mt-0.5 shrink-0 text-warning-foreground" size={15} />
+                <p className="text-caption font-medium text-foreground">
                   {t("macroForm.fairUseNotice")}
                 </p>
-              </Surface>
+              </StatusCallout>
             ) : null}
           </aside>
 
@@ -503,7 +501,7 @@ function MacroForm({
                           key={role.id}
                           aria-pressed={isSelected}
                           className={cn(
-                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-lg p-2 text-left transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60",
+                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-md p-2 text-left transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-activity/25 disabled:cursor-not-allowed disabled:opacity-60",
                             isSelected
                               ? "macro-role-card-selected text-foreground"
                               : "text-muted-foreground hover:text-foreground"
@@ -521,7 +519,7 @@ function MacroForm({
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-xs font-semibold">{role.name}</span>
-                            <span className="mt-0.5 block truncate text-[10px] font-medium text-muted-foreground">
+                            <span className="mt-0.5 block truncate text-micro font-medium text-muted-foreground">
                               {gameName}
                             </span>
                           </span>
@@ -530,7 +528,7 @@ function MacroForm({
                     })}
                   </div>
                 ) : (
-                  <div className="glass-control flex h-[30px] items-center rounded-md px-2.5 text-xs text-muted-foreground">
+                  <div className="glass-control flex h-[var(--control-height)] items-center rounded-md px-2.5 text-control text-muted-foreground">
                     {t("macroForm.noRoles")}
                   </div>
                 )}
@@ -545,7 +543,7 @@ function MacroForm({
                       <div className="grid max-w-xs gap-2 text-muted-foreground">
                         <ListChecks className="mx-auto" size={24} />
                         <p className="text-xs font-semibold leading-5">{t("macroForm.stepsEmpty")}</p>
-                        <p className="text-[11px] font-medium leading-5">{t("macroForm.stepsEmptyHint")}</p>
+                        <p className="text-caption font-medium">{t("macroForm.stepsEmptyHint")}</p>
                       </div>
                     </div>
                   ) : (
@@ -649,7 +647,7 @@ function MacroForm({
 function MacroHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
   return (
     <section className="grid max-w-[72ch] gap-1 text-xs leading-5 text-muted-foreground">
-      <h2 className="text-[11px] font-semibold leading-5 text-foreground">{title}</h2>
+      <h2 className="text-caption font-semibold text-foreground">{title}</h2>
       <ul className="grid list-disc gap-1 pl-4">{children}</ul>
     </section>
   );
@@ -726,7 +724,7 @@ export function MacroCommandImportDialog({
       ref={dialogRef}
       aria-describedby="macro-command-import-description"
       aria-labelledby="macro-command-import-title"
-      className="m-auto w-[min(720px,calc(100vw-2rem))] max-w-none border-0 bg-transparent p-0 text-foreground backdrop:bg-black/45"
+      className="app-dialog m-auto w-[min(720px,calc(100vw-2rem))] max-w-none border-0 bg-transparent p-0 text-foreground"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -735,10 +733,10 @@ export function MacroCommandImportDialog({
     >
       <Surface className="grid max-h-[calc(100vh-2rem)] gap-4 overflow-auto p-5" radius="lg" variant="modal">
         <div className="grid gap-1.5">
-          <h2 id="macro-command-import-title" className="text-base font-semibold leading-6">
+          <h2 id="macro-command-import-title" className="text-title font-semibold">
             {t("macroForm.commandImport.title")}
           </h2>
-          <p id="macro-command-import-description" className="text-xs font-medium leading-5 text-muted-foreground">
+          <p id="macro-command-import-description" className="text-control font-medium text-muted-foreground">
             {t("macroForm.commandImport.description")}
           </p>
         </div>
@@ -746,7 +744,7 @@ export function MacroCommandImportDialog({
         <Textarea
           aria-label={t("macroForm.commandImport.input")}
           autoFocus
-          className="min-h-28 font-mono text-[11px]"
+          className="min-h-28 font-mono text-caption"
           placeholder={t("macroForm.commandImport.placeholder")}
           rows={5}
           value={input}
@@ -755,10 +753,10 @@ export function MacroCommandImportDialog({
 
         <div className="grid gap-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold text-foreground">
+            <p className="text-control font-semibold text-foreground">
               {t("macroForm.commandImport.preview")}
             </p>
-            <p className="text-[11px] font-medium text-muted-foreground">
+            <p className="text-caption font-medium text-muted-foreground">
               {t("macroForm.commandImport.stepCount")
                 .replace("{count}", String(result.steps.length))
                 .replace("{remaining}", String(maxImportSteps))}
@@ -766,10 +764,10 @@ export function MacroCommandImportDialog({
           </div>
 
           {result.steps.length > 0 ? (
-            <ol className="glass-control grid max-h-44 gap-1 overflow-auto rounded-md p-2 text-[11px] font-medium text-muted-foreground">
+            <ol className="glass-control grid max-h-44 gap-1 overflow-auto rounded-sm p-2 text-caption font-medium text-muted-foreground">
               {result.steps.map((step, index) => (
                 <li key={step.id} className="flex gap-2">
-                  <span className="w-5 shrink-0 text-right text-[10px] text-muted-foreground/70">
+                  <span className="w-5 shrink-0 text-right text-micro text-muted-foreground/70">
                     {index + 1}.
                   </span>
                   <span className="min-w-0 break-words text-foreground">
@@ -779,25 +777,25 @@ export function MacroCommandImportDialog({
               ))}
             </ol>
           ) : (
-            <div className="glass-control rounded-md border border-dashed border-border/60 p-3 text-[11px] font-medium text-muted-foreground">
+            <div className="glass-control rounded-sm border border-dashed border-border/60 p-3 text-caption font-medium text-muted-foreground">
               {t("macroForm.commandImport.noSteps")}
             </div>
           )}
         </div>
 
         {result.issues.length > 0 ? (
-          <div className="grid gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.06] p-3">
+          <StatusCallout className="grid gap-2 p-3" tone="warning">
             <p className="text-xs font-semibold text-foreground">
               {t("macroForm.commandImport.warnings")}
             </p>
-            <ul className="grid gap-1 text-[11px] font-medium leading-4 text-muted-foreground">
+            <ul className="grid gap-1 text-caption font-medium text-muted-foreground">
               {result.issues.map((issue, index) => (
                 <li key={`${issue.code}-${issue.token}-${index}`}>
                   {formatMacroCommandIssue(issue, t)}
                 </li>
               ))}
             </ul>
-          </div>
+          </StatusCallout>
         ) : null}
 
         <div className="flex justify-end gap-2">
@@ -869,18 +867,18 @@ function AffixedInput({
   return (
     <label
       className={cn(
-        "glass-control flex h-[30px] min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20",
+        "glass-control flex h-[var(--control-height)] min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20",
         widthClassName
       )}
     >
       {prefix ? (
-        <span className="pointer-events-none shrink-0 pl-2.5 text-[13px] font-normal text-muted-foreground">
+        <span className="pointer-events-none shrink-0 pl-2.5 text-body font-normal text-muted-foreground">
           {prefix}
         </span>
       ) : null}
       <input
         aria-label={ariaLabel}
-        className="h-full min-w-0 flex-1 bg-transparent px-2 text-[13px] font-semibold leading-none text-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+        className="h-full min-w-0 flex-1 bg-transparent px-2 text-body font-semibold leading-none text-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
         type="number"
         min={min}
         max={max}
@@ -891,7 +889,7 @@ function AffixedInput({
         disabled={disabled}
       />
       {suffix ? (
-        <span className="pointer-events-none shrink-0 pr-2.5 text-[13px] font-normal text-muted-foreground">
+        <span className="pointer-events-none shrink-0 pr-2.5 text-body font-normal text-muted-foreground">
           {suffix}
         </span>
       ) : null}
@@ -952,7 +950,7 @@ function MacroIntervalControl({
             step={getTimeUnitStep(unit)}
             suffix={unit}
             value={toDisplayTime(value, unit)}
-            widthClassName="h-[30px] min-w-0 flex-1"
+            widthClassName="h-[var(--control-height)] min-w-0 flex-1"
             onChange={(next) => onChange(fromDisplayTime(next, unit))}
           />
           <TimeUnitSelect disabled={disabled} t={t} unit={unit} onChange={setUnit} />
@@ -960,7 +958,7 @@ function MacroIntervalControl({
       ) : null}
       {isValidMacroInterval(value) && value < 250 ? (
         <p
-          className="flex items-start gap-1.5 text-[11px] font-medium leading-4 text-amber-600 dark:text-amber-300"
+          className="flex items-start gap-1.5 text-caption font-medium text-warning-foreground"
           role="status"
         >
           <AlertTriangle className="mt-px shrink-0" size={14} aria-hidden="true" />
@@ -1248,7 +1246,7 @@ function MacroStepEditor({
       className={cn(
         "glass-divider flex flex-wrap items-center gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200",
         isDragging && "opacity-50",
-        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
       )}
     >
       <Button
@@ -1264,7 +1262,7 @@ function MacroStepEditor({
         <GripVertical size={14} />
       </Button>
 
-      <span className="mr-2 shrink-0 text-[11px] text-muted-foreground">
+      <span className="mr-2 shrink-0 text-caption text-muted-foreground">
         {String(index + 1).padStart(2, "0")}
       </span>
 
@@ -1582,7 +1580,7 @@ function MacroStepFields({
           </Select>
         </div>
         {mainKeyIsModifier ? (
-          <p className="text-[11px] leading-4 text-muted-foreground">
+          <p className="text-caption text-muted-foreground">
             {t("macroForm.modifiersNeedMainKey")}
           </p>
         ) : null}

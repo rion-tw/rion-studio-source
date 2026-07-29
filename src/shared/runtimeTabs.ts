@@ -4,6 +4,7 @@ import type {
   DisplayInfo,
   EmbeddedRuntimeState,
   EmbeddedRuntimeTabSummary,
+  ResolvedTheme,
   WorkspaceLayoutTemplate
 } from "./types";
 
@@ -46,6 +47,7 @@ export interface RuntimeTabStripState extends EmbeddedRuntimeState {
   displays: DisplayInfo[];
   fullscreen: boolean;
   language: AppLanguage;
+  resolvedTheme: ResolvedTheme;
   tabIconDataUrls: Record<string, string>;
   tabWorkspaceTemplates: Record<string, WorkspaceLayoutTemplate>;
   toolbarVisible: boolean;

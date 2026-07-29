@@ -63,6 +63,8 @@ function render(state: RuntimeTabStripState): void {
   const previousScrollLeft = root.scrollLeft;
   current = state;
   document.documentElement.lang = state.language;
+  document.documentElement.dataset.theme = state.resolvedTheme;
+  document.documentElement.style.colorScheme = state.resolvedTheme;
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);
   root.replaceChildren(...state.tabs
     .filter((tab) => tab.windowId === state.windowId && !tab.hidden)

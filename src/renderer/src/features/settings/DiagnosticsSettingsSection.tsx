@@ -110,9 +110,9 @@ export function DiagnosticsSettingsSection({
         <Surface className="settings-group overflow-hidden" radius="md">
           <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.performanceDiagnosticsTitle")}</p>
+              <p className="text-body font-semibold text-foreground">{t("settings.performanceDiagnosticsTitle")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.performanceDiagnosticsDescription")}</p>
-              <p className="mt-1 text-[11px] leading-4 text-amber-700 dark:text-amber-300">{t("settings.performanceDiagnosticsHint")}</p>
+              <p className="mt-1 text-caption text-warning">{t("settings.performanceDiagnosticsHint")}</p>
             </div>
             <Button
               type="button"
@@ -134,7 +134,7 @@ export function DiagnosticsSettingsSection({
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsStorage")}</p>
+              <p className="text-body font-semibold text-foreground">{t("settings.logsStorage")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                 {status ? t("settings.logsStorageSummary")
                   .replace("{entries}", String(status.entryCount))
@@ -151,7 +151,7 @@ export function DiagnosticsSettingsSection({
           </div>
           <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsLevel")}</p>
+              <p className="text-body font-semibold text-foreground">{t("settings.logsLevel")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsLevelDescription")}</p>
             </div>
             <Select value={status?.currentLevel ?? "debug"} onValueChange={(value) => void run(() => window.rionStudio.setLogLevel(value as LogLevel))}>
@@ -166,7 +166,7 @@ export function DiagnosticsSettingsSection({
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="whitespace-nowrap text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsViewer")}</p>
+              <p className="whitespace-nowrap text-body font-semibold text-foreground">{t("settings.logsViewer")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsViewerDescription")}</p>
             </div>
             <div className="flex w-full flex-wrap justify-end gap-2">
@@ -186,7 +186,7 @@ export function DiagnosticsSettingsSection({
               <Button type="button" variant={live ? "default" : "outline"} onClick={() => setLive((value) => !value)}>{t(live ? "settings.logsLiveOn" : "settings.logsLiveOff")}</Button>
             </div>
           </div>
-          <div className="max-h-[430px] overflow-auto bg-black/5 font-mono text-[11px] dark:bg-black/20">
+          <div className="max-h-[430px] overflow-auto bg-muted/35 font-mono text-caption">
             {entries.length ? entries.map((entry) => <LogEntryRow key={entry.id} entry={entry} t={t} />) : <p className="p-6 text-center text-muted-foreground">{t("settings.logsEmpty")}</p>}
           </div>
           {cursor ? <div className="border-t border-border/50 p-3 text-center"><Button variant="outline" disabled={busy} onClick={() => void loadMore()}>{t("settings.logsLoadMore")}</Button></div> : null}
@@ -216,7 +216,7 @@ function PerformanceDiagnosticsResult({
   }
   return (
     <div className="grid gap-3 border-t border-border/50 px-4 py-3">
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-caption text-muted-foreground">
         <span>{t("settings.performanceDiagnosticsDisplay")}: {formatHertz(performance.displayRefreshRateHz, t)}</span>
         <span>{t("settings.performanceDiagnosticsWindowFocus")}: {t(performance.windowFocused
           ? "settings.performanceDiagnosticsFocused"
@@ -226,17 +226,17 @@ function PerformanceDiagnosticsResult({
       {performance.surfaces.map((surface) => {
         const roleName = roles.find((role) => role.id === surface.roleId)?.name ?? surface.roleId;
         return (
-          <div key={surface.roleId} className="rounded-lg border border-border/60 bg-background/40 p-3">
+          <div key={surface.roleId} className="rounded-md border border-border/60 bg-background/40 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold text-foreground">{roleName}</p>
-                {surface.origin ? <p className="text-[10px] text-muted-foreground">{surface.origin}</p> : null}
+                {surface.origin ? <p className="text-micro text-muted-foreground">{surface.origin}</p> : null}
               </div>
               <p className="font-mono text-lg font-semibold text-foreground">
                 {formatFps(surface.averageFps)} FPS
               </p>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-caption sm:grid-cols-4">
               <DiagnosticValue label={t("settings.performanceDiagnosticsVisibility")} value={t(`settings.performanceDiagnosticsVisibility.${surface.documentVisibilityState}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsPageFocus")} value={t(surface.documentHasFocus ? "settings.performanceDiagnosticsFocused" : "settings.performanceDiagnosticsUnfocused")} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsP95")} value={formatMilliseconds(surface.p95FrameIntervalMs, t)} />
@@ -250,14 +250,14 @@ function PerformanceDiagnosticsResult({
               <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsFrames")} value={String(surface.frameCount)} />
             </div>
-            <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
+            <p className="mt-3 text-caption text-muted-foreground">
               {performanceFinding(performance, surface, t)}
             </p>
             {surface.graphics.renderer ? (
-              <p className="mt-1 break-all text-[10px] text-muted-foreground">GPU: {surface.graphics.renderer}</p>
+              <p className="mt-1 break-all text-micro text-muted-foreground">GPU: {surface.graphics.renderer}</p>
             ) : null}
             {surface.error || surface.graphics.error ? (
-              <p className="mt-2 break-words text-[10px] text-destructive">{surface.error ?? surface.graphics.error}</p>
+              <p className="mt-2 break-words text-micro text-destructive">{surface.error ?? surface.graphics.error}</p>
             ) : null}
           </div>
         );
@@ -328,7 +328,7 @@ function LogEntryRow({ entry, t }: { entry: LogEntry; t: Translator }): JSX.Elem
   const source = entry.source === "preload"
     ? `${entry.source} (${t("settings.logsLegacySource")})`
     : entry.source;
-  return <details className="border-b border-border/40 px-3 py-2 last:border-0"><summary className="cursor-pointer list-none"><span className="text-muted-foreground">{new Date(entry.timestamp).toLocaleTimeString()}</span> <span className={entry.level === "error" ? "text-destructive" : entry.level === "warn" ? "text-amber-600" : "text-foreground"}>[{entry.level.toUpperCase()}]</span> <span className="text-muted-foreground">[{source}]</span> {entry.message}</summary>{entry.context || entry.error ? <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded bg-black/10 p-2 text-muted-foreground">{JSON.stringify({ context: entry.context, error: entry.error }, null, 2)}</pre> : null}</details>;
+  return <details className="border-b border-border/40 px-3 py-2 last:border-0"><summary className="cursor-pointer list-none"><span className="text-muted-foreground">{new Date(entry.timestamp).toLocaleTimeString()}</span> <span className={entry.level === "error" ? "text-destructive" : entry.level === "warn" ? "text-warning" : "text-foreground"}>[{entry.level.toUpperCase()}]</span> <span className="text-muted-foreground">[{source}]</span> {entry.message}</summary>{entry.context || entry.error ? <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xs bg-muted/55 p-2 text-muted-foreground">{JSON.stringify({ context: entry.context, error: entry.error }, null, 2)}</pre> : null}</details>;
 }
 
 function formatBytes(bytes: number): string {

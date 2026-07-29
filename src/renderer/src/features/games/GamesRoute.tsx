@@ -127,7 +127,7 @@ function GamesRoute({
                     ) : (
                       <div className="absolute inset-0 grid place-items-center">
                         {iconUrl ? (
-                          <img className="size-16 rounded-2xl object-cover opacity-85 shadow-lg ring-1 ring-white/25" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" />
+                          <img className="size-16 rounded-lg object-cover opacity-85 shadow-lg ring-1 ring-on-media/25" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" />
                         ) : (
                           <Gamepad2 className="text-muted-foreground/65" size={42} />
                         )}
@@ -147,7 +147,7 @@ function GamesRoute({
                     </div>
                   </div>
                 </button>
-                <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                   <GameActionMenu
                     game={game}
                     t={t}
@@ -218,7 +218,7 @@ function GameActionMenu({
   return (
     <div ref={menuRef} className="relative shrink-0">
       <Button
-        className="role-cover-menu-control h-7 w-7 text-white hover:text-white"
+        className="role-cover-menu-control h-7 w-7 text-on-media hover:text-on-media"
         type="button"
         variant="ghost"
         size="icon"
@@ -232,7 +232,7 @@ function GameActionMenu({
       </Button>
       {isOpen ? (
         <Surface
-          className="absolute right-0 top-8 z-20 min-w-44 overflow-hidden text-popover-foreground"
+          className="absolute right-0 top-8 z-[var(--layer-popover)] min-w-44 overflow-hidden text-popover-foreground"
           padding="xs"
           variant="popover"
           role="menu"
@@ -263,7 +263,7 @@ function GameActionMenu({
 }
 
 function Metric({ label, value }: { label: string; value: number }): JSX.Element {
-  return <div className="rounded-md bg-muted/55 px-2 py-2"><p className="font-semibold">{value}</p><p className="truncate text-[10px] text-muted-foreground">{label}</p></div>;
+  return <div className="rounded-sm bg-muted/55 px-2 py-2"><p className="font-semibold">{value}</p><p className="truncate text-micro text-muted-foreground">{label}</p></div>;
 }
 
 export default GamesRoute;

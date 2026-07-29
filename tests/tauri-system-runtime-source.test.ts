@@ -61,6 +61,13 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(windowsTabStrip).toContain("crate::display_inventory(&window)");
     expect(windowsTabStrip).not.toContain("crate::workspace_displays(&window)");
+    expect(windowsTabStrip).toContain('"resolvedTheme".to_owned()');
+    expect(windowsTabStrip).toContain("json!(resolved_theme)");
+    const nativeMacTabs = runtime.slice(
+      runtime.indexOf("fn sync_native_tab_strip("),
+      runtime.indexOf("fn sync_windows_tab_strip(")
+    );
+    expect(nativeMacTabs).not.toContain("resolved_theme");
     expect(applyRuntime).toContain("surface.reparent(&window)");
     expect(applyRuntime).toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");

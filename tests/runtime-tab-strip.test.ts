@@ -16,6 +16,7 @@ const state: RuntimeTabStripState = {
   displays: [],
   fullscreen: false,
   language: "zh-TW",
+  resolvedTheme: "light",
   savedWindows: [],
   tabIconDataUrls: {},
   tabWorkspaceTemplates: {},
@@ -122,6 +123,17 @@ function setTabGeometry(width = 140, spacing = 10): void {
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
+  it("projects the resolved app theme onto an already-open tab document", () => {
+    window.__rionApplyRuntimeTabState?.({ ...state, resolvedTheme: "dark" });
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+
+    window.__rionApplyRuntimeTabState?.({ ...state, resolvedTheme: "light" });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+  });
+
   it("renders workspace detail, audio state, and a stop control", () => {
     const tab = document.querySelector<HTMLElement>('[role="tab"]');
     expect(tab?.title).toBe("四人隊伍：米娜, 露娜");

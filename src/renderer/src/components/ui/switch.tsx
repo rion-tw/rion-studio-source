@@ -33,13 +33,13 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(
         className={cn(
           "inline-flex h-5 w-9 items-center rounded-full border p-0.5 transition-[background-color,border-color,box-shadow]",
           checked
-            ? "border-blue-500/70 bg-blue-500 shadow-sm shadow-blue-500/15"
+            ? "border-activity/70 bg-activity shadow-sm"
             : "border-border/65 bg-muted/75"
         )}
       >
         <span
           className={cn(
-            "block size-3.5 rounded-full bg-white shadow-sm transition-transform",
+            "block size-3.5 rounded-full bg-on-media shadow-sm transition-transform",
             checked ? "translate-x-4" : "translate-x-0"
           )}
         />

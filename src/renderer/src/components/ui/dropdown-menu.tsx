@@ -30,7 +30,7 @@ export const DropdownMenuContent = forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "glass-popover relative z-[100] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-32 overflow-hidden rounded-md border border-border/60 bg-popover p-1 text-[12px] text-popover-foreground shadow-md data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
+        "glass-popover relative z-[var(--layer-tooltip)] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-32 overflow-hidden rounded-sm border border-border/60 bg-popover p-1 text-control text-popover-foreground shadow-md data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
         className
       )}
       {...props}
@@ -47,7 +47,7 @@ export const DropdownMenuItem = forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-[var(--control-min-size)] w-full cursor-default select-none items-center rounded-[5px] px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground",
+      "relative flex min-h-[var(--control-min-size)] w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground",
       className
     )}
     {...props}
@@ -63,7 +63,7 @@ export const DropdownMenuCheckboxItem = forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex min-h-[var(--control-min-size)] w-full cursor-default select-none items-center rounded-[5px] px-7 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground",
+      "relative flex min-h-[var(--control-min-size)] w-full cursor-default select-none items-center rounded-sm px-7 py-1.5 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground",
       className
     )}
     {...props}
@@ -85,7 +85,7 @@ export const DropdownMenuLabel = forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1.5 text-[11px] font-semibold text-muted-foreground", className)}
+    className={cn("px-2 py-1.5 text-caption font-semibold text-muted-foreground", className)}
     {...props}
   />
 ));

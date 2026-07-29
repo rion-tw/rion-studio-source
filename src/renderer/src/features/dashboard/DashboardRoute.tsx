@@ -14,7 +14,7 @@ import { type JSX, useMemo } from "react";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { IconTile, PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
+import { IconTile, PageFrame, PageHeader, StatusCallout, Surface } from "../../components/ui/patterns";
 import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import {
@@ -160,7 +160,7 @@ function DashboardRoute({
       />
 
       {embeddedRuntime.recovery ? (
-        <Surface className="flex flex-col gap-3 border-warning/35 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <StatusCallout className="flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" tone="warning">
           <div className="min-w-0">
             <p className="text-sm font-semibold">{t("dashboard.gameWindows.recoveryTitle")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -185,7 +185,7 @@ function DashboardRoute({
               {t("dashboard.gameWindows.restore")}
             </Button>
           </div>
-        </Surface>
+        </StatusCallout>
       ) : null}
 
       {embeddedRuntime.windows.length > 0 || (embeddedRuntime.savedWindows?.length ?? 0) > 0 ? (
@@ -387,7 +387,7 @@ function StatCard({ icon: Icon, label, onClick, tone = "muted", value }: StatCar
       />
       <span className="min-w-0 flex-1">
         <span className="block text-xl font-semibold leading-6 tracking-tight text-foreground">{value}</span>
-        <span className="mt-0.5 block truncate text-[11px] font-semibold leading-4 text-muted-foreground">{label}</span>
+        <span className="mt-0.5 block truncate text-caption font-semibold text-muted-foreground">{label}</span>
       </span>
       <ArrowRight
         aria-hidden="true"
@@ -418,7 +418,7 @@ function Panel({ actionLabel, children, count, onAction, title }: PanelProps): J
         </div>
         <Button
           aria-label={`${actionLabel}: ${title}`}
-          className="shrink-0 gap-1 px-2 text-[11px]"
+          className="shrink-0 gap-1 px-2 text-caption"
           type="button"
           variant="ghost"
           size="sm"
@@ -496,14 +496,14 @@ function RoleLaunchRow({
         src={coverImageUrl}
       />
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-semibold leading-5" title={item.role.name}>
+        <p className="truncate text-body font-semibold" title={item.role.name}>
           {item.role.name}
         </p>
-        <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-muted-foreground" title={item.role.launchUrl}>
+        <span className="mt-0.5 block truncate text-caption font-medium text-muted-foreground" title={item.role.launchUrl}>
           {formatLaunchUrl(item.role.launchUrl)}
         </span>
       </div>
-      <Badge className="h-[18px] justify-self-end px-1.5 text-[10px]" variant={getRoleBadgeVariant(item)}>
+      <Badge className="h-[18px] justify-self-end px-1.5 text-micro" variant={getRoleBadgeVariant(item)}>
         <span title={status ? getBrowserEngineStatusTitle(status, t) : undefined}>
           {getRoleStatusLabel(item, t)}
           {status?.resolvedEngine
@@ -547,15 +547,15 @@ function WorkspaceLaunchRow({
         <LayoutDashboard aria-hidden="true" size={15} />
       </IconTile>
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-semibold leading-5" title={item.workspace.name}>
+        <p className="truncate text-body font-semibold" title={item.workspace.name}>
           {item.workspace.name}
         </p>
-        <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-muted-foreground">
+        <span className="mt-0.5 block truncate text-caption font-medium text-muted-foreground">
           {t("dashboard.workspace.assignedRoles").replace("{count}", String(item.assignedCount))}
         </span>
       </div>
       <Badge
-        className="h-[18px] justify-self-end px-1.5 text-[10px]"
+        className="h-[18px] justify-self-end px-1.5 text-micro"
         variant={item.runningCount > 0 ? "success" : "muted"}
       >
         {getWorkspaceStatusLabel(item, t)}
@@ -602,17 +602,17 @@ function MacroRunRow({
         <Keyboard aria-hidden="true" size={15} />
       </IconTile>
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-semibold leading-5" title={item.macro.name}>
+        <p className="truncate text-body font-semibold" title={item.macro.name}>
           {item.macro.name}
         </p>
-        <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-muted-foreground">
+        <span className="mt-0.5 block truncate text-caption font-medium text-muted-foreground">
           {t("dashboard.macro.assignedRoles").replace("{count}", String(item.assignedCount))}
           {" · "}
           {t("dashboard.macro.stepCount").replace("{count}", String(item.macro.steps.length))}
         </span>
       </div>
       <Badge
-        className="h-[18px] justify-self-end px-1.5 text-[10px]"
+        className="h-[18px] justify-self-end px-1.5 text-micro"
         variant={item.runningCount > 0 ? "success" : "muted"}
       >
         {getMacroStatusLabel(item, t)}

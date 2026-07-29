@@ -32,8 +32,8 @@ describe("renderer status indicators", () => {
     expect(checkbox.getAttribute("data-state")).toBe("checked");
     const visual = checkbox.querySelector<HTMLElement>('[data-slot="checkbox-visual"]');
     expect(visual?.className).toContain("size-3.5");
-    expect(visual?.className).toContain("group-data-[state=checked]/checkbox:bg-blue-500");
-    expect(visual?.className).toContain("group-data-[state=checked]/checkbox:border-blue-500");
+    expect(visual?.className).toContain("group-data-[state=checked]/checkbox:bg-activity");
+    expect(visual?.className).toContain("group-data-[state=checked]/checkbox:border-activity");
 
     fireEvent.click(checkbox);
     expect(onCheckedChange).toHaveBeenCalledWith(false);
@@ -56,8 +56,8 @@ describe("renderer status indicators", () => {
     const track = toggle.firstElementChild;
     expect(track?.className).toContain("h-5");
     expect(track?.className).toContain("w-9");
-    expect(track?.className).toContain("bg-blue-500");
-    expect(track?.className).toContain("border-blue-500/70");
+    expect(track?.className).toContain("bg-activity");
+    expect(track?.className).toContain("border-activity/70");
     expect(track?.firstElementChild?.className).toContain("size-3.5");
     expect(track?.firstElementChild?.className).toContain("translate-x-4");
 
@@ -96,7 +96,7 @@ describe("renderer status indicators", () => {
     );
 
     const roleDot = screen.getByRole("img", { name: "Role active" });
-    expect(roleDot.className).toContain("bg-emerald-500");
+    expect(roleDot.className).toContain("bg-activity");
     expect(roleDot.className).not.toContain("opacity-45");
   });
 
@@ -111,8 +111,8 @@ describe("renderer status indicators", () => {
     );
 
     const updateDot = screen.getByRole("status", { name: "Update available" });
-    expect(updateDot.className).toContain("bg-blue-500");
-    expect(updateDot.className).toContain("ring-blue-500/15");
+    expect(updateDot.className).toContain("bg-activity");
+    expect(updateDot.className).toContain("ring-activity/15");
   });
 
   it("exposes a switch for enabling a disabled macro", () => {

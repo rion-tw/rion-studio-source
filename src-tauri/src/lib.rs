@@ -2609,7 +2609,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                 .ok_or_else(|| {
                     shell_error("TAURI_TAB_DRAG_INVALID", "Runtime tab ID is required.")
                 })?;
-            let (screen_x, screen_y) = drag_screen_point(action)?;
+            let (screen_x, screen_y) = drag_screen_point(app, action)?;
             let runtime = state
                 .core
                 .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -2748,7 +2748,7 @@ pub(crate) async fn handle_game_window_tab_drag(
             }
         }
         "tabDragMove" => {
-            let (screen_x, screen_y) = drag_screen_point(action)?;
+            let (screen_x, screen_y) = drag_screen_point(app, action)?;
             let session = state
                 .tab_drag
                 .lock()
@@ -2998,7 +2998,7 @@ fn tab_drag_rollback_error(
     )
 }
 
-fn drag_screen_point(action: &Value) -> Result<(f64, f64), CoreErrorPayload> {
+fn drag_screen_point(app: &AppHandle, action: &Value) -> Result<(f64, f64), CoreErrorPayload> {
     let screen_x = action["screenX"]
         .as_f64()
         .filter(|value| value.is_finite())
@@ -3007,7 +3007,13 @@ fn drag_screen_point(action: &Value) -> Result<(f64, f64), CoreErrorPayload> {
         .as_f64()
         .filter(|value| value.is_finite())
         .ok_or_else(|| shell_error("TAURI_TAB_DRAG_INVALID", "Drag screen Y is invalid."))?;
-    Ok((screen_x, screen_y))
+    if cfg!(windows) {
+        app.cursor_position()
+            .map(|point| (point.x, point.y))
+            .map_err(|error| shell_error("TAURI_TAB_DRAG_FAILED", error.to_string()))
+    } else {
+        Ok((screen_x, screen_y))
+    }
 }
 
 fn take_tab_drag_session(
@@ -3089,6 +3095,12 @@ fn provisional_target_for_screen(
         .or_else(|| monitors.first().cloned())
         .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
     let (target_display, work_area) = display_target_and_work_area(&monitor, primary_id);
+    let (screen_x, screen_y) = if cfg!(windows) {
+        let scale = monitor.scale_factor().max(f64::EPSILON);
+        (screen_x / scale, screen_y / scale)
+    } else {
+        (screen_x, screen_y)
+    };
     let mut bounds = source.placement.normal_bounds.clone();
     bounds.x = (screen_x - f64::from(bounds.width) / 2.0).round() as i32;
     bounds.y = (screen_y - 28.0).round() as i32;
@@ -3228,8 +3240,12 @@ fn monitor_near_screen_point(
     x: f64,
     y: f64,
 ) -> Option<tauri::Monitor> {
-    let logical_rect = |monitor: &tauri::Monitor| {
-        let scale = monitor.scale_factor();
+    let drag_rect = |monitor: &tauri::Monitor| {
+        let scale = if cfg!(windows) {
+            1.0
+        } else {
+            monitor.scale_factor()
+        };
         let position = monitor.position();
         let size = monitor.size();
         (
@@ -3239,24 +3255,27 @@ fn monitor_near_screen_point(
             size.height as f64 / scale,
         )
     };
-    monitors
+    let rects = monitors.iter().map(drag_rect).collect::<Vec<_>>();
+    nearest_drag_rect_index(&rects, x, y).map(|index| monitors[index].clone())
+}
+
+fn nearest_drag_rect_index(rects: &[(f64, f64, f64, f64)], x: f64, y: f64) -> Option<usize> {
+    rects
         .iter()
-        .find(|monitor| {
-            let (left, top, width, height) = logical_rect(monitor);
-            x >= left && x < left + width && y >= top && y < top + height
+        .position(|(left, top, width, height)| {
+            x >= *left && x < left + width && y >= *top && y < top + height
         })
-        .cloned()
         .or_else(|| {
-            monitors
+            rects
                 .iter()
-                .min_by(|left, right| {
-                    let distance = |monitor: &tauri::Monitor| {
-                        let (left, top, width, height) = logical_rect(monitor);
+                .enumerate()
+                .min_by(|(_, left), (_, right)| {
+                    let distance = |(left, top, width, height): &(f64, f64, f64, f64)| {
                         (x - (left + width / 2.0)).powi(2) + (y - (top + height / 2.0)).powi(2)
                     };
                     distance(left).total_cmp(&distance(right))
                 })
-                .cloned()
+                .map(|(index, _)| index)
         })
 }
 
@@ -3832,6 +3851,28 @@ mod tests {
             assert!((0..MAX_SAFE_INTEGER).contains(&id));
             assert_eq!(id as f64 as i64, id);
         }
+    }
+
+    #[test]
+    fn physical_drag_monitor_selection_does_not_overlap_mixed_dpi_displays() {
+        let physical_rects = [
+            (0.0, 0.0, 1920.0, 1080.0),
+            (1920.0, 0.0, 2560.0, 1440.0),
+            (-1600.0, 0.0, 1600.0, 900.0),
+        ];
+
+        assert_eq!(
+            nearest_drag_rect_index(&physical_rects, 2100.0, 400.0),
+            Some(1)
+        );
+        assert_eq!(
+            nearest_drag_rect_index(&physical_rects, -400.0, 300.0),
+            Some(2)
+        );
+        assert_eq!(
+            nearest_drag_rect_index(&physical_rects, 800.0, 300.0),
+            Some(0)
+        );
     }
 
     #[test]

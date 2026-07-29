@@ -660,7 +660,7 @@ fn surface_failure_action(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct LocalStorageRuntimeConfig {
     dependent_role_ids: Vec<String>,
     generation: u64,
@@ -668,6 +668,16 @@ struct LocalStorageRuntimeConfig {
     origin: String,
     source_role_id: Option<String>,
     token: String,
+}
+
+struct LocalStorageMetadataUpdate {
+    apply_scripts: Vec<String>,
+    next: Option<LocalStorageRuntimeConfig>,
+    previous: Option<LocalStorageRuntimeConfig>,
+    role_id: String,
+    rollback_scripts: Vec<String>,
+    webview: Webview,
+    webview_label: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -6102,15 +6112,14 @@ impl SystemRuntimeExecutor {
             .iter()
             .map(|game| (game.id.as_str(), game))
             .collect::<HashMap<_, _>>();
-        let mut updates = Vec::new();
-        {
-            let mut state = self.state().map_err(|error| error.message)?;
-            for tab in state.tabs.values_mut() {
-                for (role_id, surface) in &mut tab.roles {
-                    let old_source = surface
-                        .local_storage_sync
-                        .as_ref()
-                        .and_then(|config| config.source_role_id.clone());
+        let candidates = {
+            let state = self.state().map_err(|error| error.message)?;
+            state
+                .tabs
+                .values()
+                .flat_map(|tab| tab.roles.iter())
+                .map(|(role_id, surface)| {
+                    let previous = surface.local_storage_sync.clone();
                     let next = roles_by_id.get(role_id.as_str()).and_then(|role| {
                         let game = games_by_id.get(role.game_id.as_str())?;
                         if game.local_storage_sync_keys.is_empty() {
@@ -6120,13 +6129,11 @@ impl SystemRuntimeExecutor {
                             .ok()?
                             .origin()
                             .ascii_serialization();
-                        let token = surface
-                            .local_storage_sync
+                        let token = previous
                             .as_ref()
                             .map(|config| config.token.clone())
                             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-                        let generation = surface
-                            .local_storage_sync
+                        let generation = previous
                             .as_ref()
                             .map_or(1, |config| config.generation.saturating_add(1));
                         Some(LocalStorageRuntimeConfig {
@@ -6145,45 +6152,138 @@ impl SystemRuntimeExecutor {
                             token,
                         })
                     });
-                    surface.local_storage_sync = next.clone();
-                    surface.local_storage_sync_sequence = 0;
-                    if let Some(config) = next {
-                        updates.push((
-                            surface.webview.clone(),
-                            config.clone(),
-                            old_source != config.source_role_id,
-                        ));
-                    }
-                }
+                    (
+                        role_id.clone(),
+                        surface.webview.clone(),
+                        surface.webview.label().to_owned(),
+                        previous,
+                        next,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut updates = Vec::with_capacity(candidates.len());
+        for (role_id, webview, webview_label, previous, next) in candidates {
+            let source_changed = previous
+                .as_ref()
+                .and_then(|config| config.source_role_id.clone())
+                != next
+                    .as_ref()
+                    .and_then(|config| config.source_role_id.clone());
+            let mut apply_scripts = Vec::new();
+            let mut rollback_scripts = Vec::new();
+            if let Some(config) = next.as_ref() {
+                apply_scripts.push(
+                    local_storage_sync_configure_script(config).map_err(|error| error.message)?,
+                );
+            } else if let Some(config) = previous.as_ref() {
+                apply_scripts.push(
+                    local_storage_sync_disable_script(&config.token)
+                        .map_err(|error| error.message)?,
+                );
             }
-        }
-        for (webview, config, source_changed) in updates {
-            let observer =
-                local_storage_sync_observer_script(&config).map_err(|error| error.message)?;
-            let configuration = json!({
-                "token": config.token,
-                "generation": config.generation,
-                "origin": config.origin,
-                "keys": config.keys,
-            });
-            webview
-                .eval(format!(
-                    "{observer}\nglobalThis.__rionLocalStorageSyncObserver?.configure?.({configuration});"
-                ))
-                .map_err(|error| error.to_string())?;
-            if source_changed && let Some(source_role_id) = config.source_role_id.as_deref() {
+            if let Some(config) = previous.as_ref() {
+                rollback_scripts.push(
+                    local_storage_sync_configure_script(config).map_err(|error| error.message)?,
+                );
+            } else if let Some(config) = next.as_ref() {
+                rollback_scripts.push(
+                    local_storage_sync_disable_script(&config.token)
+                        .map_err(|error| error.message)?,
+                );
+            }
+            if source_changed
+                && let Some(config) = next.as_ref()
+                && let Some(source_role_id) = config.source_role_id.as_deref()
+            {
+                require_exact_local_storage_sync_origin(&webview, &config.origin)
+                    .map_err(|error| error.message)?;
+                let previous_entries = read_scoped_local_storage_entries(&webview, &config.keys)
+                    .map_err(|error| error.message)?;
                 let snapshot = self
                     .load_local_storage_sync_snapshot(source_role_id, &config.origin, &config.keys)
                     .map_err(|error| error.message)?;
-                require_exact_local_storage_sync_origin(&webview, &config.origin)
-                    .map_err(|error| error.message)?;
-                webview
-                    .eval(
-                        local_storage_sync_apply_script(&snapshot)
-                            .map_err(|error| error.message)?,
-                    )
-                    .map_err(|error| error.to_string())?;
+                apply_scripts.push(
+                    local_storage_sync_apply_script(&snapshot).map_err(|error| error.message)?,
+                );
+                rollback_scripts.push(
+                    local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
+                        schema_version: 1,
+                        source_role_id: role_id.clone(),
+                        origin: config.origin.clone(),
+                        entries: previous_entries,
+                    })
+                    .map_err(|error| error.message)?,
+                );
             }
+            updates.push(LocalStorageMetadataUpdate {
+                apply_scripts,
+                next,
+                previous,
+                role_id,
+                rollback_scripts,
+                webview,
+                webview_label,
+            });
+        }
+        if let Err(failure) = apply_reversible_fanout(
+            &updates,
+            |_, update| {
+                evaluate_local_storage_metadata_scripts(&update.webview, &update.apply_scripts)
+            },
+            |_, update| {
+                evaluate_local_storage_metadata_scripts(&update.webview, &update.rollback_scripts)
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "LOCAL_STORAGE_SYNC_METADATA_REFRESH_FAILED",
+                "Refreshing localStorage synchronization metadata",
+                &failure,
+            )
+            .message);
+        }
+        let mut state = self.state().map_err(|error| error.message)?;
+        let stale = updates.iter().any(|update| {
+            state
+                .role_tabs
+                .get(&update.role_id)
+                .and_then(|tab_id| state.tabs.get(tab_id))
+                .and_then(|tab| tab.roles.get(&update.role_id))
+                .is_none_or(|surface| {
+                    surface.webview.label() != update.webview_label
+                        || surface.local_storage_sync != update.previous
+                })
+        });
+        if stale {
+            drop(state);
+            let rollback_errors = rollback_reversible_fanout(&updates, |_, update| {
+                evaluate_local_storage_metadata_scripts(&update.webview, &update.rollback_scripts)
+            });
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(if rollback_errors.is_empty() {
+                "Runtime roles changed before localStorage synchronization metadata could be committed."
+                    .to_owned()
+            } else {
+                format!(
+                    "Runtime roles changed before localStorage synchronization metadata could be committed. Compensation also failed: {}. Restart Rion Studio to recover safely.",
+                    rollback_errors.join("; ")
+                )
+            });
+        }
+        for update in updates {
+            let tab_id = state.role_tabs[&update.role_id].clone();
+            let surface = state
+                .tabs
+                .get_mut(&tab_id)
+                .and_then(|tab| tab.roles.get_mut(&update.role_id))
+                .expect("localStorage metadata commit prevalidated every runtime role");
+            surface.local_storage_sync = update.next;
+            surface.local_storage_sync_sequence = 0;
         }
         Ok(())
     }
@@ -9277,7 +9377,7 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
     Ok(format!(
         r#"(() => {{
   if (globalThis.top !== globalThis || globalThis.__rionLocalStorageSyncObserver) return;
-  const state = {{ token: {token}, origin: {origin}, keys: {keys}, generation: {generation}, inFlight: null, lastError: null, nextSequence: 1, previous: null, queued: null, timer: 0 }};
+  const state = {{ token: {token}, origin: {origin}, keys: {keys}, generation: {generation}, disabled: false, inFlight: null, lastError: null, nextSequence: 1, previous: null, queued: null, timer: 0 }};
   const capture = () => state.keys.map((key) => [key, localStorage.getItem(key)]);
   function schedule() {{
     if (state.timer) clearTimeout(state.timer);
@@ -9361,14 +9461,28 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
   }}
   globalThis.__rionLocalStorageSyncObserver = Object.freeze({{
     configure(next) {{
-      if (!next || next.token !== state.token) return false;
+      if (!next || (next.token !== state.token && !state.disabled)) return false;
+      state.token = next.token;
       state.origin = next.origin;
       state.keys = [...next.keys];
       state.generation = next.generation;
+      state.disabled = false;
       state.nextSequence = 1;
       state.queued = null;
       state.previous = null;
       schedule();
+      return true;
+    }},
+    disable(expectedToken) {{
+      if (expectedToken !== state.token) return false;
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = 0;
+      state.generation += 1;
+      state.disabled = true;
+      state.origin = "null";
+      state.keys = [];
+      state.queued = null;
+      state.previous = null;
       return true;
     }},
     snapshot() {{ return {{ hasPrevious: state.previous !== null, lastError: state.lastError, pending: state.inFlight !== null || state.queued !== null }}; }}
@@ -9376,6 +9490,48 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
   schedule();
 }})();"#,
     ))
+}
+
+fn local_storage_sync_configure_script(
+    config: &LocalStorageRuntimeConfig,
+) -> RuntimeResult<String> {
+    let observer = local_storage_sync_observer_script(config)?;
+    let configuration = serde_json::to_string(&json!({
+        "token": config.token,
+        "generation": config.generation,
+        "origin": config.origin,
+        "keys": config.keys,
+    }))
+    .map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization configuration could not be encoded.",
+        )
+    })?;
+    Ok(format!(
+        "{observer}\nglobalThis.__rionLocalStorageSyncObserver?.configure?.({configuration});"
+    ))
+}
+
+fn local_storage_sync_disable_script(token: &str) -> RuntimeResult<String> {
+    let token = serde_json::to_string(token).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization capability could not be encoded.",
+        )
+    })?;
+    Ok(format!(
+        "globalThis.__rionLocalStorageSyncObserver?.disable?.({token});"
+    ))
+}
+
+fn evaluate_local_storage_metadata_scripts(
+    webview: &Webview,
+    scripts: &[String],
+) -> Result<(), String> {
+    scripts
+        .iter()
+        .try_for_each(|script| webview.eval(script).map_err(|error| error.to_string()))
 }
 
 fn local_storage_sync_apply_script(
@@ -11803,6 +11959,17 @@ mod tests {
         assert!(observer.contains("storagePrototype.setItem"));
         assert!(observer.contains("storagePrototype.removeItem"));
         assert!(observer.contains("storagePrototype.clear"));
+        assert!(observer.contains("disable(expectedToken)"));
+        assert!(observer.contains("state.keys = []"));
+
+        let configure = local_storage_sync_configure_script(&config).unwrap();
+        assert!(configure.contains("__rionLocalStorageSyncObserver?.configure?."));
+        assert!(configure.contains("\"generation\":1"));
+        let disable = local_storage_sync_disable_script("capability").unwrap();
+        assert_eq!(
+            disable,
+            "globalThis.__rionLocalStorageSyncObserver?.disable?.(\"capability\");"
+        );
 
         let script = local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
             schema_version: 1,

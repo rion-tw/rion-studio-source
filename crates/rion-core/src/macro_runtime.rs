@@ -82,6 +82,7 @@ struct InvocationControl {
     id: String,
     macro_ids: Mutex<HashSet<String>>,
     outcome: Mutex<Option<Result<(), String>>>,
+    role_ids: HashSet<String>,
     start_ready: (Mutex<bool>, Condvar),
     stop_after_first_iteration: AtomicBool,
     terminating: AtomicBool,
@@ -595,7 +596,11 @@ impl MacroRuntime {
         }
         let invocation_number = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         let invocation_id = format!("macro-invocation-{invocation_number}");
-        let control = new_invocation_control(invocation_id.clone(), request.macro_id.clone());
+        let control = new_invocation_control(
+            invocation_id.clone(),
+            request.macro_id.clone(),
+            roles.iter().cloned().collect(),
+        );
         let started_at = Utc::now().to_rfc3339();
         let statuses = roles
             .iter()
@@ -751,18 +756,19 @@ impl MacroRuntime {
                 .inner
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-            let invocation_ids = inner
-                .statuses
-                .iter()
-                .filter(|(_, status)| {
-                    status.role_id == role_id
-                        && macro_id.is_none_or(|macro_id| status.macro_id == macro_id)
+            inner
+                .invocations
+                .values()
+                .filter(|control| {
+                    control.role_ids.contains(role_id)
+                        && macro_id.is_none_or(|macro_id| {
+                            control
+                                .macro_ids
+                                .lock()
+                                .is_ok_and(|ids| ids.contains(macro_id))
+                        })
                 })
-                .filter_map(|(key, _)| key.split('|').next().map(str::to_owned))
-                .collect::<HashSet<_>>();
-            invocation_ids
-                .iter()
-                .filter_map(|id| inner.invocations.get(id).cloned())
+                .cloned()
                 .collect::<Vec<_>>()
         };
         cancel_and_wait_all(&controls);
@@ -1404,7 +1410,11 @@ fn start_child_invocation(
     }
     let invocation_number = shared.next_id.fetch_add(1, Ordering::Relaxed);
     let invocation_id = format!("macro-invocation-{invocation_number}");
-    let child = new_invocation_control(invocation_id.clone(), macro_id.to_owned());
+    let child = new_invocation_control(
+        invocation_id.clone(),
+        macro_id.to_owned(),
+        roles.iter().cloned().collect(),
+    );
     {
         let mut inner = shared
             .inner
@@ -2012,7 +2022,11 @@ fn finish_invocation(
     }
 }
 
-fn new_invocation_control(id: String, macro_id: String) -> Arc<InvocationControl> {
+fn new_invocation_control(
+    id: String,
+    macro_id: String,
+    role_ids: HashSet<String>,
+) -> Arc<InvocationControl> {
     Arc::new(InvocationControl {
         barriers: Mutex::new(HashMap::new()),
         cancelled: AtomicBool::new(false),
@@ -2027,6 +2041,7 @@ fn new_invocation_control(id: String, macro_id: String) -> Arc<InvocationControl
         id,
         macro_ids: Mutex::new(HashSet::from([macro_id])),
         outcome: Mutex::new(None),
+        role_ids,
         start_ready: (Mutex::new(false), Condvar::new()),
         stop_after_first_iteration: AtomicBool::new(false),
         terminating: AtomicBool::new(false),
@@ -5698,6 +5713,47 @@ mod tests {
             assert_eq!(focused_role_ids, ["r1".to_owned()]);
             assert!(status_was_hidden_during_preflight);
         });
+    }
+
+    #[test]
+    fn stop_role_cancels_an_invocation_during_focus_preflight() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start_request = request(vec![MacroStepDefinition::Key {
+            id: "key".to_owned(),
+            code: "Digit1".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        start_request.source_role_id = Some("r1".to_owned());
+        let starting_runtime = runtime.clone();
+        let starting = thread::spawn(move || starting_runtime.start(start_request));
+        let late_focus = next_browser_actions(&receiver);
+
+        let stopped_at = Instant::now();
+        runtime.stop_role("r1").unwrap();
+        assert!(stopped_at.elapsed() < Duration::from_secs(1));
+        let error = starting.join().unwrap().unwrap_err();
+        assert_eq!(error.code(), "MACRO_INPUT_FAILED");
+        assert!(runtime.statuses().unwrap().is_empty());
+
+        runtime
+            .dispatch_results(success_results(late_focus))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_millis(100);
+        while Instant::now() < deadline {
+            if let Ok(events) = receiver.recv_timeout(Duration::from_millis(5)) {
+                assert!(
+                    events
+                        .iter()
+                        .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                    "a late focus acknowledgement started macro input after stop_role"
+                );
+            }
+        }
     }
 
     #[test]

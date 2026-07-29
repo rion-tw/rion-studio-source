@@ -43,11 +43,15 @@ describe("Tauri System WebView runtime source", () => {
     );
 
     const navigation = recovery.indexOf(".navigate(current_url.clone())");
+    const controlledNavigation = recovery.indexOf("begin_controlled_navigation");
+    const controlledNavigationCleanup = recovery.indexOf("finish_controlled_navigations");
     const swapFence = recovery.indexOf("surface_recovery_swap_is_current(");
     const closeOld = recovery.indexOf(
       "self.close_surface_and_wait(&old_surface.webview"
     );
     expect(navigation).toBeGreaterThan(-1);
+    expect(controlledNavigation).toBeLessThan(navigation);
+    expect(controlledNavigationCleanup).toBeGreaterThan(navigation);
     expect(swapFence).toBeGreaterThan(navigation);
     expect(closeOld).toBeGreaterThan(swapFence);
     expect(recovery).not.toContain("close_surface_and_wait(&old_webview");
@@ -255,11 +259,17 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("fn install_overlays(")
     );
     expect(roleLoading).toContain("let mut pending_navigations");
+    expect(roleLoading.indexOf("begin_controlled_navigation")).toBeLessThan(
+      roleLoading.indexOf("surface.navigate")
+    );
     expect(roleLoading.indexOf("pending_navigations.push")).toBeGreaterThan(
       roleLoading.indexOf("surface.navigate")
     );
     expect(roleLoading.indexOf(".wait()")).toBeGreaterThan(
       roleLoading.indexOf("pending_navigations.push")
+    );
+    expect(roleLoading.indexOf("finish_controlled_navigations")).toBeGreaterThan(
+      roleLoading.indexOf(".wait()")
     );
 
     const reloadTab = runtime.slice(
@@ -385,6 +395,8 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("fn gate_navigation_after_macro_release("),
       runtime.indexOf("fn finish_macro_navigation_release(")
     );
+    expect(navigationGate).toContain("navigation_gate_can_resume_in_original_frame(platform)");
+    expect(navigationGate).toContain("release_macros_for_unblocked_navigation(");
     expect(navigationGate).toContain("MacroNavigationGateDecision::Release");
     expect(navigationGate).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
     expect(navigationGate).toContain("webview.navigate(url)");
@@ -392,6 +404,7 @@ describe("Tauri System WebView runtime source", () => {
       .toBeLessThan(navigationGate.indexOf("webview.navigate(url)"));
     expect(navigationGate).toContain("SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED");
     expect(navigationGate).toContain("SYSTEM_NAVIGATION_RESUME_FAILED");
+    expect(runtime).toContain('platform == "windows"');
 
     const popupNavigation = runtime.slice(
       runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("),

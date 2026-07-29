@@ -819,6 +819,7 @@ struct RuntimeState {
     closing_roles: HashSet<String>,
     closing_tabs: HashSet<String>,
     closing_webviews: HashSet<String>,
+    controlled_navigation_webviews: HashSet<String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
     pending_macro_release_navigations: HashSet<(String, String)>,
@@ -3950,17 +3951,44 @@ impl SystemRuntimeExecutor {
             return true;
         }
         let key = (webview_label.to_owned(), url.as_str().to_owned());
+        let controlled = match self.state.lock() {
+            Ok(state) => state.controlled_navigation_webviews.contains(webview_label),
+            Err(_) => return false,
+        };
+        if controlled {
+            return true;
+        }
+
+        let platform = if cfg!(windows) {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "other"
+        };
+        if !navigation_gate_can_resume_in_original_frame(platform) {
+            // WKNavigationDelegate also reports child-frame navigation actions,
+            // but WRY's callback does not expose targetFrame. Cancelling one and
+            // resuming it with Webview::navigate would promote an iframe URL into
+            // the top-level role page. Preserve the original frame on macOS and
+            // release input asynchronously, matching the pre-gate behavior.
+            self.release_macros_for_unblocked_navigation(webview_label, role_id, url);
+            return true;
+        }
+
         let decision = {
             let Ok(mut state) = self.state.lock() else {
                 return false;
             };
             let RuntimeState {
                 approved_macro_release_navigations,
+                controlled_navigation_webviews,
                 pending_macro_release_navigations,
                 ..
             } = &mut *state;
             claim_macro_navigation_release(
                 approved_macro_release_navigations,
+                controlled_navigation_webviews,
                 pending_macro_release_navigations,
                 &key,
             )
@@ -4018,6 +4046,53 @@ impl SystemRuntimeExecutor {
                     }
                 });
                 false
+            }
+        }
+    }
+
+    fn release_macros_for_unblocked_navigation(
+        &self,
+        webview_label: &str,
+        role_id: &str,
+        url: &Url,
+    ) {
+        let app = self.app.clone();
+        let core = Arc::clone(&self.core);
+        let role_id = role_id.to_owned();
+        let url = url.as_str().to_owned();
+        let webview_label = webview_label.to_owned();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = core
+                .invoke_async(CoreCommand::MacroReleaseRole {
+                    role_id: role_id.clone(),
+                })
+                .await
+            {
+                let _ = app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED",
+                        "message": format!("Macro input could not be released after navigation started: {error}"),
+                        "roleId": role_id,
+                        "webviewLabel": webview_label,
+                        "url": url
+                    }),
+                );
+            }
+        });
+    }
+
+    fn begin_controlled_navigation(&self, webview_label: &str) -> RuntimeResult<()> {
+        self.state()?
+            .controlled_navigation_webviews
+            .insert(webview_label.to_owned());
+        Ok(())
+    }
+
+    fn finish_controlled_navigations(&self, webview_labels: &[String]) {
+        if let Ok(mut state) = self.state.lock() {
+            for label in webview_labels {
+                state.controlled_navigation_webviews.remove(label);
             }
         }
     }
@@ -4346,13 +4421,19 @@ impl SystemRuntimeExecutor {
             webview
                 .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
                 .map_err(RuntimeError::tauri)?;
-            navigation.reset();
-            webview
-                .navigate(current_url.clone())
-                .map_err(RuntimeError::tauri)?;
-            navigation
-                .wait()
-                .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))?;
+            let controlled_label = webview.label().to_owned();
+            self.begin_controlled_navigation(&controlled_label)?;
+            let navigation_result = (|| -> RuntimeResult<()> {
+                navigation.reset();
+                webview
+                    .navigate(current_url.clone())
+                    .map_err(RuntimeError::tauri)?;
+                navigation
+                    .wait()
+                    .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))
+            })();
+            self.finish_controlled_navigations(&[controlled_label]);
+            navigation_result?;
             if audio_muted {
                 set_audio_muted(&webview, true)?;
             }
@@ -6982,77 +7063,91 @@ impl SystemRuntimeExecutor {
 
     fn load_roles(&self, roles: Vec<EmbeddedRoleLoadEffectRecord>) -> RuntimeResult<()> {
         let mut pending_navigations = Vec::with_capacity(roles.len());
+        let mut controlled_labels = Vec::with_capacity(roles.len());
 
-        for role in roles {
-            if !is_current_system_engine(role.resolved_engine) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_ENGINE_MISMATCH",
-                    "The role did not resolve to the current platform System WebView.",
-                ));
-            }
-            let (surface, navigation, base_zoom_factor, effective_zoom) = {
-                let state = self.state()?;
-                let tab_id = state.role_tabs.get(&role.role_id).ok_or_else(|| {
-                    RuntimeError::new(
-                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                        "Runtime role was not found.",
+        let result = (|| -> RuntimeResult<()> {
+            for role in roles {
+                if !is_current_system_engine(role.resolved_engine) {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_RUNTIME_ENGINE_MISMATCH",
+                        "The role did not resolve to the current platform System WebView.",
+                    ));
+                }
+                let (surface, navigation, base_zoom_factor, effective_zoom) = {
+                    let state = self.state()?;
+                    let tab_id = state.role_tabs.get(&role.role_id).ok_or_else(|| {
+                        RuntimeError::new(
+                            "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                            "Runtime role was not found.",
+                        )
+                    })?;
+                    let surface = state.tabs[tab_id].roles.get(&role.role_id).ok_or_else(|| {
+                        RuntimeError::new(
+                            "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                            "Runtime role was not found.",
+                        )
+                    })?;
+                    let base_zoom_factor = if surface.zoom_mode == "adaptive" {
+                        surface.zoom_factor
+                    } else {
+                        role.zoom_factor.clamp(0.25, 3.0)
+                    };
+                    let window_zoom_factor = state
+                        .display_hosts
+                        .get(&state.tabs[tab_id].window_id)
+                        .map(|host| host.zoom_factor)
+                        .unwrap_or(1.0);
+                    (
+                        surface.webview.clone(),
+                        Arc::clone(&surface.navigation),
+                        base_zoom_factor,
+                        effective_zoom_factor(base_zoom_factor, window_zoom_factor),
                     )
-                })?;
-                let surface = state.tabs[tab_id].roles.get(&role.role_id).ok_or_else(|| {
-                    RuntimeError::new(
-                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                        "Runtime role was not found.",
-                    )
-                })?;
-                let base_zoom_factor = if surface.zoom_mode == "adaptive" {
-                    surface.zoom_factor
-                } else {
-                    role.zoom_factor.clamp(0.25, 3.0)
                 };
-                let window_zoom_factor = state
-                    .display_hosts
-                    .get(&state.tabs[tab_id].window_id)
-                    .map(|host| host.zoom_factor)
-                    .unwrap_or(1.0);
-                (
-                    surface.webview.clone(),
-                    Arc::clone(&surface.navigation),
-                    base_zoom_factor,
-                    effective_zoom_factor(base_zoom_factor, window_zoom_factor),
-                )
-            };
-            let url = checked_web_url(&role.url)?;
-            if let Ok(mut state) = self.state()
-                && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
-                && let Some(role_surface) = state
-                    .tabs
-                    .get_mut(&tab_id)
-                    .and_then(|tab| tab.roles.get_mut(&role.role_id))
-            {
-                // Persist the intended URL before entering the native navigation
-                // call. A renderer process can terminate before page-load events
-                // arrive, and a dead WKWebView may report a nil URL.
-                role_surface.current_url = Some(url.clone());
-                role_surface.zoom_factor = base_zoom_factor;
+                let url = checked_web_url(&role.url)?;
+                if let Ok(mut state) = self.state()
+                    && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
+                    && let Some(role_surface) = state
+                        .tabs
+                        .get_mut(&tab_id)
+                        .and_then(|tab| tab.roles.get_mut(&role.role_id))
+                {
+                    // Persist the intended URL before entering the native navigation
+                    // call. A renderer process can terminate before page-load events
+                    // arrive, and a dead WKWebView may report a nil URL.
+                    role_surface.current_url = Some(url.clone());
+                    role_surface.zoom_factor = base_zoom_factor;
+                }
+                let controlled_label = surface.label().to_owned();
+                self.begin_controlled_navigation(&controlled_label)?;
+                controlled_labels.push(controlled_label);
+                navigation.reset();
+                surface.navigate(url.clone()).map_err(RuntimeError::tauri)?;
+                surface
+                    .set_zoom(effective_zoom)
+                    .map_err(RuntimeError::tauri)?;
+                pending_navigations.push((role.role_id, surface, navigation));
             }
-            navigation.reset();
-            surface.navigate(url.clone()).map_err(RuntimeError::tauri)?;
-            surface
-                .set_zoom(effective_zoom)
-                .map_err(RuntimeError::tauri)?;
-            pending_navigations.push((role.role_id, surface, navigation));
-        }
 
-        // Start every role navigation before waiting for any one of them. A workspace can
-        // contain up to nine roles; waiting inside the loop serialized the network wait and
-        // made one slow page delay every role behind it.
-        for (role_id, surface, navigation) in pending_navigations {
-            navigation
-                .wait()
-                .map_err(|message| RuntimeError::new("TAURI_NAVIGATION_FAILED", message))?;
-            self.reassert_role_keys(&role_id, &surface)?;
-        }
-        Ok(())
+            // Start every role navigation before waiting for any one of them. A workspace can
+            // contain up to nine roles; waiting inside the loop serialized the network wait and
+            // made one slow page delay every role behind it.
+            for (role_id, surface, navigation) in pending_navigations {
+                navigation
+                    .wait()
+                    .map_err(|message| RuntimeError::new("TAURI_NAVIGATION_FAILED", message))?;
+                self.reassert_role_keys(&role_id, &surface)?;
+            }
+            Ok(())
+        })();
+
+        // Initial role loads and recovery run while a core effect is awaiting this
+        // native result. Sending a MacroReleaseRole command from on_navigation in
+        // that interval would queue behind the active operation and deadlock the
+        // page load until NAVIGATION_TIMEOUT. Keep the entire native redirect chain
+        // controlled, then restore the normal release-before-navigation gate.
+        self.finish_controlled_navigations(&controlled_labels);
+        result
     }
 
     fn install_overlays(&self, role_ids: &[String]) -> RuntimeResult<()> {
@@ -9908,6 +10003,10 @@ fn should_release_macros_for_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
 
+fn navigation_gate_can_resume_in_original_frame(platform: &str) -> bool {
+    platform == "windows"
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MacroNavigationGateDecision {
     Allow,
@@ -9917,10 +10016,11 @@ enum MacroNavigationGateDecision {
 
 fn claim_macro_navigation_release(
     approved: &mut HashSet<(String, String)>,
+    controlled_webviews: &HashSet<String>,
     pending: &mut HashSet<(String, String)>,
     key: &(String, String),
 ) -> MacroNavigationGateDecision {
-    if approved.remove(key) {
+    if controlled_webviews.contains(&key.0) || approved.remove(key) {
         MacroNavigationGateDecision::Allow
     } else if !pending.insert(key.clone()) {
         MacroNavigationGateDecision::Wait
@@ -12083,31 +12183,62 @@ mod tests {
     }
 
     #[test]
+    fn blocking_navigation_resume_requires_a_main_frame_scoped_platform_callback() {
+        assert!(navigation_gate_can_resume_in_original_frame("windows"));
+        assert!(!navigation_gate_can_resume_in_original_frame("macos"));
+    }
+
+    #[test]
     fn macro_navigation_gate_denies_until_release_and_allows_one_resume() {
         let key = (
             "game-role-a".to_owned(),
             "https://example.test/next".to_owned(),
         );
         let mut approved = HashSet::new();
+        let controlled = HashSet::new();
         let mut pending = HashSet::new();
 
         assert_eq!(
-            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            claim_macro_navigation_release(&mut approved, &controlled, &mut pending, &key),
             MacroNavigationGateDecision::Release
         );
         assert_eq!(
-            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            claim_macro_navigation_release(&mut approved, &controlled, &mut pending, &key),
             MacroNavigationGateDecision::Wait
         );
         assert!(pending.remove(&key));
         assert!(approved.insert(key.clone()));
         assert_eq!(
-            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            claim_macro_navigation_release(&mut approved, &controlled, &mut pending, &key),
             MacroNavigationGateDecision::Allow
         );
         assert!(!approved.contains(&key));
         assert_eq!(
-            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            claim_macro_navigation_release(&mut approved, &controlled, &mut pending, &key),
+            MacroNavigationGateDecision::Release
+        );
+    }
+
+    #[test]
+    fn macro_navigation_gate_allows_controlled_native_redirect_chains() {
+        let key = (
+            "game-role-a".to_owned(),
+            "https://example.test/redirected".to_owned(),
+        );
+        let mut approved = HashSet::new();
+        let mut controlled = HashSet::from([key.0.clone()]);
+        let mut pending = HashSet::new();
+
+        assert_eq!(
+            claim_macro_navigation_release(&mut approved, &controlled, &mut pending, &key),
+            MacroNavigationGateDecision::Allow
+        );
+        assert!(approved.is_empty());
+        assert!(pending.is_empty());
+
+        controlled.clear();
+        assert_eq!(
+            claim_macro_navigation_release(&mut approved, &controlled, &mut pending, &key),
             MacroNavigationGateDecision::Release
         );
     }

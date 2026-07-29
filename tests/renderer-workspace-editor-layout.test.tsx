@@ -269,7 +269,7 @@ describe("workspace editor role picker layout", () => {
       .toEqual(["role-2", "role-3"]);
   });
 
-  it("coalesces workspace resize moves, flushes the latest point, and cancels pending work", async () => {
+  it("commits resize on pointer up and reverts pointer cancel, blur, Escape, and unmount", async () => {
     let nextFrameId = 1;
     const frames = new Map<number, FrameRequestCallback>();
     const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -347,8 +347,31 @@ describe("workspace editor role picker layout", () => {
     fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 800, clientY: 250, pointerId: 8 });
     fireEvent.pointerMove(window, { clientX: 650, clientY: 250, pointerId: 8 });
     expect(frames.has(3)).toBe(true);
-    unmount();
+    fireEvent.pointerCancel(window, { clientX: 650, clientY: 250, pointerId: 8 });
     expect(cancelFrame).toHaveBeenCalledWith(3);
+    expect(firstSlot?.parentElement?.style.width).toBe("80%");
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 800, clientY: 250, pointerId: 9 });
+    fireEvent.pointerMove(window, { clientX: 600, clientY: 250, pointerId: 9 });
+    fireEvent.blur(window);
+    expect(cancelFrame).toHaveBeenCalledWith(4);
+    expect(firstSlot?.parentElement?.style.width).toBe("80%");
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 800, clientY: 250, pointerId: 10 });
+    fireEvent.pointerMove(window, { clientX: 550, clientY: 250, pointerId: 10 });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(cancelFrame).toHaveBeenCalledWith(5);
+    expect(firstSlot?.parentElement?.style.width).toBe("80%");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[1][0].slots[0].rect.width).toBeCloseTo(0.8);
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 800, clientY: 250, pointerId: 11 });
+    fireEvent.pointerMove(window, { clientX: 500, clientY: 250, pointerId: 11 });
+    expect(frames.has(6)).toBe(true);
+    unmount();
+    expect(cancelFrame).toHaveBeenCalledWith(6);
     expect(frames.size).toBe(0);
   });
 

@@ -358,6 +358,81 @@ const CATALOG: &[CatalogSpec] = &[
         &[400],
         "accent",
     ),
+    spec(
+        "atkinson-hyperlegible-next",
+        "Atkinson Hyperlegible Next",
+        "sans",
+        &["latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
+        "atkinson-hyperlegible-mono",
+        "Atkinson Hyperlegible Mono",
+        "monospace",
+        &["latin"],
+        &[400, 700],
+        "technical",
+    ),
+    spec(
+        "roboto-condensed",
+        "Roboto Condensed",
+        "sans",
+        &["latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec(
+        "cinzel",
+        "Cinzel",
+        "serif",
+        &["latin"],
+        &[400, 700],
+        "accent",
+    ),
+    cjk_spec(
+        "kaisei-tokumin",
+        "Kaisei Tokumin",
+        "serif",
+        &["jp", "latin"],
+        &[400, 700],
+        "body",
+    ),
+    cjk_spec(
+        "chocolate-classical-sans",
+        "Chocolate Classical Sans",
+        "sans",
+        &["tc", "latin"],
+        &[400],
+        "body",
+    ),
+    cjk_spec(
+        "zen-kaku-gothic-new",
+        "Zen Kaku Gothic New",
+        "sans",
+        &["jp", "latin"],
+        &[400, 700],
+        "body",
+    ),
+    spec("exo-2", "Exo 2", "sans", &["latin"], &[400, 700], "body"),
+    spec(
+        "orbitron",
+        "Orbitron",
+        "display",
+        &["latin"],
+        &[400, 700],
+        "accent",
+    ),
+    cjk_spec("huninn", "Huninn", "sans", &["tc", "latin"], &[400], "body"),
+    cjk_spec(
+        "kiwi-maru",
+        "Kiwi Maru",
+        "serif",
+        &["jp", "latin"],
+        &[400, 500],
+        "body",
+    ),
+    spec("nunito", "Nunito", "sans", &["latin"], &[400, 700], "body"),
 ];
 
 const fn spec(
@@ -922,6 +997,101 @@ mod tests {
                     .collect::<Vec<_>>()
                     .join(","),
                 weights
+            );
+            assert_eq!(entry.usage, usage);
+        }
+    }
+
+    #[test]
+    fn new_preset_catalog_entries_expose_curated_metadata() {
+        let directory = tempdir().unwrap();
+        let entries = list(directory.path());
+        let expected = [
+            (
+                "atkinson-hyperlegible-next",
+                "sans",
+                "latin",
+                "400,700",
+                "400,700",
+                "body",
+            ),
+            (
+                "atkinson-hyperlegible-mono",
+                "monospace",
+                "latin",
+                "400,700",
+                "400,700",
+                "technical",
+            ),
+            (
+                "roboto-condensed",
+                "sans",
+                "latin",
+                "400,700",
+                "400,700",
+                "body",
+            ),
+            ("cinzel", "serif", "latin", "400,700", "400,700", "accent"),
+            (
+                "kaisei-tokumin",
+                "serif",
+                "jp,latin",
+                "400,700",
+                "400",
+                "body",
+            ),
+            (
+                "chocolate-classical-sans",
+                "sans",
+                "tc,latin",
+                "400",
+                "400",
+                "body",
+            ),
+            (
+                "zen-kaku-gothic-new",
+                "sans",
+                "jp,latin",
+                "400,700",
+                "400",
+                "body",
+            ),
+            ("exo-2", "sans", "latin", "400,700", "400,700", "body"),
+            (
+                "orbitron", "display", "latin", "400,700", "400,700", "accent",
+            ),
+            ("huninn", "sans", "tc,latin", "400", "400", "body"),
+            ("kiwi-maru", "serif", "jp,latin", "400,500", "400", "body"),
+            ("nunito", "sans", "latin", "400,700", "400,700", "body"),
+        ];
+
+        for (catalog_id, category, scripts, weights, download_weights, usage) in expected {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.catalog_id == catalog_id)
+                .unwrap_or_else(|| panic!("missing new preset font {catalog_id}"));
+            let spec = CATALOG
+                .iter()
+                .find(|spec| spec.id == catalog_id)
+                .unwrap_or_else(|| panic!("missing new preset spec {catalog_id}"));
+            assert_eq!(entry.category, category);
+            assert_eq!(entry.scripts.join(","), scripts);
+            assert_eq!(
+                entry
+                    .weights
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                weights
+            );
+            assert_eq!(
+                spec.download_weights
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                download_weights
             );
             assert_eq!(entry.usage, usage);
         }

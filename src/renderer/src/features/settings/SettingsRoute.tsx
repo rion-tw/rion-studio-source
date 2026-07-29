@@ -177,13 +177,18 @@ const browserFontPresetLabelKeys: Record<BrowserFontPresetId, TranslationKey> = 
   "clear-interface": "settings.browserFonts.preset.clearInterface",
   "clear-numbers": "settings.browserFonts.preset.clearNumbers",
   "code-monospace": "settings.browserFonts.preset.codeMonospace",
+  "high-legibility": "settings.browserFonts.preset.highLegibility",
+  "compact-dashboard": "settings.browserFonts.preset.compactDashboard",
   "natural-handwriting": "settings.browserFonts.preset.naturalHandwriting",
   "playful-handwriting": "settings.browserFonts.preset.playfulHandwriting",
   "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwriting",
   "friendly-rounded": "settings.browserFonts.preset.friendlyRounded",
   "marker-notes": "settings.browserFonts.preset.markerNotes",
   "editorial-serif": "settings.browserFonts.preset.editorialSerif",
-  "retro-game": "settings.browserFonts.preset.retroGame"
+  "retro-game": "settings.browserFonts.preset.retroGame",
+  "fantasy-chronicle": "settings.browserFonts.preset.fantasyChronicle",
+  "future-interface": "settings.browserFonts.preset.futureInterface",
+  "relaxed-dialogue": "settings.browserFonts.preset.relaxedDialogue"
 };
 
 const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationKey> = {
@@ -193,13 +198,18 @@ const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationK
   "clear-interface": "settings.browserFonts.preset.clearInterfaceDescription",
   "clear-numbers": "settings.browserFonts.preset.clearNumbersDescription",
   "code-monospace": "settings.browserFonts.preset.codeMonospaceDescription",
+  "high-legibility": "settings.browserFonts.preset.highLegibilityDescription",
+  "compact-dashboard": "settings.browserFonts.preset.compactDashboardDescription",
   "natural-handwriting": "settings.browserFonts.preset.naturalHandwritingDescription",
   "playful-handwriting": "settings.browserFonts.preset.playfulHandwritingDescription",
   "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwritingDescription",
   "friendly-rounded": "settings.browserFonts.preset.friendlyRoundedDescription",
   "marker-notes": "settings.browserFonts.preset.markerNotesDescription",
   "editorial-serif": "settings.browserFonts.preset.editorialSerifDescription",
-  "retro-game": "settings.browserFonts.preset.retroGameDescription"
+  "retro-game": "settings.browserFonts.preset.retroGameDescription",
+  "fantasy-chronicle": "settings.browserFonts.preset.fantasyChronicleDescription",
+  "future-interface": "settings.browserFonts.preset.futureInterfaceDescription",
+  "relaxed-dialogue": "settings.browserFonts.preset.relaxedDialogueDescription"
 };
 
 const browserFontPresetCategories = ["general", "handwriting", "personality"] as const;

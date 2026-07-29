@@ -157,8 +157,10 @@ describe("browser font settings normalization", () => {
   });
 
   it("provides language-specific general, handwriting, and personality presets", () => {
+    expect(browserFontPresets).toHaveLength(18);
+    expect(browserFontPresets.filter((preset) => preset.category === "general")).toHaveLength(8);
     expect(browserFontPresets.filter((preset) => preset.category === "handwriting")).toHaveLength(3);
-    expect(browserFontPresets.filter((preset) => preset.category === "personality")).toHaveLength(4);
+    expect(browserFontPresets.filter((preset) => preset.category === "personality")).toHaveLength(7);
     expect(resolveBrowserFontPreset("natural-handwriting", "tc").slots.cjk).toEqual({
       source: "google",
       catalogId: "iansui"
@@ -188,7 +190,16 @@ describe("browser font settings normalization", () => {
       ["editorial-serif", "jp", "hina-mincho"],
       ["retro-game", "tc", "wdxl-lubrifont-tc"],
       ["retro-game", "sc", "wdxl-lubrifont-sc"],
-      ["retro-game", "jp", "wdxl-lubrifont-jp-n"]
+      ["retro-game", "jp", "wdxl-lubrifont-jp-n"],
+      ["fantasy-chronicle", "tc", "cactus-classical-serif"],
+      ["fantasy-chronicle", "sc", "zcool-xiaowei"],
+      ["fantasy-chronicle", "jp", "kaisei-tokumin"],
+      ["future-interface", "tc", "chocolate-classical-sans"],
+      ["future-interface", "sc", "zcool-qingke-huangyou"],
+      ["future-interface", "jp", "zen-kaku-gothic-new"],
+      ["relaxed-dialogue", "tc", "huninn"],
+      ["relaxed-dialogue", "sc", "zcool-kuaile"],
+      ["relaxed-dialogue", "jp", "kiwi-maru"]
     ] as const;
 
     for (const [presetId, variant, catalogId] of personalityCjkCases) {
@@ -217,6 +228,32 @@ describe("browser font settings normalization", () => {
       numeric: { source: "google", catalogId: "pixelify-sans" },
       monospace: { source: "google", catalogId: "jetbrains-mono" },
       math: { source: "google", catalogId: "noto-sans-math" }
+    });
+    expect(resolveBrowserFontPreset("high-legibility", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "atkinson-hyperlegible-next" },
+      numeric: { source: "google", catalogId: "atkinson-hyperlegible-mono" },
+      monospace: { source: "google", catalogId: "atkinson-hyperlegible-mono" },
+      math: { source: "google", catalogId: "noto-sans-math" }
+    });
+    expect(resolveBrowserFontPreset("compact-dashboard", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "roboto-condensed" },
+      numeric: { source: "google", catalogId: "roboto-condensed" },
+      monospace: { source: "google", catalogId: "roboto-mono" }
+    });
+    expect(resolveBrowserFontPreset("fantasy-chronicle", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "cinzel" },
+      numeric: { source: "google", catalogId: "cinzel" },
+      monospace: { source: "google", catalogId: "roboto-mono" }
+    });
+    expect(resolveBrowserFontPreset("future-interface", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "exo-2" },
+      numeric: { source: "google", catalogId: "orbitron" },
+      monospace: { source: "google", catalogId: "jetbrains-mono" }
+    });
+    expect(resolveBrowserFontPreset("relaxed-dialogue", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "nunito" },
+      numeric: { source: "google", catalogId: "nunito" },
+      monospace: { source: "google", catalogId: "roboto-mono" }
     });
   });
 

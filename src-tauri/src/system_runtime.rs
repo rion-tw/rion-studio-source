@@ -7692,26 +7692,34 @@ fn write_private_file(directory: &Path, name: &str, value: &[u8]) -> RuntimeResu
     fs::create_dir_all(directory).map_err(RuntimeError::io)?;
     #[cfg(unix)]
     {
-        use std::{
-            io::Write,
-            os::unix::fs::{OpenOptionsExt, PermissionsExt},
-        };
+        use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
             .map_err(RuntimeError::io)?;
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(directory.join(name))
-            .map_err(RuntimeError::io)?;
+    }
+    rion_platform::restrict_directory_to_current_user(directory)
+        .map_err(|error| RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string()))?;
+
+    let destination = directory.join(name);
+    let temporary = directory.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        use std::io::Write;
+        let mut options = fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary).map_err(RuntimeError::io)?;
         file.write_all(value).map_err(RuntimeError::io)?;
         file.sync_all().map_err(RuntimeError::io)?;
+        rion_platform::atomic_replace_file(&temporary, &destination)
+            .map_err(|error| RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string()))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
     }
-    #[cfg(windows)]
-    fs::write(directory.join(name), value).map_err(RuntimeError::io)?;
-    rion_platform::restrict_directory_to_current_user(directory)
-        .map_err(|error| RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string()))
+    result
 }
 
 fn validate_transaction_id(value: &str) -> RuntimeResult<()> {
@@ -11051,5 +11059,27 @@ mod tests {
         assert_eq!(pending.get(&key), Some(&2));
         assert!(take_latest_role_zoom_write(&mut pending, &key, 2));
         assert!(!pending.contains_key(&key));
+    }
+
+    #[test]
+    fn private_session_files_are_published_atomically() {
+        let root = tempfile::tempdir().unwrap();
+        let transaction = root.path().join("transaction");
+        write_private_file(&transaction, "committed", b"complete").unwrap();
+        assert_eq!(
+            fs::read(transaction.join("committed")).unwrap(),
+            b"complete"
+        );
+
+        fs::remove_file(transaction.join("committed")).unwrap();
+        fs::create_dir(transaction.join("committed")).unwrap();
+        assert!(write_private_file(&transaction, "committed", b"partial").is_err());
+        assert!(transaction.join("committed").is_dir());
+        assert!(
+            fs::read_dir(&transaction)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"))
+        );
     }
 }

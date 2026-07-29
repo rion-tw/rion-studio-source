@@ -108,6 +108,25 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
   });
 
+  it("persists restore state before acknowledging a successful native effect", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const executor = runtime.slice(
+      runtime.indexOf("fn execute_serial_work("),
+      runtime.indexOf("pub fn registration(")
+    );
+    const persist = executor.indexOf("self.persist_restore_session(false)");
+    const finalize = executor.indexOf("finalize_persisted_effect_result(");
+    const dispatch = executor.indexOf("dispatch_core_effect_results");
+    expect(persist).toBeGreaterThan(-1);
+    expect(finalize).toBeGreaterThan(persist);
+    expect(dispatch).toBeGreaterThan(finalize);
+    expect(executor).toContain("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
+    expect(runtime).toContain("SYSTEM_RUNTIME_PERSIST_FAILED");
+  });
+
   it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),

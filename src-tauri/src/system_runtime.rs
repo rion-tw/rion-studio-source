@@ -485,6 +485,27 @@ fn provisional_move_failure_message(original: String, rollback_errors: &[String]
     }
 }
 
+fn finalize_persisted_effect_result(
+    mut result: CoreEffectResult,
+    persist_runtime: bool,
+    persistence_error: Option<String>,
+) -> CoreEffectResult {
+    if result.ok
+        && persist_runtime
+        && let Some(message) = persistence_error
+    {
+        result.ok = false;
+        result.value_json = None;
+        result.error = Some(rion_core::CoreErrorPayload {
+            code: "SYSTEM_RUNTIME_PERSIST_FAILED".to_owned(),
+            message: format!(
+                "The native runtime changed, but its restore session could not be persisted: {message}"
+            ),
+        });
+    }
+    result
+}
+
 fn runtime_tab_is_visible(snapshot: &BrowserRuntimeSnapshot, tab_id: &str) -> bool {
     snapshot
         .tabs
@@ -1073,6 +1094,11 @@ impl SystemRuntimeExecutor {
                         }),
                     }
                 };
+                let persistence_error = (result.ok && persist_runtime)
+                    .then(|| self.persist_restore_session(false).err())
+                    .flatten();
+                let result =
+                    finalize_persisted_effect_result(result, persist_runtime, persistence_error);
                 let succeeded = result.ok;
                 eprintln!(
                     "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
@@ -1082,7 +1108,6 @@ impl SystemRuntimeExecutor {
                     && succeeded
                     && persist_runtime
                 {
-                    let _ = self.persist_restore_session(false);
                     self.publish_projection();
                 }
             }
@@ -10674,6 +10699,28 @@ mod tests {
         prepare_restore_session_for_persist(&mut session, true);
         assert!(session.clean_exit);
         assert!(session.restore_in_progress_window_ids.is_empty());
+    }
+
+    #[test]
+    fn runtime_effect_success_requires_restore_session_persistence() {
+        let success = CoreEffectResult {
+            effect_id: "effect-a".to_owned(),
+            operation_id: "operation-a".to_owned(),
+            ok: true,
+            value_json: Some("{}".to_owned()),
+            error: None,
+        };
+        let failed =
+            finalize_persisted_effect_result(success.clone(), true, Some("disk full".to_owned()));
+        assert!(!failed.ok);
+        assert!(failed.value_json.is_none());
+        assert_eq!(
+            failed.error.as_ref().map(|error| error.code.as_str()),
+            Some("SYSTEM_RUNTIME_PERSIST_FAILED")
+        );
+
+        assert!(finalize_persisted_effect_result(success.clone(), true, None).ok);
+        assert!(finalize_persisted_effect_result(success, false, Some("ignored".to_owned())).ok);
     }
 
     #[test]

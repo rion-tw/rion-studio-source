@@ -3207,6 +3207,7 @@ pub struct EmbeddedLaunchTargetRecord {
     pub window_id: String,
     #[ts(type = "number")]
     pub display_id: i64,
+    pub scale_factor: f64,
     pub work_area: StatePixelBoundsRecord,
     pub bounds: StatePixelBoundsRecord,
     #[ts(type = "\"normal\" | \"maximized\" | \"fullscreen\"")]

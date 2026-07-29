@@ -2389,6 +2389,7 @@ fn default_display_launch_target(
     Ok(EmbeddedLaunchTargetRecord {
         window_id: uuid::Uuid::new_v4().to_string(),
         display_id: monitor_id(&monitor),
+        scale_factor,
         work_area: StatePixelBoundsRecord {
             x: (work_area.position.x as f64 / scale_factor).round() as i32,
             y: (work_area.position.y as f64 / scale_factor).round() as i32,
@@ -2411,6 +2412,7 @@ fn embedded_target_for_monitor(monitor: &tauri::Monitor) -> EmbeddedLaunchTarget
     EmbeddedLaunchTargetRecord {
         window_id: uuid::Uuid::new_v4().to_string(),
         display_id: monitor_id(monitor),
+        scale_factor,
         work_area: StatePixelBoundsRecord {
             x: (work_area.position.x as f64 / scale_factor).round() as i32,
             y: (work_area.position.y as f64 / scale_factor).round() as i32,
@@ -3111,6 +3113,7 @@ fn provisional_target_for_screen(
         EmbeddedLaunchTargetRecord {
             window_id: provisional_window_id.to_owned(),
             display_id: monitor_id(&monitor),
+            scale_factor: monitor.scale_factor().max(f64::EPSILON),
             work_area,
             bounds,
             presentation: "normal".to_owned(),
@@ -3192,6 +3195,7 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     let target = EmbeddedLaunchTargetRecord {
         window_id: window_id.clone(),
         display_id: target_display.id,
+        scale_factor: monitor.scale_factor().max(f64::EPSILON),
         work_area: work_area.clone(),
         bounds: bounds.clone(),
         presentation: "normal".to_owned(),

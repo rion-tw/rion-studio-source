@@ -6504,7 +6504,7 @@ mod tests {
     fn command(mut value: Value) -> CoreCommand {
         if matches!(
             value.get("type").and_then(Value::as_str),
-            Some("embeddedRoleLaunch" | "embeddedWorkspaceLaunch")
+            Some("embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "gameWindowCreateAndMoveTab")
         ) && let Some(target) = value.get_mut("target").and_then(Value::as_object_mut)
         {
             let work_area = target
@@ -6515,6 +6515,7 @@ mod tests {
             target
                 .entry("windowId")
                 .or_insert_with(|| json!(format!("test-window-{display_id}")));
+            target.entry("scaleFactor").or_insert_with(|| json!(1.0));
             target.entry("bounds").or_insert(work_area);
             target
                 .entry("presentation")
@@ -7033,6 +7034,7 @@ mod tests {
             let launch_target = |window_id: &str| EmbeddedLaunchTargetRecord {
                 window_id: window_id.to_owned(),
                 display_id: 1,
+                scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {
                     x: 0,
                     y: 0,
@@ -7186,6 +7188,7 @@ mod tests {
             let target = |window_id: &str| EmbeddedLaunchTargetRecord {
                 window_id: window_id.to_owned(),
                 display_id: 1,
+                scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {
                     x: 0,
                     y: 0,
@@ -8721,6 +8724,7 @@ mod tests {
                 EmbeddedLaunchTargetRecord {
                     window_id: "stale-workspace-window".to_owned(),
                     display_id: 1,
+                    scale_factor: 1.0,
                     work_area: StatePixelBoundsRecord {
                         x: 0,
                         y: 0,
@@ -8967,6 +8971,7 @@ mod tests {
                 target: EmbeddedLaunchTargetRecord {
                     window_id: uuid::Uuid::new_v4().to_string(),
                     display_id: 1,
+                    scale_factor: 1.0,
                     work_area: crate::model::StatePixelBoundsRecord {
                         x: 0,
                         y: 0,

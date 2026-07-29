@@ -13,7 +13,6 @@ import { useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { Checkbox } from "../../components/ui/checkbox";
 import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
@@ -425,7 +424,7 @@ function WorkspaceLayoutFormEditor({
           >
             <div
               aria-label={t("workspaces.layout")}
-              className="grid gap-2 min-[640px]:grid-cols-2 min-[1000px]:grid-cols-3 min-[1400px]:grid-cols-4"
+              className="flex flex-wrap gap-2"
               data-workspace-layout-options
               role="group"
             >
@@ -435,28 +434,23 @@ function WorkspaceLayoutFormEditor({
                 const isSelected = form.template === template;
 
                 return (
-                  <label
+                  <button
                     key={template}
+                    aria-pressed={isSelected}
                     className={cn(
-                      "glass-inset flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 transition-[background-color,border-color,box-shadow]",
-                      isSaving ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-                      isSelected && "border-primary/45 bg-primary/12"
+                      "glass-control inline-flex h-[30px] min-h-[var(--control-min-size)] w-fit max-w-full flex-none items-center gap-1.5 rounded-md px-2.5 text-left text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60",
+                      isSelected
+                        ? "macro-role-card-selected text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
                     )}
                     data-workspace-layout-option={template}
+                    disabled={isSaving}
+                    type="button"
+                    onClick={() => handleTemplateChange(template)}
                   >
-                    <Checkbox
-                      aria-label={label}
-                      checked={isSelected}
-                      disabled={isSaving}
-                      onCheckedChange={(checked) => {
-                        if (checked === true) {
-                          handleTemplateChange(template);
-                        }
-                      }}
-                    />
-                    <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</span>
-                  </label>
+                    <Icon className="size-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0">{label}</span>
+                  </button>
                 );
               })}
             </div>

@@ -166,6 +166,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $executable = (Resolve-Path "target/release/rion-tauri.exe").Path
+          $bytes = [System.IO.File]::ReadAllBytes($executable)
+          if ($bytes.Length -lt 64) { throw "Windows executable is too small to contain a PE header." }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 0 -or $peOffset + 94 -gt $bytes.Length) { throw "Windows executable has an invalid PE header offset." }
+          if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "Windows executable is missing the PE signature." }
+          $optionalHeaderOffset = $peOffset + 24
+          $optionalHeaderMagic = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset)
+          if ($optionalHeaderMagic -notin @(0x010b, 0x020b)) { throw "Windows executable has an unsupported PE optional header." }
+          $subsystem = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset + 68)
+          if ($subsystem -ne 2) { throw "Windows executable must use IMAGE_SUBSYSTEM_WINDOWS_GUI; found subsystem $subsystem." }
           $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
           if ($null -eq $installer) { throw "NSIS installer is missing." }
           $signature = Get-AuthenticodeSignature $installer.FullName

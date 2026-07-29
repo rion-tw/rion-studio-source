@@ -455,6 +455,32 @@ fn surface_generation_is_current(active: u64, reported: u64) -> bool {
     active == reported
 }
 
+fn surface_recovery_swap_is_current(
+    active_label: &str,
+    expected_label: &str,
+    active_generation: u64,
+    expected_generation: u64,
+) -> bool {
+    active_label == expected_label
+        && surface_generation_is_current(active_generation, expected_generation)
+}
+
+fn runtime_tab_is_visible(snapshot: &BrowserRuntimeSnapshot, tab_id: &str) -> bool {
+    snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.id == tab_id)
+        .is_some_and(|tab| {
+            !tab.hidden
+                && snapshot
+                    .windows
+                    .iter()
+                    .find(|window| window.window_id == tab.window_id)
+                    .and_then(|window| window.active_tab_id.as_deref())
+                    == Some(tab_id)
+        })
+}
+
 fn accept_local_storage_sync_sequence(last_accepted: &mut u64, incoming: u64) -> bool {
     if incoming == 0 || incoming <= *last_accepted {
         return false;
@@ -3493,9 +3519,10 @@ impl SystemRuntimeExecutor {
             )
         })?;
         let (
+            tab_id,
             window,
-            old_webview,
-            old_lifecycle,
+            old_webview_label,
+            expected_generation,
             rect,
             current_url,
             local_storage_sync,
@@ -3504,9 +3531,8 @@ impl SystemRuntimeExecutor {
             window_zoom_factor,
             audio_muted,
             generation,
-            popup_labels,
         ) = {
-            let mut state = self.state()?;
+            let state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_ROLE_NOT_FOUND",
@@ -3515,8 +3541,8 @@ impl SystemRuntimeExecutor {
             })?;
             let (
                 window_id,
-                old_webview,
-                old_lifecycle,
+                old_webview_label,
+                expected_generation,
                 rect,
                 current_url,
                 local_storage_sync,
@@ -3541,8 +3567,8 @@ impl SystemRuntimeExecutor {
                 })?;
                 (
                     tab.window_id.clone(),
-                    role.webview.clone(),
-                    Arc::clone(&role.lifecycle),
+                    role.webview.label().to_owned(),
+                    role.generation,
                     role.rect.clone(),
                     current_url,
                     role.local_storage_sync.clone(),
@@ -3559,33 +3585,18 @@ impl SystemRuntimeExecutor {
             })?;
             let window = host.window.clone();
             let window_zoom_factor = host.zoom_factor;
-            let popup_labels = state
-                .popup_roles
-                .iter()
-                .filter(|(_, popup_role_id)| *popup_role_id == role_id)
-                .map(|(label, _)| label.clone())
-                .collect::<Vec<_>>();
-            for label in &popup_labels {
-                state.popup_roles.remove(label);
-                state.audible_webviews.remove(label);
-                state.overlay_capabilities.remove(label);
-            }
-            let next_generation = state
+            let generation = state
                 .recovery_generations
-                .entry(role_id.to_owned())
-                .or_insert(0);
-            *next_generation += 1;
-            let generation = *next_generation;
-            state
-                .tabs
-                .get_mut(&tab_id)
-                .and_then(|tab| tab.roles.get_mut(role_id))
-                .expect("the recovery role was validated above")
-                .generation = generation;
+                .get(role_id)
+                .copied()
+                .unwrap_or(expected_generation)
+                .max(expected_generation)
+                .saturating_add(1);
             (
+                tab_id,
                 window,
-                old_webview,
-                old_lifecycle,
+                old_webview_label,
+                expected_generation,
                 rect,
                 current_url,
                 local_storage_sync,
@@ -3594,23 +3605,24 @@ impl SystemRuntimeExecutor {
                 window_zoom_factor,
                 audio_muted,
                 generation,
-                popup_labels,
             )
         };
-        for label in popup_labels {
-            if let Some(window) = self.app.get_webview_window(&label) {
-                let _ = window.close();
-            }
-        }
+        let runtime_snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(RuntimeError::core)
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
+                    RuntimeError::new("TAURI_RUNTIME_SNAPSHOT_INVALID", error.to_string())
+                })
+            })?;
+        let tab_visible = runtime_tab_is_visible(&runtime_snapshot, &tab_id);
         let local_storage_sync = local_storage_sync.map(|mut config| {
             config.generation = config.generation.saturating_add(1);
             config.token = uuid::Uuid::new_v4().to_string();
             config
         });
         wait_for_tauri_main_thread(&self.app)?;
-        self.close_surface_and_wait(&old_webview, &old_lifecycle, role_id)?;
-        #[cfg(target_os = "macos")]
-        let host_visible = window.is_visible().map_err(RuntimeError::tauri)?;
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let paths = role_session_paths(&self.user_data_dir, role_id)?;
@@ -3662,12 +3674,9 @@ impl SystemRuntimeExecutor {
             }
         };
         let preparation = (|| -> RuntimeResult<()> {
-            #[cfg(target_os = "macos")]
-            if !host_visible {
-                // Keep WKWebView recovery in the same hidden state as its host so a newly-created
-                // child does not become the active input target during navigation.
-                webview.hide().map_err(RuntimeError::tauri)?;
-            }
+            // Prepare the replacement off-screen. The current surface remains authoritative
+            // until every fallible creation, security, navigation and audio step has succeeded.
+            webview.hide().map_err(RuntimeError::tauri)?;
             install_platform_security_policy(&webview)?;
             install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
             install_process_failure_monitor(
@@ -3697,6 +3706,11 @@ impl SystemRuntimeExecutor {
             let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
             return Err(error);
         }
+        if tab_visible && let Err(error) = webview.show() {
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(RuntimeError::tauri(error));
+        }
+        let replacement_label = webview.label().to_owned();
         let mut state = match self.state() {
             Ok(state) => state,
             Err(error) => {
@@ -3704,7 +3718,7 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
-        let Some(tab_id) = state.role_tabs.get(role_id).cloned() else {
+        let Some(active_tab_id) = state.role_tabs.get(role_id).cloned() else {
             drop(state);
             let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
             return Err(RuntimeError::new(
@@ -3712,6 +3726,14 @@ impl SystemRuntimeExecutor {
                 "Runtime role stopped while its System WebView was recovering.",
             ));
         };
+        if active_tab_id != tab_id {
+            drop(state);
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_RECOVERY_STALE",
+                "Runtime role moved while its System WebView was recovering.",
+            ));
+        }
         let Some(tab) = state.tabs.get_mut(&tab_id) else {
             drop(state);
             let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
@@ -3720,24 +3742,95 @@ impl SystemRuntimeExecutor {
                 "Runtime tab was not found.",
             ));
         };
-        tab.roles.insert(
-            role_id.to_owned(),
-            RoleSurface {
-                current_url: Some(current_url),
-                generation,
-                high_refresh_rate_status,
-                lifecycle,
-                local_storage_sync,
-                local_storage_sync_sequence: 0,
-                navigation,
-                rect,
-                webview,
-                zoom_factor,
-                zoom_mode,
-            },
-        );
+        let Some(active_surface) = tab.roles.get(role_id) else {
+            drop(state);
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(RuntimeError::new(
+                "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                "Runtime role stopped while its System WebView was recovering.",
+            ));
+        };
+        if !surface_recovery_swap_is_current(
+            active_surface.webview.label(),
+            &old_webview_label,
+            active_surface.generation,
+            expected_generation,
+        ) {
+            drop(state);
+            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_RECOVERY_STALE",
+                "A newer System WebView surface superseded this recovery attempt.",
+            ));
+        }
+        let old_surface = tab
+            .roles
+            .insert(
+                role_id.to_owned(),
+                RoleSurface {
+                    current_url: Some(current_url),
+                    generation,
+                    high_refresh_rate_status,
+                    lifecycle,
+                    local_storage_sync,
+                    local_storage_sync_sequence: 0,
+                    navigation,
+                    rect,
+                    webview,
+                    zoom_factor,
+                    zoom_mode,
+                },
+            )
+            .expect("the recovery role was validated above");
+        state
+            .recovery_generations
+            .insert(role_id.to_owned(), generation);
+        let popup_labels = state
+            .popup_roles
+            .iter()
+            .filter(|(_, popup_role_id)| *popup_role_id == role_id)
+            .map(|(label, _)| label.clone())
+            .collect::<Vec<_>>();
         drop(state);
-        self.layout_runtime_tab(&tab_id)
+
+        for label in popup_labels {
+            let close_error = self
+                .app
+                .get_webview_window(&label)
+                .map(|window| window.close().map_err(|error| error.to_string()))
+                .unwrap_or(Ok(()))
+                .err();
+            if close_error.is_none() {
+                self.forget_popup(&label);
+            } else {
+                let _ = self.app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_POPUP_RECOVERY_CLEANUP_FAILED",
+                        "message": "A popup from the failed System WebView could not be closed.",
+                        "roleId": role_id,
+                        "webviewLabel": label,
+                        "closeError": close_error
+                    }),
+                );
+            }
+        }
+
+        if let Err(error) =
+            self.close_surface_and_wait(&old_surface.webview, &old_surface.lifecycle, role_id)
+        {
+            let _ = self.app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "SYSTEM_SURFACE_OLD_CLEANUP_FAILED",
+                    "message": error.message,
+                    "roleId": role_id,
+                    "webviewLabel": old_webview_label,
+                    "replacementLabel": replacement_label
+                }),
+            );
+        }
+        Ok(())
     }
 
     fn apply(&self, effect: CoreEffectRequest) -> RuntimeResult<Option<String>> {
@@ -10281,6 +10374,28 @@ mod tests {
     }
 
     #[test]
+    fn recovery_swap_requires_the_original_surface_and_generation() {
+        assert!(surface_recovery_swap_is_current(
+            "role-surface-a",
+            "role-surface-a",
+            7,
+            7
+        ));
+        assert!(!surface_recovery_swap_is_current(
+            "role-surface-b",
+            "role-surface-a",
+            7,
+            7
+        ));
+        assert!(!surface_recovery_swap_is_current(
+            "role-surface-a",
+            "role-surface-a",
+            8,
+            7
+        ));
+    }
+
+    #[test]
     fn popup_renderer_failure_is_isolated_from_role_recovery() {
         let popup = SurfaceFailureTarget::Popup {
             label: "popup-a".to_owned(),
@@ -10337,6 +10452,21 @@ mod tests {
             "workspaces": []
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn recovery_preserves_the_authoritative_tab_visibility() {
+        let mut snapshot = runtime_tab_host_snapshot("tab-a");
+        assert!(runtime_tab_is_visible(&snapshot, "tab-a"));
+        assert!(!runtime_tab_is_visible(&snapshot, "tab-b"));
+
+        snapshot
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == "tab-a")
+            .unwrap()
+            .hidden = true;
+        assert!(!runtime_tab_is_visible(&snapshot, "tab-a"));
     }
 
     #[test]

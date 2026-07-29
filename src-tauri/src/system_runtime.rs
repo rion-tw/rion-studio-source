@@ -87,10 +87,14 @@ const PERFORMANCE_DIAGNOSTIC_START_SOURCE: &str = r#"(() => {
   const key = "__rionStudioPerformanceDiagnostics";
   const previous = globalThis[key];
   if (previous && typeof previous.rafId === "number") cancelAnimationFrame(previous.rafId);
+  try { previous?.longTaskObserver?.disconnect(); } catch {}
   const probe = {
     frameCount: 0,
     intervals: [],
     lastFrameAt: undefined,
+    longTaskDurations: [],
+    longTaskObserver: undefined,
+    longTaskObserverSupported: false,
     rafId: undefined,
     running: true,
     startedAt: performance.now(),
@@ -98,6 +102,26 @@ const PERFORMANCE_DIAGNOSTIC_START_SOURCE: &str = r#"(() => {
     webgpuError: undefined
   };
   globalThis[key] = probe;
+  try {
+    const supported = Array.isArray(globalThis.PerformanceObserver?.supportedEntryTypes)
+      && globalThis.PerformanceObserver.supportedEntryTypes.includes("longtask");
+    if (supported) {
+      probe.longTaskObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (probe.longTaskDurations.length >= 2048) break;
+          if (Number.isFinite(entry.duration) && entry.duration >= 0) {
+            probe.longTaskDurations.push(entry.duration);
+          }
+        }
+      });
+      probe.longTaskObserver.observe({ type: "longtask", buffered: false });
+      probe.longTaskObserverSupported = true;
+    }
+  } catch {
+    try { probe.longTaskObserver?.disconnect(); } catch {}
+    probe.longTaskObserver = undefined;
+    probe.longTaskObserverSupported = false;
+  }
   if (navigator.gpu && typeof navigator.gpu.requestAdapter === "function") {
     probe.webgpu = "unknown";
     Promise.resolve(navigator.gpu.requestAdapter()).then((adapter) => {
@@ -125,8 +149,21 @@ const PERFORMANCE_DIAGNOSTIC_READ_SOURCE: &str = r#"(() => {
   if (!probe) return JSON.stringify({ error: "Performance sample was not started." });
   probe.running = false;
   if (typeof probe.rafId === "number") cancelAnimationFrame(probe.rafId);
+  try {
+    for (const entry of probe.longTaskObserver?.takeRecords?.() || []) {
+      if (probe.longTaskDurations.length >= 2048) break;
+      if (Number.isFinite(entry.duration) && entry.duration >= 0) {
+        probe.longTaskDurations.push(entry.duration);
+      }
+    }
+    probe.longTaskObserver?.disconnect();
+  } catch {}
   const duration = Math.max(0, performance.now() - probe.startedAt);
   const intervals = [...probe.intervals].filter(Number.isFinite).sort((a, b) => a - b);
+  const intervalDuration = intervals.reduce((total, interval) => total + interval, 0);
+  const longTaskDurations = [...probe.longTaskDurations]
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
   const percentile = (fraction) => intervals.length
     ? intervals[Math.min(intervals.length - 1, Math.floor((intervals.length - 1) * fraction))]
     : undefined;
@@ -153,8 +190,8 @@ const PERFORMANCE_DIAGNOSTIC_READ_SOURCE: &str = r#"(() => {
   const visibility = ["visible", "hidden", "prerender"].includes(document.visibilityState)
     ? document.visibilityState
     : "unknown";
-  const averageFps = duration > 0 && probe.frameCount > 0
-    ? probe.frameCount * 1000 / duration
+  const averageFps = intervalDuration > 0 && intervals.length > 0
+    ? intervals.length * 1000 / intervalDuration
     : undefined;
   delete globalThis[key];
   return JSON.stringify({
@@ -167,9 +204,16 @@ const PERFORMANCE_DIAGNOSTIC_READ_SOURCE: &str = r#"(() => {
     frameCount: probe.frameCount,
     observedDurationMs: duration,
     averageFps,
+    frameIntervalsMs: intervals,
     p50FrameIntervalMs: percentile(0.5),
     p95FrameIntervalMs: percentile(0.95),
+    p99FrameIntervalMs: percentile(0.99),
     longestFrameIntervalMs: intervals.at(-1),
+    ...(probe.longTaskObserverSupported ? {
+      longTaskCount: longTaskDurations.length,
+      longTaskTotalDurationMs: longTaskDurations.reduce((total, value) => total + value, 0),
+      longestTaskMs: longTaskDurations.at(-1) || 0
+    } : {}),
     graphics
   });
 })()"#;
@@ -623,9 +667,15 @@ struct PerformanceDiagnosticReadback {
     frame_count: u32,
     observed_duration_ms: f64,
     average_fps: Option<f64>,
+    #[serde(default)]
+    frame_intervals_ms: Vec<f64>,
     p50_frame_interval_ms: Option<f64>,
     p95_frame_interval_ms: Option<f64>,
+    p99_frame_interval_ms: Option<f64>,
     longest_frame_interval_ms: Option<f64>,
+    long_task_count: Option<u32>,
+    long_task_total_duration_ms: Option<f64>,
+    longest_task_ms: Option<f64>,
     graphics: StateWebGraphicsRecord,
 }
 
@@ -1746,7 +1796,9 @@ impl SystemRuntimeExecutor {
                     })
                     .and_then(|raw| decode_performance_diagnostic_readback(&raw));
                 match readback {
-                    Ok(readback) => completed_performance_surface(surface, readback),
+                    Ok(readback) => {
+                        completed_performance_surface(surface, readback, display_refresh_rate_hz)
+                    }
                     Err(error) => failed_performance_surface(surface, error.message),
                 }
             })
@@ -6968,6 +7020,7 @@ fn decode_performance_diagnostic_readback(
 fn completed_performance_surface(
     surface: PerformanceDiagnosticSurface,
     mut readback: PerformanceDiagnosticReadback,
+    display_refresh_rate_hz: Option<f64>,
 ) -> BrowserPerformanceSurfaceDiagnosticRecord {
     readback.graphics.error = readback.graphics.error.and_then(bounded_diagnostic_text);
     readback.graphics.renderer = readback.graphics.renderer.and_then(bounded_diagnostic_text);
@@ -6975,6 +7028,8 @@ fn completed_performance_surface(
     readback.graphics.webgl = diagnostic_availability(&readback.graphics.webgl);
     readback.graphics.webgl2 = diagnostic_availability(&readback.graphics.webgl2);
     readback.graphics.webgpu = diagnostic_availability(&readback.graphics.webgpu);
+    let (slow_frame_count, missed_vsync_count) =
+        frame_budget_diagnostics(&readback.frame_intervals_ms, display_refresh_rate_hz);
     BrowserPerformanceSurfaceDiagnosticRecord {
         role_id: surface.role_id,
         origin: surface.origin,
@@ -6995,9 +7050,17 @@ fn completed_performance_surface(
             .map(|value| value.min(1_000.0)),
         p50_frame_interval_ms: readback.p50_frame_interval_ms.and_then(finite_non_negative),
         p95_frame_interval_ms: readback.p95_frame_interval_ms.and_then(finite_non_negative),
+        p99_frame_interval_ms: readback.p99_frame_interval_ms.and_then(finite_non_negative),
         longest_frame_interval_ms: readback
             .longest_frame_interval_ms
             .and_then(finite_non_negative),
+        slow_frame_count,
+        missed_vsync_count,
+        long_task_count: readback.long_task_count.map(|value| value.min(2_048)),
+        long_task_total_duration_ms: readback
+            .long_task_total_duration_ms
+            .and_then(finite_non_negative),
+        longest_task_ms: readback.longest_task_ms.and_then(finite_non_negative),
         graphics: readback.graphics,
         high_refresh_rate_status: surface.high_refresh_rate_status,
         error: None,
@@ -7022,7 +7085,13 @@ fn failed_performance_surface(
         average_fps: None,
         p50_frame_interval_ms: None,
         p95_frame_interval_ms: None,
+        p99_frame_interval_ms: None,
         longest_frame_interval_ms: None,
+        slow_frame_count: None,
+        missed_vsync_count: None,
+        long_task_count: None,
+        long_task_total_duration_ms: None,
+        longest_task_ms: None,
         graphics: StateWebGraphicsRecord {
             error: None,
             renderer: None,
@@ -7034,6 +7103,37 @@ fn failed_performance_surface(
         high_refresh_rate_status: surface.high_refresh_rate_status,
         error: bounded_diagnostic_text(error),
     }
+}
+
+fn frame_budget_diagnostics(
+    frame_intervals_ms: &[f64],
+    display_refresh_rate_hz: Option<f64>,
+) -> (Option<u32>, Option<u32>) {
+    let Some(refresh_rate) =
+        display_refresh_rate_hz.filter(|value| value.is_finite() && *value > 1.0)
+    else {
+        return (None, None);
+    };
+    let frame_budget_ms = 1_000.0 / refresh_rate;
+    let slow_threshold_ms = frame_budget_ms * 1.5;
+    let mut slow_frames = 0_u64;
+    let mut missed_vsyncs = 0_u64;
+    for interval in frame_intervals_ms
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite() && *value >= 0.0)
+    {
+        if interval <= slow_threshold_ms {
+            continue;
+        }
+        slow_frames = slow_frames.saturating_add(1);
+        let elapsed_budgets = (interval / frame_budget_ms).ceil().max(1.0) as u64;
+        missed_vsyncs = missed_vsyncs.saturating_add(elapsed_budgets.saturating_sub(1));
+    }
+    (
+        Some(slow_frames.min(u32::MAX as u64) as u32),
+        Some(missed_vsyncs.min(u32::MAX as u64) as u32),
+    )
 }
 
 fn bounded_diagnostic_text(value: String) -> Option<String> {
@@ -9944,8 +10044,12 @@ mod tests {
     #[test]
     fn performance_diagnostic_probe_is_foreground_scoped_and_privacy_bounded() {
         assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("requestAnimationFrame(tick)"));
+        assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("PerformanceObserver"));
+        assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("longtask"));
+        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("takeRecords"));
         assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("document.visibilityState"));
         assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("document.hasFocus()"));
+        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("intervals.length * 1000"));
         assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("failIfMajorPerformanceCaveat: true"));
         assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("WEBGL_debug_renderer_info"));
         for source in [
@@ -9970,9 +10074,14 @@ mod tests {
             "frameCount": 188,
             "observedDurationMs": 1500.0,
             "averageFps": 125.3,
+            "frameIntervalsMs": [8.0, 8.2, 17.0],
             "p50FrameIntervalMs": 8.0,
             "p95FrameIntervalMs": 8.4,
+            "p99FrameIntervalMs": 16.0,
             "longestFrameIntervalMs": 16.1,
+            "longTaskCount": 1,
+            "longTaskTotalDurationMs": 62.0,
+            "longestTaskMs": 62.0,
             "graphics": {
                 "renderer": "Apple GPU",
                 "vendor": "Apple",
@@ -9987,7 +10096,28 @@ mod tests {
         assert!(readback.document_has_focus);
         assert_eq!(readback.frame_count, 188);
         assert_eq!(readback.average_fps, Some(125.3));
+        assert_eq!(readback.frame_intervals_ms, vec![8.0, 8.2, 17.0]);
+        assert_eq!(readback.p99_frame_interval_ms, Some(16.0));
+        assert_eq!(readback.long_task_count, Some(1));
         assert_eq!(readback.graphics.renderer.as_deref(), Some("Apple GPU"));
+    }
+
+    #[test]
+    fn performance_diagnostic_counts_slow_frames_against_explicit_refresh_rates() {
+        for (refresh_rate, intervals, expected) in [
+            (60.0, vec![16.7, 26.0, 34.0, 51.0], (Some(3), Some(6))),
+            (120.0, vec![8.3, 13.0, 17.0, 26.0], (Some(3), Some(6))),
+        ] {
+            assert_eq!(
+                frame_budget_diagnostics(&intervals, Some(refresh_rate)),
+                expected
+            );
+        }
+        assert_eq!(frame_budget_diagnostics(&[16.7], None), (None, None));
+        assert_eq!(
+            frame_budget_diagnostics(&[f64::NAN, -1.0, 16.0], Some(60.0)),
+            (Some(0), Some(0))
+        );
     }
 
     #[test]

@@ -304,15 +304,6 @@
     will-change: transform;
   }
 
-  .game-motion-transform {
-    transform: translate3d(0, 0, 0);
-    will-change: transform;
-  }
-
-  .game-motion-opacity {
-    will-change: opacity;
-  }
-
   .app-drag {
     -webkit-app-region: drag;
   }
@@ -1082,10 +1073,6 @@
     will-change: auto;
   }
 
-  .game-motion-transform,
-  .game-motion-opacity {
-    will-change: auto;
-  }
 }
 
 @media (max-width: 1040px) {

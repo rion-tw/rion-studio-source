@@ -127,8 +127,12 @@ export function createWorkspaceSlotBackground(role: Role | undefined): CSSProper
 
   return {
     backgroundColor: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
-    backgroundImage: `url("${role.coverImageDataUrl ?? roleCoverPlaceholderUrl}")`
+    backgroundImage: `url("${getWorkspaceSlotCoverUrl(role)}")`
   };
+}
+
+export function getWorkspaceSlotCoverUrl(role: Role): string {
+  return role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
 }
 
 export function rectToPreviewStyle(rect: NormalizedRect): CSSProperties {

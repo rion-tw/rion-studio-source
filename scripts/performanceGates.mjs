@@ -82,6 +82,15 @@ export function aggregatePerformanceSummaries(summaries) {
     throw new Error("Performance aggregation requires exactly three runs.");
   }
   const value = (key) => median(summaries.map((summary) => summary[key]));
+  const optionalMetrics = Object.fromEntries([
+    "p95TreeCpuPercent",
+    "p95TreeRssBytes",
+    "peakTreeCpuPercent",
+    "peakTreeRssBytes",
+    "peakProcessCount"
+  ].flatMap((key) => summaries.every((summary) => Number.isFinite(summary[key]))
+    ? [[key, value(key)]]
+    : []));
   const runtimeTelemetry = Object.fromEntries(
     ["ipcCommand", "macroScheduleToDispatch", "tabActivation"].map((metric) => {
       const samples = summaries.map((summary) => summary.runtimeTelemetry?.[metric]);
@@ -132,6 +141,8 @@ export function aggregatePerformanceSummaries(summaries) {
       pendingEffectCount: value("pendingEffectCount")
     };
   }
+  const processCategories = aggregateProcessCategories(summaries);
+  const processChurn = aggregateProcessChurn(summaries);
   return {
     medianNonRendererCpuPercent: value("medianNonRendererCpuPercent"),
     medianNonRendererRssBytes: value("medianNonRendererRssBytes"),
@@ -140,9 +151,49 @@ export function aggregatePerformanceSummaries(summaries) {
     medianTreeCpuPercent: value("medianTreeCpuPercent"),
     medianTreeRssBytes: value("medianTreeRssBytes"),
     nonRendererRssGrowthPercent: value("nonRendererRssGrowthPercent"),
+    ...optionalMetrics,
+    ...(processCategories ? { processCategories } : {}),
+    ...(processChurn ? { processChurn } : {}),
     runtimeTelemetry,
     sampleCount: summaries.reduce((count, summary) => count + (summary.sampleCount ?? 0), 0)
   };
+}
+
+function aggregateProcessCategories(summaries) {
+  const categoryNames = ["app", "renderer", "gpu", "browserUtility"];
+  const metricNames = [
+    "medianCpuPercent",
+    "p95CpuPercent",
+    "peakCpuPercent",
+    "medianRssBytes",
+    "p95RssBytes",
+    "peakRssBytes",
+    "medianProcessCount",
+    "peakProcessCount"
+  ];
+  if (!summaries.every((summary) => categoryNames.every((category) =>
+    metricNames.every((metric) => Number.isFinite(summary.processCategories?.[category]?.[metric]))
+  ))) {
+    return undefined;
+  }
+  return Object.fromEntries(categoryNames.map((category) => [category, Object.fromEntries(
+    metricNames.map((metric) => [metric, median(summaries.map(
+      (summary) => summary.processCategories[category][metric]
+    ))])
+  )]));
+}
+
+function aggregateProcessChurn(summaries) {
+  const metrics = ["exitedProcessCount", "startedProcessCount", "uniqueProcessCount"];
+  if (!summaries.every((summary) =>
+    metrics.every((metric) => Number.isFinite(summary.processChurn?.[metric]))
+  )) {
+    return undefined;
+  }
+  return Object.fromEntries(metrics.map((metric) => [
+    metric,
+    median(summaries.map((summary) => summary.processChurn[metric]))
+  ]));
 }
 
 function aggregateLatency(samples) {

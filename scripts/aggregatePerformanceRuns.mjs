@@ -19,7 +19,7 @@ const comparison = comparePerformanceSummaries(candidate, baseline);
 const outputPath = resolve(options.output ??
   `performance-results/${new Date().toISOString().replaceAll(":", "-")}-${metadata.scenario}-comparison.json`);
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   metadata,
   baseline,
   candidate,
@@ -45,6 +45,9 @@ function assertComparableRuns(runs) {
   ];
   const expected = Object.fromEntries(fields.map((field) => [field, runs[0]?.metadata?.[field]]));
   for (const run of runs) {
+    if (run?.schemaVersion !== 2) {
+      throw new Error("Performance aggregation requires schemaVersion 2 runs.");
+    }
     for (const field of fields) {
       if (run?.metadata?.[field] !== expected[field]) {
         throw new Error(`Performance run metadata differs for ${field}.`);

@@ -84,9 +84,10 @@ describe("games cover UI", () => {
     expect(uncoveredCard).toBeTruthy();
     expect(coveredCard?.querySelector(`img[src="${processedCover}"]`)).toBeTruthy();
     const coveredImage = coveredCard?.querySelector(`img[src="${processedCover}"]`);
-    expect(coveredImage?.classList.contains("game-motion-transform")).toBe(true);
+    expect(coveredImage?.getAttribute("loading")).toBe("lazy");
+    expect(coveredImage?.getAttribute("decoding")).toBe("async");
     expect(coveredImage?.classList.contains("transition-transform")).toBe(true);
-    expect(coveredCard?.querySelector(".game-motion-opacity")).toBeTruthy();
+    expect(coveredCard?.querySelector("[class*='group-hover:pointer-events-auto']")).toBeTruthy();
     expect(uncoveredCard?.querySelector(".aspect-video img")).toBeNull();
     expect(container.querySelectorAll(".aspect-video")).toHaveLength(2);
 

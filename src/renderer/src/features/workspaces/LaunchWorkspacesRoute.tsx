@@ -46,7 +46,11 @@ import type {
   RoleStatus,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
-import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
+import {
+  createWorkspaceSlotBackground,
+  getWorkspaceSlotCoverUrl,
+  getWorkspaceSplits
+} from "./workspaceLayoutUtils";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
 import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
@@ -595,22 +599,27 @@ function WorkspaceLayoutPreviewSlot({
   const backgroundStyle = createWorkspaceSlotBackground(role);
   const style = {
     "--workspace-slot-caption-bottom-left-radius": "0px",
-    "--workspace-slot-caption-bottom-right-radius": "0px"
+    "--workspace-slot-caption-bottom-right-radius": "0px",
+    ...(backgroundStyle?.backgroundColor ? { backgroundColor: backgroundStyle.backgroundColor } : {})
   } as CSSProperties & Record<"--workspace-slot-caption-bottom-left-radius" | "--workspace-slot-caption-bottom-right-radius", string>;
 
   return (
     <div
       className={cn(
-        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden",
+        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden [contain:paint]",
         role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
       style={style}
     >
       {role ? (
-        <div
-          className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
-          style={backgroundStyle}
+        <img
+          alt=""
           aria-hidden="true"
+          className="absolute inset-0 size-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+          decoding="async"
+          draggable={false}
+          loading="lazy"
+          src={getWorkspaceSlotCoverUrl(role)}
         />
       ) : null}
       <div className="workspace-slot-caption workspace-slot-caption--compact">

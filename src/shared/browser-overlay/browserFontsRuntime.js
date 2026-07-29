@@ -4,11 +4,8 @@
   const RUNTIME_KEY = "__rionStudioBrowserFonts";
   const STYLE_ID = "rion-studio-browser-fonts";
   const CANVAS_HOOK_KEY = "__rionStudioBrowserFontsCanvasHook";
-  const VERSION = 5;
-  const CANVAS_TEXT_QUALITY = Object.freeze([
-    ["textRendering", "optimizeLegibility"],
-    ["fontKerning", "normal"]
-  ]);
+  const VERSION = 6;
+  const CANVAS_FONT_CACHE_CAPACITY = 256;
   const SLOT_RANGES = Object.freeze({
     cjk: [
       [0x2e80, 0x2fff],
@@ -54,6 +51,7 @@
 
   const state = {
     canvasFontsActive: false,
+    canvasFontCache: new Map(),
     canvasRevision: 0,
     canvasStacks: { general: [], math: [], monospace: [] },
     canvasTextQualityActive: false,
@@ -149,19 +147,28 @@
   function rewriteCanvasFont(value) {
     const font = String(value || "");
     if (!state.canvasFontsActive || !canvasFontParser) return font;
+    if (state.canvasFontCache.has(font)) return state.canvasFontCache.get(font);
+    let rewritten = font;
     try {
       canvasFontParser.cssText = "";
       canvasFontParser.font = font;
       const parsedFont = canvasFontParser.font;
       const fontFamily = canvasFontParser.fontFamily;
-      if (!parsedFont || !fontFamily) return font;
-      const customFamilies = canvasStackForFamily(fontFamily);
-      if (customFamilies.length === 0) return font;
-      canvasFontParser.fontFamily = prependCanvasFamilies(fontFamily, customFamilies);
-      return canvasFontParser.font || font;
+      if (parsedFont && fontFamily) {
+        const customFamilies = canvasStackForFamily(fontFamily);
+        if (customFamilies.length > 0) {
+          canvasFontParser.fontFamily = prependCanvasFamilies(fontFamily, customFamilies);
+          rewritten = canvasFontParser.font || font;
+        }
+      }
     } catch {
-      return font;
+      rewritten = font;
     }
+    if (state.canvasFontCache.size >= CANVAS_FONT_CACHE_CAPACITY) {
+      state.canvasFontCache.clear();
+    }
+    state.canvasFontCache.set(font, rewritten);
+    return rewritten;
   }
 
   function synchronizeCanvasContext(context, fontDescriptor) {
@@ -171,6 +178,7 @@
       record = {
         effectiveFont: nativeFont,
         originalFont: nativeFont,
+        requestedFont: nativeFont,
         revision: -1,
         savedFonts: []
       };
@@ -180,6 +188,7 @@
     if (nativeFont !== record.effectiveFont) {
       record.effectiveFont = nativeFont;
       record.originalFont = nativeFont;
+      record.requestedFont = nativeFont;
       record.revision = -1;
       record.savedFonts = [];
     }
@@ -207,41 +216,6 @@
       );
     } catch {
       return undefined;
-    }
-  }
-
-  function applyCanvasTextQuality(context) {
-    const previous = [];
-    if (!state.canvasTextQualityActive) return previous;
-    for (const [property, desired] of CANVAS_TEXT_QUALITY) {
-      let captured = false;
-      let original;
-      try {
-        if (!(property in context)) continue;
-        original = context[property];
-        captured = true;
-        if (original === desired) continue;
-        context[property] = desired;
-        previous.push([property, original]);
-      } catch {
-        if (!captured) continue;
-        try {
-          context[property] = original;
-        } catch {
-          // An optional typography property must never block the native text operation.
-        }
-      }
-    }
-    return previous;
-  }
-
-  function restoreCanvasTextQuality(context, previous) {
-    for (const [property, value] of previous.reverse()) {
-      try {
-        context[property] = value;
-      } catch {
-        // Preserve the native result even if an engine refuses to restore an optional property.
-      }
     }
   }
 
@@ -284,6 +258,13 @@
           let record;
           try {
             record = synchronizeCanvasContext(this, fontDescriptor);
+            if (
+              record.revision === state.canvasRevision &&
+              record.requestedFont === String(value) &&
+              fontDescriptor.get.call(this) === record.effectiveFont
+            ) {
+              return;
+            }
             fontDescriptor.set.call(this, record.originalFont);
           } catch {
             fontDescriptor.set.call(this, value);
@@ -291,6 +272,7 @@
           }
           fontDescriptor.set.call(this, value);
           record.originalFont = fontDescriptor.get.call(this);
+          record.requestedFont = String(value);
           record.effectiveFont = record.originalFont;
           record.revision = -1;
           applyCanvasFont(this, fontDescriptor, record);
@@ -305,11 +287,65 @@
           ...descriptor,
           value(...args) {
             prepareCanvasContext(this, fontDescriptor);
-            const previousQuality = applyCanvasTextQuality(this);
+            let restoreTextRendering = false;
+            let previousTextRendering;
+            let restoreFontKerning = false;
+            let previousFontKerning;
+            if (state.canvasTextQualityActive) {
+              try {
+                if ("textRendering" in this) {
+                  previousTextRendering = this.textRendering;
+                  if (previousTextRendering !== "optimizeLegibility") {
+                    this.textRendering = "optimizeLegibility";
+                    restoreTextRendering = true;
+                  }
+                }
+              } catch {
+                if (restoreTextRendering) {
+                  try {
+                    this.textRendering = previousTextRendering;
+                  } catch {
+                    // An optional typography property must not block native text drawing.
+                  }
+                  restoreTextRendering = false;
+                }
+              }
+              try {
+                if ("fontKerning" in this) {
+                  previousFontKerning = this.fontKerning;
+                  if (previousFontKerning !== "normal") {
+                    this.fontKerning = "normal";
+                    restoreFontKerning = true;
+                  }
+                }
+              } catch {
+                if (restoreFontKerning) {
+                  try {
+                    this.fontKerning = previousFontKerning;
+                  } catch {
+                    // An optional typography property must not block native text drawing.
+                  }
+                  restoreFontKerning = false;
+                }
+              }
+            }
             try {
               return nativeMethod.apply(this, args);
             } finally {
-              restoreCanvasTextQuality(this, previousQuality);
+              if (restoreFontKerning) {
+                try {
+                  this.fontKerning = previousFontKerning;
+                } catch {
+                  // Preserve the native result when an optional property cannot be restored.
+                }
+              }
+              if (restoreTextRendering) {
+                try {
+                  this.textRendering = previousTextRendering;
+                } catch {
+                  // Preserve the native result when an optional property cannot be restored.
+                }
+              }
             }
           }
         });
@@ -343,6 +379,7 @@
           const result = nativeRestore.apply(this, args);
           if (record?.savedFonts.length) {
             record.originalFont = record.savedFonts.pop();
+            record.requestedFont = record.originalFont;
             record.effectiveFont = fontDescriptor.get.call(this);
             record.revision = -1;
             applyCanvasFont(this, fontDescriptor, record);
@@ -421,6 +458,7 @@
   function removeAppliedFonts() {
     state.canvasFontsActive = false;
     state.canvasRevision += 1;
+    state.canvasFontCache.clear();
     state.canvasStacks = { general: [], math: [], monospace: [] };
     state.canvasTextQualityActive = false;
     document.getElementById(STYLE_ID)?.remove();

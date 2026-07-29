@@ -485,6 +485,61 @@ fn provisional_move_failure_message(original: String, rollback_errors: &[String]
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct ReversibleFanoutFailure {
+    apply_error: String,
+    rollback_errors: Vec<String>,
+}
+
+fn rollback_reversible_fanout<T>(
+    items: &[T],
+    mut rollback: impl FnMut(usize, &T) -> Result<(), String>,
+) -> Vec<String> {
+    (0..items.len())
+        .rev()
+        .filter_map(|index| rollback(index, &items[index]).err())
+        .collect()
+}
+
+fn apply_reversible_fanout<T>(
+    items: &[T],
+    mut apply: impl FnMut(usize, &T) -> Result<(), String>,
+    mut rollback: impl FnMut(usize, &T) -> Result<(), String>,
+) -> Result<(), ReversibleFanoutFailure> {
+    for (index, item) in items.iter().enumerate() {
+        if let Err(apply_error) = apply(index, item) {
+            let rollback_errors = (0..=index)
+                .rev()
+                .filter_map(|rollback_index| rollback(rollback_index, &items[rollback_index]).err())
+                .collect();
+            return Err(ReversibleFanoutFailure {
+                apply_error,
+                rollback_errors,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn reversible_fanout_runtime_error(
+    apply_code: &'static str,
+    operation: &str,
+    failure: &ReversibleFanoutFailure,
+) -> RuntimeError {
+    if failure.rollback_errors.is_empty() {
+        RuntimeError::new(apply_code, failure.apply_error.clone())
+    } else {
+        RuntimeError::new(
+            "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+            format!(
+                "{operation} failed: {} Compensation also failed: {}. Restart Rion Studio to recover safely.",
+                failure.apply_error,
+                failure.rollback_errors.join("; ")
+            ),
+        )
+    }
+}
+
 fn finalize_persisted_effect_result(
     mut result: CoreEffectResult,
     persist_runtime: bool,
@@ -607,6 +662,7 @@ struct RuntimeTab {
     workspace_id: Option<String>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
     workspace_template: Option<String>,
+    visible: bool,
 }
 
 struct RuntimeDisplayHost {
@@ -1696,33 +1752,55 @@ impl SystemRuntimeExecutor {
             .find(|tab| tab.id == tab_id)
             .and_then(|tab| tab.role_ids.first().cloned())
             .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
+        let previous_muted = self
+            .state()
+            .map_err(|error| error.message)?
+            .tabs
+            .get(tab_id)
+            .map(|tab| tab.audio_muted)
+            .ok_or_else(|| "runtime tab was not found".to_owned())?;
         self.set_role_audio_muted(&role_id, muted)
             .map_err(|error| error.message)?;
-        let mut game_windows = self
-            .core
-            .invoke(CoreCommand::GameWindowsList)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        if let Some(game_window) = game_windows
-            .iter_mut()
-            .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
-        {
-            if let Some(tab) = game_window.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                tab.audio_muted = muted;
+        let persist_result = (|| -> Result<(), String> {
+            let mut game_windows = self
+                .core
+                .invoke(CoreCommand::GameWindowsList)
+                .map_err(|error| error.to_string())
+                .and_then(|value| {
+                    serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                        .map_err(|error| error.to_string())
+                })?;
+            if let Some(game_window) = game_windows
+                .iter_mut()
+                .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
+            {
+                if let Some(tab) = game_window.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.audio_muted = muted;
+                }
+                self.core
+                    .invoke(CoreCommand::GameWindowUpdate {
+                        id: game_window.id.clone(),
+                        input: GameWindowUpdateInputRecord {
+                            tabs: Some(game_window.tabs.clone()),
+                            active_tab_id: Some(game_window.active_tab_id.clone()),
+                            ..GameWindowUpdateInputRecord::default()
+                        },
+                    })
+                    .map_err(|error| error.to_string())?;
             }
-            self.core
-                .invoke(CoreCommand::GameWindowUpdate {
-                    id: game_window.id.clone(),
-                    input: GameWindowUpdateInputRecord {
-                        tabs: Some(game_window.tabs.clone()),
-                        active_tab_id: Some(game_window.active_tab_id.clone()),
-                        ..GameWindowUpdateInputRecord::default()
-                    },
-                })
-                .map_err(|error| error.to_string())?;
+            Ok(())
+        })();
+        if let Err(error) = persist_result {
+            return match self.set_role_audio_muted(&role_id, previous_muted) {
+                Ok(()) => Err(error),
+                Err(rollback_error) => {
+                    self.health.mark_unhealthy();
+                    Err(format!(
+                        "{error} Native audio compensation also failed: {}. Restart Rion Studio to recover safely.",
+                        rollback_error.message
+                    ))
+                }
+            };
         }
         self.publish_projection();
         Ok(())
@@ -2327,6 +2405,7 @@ impl SystemRuntimeExecutor {
                         (
                             role_id.clone(),
                             surface.webview.clone(),
+                            effective_zoom_factor(surface.zoom_factor, current_zoom),
                             effective_zoom_factor(surface.zoom_factor, next_zoom),
                         )
                     })
@@ -2334,9 +2413,6 @@ impl SystemRuntimeExecutor {
                 .collect::<Vec<_>>();
             (surfaces, visible_role_ids)
         };
-        for (_, webview, zoom) in &surfaces {
-            webview.set_zoom(*zoom).map_err(|error| error.to_string())?;
-        }
         let popup_surfaces = {
             let state = self.state().map_err(|error| error.message)?;
             state
@@ -2349,22 +2425,80 @@ impl SystemRuntimeExecutor {
                         return None;
                     }
                     let base = tab.roles.get(role_id)?.zoom_factor;
-                    Some((label.clone(), effective_zoom_factor(base, next_zoom)))
+                    Some((
+                        label.clone(),
+                        effective_zoom_factor(base, current_zoom),
+                        effective_zoom_factor(base, next_zoom),
+                    ))
                 })
                 .collect::<Vec<_>>()
         };
-        for (label, zoom) in popup_surfaces {
-            if let Some(webview) = self.app.get_webview(&label) {
-                webview.set_zoom(zoom).map_err(|error| error.to_string())?;
-            }
+        let mut zoom_mutations = surfaces
+            .iter()
+            .map(|(_, webview, previous_zoom, zoom)| (webview.clone(), *previous_zoom, *zoom))
+            .collect::<Vec<_>>();
+        for (label, previous_zoom, zoom) in popup_surfaces {
+            let webview = self
+                .app
+                .get_webview(&label)
+                .ok_or_else(|| format!("Runtime popup {label} has no live native handle."))?;
+            zoom_mutations.push((webview, previous_zoom, zoom));
         }
-        if let Ok(mut state) = self.state()
-            && let Some(host) = state.display_hosts.get_mut(window_id)
-        {
+        if let Err(failure) = apply_reversible_fanout(
+            &zoom_mutations,
+            |index, (webview, _, zoom)| {
+                webview
+                    .set_zoom(*zoom)
+                    .map_err(|error| format!("surface {index}: {error}"))
+            },
+            |index, (webview, previous_zoom, _)| {
+                webview
+                    .set_zoom(*previous_zoom)
+                    .map_err(|error| format!("surface {index}: {error}"))
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_ZOOM_FAILED",
+                "Updating runtime window zoom",
+                &failure,
+            )
+            .message);
+        }
+        let commit = (|| -> Result<(), String> {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let host = state
+                .display_hosts
+                .get_mut(window_id)
+                .ok_or_else(|| "Runtime window stopped while zooming.".to_owned())?;
+            if host.zoom_factor != current_zoom {
+                return Err("Runtime window zoom changed concurrently.".to_owned());
+            }
             host.zoom_factor = next_zoom;
+            Ok(())
+        })();
+        if let Err(error) = commit {
+            let rollback_errors = rollback_reversible_fanout(
+                &zoom_mutations,
+                |index, (webview, previous_zoom, _)| {
+                    webview
+                        .set_zoom(*previous_zoom)
+                        .map_err(|rollback_error| format!("surface {index}: {rollback_error}"))
+                },
+            );
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "{error} Native zoom compensation also failed: {}. Restart Rion Studio to recover safely.",
+                    rollback_errors.join("; ")
+                ));
+            }
+            return Err(error);
         }
         let label = self.window_zoom_indicator_label(next_zoom);
-        for (role_id, webview, _) in surfaces {
+        for (role_id, webview, _, _) in surfaces {
             if visible_role_ids.contains(&role_id) {
                 show_zoom_indicator(&webview, &label);
             }
@@ -3359,7 +3493,14 @@ impl SystemRuntimeExecutor {
             return Err("Role zoom action is invalid.".to_owned());
         }
         let role_id = self.role_id_for_webview(webview_label)?;
-        let (tab_id, workspace_id, window_zoom_factor, base_zoom_factor, webviews) = {
+        let (
+            tab_id,
+            workspace_id,
+            window_zoom_factor,
+            previous_base_zoom_factor,
+            base_zoom_factor,
+            webviews,
+        ) = {
             let state = self
                 .state
                 .lock()
@@ -3397,17 +3538,38 @@ impl SystemRuntimeExecutor {
                 tab_id,
                 tab.workspace_id.clone(),
                 window_zoom_factor,
+                surface.zoom_factor,
                 next_zoom_factor(surface.zoom_factor, action, 0.25, 3.0),
                 webviews,
             )
         };
+        let previous_effective_zoom =
+            effective_zoom_factor(previous_base_zoom_factor, window_zoom_factor);
         let effective_zoom = effective_zoom_factor(base_zoom_factor, window_zoom_factor);
-        for webview in &webviews {
-            webview
-                .set_zoom(effective_zoom)
-                .map_err(|error| error.to_string())?;
+        if let Err(failure) = apply_reversible_fanout(
+            &webviews,
+            |index, webview| {
+                webview
+                    .set_zoom(effective_zoom)
+                    .map_err(|error| format!("surface {index}: {error}"))
+            },
+            |index, webview| {
+                webview
+                    .set_zoom(previous_effective_zoom)
+                    .map_err(|error| format!("surface {index}: {error}"))
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_ZOOM_FAILED",
+                "Updating role zoom",
+                &failure,
+            )
+            .message);
         }
-        {
+        let commit = (|| -> Result<(), String> {
             let mut state = self
                 .state
                 .lock()
@@ -3417,8 +3579,27 @@ impl SystemRuntimeExecutor {
                 .get_mut(&tab_id)
                 .and_then(|tab| tab.roles.get_mut(&role_id))
                 .ok_or_else(|| "Runtime role stopped while zooming.".to_owned())?;
+            if surface.zoom_factor != previous_base_zoom_factor {
+                return Err("Runtime role zoom changed concurrently.".to_owned());
+            }
             surface.zoom_factor = base_zoom_factor;
             surface.zoom_mode = "fixed".to_owned();
+            Ok(())
+        })();
+        if let Err(error) = commit {
+            let rollback_errors = rollback_reversible_fanout(&webviews, |index, webview| {
+                webview
+                    .set_zoom(previous_effective_zoom)
+                    .map_err(|rollback_error| format!("surface {index}: {rollback_error}"))
+            });
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "{error} Native zoom compensation also failed: {}. Restart Rion Studio to recover safely.",
+                    rollback_errors.join("; ")
+                ));
+            }
+            return Err(error);
         }
         let percent = (base_zoom_factor * 100.0).round() as u32;
         if let Some(source) = webviews
@@ -6437,6 +6618,7 @@ impl SystemRuntimeExecutor {
                     workspace_id: tab.workspace_id,
                     workspace_appearance: tab.workspace_appearance,
                     workspace_template: tab.workspace_template,
+                    visible: false,
                 },
             );
             Ok(())
@@ -6628,6 +6810,7 @@ impl SystemRuntimeExecutor {
             source_window_id: String,
             surfaces: Vec<Webview>,
             tab_id: String,
+            was_visible: bool,
         }
         struct HostUpdate {
             active_webview: Option<Webview>,
@@ -6717,6 +6900,7 @@ impl SystemRuntimeExecutor {
                         source_window_id: runtime_tab.window_id.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
+                        was_visible: runtime_tab.visible,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -6814,15 +6998,94 @@ impl SystemRuntimeExecutor {
             {
                 self.layout_runtime_tab(&update.tab_id)?;
             }
-            for surface in &update.surfaces {
+        }
+
+        let visibility_mutations = tab_updates
+            .iter()
+            .flat_map(|update| {
+                update
+                    .surfaces
+                    .iter()
+                    .cloned()
+                    .map(|surface| (surface, update.was_visible, update.active))
+            })
+            .collect::<Vec<_>>();
+        if let Err(failure) = apply_reversible_fanout(
+            &visibility_mutations,
+            |index, (surface, _, visible)| {
                 // On Windows, WRY maps this visibility boundary to WebView2 IsVisible. Chromium
                 // then applies its own native background throttling to inactive tab surfaces.
-                if update.active {
-                    surface.show().map_err(RuntimeError::tauri)?;
+                (if *visible {
+                    surface.show()
                 } else {
-                    surface.hide().map_err(RuntimeError::tauri)?;
-                }
+                    surface.hide()
+                })
+                .map_err(|error| format!("surface {index}: {error}"))
+            },
+            |index, (surface, was_visible, _)| {
+                (if *was_visible {
+                    surface.show()
+                } else {
+                    surface.hide()
+                })
+                .map_err(|error| format!("surface {index}: {error}"))
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
             }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_VISIBILITY_FAILED",
+                "Applying runtime tab visibility",
+                &failure,
+            ));
+        }
+        let visibility_commit = (|| -> RuntimeResult<()> {
+            let mut state = self.state()?;
+            if tab_updates.iter().any(|update| {
+                state
+                    .tabs
+                    .get(&update.tab_id)
+                    .is_none_or(|tab| tab.window_id != update.window_id)
+            }) {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_VISIBILITY_STALE",
+                    "A runtime tab changed while applying native visibility.",
+                ));
+            }
+            for update in &tab_updates {
+                state
+                    .tabs
+                    .get_mut(&update.tab_id)
+                    .expect("the visibility transaction validated every runtime tab")
+                    .visible = update.active;
+            }
+            Ok(())
+        })();
+        if let Err(error) = visibility_commit {
+            let rollback_errors = rollback_reversible_fanout(
+                &visibility_mutations,
+                |index, (surface, was_visible, _)| {
+                    (if *was_visible {
+                        surface.show()
+                    } else {
+                        surface.hide()
+                    })
+                    .map_err(|error| format!("surface {index}: {error}"))
+                },
+            );
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+                return Err(RuntimeError::new(
+                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+                    format!(
+                        "{} Compensation also failed: {}. Restart Rion Studio to recover safely.",
+                        error.message,
+                        rollback_errors.join("; ")
+                    ),
+                ));
+            }
+            return Err(error);
         }
 
         if let Some((window_id, created)) = &ensured_target_host
@@ -7794,7 +8057,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn show_tab(&self, tab_id: &str, focus: bool) -> RuntimeResult<()> {
-        let (window, updates, active_webview) = {
+        let (window_id, window, updates, active_webview) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
@@ -7822,38 +8085,127 @@ impl SystemRuntimeExecutor {
                             .iter()
                             .map(|divider| divider.webview.clone()),
                     );
-                    (candidate_id == tab_id, surfaces)
+                    (
+                        candidate_id.clone(),
+                        candidate.visible,
+                        candidate_id == tab_id,
+                        surfaces,
+                    )
                 })
                 .collect::<Vec<_>>();
             (
+                window_id.clone(),
                 host.window.clone(),
                 updates,
                 tab.roles.values().next().map(|role| role.webview.clone()),
             )
         };
-        for (visible, surfaces) in updates {
-            for surface in surfaces {
-                if visible {
-                    surface.show().map_err(RuntimeError::tauri)?;
+        let visibility_mutations = updates
+            .iter()
+            .flat_map(|(_, was_visible, visible, surfaces)| {
+                surfaces
+                    .iter()
+                    .cloned()
+                    .map(|surface| (surface, *was_visible, *visible))
+            })
+            .collect::<Vec<_>>();
+        if let Err(failure) = apply_reversible_fanout(
+            &visibility_mutations,
+            |index, (surface, _, visible)| {
+                (if *visible {
+                    surface.show()
                 } else {
-                    surface.hide().map_err(RuntimeError::tauri)?;
+                    surface.hide()
+                })
+                .map_err(|error| format!("surface {index}: {error}"))
+            },
+            |index, (surface, was_visible, _)| {
+                (if *was_visible {
+                    surface.show()
+                } else {
+                    surface.hide()
+                })
+                .map_err(|error| format!("surface {index}: {error}"))
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_VISIBILITY_FAILED",
+                "Showing the next runtime tab",
+                &failure,
+            ));
+        }
+
+        let window_was_visible = window.is_visible().unwrap_or(false);
+        let host_update = (|| -> RuntimeResult<()> {
+            if !window_was_visible {
+                window.show().map_err(RuntimeError::tauri)?;
+            }
+            if focus {
+                window.set_focus().map_err(RuntimeError::tauri)?;
+                if let Some(webview) = active_webview.as_ref() {
+                    webview.set_focus().map_err(RuntimeError::tauri)?;
                 }
             }
-        }
-        if !window.is_visible().unwrap_or(false) {
-            window.show().map_err(RuntimeError::tauri)?;
-        }
-        if focus {
-            window.set_focus().map_err(RuntimeError::tauri)?;
-            if let Some(webview) = active_webview {
-                webview.set_focus().map_err(RuntimeError::tauri)?;
+            Ok(())
+        })();
+        let visibility_commit = host_update.and_then(|()| {
+            let mut state = self.state()?;
+            if updates.iter().any(|(candidate_id, was_visible, _, _)| {
+                state
+                    .tabs
+                    .get(candidate_id)
+                    .is_none_or(|tab| tab.window_id != window_id || tab.visible != *was_visible)
+            }) {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_VISIBILITY_STALE",
+                    "A runtime tab changed while showing the next tab.",
+                ));
             }
+            for (candidate_id, _, visible, _) in &updates {
+                state
+                    .tabs
+                    .get_mut(candidate_id)
+                    .expect("the visibility transaction validated every runtime tab")
+                    .visible = *visible;
+            }
+            Ok(())
+        });
+        if let Err(error) = visibility_commit {
+            let mut rollback_errors = rollback_reversible_fanout(
+                &visibility_mutations,
+                |index, (surface, was_visible, _)| {
+                    (if *was_visible {
+                        surface.show()
+                    } else {
+                        surface.hide()
+                    })
+                    .map_err(|error| format!("surface {index}: {error}"))
+                },
+            );
+            if !window_was_visible && let Err(rollback_error) = window.hide() {
+                rollback_errors.push(format!("window: {rollback_error}"));
+            }
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+                return Err(RuntimeError::new(
+                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+                    format!(
+                        "{} Compensation also failed: {}. Restart Rion Studio to recover safely.",
+                        error.message,
+                        rollback_errors.join("; ")
+                    ),
+                ));
+            }
+            return Err(error);
         }
         Ok(())
     }
 
     fn set_role_audio_muted(&self, role_id: &str, muted: bool) -> RuntimeResult<()> {
-        let (tab_id, webviews, popup_labels) = {
+        let (tab_id, previous_muted, webviews, popup_labels) = {
             let state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
@@ -7876,18 +8228,72 @@ impl SystemRuntimeExecutor {
                 .filter(|(_, popup_role_id)| tab_role_ids.contains(*popup_role_id))
                 .map(|(label, _)| label.clone())
                 .collect::<Vec<_>>();
-            (tab_id, webviews, popup_labels)
+            (tab_id, tab.audio_muted, webviews, popup_labels)
         };
-        for webview in webviews {
-            set_audio_muted(&webview, muted)?;
-        }
+        let mut all_webviews = webviews;
         for label in popup_labels {
-            if let Some(webview) = self.app.get_webview(&label) {
-                let _ = set_audio_muted(&webview, muted);
-            }
+            let webview = self.app.get_webview(&label).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_POPUP_HANDLE_MISSING",
+                    format!("Runtime popup {label} has no live native handle."),
+                )
+            })?;
+            all_webviews.push(webview);
         }
-        if let Some(tab) = self.state()?.tabs.get_mut(&tab_id) {
+        if let Err(failure) = apply_reversible_fanout(
+            &all_webviews,
+            |index, webview| {
+                set_audio_muted(webview, muted)
+                    .map_err(|error| format!("surface {index}: {}", error.message))
+            },
+            |index, webview| {
+                set_audio_muted(webview, previous_muted)
+                    .map_err(|error| format!("surface {index}: {}", error.message))
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_AUDIO_MUTE_FAILED",
+                "Updating runtime tab audio mute",
+                &failure,
+            ));
+        }
+        let commit = (|| -> RuntimeResult<()> {
+            let mut state = self.state()?;
+            let tab = state.tabs.get_mut(&tab_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_AUDIO_STALE",
+                    "The runtime tab stopped while updating audio mute.",
+                )
+            })?;
+            if tab.audio_muted != previous_muted {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_AUDIO_STALE",
+                    "The runtime tab audio state changed concurrently.",
+                ));
+            }
             tab.audio_muted = muted;
+            Ok(())
+        })();
+        if let Err(error) = commit {
+            let rollback_errors = rollback_reversible_fanout(&all_webviews, |index, webview| {
+                set_audio_muted(webview, previous_muted)
+                    .map_err(|error| format!("surface {index}: {}", error.message))
+            });
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+                return Err(RuntimeError::new(
+                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+                    format!(
+                        "{} Compensation also failed: {}. Restart Rion Studio to recover safely.",
+                        error.message,
+                        rollback_errors.join("; ")
+                    ),
+                ));
+            }
+            return Err(error);
         }
         Ok(())
     }
@@ -10646,6 +11052,66 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
     use uuid::Uuid;
+
+    #[test]
+    fn reversible_fanout_rolls_back_every_attempted_native_mutation() {
+        let values = Mutex::new(vec![false, false, false]);
+        let rollback_order = Mutex::new(Vec::new());
+        let failure = apply_reversible_fanout(
+            &[0, 1, 2],
+            |index, _| {
+                values.lock().unwrap()[index] = true;
+                if index == 1 {
+                    Err("second surface rejected the update".to_owned())
+                } else {
+                    Ok(())
+                }
+            },
+            |index, _| {
+                values.lock().unwrap()[index] = false;
+                rollback_order.lock().unwrap().push(index);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            failure,
+            ReversibleFanoutFailure {
+                apply_error: "second surface rejected the update".to_owned(),
+                rollback_errors: Vec::new(),
+            }
+        );
+        assert_eq!(*values.lock().unwrap(), vec![false, false, false]);
+        assert_eq!(*rollback_order.lock().unwrap(), vec![1, 0]);
+    }
+
+    #[test]
+    fn reversible_fanout_reports_failed_compensation() {
+        let failure = apply_reversible_fanout(
+            &["first", "second"],
+            |index, _| {
+                if index == 1 {
+                    Err("apply failed".to_owned())
+                } else {
+                    Ok(())
+                }
+            },
+            |index, item| {
+                if index == 0 {
+                    Err(format!("rollback {item} failed"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.rollback_errors, vec!["rollback first failed"]);
+        let error = reversible_fanout_runtime_error("APPLY_FAILED", "Updating surfaces", &failure);
+        assert_eq!(error.code, "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED");
+        assert!(error.message.contains("Restart Rion Studio"));
+    }
 
     #[test]
     fn native_runtime_work_loop_is_fifo_and_non_overlapping() {

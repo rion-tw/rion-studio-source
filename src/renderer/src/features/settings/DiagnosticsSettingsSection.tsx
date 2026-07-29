@@ -240,7 +240,11 @@ function PerformanceDiagnosticsResult({
               <DiagnosticValue label={t("settings.performanceDiagnosticsVisibility")} value={t(`settings.performanceDiagnosticsVisibility.${surface.documentVisibilityState}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsPageFocus")} value={t(surface.documentHasFocus ? "settings.performanceDiagnosticsFocused" : "settings.performanceDiagnosticsUnfocused")} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsP95")} value={formatMilliseconds(surface.p95FrameIntervalMs, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsP99")} value={formatMilliseconds(surface.p99FrameIntervalMs, t)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsViewport")} value={`${Math.round(surface.viewportWidth)} × ${Math.round(surface.viewportHeight)} @ ${surface.devicePixelRatio.toFixed(2)}×`} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsSlowFrames")} value={formatCount(surface.slowFrameCount, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsMissedVsync")} value={formatCount(surface.missedVsyncCount, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsLongTasks")} value={formatLongTasks(surface, t)} />
               <DiagnosticValue label="WebGL 2" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgl2}`)} />
               <DiagnosticValue label="WebGPU" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgpu}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)} />
@@ -274,6 +278,15 @@ function performanceFinding(
   if (surface.error) return t("settings.performanceDiagnosticsFindingFailed");
   if (surface.documentVisibilityState !== "visible") return t("settings.performanceDiagnosticsFindingHidden");
   if (!surface.documentHasFocus) return t("settings.performanceDiagnosticsFindingUnfocused");
+  if ((surface.longTaskCount ?? 0) > 0 && (surface.longestTaskMs ?? 0) >= 50) {
+    return t("settings.performanceDiagnosticsFindingLongTasks")
+      .replace("{count}", String(surface.longTaskCount))
+      .replace("{longest}", (surface.longestTaskMs ?? 0).toFixed(1));
+  }
+  if ((surface.missedVsyncCount ?? 0) > 0) {
+    return t("settings.performanceDiagnosticsFindingFramePacing")
+      .replace("{count}", String(surface.missedVsyncCount));
+  }
   if (surface.averageFps === undefined || performance.displayRefreshRateHz === undefined) {
     return t("settings.performanceDiagnosticsFindingIncomplete");
   }
@@ -295,6 +308,20 @@ function formatHertz(value: number | undefined, t: Translator): string {
 
 function formatMilliseconds(value: number | undefined, t: Translator): string {
   return value === undefined ? t("settings.performanceDiagnosticsUnknown") : `${value.toFixed(2)} ms`;
+}
+
+function formatCount(value: number | undefined, t: Translator): string {
+  return value === undefined ? t("settings.performanceDiagnosticsUnknown") : String(value);
+}
+
+function formatLongTasks(
+  surface: BrowserPerformanceDiagnostics["surfaces"][number],
+  t: Translator
+): string {
+  if (surface.longTaskCount === undefined) return t("settings.performanceDiagnosticsUnsupported");
+  return t("settings.performanceDiagnosticsLongTaskValue")
+    .replace("{count}", String(surface.longTaskCount))
+    .replace("{duration}", (surface.longTaskTotalDurationMs ?? 0).toFixed(1));
 }
 
 function LogEntryRow({ entry, t }: { entry: LogEntry; t: Translator }): JSX.Element {

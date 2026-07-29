@@ -6,6 +6,12 @@ import process from "node:process";
 import { promisify } from "node:util";
 
 import { comparePerformanceSummaries } from "./performanceGates.mjs";
+import {
+  classifyProcess,
+  percentile,
+  processCategoryTotals,
+  summarizeProcessCategories
+} from "./performanceProcessMetrics.mjs";
 
 const execFileAsync = promisify(execFile);
 const options = parseArguments(process.argv.slice(2));
@@ -26,6 +32,10 @@ if (warmupMs > 0) {
 }
 
 const samples = [];
+const uniqueProcessIds = new Set();
+let exitedProcessCount = 0;
+let previousProcessIds;
+let startedProcessCount = 0;
 let previousWindowsCpuTimes = new Map();
 let previousWindowsSampleAt;
 const startedAt = new Date().toISOString();
@@ -51,11 +61,23 @@ while (Date.now() < deadline || samples.length === 0) {
   const tree = selectProcessTree(processTable, rootPid);
   if (tree.length === 0) throw new Error(`Process ${rootPid} exited during measurement.`);
   const root = tree.find((entry) => entry.pid === rootPid);
-  const nonRenderer = tree.filter(
-    (entry) => !/--type=(?:renderer|gpu-process)/u.test(entry.command)
+  const nonRenderer = tree.filter((entry) =>
+    !["renderer", "gpu"].includes(classifyProcess(entry, rootPid))
   );
+  const processIds = new Set(tree.map((entry) => entry.pid));
+  for (const pid of processIds) uniqueProcessIds.add(pid);
+  if (previousProcessIds) {
+    for (const pid of processIds) {
+      if (!previousProcessIds.has(pid)) startedProcessCount += 1;
+    }
+    for (const pid of previousProcessIds) {
+      if (!processIds.has(pid)) exitedProcessCount += 1;
+    }
+  }
+  previousProcessIds = processIds;
   samples.push({
     capturedAt: new Date().toISOString(),
+    processCategories: processCategoryTotals(tree, rootPid),
     processCount: tree.length,
     rootCpuPercent: root?.cpuPercent ?? 0,
     rootRssBytes: (root?.rssKiB ?? 0) * 1_024,
@@ -71,9 +93,13 @@ while (Date.now() < deadline || samples.length === 0) {
 const telemetry = options.telemetry
   ? JSON.parse(await readFile(resolve(options.telemetry), "utf8"))
   : undefined;
-const summary = summarize(samples, telemetry);
+const summary = summarize(samples, telemetry, {
+  exitedProcessCount,
+  startedProcessCount,
+  uniqueProcessCount: uniqueProcessIds.size
+});
 const result = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   metadata: {
     arch: process.arch,
     durationMs,
@@ -91,12 +117,9 @@ const result = {
   },
   samples,
   summary,
-  ...(options.baseline
-    ? { comparison: comparePerformanceSummaries(
-        summary,
-        JSON.parse(await readFile(resolve(options.baseline), "utf8")).summary
-      ) }
-    : {})
+  ...(options.baseline ? {
+    comparison: comparePerformanceSummaries(summary, await readBaselineSummary(options.baseline))
+  } : {})
 };
 
 await mkdir(dirname(outputPath), { recursive: true });
@@ -105,7 +128,15 @@ process.stdout.write(`Performance result: ${outputPath}\n`);
 process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 if (result.comparison && !result.comparison.passed) process.exitCode = 2;
 
-function summarize(samples, telemetry) {
+async function readBaselineSummary(path) {
+  const baseline = JSON.parse(await readFile(resolve(path), "utf8"));
+  if (baseline.schemaVersion !== 2 || !baseline.summary) {
+    throw new Error("--baseline must reference a complete schemaVersion 2 performance run.");
+  }
+  return baseline.summary;
+}
+
+function summarize(samples, telemetry, processChurn) {
   const firstWindow = samples.slice(0, Math.max(1, Math.ceil(samples.length * 0.1)));
   const lastWindow = samples.slice(-Math.max(1, Math.ceil(samples.length * 0.1)));
   const firstRss = median(firstWindow.map((sample) => sample.nonRendererRssBytes));
@@ -117,7 +148,14 @@ function summarize(samples, telemetry) {
     medianRootRssBytes: median(samples.map((sample) => sample.rootRssBytes)),
     medianTreeCpuPercent: median(samples.map((sample) => sample.treeCpuPercent)),
     medianTreeRssBytes: median(samples.map((sample) => sample.treeRssBytes)),
+    p95TreeCpuPercent: percentile(samples.map((sample) => sample.treeCpuPercent), 0.95),
+    p95TreeRssBytes: percentile(samples.map((sample) => sample.treeRssBytes), 0.95),
+    peakTreeCpuPercent: Math.max(...samples.map((sample) => sample.treeCpuPercent)),
+    peakTreeRssBytes: Math.max(...samples.map((sample) => sample.treeRssBytes)),
+    peakProcessCount: Math.max(...samples.map((sample) => sample.processCount)),
     nonRendererRssGrowthPercent: firstRss === 0 ? 0 : ((lastRss - firstRss) / firstRss) * 100,
+    processCategories: summarizeProcessCategories(samples),
+    processChurn,
     sampleCount: samples.length,
     ...(telemetry ? { runtimeTelemetry: telemetry } : {})
   };

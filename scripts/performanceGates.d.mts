@@ -14,6 +14,29 @@ export interface PerformanceSummary {
   medianRootCpuPercent?: number;
   medianRootRssBytes?: number;
   sampleCount?: number;
+  p95TreeCpuPercent?: number;
+  p95TreeRssBytes?: number;
+  peakTreeCpuPercent?: number;
+  peakTreeRssBytes?: number;
+  peakProcessCount?: number;
+  processCategories?: Partial<Record<
+    "app" | "renderer" | "gpu" | "browserUtility",
+    {
+      medianCpuPercent: number;
+      p95CpuPercent: number;
+      peakCpuPercent: number;
+      medianRssBytes: number;
+      p95RssBytes: number;
+      peakRssBytes: number;
+      medianProcessCount: number;
+      peakProcessCount: number;
+    }
+  >>;
+  processChurn?: {
+    exitedProcessCount: number;
+    startedProcessCount: number;
+    uniqueProcessCount: number;
+  };
   runtimeTelemetry?: Partial<Record<
     "ipcCommand" | "macroScheduleToDispatch" | "mainEventLoopDelay" | "rendererRaf" |
       "tabActivation" | "workspaceLaunch",

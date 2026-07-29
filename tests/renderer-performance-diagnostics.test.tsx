@@ -42,7 +42,13 @@ describe("foreground performance diagnostics UI", () => {
         averageFps: 72,
         p50FrameIntervalMs: 13.89,
         p95FrameIntervalMs: 14.2,
+        p99FrameIntervalMs: 14.7,
         longestFrameIntervalMs: 18,
+        slowFrameCount: 0,
+        missedVsyncCount: 0,
+        longTaskCount: 0,
+        longTaskTotalDurationMs: 0,
+        longestTaskMs: 0,
         graphics: {
           renderer: "Apple GPU",
           vendor: "Apple",
@@ -83,6 +89,8 @@ describe("foreground performance diagnostics UI", () => {
     await waitFor(() => expect(collectBrowserPerformanceDiagnostics).toHaveBeenCalledOnce());
     expect(await screen.findByText("72.0 FPS")).toBeTruthy();
     expect(document.body.textContent).toContain("120 Hz");
+    expect(document.body.textContent).toContain("14.70 ms");
+    expect(document.body.textContent).toContain("0 / 0.0 ms");
     expect(screen.getByText(/Observed 72.0 FPS on a 120 Hz display/u)).toBeTruthy();
     expect(screen.getByText("Applied")).toBeTruthy();
   });

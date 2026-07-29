@@ -16,6 +16,10 @@ describe("foreground System WebView performance diagnostics", () => {
     expect(model).toContain("pub struct BrowserPerformanceDiagnosticsRecord");
     expect(runtime).toContain("PERFORMANCE_DIAGNOSTIC_START_SOURCE");
     expect(runtime).toContain("requestAnimationFrame(tick)");
+    expect(runtime).toContain("PerformanceObserver");
+    expect(runtime).toContain('includes("longtask")');
+    expect(runtime).toContain("frame_budget_diagnostics");
+    expect(runtime).toContain("p99_frame_interval_ms");
     expect(runtime).toContain("document.hasFocus()");
     expect(runtime).toContain("document.visibilityState");
     expect(runtime).toContain("last_performance_diagnostics");

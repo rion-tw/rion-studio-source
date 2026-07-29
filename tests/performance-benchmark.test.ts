@@ -49,6 +49,28 @@ describe("performance benchmark release gates", () => {
       medianTreeCpuPercent: cpu,
       medianTreeRssBytes: cpu * 10,
       nonRendererRssGrowthPercent: cpu / 10,
+      p95TreeCpuPercent: cpu + 1,
+      p95TreeRssBytes: cpu * 10 + 1,
+      peakTreeCpuPercent: cpu + 2,
+      peakTreeRssBytes: cpu * 10 + 2,
+      peakProcessCount: cpu,
+      processCategories: Object.fromEntries(
+        ["app", "renderer", "gpu", "browserUtility"].map((category) => [category, {
+          medianCpuPercent: cpu,
+          p95CpuPercent: cpu + 1,
+          peakCpuPercent: cpu + 2,
+          medianRssBytes: cpu * 10,
+          p95RssBytes: cpu * 10 + 1,
+          peakRssBytes: cpu * 10 + 2,
+          medianProcessCount: 1,
+          peakProcessCount: 2
+        }])
+      ),
+      processChurn: {
+        exitedProcessCount: cpu,
+        startedProcessCount: cpu + 1,
+        uniqueProcessCount: cpu + 2
+      },
       runtimeTelemetry: {
         coreEffects: {
           acknowledgedEffectCount: 12,
@@ -75,6 +97,9 @@ describe("performance benchmark release gates", () => {
     expect(summary.runtimeTelemetry?.ipcCommand?.sampleCount).toBe(6);
     expect(summary.runtimeTelemetry?.coreEffects?.effectAckLatency.p95Ms).toBe(3);
     expect(summary.runtimeTelemetry?.coreEffects?.peakPendingEffectCount).toBe(3);
+    expect(summary.p95TreeCpuPercent).toBe(21);
+    expect(summary.processCategories?.renderer?.peakCpuPercent).toBe(22);
+    expect(summary.processChurn?.uniqueProcessCount).toBe(22);
     expect(summary.sampleCount).toBe(15);
   });
 

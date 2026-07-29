@@ -114,17 +114,20 @@ function GamesRoute({
               >
                 <SelectionCardOverlay isSelected={selection.isSelected(game.id)} />
                 <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
-                  <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
+                  <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15 [contain:paint]">
                     {coverUrl ? (
                       <img
-                        className="game-motion-transform size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+                        className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
                         src={coverUrl}
                         alt=""
+                        decoding="async"
+                        draggable={false}
+                        loading="lazy"
                       />
                     ) : (
                       <div className="absolute inset-0 grid place-items-center">
                         {iconUrl ? (
-                          <img className="size-16 rounded-2xl object-cover opacity-85 shadow-lg ring-1 ring-white/25" src={iconUrl} alt="" />
+                          <img className="size-16 rounded-2xl object-cover opacity-85 shadow-lg ring-1 ring-white/25" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" />
                         ) : (
                           <Gamepad2 className="text-muted-foreground/65" size={42} />
                         )}
@@ -133,7 +136,7 @@ function GamesRoute({
                   </div>
                   <div className="flex min-w-0 items-center gap-3 px-4 pt-4">
                     <div className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
-                      {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <Gamepad2 size={20} />}
+                      {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" /> : <Gamepad2 size={20} />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -144,7 +147,7 @@ function GamesRoute({
                     </div>
                   </div>
                 </button>
-                <div className="game-motion-opacity pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                   <GameActionMenu
                     game={game}
                     t={t}

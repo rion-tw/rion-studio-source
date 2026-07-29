@@ -380,7 +380,7 @@ function RoleCard({
     <Card
       ref={selectionRef}
       className={cn(
-        "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150",
+        "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150 [contain:paint]",
         isDragging && "opacity-45",
         isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
@@ -389,9 +389,14 @@ function RoleCard({
       style={cardStyle}
       onClickCapture={onSelectionClick}
     >
-      <div
-        className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
-        style={{ backgroundImage: `url("${coverImageUrl}")` }}
+      <img
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 size-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+        decoding="async"
+        draggable={false}
+        loading="lazy"
+        src={coverImageUrl}
       />
 
       <SelectionCardOverlay isSelected={isSelected} />
@@ -455,6 +460,9 @@ function RoleCard({
                   src={gameIconUrl}
                   alt=""
                   aria-hidden="true"
+                  decoding="async"
+                  draggable={false}
+                  loading="lazy"
                 />
               ) : null}
               <div className="grid min-w-0 gap-1">

@@ -33,6 +33,7 @@ interface TestCanvasCall {
 interface TestCanvasContext {
   calls: TestCanvasCall[];
   font: string;
+  fontSetCount: number;
   fontKerning?: string;
   fillText: (text: string) => void;
   measureText: (text: string) => { width: number };
@@ -166,6 +167,7 @@ function createRuntimeDocumentFixture(
     const textRenderingValues = new WeakMap<object, string>();
     class FixtureCanvasContext implements TestCanvasContext {
       readonly calls: TestCanvasCall[] = [];
+      fontSetCount = 0;
       private nativeFont = "10px sans-serif";
       private readonly nativeStack: Array<{
         font: string;
@@ -178,6 +180,7 @@ function createRuntimeDocumentFixture(
       }
 
       set font(value: string) {
+        this.fontSetCount += 1;
         const parser = createFontStyleFixture();
         parser.font = String(value);
         if (parser.font) this.nativeFont = parser.font;
@@ -499,6 +502,60 @@ describe("browser font document-start runtime", () => {
     expect(canvas.textRendering).toBe("auto");
     expect(canvas.calls.at(-1)?.font).toContain('"Rion Studio latin system"');
     expect(canvas.calls.at(-1)?.font).toContain("sans-serif");
+  });
+
+  it("skips native font rewrites when a game repeats the same font every frame", async () => {
+    class LoadedFontFace {
+      async load(): Promise<this> {
+        return this;
+      }
+    }
+    const invoke = vi
+      .fn()
+      .mockResolvedValueOnce({
+        settings: {
+          mode: "custom",
+          cjkVariant: "auto",
+          fontSmoothingEnabled: true,
+          slots: { latin: { source: "system", family: "system-ui" } }
+        },
+        faces: []
+      })
+      .mockResolvedValueOnce({
+        settings: {
+          mode: "custom",
+          cjkVariant: "auto",
+          fontSmoothingEnabled: true,
+          slots: { latin: { source: "system", family: "Arial" } }
+        },
+        faces: []
+      });
+    const fixture = createRuntimeDocumentFixture(invoke, LoadedFontFace, {
+      canvas: true,
+      platform: "windows"
+    });
+
+    vm.runInContext(runtimeSource, fixture.context);
+    await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
+    const canvas = fixture.createCanvasContext();
+    const requestedFont = '16px "Game UI", sans-serif';
+    canvas.font = requestedFont;
+    const firstSetCount = canvas.fontSetCount;
+
+    for (let frame = 0; frame < 120; frame += 1) {
+      canvas.font = requestedFont;
+      canvas.fillText(String(frame));
+    }
+
+    expect(canvas.fontSetCount).toBe(firstSetCount);
+    expect(canvas.calls).toHaveLength(120);
+    expect(canvas.calls.at(-1)?.font).toContain("system-ui");
+
+    await fixture.context.__rionStudioBrowserFonts?.refresh();
+    canvas.font = requestedFont;
+    expect(canvas.fontSetCount).toBeGreaterThan(firstSetCount);
+    canvas.fillText("refreshed");
+    expect(canvas.calls.at(-1)?.font).toContain('"Rion Studio latin system"');
   });
 
   it("applies refreshes on the next Canvas draw without reloading or hiding the page font", async () => {

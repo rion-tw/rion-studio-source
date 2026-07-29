@@ -29,7 +29,7 @@ describe("list editor navigation", () => {
     const item = role();
     const onEdit = vi.fn();
 
-    render(
+    const { container } = render(
       <RolesView
         activeFilter="all"
         busyRoleIds={new Set()}
@@ -58,6 +58,10 @@ describe("list editor navigation", () => {
         onStop={vi.fn()}
       />
     );
+
+    const cover = container.querySelector<HTMLElement>("[data-role-reorder-id] > img");
+    expect(cover?.getAttribute("loading")).toBe("lazy");
+    expect(cover?.getAttribute("decoding")).toBe("async");
 
     await user.click(screen.getByRole("button", { name: "role.actions" }));
     await user.click(screen.getByRole("menuitem", { name: "role.edit" }));
@@ -109,16 +113,20 @@ describe("list editor navigation", () => {
 
   it("opens a workspace editor from its action menu", async () => {
     const user = userEvent.setup();
-    const item = workspace();
+    const assignedRole = role();
+    const item = {
+      ...workspace(),
+      slots: [{ id: "slot-1", roleId: assignedRole.id, rect: { x: 0, y: 0, width: 1, height: 1 } }]
+    };
     const onEditWorkspace = vi.fn();
 
-    render(
+    const { container } = render(
       <LaunchWorkspacesView
         busyWorkspaceIds={new Set()}
         games={[]}
         isReordering={false}
         query=""
-        roles={[]}
+        roles={[assignedRole]}
         scrollPositionRef={{ current: 0 }}
         statusByRole={new Map()}
         t={t}
@@ -134,6 +142,10 @@ describe("list editor navigation", () => {
         onStopWorkspace={vi.fn()}
       />
     );
+
+    const cover = container.querySelector<HTMLElement>("[data-workspace-reorder-id] img");
+    expect(cover?.getAttribute("loading")).toBe("lazy");
+    expect(cover?.getAttribute("decoding")).toBe("async");
 
     await user.click(screen.getByRole("button", { name: "workspaces.actions" }));
     await user.click(screen.getByRole("menuitem", { name: "workspaces.edit" }));

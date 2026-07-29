@@ -2752,7 +2752,25 @@ pub struct BrowserPerformanceSurfaceDiagnosticRecord {
     pub p95_frame_interval_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub p99_frame_interval_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub longest_frame_interval_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub slow_frame_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub missed_vsync_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub long_task_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub long_task_total_duration_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub longest_task_ms: Option<f64>,
     pub graphics: StateWebGraphicsRecord,
     pub high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]

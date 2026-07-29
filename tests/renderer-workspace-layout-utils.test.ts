@@ -8,6 +8,7 @@ import {
   assignRoleToWorkspaceSlot,
   createWorkspaceFormState,
   createWorkspaceSlotBackground,
+  getWorkspaceSlotCoverUrl,
   getWorkspaceHorizontalResizeHandles,
   getWorkspaceResizeAffectedSlotIndexes,
   getWorkspaceSplitRange,
@@ -27,6 +28,8 @@ describe("renderer workspace layout helpers", () => {
       backgroundColor: DEFAULT_ROLE_COVER_COLOR,
       backgroundImage: `url("${roleCoverPlaceholderUrl}")`
     });
+    expect(getWorkspaceSlotCoverUrl(role({ coverImageDataUrl: "data:image/webp;base64,Qw==" })))
+      .toBe("data:image/webp;base64,Qw==");
   });
 
   it("prefers an uploaded role cover and dominant color", () => {

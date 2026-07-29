@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -63,6 +63,56 @@ describe("Game Window management", () => {
     expect(showGameWindow).toHaveBeenCalledWith("window-1");
     expect(showGameWindowTab).toHaveBeenCalledWith("tab-1");
     expect(moveGameWindowTabToNewWindow).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("rejects synchronous duplicate actions for the same window", async () => {
+    let resolveShow: (() => void) | undefined;
+    const showGameWindow = vi.fn(() => new Promise<void>((resolve) => {
+      resolveShow = resolve;
+    }));
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        showGameWindow,
+        showGameWindowTab: vi.fn(() => Promise.resolve()),
+        moveGameWindowTab: vi.fn(() => Promise.resolve()),
+        moveGameWindowTabToNewWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        setGameWindowTabMuted: vi.fn(() => Promise.resolve()),
+        setGameWindowTabHidden: vi.fn(() => Promise.resolve()),
+        stopGameWindowTab: vi.fn(() => Promise.resolve()),
+        closeGameWindow: vi.fn(() => Promise.resolve()),
+        stopGameWindow: vi.fn(() => Promise.resolve()),
+        deleteGameWindow: vi.fn(() => Promise.resolve())
+      }
+    });
+
+    render(
+      <ConfirmationProvider>
+        <GameWindowsRoute
+          displays={[display]}
+          gameWindows={[gameWindow]}
+          runtime={runtime}
+          t={t}
+          onEdit={vi.fn()}
+          onError={vi.fn()}
+          onNew={vi.fn()}
+        />
+      </ConfirmationProvider>
+    );
+
+    const showButton = screen.getByRole("button", { name: "Show" });
+    act(() => {
+      showButton.click();
+      showButton.click();
+    });
+
+    expect(showGameWindow).toHaveBeenCalledTimes(1);
+    expect(showButton).toHaveProperty("disabled", true);
+
+    await act(async () => {
+      resolveShow?.();
+    });
+    await waitFor(() => expect(showButton).toHaveProperty("disabled", false));
   });
 });
 

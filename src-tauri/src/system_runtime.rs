@@ -3881,13 +3881,41 @@ impl SystemRuntimeExecutor {
         );
     }
 
-    pub fn forget_popup(&self, window_label: &str) {
-        if let Ok(mut state) = self.state.lock() {
-            state.popup_roles.remove(window_label);
+    pub(crate) fn forget_popup(&self, window_label: &str) {
+        let role_id = {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            let role_id = state.popup_roles.remove(window_label);
             state.audible_webviews.remove(window_label);
             state.overlay_capabilities.remove(window_label);
             state.closing_webviews.remove(window_label);
-        }
+            role_id
+        };
+        let Some(role_id) = role_id else {
+            return;
+        };
+        let core = Arc::clone(&self.core);
+        let app = self.app.clone();
+        let window_label = window_label.to_owned();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = core
+                .invoke_async(CoreCommand::MacroReleaseRole {
+                    role_id: role_id.clone(),
+                })
+                .await
+            {
+                let _ = app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_POPUP_MACRO_RELEASE_FAILED",
+                        "message": format!("Could not release popup-owned macro input: {error}"),
+                        "roleId": role_id,
+                        "windowLabel": window_label
+                    }),
+                );
+            }
+        });
         self.publish_projection();
     }
 

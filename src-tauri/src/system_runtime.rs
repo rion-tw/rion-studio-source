@@ -5679,7 +5679,9 @@ impl SystemRuntimeExecutor {
         // marker creation fails, the caller can still restore the exact prior
         // session and the operation journal remains authoritative.
         write_private_file(&directory, "committed", b"1")?;
-        self.state()?.session_import_backups.remove(transaction_id);
+        if let Ok(mut state) = self.state.lock() {
+            state.session_import_backups.remove(transaction_id);
+        }
         Ok(())
     }
 

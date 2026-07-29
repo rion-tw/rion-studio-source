@@ -2385,9 +2385,13 @@ impl AppCore {
                 .await?;
             return Err(error);
         }
-        self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
-        let _ = fs::remove_dir_all(&staging);
-        operation_guard.complete()?;
+        let mut warnings = parsed.warnings;
+        finalize_chrome_import_post_commit(
+            &mut warnings,
+            || self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id)),
+            || fs::remove_dir_all(&staging),
+            || operation_guard.complete(),
+        );
         let status = chrome_import_status(auth_state);
         Ok(ChromeProfileImportItemResultRecord {
             profile_id: profile.id,
@@ -2398,7 +2402,7 @@ impl AppCore {
             cookie_count: parsed.payload.cookies.len() as u32,
             local_storage_count: parsed.payload.local_storage.len() as u32,
             unsupported: parsed.unsupported,
-            warnings: parsed.warnings,
+            warnings,
             error_code: None,
         })
     }
@@ -6190,6 +6194,26 @@ fn chrome_import_status(auth_state: ChromeProfileImportAuthStateRecord) -> &'sta
     }
 }
 
+fn finalize_chrome_import_post_commit(
+    warnings: &mut Vec<String>,
+    cleanup_journal: impl FnOnce() -> CoreResult<()>,
+    cleanup_staging: impl FnOnce() -> std::io::Result<()>,
+    cleanup_operation: impl FnOnce() -> CoreResult<()>,
+) {
+    if cleanup_journal().is_err() {
+        // Preserve staging and its durable commit marker so startup recovery
+        // can distinguish this committed import from a rollback candidate.
+        warnings.push("SESSION_IMPORT_JOURNAL_CLEANUP_PENDING".to_owned());
+    } else if let Err(error) = cleanup_staging()
+        && error.kind() != ErrorKind::NotFound
+    {
+        warnings.push("SESSION_IMPORT_STAGING_CLEANUP_PENDING".to_owned());
+    }
+    if cleanup_operation().is_err() {
+        warnings.push("BROWSER_OPERATION_CLEANUP_PENDING".to_owned());
+    }
+}
+
 fn recover_operation_journals(
     state: &StateDatabaseWorker,
     user_data_dir: &std::path::Path,
@@ -9374,6 +9398,40 @@ mod tests {
             CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT > Duration::from_secs(40),
             "the core must not time out while the native System WebView is still within its navigation deadline"
         );
+    }
+
+    #[test]
+    fn committed_chrome_import_reports_cleanup_as_warnings_without_losing_recovery_marker() {
+        let staging_called = std::cell::Cell::new(false);
+        let mut warnings = Vec::new();
+
+        finalize_chrome_import_post_commit(
+            &mut warnings,
+            || Err(CoreError::Internal("journal cleanup failed".to_owned())),
+            || {
+                staging_called.set(true);
+                Ok(())
+            },
+            || Err(CoreError::Internal("operation cleanup failed".to_owned())),
+        );
+
+        assert!(!staging_called.get());
+        assert_eq!(
+            warnings,
+            [
+                "SESSION_IMPORT_JOURNAL_CLEANUP_PENDING",
+                "BROWSER_OPERATION_CLEANUP_PENDING"
+            ]
+        );
+
+        let mut warnings = Vec::new();
+        finalize_chrome_import_post_commit(
+            &mut warnings,
+            || Ok(()),
+            || Err(std::io::Error::from(ErrorKind::PermissionDenied)),
+            || Ok(()),
+        );
+        assert_eq!(warnings, ["SESSION_IMPORT_STAGING_CLEANUP_PENDING"]);
     }
 
     #[test]

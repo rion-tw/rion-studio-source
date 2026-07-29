@@ -525,6 +525,26 @@ function SettingsViewBase({
                 }
               />
               <SettingsRow
+                title={t("settings.alwaysShowToolbarInFullScreen")}
+                description={t("settings.alwaysShowToolbarInFullScreenDescription")}
+                control={
+                  <Switch
+                    aria-label={t("settings.alwaysShowToolbarInFullScreen")}
+                    checked={runtimeWindowPreferences.alwaysShowToolbarInFullScreen}
+                    disabled={isRuntimeWindowPreferencesSaving}
+                    onCheckedChange={(alwaysShowToolbarInFullScreen) => {
+                      setIsRuntimeWindowPreferencesSaving(true);
+                      void onRuntimeWindowPreferencesChange({
+                        ...runtimeWindowPreferences,
+                        alwaysShowToolbarInFullScreen
+                      })
+                        .catch(onError)
+                        .finally(() => setIsRuntimeWindowPreferencesSaving(false));
+                    }}
+                  />
+                }
+              />
+              <SettingsRow
                 showDivider={isMacOS}
                 title={t("settings.restoreGameWindowsOnStartup")}
                 description={t("settings.restoreGameWindowsOnStartupDescription")}

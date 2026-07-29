@@ -29,6 +29,7 @@ import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
 import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
+import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
 import { localizeErrorMessage, type Language, type Translator } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
@@ -66,6 +67,7 @@ export function App(): JSX.Element {
   const data = useAppData();
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
+  useWindowsApplicationShortcuts(hasBridge);
   const legal = useLegalAcceptance(hasBridge);
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const gameBrowserSettingsPatchQueueRef = useRef<Promise<void>>(Promise.resolve());

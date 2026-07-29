@@ -449,6 +449,8 @@
   "settings.gameWindows": "游戏窗口",
   "settings.alwaysHideTabCloseButton": "始终隐藏标签页关闭按钮",
   "settings.alwaysHideTabCloseButtonDescription": "隐藏所有游戏窗口标签栏上的关闭按钮；仍可从标签页右键菜单或游戏窗口管理页停止标签页。",
+  "settings.alwaysShowToolbarInFullScreen": "全屏时始终显示工具栏",
+  "settings.alwaysShowToolbarInFullScreenDescription": "让游戏窗口的标签栏在全屏时保持显示；关闭后，将鼠标指针移到顶部边缘即可显示。",
   "settings.restoreGameWindowsOnStartup": "启动时恢复游戏窗口",
   "settings.restoreGameWindowsOnStartupDescription": "Rion Studio 正常退出后，自动重新打开退出前可见的游戏窗口；已隐藏的窗口会保留到你手动打开。",
   "settings.macosHighRefreshRate": "实验性高刷新率",

@@ -1,4 +1,5 @@
 import type {
+  ApplicationShortcutCommand,
   AppLanguage,
   DisplayInfo,
   EmbeddedRuntimeState,
@@ -28,6 +29,7 @@ export type RuntimeTabAction =
   | { type: "reorder"; tabId: string; beforeTabId?: string }
   | { type: "openLauncher" }
   | { type: "openTabMenu"; tabId: string }
+  | { type: "applicationShortcut"; command: ApplicationShortcutCommand }
   | { type: "activateAdjacent"; direction: "next" | "previous" }
   | { type: "fullscreenToolbarEnter" }
   | { type: "fullscreenToolbarLeave" }
@@ -108,6 +110,11 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
   if (action.type === "activateAdjacent") {
     return ["next", "previous"].includes(action.direction as string) &&
       Object.keys(action).length === 2;
+  }
+  if (action.type === "applicationShortcut") {
+    return ["newGameWindow", "toggleFullscreen", "zoomReset", "zoomIn", "zoomOut"].includes(
+      action.command as string
+    ) && Object.keys(action).length === 2;
   }
   if (["openLauncher", "fullscreenToolbarEnter", "fullscreenToolbarLeave"].includes(action.type)) {
     return Object.keys(action).length === 1;

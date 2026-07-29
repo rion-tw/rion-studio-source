@@ -449,6 +449,8 @@
   "settings.gameWindows": "ゲームウィンドウ",
   "settings.alwaysHideTabCloseButton": "タブの閉じるボタンを常に非表示",
   "settings.alwaysHideTabCloseButtonDescription": "すべてのゲームウィンドウのタブバーで閉じるボタンを非表示にします。タブのコンテキストメニューまたはゲームウィンドウ画面から停止できます。",
+  "settings.alwaysShowToolbarInFullScreen": "フルスクリーンでツールバーを常に表示",
+  "settings.alwaysShowToolbarInFullScreenDescription": "フルスクリーンでもゲームウィンドウのタブバーを表示し続けます。オフの場合は、ポインターを上端へ移動すると表示されます。",
   "settings.restoreGameWindowsOnStartup": "起動時にゲームウィンドウを復元",
   "settings.restoreGameWindowsOnStartupDescription": "Rion Studio が正常終了したときに表示されていたゲームウィンドウを自動的に開きます。非表示のウィンドウは手動で開くまで保存されます。",
   "settings.macosHighRefreshRate": "実験的な高リフレッシュレート",

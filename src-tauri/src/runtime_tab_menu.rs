@@ -282,6 +282,7 @@ pub async fn handle_scoped_action(
         "reorder" => &["type", "tabId", "beforeTabId"][..],
         "openLauncher" | "fullscreenToolbarEnter" | "fullscreenToolbarLeave" => &["type"][..],
         "activateAdjacent" => &["type", "direction"][..],
+        "applicationShortcut" => &["type", "command"][..],
         "windowControl" => &["type", "control"][..],
         _ => return Err("runtime tab action type is not supported".to_owned()),
     };
@@ -300,6 +301,18 @@ pub async fn handle_scoped_action(
     }
     if action_type == "openLauncher" {
         return open_launcher(app, &window_id);
+    }
+    if action_type == "applicationShortcut" {
+        let command = action["command"]
+            .as_str()
+            .and_then(crate::application_menu::ApplicationShortcutCommand::parse)
+            .ok_or_else(|| "application shortcut command is invalid".to_owned())?;
+        return crate::application_menu::execute_shortcut(
+            app,
+            state,
+            command,
+            crate::application_menu::ApplicationShortcutTarget::RuntimeWindow(&window_id),
+        );
     }
     if matches!(
         action_type,

@@ -479,6 +479,8 @@
   "settings.gameWindows": "Game windows",
   "settings.alwaysHideTabCloseButton": "Always hide tab close buttons",
   "settings.alwaysHideTabCloseButtonDescription": "Hide close buttons in every Game Window tab strip. You can still stop tabs from their context menu or the Game Windows page.",
+  "settings.alwaysShowToolbarInFullScreen": "Always show the toolbar in full screen",
+  "settings.alwaysShowToolbarInFullScreenDescription": "Keep the Game Window tab strip visible in full screen. When off, move the pointer to the top edge to reveal it.",
   "settings.restoreGameWindowsOnStartup": "Restore Game Windows on startup",
   "settings.restoreGameWindowsOnStartupDescription": "Automatically reopen Game Windows that were visible when Rion Studio last closed normally. Hidden windows stay saved until you open them.",
   "settings.macosHighRefreshRate": "Experimental high refresh rate",

@@ -75,6 +75,10 @@ describe("Tauri shell parity guard", () => {
     expect(menu).toContain("RuntimeWindowPreferencesReplace");
     expect(menu).toContain(".copy()");
     expect(menu).toContain("TOGGLE_FULLSCREEN_ITEM");
+    expect(menu).toContain('#[cfg(target_os = "macos")]');
+    expect(menu).toContain("pub fn install(_app: &AppHandle");
+    expect(menu).toContain("ApplicationShortcutTarget::RuntimeWindow");
+    expect(menu).toContain("window_id_for_webview(webview_label)");
     expect(quickMenu).toContain("restore_saved_game_windows");
     expect(quickMenu).not.toContain("targetDisplay");
     expect(tabs).toContain("rion-runtime-shortcut://tabs/");
@@ -84,6 +88,7 @@ describe("Tauri shell parity guard", () => {
     expect(tabMenu).toContain('format!("{RELOAD_PREFIX}{tab_id}")');
     expect(tabMenu).toContain("state.runtime.reload_tab(tab_id)");
     expect(shell).toContain("rion_runtime_tab_action");
+    expect(shell).toContain('window.label() != "main"');
     expect(tabs).toContain("runtime-divider.html");
     expect(nativeTabs).toContain("contentLayoutRect");
     expect(nativeTabs).toContain("standardWindowButton");

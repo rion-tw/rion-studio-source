@@ -474,6 +474,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     requestCurrentWindowClose: () => void invokeShell("requestCurrentWindowClose"),
     startCurrentWindowDrag: () => invokeShell("startCurrentWindowDrag"),
     toggleCurrentWindowMaximize: () => invokeShell("toggleCurrentWindowMaximize"),
+    executeApplicationShortcut: (command) =>
+      invokeShell("executeApplicationShortcut", [command]),
     getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),
     listGameWindows: () => invokeCore({ type: "gameWindowsList" }),
     createGameWindow: (input) => invokeShell("createGameWindow", [input]),

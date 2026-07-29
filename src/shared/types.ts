@@ -101,6 +101,13 @@ export interface AppWindowState {
   fullscreen: boolean;
 }
 
+export type ApplicationShortcutCommand =
+  | "newGameWindow"
+  | "toggleFullscreen"
+  | "zoomReset"
+  | "zoomIn"
+  | "zoomOut";
+
 export type GameSource = "builtin" | "custom";
 export type BuiltinGameKey = "flyff-universe" | "feifei-infinite-universe";
 

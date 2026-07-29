@@ -1,5 +1,6 @@
 import type {
   AcceptLegalDocumentsInput,
+  ApplicationShortcutCommand,
   AppLanguage,
   AppSnapshot,
   AppUpdateStatus,
@@ -75,6 +76,7 @@ export interface RionStudioApi {
   requestCurrentWindowClose: () => void;
   startCurrentWindowDrag: () => Promise<void>;
   toggleCurrentWindowMaximize: () => Promise<void>;
+  executeApplicationShortcut: (command: ApplicationShortcutCommand) => Promise<void>;
   getEmbeddedRuntimeState: () => Promise<EmbeddedRuntimeState>;
   listGameWindows: () => Promise<GameWindow[]>;
   createGameWindow: (input: CreateGameWindowInput) => Promise<GameWindow>;

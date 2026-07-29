@@ -1,8 +1,7 @@
 use rion_core::{AppCore, CoreCommand, RuntimeWindowPreferencesRecord};
-use tauri::{
-    AppHandle, Emitter, Manager,
-    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-};
+#[cfg(target_os = "macos")]
+use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 const TOOLBAR_ITEM: &str = "rion-always-show-fullscreen-toolbar";
 const NEW_GAME_WINDOW_ITEM: &str = "rion-new-game-window";
@@ -11,6 +10,46 @@ const TOGGLE_FULLSCREEN_ITEM: &str = "rion-toggle-fullscreen";
 const ZOOM_RESET_ITEM: &str = "rion-browser-reset-zoom";
 const ZOOM_IN_ITEM: &str = "rion-browser-zoom-in";
 const ZOOM_OUT_ITEM: &str = "rion-browser-zoom-out";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ApplicationShortcutCommand {
+    NewGameWindow,
+    ToggleFullscreen,
+    ZoomReset,
+    ZoomIn,
+    ZoomOut,
+}
+
+impl ApplicationShortcutCommand {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "newGameWindow" => Some(Self::NewGameWindow),
+            "toggleFullscreen" => Some(Self::ToggleFullscreen),
+            "zoomReset" => Some(Self::ZoomReset),
+            "zoomIn" => Some(Self::ZoomIn),
+            "zoomOut" => Some(Self::ZoomOut),
+            _ => None,
+        }
+    }
+
+    fn zoom_action(self) -> Option<&'static str> {
+        match self {
+            Self::ZoomReset => Some("reset"),
+            Self::ZoomIn => Some("in"),
+            Self::ZoomOut => Some("out"),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) enum ApplicationShortcutTarget<'a> {
+    Focused,
+    MainWindow(&'a WebviewWindow),
+    RoleWebview(&'a str),
+    RuntimeWindow(&'a str),
+}
 
 #[derive(Clone, Copy)]
 struct Labels {
@@ -26,6 +65,7 @@ struct Labels {
     zoom_out: &'static str,
 }
 
+#[cfg(target_os = "macos")]
 pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), String> {
     let labels = labels(language);
     let preferences = preferences(core)?;
@@ -46,11 +86,7 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .build(app)
         .map_err(|error| error.to_string())?;
     let toggle_fullscreen = MenuItemBuilder::with_id(TOGGLE_FULLSCREEN_ITEM, labels.fullscreen)
-        .accelerator(if cfg!(target_os = "macos") {
-            "Ctrl+Cmd+F"
-        } else {
-            "F11"
-        })
+        .accelerator("Ctrl+Cmd+F")
         .build(app)
         .map_err(|error| error.to_string())?;
     let new_game_window = MenuItemBuilder::with_id(NEW_GAME_WINDOW_ITEM, labels.new_game_window)
@@ -58,18 +94,16 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .build(app)
         .map_err(|error| error.to_string())?;
 
-    let mut app_menu = SubmenuBuilder::new(app, labels.app).about(None).separator();
-    #[cfg(target_os = "macos")]
-    {
-        app_menu = app_menu
-            .services()
-            .separator()
-            .hide()
-            .hide_others()
-            .show_all()
-            .separator();
-    }
-    app_menu = app_menu.quit();
+    let app_menu = SubmenuBuilder::new(app, labels.app)
+        .about(None)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit();
     let app_menu = app_menu.build().map_err(|error| error.to_string())?;
     let edit_menu = SubmenuBuilder::new(app, labels.edit)
         .undo()
@@ -91,30 +125,26 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .item(&toggle_fullscreen)
         .build()
         .map_err(|error| error.to_string())?;
-    let window_menu = SubmenuBuilder::new(app, labels.window)
+    let mut window_menu = SubmenuBuilder::new(app, labels.window)
         .item(&new_game_window)
         .separator()
         .minimize()
         .maximize()
-        .close_window();
-    #[cfg(target_os = "macos")]
-    let mut window_menu = window_menu;
-    #[cfg(target_os = "macos")]
-    {
-        window_menu = window_menu.separator().bring_all_to_front();
-        let game_windows = core
-            .invoke(CoreCommand::GameWindowsList)
-            .ok()
-            .and_then(|value| value.as_array().cloned())
-            .unwrap_or_default();
-        if !game_windows.is_empty() {
-            window_menu = window_menu.separator();
-            for game_window in game_windows {
-                if let (Some(id), Some(name)) =
-                    (game_window["id"].as_str(), game_window["name"].as_str())
-                {
-                    window_menu = window_menu.text(format!("{SHOW_GAME_WINDOW_PREFIX}{id}"), name);
-                }
+        .close_window()
+        .separator()
+        .bring_all_to_front();
+    let game_windows = core
+        .invoke(CoreCommand::GameWindowsList)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    if !game_windows.is_empty() {
+        window_menu = window_menu.separator();
+        for game_window in game_windows {
+            if let (Some(id), Some(name)) =
+                (game_window["id"].as_str(), game_window["name"].as_str())
+            {
+                window_menu = window_menu.text(format!("{SHOW_GAME_WINDOW_PREFIX}{id}"), name);
             }
         }
     }
@@ -131,17 +161,47 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .map_err(|error| error.to_string())
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn install(_app: &AppHandle, _core: &AppCore, _language: &str) -> Result<(), String> {
+    Ok(())
+}
+
 pub fn handle_event(app: &AppHandle, id: &str) {
     let Some(state) = app.try_state::<crate::CoreState>() else {
         return;
     };
     let result = match id {
         TOOLBAR_ITEM => toggle_toolbar_preference(app, &state),
-        NEW_GAME_WINDOW_ITEM => create_game_window(app, &state),
-        TOGGLE_FULLSCREEN_ITEM => toggle_fullscreen(app, &state),
-        ZOOM_RESET_ITEM => zoom(app, &state, "reset"),
-        ZOOM_IN_ITEM => zoom(app, &state, "in"),
-        ZOOM_OUT_ITEM => zoom(app, &state, "out"),
+        NEW_GAME_WINDOW_ITEM => execute_shortcut(
+            app,
+            &state,
+            ApplicationShortcutCommand::NewGameWindow,
+            ApplicationShortcutTarget::Focused,
+        ),
+        TOGGLE_FULLSCREEN_ITEM => execute_shortcut(
+            app,
+            &state,
+            ApplicationShortcutCommand::ToggleFullscreen,
+            ApplicationShortcutTarget::Focused,
+        ),
+        ZOOM_RESET_ITEM => execute_shortcut(
+            app,
+            &state,
+            ApplicationShortcutCommand::ZoomReset,
+            ApplicationShortcutTarget::Focused,
+        ),
+        ZOOM_IN_ITEM => execute_shortcut(
+            app,
+            &state,
+            ApplicationShortcutCommand::ZoomIn,
+            ApplicationShortcutTarget::Focused,
+        ),
+        ZOOM_OUT_ITEM => execute_shortcut(
+            app,
+            &state,
+            ApplicationShortcutCommand::ZoomOut,
+            ApplicationShortcutTarget::Focused,
+        ),
         _ if id.starts_with(SHOW_GAME_WINDOW_PREFIX) => {
             show_game_window(&state, id.trim_start_matches(SHOW_GAME_WINDOW_PREFIX));
             Ok(())
@@ -154,6 +214,19 @@ pub fn handle_event(app: &AppHandle, id: &str) {
             "rion://shell-error",
             serde_json::json!({ "code": "TAURI_APPLICATION_MENU_FAILED", "message": message }),
         );
+    }
+}
+
+pub(crate) fn execute_shortcut(
+    app: &AppHandle,
+    state: &crate::CoreState,
+    command: ApplicationShortcutCommand,
+    target: ApplicationShortcutTarget<'_>,
+) -> Result<(), String> {
+    match command {
+        ApplicationShortcutCommand::NewGameWindow => create_game_window(app, state),
+        ApplicationShortcutCommand::ToggleFullscreen => toggle_fullscreen(app, state, target),
+        command => zoom(app, state, command.zoom_action().unwrap_or("reset"), target),
     }
 }
 
@@ -209,26 +282,89 @@ fn toggle_toolbar_preference(app: &AppHandle, state: &crate::CoreState) -> Resul
     install(app, &state.core, &language)
 }
 
-fn toggle_fullscreen(app: &AppHandle, state: &crate::CoreState) -> Result<(), String> {
-    if state.runtime.toggle_focused_runtime_fullscreen()? {
-        return Ok(());
+fn toggle_fullscreen(
+    app: &AppHandle,
+    state: &crate::CoreState,
+    target: ApplicationShortcutTarget<'_>,
+) -> Result<(), String> {
+    match target {
+        ApplicationShortcutTarget::Focused => {
+            if state.runtime.toggle_focused_runtime_fullscreen()? {
+                return Ok(());
+            }
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| "main window is unavailable".to_owned())?;
+            toggle_webview_window_fullscreen(&window)
+        }
+        ApplicationShortcutTarget::MainWindow(window) => toggle_webview_window_fullscreen(window),
+        ApplicationShortcutTarget::RoleWebview(webview_label) => {
+            let window_id = state
+                .runtime
+                .window_id_for_webview(webview_label)
+                .ok_or_else(|| "runtime WebView is not associated with a window".to_owned())?;
+            state.runtime.toggle_runtime_window_fullscreen(&window_id)
+        }
+        ApplicationShortcutTarget::RuntimeWindow(window_id) => {
+            state.runtime.toggle_runtime_window_fullscreen(window_id)
+        }
     }
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "main window is unavailable".to_owned())?;
+}
+
+fn toggle_webview_window_fullscreen(window: &WebviewWindow) -> Result<(), String> {
     let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
     window
         .set_fullscreen(!fullscreen)
         .map_err(|error| error.to_string())
 }
 
-fn zoom(app: &AppHandle, state: &crate::CoreState, action: &str) -> Result<(), String> {
-    if state.runtime.zoom_focused_runtime(action)? {
-        return Ok(());
+fn zoom(
+    app: &AppHandle,
+    state: &crate::CoreState,
+    action: &str,
+    target: ApplicationShortcutTarget<'_>,
+) -> Result<(), String> {
+    match target {
+        ApplicationShortcutTarget::Focused => {
+            if state.runtime.zoom_focused_runtime(action)? {
+                return Ok(());
+            }
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| "main window is unavailable".to_owned())?;
+            zoom_main_window(state, &window, action)
+        }
+        ApplicationShortcutTarget::MainWindow(window) => zoom_main_window(state, window, action),
+        ApplicationShortcutTarget::RoleWebview(webview_label) => {
+            let window_id = state
+                .runtime
+                .window_id_for_webview(webview_label)
+                .ok_or_else(|| "runtime WebView is not associated with a window".to_owned())?;
+            zoom_runtime_window(state, &window_id, action)
+        }
+        ApplicationShortcutTarget::RuntimeWindow(window_id) => {
+            zoom_runtime_window(state, window_id, action)
+        }
     }
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "main window is unavailable".to_owned())?;
+}
+
+fn zoom_runtime_window(
+    state: &crate::CoreState,
+    window_id: &str,
+    action: &str,
+) -> Result<(), String> {
+    if state.runtime.zoom_runtime_window(window_id, action)? {
+        Ok(())
+    } else {
+        Err("Runtime window was not found.".to_owned())
+    }
+}
+
+fn zoom_main_window(
+    state: &crate::CoreState,
+    window: &WebviewWindow,
+    action: &str,
+) -> Result<(), String> {
     let mut zoom = state
         .main_window_zoom
         .lock()
@@ -322,5 +458,18 @@ mod tests {
         assert_eq!(next_zoom(4.95, "in"), 5.0);
         assert_eq!(next_zoom(0.3, "out"), 0.25);
         assert_eq!(next_zoom(2.0, "reset"), 1.0);
+    }
+
+    #[test]
+    fn parses_only_supported_application_shortcuts() {
+        assert_eq!(
+            ApplicationShortcutCommand::parse("newGameWindow"),
+            Some(ApplicationShortcutCommand::NewGameWindow)
+        );
+        assert_eq!(
+            ApplicationShortcutCommand::parse("zoomIn"),
+            Some(ApplicationShortcutCommand::ZoomIn)
+        );
+        assert_eq!(ApplicationShortcutCommand::parse("quit"), None);
     }
 }

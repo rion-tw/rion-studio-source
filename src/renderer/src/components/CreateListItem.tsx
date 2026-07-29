@@ -35,10 +35,10 @@ export function CreateItemRow({ className, label, ...props }: CreateItemButtonPr
       type="button"
       {...props}
     >
-      <span className="grid size-[30px] shrink-0 place-items-center rounded-full border border-dashed border-current/45 bg-background/20 transition-transform group-hover:scale-105">
+      <span className="grid size-[var(--control-height)] shrink-0 place-items-center rounded-full border border-dashed border-current/45 bg-background/20 transition-transform group-hover:scale-105">
         <Plus aria-hidden="true" size={15} strokeWidth={1.75} />
       </span>
-      <span className="text-[13px] font-semibold leading-5">{label}</span>
+      <span className="text-body font-semibold">{label}</span>
     </button>
   );
 }

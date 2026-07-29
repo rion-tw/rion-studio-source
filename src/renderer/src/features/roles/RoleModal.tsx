@@ -331,8 +331,8 @@ function RoleForm({
                 onClick={() => coverInputRef.current?.click()}
                 disabled={isSaving}
               >
-                <div className="absolute inset-0 bg-black/10" />
-                <div className="absolute inset-0 grid place-items-center text-center text-white">
+                <div className="absolute inset-0 bg-media-black/10" />
+                <div className="absolute inset-0 grid place-items-center text-center text-on-media">
                   <div className="grid gap-2 px-5">
                     <ImagePlus className="mx-auto drop-shadow-sm" size={24} />
                     <p className="role-cover-title text-xs font-medium">{t("roleForm.coverEmpty")}</p>

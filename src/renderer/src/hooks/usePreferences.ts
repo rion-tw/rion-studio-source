@@ -46,6 +46,10 @@ export function usePreferences() {
   }, [themeMode]);
 
   useEffect(() => {
+    void window.rionStudio?.setRuntimeTheme?.(resolvedTheme)?.catch(() => undefined);
+  }, [resolvedTheme]);
+
+  useEffect(() => {
     const htmlLanguages: Record<Language, string> = {
       en: "en",
       "zh-TW": "zh-Hant",

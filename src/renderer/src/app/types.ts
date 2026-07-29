@@ -48,8 +48,8 @@ export interface MacroFormState {
 }
 
 export type SidebarFilter = "all" | "running" | "stopped";
-export type ThemeMode = "system" | "light" | "dark";
-export type ResolvedTheme = "light" | "dark";
+export type ThemeMode = import("../../../shared/types").AppThemeMode;
+export type ResolvedTheme = import("../../../shared/types").ResolvedTheme;
 
 export interface AppStats {
   total: number;

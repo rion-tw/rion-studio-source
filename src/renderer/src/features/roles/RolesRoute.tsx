@@ -244,7 +244,7 @@ function RolesView({
           t={t}
           onFilterChange={onFilterChange}
         />
-        <div className="flex min-w-0 flex-wrap items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-[11px] font-medium text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-caption font-medium text-muted-foreground">
           {t("roles.visibleCount")
             .replace("{visible}", String(visibleRoles.length))
             .replace("{total}", String(roles.length))}
@@ -382,7 +382,7 @@ function RoleCard({
       className={cn(
         "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150 [contain:paint]",
         isDragging && "opacity-45",
-        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
       )}
       data-selection-id={role.id}
       data-role-reorder-id={role.id}
@@ -401,7 +401,7 @@ function RoleCard({
 
       <SelectionCardOverlay isSelected={isSelected} />
 
-      <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <RoleActionMenu
           canReorder={canReorder}
           isDragging={isDragging}
@@ -417,17 +417,17 @@ function RoleCard({
       </div>
 
       {canUsePrimaryOverlayAction ? (
-        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+        <div className="pointer-events-none absolute inset-0 z-[var(--layer-selection)] grid place-items-center">
           <Button
             className={cn(
               "pointer-events-auto size-16 rounded-full p-0 shadow-lg transition-[opacity,transform,background-color] duration-150",
               isActive
                 ? "opacity-100"
                 : "opacity-0 group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100",
-              "border border-white/35 bg-black/35 text-white backdrop-blur-md hover:bg-black/50 hover:text-white"
+              "text-on-media hover:text-on-media"
             )}
             type="button"
-            variant="secondary"
+            variant="media"
             title={primaryActionLabel}
             aria-label={primaryActionLabel}
             onClick={isActive ? onStop : onLaunch}
@@ -444,7 +444,7 @@ function RoleCard({
         </div>
       ) : null}
 
-      <div className="relative z-10 flex h-full flex-col justify-end p-3">
+      <div className="relative z-[var(--layer-selection)] flex h-full flex-col justify-end p-3">
         <div className="relative isolate grid gap-2">
           <div
             className={cn(
@@ -456,7 +456,7 @@ function RoleCard({
             <div className="flex min-w-0 items-center gap-3 pl-1">
               {gameIconUrl ? (
                 <img
-                  className="size-8 shrink-0 rounded-sm object-cover shadow-sm ring-1 ring-white/45"
+                  className="size-8 shrink-0 rounded-xs object-cover shadow-sm ring-1 ring-on-media/45"
                   src={gameIconUrl}
                   alt=""
                   aria-hidden="true"
@@ -467,19 +467,19 @@ function RoleCard({
               ) : null}
               <div className="grid min-w-0 gap-1">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <CardTitle className="role-cover-title min-w-0 flex-1 truncate text-white">
+                  <CardTitle className="role-cover-title min-w-0 flex-1 truncate text-on-media">
                     {role.name}
                   </CardTitle>
                   {status?.resolvedEngine ? (
                     <span
-                      className="shrink-0 rounded-full border border-white/25 bg-black/25 px-1.5 py-0.5 text-[9px] font-semibold text-white/85 backdrop-blur-sm"
+                      className="shrink-0 rounded-full border border-on-media/25 bg-media-black/25 px-1.5 py-0.5 text-micro font-semibold text-on-media/85 backdrop-blur-sm"
                       title={getBrowserEngineStatusTitle(status, t)}
                     >
                       {getResolvedBrowserEngineLabel(status.resolvedEngine, t)}
                     </span>
                   ) : null}
                 </div>
-                <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
+                <p className="min-w-0 truncate text-micro font-medium text-on-media-muted">
                   {game?.name ?? role.launchUrl}
                 </p>
               </div>
@@ -581,7 +581,7 @@ function RoleActionMenu({
           "h-7 w-7 touch-none",
           canReorder && "cursor-grab active:cursor-grabbing",
           isDragging && "cursor-grabbing",
-          isOnCover && "role-cover-menu-control text-white hover:text-white"
+          isOnCover && "role-cover-menu-control text-on-media hover:text-on-media"
         )}
         type="button"
         variant="ghost"
@@ -598,7 +598,7 @@ function RoleActionMenu({
 
       {isOpen ? (
         <Surface
-          className="absolute right-0 top-8 z-20 min-w-44 overflow-hidden text-popover-foreground"
+          className="absolute right-0 top-8 z-[var(--layer-popover)] min-w-44 overflow-hidden text-popover-foreground"
           padding="xs"
           variant="popover"
           role="menu"

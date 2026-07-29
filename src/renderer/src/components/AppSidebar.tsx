@@ -49,7 +49,7 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
       >
         <div className="flex w-full items-center gap-2 rounded-md px-2 text-left">
           <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />
-          <span className="min-w-0 truncate text-[15px] font-semibold leading-5">Rion Studio</span>
+          <span className="min-w-0 truncate text-heading font-semibold">Rion Studio</span>
         </div>
       </div>
 
@@ -62,7 +62,7 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
           onClick={() => navigate("/dashboard")}
         />
         <div className="grid gap-1 pt-5" role="group" aria-label={t("app.navigation.play")}>
-          <p className="px-3 pb-1 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
+          <p className="px-3 pb-1 text-caption font-semibold uppercase leading-none text-sidebar-foreground/42">
             {t("app.navigation.play")}
           </p>
           <NavItem

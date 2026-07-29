@@ -22,8 +22,8 @@ const surfaceVariants = cva("text-card-foreground", {
       lg: "p-4"
     },
     radius: {
-      sm: "rounded-sm",
-      md: "rounded-lg",
+      sm: "rounded-xs",
+      md: "rounded-md",
       lg: "rounded-lg"
     }
   },
@@ -50,7 +50,7 @@ export type HelpPanelProps = HTMLAttributes<HTMLDivElement>;
 
 export const HelpPanel = forwardRef<HTMLDivElement, HelpPanelProps>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("rounded-lg border border-border/45 p-4", className)} {...props} />
+    <div ref={ref} className={cn("rounded-md border border-border/45 p-4", className)} {...props} />
   )
 );
 
@@ -138,7 +138,7 @@ const iconTileVariants = cva("glass-control flex shrink-0 items-center justify-c
   variants: {
     size: {
       sm: "h-7 w-7 rounded-md",
-      md: "h-[30px] w-[30px] rounded-md",
+      md: "size-[var(--control-height)] rounded-md",
       lg: "h-12 w-12 rounded-lg"
     }
   },
@@ -167,8 +167,8 @@ export interface FieldHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "
 export function FieldHeader({ className, description, title, ...props }: FieldHeaderProps) {
   return (
     <div className={cn("min-w-0", className)} {...props}>
-      <p className="text-[13px] font-semibold leading-5 text-foreground">{title}</p>
-      {description ? <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p> : null}
+      <p className="text-body font-semibold text-foreground">{title}</p>
+      {description ? <p className="mt-0.5 text-control text-muted-foreground">{description}</p> : null}
     </div>
   );
 }
@@ -203,7 +203,7 @@ export function FormField({
   label,
   ...props
 }: FormFieldProps) {
-  const labelClassName = "block text-[13px] font-semibold leading-5 text-foreground";
+  const labelClassName = "block text-body font-semibold text-foreground";
 
   return (
     <div className={cn("flex h-full min-w-0 flex-col justify-between gap-2", className)} {...props}>
@@ -216,7 +216,7 @@ export function FormField({
           <p className={labelClassName}>{label}</p>
         )}
         {description ? (
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
+          <p className="mt-0.5 text-control text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {children}
@@ -253,7 +253,7 @@ function CountPill({ children, className }: CountPillProps) {
   return (
     <span
       className={cn(
-        "count-pill inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/30 bg-background/35 px-1 text-[10px] leading-none text-muted-foreground",
+        "count-pill inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/30 bg-background/35 px-1 text-micro leading-none text-muted-foreground",
         className
       )}
     >
@@ -285,7 +285,7 @@ export function SegmentedControl<T extends string>({
   ...props
 }: SegmentedControlProps<T>) {
   return (
-    <Surface className={cn("grid gap-1 rounded-[8px] p-[3px]", className)} padding="none" variant="inset" {...props}>
+    <Surface className={cn("grid gap-1 rounded-md p-[var(--segmented-inset)]", className)} padding="none" variant="inset" {...props}>
       {items.map((item) => {
         const Icon = item.icon;
         const isActive = item.value === value;
@@ -296,7 +296,7 @@ export function SegmentedControl<T extends string>({
             aria-pressed={isActive}
             disabled={disabled}
             className={cn(
-              "flex h-[30px] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] items-center justify-center gap-1.5 rounded-[5px] border border-transparent px-3 text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45",
+              "flex h-[var(--control-height)] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] items-center justify-center gap-1.5 rounded-sm border border-transparent px-3 text-control font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-45",
               isActive
                 ? "glass-control-selected border-[hsl(var(--glass-border))] text-foreground"
                 : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"
@@ -345,11 +345,11 @@ export function NavItem({
         <Icon size={15} />
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {typeof count === "number" ? <CountPill className="h-5 min-w-5 px-1.5 text-[11px]">{count}</CountPill> : null}
+      {typeof count === "number" ? <CountPill className="h-5 min-w-5 px-1.5 text-micro">{count}</CountPill> : null}
       {showStatusDot ? (
         <span
           aria-label={statusDotLabel}
-          className="size-2 shrink-0 rounded-full bg-blue-500 ring-2 ring-blue-500/15"
+          className="size-2 shrink-0 rounded-full bg-activity ring-2 ring-activity/15"
           role={statusDotLabel ? "status" : undefined}
         />
       ) : null}
@@ -357,7 +357,7 @@ export function NavItem({
   );
   const itemClassName = cn(
     noDrag && "app-no-drag",
-    "nav-item flex h-8 items-center gap-2 rounded-md border border-transparent px-2.5 text-left text-[13px] font-medium leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20",
+    "nav-item flex h-8 items-center gap-2 rounded-sm border border-transparent px-2.5 text-left text-control font-medium leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25",
     active
       ? "nav-item-active border-[hsl(var(--glass-border))] text-foreground"
       : "text-muted-foreground hover:bg-accent/35 hover:text-foreground",
@@ -376,5 +376,114 @@ export function NavItem({
     <button className={itemClassName} type="button" onClick={onClick}>
       {content}
     </button>
+  );
+}
+
+const calloutVariants = cva(
+  "flex items-start gap-2 rounded-sm border px-3 py-2 text-control",
+  {
+    variants: {
+      tone: {
+        activity: "border-activity/30 bg-activity/8 text-activity",
+        destructive: "border-destructive/30 bg-destructive/8 text-destructive",
+        muted: "border-border/45 bg-background/25 text-muted-foreground",
+        success: "border-success-foreground/20 bg-success/65 text-success-foreground",
+        warning: "border-warning-foreground/25 bg-warning/55 text-warning-foreground"
+      }
+    },
+    defaultVariants: {
+      tone: "muted"
+    }
+  }
+);
+
+export interface StatusCalloutProps
+  extends HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof calloutVariants> {}
+
+export const StatusCallout = forwardRef<HTMLDivElement, StatusCalloutProps>(
+  ({ className, tone, ...props }, ref) => (
+    <div ref={ref} className={cn(calloutVariants({ className, tone }))} {...props} />
+  )
+);
+
+StatusCallout.displayName = "StatusCallout";
+
+export interface DialogLayerProps extends HTMLAttributes<HTMLDivElement> {
+  backdropLabel: string;
+  onDismiss: () => void;
+}
+
+export function DialogLayer({
+  backdropLabel,
+  children,
+  className,
+  onDismiss,
+  ...props
+}: DialogLayerProps) {
+  return (
+    <div
+      className={cn(
+        "app-no-drag fixed inset-0 z-[var(--layer-modal)] grid place-items-center p-5",
+        className
+      )}
+      {...props}
+    >
+      <button
+        aria-label={backdropLabel}
+        className="app-modal-backdrop absolute inset-0"
+        type="button"
+        onClick={onDismiss}
+      />
+      <div className="relative z-[var(--layer-selection)] flex w-full justify-center">{children}</div>
+    </div>
+  );
+}
+
+export interface SettingsSectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
+  title?: ReactNode;
+}
+
+export function SettingsSection({ children, className, title, ...props }: SettingsSectionProps) {
+  return (
+    <section className={cn("grid gap-2", className)} {...props}>
+      {title ? <h2 className="px-1 text-control font-semibold text-muted-foreground">{title}</h2> : null}
+      <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
+        {children}
+      </Surface>
+    </section>
+  );
+}
+
+export interface SettingsRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+  control: ReactNode;
+  description: ReactNode;
+  showDivider?: boolean;
+  title: ReactNode;
+}
+
+export function SettingsRow({
+  className,
+  control,
+  description,
+  showDivider = true,
+  title,
+  ...props
+}: SettingsRowProps) {
+  return (
+    <div
+      className={cn(
+        "settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+        showDivider && "glass-divider border-b last:border-b-0",
+        className
+      )}
+      {...props}
+    >
+      <div className="min-w-0">
+        <p className="text-body font-semibold text-foreground">{title}</p>
+        <div className="mt-0.5 text-control text-muted-foreground">{description}</div>
+      </div>
+      <div className="min-w-0 shrink-0 sm:w-auto">{control}</div>
+    </div>
   );
 }

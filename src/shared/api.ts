@@ -49,6 +49,7 @@ import type {
   PortableImportResult,
   ReorderItemsInput,
   RestoreSavedGameWindowsInput,
+  ResolvedTheme,
   Role,
   RoleLaunchInput,
   RoleLaunchResult,
@@ -161,6 +162,7 @@ export interface RionStudioApi {
   listSystemFonts: () => Promise<SystemFontFamily[]>;
   consumePendingMacroPageRequest: () => Promise<MacroPageRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
+  setRuntimeTheme: (theme: ResolvedTheme) => Promise<void>;
   getAppVersion: () => Promise<string>;
   getUpdateStatus: () => Promise<AppUpdateStatus>;
   checkForUpdates: () => Promise<AppUpdateStatus>;

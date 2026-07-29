@@ -8,6 +8,7 @@ import { Gamepad2 } from "lucide-react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { Badge } from "../src/renderer/src/components/ui/badge";
+import { Button } from "../src/renderer/src/components/ui/button";
 import { NavItem } from "../src/renderer/src/components/ui/patterns";
 
 const rendererPath = (...segments: string[]): string =>
@@ -20,11 +21,17 @@ describe("renderer visual foundation", () => {
     const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
     const bootDocument = readFileSync(rendererPath("index.html"), "utf8");
     const runtimeTabs = readFileSync(rendererPath("runtime-tabs.html"), "utf8");
+    const bootStyles = readFileSync(rendererPath("src", "boot.css"), "utf8");
+    const runtimeTabStyles = readFileSync(rendererPath("runtime-tabs.css"), "utf8");
+    const tokens = readFileSync(path.join(process.cwd(), "src", "shared", "designTokens.css"), "utf8");
 
     expect(styles).toContain("font-variant-numeric: lining-nums tabular-nums");
     expect(styles).toContain("font-variant-numeric: inherit");
-    expect(bootDocument).toContain("font-variant-numeric: lining-nums tabular-nums");
-    expect(runtimeTabs).toContain("font-variant-numeric: lining-nums tabular-nums");
+    expect(bootDocument).toContain('href="/src/boot.css"');
+    expect(runtimeTabs).toContain('href="/runtime-tabs.css"');
+    expect(bootStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
+    expect(runtimeTabStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
+    expect(tokens).toContain('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
     expect(styles).not.toContain("@font-face");
   });
 
@@ -32,18 +39,36 @@ describe("renderer visual foundation", () => {
     render(
       <>
         <Badge variant="secondary">12/48</Badge>
+        <Button variant="secondary">Launch</Button>
         <NavItem icon={Gamepad2} label="Games" count={120} />
       </>
     );
 
     const badge = screen.getByText("12/48");
+    const button = screen.getByRole("button", { name: "Launch" });
+    const navItem = screen.getByRole("button", { name: "Games120" });
     const count = screen.getByText("120");
 
     expect(badge.className).toContain("ui-badge");
     expect(badge.className).toContain("overflow-hidden");
+    expect(badge.className).toContain("text-caption");
     expect(badge.className).not.toContain("backdrop-blur");
+    expect(button.className).toContain("text-control");
+    expect(navItem.className).toContain("text-control");
     expect(count.className).toContain("count-pill");
+    expect(count.className).toContain("text-micro");
     expect(count.className).not.toContain("backdrop-blur");
+  });
+
+  it("keeps on-media launch controls on the dedicated liquid-glass surface", () => {
+    const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
+    render(<Button variant="media">Launch</Button>);
+
+    const launch = screen.getByRole("button", { name: "Launch" });
+    expect(launch.className).toContain("role-cover-control");
+    expect(launch.className).not.toContain("glass-control");
+    expect(styles).toMatch(/\.role-cover-control \{[\s\S]*?linear-gradient\([\s\S]*?var\(--on-media-control\)/);
+    expect(styles).toMatch(/\.role-cover-control \{[\s\S]*?backdrop-filter: blur\(var\(--blur-on-media\)\)/);
   });
 
   it("bases page grids on available content width and fills the dashboard with four stats", () => {
@@ -70,7 +95,7 @@ describe("renderer visual foundation", () => {
     const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
 
     expect(styles).toContain(
-      ".glass-panel,\n  .glass-panel-strong,\n  .glass-modal,\n  .glass-popover {\n    -webkit-backdrop-filter: blur(22px) saturate(1.08);"
+      ".glass-panel,\n  .glass-panel-strong,\n  .glass-modal,\n  .glass-popover {\n    -webkit-backdrop-filter: blur(var(--blur-surface)) saturate(1.08);"
     );
     expect(styles).toContain(
       ".glass-control,\n  .glass-control-selected,\n  .glass-inset {\n    -webkit-backdrop-filter: none;"

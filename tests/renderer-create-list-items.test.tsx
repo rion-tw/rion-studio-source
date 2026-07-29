@@ -189,7 +189,7 @@ describe("create controls at the end of lists", () => {
     const createButtons = screen.getAllByRole("button", { name: "New macro" });
     const headerCreateButton = createButtons.at(0)!;
     const createButton = createButtons.at(-1)!;
-    expect(createButton.className).toContain("h-[30px]");
+    expect(createButton.className).toContain("h-[var(--control-height)]");
     expect(createButton.className).toContain("border-dashed");
     expect(createButton.className).toContain("gap-1.5");
     expect(createButton.className).toContain("px-2.5");

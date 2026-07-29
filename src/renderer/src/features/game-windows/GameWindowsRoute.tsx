@@ -124,7 +124,7 @@ export default function GameWindowsRoute({
               <Card key={gameWindow.id} className="overflow-hidden">
                 <CardHeader className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
                   <div className="min-w-0">
-                    <CardTitle className="truncate text-[15px]">{gameWindow.name}</CardTitle>
+                    <CardTitle className="truncate text-heading">{gameWindow.name}</CardTitle>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <Badge variant="secondary">{stateLabel}</Badge>
                       <Badge className="gap-1.5" variant="secondary">
@@ -236,8 +236,8 @@ function GameWindowTabRow({
         type="button"
         onClick={() => invoke(() => window.rionStudio.showGameWindowTab(tab.id))}
       >
-        <span className="block truncate text-[13px] font-medium">{tab.name}</span>
-        <span className="block truncate text-[11px] text-muted-foreground">
+        <span className="block truncate text-body font-medium">{tab.name}</span>
+        <span className="block truncate text-caption text-muted-foreground">
           {tab.tabType === "workspace" ? t("gameWindows.tab.workspace") : t("gameWindows.tab.role")}
           {tab.roleIds.length > 1 ? ` · ${tab.roleIds.length}` : ""}
         </span>

@@ -25,7 +25,7 @@ export function SelectionCardOverlay({ isSelected }: { isSelected: boolean }): J
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 z-20 rounded-[inherit] bg-blue-500/10 outline outline-1 outline-offset-[-1px] outline-blue-500/90"
+      className="pointer-events-none absolute inset-0 z-[var(--layer-selection)] rounded-[inherit] bg-activity/10 outline outline-1 outline-offset-[-1px] outline-activity/90"
       data-selection-overlay
     />
   );
@@ -89,7 +89,7 @@ export function SelectionActionBar({
       aria-label={t("selection.count").replace("{count}", String(selectedCount))}
       className={cn(
         host ? "absolute" : "fixed",
-        "bottom-5 left-1/2 z-50 flex w-fit max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 px-2 py-1.5 shadow-lg"
+        "bottom-5 left-1/2 z-[var(--layer-toast)] flex w-fit max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 px-2 py-1.5 shadow-lg"
       )}
       role="toolbar"
       variant="strong"
@@ -135,7 +135,7 @@ export function SelectionMarquee({
   return createPortal(
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute z-[60] rounded-sm border border-blue-500/80 bg-blue-500/15 shadow-[0_0_0_1px_hsl(var(--background)/0.35)]"
+      className="pointer-events-none absolute z-[var(--layer-modal)] rounded-xs border border-activity/80 bg-activity/15 shadow-[0_0_0_1px_hsl(var(--background)/0.35)]"
       data-selection-marquee
       style={{ height: rect.height, left: rect.left, top: rect.top, width: rect.width }}
     />,

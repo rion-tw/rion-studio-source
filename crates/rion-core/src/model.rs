@@ -592,6 +592,10 @@ pub enum CoreCommand {
         #[ts(type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
         language: String,
     },
+    RuntimeThemeSet {
+        #[ts(type = "\"light\" | \"dark\"")]
+        theme: String,
+    },
     MacroStart {
         request: MacroInvocationRequest,
     },

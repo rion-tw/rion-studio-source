@@ -294,7 +294,7 @@ function WorkspaceCard({
       className={cn(
         "group relative overflow-visible glass-panel-strong transition-[box-shadow,opacity] duration-150",
         isDragging && "opacity-45",
-        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
       )}
       data-selection-id={workspace.id}
       data-workspace-reorder-id={workspace.id}
@@ -311,12 +311,12 @@ function WorkspaceCard({
           template={workspace.template}
         />
 
-        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+        <div className="pointer-events-none absolute inset-0 z-[var(--layer-selection)] grid place-items-center">
           <Button
             aria-label={primaryActionLabel}
             className={cn(
-              "pointer-events-auto size-16 rounded-full border border-white/35 bg-black/35 p-0 text-white shadow-lg backdrop-blur-md",
-              "transition-[opacity,transform,background-color] duration-150 hover:bg-black/50 hover:text-white",
+              "pointer-events-auto size-16 rounded-full p-0 text-on-media shadow-lg",
+              "transition-[opacity,transform,background-color] duration-150 hover:text-on-media",
               isRunning
                 ? "opacity-100"
                 : "opacity-0 group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100"
@@ -324,7 +324,7 @@ function WorkspaceCard({
             disabled={isBusy || assignedCount === 0}
             title={primaryActionLabel}
             type="button"
-            variant="secondary"
+            variant="media"
             onClick={isRunning ? onStop : onLaunch}
           >
             {isBusy ? (
@@ -338,7 +338,7 @@ function WorkspaceCard({
         </div>
       </div>
 
-      <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <WorkspaceActionMenu
           canReorder={canReorder}
           isDragging={isDragging}
@@ -623,7 +623,7 @@ function WorkspaceLayoutPreviewSlot({
         />
       ) : null}
       <div className="workspace-slot-caption workspace-slot-caption--compact">
-        <p className="workspace-slot-caption-title gap-1.5 text-[11px] font-semibold leading-4">
+        <p className="workspace-slot-caption-title gap-1.5 text-caption font-semibold">
           {role ? (
             <span className="workspace-role-chip-text">
               <span className="min-w-0 truncate">{role.name}</span>
@@ -635,7 +635,7 @@ function WorkspaceLayoutPreviewSlot({
         </p>
       </div>
       {!role ? (
-        <div className="absolute left-2 top-2 bg-background/55 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+        <div className="absolute left-2 top-2 bg-background/55 px-1.5 py-0.5 text-micro font-semibold text-muted-foreground">
           {index + 1}
         </div>
       ) : null}
@@ -731,7 +731,7 @@ function WorkspaceActionMenu({
 
       {isOpen ? (
         <Surface
-          className="absolute right-0 top-8 z-20 min-w-32 overflow-hidden text-popover-foreground"
+          className="absolute right-0 top-8 z-[var(--layer-popover)] min-w-32 overflow-hidden text-popover-foreground"
           padding="xs"
           variant="popover"
           role="menu"

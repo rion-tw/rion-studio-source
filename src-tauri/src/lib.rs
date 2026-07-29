@@ -380,6 +380,10 @@ async fn rion_core_invoke(
         CoreCommand::OverlayLanguageSet { language } => Some(language.clone()),
         _ => None,
     };
+    let runtime_theme = match &command {
+        CoreCommand::RuntimeThemeSet { theme } => Some(theme.clone()),
+        _ => None,
+    };
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
     let result = if command.requires_async_dispatch() {
@@ -405,6 +409,11 @@ async fn rion_core_invoke(
         }
         state.runtime.set_language(&language);
         let _ = application_menu::install(&app, &state.core, &language);
+    }
+    if result.is_ok()
+        && let Some(theme) = runtime_theme
+    {
+        state.runtime.set_theme(&theme);
     }
     if result.is_ok() && runtime_window_preferences_changed {
         state.runtime.publish_projection();

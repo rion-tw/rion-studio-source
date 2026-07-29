@@ -458,7 +458,7 @@ function WorkspaceLayoutFormEditor({
                     key={template}
                     aria-pressed={isSelected}
                     className={cn(
-                      "glass-control inline-flex h-[30px] min-h-[var(--control-min-size)] w-fit max-w-full flex-none items-center gap-1.5 rounded-md px-2.5 text-left text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60",
+                      "glass-control inline-flex h-[var(--control-height)] min-h-[var(--control-min-size)] w-fit max-w-full flex-none items-center gap-1.5 rounded-sm px-2.5 text-left text-caption font-semibold leading-none transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-activity/25 disabled:cursor-not-allowed disabled:opacity-60",
                       isSelected
                         ? "macro-role-card-selected text-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -573,8 +573,8 @@ function WorkspaceLayoutFormEditor({
                       data-workspace-role-id={role.id}
                       className={cn(
                         "glass-control flex h-[52px] min-w-0 touch-none items-center gap-2 rounded-lg p-2 text-left transition-[background-color,opacity]",
-                        isSelectedSlotRole && "border-primary/45 bg-primary/12 text-foreground",
-                        isAssigned && !isSelectedSlotRole && "border-primary/25 bg-primary/6",
+                        isSelectedSlotRole && "border-activity/45 bg-activity/12 text-foreground",
+                        isAssigned && !isSelectedSlotRole && "border-activity/25 bg-activity/6",
                         workspaceDrag.activePayload?.type === "role" && workspaceDrag.activePayload.roleId === role.id
                           ? "cursor-grabbing opacity-50"
                           : "cursor-grab"
@@ -592,13 +592,13 @@ function WorkspaceLayoutFormEditor({
                         <p className="min-w-0 truncate text-xs font-semibold">
                           <span className="min-w-0 truncate">{role.name}</span>
                         </p>
-                        <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
+                        <p className="mt-0.5 truncate text-micro font-medium text-muted-foreground">
                           {launchGameName}
                           {status ? ` · ${t("status.running")}` : ""}
                         </p>
                       </div>
                       {isAssigned ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-background/40 px-1.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-xs bg-background/40 px-1.5 py-1 text-caption font-semibold text-muted-foreground">
                           {isSelectedSlotRole ? <Check size={13} /> : null}
                           {t("workspaces.slotShort").replace("{index}", String(assignedSlotIndex + 1))}
                         </span>
@@ -642,7 +642,7 @@ function WorkspaceLayoutFormEditor({
 function WorkspaceHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
   return (
     <section className="grid max-w-[72ch] gap-1 text-xs leading-5 text-muted-foreground">
-      <h2 className="text-[11px] font-semibold leading-5 text-foreground">{title}</h2>
+      <h2 className="text-caption font-semibold text-foreground">{title}</h2>
       <ul className="grid list-disc gap-1 pl-4">{children}</ul>
     </section>
   );
@@ -696,8 +696,8 @@ function WorkspaceSlotDropZone({
           role
             ? "border-border/70 bg-card/72 shadow-sm"
             : "border-border/40 bg-card/50 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/60",
-          isSelected && cn("border-primary/60 shadow-none", role && "bg-primary/[0.035]"),
-          isDropTarget && cn("border-primary/75 shadow-none", role && "bg-primary/10"),
+          isSelected && cn("border-activity/60 shadow-none", role && "bg-activity/[0.035]"),
+          isDropTarget && cn("border-activity/75 shadow-none", role && "bg-activity/10"),
           isDragging && "opacity-50"
         )}
         type="button"
@@ -708,17 +708,17 @@ function WorkspaceSlotDropZone({
         style={{ ...slotInsetStyle, ...createWorkspaceSlotBackground(role) }}
         onClick={onClick}
       >
-        {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-black/10" /> : null}
+        {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-media-black/10" /> : null}
         {resizeIndicator ? (
           <span
-            className="glass-popover pointer-events-none absolute left-1/2 top-2.5 z-30 -translate-x-1/2 whitespace-nowrap rounded-full border border-primary/35 px-2 py-1 text-[10px] font-semibold leading-none text-foreground shadow-md backdrop-blur-md"
+            className="glass-popover pointer-events-none absolute left-1/2 top-2.5 z-[var(--layer-selection)] -translate-x-1/2 whitespace-nowrap rounded-full border border-activity/35 px-2 py-1 text-micro font-semibold leading-none text-foreground shadow-md backdrop-blur-md"
             data-workspace-resize-indicator
           >
             {resizeIndicator}
           </span>
         ) : null}
-        <div className="relative z-10 flex min-w-0 items-start gap-2">
-          <p className="rounded-md border border-border/35 bg-background/45 px-2 py-1 text-[11px] font-semibold leading-none text-muted-foreground backdrop-blur-md">
+        <div className="relative z-[var(--layer-selection)] flex min-w-0 items-start gap-2">
+          <p className="rounded-sm border border-border/35 bg-background/45 px-2 py-1 text-caption font-semibold leading-none text-muted-foreground backdrop-blur-md">
             {t("workspaces.slot").replace("{index}", String(index + 1))}
           </p>
         </div>
@@ -726,7 +726,7 @@ function WorkspaceSlotDropZone({
         {role ? (
           <span
             data-workspace-slot-drag-handle
-            className="glass-popover absolute right-2.5 top-2.5 z-20 grid size-7 touch-none cursor-grab place-items-center rounded-md text-muted-foreground opacity-0 shadow-sm transition-[opacity,color,transform] hover:text-foreground active:cursor-grabbing active:scale-95 group-hover/slot:opacity-100"
+            className="glass-popover absolute right-2.5 top-2.5 z-[var(--layer-selection)] grid size-7 touch-none cursor-grab place-items-center rounded-sm text-muted-foreground opacity-0 shadow-sm transition-[opacity,color,transform] hover:text-foreground active:cursor-grabbing active:scale-95 group-hover/slot:opacity-100"
             onPointerDown={(event) => {
               event.stopPropagation();
               onSlotPointerDown(event);
@@ -795,7 +795,7 @@ function WorkspaceResizeHandles({
         return (
           <button
             key={`vertical-${handle.splitIndex}`}
-            className="group/resize absolute z-20 grid h-12 w-[30px] touch-none -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
+            className="group/resize absolute z-[var(--layer-selection)] grid h-12 w-[var(--control-hit-size)] touch-none -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
             type="button"
             aria-label={t("workspaces.resizeColumns").replace("{index}", String(handle.splitIndex + 1))}
             style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }}
@@ -803,8 +803,8 @@ function WorkspaceResizeHandles({
           >
             <span
               className={cn(
-                "glass-popover grid h-9 w-3.5 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform,box-shadow] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
-                isActive && "scale-110 border-primary/70 text-foreground shadow-lg ring-2 ring-primary/20"
+                "glass-popover grid h-9 w-3.5 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform,box-shadow] group-hover/resize:scale-105 group-hover/resize:border-activity/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
+                isActive && "scale-110 border-activity/70 text-foreground shadow-lg ring-2 ring-activity/20"
               )}
             >
               <GripVertical size={12} />
@@ -819,7 +819,7 @@ function WorkspaceResizeHandles({
         return (
           <button
             key={`horizontal-${handle.splitIndex}-${handleIndex}`}
-            className="group/resize absolute z-20 grid h-[30px] w-12 touch-none -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
+            className="group/resize absolute z-[var(--layer-selection)] grid h-[var(--control-hit-size)] w-12 touch-none -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
             type="button"
             aria-label={t("workspaces.resizeRows").replace("{index}", String(handle.splitIndex + 1))}
             style={{
@@ -830,8 +830,8 @@ function WorkspaceResizeHandles({
           >
             <span
               className={cn(
-                "glass-popover grid h-3.5 w-9 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform,box-shadow] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
-                isActive && "scale-110 border-primary/70 text-foreground shadow-lg ring-2 ring-primary/20"
+                "glass-popover grid h-3.5 w-9 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform,box-shadow] group-hover/resize:scale-105 group-hover/resize:border-activity/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
+                isActive && "scale-110 border-activity/70 text-foreground shadow-lg ring-2 ring-activity/20"
               )}
             >
               <GripHorizontal size={12} />

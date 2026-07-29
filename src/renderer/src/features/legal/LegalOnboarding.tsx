@@ -6,7 +6,7 @@ import { languageLabelKeys } from "../../app/constants";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { Surface } from "../../components/ui/patterns";
+import { StatusCallout, Surface } from "../../components/ui/patterns";
 import { languages, type Language, type Translator } from "../../i18n";
 import { LegalDocumentDialog } from "./LegalDocumentDialog";
 import type { LegalDocumentKind } from "./legalDocuments";
@@ -42,7 +42,7 @@ export function LegalOnboarding({
           <img className="size-10 rounded-lg shadow-sm" src={appIconUrl} alt="" aria-hidden="true" />
           <div>
             <p className="text-sm font-semibold">Rion Studio</p>
-            <p className="text-[11px] text-muted-foreground">{t("legal.onboarding.provider")}</p>
+            <p className="text-caption text-muted-foreground">{t("legal.onboarding.provider")}</p>
           </div>
         </div>
         <Select
@@ -63,9 +63,9 @@ export function LegalOnboarding({
       <main className="app-no-drag mx-auto grid min-h-0 w-full max-w-5xl flex-1 place-items-center py-5">
         <Surface className="app-scroll-region grid max-h-full w-full max-w-4xl overflow-auto" radius="lg" variant="strong">
           <div className="glass-divider border-b px-5 py-5 md:px-7">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("legal.onboarding.kicker")}</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">{t("legal.onboarding.title")}</h1>
-            <p className="mt-2 max-w-3xl text-[13px] leading-6 text-muted-foreground">{t("legal.onboarding.description")}</p>
+            <p className="text-caption font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("legal.onboarding.kicker")}</p>
+            <h1 className="mt-2 text-page-title font-semibold tracking-tight">{t("legal.onboarding.title")}</h1>
+            <p className="mt-2 max-w-3xl text-body text-muted-foreground">{t("legal.onboarding.description")}</p>
           </div>
 
           <div className="grid gap-3 p-5 md:grid-cols-3 md:p-7">
@@ -88,10 +88,10 @@ export function LegalOnboarding({
             </Surface>
 
             {error ? (
-              <p className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive" role="alert">
+              <StatusCallout tone="destructive" role="alert">
                 <AlertTriangle className="mt-0.5 shrink-0" size={14} />
                 <span>{t("legal.onboarding.error")}</span>
-              </p>
+              </StatusCallout>
             ) : null}
 
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">

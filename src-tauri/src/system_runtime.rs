@@ -63,6 +63,7 @@ static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
+const DESIGN_TOKENS_CSS: &str = include_str!("../../src/shared/designTokens.css");
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/macroOverlayRuntime.js");
 const MACRO_OVERLAY_CSS: &str = include_str!("../../src/shared/browser-overlay/macroOverlay.css");
@@ -705,6 +706,7 @@ pub struct SystemRuntimeExecutor {
     effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
     health: RuntimeHealth,
     language: Mutex<String>,
+    resolved_theme: Mutex<String>,
     last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
     local_storage_sync_lane: Mutex<()>,
     state: Mutex<RuntimeState>,
@@ -901,6 +903,7 @@ impl SystemRuntimeExecutor {
             effect_sender: OnceLock::new(),
             health: RuntimeHealth::new(),
             language: Mutex::new("en".to_owned()),
+            resolved_theme: Mutex::new("light".to_owned()),
             last_performance_diagnostics: Mutex::new(None),
             local_storage_sync_lane: Mutex::new(()),
             state: Mutex::new(RuntimeState {
@@ -1086,6 +1089,16 @@ impl SystemRuntimeExecutor {
             if let Ok(mut current) = self.language.lock() {
                 *current = language.to_owned();
             }
+            self.publish_projection();
+        }
+    }
+
+    pub fn set_theme(&self, theme: &str) {
+        if matches!(theme, "light" | "dark") {
+            if let Ok(mut current) = self.resolved_theme.lock() {
+                *current = theme.to_owned();
+            }
+            #[cfg(windows)]
             self.publish_projection();
         }
     }
@@ -6466,6 +6479,11 @@ impl SystemRuntimeExecutor {
             .lock()
             .map(|value| value.clone())
             .unwrap_or_else(|_| "en".to_owned());
+        let resolved_theme = self
+            .resolved_theme
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| "light".to_owned());
         let preferences = self
             .core
             .invoke(CoreCommand::RuntimeWindowPreferencesGet)
@@ -6552,6 +6570,7 @@ impl SystemRuntimeExecutor {
                             object.insert("displays".to_owned(), displays.clone());
                             object.insert("fullscreen".to_owned(), json!(fullscreen));
                             object.insert("language".to_owned(), json!(language));
+                            object.insert("resolvedTheme".to_owned(), json!(resolved_theme));
                             object.insert("tabIconDataUrls".to_owned(), Value::Object(tab_icons));
                             object.insert(
                                 "tabWorkspaceTemplates".to_owned(),
@@ -8230,7 +8249,8 @@ fn macro_overlay_document_start_script() -> Result<String, String> {
         &guard_token,
         MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE.trim(),
     )?;
-    let css = serde_json::to_string(MACRO_OVERLAY_CSS).map_err(|error| error.to_string())?;
+    let css = serde_json::to_string(&format!("{DESIGN_TOKENS_CSS}\n{MACRO_OVERLAY_CSS}"))
+        .map_err(|error| error.to_string())?;
     let runtime = replace_single_script_token(&with_guard, &css_token, &css)?;
     Ok(format!("{TAURI_MACRO_OVERLAY_BRIDGE_SOURCE}\n{runtime}"))
 }
@@ -8238,7 +8258,8 @@ fn macro_overlay_document_start_script() -> Result<String, String> {
 fn runtime_indicator_document_start_script() -> Result<String, String> {
     let css_token =
         serde_json::to_string(RUNTIME_INDICATOR_CSS_TOKEN).map_err(|error| error.to_string())?;
-    let css = serde_json::to_string(RUNTIME_INDICATOR_CSS).map_err(|error| error.to_string())?;
+    let css = serde_json::to_string(&format!("{DESIGN_TOKENS_CSS}\n{RUNTIME_INDICATOR_CSS}"))
+        .map_err(|error| error.to_string())?;
     replace_single_script_token(RUNTIME_INDICATOR_RUNTIME_SOURCE, &css_token, &css)
 }
 
@@ -10637,7 +10658,9 @@ mod tests {
         let source = macro_overlay_document_start_script().unwrap();
         assert!(source.contains("rion_overlay_request"));
         assert!(source.contains("rion-studio-macro-overlay-v56"));
-        assert!(source.contains("const overlayCss = \"*{box-sizing:border-box"));
+        assert!(source.contains("const overlayCss = \"/*"));
+        assert!(source.contains("--font-ui: system-ui"));
+        assert!(source.contains("*{box-sizing:border-box;font-family:var(--font-ui)"));
         assert!(source.contains("@media (prefers-reduced-motion:reduce)"));
         assert!(!source.contains(MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN));
         assert!(!source.contains(MACRO_OVERLAY_CSS_TOKEN));

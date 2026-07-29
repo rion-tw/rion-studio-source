@@ -48,7 +48,7 @@ export function AppRouteError({ onReload = reloadWindow }: AppRouteErrorProps): 
     <div className="liquid-app-shell app-drag grid h-screen place-items-center overflow-hidden p-6 text-foreground">
       <main className="app-no-drag grid w-full max-w-[520px] justify-items-center gap-5 text-center" role="alert">
         <img
-          className="size-16 rounded-lg shadow-lg shadow-black/10"
+          className="size-16 rounded-md shadow-lg"
           src={appIconUrl}
           alt=""
           aria-hidden="true"
@@ -74,7 +74,7 @@ export function AppRouteError({ onReload = reloadWindow }: AppRouteErrorProps): 
             <summary className="cursor-pointer select-none font-semibold text-foreground">
               {t("routeError.details")}
             </summary>
-            <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/50 p-3 font-mono text-[11px] leading-5 text-muted-foreground select-text">
+            <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-background/50 p-3 font-mono text-caption text-muted-foreground select-text">
               {details}
             </pre>
           </details>

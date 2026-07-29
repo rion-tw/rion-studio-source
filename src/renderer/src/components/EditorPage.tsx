@@ -176,7 +176,7 @@ function EditableEditorTitle({
         aria-label={ariaLabel}
         aria-placeholder={placeholder}
         aria-required="true"
-        className="app-editor-title relative inline-block min-w-48 max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
+        className="app-editor-title relative inline-block min-w-48 max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-activity data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
         contentEditable={disabled ? false : "plaintext-only"}
         data-disabled={disabled}
         role="textbox"

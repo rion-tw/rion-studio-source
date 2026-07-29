@@ -71,7 +71,7 @@ describe("workspace editor role picker layout", () => {
     expect(layoutOptions?.className).not.toContain("grid-cols");
     expect(layoutOptionLabels).toHaveLength(workspaceLayoutTemplates.length);
     layoutOptionLabels.forEach((option) => {
-      expect(option.className).toContain("h-[30px]");
+      expect(option.className).toContain("h-[var(--control-height)]");
       expect(option.className).toContain("w-fit");
       expect(option.className).toContain("glass-control");
       expect(option.className).not.toContain("min-h-14");
@@ -185,7 +185,7 @@ describe("workspace editor role picker layout", () => {
       expect(workspaceHelp.querySelector("svg")).toBeNull();
       expect(workspaceHelp.querySelectorAll("section")).toHaveLength(1);
       expect(workspaceHelp.querySelectorAll("li").length).toBeGreaterThan(0);
-      expect(workspaceHelp.className).toContain("rounded-lg");
+      expect(workspaceHelp.className).toContain("rounded-md");
       expect(workspaceHelp.className).toContain("p-4");
       expect(workspaceHelp.className).not.toContain("bg-background/25");
     });
@@ -203,7 +203,7 @@ describe("workspace editor role picker layout", () => {
     expect(scrollRegion?.className).toContain("workspace-editor-role-list");
     expect(roleList?.className).toContain("auto-rows-max");
     expect(roleList?.className).toContain("content-start");
-    expect(verticalResizeHandle?.className).toContain("w-[30px]");
+    expect(verticalResizeHandle?.className).toContain("w-[var(--control-hit-size)]");
     expect(roleButtons).toHaveLength(7);
     roleButtons.forEach((button) => {
       expect(button.className).toContain("h-[52px]");

@@ -24,10 +24,14 @@ describe("renderer control sizing", () => {
       path.join(process.cwd(), "src", "renderer", "src", "styles.css"),
       "utf8"
     );
+    const tokens = readFileSync(
+      path.join(process.cwd(), "src", "shared", "designTokens.css"),
+      "utf8"
+    );
 
-    expect(styles).toContain("--control-hit-size: 30px");
-    expect(styles).toContain("--control-min-size: 30px");
-    expect(styles).toContain("--icon-button-icon-size: 14px");
+    expect(tokens).toContain("--control-hit-size: 30px");
+    expect(tokens).toContain("--control-min-size: 30px");
+    expect(tokens).toContain("--icon-button-icon-size: 14px");
     expect(styles).toContain('[role="checkbox"]');
     expect(styles).toContain(".control-hit-target");
     expect(styles).toContain("position: absolute");
@@ -59,8 +63,10 @@ describe("renderer control sizing", () => {
       expect(button.className).not.toContain("min-h-[var(--control-min-size)]");
       expect(button.className).not.toContain("min-w-[var(--control-min-size)]");
     }
-    expect(screen.getByRole("button", { name: "Default button" }).className).toContain("h-[30px]");
-    expect(screen.getByRole("button", { name: "Small button" }).className).toContain("h-[30px]");
+    expect(screen.getByRole("button", { name: "Default button" }).className).toContain("h-[var(--control-height)]");
+    expect(screen.getByRole("button", { name: "Default button" }).className).toContain("text-control");
+    expect(screen.getByRole("button", { name: "Small button" }).className).toContain("h-[var(--control-height)]");
+    expect(screen.getByRole("button", { name: "Small button" }).className).toContain("text-control");
     expect(screen.getByRole("button", { name: "Large button" }).className).toContain("h-8");
     expect(screen.getByRole("button", { name: "Compact button" }).className).toContain("h-7");
     expect(screen.getByRole("button", { name: "Compact button" }).className).toContain("w-7");
@@ -103,16 +109,17 @@ describe("renderer control sizing", () => {
       </>
     );
 
-    expect(screen.getByRole("textbox", { name: "Name" }).className).toContain(
-      "min-h-[var(--control-min-size)]"
-    );
+    const input = screen.getByRole("textbox", { name: "Name" });
+    expect(input.className).toContain("min-h-[var(--control-min-size)]");
+    expect(input.className).toContain("text-control");
     expect(screen.getByRole("textbox", { name: "Notes" }).className).toContain(
       "min-w-[var(--control-min-size)]"
     );
     for (const name of ["Cards", "Table"]) {
       const segment = screen.getByRole("button", { name });
-      expect(segment.className).toContain("h-[30px]");
+      expect(segment.className).toContain("h-[var(--control-height)]");
       expect(segment.className).toContain("min-w-[var(--control-min-size)]");
+      expect(segment.className).toContain("text-control");
     }
     const slider = screen.getByRole("slider", { name: "Amount" });
     expect(slider.className).toContain("size-3.5");

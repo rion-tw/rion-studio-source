@@ -34,8 +34,8 @@ export function EmptyState({
         <IconTile className="mx-auto" size="lg">
           <Icon size={22} />
         </IconTile>
-        <h2 className="mt-4 text-[17px] font-semibold leading-6 tracking-normal">{title}</h2>
-        {description ? <p className="mt-2 text-[13px] leading-6 text-muted-foreground">{description}</p> : null}
+        <h2 className="mt-4 text-title font-semibold tracking-normal">{title}</h2>
+        {description ? <p className="mt-2 text-body text-muted-foreground">{description}</p> : null}
         {actionLabel && onAction ? (
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Button type="button" variant="outline" onClick={onAction}>

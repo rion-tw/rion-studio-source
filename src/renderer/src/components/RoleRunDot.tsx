@@ -14,7 +14,7 @@ export function RoleRunDot({ className, isActive, label }: RoleRunDotProps): JSX
       aria-label={label}
       className={cn(
         "inline-flex size-2 shrink-0 rounded-full",
-        isActive ? "bg-emerald-500" : "bg-red-500",
+        isActive ? "bg-activity" : "bg-muted-foreground/45",
         className
       )}
       role="img"

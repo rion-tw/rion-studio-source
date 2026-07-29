@@ -364,4 +364,38 @@ describe("browser font settings normalization", () => {
     expect(normalizeBrowserFontFamily("Bad\u0000Font", "Fallback")).toBe("Fallback");
     expect(normalizeBrowserFontFamily(longFamily)).toBeUndefined();
   });
+
+  it("keeps a validated family name with custom Google Font selections", () => {
+    const customCatalogId = `custom-${"a".repeat(32)}`;
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          mode: "custom",
+          slots: {
+            latin: {
+              source: "google",
+              catalogId: customCatalogId.toUpperCase(),
+              family: "  Cormorant   Garamond  "
+            }
+          }
+        }
+      }).fonts.slots.latin
+    ).toEqual({
+      source: "google",
+      catalogId: customCatalogId,
+      family: "Cormorant Garamond"
+    });
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          mode: "custom",
+          slots: {
+            latin: { source: "google", catalogId: customCatalogId }
+          }
+        }
+      }).fonts.slots.latin
+    ).toBeUndefined();
+  });
 });

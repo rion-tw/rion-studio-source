@@ -602,6 +602,10 @@ impl AppCore {
                 crate::font_catalog::install(&self.user_data_dir, &catalog_id)?,
             )
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserFontFamilyInstall { family } => serde_json::to_value(
+                crate::font_catalog::install_family(&self.user_data_dir, &family)?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserFontPackRemove { catalog_id } => serde_json::to_value(
                 crate::font_catalog::remove(&self.user_data_dir, &catalog_id)?,
             )

@@ -341,7 +341,13 @@ function normalizeBrowserFontSelection(
   }
   if (value.source === "google" && typeof value.catalogId === "string") {
     const catalogId = value.catalogId.trim().toLocaleLowerCase();
-    return /^[a-z0-9-]{1,64}$/.test(catalogId) ? { source: "google", catalogId } : fallback;
+    if (!/^[a-z0-9-]{1,64}$/.test(catalogId)) return fallback;
+    if (catalogId.startsWith("custom-")) {
+      if (!/^custom-[a-f0-9]{32}$/.test(catalogId)) return fallback;
+      const family = normalizeBrowserFontFamily(value.family);
+      return family ? { source: "google", catalogId, family } : fallback;
+    }
+    return { source: "google", catalogId };
   }
   return fallback;
 }

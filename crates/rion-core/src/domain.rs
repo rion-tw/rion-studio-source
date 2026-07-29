@@ -2293,7 +2293,7 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
                     ));
                 }
             }
-            crate::model::BrowserFontSelectionRecord::Google { catalog_id } => {
+            crate::model::BrowserFontSelectionRecord::Google { catalog_id, family } => {
                 if catalog_id.is_empty()
                     || catalog_id.len() > 64
                     || !crate::font_catalog::contains(catalog_id)
@@ -2305,6 +2305,22 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
                 {
                     return Err(CoreError::InvalidInput(
                         "browser Google font catalog id is invalid".to_owned(),
+                    ));
+                }
+                if crate::font_catalog::is_custom_catalog_id(catalog_id) {
+                    let valid_family = family.as_deref().is_some_and(|family| {
+                        normalize_font_family(family).as_deref() == Some(family)
+                            && crate::font_catalog::custom_catalog_id(family).as_deref()
+                                == Some(catalog_id.as_str())
+                    });
+                    if !valid_family {
+                        return Err(CoreError::InvalidInput(
+                            "browser custom Google font family is invalid".to_owned(),
+                        ));
+                    }
+                } else if family.is_some() {
+                    return Err(CoreError::InvalidInput(
+                        "browser curated Google font family is invalid".to_owned(),
                     ));
                 }
             }
@@ -2378,7 +2394,7 @@ pub fn normalize_game_browser_settings(
                 *family = normalized;
                 true
             }
-            crate::model::BrowserFontSelectionRecord::Google { catalog_id } => {
+            crate::model::BrowserFontSelectionRecord::Google { catalog_id, family } => {
                 let normalized = catalog_id.trim().to_ascii_lowercase();
                 if normalized.is_empty()
                     || normalized.len() > 64
@@ -2390,6 +2406,20 @@ pub fn normalize_game_browser_settings(
                     })
                 {
                     return false;
+                }
+                if crate::font_catalog::is_custom_catalog_id(&normalized) {
+                    let Some(normalized_family) = family.as_deref().and_then(normalize_font_family)
+                    else {
+                        return false;
+                    };
+                    if crate::font_catalog::custom_catalog_id(&normalized_family).as_deref()
+                        != Some(normalized.as_str())
+                    {
+                        return false;
+                    }
+                    *family = Some(normalized_family);
+                } else {
+                    *family = None;
                 }
                 *catalog_id = normalized;
                 true
@@ -3160,6 +3190,47 @@ mod tests {
             assert_eq!(defaults.post_input_delay_ms, 30);
             assert_eq!(defaults.default_loop_delay_ms, 1_000);
         });
+    }
+
+    #[test]
+    fn validates_custom_google_font_family_identity_for_portable_settings() {
+        let family = "Cormorant Garamond";
+        let catalog_id = crate::font_catalog::custom_catalog_id(family).unwrap();
+        let mut settings = default_game_browser_settings();
+        settings.fonts.preset_id = None;
+        settings.fonts.slots.insert(
+            "latin".to_owned(),
+            crate::model::BrowserFontSelectionRecord::Google {
+                catalog_id: catalog_id.to_ascii_uppercase(),
+                family: Some("  Cormorant   Garamond  ".to_owned()),
+            },
+        );
+
+        let normalized = normalize_game_browser_settings(settings);
+        assert_eq!(
+            serde_json::to_value(&normalized.fonts.slots["latin"]).unwrap(),
+            json!({
+                "source": "google",
+                "catalogId": catalog_id,
+                "family": family
+            })
+        );
+        validate_game_browser_settings(&normalized).unwrap();
+
+        let mut invalid = normalized;
+        invalid.fonts.slots.insert(
+            "latin".to_owned(),
+            crate::model::BrowserFontSelectionRecord::Google {
+                catalog_id: crate::font_catalog::custom_catalog_id("Another Font").unwrap(),
+                family: Some(family.to_owned()),
+            },
+        );
+        assert!(
+            !normalize_game_browser_settings(invalid)
+                .fonts
+                .slots
+                .contains_key("latin")
+        );
     }
 
     #[test]

@@ -10,7 +10,10 @@ import SettingsView from "../src/renderer/src/features/settings/SettingsRoute";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { RionStudioApi } from "../src/shared/api";
-import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
+import {
+  DEFAULT_GAME_BROWSER_SETTINGS,
+  normalizeGameBrowserSettings
+} from "../src/shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
 import type { BrowserFontCatalogEntry, GameBrowserSettings } from "../src/shared/types";
 
@@ -218,6 +221,142 @@ describe("browser font settings", () => {
         })
       );
     });
+  });
+
+  it("downloads a Google Font entered by family name and makes it selectable", async () => {
+    const user = userEvent.setup();
+    const customFont: BrowserFontCatalogEntry = {
+      catalogId: `custom-${"a".repeat(32)}`,
+      family: "Cormorant Garamond",
+      category: "sans",
+      scripts: ["latin", "tc", "sc", "jp", "math"],
+      weights: [400],
+      usage: "body",
+      installed: true,
+      cachedBytes: 2048
+    };
+    const listBrowserFontCatalog = vi
+      .fn<() => Promise<BrowserFontCatalogEntry[]>>()
+      .mockResolvedValueOnce(catalog)
+      .mockResolvedValue([...catalog, customFont]);
+    const installGoogleFont = vi.fn(async (family: string) => ({
+      catalogId: customFont.catalogId,
+      installed: true,
+      cachedBytes: customFont.cachedBytes,
+      family
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog,
+      installBrowserFont: vi.fn(),
+      installGoogleFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    const input = screen.getByRole("textbox", { name: "Google Font family name" });
+    await user.type(input, "  Cormorant   Garamond  ");
+    await user.click(screen.getByRole("button", { name: "Download font" }));
+
+    await waitFor(() => expect(installGoogleFont).toHaveBeenCalledWith("Cormorant Garamond"));
+    expect(
+      await screen.findByText("Downloaded Cormorant Garamond. You can now select it above.")
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("combobox", { name: "Font category" }));
+    await user.click(screen.getByRole("option", { name: "Handwriting" }));
+    await user.click(screen.getByRole("button", { name: "English & Latin" }));
+    const search = await screen.findByRole("textbox", {
+      name: "Search system and Google fonts for English & Latin"
+    });
+    await user.type(search, "Cormorant");
+    await user.click(
+      screen.getByRole("menuitemradio", { name: "Cormorant Garamond · Downloaded" })
+    );
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            slots: expect.objectContaining({
+              latin: {
+                source: "google",
+                catalogId: customFont.catalogId,
+                family: customFont.family
+              }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("shows an inline alert when a named Google Font download fails", async () => {
+    const user = userEvent.setup();
+    const installGoogleFont = vi.fn(async () => {
+      throw new Error("Font download returned HTTP 400.");
+    });
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      installGoogleFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+
+    renderSettings(vi.fn(async (settings) => settings));
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Google Font family name" }),
+      "Definitely Missing Font"
+    );
+    await user.click(screen.getByRole("button", { name: "Download font" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Couldn’t download Definitely Missing Font. Check the font name and internet connection, then try again."
+    );
+    expect(installGoogleFont).toHaveBeenCalledWith("Definitely Missing Font");
+  });
+
+  it("redownloads a selected custom Google Font by its persisted family name", async () => {
+    const user = userEvent.setup();
+    const customCatalogId = `custom-${"b".repeat(32)}`;
+    const installGoogleFont = vi.fn(async () => ({
+      catalogId: customCatalogId,
+      installed: true,
+      cachedBytes: 2048
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      installGoogleFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+    const settings = normalizeGameBrowserSettings({
+      fonts: {
+        cjkVariant: "auto",
+        mode: "custom",
+        slots: {
+          latin: {
+            source: "google",
+            catalogId: customCatalogId,
+            family: "Cormorant Garamond"
+          }
+        }
+      }
+    });
+
+    renderSettings(onGameBrowserSettingsChange, settings);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await user.click(screen.getByRole("button", { name: "Download 1 and apply" }));
+
+    await waitFor(() => expect(installGoogleFont).toHaveBeenCalledWith("Cormorant Garamond"));
+    await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalled());
   });
 
   it("keeps system fonts outside the Google category filter and downloads a searched Google font", async () => {

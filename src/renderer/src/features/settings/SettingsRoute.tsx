@@ -32,6 +32,7 @@ import {
   DEFAULT_BROWSER_FONT_SETTINGS,
   browserFontPresets,
   browserFontSlots,
+  normalizeBrowserFontFamily,
   normalizeGameBrowserSettings,
   resolveBrowserFontPreset,
   type BrowserFontPresetId,
@@ -856,14 +857,24 @@ function BrowserFontsSettingsRows({
   const [isExpanded, setIsExpanded] = useState(false);
   const [busyCatalogId, setBusyCatalogId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
+  const [customFontFamily, setCustomFontFamily] = useState("");
+  const [customFontNotice, setCustomFontNotice] = useState<{
+    tone: "success" | "destructive";
+    text: string;
+  } | null>(null);
+  const [isInstallingCustomFont, setIsInstallingCustomFont] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [previewFamilies, setPreviewFamilies] = useState<Record<string, string>>({});
   const fontOptions = getBrowserSystemFontOptions(availableFonts, draft);
   const isDirty = JSON.stringify(normalizeGameBrowserSettings(draft)) !== JSON.stringify(normalizeGameBrowserSettings(settings));
-  const selectedCatalogIds = getSelectedBrowserFontCatalogIds(draft);
+  const selectedGoogleFonts = getSelectedBrowserGoogleFonts(draft);
+  const selectedCatalogIds = selectedGoogleFonts.map((selection) => selection.catalogId);
   const installedCatalogIds = new Set(catalog.filter((font) => font.installed).map((font) => font.catalogId));
-  const missingCatalogIds = selectedCatalogIds.filter((catalogId) => !installedCatalogIds.has(catalogId));
+  const missingGoogleFonts = selectedGoogleFonts.filter(
+    (selection) => !installedCatalogIds.has(selection.catalogId)
+  );
   const installedFonts = catalog.filter((font) => font.installed);
+  const normalizedCustomFontFamily = normalizeBrowserFontFamily(customFontFamily);
   const effectiveCjkVariant = resolveEffectiveBrowserFontCjkVariant(draft.fonts.cjkVariant, language);
   const previewKey = `${JSON.stringify(draft.fonts)}:${catalog
     .filter((font) => font.installed)
@@ -1057,27 +1068,58 @@ function BrowserFontsSettingsRows({
     }
   }
 
+  async function installCustomGoogleFont(): Promise<void> {
+    const family = normalizeBrowserFontFamily(customFontFamily);
+    if (!family) return;
+    setIsInstallingCustomFont(true);
+    setCustomFontNotice(null);
+    try {
+      await window.rionStudio.installGoogleFont(family);
+      await reloadCatalog();
+      setCustomFontFamily("");
+      setCustomFontNotice({
+        tone: "success",
+        text: t("settings.browserFontsCustomDownloadSuccess").replace("{family}", family)
+      });
+    } catch (error) {
+      setCustomFontNotice({
+        tone: "destructive",
+        text: t("settings.browserFontsCustomDownloadFailed").replace("{family}", family)
+      });
+      onError(error);
+    } finally {
+      setIsInstallingCustomFont(false);
+    }
+  }
+
   async function saveSettings(settingsToSave: GameBrowserSettings): Promise<void> {
     setIsSaving(true);
     setMessage(null);
 
     try {
       const normalized = normalizeGameBrowserSettings(settingsToSave);
-      const requiredCatalogIds = getSelectedBrowserFontCatalogIds(normalized);
+      const requiredGoogleFonts = getSelectedBrowserGoogleFonts(normalized);
       const currentInstalledIds = new Set(
         catalog.filter((font) => font.installed).map((font) => font.catalogId)
       );
-      const downloads = requiredCatalogIds.filter((catalogId) => !currentInstalledIds.has(catalogId));
-      for (const [index, catalogId] of downloads.entries()) {
+      const downloads = requiredGoogleFonts.filter(
+        (selection) => !currentInstalledIds.has(selection.catalogId)
+      );
+      for (const [index, selection] of downloads.entries()) {
+        const { catalogId } = selection;
         const font = catalog.find((candidate) => candidate.catalogId === catalogId);
         setBusyCatalogId(catalogId);
         setDownloadProgress(
           t("settings.browserFontsDownloading")
-            .replace("{family}", font?.family ?? catalogId)
+            .replace("{family}", font?.family ?? selection.family ?? catalogId)
             .replace("{current}", String(index + 1))
             .replace("{total}", String(downloads.length))
         );
-        await window.rionStudio.installBrowserFont(catalogId);
+        if (catalogId.startsWith("custom-") && selection.family) {
+          await window.rionStudio.installGoogleFont(selection.family);
+        } else {
+          await window.rionStudio.installBrowserFont(catalogId);
+        }
       }
       if (downloads.length > 0) await reloadCatalog();
       const savedSettings = await onSave(settingsToSave);
@@ -1200,7 +1242,7 @@ function BrowserFontsSettingsRows({
                       catalog={catalog}
                       category={category}
                       cjkVariant={effectiveCjkVariant}
-                      disabled={isSaving}
+                      disabled={isSaving || isInstallingCustomFont}
                       label={t(browserFontSlotLabelKeys[slot])}
                       description={t(browserFontSlotDescriptionKeys[slot])}
                       selection={draft.fonts.slots[slot]}
@@ -1223,6 +1265,66 @@ function BrowserFontsSettingsRows({
             {isLoadingFonts || isLoadingCatalog ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
             ) : null}
+
+            <div className="grid gap-2.5 rounded-md border border-border/25 bg-muted/[0.06] p-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold leading-5 text-foreground">
+                  {t("settings.browserFontsCustomDownloadTitle")}
+                </p>
+                <p className="mt-0.5 text-caption leading-5 text-muted-foreground">
+                  {t("settings.browserFontsCustomDownloadDescription")}
+                </p>
+              </div>
+              <form
+                className="flex flex-col gap-2 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void installCustomGoogleFont();
+                }}
+              >
+                <Input
+                  aria-label={t("settings.browserFontsCustomDownloadLabel")}
+                  autoComplete="off"
+                  className="min-w-0 flex-1"
+                  disabled={isSaving || isInstallingCustomFont}
+                  maxLength={120}
+                  placeholder={t("settings.browserFontsCustomDownloadPlaceholder")}
+                  value={customFontFamily}
+                  onChange={(event) => {
+                    setCustomFontFamily(event.target.value);
+                    setCustomFontNotice(null);
+                  }}
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={
+                    isSaving ||
+                    isInstallingCustomFont ||
+                    !normalizedCustomFontFamily
+                  }
+                >
+                  <CloudDownload size={14} />
+                  {isInstallingCustomFont
+                    ? t("settings.browserFontsCustomDownloading")
+                    : t("settings.browserFontsCustomDownloadAction")}
+                </Button>
+              </form>
+              {customFontNotice ? (
+                <StatusCallout
+                  aria-live={customFontNotice.tone === "success" ? "polite" : undefined}
+                  role={customFontNotice.tone === "destructive" ? "alert" : "status"}
+                  tone={customFontNotice.tone}
+                >
+                  {customFontNotice.tone === "destructive" ? (
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                  )}
+                  <span>{customFontNotice.text}</span>
+                </StatusCallout>
+              ) : null}
+            </div>
 
             <div className="grid gap-2.5">
               <p className="px-0.5 text-caption leading-5 text-muted-foreground">
@@ -1257,7 +1359,12 @@ function BrowserFontsSettingsRows({
                             variant="ghost"
                             size="icon"
                             aria-label={t("settings.browserFontsRemove")}
-                            disabled={isSaving || busyCatalogId === font.catalogId || isSelected}
+                            disabled={
+                              isSaving ||
+                              isInstallingCustomFont ||
+                              busyCatalogId === font.catalogId ||
+                              isSelected
+                            }
                             title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
                             onClick={() => void removeCatalogFont(font.catalogId)}
                           >
@@ -1279,7 +1386,7 @@ function BrowserFontsSettingsRows({
               <Button
                 type="button"
                 variant="outline"
-                disabled={isSaving}
+                disabled={isSaving || isInstallingCustomFont}
                 onClick={() =>
                   void saveSettings(
                     normalizeGameBrowserSettings({
@@ -1297,12 +1404,17 @@ function BrowserFontsSettingsRows({
               </Button>
               <Button
                 type="button"
-                disabled={isSaving || busyCatalogId !== null || (!isDirty && missingCatalogIds.length === 0)}
+                disabled={
+                  isSaving ||
+                  isInstallingCustomFont ||
+                  busyCatalogId !== null ||
+                  (!isDirty && missingGoogleFonts.length === 0)
+                }
                 onClick={() => void saveSettings(draft)}
               >
-                {missingCatalogIds.length > 0 ? <CloudDownload size={14} /> : null}
-                {missingCatalogIds.length > 0
-                  ? t("settings.browserFontsDownloadApply").replace("{count}", String(missingCatalogIds.length))
+                {missingGoogleFonts.length > 0 ? <CloudDownload size={14} /> : null}
+                {missingGoogleFonts.length > 0
+                  ? t("settings.browserFontsDownloadApply").replace("{count}", String(missingGoogleFonts.length))
                   : t("settings.browserFontsApply")}
               </Button>
             </div>
@@ -1430,12 +1542,15 @@ function BrowserFontSelectionPicker({
     .sort((left, right) => left.label.localeCompare(right.label));
   const filteredCatalog = catalog
     .filter((font) => {
+      const isCustomGoogleFont = font.catalogId.startsWith("custom-");
       const matchesSearch =
         !query ||
         font.family.toLocaleLowerCase().includes(query) ||
         font.catalogId.toLocaleLowerCase().includes(query);
-      const matchesCategory = category === "all" || font.category === category;
-      const matchesScript = slot !== "cjk" || font.scripts.includes(cjkVariant);
+      const matchesCategory =
+        isCustomGoogleFont || category === "all" || font.category === category;
+      const matchesScript =
+        isCustomGoogleFont || slot !== "cjk" || font.scripts.includes(cjkVariant);
       return matchesSearch && matchesCategory && matchesScript;
     })
     .sort((left, right) => left.family.localeCompare(right.family));
@@ -1455,7 +1570,7 @@ function BrowserFontSelectionPicker({
   }
 
   function handleValueChange(nextValue: string): void {
-    onChange(slot, parseBrowserFontSelectionValue(nextValue));
+    onChange(slot, parseBrowserFontSelectionValue(nextValue, catalog));
     setSearch("");
     setIsOpen(false);
   }
@@ -1826,13 +1941,17 @@ function getBrowserSystemFontOptions(
   return [...fontsByKey.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function getSelectedBrowserFontCatalogIds(settings: GameBrowserSettings): string[] {
-  return [...new Set(
-    browserFontSlots
-      .map((slot) => settings.fonts.slots[slot])
-      .filter((selection): selection is Extract<BrowserFontSelection, { source: "google" }> => selection?.source === "google")
-      .map((selection) => selection.catalogId)
-  )];
+function getSelectedBrowserGoogleFonts(
+  settings: GameBrowserSettings
+): Extract<BrowserFontSelection, { source: "google" }>[] {
+  const selections = new Map<string, Extract<BrowserFontSelection, { source: "google" }>>();
+  for (const slot of browserFontSlots) {
+    const selection = settings.fonts.slots[slot];
+    if (selection?.source === "google" && !selections.has(selection.catalogId)) {
+      selections.set(selection.catalogId, selection);
+    }
+  }
+  return [...selections.values()];
 }
 
 function resolveEffectiveBrowserFontCjkVariant(
@@ -1868,12 +1987,22 @@ function browserFontSelectionLabel(
   const status = font?.installed
     ? t("settings.browserFontsInstalled")
     : t("settings.browserFontsNotDownloaded");
-  return `${font?.family ?? selection.catalogId} · ${status}`;
+  return `${font?.family ?? selection.family ?? selection.catalogId} · ${status}`;
 }
 
-function parseBrowserFontSelectionValue(value: string): BrowserFontSelection | undefined {
+function parseBrowserFontSelectionValue(
+  value: string,
+  catalog: BrowserFontCatalogEntry[]
+): BrowserFontSelection | undefined {
   if (value.startsWith("system:")) return { source: "system", family: value.slice(7) };
-  if (value.startsWith("google:")) return { source: "google", catalogId: value.slice(7) };
+  if (value.startsWith("google:")) {
+    const catalogId = value.slice(7);
+    if (catalogId.startsWith("custom-")) {
+      const family = catalog.find((candidate) => candidate.catalogId === catalogId)?.family;
+      return family ? { source: "google", catalogId, family } : undefined;
+    }
+    return { source: "google", catalogId };
+  }
   return undefined;
 }
 

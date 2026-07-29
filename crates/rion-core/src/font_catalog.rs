@@ -30,6 +30,8 @@ const MAX_PACK_ASSETS: usize = 256;
 const GOOGLE_CSS_HOST: &str = "fonts.googleapis.com";
 const GOOGLE_ASSET_HOST: &str = "fonts.gstatic.com";
 const FONT_USER_AGENT: &str = "Mozilla/5.0 AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
+const CUSTOM_CATALOG_ID_PREFIX: &str = "custom-";
+const CUSTOM_CATALOG_HASH_LENGTH: usize = 32;
 
 #[derive(Clone, Copy)]
 struct CatalogSpec {
@@ -502,7 +504,7 @@ struct ParsedFace {
 }
 
 pub fn list(user_data_dir: &Path) -> Vec<BrowserFontCatalogEntryRecord> {
-    CATALOG
+    let mut entries = CATALOG
         .iter()
         .map(|spec| {
             let cached_bytes = read_manifest(user_data_dir, spec.id)
@@ -523,7 +525,35 @@ pub fn list(user_data_dir: &Path) -> Vec<BrowserFontCatalogEntryRecord> {
                 cached_bytes,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let mut custom_entries = fs::read_dir(cache_root(user_data_dir))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let catalog_id = entry.file_name().to_str()?.to_owned();
+            if !entry.file_type().ok()?.is_dir() || !is_custom_catalog_id(&catalog_id) {
+                return None;
+            }
+            let manifest = read_manifest(user_data_dir, &catalog_id)?;
+            read_validated_cached_assets(user_data_dir, &catalog_id, &manifest).ok()?;
+            Some(BrowserFontCatalogEntryRecord {
+                catalog_id,
+                family: manifest.family,
+                category: "sans".to_owned(),
+                scripts: ["latin", "tc", "sc", "jp", "math"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                weights: vec![400],
+                usage: "body".to_owned(),
+                installed: true,
+                cached_bytes: manifest.cached_bytes,
+            })
+        })
+        .collect::<Vec<_>>();
+    custom_entries.sort_by(|left, right| left.family.cmp(&right.family));
+    entries.extend(custom_entries);
+    entries
 }
 
 pub fn install(
@@ -531,10 +561,35 @@ pub fn install(
     catalog_id: &str,
 ) -> CoreResult<BrowserFontInstallResultRecord> {
     let spec = catalog_spec(catalog_id)?;
-    let final_path = pack_path(user_data_dir, spec.id);
-    if let Some(manifest) = read_manifest(user_data_dir, spec.id) {
-        if read_validated_cached_assets(user_data_dir, spec.id, &manifest).is_ok() {
-            return Ok(install_result(spec.id, manifest.cached_bytes));
+    install_pack(user_data_dir, spec.id, spec.family, spec.download_weights)
+}
+
+pub fn install_family(
+    user_data_dir: &Path,
+    family: &str,
+) -> CoreResult<BrowserFontInstallResultRecord> {
+    let family = normalize_google_font_family(family)
+        .ok_or_else(|| CoreError::InvalidInput("Google Font family is invalid".to_owned()))?;
+    if let Some(spec) = CATALOG
+        .iter()
+        .find(|spec| spec.family.eq_ignore_ascii_case(&family))
+    {
+        return install(user_data_dir, spec.id);
+    }
+    let catalog_id = custom_catalog_id_from_normalized_family(&family);
+    install_pack(user_data_dir, &catalog_id, &family, &[400])
+}
+
+fn install_pack(
+    user_data_dir: &Path,
+    catalog_id: &str,
+    family: &str,
+    download_weights: &[u16],
+) -> CoreResult<BrowserFontInstallResultRecord> {
+    let final_path = pack_path(user_data_dir, catalog_id);
+    if let Some(manifest) = read_manifest(user_data_dir, catalog_id) {
+        if read_validated_cached_assets(user_data_dir, catalog_id, &manifest).is_ok() {
+            return Ok(install_result(catalog_id, manifest.cached_bytes));
         }
         remove_cache_path(&final_path)?;
     } else if fs::symlink_metadata(&final_path).is_ok() {
@@ -555,7 +610,7 @@ pub fn install(
         .user_agent(FONT_USER_AGENT)
         .build()
         .map_err(|error| font_download(error.to_string()))?;
-    let css_url = css_url(spec);
+    let css_url = css_url_for_family(family, download_weights);
     validate_download_url(&css_url, GOOGLE_CSS_HOST)?;
     let css = download(&client, &css_url, MAX_CSS_BYTES)?;
     let css = String::from_utf8(css)
@@ -606,8 +661,8 @@ pub fn install(
     }
     let manifest = CachedManifest {
         version: CACHE_SCHEMA_VERSION,
-        catalog_id: spec.id.to_owned(),
-        family: spec.family.to_owned(),
+        catalog_id: catalog_id.to_owned(),
+        family: family.to_owned(),
         css_url,
         assets,
         cached_bytes: total_bytes as u64,
@@ -620,27 +675,29 @@ pub fn install(
     manifest_file.sync_all().map_err(font_io)?;
     drop(manifest_file);
     if let Err(error) = fs::rename(staging.path(), &final_path) {
-        if let Some(installed_manifest) = read_manifest(user_data_dir, spec.id)
-            && read_validated_cached_assets(user_data_dir, spec.id, &installed_manifest).is_ok()
+        if let Some(installed_manifest) = read_manifest(user_data_dir, catalog_id)
+            && read_validated_cached_assets(user_data_dir, catalog_id, &installed_manifest).is_ok()
         {
-            return Ok(install_result(spec.id, installed_manifest.cached_bytes));
+            return Ok(install_result(catalog_id, installed_manifest.cached_bytes));
         }
         return Err(font_io(error));
     }
-    Ok(install_result(spec.id, manifest.cached_bytes))
+    Ok(install_result(catalog_id, manifest.cached_bytes))
 }
 
 pub fn remove(
     user_data_dir: &Path,
     catalog_id: &str,
 ) -> CoreResult<BrowserFontInstallResultRecord> {
-    let spec = catalog_spec(catalog_id)?;
-    let path = pack_path(user_data_dir, spec.id);
+    if !contains(catalog_id) {
+        return Err(font_not_found());
+    }
+    let path = pack_path(user_data_dir, catalog_id);
     if fs::symlink_metadata(&path).is_ok() {
         remove_cache_path(&path)?;
     }
     Ok(BrowserFontInstallResultRecord {
-        catalog_id: spec.id.to_owned(),
+        catalog_id: catalog_id.to_owned(),
         installed: false,
         cached_bytes: 0,
     })
@@ -654,26 +711,26 @@ pub fn runtime_payload(
         .slots
         .values()
         .filter_map(|selection| match selection {
-            BrowserFontSelectionRecord::Google { catalog_id } => Some(catalog_id.as_str()),
+            BrowserFontSelectionRecord::Google { catalog_id, .. } => Some(catalog_id.as_str()),
             BrowserFontSelectionRecord::System { .. } => None,
         })
         .collect::<HashSet<_>>();
     let mut faces = Vec::new();
     for catalog_id in catalog_ids {
-        let Ok(spec) = catalog_spec(catalog_id) else {
+        if !contains(catalog_id) {
+            continue;
+        }
+        let Some(manifest) = read_manifest(user_data_dir, catalog_id) else {
             continue;
         };
-        let Some(manifest) = read_manifest(user_data_dir, spec.id) else {
-            continue;
-        };
-        let validated_assets = read_validated_cached_assets(user_data_dir, spec.id, &manifest)?;
+        let validated_assets = read_validated_cached_assets(user_data_dir, catalog_id, &manifest)?;
         for asset in manifest.assets {
             let bytes = validated_assets
                 .get(&asset.file)
-                .ok_or_else(|| font_cache_invalid(spec.id))?;
+                .ok_or_else(|| font_cache_invalid(catalog_id))?;
             faces.push(BrowserFontRuntimeFaceRecord {
-                catalog_id: spec.id.to_owned(),
-                family: spec.family.to_owned(),
+                catalog_id: catalog_id.to_owned(),
+                family: manifest.family.clone(),
                 style: asset.style,
                 weight: asset.weight,
                 unicode_range: asset.unicode_range,
@@ -684,19 +741,23 @@ pub fn runtime_payload(
     Ok(BrowserFontRuntimePayloadRecord { settings, faces })
 }
 
-fn css_url(spec: &CatalogSpec) -> String {
-    let family = spec.family.replace(' ', "+");
-    let weights = spec
-        .download_weights
+fn css_url_for_family(family: &str, download_weights: &[u16]) -> String {
+    let weights = download_weights
         .iter()
         .map(u16::to_string)
         .collect::<Vec<_>>()
         .join(";");
-    if spec.download_weights == [400] {
-        format!("https://{GOOGLE_CSS_HOST}/css2?family={family}&display=swap")
+    let family = if download_weights == [400] {
+        family.to_owned()
     } else {
-        format!("https://{GOOGLE_CSS_HOST}/css2?family={family}:wght@{weights}&display=swap")
-    }
+        format!("{family}:wght@{weights}")
+    };
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    serializer
+        .append_pair("family", &family)
+        .append_pair("display", "swap");
+    let query = serializer.finish();
+    format!("https://{GOOGLE_CSS_HOST}/css2?{query}")
 }
 
 fn parse_faces(css: &str) -> CoreResult<Vec<ParsedFace>> {
@@ -789,14 +850,45 @@ fn catalog_spec(catalog_id: &str) -> CoreResult<&'static CatalogSpec> {
     CATALOG
         .iter()
         .find(|spec| spec.id == catalog_id)
-        .ok_or(CoreError::Domain {
-            code: "BROWSER_FONT_NOT_FOUND",
-            message: "The selected font is not in the curated catalog.".to_owned(),
-        })
+        .ok_or_else(font_not_found)
 }
 
 pub(crate) fn contains(catalog_id: &str) -> bool {
-    CATALOG.iter().any(|spec| spec.id == catalog_id)
+    CATALOG.iter().any(|spec| spec.id == catalog_id) || is_custom_catalog_id(catalog_id)
+}
+
+pub(crate) fn custom_catalog_id(family: &str) -> Option<String> {
+    normalize_google_font_family(family)
+        .map(|family| custom_catalog_id_from_normalized_family(&family))
+}
+
+fn custom_catalog_id_from_normalized_family(family: &str) -> String {
+    let digest = format!("{:x}", Sha256::digest(family.to_lowercase().as_bytes()));
+    format!(
+        "{CUSTOM_CATALOG_ID_PREFIX}{}",
+        &digest[..CUSTOM_CATALOG_HASH_LENGTH]
+    )
+}
+
+pub(crate) fn is_custom_catalog_id(catalog_id: &str) -> bool {
+    catalog_id.len() == CUSTOM_CATALOG_ID_PREFIX.len() + CUSTOM_CATALOG_HASH_LENGTH
+        && catalog_id.starts_with(CUSTOM_CATALOG_ID_PREFIX)
+        && catalog_id[CUSTOM_CATALOG_ID_PREFIX.len()..]
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() && !character.is_ascii_uppercase())
+}
+
+fn normalize_google_font_family(value: &str) -> Option<String> {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!normalized.is_empty() && normalized.len() <= 120 && !normalized.chars().any(char::is_control))
+        .then_some(normalized)
+}
+
+fn font_not_found() -> CoreError {
+    CoreError::Domain {
+        code: "BROWSER_FONT_NOT_FOUND",
+        message: "The selected font is not in the browser font catalog.".to_owned(),
+    }
 }
 
 fn cache_root(user_data_dir: &Path) -> PathBuf {
@@ -821,7 +913,7 @@ fn read_manifest(user_data_dir: &Path, catalog_id: &str) -> Option<CachedManifes
     let manifest = serde_json::from_slice::<CachedManifest>(&fs::read(path).ok()?).ok()?;
     (manifest.version == CACHE_SCHEMA_VERSION
         && manifest.catalog_id == catalog_id
-        && !manifest.family.trim().is_empty()
+        && manifest_identity_is_valid(catalog_id, &manifest.family)
         && !manifest.assets.is_empty()
         && manifest.assets.len() <= MAX_PACK_ASSETS
         && manifest.cached_bytes <= MAX_PACK_BYTES as u64
@@ -836,6 +928,13 @@ fn read_manifest(user_data_dir: &Path, catalog_id: &str) -> Option<CachedManifes
                 && asset.unicode_range.len() <= 8 * 1024
         }))
     .then_some(manifest)
+}
+
+fn manifest_identity_is_valid(catalog_id: &str, family: &str) -> bool {
+    if let Some(spec) = CATALOG.iter().find(|spec| spec.id == catalog_id) {
+        return family == spec.family;
+    }
+    custom_catalog_id(family).as_deref() == Some(catalog_id)
 }
 
 fn read_validated_cached_assets(
@@ -912,7 +1011,11 @@ mod tests {
                         || character.is_ascii_digit()
                         || character == '-')
             );
-            validate_download_url(&css_url(spec), GOOGLE_CSS_HOST).unwrap();
+            validate_download_url(
+                &css_url_for_family(spec.family, spec.download_weights),
+                GOOGLE_CSS_HOST,
+            )
+            .unwrap();
         }
     }
 
@@ -942,7 +1045,14 @@ mod tests {
                 "unexpected CJK request for {}",
                 spec.id
             );
-            assert!(!css_url(spec).contains(";"));
+            let url =
+                url::Url::parse(&css_url_for_family(spec.family, spec.download_weights)).unwrap();
+            assert_eq!(
+                url.query_pairs()
+                    .find(|(key, _)| key == "family")
+                    .map(|(_, value)| value.into_owned()),
+                Some(spec.family.to_owned())
+            );
         }
     }
 
@@ -1139,5 +1249,83 @@ mod tests {
         )
         .unwrap();
         assert!(read_manifest(directory.path(), "inter").is_none());
+    }
+
+    #[test]
+    fn custom_font_ids_are_stable_and_css_queries_are_encoded() {
+        let id = custom_catalog_id("  Cormorant   Garamond  ").unwrap();
+        assert_eq!(id, custom_catalog_id("cormorant garamond").unwrap());
+        assert!(is_custom_catalog_id(&id));
+        assert!(!is_custom_catalog_id("custom-cormorant-garamond"));
+        assert!(custom_catalog_id("\0invalid").is_none());
+
+        let url = url::Url::parse(&css_url_for_family("A&B Display", &[400])).unwrap();
+        let query = url.query_pairs().collect::<HashMap<_, _>>();
+        assert_eq!(
+            query.get("family").map(|value| value.as_ref()),
+            Some("A&B Display")
+        );
+        assert_eq!(
+            query.get("display").map(|value| value.as_ref()),
+            Some("swap")
+        );
+    }
+
+    #[test]
+    fn custom_font_cache_is_listed_and_loaded_into_runtime_payloads() {
+        let directory = tempdir().unwrap();
+        let family = "Cormorant Garamond";
+        let catalog_id = custom_catalog_id(family).unwrap();
+        let pack = pack_path(directory.path(), &catalog_id);
+        fs::create_dir_all(&pack).unwrap();
+        let bytes = b"wOF2verified-custom-font";
+        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let file = format!("{sha256}.woff2");
+        fs::write(pack.join(&file), bytes).unwrap();
+        let manifest = CachedManifest {
+            version: CACHE_SCHEMA_VERSION,
+            catalog_id: catalog_id.clone(),
+            family: family.to_owned(),
+            css_url: css_url_for_family(family, &[400]),
+            assets: vec![CachedAsset {
+                file,
+                sha256,
+                style: "normal".to_owned(),
+                weight: "400".to_owned(),
+                unicode_range: "U+0000-00FF".to_owned(),
+            }],
+            cached_bytes: bytes.len() as u64,
+        };
+        fs::write(
+            pack.join(MANIFEST_FILE),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let entry = list(directory.path())
+            .into_iter()
+            .find(|entry| entry.catalog_id == catalog_id)
+            .expect("custom font should be listed");
+        assert_eq!(entry.family, family);
+        assert!(entry.installed);
+
+        let settings = BrowserFontSettingsRecord {
+            mode: "custom".to_owned(),
+            font_smoothing_enabled: true,
+            preset_id: None,
+            cjk_variant: "auto".to_owned(),
+            slots: HashMap::from([(
+                "latin".to_owned(),
+                BrowserFontSelectionRecord::Google {
+                    catalog_id: catalog_id.clone(),
+                    family: Some(family.to_owned()),
+                },
+            )]),
+            families: HashMap::new(),
+        };
+        let payload = runtime_payload(directory.path(), settings).unwrap();
+        assert_eq!(payload.faces.len(), 1);
+        assert_eq!(payload.faces[0].catalog_id, catalog_id);
+        assert_eq!(payload.faces[0].family, family);
     }
 }

@@ -406,6 +406,7 @@ mod generated_contract_tests {
                 "  gameBrowserSettingsPatch: GameBrowserSettingsRecord;\n",
                 "  browserFontCatalogList: BrowserFontCatalogEntryRecord[];\n",
                 "  browserFontPackInstall: BrowserFontInstallResultRecord;\n",
+                "  browserFontFamilyInstall: BrowserFontInstallResultRecord;\n",
                 "  browserFontPackRemove: BrowserFontInstallResultRecord;\n",
                 "  browserFontRuntimePayload: BrowserFontRuntimePayloadRecord;\n",
                 "  macroSettingsGet: MacroSettingsRecord;\n",

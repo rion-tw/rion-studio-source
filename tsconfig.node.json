@@ -86,6 +86,7 @@
     "src/renderer/src/i18n.ts",
     "src/renderer/src/global.d.ts",
     "src/renderer/src/hooks/useAppData.ts",
+    "src/renderer/src/hooks/useAppUpdates.ts",
     "src/renderer/src/hooks/useLegalAcceptance.ts",
     "src/renderer/src/hooks/useUnsavedChangesGuard.ts",
     "src/renderer/src/hooks/useBusyIds.ts",

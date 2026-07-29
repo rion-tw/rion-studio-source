@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -71,6 +71,8 @@ struct CoreState {
     menu_language: Mutex<String>,
     runtime: Arc<SystemRuntimeExecutor>,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
+    tab_drag_finished: Mutex<VecDeque<String>>,
+    tab_drag_lane: tokio::sync::Mutex<()>,
     updates: Arc<update_manager::UpdateManager>,
 }
 
@@ -518,9 +520,20 @@ async fn rion_runtime_tab_action(
                 "Runtime tab actions are restricted to the local tab-strip WebView.",
             )
         })?;
-    runtime_tab_menu::handle_scoped_action(&app, &state, window_id, action)
-        .await
-        .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))
+    match runtime_tab_menu::handle_scoped_action(&app, &state, window_id, action).await {
+        Ok(()) => Ok(()),
+        Err(message) => {
+            let error = shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message);
+            reveal_shell_error(
+                &app,
+                CoreErrorPayload {
+                    code: error.code.clone(),
+                    message: error.message.clone(),
+                },
+            );
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -2547,6 +2560,7 @@ pub(crate) async fn handle_game_window_tab_drag(
     ) {
         return Ok(false);
     }
+    let _lane = state.tab_drag_lane.lock().await;
     let session_id = action["sessionId"]
         .as_str()
         .filter(|value| uuid::Uuid::parse_str(value).is_ok())
@@ -2559,6 +2573,9 @@ pub(crate) async fn handle_game_window_tab_drag(
 
     match action_type {
         "tabDragStart" => {
+            if tab_drag_session_finished(state, session_id)? {
+                return Ok(true);
+            }
             let tab_id = action["tabId"]
                 .as_str()
                 .filter(|value| !value.is_empty())
@@ -2654,11 +2671,11 @@ pub(crate) async fn handle_game_window_tab_drag(
                 .runtime
                 .prepare_provisional_game_window(&initial_target, &title)
             {
-                let _ = take_tab_drag_session(state, session_id);
-                state
-                    .runtime
-                    .discard_provisional_game_window(&initial_target.window_id);
-                return Err(shell_error("TAURI_TAB_DRAG_FAILED", message));
+                return Err(abort_tab_drag_start(
+                    state,
+                    session_id,
+                    shell_error("TAURI_TAB_DRAG_FAILED", message),
+                ));
             }
             let prepared = {
                 let mut current = state.tab_drag.lock().map_err(|_| {
@@ -2674,15 +2691,27 @@ pub(crate) async fn handle_game_window_tab_drag(
                 session.prepared = true;
                 session.clone()
             };
-            state
+            if let Err(message) = state
                 .runtime
                 .position_provisional_game_window(&prepared.target)
-                .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+            {
+                return Err(abort_tab_drag_start(
+                    state,
+                    session_id,
+                    shell_error("TAURI_TAB_DRAG_FAILED", message),
+                ));
+            }
             if prepared.detach_requested && !prepared.detached {
-                state
+                if let Err(message) = state
                     .runtime
                     .provisionally_move_tab(&prepared.tab_id, &prepared.provisional_window_id)
-                    .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+                {
+                    return Err(abort_tab_drag_start(
+                        state,
+                        session_id,
+                        shell_error("TAURI_TAB_DRAG_FAILED", message),
+                    ));
+                }
                 if let Ok(mut current) = state.tab_drag.lock()
                     && let Some(session) =
                         current.as_mut().filter(|session| session.id == session_id)
@@ -2701,9 +2730,22 @@ pub(crate) async fn handle_game_window_tab_drag(
                 })?
                 .clone()
                 .filter(|session| session.id == session_id)
-                .ok_or_else(|| {
-                    shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale.")
-                })?;
+                .map_or_else(
+                    || {
+                        if tab_drag_session_finished(state, session_id)? {
+                            Ok(None)
+                        } else {
+                            Err(shell_error(
+                                "TAURI_TAB_DRAG_STALE",
+                                "Runtime tab drag session is stale.",
+                            ))
+                        }
+                    },
+                    |session| Ok(Some(session)),
+                )?;
+            let Some(session) = session else {
+                return Ok(true);
+            };
             let source = state
                 .core
                 .invoke(CoreCommand::GameWindowGet {
@@ -2770,16 +2812,16 @@ pub(crate) async fn handle_game_window_tab_drag(
                         "Drop target window ID is required.",
                     )
                 })?;
+            mark_tab_drag_session_finished(state, session_id)?;
             let Some(session) = take_tab_drag_session(state, session_id)? else {
                 return Ok(true);
             };
             if target_window_id == session.provisional_window_id {
                 if let Err(error) = commit_tab_drag_to_new_window(state, &session).await {
-                    cancel_tab_drag_session(state, &session)?;
-                    return Err(error);
+                    return Err(cancel_tab_drag_preserving_error(state, &session, error));
                 }
             } else if target_window_id == session.source_window_id {
-                cancel_tab_drag_session(state, &session)?;
+                cancel_tab_drag_session_recoverable(state, &session)?;
                 if let Some(before_tab_id) = action["beforeTabId"].as_str() {
                     Arc::clone(&state.core)
                         .invoke_async(CoreCommand::EmbeddedTabReorder {
@@ -2790,7 +2832,12 @@ pub(crate) async fn handle_game_window_tab_drag(
                         .map_err(error_payload)?;
                 }
             } else {
-                let target = launch_target_for_game_window(app, target_window_id)?;
+                let target = match launch_target_for_game_window(app, target_window_id) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        return Err(cancel_tab_drag_preserving_error(state, &session, error));
+                    }
+                };
                 let result = Arc::clone(&state.core)
                     .invoke_async(CoreCommand::EmbeddedTabMoveOrdered {
                         tab_id: session.tab_id.clone(),
@@ -2799,8 +2846,11 @@ pub(crate) async fn handle_game_window_tab_drag(
                     })
                     .await;
                 if let Err(error) = result {
-                    cancel_tab_drag_session(state, &session)?;
-                    return Err(error_payload(error));
+                    return Err(cancel_tab_drag_preserving_error(
+                        state,
+                        &session,
+                        error_payload(error),
+                    ));
                 }
                 state
                     .runtime
@@ -2809,25 +2859,116 @@ pub(crate) async fn handle_game_window_tab_drag(
         }
         "tabDragEnd" => {
             let cancelled = action["cancelled"].as_bool().unwrap_or(false);
+            mark_tab_drag_session_finished(state, session_id)?;
             let Some(session) = take_tab_drag_session(state, session_id)? else {
                 return Ok(true);
             };
             if cancelled || !session.detached {
-                cancel_tab_drag_session(state, &session)?;
+                cancel_tab_drag_session_recoverable(state, &session)?;
             } else if let Err(error) = commit_tab_drag_to_new_window(state, &session).await {
-                cancel_tab_drag_session(state, &session)?;
-                return Err(error);
+                return Err(cancel_tab_drag_preserving_error(state, &session, error));
             }
         }
         "tabDragCancel" => {
+            mark_tab_drag_session_finished(state, session_id)?;
             let Some(session) = take_tab_drag_session(state, session_id)? else {
                 return Ok(true);
             };
-            cancel_tab_drag_session(state, &session)?;
+            cancel_tab_drag_session_recoverable(state, &session)?;
         }
         _ => unreachable!(),
     }
     Ok(true)
+}
+
+const FINISHED_TAB_DRAG_LIMIT: usize = 128;
+
+fn tab_drag_session_finished(
+    state: &CoreState,
+    session_id: &str,
+) -> Result<bool, CoreErrorPayload> {
+    state
+        .tab_drag_finished
+        .lock()
+        .map(|finished| finished.iter().any(|id| id == session_id))
+        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))
+}
+
+fn mark_tab_drag_session_finished(
+    state: &CoreState,
+    session_id: &str,
+) -> Result<(), CoreErrorPayload> {
+    let mut finished = state
+        .tab_drag_finished
+        .lock()
+        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
+    if !finished.iter().any(|id| id == session_id) {
+        finished.push_back(session_id.to_owned());
+    }
+    while finished.len() > FINISHED_TAB_DRAG_LIMIT {
+        finished.pop_front();
+    }
+    Ok(())
+}
+
+fn abort_tab_drag_start(
+    state: &CoreState,
+    session_id: &str,
+    error: CoreErrorPayload,
+) -> CoreErrorPayload {
+    let _ = mark_tab_drag_session_finished(state, session_id);
+    match take_tab_drag_session(state, session_id) {
+        Ok(Some(session)) => cancel_tab_drag_preserving_error(state, &session, error),
+        Ok(None) => error,
+        Err(cleanup) => tab_drag_rollback_error(&error, &cleanup),
+    }
+}
+
+fn cancel_tab_drag_preserving_error(
+    state: &CoreState,
+    session: &GameWindowTabDragSession,
+    error: CoreErrorPayload,
+) -> CoreErrorPayload {
+    match cancel_tab_drag_session(state, session) {
+        Ok(()) => error,
+        Err(cleanup) => {
+            reopen_tab_drag_session(state, session);
+            tab_drag_rollback_error(&error, &cleanup)
+        }
+    }
+}
+
+fn cancel_tab_drag_session_recoverable(
+    state: &CoreState,
+    session: &GameWindowTabDragSession,
+) -> Result<(), CoreErrorPayload> {
+    cancel_tab_drag_session(state, session).inspect_err(|_| {
+        reopen_tab_drag_session(state, session);
+    })
+}
+
+fn reopen_tab_drag_session(state: &CoreState, session: &GameWindowTabDragSession) {
+    if let Ok(mut finished) = state.tab_drag_finished.lock() {
+        finished.retain(|id| id != &session.id);
+    }
+    if let Ok(mut current) = state.tab_drag.lock()
+        && current.is_none()
+    {
+        *current = Some(session.clone());
+    }
+}
+
+fn tab_drag_rollback_error(
+    error: &CoreErrorPayload,
+    cleanup: &CoreErrorPayload,
+) -> CoreErrorPayload {
+    shell_error(
+        "TAURI_TAB_DRAG_ROLLBACK_FAILED",
+        format!(
+            "Runtime tab drag failed ({}: {}); rollback failed ({}: {}).",
+            error.code, error.message, cleanup.code, cleanup.message
+        ),
+    )
 }
 
 fn drag_screen_point(action: &Value) -> Result<(f64, f64), CoreErrorPayload> {
@@ -3412,6 +3553,8 @@ pub fn run() {
                 menu_language: Mutex::new("en".to_owned()),
                 runtime,
                 tab_drag: Mutex::new(None),
+                tab_drag_finished: Mutex::new(VecDeque::new()),
+                tab_drag_lane: tokio::sync::Mutex::new(()),
                 updates,
             });
             tauri::async_runtime::spawn(async move {
@@ -3747,6 +3890,19 @@ mod tests {
         assert!(error.message.contains("SHELL_WINDOW_FAILED"));
         assert!(error.message.contains("native create failed"));
         assert!(error.message.contains("metadata cleanup failed"));
+    }
+
+    #[test]
+    fn tab_drag_rollback_error_preserves_primary_and_cleanup_failures() {
+        let error = tab_drag_rollback_error(
+            &shell_error("TAURI_TAB_DRAG_FAILED", "position failed"),
+            &shell_error("TAURI_TAB_DRAG_ROLLBACK_FAILED", "reparent failed"),
+        );
+
+        assert_eq!(error.code, "TAURI_TAB_DRAG_ROLLBACK_FAILED");
+        assert!(error.message.contains("TAURI_TAB_DRAG_FAILED"));
+        assert!(error.message.contains("position failed"));
+        assert!(error.message.contains("reparent failed"));
     }
 
     #[test]

@@ -43,7 +43,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  invoke.mockClear();
+  invoke.mockReset();
+  invoke.mockResolvedValue(undefined);
   installScrollGeometry(1_000, 140);
   window.__rionApplyRuntimeTabState?.(state);
   await nextAnimationFrame();
@@ -252,5 +253,49 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     Object.defineProperty(drag, "clientX", { value: 195 });
     root.dispatchEvent(drag);
     expect(geometry.scrollLeft).toBe(56);
+  });
+
+  it("serializes drag lifecycle actions until the previous native action settles", async () => {
+    let resolveStart!: () => void;
+    invoke.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    }));
+    const values = new Map<string, string>();
+    const dataTransfer = {
+      dropEffect: "move",
+      effectAllowed: "none",
+      getData: (type: string) => values.get(type) ?? "",
+      setData: (type: string, value: string) => values.set(type, value)
+    };
+    const tab = document.querySelector<HTMLElement>('[role="tab"]')!;
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 320 },
+      screenY: { value: 240 }
+    });
+    tab.dispatchEvent(dragStart);
+
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
+    document.querySelector("#tabs")?.dispatchEvent(drop);
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+      action: expect.objectContaining({ type: "tabDragStart", tabId: "tab-1" })
+    });
+
+    resolveStart();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: expect.objectContaining({ type: "tabDragDrop", windowId: "window-1" })
+    });
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperty(dragEnd, "dataTransfer", { value: dataTransfer });
+    tab.dispatchEvent(dragEnd);
   });
 });

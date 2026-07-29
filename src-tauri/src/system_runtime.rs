@@ -1283,16 +1283,18 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()));
-        if current_window_id.as_deref() == Some(provisional_window_id) {
-            self.provisionally_move_tab(tab_id, source_window_id)?;
-        }
+        let rollback = if current_window_id.as_deref() == Some(provisional_window_id) {
+            self.provisionally_move_tab(tab_id, source_window_id)
+        } else {
+            Ok(())
+        };
         if let Some(source) = self.window_for_id(source_window_id) {
             let _ = source.show();
             let _ = source.set_focus();
         }
         self.discard_provisional_game_window(provisional_window_id);
         self.publish_projection();
-        Ok(())
+        rollback
     }
 
     pub fn discard_provisional_game_window(&self, window_id: &str) {

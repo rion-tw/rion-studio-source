@@ -803,6 +803,7 @@ struct RuntimeState {
     active_window_placement_workers: HashSet<String>,
     active_window_resize_workers: HashSet<String>,
     allow_window_close_labels: HashSet<String>,
+    approved_macro_release_navigations: HashSet<(String, String)>,
     audible_webviews: HashMap<String, bool>,
     auto_restore_attempted: bool,
     closing_roles: HashSet<String>,
@@ -810,6 +811,7 @@ struct RuntimeState {
     closing_webviews: HashSet<String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
+    pending_macro_release_navigations: HashSet<(String, String)>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
@@ -3890,6 +3892,12 @@ impl SystemRuntimeExecutor {
             state.audible_webviews.remove(window_label);
             state.overlay_capabilities.remove(window_label);
             state.closing_webviews.remove(window_label);
+            state
+                .approved_macro_release_navigations
+                .retain(|(label, _)| label != window_label);
+            state
+                .pending_macro_release_navigations
+                .retain(|(label, _)| label != window_label);
             role_id
         };
         let Some(role_id) = role_id else {
@@ -3917,6 +3925,107 @@ impl SystemRuntimeExecutor {
             }
         });
         self.publish_projection();
+    }
+
+    fn gate_navigation_after_macro_release(
+        &self,
+        webview_label: &str,
+        role_id: &str,
+        url: &Url,
+    ) -> bool {
+        if !matches!(url.scheme(), "about" | "http" | "https") {
+            return false;
+        }
+        if !should_release_macros_for_navigation(url) {
+            return true;
+        }
+        let key = (webview_label.to_owned(), url.as_str().to_owned());
+        let decision = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let RuntimeState {
+                approved_macro_release_navigations,
+                pending_macro_release_navigations,
+                ..
+            } = &mut *state;
+            claim_macro_navigation_release(
+                approved_macro_release_navigations,
+                pending_macro_release_navigations,
+                &key,
+            )
+        };
+        match decision {
+            MacroNavigationGateDecision::Allow => true,
+            MacroNavigationGateDecision::Wait => false,
+            MacroNavigationGateDecision::Release => {
+                let app = self.app.clone();
+                let core = Arc::clone(&self.core);
+                let role_id = role_id.to_owned();
+                let url = url.clone();
+                tauri::async_runtime::spawn(async move {
+                    let release = core
+                        .invoke_async(CoreCommand::MacroReleaseRole {
+                            role_id: role_id.clone(),
+                        })
+                        .await;
+                    let Some(state) = app.try_state::<crate::CoreState>() else {
+                        return;
+                    };
+                    if let Err(error) = release {
+                        state.runtime.finish_macro_navigation_release(&key, false);
+                        let _ = app.emit(
+                            "rion://shell-error",
+                            json!({
+                                "code": "SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED",
+                                "message": format!("Navigation was blocked because macro input could not be released: {error}"),
+                                "roleId": role_id,
+                                "webviewLabel": key.0,
+                                "url": key.1
+                            }),
+                        );
+                        return;
+                    }
+                    if !state.runtime.finish_macro_navigation_release(&key, true) {
+                        return;
+                    }
+                    let Some(webview) = app.get_webview(&key.0) else {
+                        state.runtime.revoke_macro_navigation_approval(&key);
+                        return;
+                    };
+                    if let Err(error) = webview.navigate(url) {
+                        state.runtime.revoke_macro_navigation_approval(&key);
+                        let _ = app.emit(
+                            "rion://shell-error",
+                            json!({
+                                "code": "SYSTEM_NAVIGATION_RESUME_FAILED",
+                                "message": error.to_string(),
+                                "roleId": role_id,
+                                "webviewLabel": key.0,
+                                "url": key.1
+                            }),
+                        );
+                    }
+                });
+                false
+            }
+        }
+    }
+
+    fn finish_macro_navigation_release(&self, key: &(String, String), approve: bool) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if !state.pending_macro_release_navigations.remove(key) {
+            return false;
+        }
+        approve && state.approved_macro_release_navigations.insert(key.clone())
+    }
+
+    fn revoke_macro_navigation_approval(&self, key: &(String, String)) {
+        if let Ok(mut state) = self.state.lock() {
+            state.approved_macro_release_navigations.remove(key);
+        }
     }
 
     fn register_popup(&self, window_label: String, role_id: String) {
@@ -4825,6 +4934,8 @@ impl SystemRuntimeExecutor {
         let download_role_id = role_id.map(str::to_owned);
         let shortcut_core = Arc::clone(&self.core);
         let shortcut_role_id = role_id.map(str::to_owned);
+        let navigation_app = self.app.clone();
+        let navigation_label = label.clone();
         let mut builder = WebviewBuilder::new(label, WebviewUrl::External(blank))
             .data_directory(paths.webview2.clone())
             .data_store_identifier(paths.webkit_identifier)
@@ -4866,19 +4977,18 @@ impl SystemRuntimeExecutor {
                     }
                     return false;
                 }
-                let allowed = matches!(url.scheme(), "about" | "http" | "https");
-                if should_release_macros_for_navigation(url)
-                    && let Some(role_id) = shortcut_role_id.as_ref()
-                {
-                    let core = Arc::clone(&shortcut_core);
-                    let role_id = role_id.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let _ = core
-                            .invoke_async(CoreCommand::MacroReleaseRole { role_id })
-                            .await;
-                    });
-                }
-                allowed
+                let Some(role_id) = shortcut_role_id.as_deref() else {
+                    return matches!(url.scheme(), "about" | "http" | "https");
+                };
+                navigation_app
+                    .try_state::<crate::CoreState>()
+                    .is_some_and(|state| {
+                        state.runtime.gate_navigation_after_macro_release(
+                            &navigation_label,
+                            role_id,
+                            url,
+                        )
+                    })
             })
             .on_new_window(move |url, features| {
                 let Some(role_id) = popup_role_id.as_ref() else {
@@ -4921,6 +5031,9 @@ impl SystemRuntimeExecutor {
                 };
                 let popup_download_app = popup_app.clone();
                 let popup_download_role_id = role_id.clone();
+                let popup_navigation_app = popup_app.clone();
+                let popup_navigation_role_id = role_id.clone();
+                let popup_navigation_label = label.clone();
                 let popup_builder = WebviewWindowBuilder::new(
                     &popup_app,
                     label.clone(),
@@ -4933,7 +5046,17 @@ impl SystemRuntimeExecutor {
                 .initialization_script_for_all_frames(&popup_document_start_script)
                 .enable_clipboard_access()
                 .zoom_hotkeys_enabled(false)
-                .on_navigation(|target| matches!(target.scheme(), "about" | "http" | "https"))
+                .on_navigation(move |target| {
+                    popup_navigation_app
+                        .try_state::<crate::CoreState>()
+                        .is_some_and(|state| {
+                            state.runtime.gate_navigation_after_macro_release(
+                                &popup_navigation_label,
+                                &popup_navigation_role_id,
+                                target,
+                            )
+                        })
+                })
                 .on_download(move |_webview, event| {
                     handle_browser_download(
                         &popup_download_app,
@@ -7620,6 +7743,14 @@ impl SystemRuntimeExecutor {
         }
         if let Ok(mut state) = self.state.lock() {
             state.closing_webviews.remove(&label);
+            if result.is_ok() {
+                state
+                    .approved_macro_release_navigations
+                    .retain(|(candidate, _)| candidate != &label);
+                state
+                    .pending_macro_release_navigations
+                    .retain(|(candidate, _)| candidate != &label);
+            }
         }
         result
     }
@@ -9614,6 +9745,27 @@ fn reload_runtime_tab_handles<T, E>(
 
 fn should_release_macros_for_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacroNavigationGateDecision {
+    Allow,
+    Release,
+    Wait,
+}
+
+fn claim_macro_navigation_release(
+    approved: &mut HashSet<(String, String)>,
+    pending: &mut HashSet<(String, String)>,
+    key: &(String, String),
+) -> MacroNavigationGateDecision {
+    if approved.remove(key) {
+        MacroNavigationGateDecision::Allow
+    } else if !pending.insert(key.clone()) {
+        MacroNavigationGateDecision::Wait
+    } else {
+        MacroNavigationGateDecision::Release
+    }
 }
 
 fn replace_single_script_token(
@@ -11756,6 +11908,36 @@ mod tests {
                 &Url::parse(url).unwrap()
             ));
         }
+    }
+
+    #[test]
+    fn macro_navigation_gate_denies_until_release_and_allows_one_resume() {
+        let key = (
+            "game-role-a".to_owned(),
+            "https://example.test/next".to_owned(),
+        );
+        let mut approved = HashSet::new();
+        let mut pending = HashSet::new();
+
+        assert_eq!(
+            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            MacroNavigationGateDecision::Release
+        );
+        assert_eq!(
+            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            MacroNavigationGateDecision::Wait
+        );
+        assert!(pending.remove(&key));
+        assert!(approved.insert(key.clone()));
+        assert_eq!(
+            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            MacroNavigationGateDecision::Allow
+        );
+        assert!(!approved.contains(&key));
+        assert_eq!(
+            claim_macro_navigation_release(&mut approved, &mut pending, &key),
+            MacroNavigationGateDecision::Release
+        );
     }
 
     #[test]

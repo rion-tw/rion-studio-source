@@ -1,3 +1,5 @@
+use std::thread::JoinHandle;
+
 mod bootstrap;
 mod legacy;
 mod logs;
@@ -25,3 +27,32 @@ pub use state::StateDatabaseWorker;
 pub(crate) use state::{
     LegacySessionRestoreState, OperationJournalRecord, SCHEMA_VERSION, StateMutation,
 };
+
+fn join_worker_if_finished(join: &mut Option<JoinHandle<()>>) {
+    let Some(worker) = join.take() else {
+        return;
+    };
+    if worker.is_finished() {
+        let _ = worker.join();
+    }
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use std::{sync::mpsc, thread};
+
+    use super::join_worker_if_finished;
+
+    #[test]
+    fn unfinished_worker_is_detached_instead_of_joined() {
+        let (release, wait) = mpsc::channel();
+        let mut worker = Some(thread::spawn(move || {
+            let _ = wait.recv();
+        }));
+
+        join_worker_if_finished(&mut worker);
+
+        assert!(worker.is_none());
+        release.send(()).unwrap();
+    }
+}

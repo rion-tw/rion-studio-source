@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::database::{
-    legacy,
+    join_worker_if_finished, legacy,
     portable_recovery::{self, StorageKind},
 };
 use crate::domain::{
@@ -39,6 +39,7 @@ use crate::model::{
 
 pub(crate) const SCHEMA_VERSION: u32 = 19;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
@@ -344,11 +345,14 @@ impl StateDatabaseWorker {
 
     pub fn shutdown(&mut self) {
         let (sender, receiver) = bounded(1);
-        let _ = self.sender.send(Request::Shutdown(sender));
-        let _ = receiver.recv_timeout(Duration::from_secs(3));
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
+        if self
+            .sender
+            .send_timeout(Request::Shutdown(sender), WORKER_SHUTDOWN_TIMEOUT)
+            .is_ok()
+        {
+            let _ = receiver.recv_timeout(WORKER_SHUTDOWN_TIMEOUT);
         }
+        join_worker_if_finished(&mut self.join);
     }
 }
 

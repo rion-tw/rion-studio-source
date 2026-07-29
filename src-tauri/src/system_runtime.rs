@@ -2547,8 +2547,15 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn relocate_game_window(&self, target: EmbeddedLaunchTargetRecord) -> Result<(), String> {
+        self.relocate_game_window_if_live(target).map(|_| ())
+    }
+
+    pub fn relocate_game_window_if_live(
+        &self,
+        target: EmbeddedLaunchTargetRecord,
+    ) -> Result<bool, String> {
         let Some(window) = self.window_for_id(&target.window_id) else {
-            return Ok(());
+            return Ok(false);
         };
         if window.is_fullscreen().unwrap_or(false) {
             window
@@ -2594,7 +2601,7 @@ impl SystemRuntimeExecutor {
             _ => {}
         }
         self.publish_projection();
-        Ok(())
+        Ok(true)
     }
 
     pub fn focus_window(self: &Arc<Self>, label: &str) {

@@ -49,6 +49,7 @@ const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
 const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+const SURFACE_RELEASE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
@@ -87,11 +88,72 @@ const BROWSER_FONTS_RUNTIME_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/browserFontsRuntime.js");
 const BROWSER_FONTS_REFRESH_SOURCE: &str = "void globalThis.__rionStudioBrowserFonts?.refresh?.()";
 const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
-Object.defineProperty(window, "__rionSystemWebView", {
-  configurable: false,
-  enumerable: false,
-  value: Object.freeze({ version: 1 })
-});
+(() => {
+  Object.defineProperty(globalThis, "__rionSystemWebView", {
+    configurable: false,
+    enumerable: false,
+    value: Object.freeze({ version: 1 })
+  });
+
+  const closeMessage = "__rion_native_surface_prepare_close_v1__";
+  const beforeUnloadListeners = [];
+  const eventTarget = globalThis.EventTarget?.prototype;
+  const originalAddEventListener = eventTarget?.addEventListener;
+  const originalRemoveEventListener = eventTarget?.removeEventListener;
+  const captureValue = (options) => typeof options === "boolean"
+    ? options
+    : Boolean(options?.capture);
+
+  if (originalAddEventListener && originalRemoveEventListener) {
+    eventTarget.addEventListener = function(type, listener, options) {
+      if (this === globalThis && type === "beforeunload" && listener) {
+        beforeUnloadListeners.push({ listener, capture: captureValue(options) });
+      }
+      return Reflect.apply(originalAddEventListener, this, [type, listener, options]);
+    };
+    eventTarget.removeEventListener = function(type, listener, options) {
+      if (this === globalThis && type === "beforeunload" && listener) {
+        const capture = captureValue(options);
+        for (let index = beforeUnloadListeners.length - 1; index >= 0; index -= 1) {
+          const entry = beforeUnloadListeners[index];
+          if (entry.listener === listener && entry.capture === capture) {
+            beforeUnloadListeners.splice(index, 1);
+          }
+        }
+      }
+      return Reflect.apply(originalRemoveEventListener, this, [type, listener, options]);
+    };
+  }
+
+  const prepareForNativeClose = () => {
+    try { globalThis.onbeforeunload = null; } catch {}
+    if (originalRemoveEventListener) {
+      for (const entry of beforeUnloadListeners.splice(0)) {
+        try {
+          Reflect.apply(originalRemoveEventListener, globalThis, [
+            "beforeunload",
+            entry.listener,
+            entry.capture
+          ]);
+        } catch {}
+      }
+    }
+    for (let index = 0; index < globalThis.frames.length; index += 1) {
+      try { globalThis.frames[index].postMessage(closeMessage, "*"); } catch {}
+    }
+  };
+
+  if (originalAddEventListener) {
+    Reflect.apply(originalAddEventListener, globalThis, ["message", (event) => {
+      if (event.data === closeMessage) prepareForNativeClose();
+    }, false]);
+  }
+  Object.defineProperty(globalThis, "__rionPrepareForNativeClose", {
+    configurable: false,
+    enumerable: false,
+    value: prepareForNativeClose
+  });
+})();
 "#;
 const PERFORMANCE_DIAGNOSTIC_START_SOURCE: &str = r#"(() => {
   const key = "__rionStudioPerformanceDiagnostics";
@@ -433,10 +495,40 @@ impl SurfaceLifecycleTracker {
         }
     }
 
+    fn native_surface_is_released(&self) -> bool {
+        self.release
+            .lock()
+            .map(|release| release.native_surface_released)
+            .unwrap_or(false)
+    }
+
     fn wait_for_controller_release(&self, platform: &str, timeout: Duration) -> bool {
         self.wait_for(timeout, |release| {
             surface_release_complete(platform, release)
         })
+    }
+
+    fn wait_for_platform_release(
+        &self,
+        platform: &str,
+        timeout: Duration,
+        mut confirm_native_release: impl FnMut() -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if confirm_native_release() {
+                self.mark_native_surface_released();
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if self
+                .wait_for_controller_release(platform, remaining.min(SURFACE_RELEASE_POLL_INTERVAL))
+            {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+        }
     }
 
     #[cfg(all(windows, test))]
@@ -1575,6 +1667,25 @@ impl SystemRuntimeExecutor {
                 })
                 .await;
         });
+    }
+
+    fn record_surface_stage_by_label(
+        &self,
+        level: LogLevel,
+        event: &'static str,
+        message: &'static str,
+        webview_label: &str,
+    ) {
+        let surface = self.state.lock().ok().and_then(|state| {
+            state
+                .surface_registry
+                .values()
+                .find(|surface| surface.webview.label() == webview_label)
+                .cloned()
+        });
+        if let Some(surface) = surface {
+            self.record_surface_event(level, event, message, &surface);
+        }
     }
 
     pub fn set_language(&self, language: &str) {
@@ -8410,20 +8521,6 @@ impl SystemRuntimeExecutor {
             }
         }
         let result = (|| -> RuntimeResult<()> {
-            let surface_is_registered = self.app.get_webview(&label).is_some();
-            let quiesce_error = if surface_is_registered {
-                quiesce_platform_surface(webview, lifecycle).err()
-            } else {
-                None
-            };
-            let mut close_error = None;
-            let mut main_thread_flush_error = None;
-            if surface_is_registered {
-                close_error = webview.close().err().map(|error| error.to_string());
-                main_thread_flush_error = wait_for_tauri_main_thread(&self.app)
-                    .err()
-                    .map(|error| error.message);
-            }
             let platform = if cfg!(windows) {
                 "windows"
             } else if cfg!(target_os = "macos") {
@@ -8432,8 +8529,79 @@ impl SystemRuntimeExecutor {
                 "other"
             };
             let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+            let surface_is_registered = self.app.get_webview(&label).is_some();
+            let mut close_error = None;
+            let mut main_thread_flush_error = None;
+            if !lifecycle.native_surface_is_released() {
+                if let Err(error) = quiesce_platform_surface(webview, lifecycle) {
+                    self.record_surface_stage_by_label(
+                        LogLevel::Error,
+                        "surface.quiesce-unverified",
+                        "Native surface isolation request failed.",
+                        &label,
+                    );
+                    let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
+                    let _ = self.app.emit(
+                        "rion://shell-error",
+                        json!({
+                            "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                            "failureKind": "native-quiesce-failed",
+                            "message": message,
+                            "roleId": role_id,
+                            "webviewLabel": label,
+                            "quiesceError": error.message
+                        }),
+                    );
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        message,
+                    ));
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if !wait_for_platform_surface_quiesced(lifecycle, remaining) {
+                    self.record_surface_stage_by_label(
+                        LogLevel::Error,
+                        "surface.quiesce-unverified",
+                        "Native surface isolation could not be verified.",
+                        &label,
+                    );
+                    let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
+                    let _ = self.app.emit(
+                        "rion://shell-error",
+                        json!({
+                            "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                            "failureKind": "native-quiesce-timeout",
+                            "message": message,
+                            "roleId": role_id,
+                            "webviewLabel": label
+                        }),
+                    );
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        message,
+                    ));
+                }
+                self.record_surface_stage_by_label(
+                    LogLevel::Debug,
+                    "surface.quiesced",
+                    "Native surface stopped and committed its isolated page.",
+                    &label,
+                );
+            }
+            if surface_is_registered {
+                close_error = webview.close().err().map(|error| error.to_string());
+                main_thread_flush_error = wait_for_tauri_main_thread(&self.app)
+                    .err()
+                    .map(|error| error.message);
+            }
             while self.app.get_webview(&label).is_some() {
                 if Instant::now() >= deadline {
+                    self.record_surface_stage_by_label(
+                        LogLevel::Error,
+                        "surface.controller-unverified",
+                        "Tauri surface removal could not be verified.",
+                        &label,
+                    );
                     #[cfg(windows)]
                     let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
                     #[cfg(not(windows))]
@@ -8449,8 +8617,7 @@ impl SystemRuntimeExecutor {
                             "roleId": role_id,
                             "webviewLabel": label,
                             "closeError": close_error,
-                            "mainThreadFlushError": main_thread_flush_error,
-                            "quiesceError": quiesce_error.map(|error| error.message)
+                            "mainThreadFlushError": main_thread_flush_error
                         }),
                     );
                     return Err(RuntimeError::new(
@@ -8462,7 +8629,15 @@ impl SystemRuntimeExecutor {
             }
             lifecycle.mark_controller_released();
             let remaining = deadline.saturating_duration_since(Instant::now());
-            if !lifecycle.wait_for_controller_release(platform, remaining) {
+            if !lifecycle.wait_for_platform_release(platform, remaining, || {
+                confirm_platform_surface_release(lifecycle)
+            }) {
+                self.record_surface_stage_by_label(
+                    LogLevel::Error,
+                    "surface.native-unverified",
+                    "Native surface detachment could not be verified.",
+                    &label,
+                );
                 let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
                 let _ = self.app.emit(
                     "rion://shell-error",
@@ -8473,8 +8648,7 @@ impl SystemRuntimeExecutor {
                         "roleId": role_id,
                         "webviewLabel": label,
                         "closeError": close_error,
-                        "mainThreadFlushError": main_thread_flush_error,
-                        "quiesceError": quiesce_error.map(|error| error.message)
+                        "mainThreadFlushError": main_thread_flush_error
                     }),
                 );
                 return Err(RuntimeError::new(
@@ -12021,6 +12195,58 @@ fn quiesce_platform_surface(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn confirm_platform_surface_release(lifecycle: &Arc<SurfaceLifecycleTracker>) -> bool {
+    unsafe extern "C" {
+        fn rion_wk_surface_released(token: u64) -> bool;
+    }
+    let token = lifecycle.native_token.load(Ordering::Acquire);
+    token != 0 && unsafe { rion_wk_surface_released(token) }
+}
+
+#[cfg(target_os = "macos")]
+fn confirm_platform_surface_quiesced(lifecycle: &Arc<SurfaceLifecycleTracker>) -> bool {
+    unsafe extern "C" {
+        fn rion_wk_surface_quiesced(token: u64) -> bool;
+    }
+    let token = lifecycle.native_token.load(Ordering::Acquire);
+    token != 0 && unsafe { rion_wk_surface_quiesced(token) }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn confirm_platform_surface_quiesced(_lifecycle: &Arc<SurfaceLifecycleTracker>) -> bool {
+    true
+}
+
+fn wait_for_platform_surface_quiesced(
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+    timeout: Duration,
+) -> bool {
+    wait_for_native_condition(timeout, || confirm_platform_surface_quiesced(lifecycle))
+}
+
+fn wait_for_native_condition(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if condition() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(SURFACE_RELEASE_POLL_INTERVAL),
+        );
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn confirm_platform_surface_release(_lifecycle: &Arc<SurfaceLifecycleTracker>) -> bool {
+    true
+}
+
 #[cfg(windows)]
 fn quiesce_platform_surface(
     webview: &Webview,
@@ -12649,6 +12875,26 @@ mod tests {
     }
 
     #[test]
+    fn surface_release_barrier_polls_the_exact_native_lease() {
+        let tracker = SurfaceLifecycleTracker::default();
+        tracker.mark_controller_released();
+        let mut polls = 0;
+        assert!(
+            tracker.wait_for_platform_release("macos", Duration::from_millis(100), || {
+                polls += 1;
+                polls == 2
+            })
+        );
+        assert_eq!(polls, 2);
+    }
+
+    #[test]
+    fn native_lease_confirmation_cannot_bypass_the_controller_barrier() {
+        let tracker = SurfaceLifecycleTracker::default();
+        assert!(!tracker.wait_for_platform_release("macos", Duration::from_millis(5), || true));
+    }
+
+    #[test]
     fn unhealthy_runtime_fails_closed_for_future_lifecycle_mutations() {
         let health = RuntimeHealth::new();
         assert!(health.require_healthy().is_ok());
@@ -12684,6 +12930,28 @@ mod tests {
             &mut recovering_roles,
             "role-c"
         ));
+    }
+
+    #[test]
+    fn native_quiesce_wait_polls_until_the_exact_surface_is_isolated() {
+        let mut polls = 0;
+        assert!(wait_for_native_condition(
+            Duration::from_millis(100),
+            || {
+                polls += 1;
+                polls == 2
+            }
+        ));
+        assert_eq!(polls, 2);
+    }
+
+    #[test]
+    fn native_quiesce_wait_is_bounded() {
+        let started = Instant::now();
+        assert!(!wait_for_native_condition(Duration::from_millis(5), || {
+            false
+        }));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

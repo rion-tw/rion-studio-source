@@ -23,12 +23,26 @@ typedef void (*RionWKSurfaceContextDestructor)(void *context);
 @property(nonatomic, assign) void *context;
 @property(nonatomic, assign) RionWKSurfaceReleasedCallback releasedCallback;
 @property(nonatomic, assign) RionWKSurfaceContextDestructor contextDestructor;
+@property(nonatomic, assign) BOOL quiesceRequested;
+@property(nonatomic, assign) BOOL blankNavigationRequested;
+- (void)finishRelease;
 @end
 
 @implementation RionWKSurfaceLease
+- (void)finishRelease {
+  if (!_context) return;
+  void *context = _context;
+  RionWKSurfaceReleasedCallback releasedCallback = _releasedCallback;
+  RionWKSurfaceContextDestructor contextDestructor = _contextDestructor;
+  _context = NULL;
+  _releasedCallback = NULL;
+  _contextDestructor = NULL;
+  if (releasedCallback) releasedCallback(context);
+  if (contextDestructor) contextDestructor(context);
+}
+
 - (void)dealloc {
-  if (_context && _releasedCallback) _releasedCallback(_context);
-  if (_context && _contextDestructor) _contextDestructor(_context);
+  [self finishRelease];
 }
 @end
 
@@ -69,6 +83,18 @@ static uint64_t RionWKAttachSurfaceLease(
   return lease.token;
 }
 
+static void RionWKFinishSurfaceLease(RionWKSurfaceLease *lease) {
+  if (!lease) return;
+  WKWebView *webView = lease.webView;
+  uint64_t token = lease.token;
+  if (webView) {
+    objc_setAssociatedObject(webView, &RionWKSurfaceLeaseKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
+  [RionWKSurfaceLeases() removeObjectForKey:@(token)];
+  [lease finishRelease];
+}
+
 uint64_t rion_wk_track_surface(
     void *rawWebView, void *context,
     RionWKSurfaceReleasedCallback releasedCallback,
@@ -95,10 +121,32 @@ static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
       return false;
     }
     @try {
-      [webView stopLoading];
-      NSURL *blankURL = [NSURL URLWithString:@"about:blank"];
-      if (!blankURL) return false;
-      [webView loadRequest:[NSURLRequest requestWithURL:blankURL]];
+      lease.quiesceRequested = YES;
+      if (lease.blankNavigationRequested) return true;
+      __weak WKWebView *weakWebView = webView;
+      __weak RionWKSurfaceLease *weakLease = lease;
+      [webView
+          evaluateJavaScript:
+              @"try { globalThis.__rionPrepareForNativeClose?.(); } catch {}"
+          completionHandler:^(__unused id result, __unused NSError *error) {
+            WKWebView *strongWebView = weakWebView;
+            RionWKSurfaceLease *strongLease = weakLease;
+            if (!strongWebView || !strongLease ||
+                strongLease.blankNavigationRequested) return;
+            uintptr_t completionDataStore = (uintptr_t)(__bridge void *)
+                strongWebView.configuration.websiteDataStore;
+            if (completionDataStore == 0 ||
+                completionDataStore != strongLease.dataStoreIdentity) return;
+            @try {
+              [strongWebView stopLoading];
+              NSURL *blankURL = [NSURL URLWithString:@"about:blank"];
+              if (!blankURL) return;
+              strongLease.blankNavigationRequested = YES;
+              [strongWebView
+                  loadRequest:[NSURLRequest requestWithURL:blankURL]];
+            } @catch (__unused NSException *exception) {
+            }
+          }];
       return true;
     } @catch (__unused NSException *exception) {
       return false;
@@ -115,10 +163,70 @@ bool rion_wk_quiesce_surface(uint64_t token) {
   return result;
 }
 
+static bool RionWKSurfaceQuiescedOnMain(uint64_t token) {
+  @autoreleasepool {
+    RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
+    WKWebView *webView = lease.webView;
+    if (!lease || !webView || !lease.quiesceRequested ||
+        !lease.blankNavigationRequested) return false;
+    uintptr_t currentDataStore = (uintptr_t)(__bridge void *)
+        webView.configuration.websiteDataStore;
+    if (currentDataStore == 0 || currentDataStore != lease.dataStoreIdentity) {
+      return false;
+    }
+    @try {
+      NSURL *url = webView.URL;
+      if (!url || ![url.absoluteString isEqualToString:@"about:blank"]) {
+        return false;
+      }
+      [webView stopLoading];
+      return !webView.loading;
+    } @catch (__unused NSException *exception) {
+      return false;
+    }
+  }
+}
+
+bool rion_wk_surface_quiesced(uint64_t token) {
+  if (NSThread.isMainThread) return RionWKSurfaceQuiescedOnMain(token);
+  __block bool result = false;
+  dispatch_sync(dispatch_get_main_queue(), ^{
+    result = RionWKSurfaceQuiescedOnMain(token);
+  });
+  return result;
+}
+
 static bool RionWKSurfaceReleasedOnMain(uint64_t token) {
   @autoreleasepool {
     RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
-    return !lease || !lease.webView;
+    if (!lease) return true;
+    WKWebView *webView = lease.webView;
+    if (!webView) {
+      RionWKFinishSurfaceLease(lease);
+      return true;
+    }
+    uintptr_t currentDataStore = (uintptr_t)(__bridge void *)
+        webView.configuration.websiteDataStore;
+    if (!lease.quiesceRequested || currentDataStore == 0 ||
+        currentDataStore != lease.dataStoreIdentity) {
+      return false;
+    }
+    @try {
+      // Wry removes the WKWebView from its native host when processing Close, but
+      // may retain the Objective-C object past that point. Confirm the exact view
+      // is detached and isolated instead of waiting for an unreachable dealloc.
+      if (webView.superview || webView.window) return false;
+      NSURL *url = webView.URL;
+      if (url && ![url.absoluteString isEqualToString:@"about:blank"]) {
+        return false;
+      }
+      [webView stopLoading];
+      if (webView.loading) return false;
+      RionWKFinishSurfaceLease(lease);
+      return true;
+    } @catch (__unused NSException *exception) {
+      return false;
+    }
   }
 }
 
@@ -161,17 +269,20 @@ bool rion_wk_surface_lifecycle_self_test(void) {
         secondDataStoreIdentity != 0 &&
         firstDataStoreIdentity != secondDataStoreIdentity;
     BOOL live = firstLease.webView == first && secondLease.webView == second;
-    firstLease.releasedCallback(firstLease.context);
+    RionWKFinishSurfaceLease(firstLease);
     BOOL isolated = firstContext == 1 && secondContext == 0;
-    secondLease.releasedCallback(secondLease.context);
+    BOOL firstRemoved =
+        [RionWKSurfaceLeases() objectForKey:@(firstToken)] == nil;
+    RionWKFinishSurfaceLease(secondLease);
     BOOL callbacksMatched = firstContext == 1 && secondContext == 1;
-    firstLease.context = NULL;
-    secondLease.context = NULL;
+    BOOL secondRemoved =
+        [RionWKSurfaceLeases() objectForKey:@(secondToken)] == nil;
     objc_setAssociatedObject(first, &RionWKSurfaceLeaseKey, nil,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(second, &RionWKSurfaceLeaseKey, nil,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return distinct && distinctDataStores && live && isolated && callbacksMatched;
+    return distinct && distinctDataStores && live && isolated && callbacksMatched &&
+        firstRemoved && secondRemoved;
   }
 }
 

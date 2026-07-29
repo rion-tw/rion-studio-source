@@ -198,13 +198,13 @@ function RolesView({
         actions={
           <>
             <SearchField
-              className="w-full sm:w-44 lg:w-48"
+              className="page-header-control page-header-search"
               placeholder={t("roles.searchPlaceholder")}
               value={query}
               onChange={onQueryChange}
             />
             <Button
-              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              className="page-header-control gap-1.5 px-2.5"
               type="button"
               variant="outline"
               onClick={onNewRole}
@@ -213,7 +213,7 @@ function RolesView({
               {t("roles.newRole")}
             </Button>
             <Button
-              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              className="page-header-control gap-1.5 px-2.5"
               type="button"
               variant="outline"
               onClick={() => setChromeImportOpen(true)}
@@ -237,14 +237,14 @@ function RolesView({
         />
       ) : null}
 
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+      <div className="list-toolbar gap-2">
         <RoleFilterTabs
           activeFilter={activeFilter}
           counts={filterCounts}
           t={t}
           onFilterChange={onFilterChange}
         />
-        <div className="flex items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-[11px] font-medium text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-[11px] font-medium text-muted-foreground">
           {t("roles.visibleCount")
             .replace("{visible}", String(visibleRoles.length))
             .replace("{total}", String(roles.length))}
@@ -260,7 +260,7 @@ function RolesView({
           onAction={onClearQuery}
         />
       ) : (
-        <div className="grid auto-rows-fr grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+        <div className="collection-grid collection-grid-roles auto-rows-fr gap-4">
           {visibleRoles.map((role) => {
             const status = statusByRole.get(role.id);
             const isBusy =

@@ -223,7 +223,7 @@ function MacroEditor({
       title={form.name}
       titleAriaLabel={t("macroForm.name")}
       titlePlaceholder={t("macroForm.namePlaceholder")}
-      contentClassName="min-[1180px]:grid-cols-[320px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[340px_minmax(0,1fr)]"
+      contentClassName="editor-layout editor-layout-macro"
     >
       <MacroForm
         form={form}
@@ -597,7 +597,7 @@ function MacroForm({
             </Surface>
           </div>
 
-          <div className="grid gap-4 min-[1180px]:col-span-2" data-macro-help-list>
+          <div className="editor-layout-macro-help grid gap-4" data-macro-help-list>
             <HelpPanel data-macro-help="activation">
               <MacroHelpSection title={t("macroForm.help.activationTitle")}>
                 <li>{t("macroForm.help.activationRoles")}</li>

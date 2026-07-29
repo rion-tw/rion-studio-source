@@ -83,7 +83,7 @@ export function EditorPage({
       <form
         ref={formRef}
         id="app-editor-form"
-        className="app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10"
+        className="app-page h-full overflow-auto px-6 py-7"
         onSubmit={onSubmit}
       >
         <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-4">

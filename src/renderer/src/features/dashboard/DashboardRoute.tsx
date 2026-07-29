@@ -143,7 +143,7 @@ function DashboardRoute({
         actions={
           <>
             {embeddedRuntime.windows.length > 0 || (embeddedRuntime.savedWindows?.length ?? 0) > 0 ? (
-              <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNavigateGameWindows}>
+              <Button className="page-header-control gap-1.5" type="button" variant="outline" size="sm" onClick={onNavigateGameWindows}>
                 <MonitorUp aria-hidden="true" size={14} />
                 {t("dashboard.showGameWindows")}
                 <Badge variant="outline">
@@ -196,7 +196,7 @@ function DashboardRoute({
         />
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2.5 min-[1200px]:grid-cols-5">
+      <div className="dashboard-stats-grid gap-2.5" data-dashboard-stats>
         <StatCard
           icon={Gamepad2}
           label={t("dashboard.stat.games")}
@@ -228,7 +228,7 @@ function DashboardRoute({
       </div>
 
 
-      <div className="grid min-w-0 items-start gap-4 md:grid-cols-3">
+      <div className="dashboard-panels-grid items-start gap-4" data-dashboard-panels>
         <div className="grid min-w-0 gap-4">
           <Panel
             title={t("dashboard.quickRoles.title")}

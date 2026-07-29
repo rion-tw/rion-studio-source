@@ -84,7 +84,7 @@ function GameEditor({
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />} saveLabel={form.id ? t("games.form.save") : t("games.form.create")}
       title={form.name} titleAriaLabel={t("games.form.name")} titlePlaceholder={t("games.form.namePlaceholder")}
       titleDisabled={form.source === "builtin"}
-      contentClassName="min-[1100px]:grid-cols-[minmax(0,1fr)_260px] min-[1100px]:items-start"
+      contentClassName="editor-layout editor-layout-game"
     >
       <div className="grid gap-4">
         {form.source === "builtin" ? <Surface className="flex items-center justify-between gap-3 p-4" variant="inset"><p className="text-xs text-muted-foreground">{t("games.form.builtinLocked")}</p><Button type="button" variant="outline" onClick={() => void resetBuiltin()}><RotateCcw size={15} />{t("games.reset.action")}</Button></Surface> : null}

@@ -168,13 +168,13 @@ function LaunchWorkspacesView({
         actions={
           <>
             <SearchField
-              className="w-full sm:w-44 lg:w-48"
+              className="page-header-control page-header-search"
               placeholder={t("workspaces.searchPlaceholder")}
               value={query}
               onChange={onQueryChange}
             />
             <Button
-              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              className="page-header-control gap-1.5 px-2.5"
               type="button"
               variant="outline"
               onClick={onCreateWorkspace}
@@ -207,7 +207,7 @@ function LaunchWorkspacesView({
           onAction={() => onQueryChange("")}
         />
       ) : (
-        <div className="grid auto-rows-fr grid-cols-2 gap-3.5 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="collection-grid collection-grid-workspaces auto-rows-fr gap-3.5">
           {filteredWorkspaces.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}

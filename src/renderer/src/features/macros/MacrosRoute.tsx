@@ -183,7 +183,7 @@ function MacrosRoute({
         actions={
           <>
             <SearchField
-              className="w-full sm:w-44 lg:w-48"
+              className="page-header-control page-header-search"
               placeholder={t("macros.searchPlaceholder")}
               value={query}
               onChange={onQueryChange}
@@ -194,7 +194,7 @@ function MacrosRoute({
                 onRoleFilterChange(value === ALL_ROLES_SELECT_VALUE ? "" : value)
               }
             >
-              <SelectTrigger className="w-full sm:w-40 lg:w-44" aria-label={t("macros.filterRole")}>
+              <SelectTrigger className="page-header-control page-header-select" aria-label={t("macros.filterRole")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -205,7 +205,7 @@ function MacrosRoute({
               </SelectContent>
             </Select>
             <Button
-              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              className="page-header-control gap-1.5 px-2.5"
               type="button"
               variant="outline"
               onClick={handleNewMacro}
@@ -229,7 +229,7 @@ function MacrosRoute({
         />
       ) : null}
 
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+      <div className="list-toolbar gap-2">
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <Badge variant="secondary">{t("macros.count").replace("{count}", String(macros.length))}</Badge>
           <Badge variant="secondary">{t("macros.runningCount").replace("{count}", String(runningCount))}</Badge>

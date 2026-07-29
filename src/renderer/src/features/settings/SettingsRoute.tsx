@@ -413,7 +413,7 @@ function SettingsViewBase({
   return (
     <PageFrame
       maxWidth="settings"
-      className="settings-page py-10 md:py-14"
+      className="settings-page"
       contentClassName="mx-auto flex min-h-full w-full max-w-[840px] flex-col gap-8"
     >
       <header className="settings-page-header">
@@ -1625,7 +1625,7 @@ function MacroBadgePositionSettingsRows({
                   }
                 }}
               />
-              <output className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-muted-foreground">
+              <output className="w-14 shrink-0 text-right text-xs font-semibold text-muted-foreground">
                 {draft.topPx} px
               </output>
             </div>
@@ -1651,7 +1651,7 @@ function MacroBadgePositionSettingsRows({
                   }
                 }}
               />
-              <output className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-muted-foreground">
+              <output className="w-14 shrink-0 text-right text-xs font-semibold text-muted-foreground">
                 {draft.horizontalMarginPx} px
               </output>
             </div>
@@ -2064,7 +2064,7 @@ function PortableImportOperationsSummary({
         return (
           <div key={item.key} className="flex items-center justify-between gap-3 text-[11px] leading-4">
             <span className="font-semibold text-foreground">{t(item.labelKey)}</span>
-            <span className="text-right tabular-nums text-muted-foreground">
+            <span className="text-right text-muted-foreground">
               {t("settings.importOperationSummary")
                 .replace("{create}", String(summary.create))
                 .replace("{update}", String(summary.update))
@@ -2204,7 +2204,7 @@ function PortableDataSelectionControls({
                   {isAvailable ? description : t("settings.portableUnavailable")}
                 </span>
               </span>
-              <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+              <span className="shrink-0 text-xs font-semibold text-muted-foreground">
                 {count ?? (isAvailable ? t("settings.portableIncluded") : "—")}
               </span>
             </label>

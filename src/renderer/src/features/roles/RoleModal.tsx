@@ -117,7 +117,7 @@ function RoleEditor({
       title={form.name}
       titleAriaLabel={t("roleForm.name")}
       titlePlaceholder={t("roleForm.namePlaceholder")}
-      contentClassName="min-[1180px]:grid-cols-[minmax(0,1fr)_240px] min-[1180px]:items-start xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]"
+      contentClassName="editor-layout editor-layout-role"
     >
       <RoleForm
         form={form}

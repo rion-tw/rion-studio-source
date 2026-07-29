@@ -203,6 +203,7 @@
     background: transparent;
     color: hsl(var(--foreground));
     font-family: var(--font-sans);
+    font-variant-numeric: lining-nums tabular-nums;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -213,6 +214,7 @@
   select,
   textarea {
     font: inherit;
+    font-variant-numeric: inherit;
   }
 
   input[type="number"] {
@@ -330,6 +332,8 @@
   .app-content {
     position: relative;
     isolation: isolate;
+    container-name: app-content;
+    container-type: inline-size;
     border-left: 1px solid hsl(var(--glass-border-muted));
     background:
       linear-gradient(180deg, hsl(var(--app-material-strong)) 0%, transparent 176px),
@@ -388,9 +392,8 @@
     color: hsl(var(--sidebar-foreground) / 0.72);
     font-size: 11px;
     font-weight: 600;
+    font-variant-numeric: inherit;
     line-height: 1;
-    -webkit-backdrop-filter: blur(16px) saturate(1.14);
-    backdrop-filter: blur(16px) saturate(1.14);
     box-shadow:
       inset 0 1px 0 hsl(var(--glass-highlight-muted)),
       0 1px 2px hsl(var(--glass-shadow));
@@ -525,8 +528,21 @@
   .glass-popover,
   .glass-inset {
     border: 1px solid hsl(var(--glass-border));
+  }
+
+  .glass-panel,
+  .glass-panel-strong,
+  .glass-modal,
+  .glass-popover {
     -webkit-backdrop-filter: blur(22px) saturate(1.08);
     backdrop-filter: blur(22px) saturate(1.08);
+  }
+
+  .glass-control,
+  .glass-control-selected,
+  .glass-inset {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   .glass-panel {
@@ -658,6 +674,13 @@
 
   .settings-row {
     min-height: 4rem;
+    align-items: stretch;
+    justify-content: flex-start;
+    flex-direction: column;
+  }
+
+  .settings-page {
+    padding-block: 2.5rem;
   }
 
   .settings-menu-control,
@@ -667,7 +690,13 @@
     max-width: 100%;
   }
 
-  @media (min-width: 640px) {
+  @container app-content (min-width: 600px) {
+    .settings-row {
+      align-items: center;
+      justify-content: space-between;
+      flex-direction: row;
+    }
+
     .settings-menu-control,
     .settings-menu-stack {
       width: max-content;
@@ -687,6 +716,219 @@
 
     .settings-window-size-fields {
       width: 20rem;
+    }
+  }
+
+  .collection-grid,
+  .dashboard-panels-grid,
+  .dashboard-stats-grid {
+    display: grid;
+    min-width: 0;
+  }
+
+  .collection-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .collection-grid-games,
+  .collection-grid-roles,
+  .collection-grid-workspaces {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-panels-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-layout,
+  .workspace-editor-fields,
+  .workspace-editor-surface {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page-header-control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .list-toolbar {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  @container app-content (max-width: 599px) {
+    .collection-grid-games,
+    .collection-grid-roles,
+    .collection-grid-workspaces {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @container app-content (min-width: 600px) {
+    .app-page-actions {
+      flex-direction: row;
+    }
+
+    .page-header-control {
+      width: auto;
+      flex: none;
+    }
+
+    .page-header-search {
+      width: 11rem;
+    }
+
+    .page-header-select {
+      width: 11rem;
+    }
+  }
+
+  @container app-content (min-width: 660px) {
+    .dashboard-panels-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .form-grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .list-toolbar {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+  }
+
+  @container app-content (min-width: 760px) {
+    .app-page {
+      padding: 2.5rem;
+    }
+
+    .settings-page {
+      padding-block: 3.5rem;
+    }
+
+    .dashboard-stats-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .collection-grid-roles {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @container app-content (min-width: 860px) {
+    .editor-layout-game {
+      grid-template-columns: minmax(0, 1fr) 260px;
+      align-items: start;
+    }
+  }
+
+  @container app-content (min-width: 920px) {
+    .dashboard-panels-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .form-grid-3,
+    .workspace-editor-fields {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .editor-layout-role {
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+      align-items: start;
+    }
+
+    .editor-layout-macro {
+      grid-template-columns: 320px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .editor-layout-macro-help {
+      grid-column: span 2 / span 2;
+    }
+
+    .workspace-editor-surface {
+      grid-template-columns: minmax(0, 1fr) 270px;
+    }
+
+    .workspace-editor-role-list {
+      min-height: 0;
+      max-height: none;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .workspace-editor-sidebar {
+      overflow: hidden;
+      border-top: 0;
+      border-left-width: 1px;
+      contain: size;
+    }
+  }
+
+  @container app-content (min-width: 960px) {
+    .app-page-header {
+      flex-direction: row;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .app-page-actions {
+      width: auto;
+    }
+
+    .page-header-search {
+      width: 12rem;
+    }
+  }
+
+  @container app-content (min-width: 1000px) {
+    .collection-grid-games,
+    .collection-grid-workspaces {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .collection-grid-game-windows {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .editor-layout-macro {
+      grid-template-columns: 340px minmax(0, 1fr);
+    }
+  }
+
+  @container app-content (min-width: 1120px) {
+    .collection-grid-roles {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @container app-content (min-width: 1280px) {
+    .collection-grid-workspaces {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @container app-content (max-width: 599px) {
+    .app-editor-header {
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+      gap: 0.75rem;
+    }
+
+    .app-editor-header > :last-child {
+      width: 100%;
+      align-items: stretch;
+    }
+
+    .app-editor-header > :last-child > :last-child {
+      justify-content: flex-end;
     }
   }
 

@@ -932,7 +932,7 @@
   "error.rolesAlreadyRunning": "以下角色已在其他遊戲視窗執行：{names}。請先停止後再啟動。",
   "error.hiddenBrowserHelperUnavailable": "無法啟動隱藏的瀏覽器輔助程式。",
   "error.gamePageLoadFailed": "無法載入遊戲頁面。請檢查作業系統網路設定或遊戲加速器模式。",
-  "error.surfaceReleaseUnverified": "無法確認角色的原生遊戲頁面已停止。分頁已保留，請重試或重新啟動 Rion Studio。",
+  "error.surfaceReleaseUnverified": "無法確認角色的原生遊戲頁面已停止。分頁會保持關閉；重新開啟此角色前，請先重新啟動 Rion Studio。",
   "notice.roleBrowserDataCleared": "已清除「{name}」的瀏覽器資料。",
   "notice.localStorageSyncBound": "本地資料綁定已儲存；執行中的角色若尚未完成套用，會在背景持續重試同步。",
   "notice.roleSessionMigrated": "已驗證 {count} 個 Cookie，並將「{name}」遷移至系統引擎。",

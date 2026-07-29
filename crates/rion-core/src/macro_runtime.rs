@@ -30,6 +30,8 @@ const UNASSIGNED_WORKFLOW_MESSAGE: &str =
     "Assign a role to this macro and every called macro before running it.";
 const DISABLED_MACRO_MESSAGE: &str = "Enable this macro before running it.";
 const UNAVAILABLE_ROLE_MESSAGE: &str = "Launch at least one assigned role before running a macro.";
+const STOPPING_ROLE_MESSAGE: &str =
+    "A role assigned to this macro is stopping and cannot accept new input.";
 
 type EventSink = Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>;
 type Waiter = Arc<dyn Fn(&Arc<InvocationControl>, &str, u32) -> Result<(), String> + Send + Sync>;
@@ -61,6 +63,7 @@ struct Inner {
     early_releases: HashMap<String, String>,
     mutation_leases: HashMap<String, HashSet<String>>,
     mutating_macro_ids: HashSet<String>,
+    stopping_role_ids: HashSet<String>,
     statuses: HashMap<String, MacroRunStatus>,
 }
 
@@ -381,6 +384,37 @@ impl MacroRuntime {
         self.stop_role_matching(role_id, None)
     }
 
+    /// Fences new work for a role and requests cancellation without waiting for
+    /// every invocation worker to finish its bounded native cleanup.
+    ///
+    /// Browser teardown must be able to proceed while a worker is unwinding: the
+    /// cancellation flag is the safety boundary, whereas joining the worker is
+    /// resource cleanup and can take up to `INVOCATION_STOP_TIMEOUT`.
+    pub fn request_stop_role(&self, role_id: &str) -> CoreResult<()> {
+        let controls = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            inner.stopping_role_ids.insert(role_id.to_owned());
+            inner
+                .invocations
+                .values()
+                .filter(|control| control.role_ids.contains(role_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        controls.iter().for_each(|control| cancel_control(control));
+        Ok(())
+    }
+
+    pub fn allow_role_after_launch(&self, role_id: &str) {
+        if let Ok(mut inner) = self.shared.inner.lock() {
+            inner.stopping_role_ids.remove(role_id);
+        }
+    }
+
     pub fn release_role(&self, role_id: &str) -> CoreResult<()> {
         let releases = {
             let inner = self
@@ -554,6 +588,7 @@ impl MacroRuntime {
             inner.early_releases.clear();
             inner.mutation_leases.clear();
             inner.mutating_macro_ids.clear();
+            inner.stopping_role_ids.clear();
             inner.statuses.clear();
         }
         if let Ok(mut pending) = self.shared.pending.lock() {
@@ -634,6 +669,15 @@ impl MacroRuntime {
                 return Err(CoreError::Domain {
                     code: "MACRO_MUTATION_BUSY",
                     message: "The macro is being changed and cannot be started.".to_owned(),
+                });
+            }
+            if roles
+                .iter()
+                .any(|role_id| inner.stopping_role_ids.contains(role_id))
+            {
+                return Err(CoreError::Domain {
+                    code: "MACRO_ROLE_STOPPING",
+                    message: STOPPING_ROLE_MESSAGE.to_owned(),
                 });
             }
             if inner.invocations.len() >= MAX_ACTIVE_INVOCATIONS {
@@ -2527,6 +2571,43 @@ mod tests {
 
         assert_eq!(error.code(), "MACRO_STOP_TIMEOUT");
         assert!(error.to_string().contains("hung-invocation"));
+    }
+
+    #[test]
+    fn role_stop_request_sets_a_cancellation_fence_without_waiting_for_worker_cleanup() {
+        let runtime = MacroRuntime::new(Arc::new(|_| {}));
+        let control = new_invocation_control(
+            "hung-invocation".to_owned(),
+            "m1".to_owned(),
+            HashSet::from(["r1".to_owned()]),
+        );
+        runtime
+            .shared
+            .inner
+            .lock()
+            .unwrap()
+            .invocations
+            .insert(control.id.clone(), Arc::clone(&control));
+
+        let started = Instant::now();
+        runtime.request_stop_role("r1").unwrap();
+
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(control.cancelled.load(Ordering::Acquire));
+        assert!(!*control.finished.0.lock().unwrap());
+        let error = runtime.start(request(Vec::new())).unwrap_err();
+        assert_eq!(error.code(), "MACRO_ROLE_STOPPING");
+
+        runtime.allow_role_after_launch("r1");
+        assert!(
+            !runtime
+                .shared
+                .inner
+                .lock()
+                .unwrap()
+                .stopping_role_ids
+                .contains("r1")
+        );
     }
 
     fn runtime_with_manual_wait(events: EventSink) -> (MacroRuntime, mpsc::Receiver<ManualWait>) {

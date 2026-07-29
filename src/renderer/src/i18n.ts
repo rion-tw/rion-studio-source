@@ -142,6 +142,12 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.surfaceReleaseUnverified",
   "Rion Studio could not verify that every native game page stopped. The tab was kept open; retry or restart Rion Studio.":
     "error.surfaceReleaseUnverified",
+  "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.":
+    "error.surfaceReleaseUnverified",
+  "Rion Studio could not verify that every native game page stopped. The tab remains closed; restart Rion Studio before reopening these roles.":
+    "error.surfaceReleaseUnverified",
+  "Rion Studio still cannot verify that the native game page stopped. Keep this tab closed and restart Rion Studio before reopening the role.":
+    "error.surfaceReleaseUnverified",
   "Unable to load the game page. Check the operating-system network settings or game accelerator mode.":
     "error.gamePageLoadFailed",
 };

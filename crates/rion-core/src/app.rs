@@ -176,6 +176,7 @@ pub struct AppCore {
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
     system_webview_issues:
         RwLock<std::collections::HashMap<String, crate::model::SystemWebViewIssueReason>>,
+    embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
     instance_lock: Mutex<Option<File>>,
     macro_runtime: Arc<MacroRuntime>,
@@ -299,6 +300,7 @@ impl AppCore {
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             system_webview_issues: RwLock::new(std::collections::HashMap::new()),
+            embedded_closing_tabs: Mutex::new(std::collections::HashSet::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
             instance_lock: Mutex::new(Some(instance_lock)),
             log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new(
@@ -3990,6 +3992,7 @@ impl AppCore {
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
+        self.macro_runtime.allow_role_after_launch(&role.id);
         Ok(vec![embedded_launch_result(&role.id, launched_at)])
     }
 
@@ -4293,6 +4296,9 @@ impl AppCore {
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
+        for role_id in &role_ids {
+            self.macro_runtime.allow_role_after_launch(role_id);
+        }
         Ok(role_ids
             .iter()
             .map(|role_id| embedded_launch_result(role_id, launched_at.clone()))
@@ -4300,12 +4306,6 @@ impl AppCore {
     }
 
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
-        self.cancel_embedded_operations(&[role_id.to_owned()])?;
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        self.stop_embedded_role_under_window_sequence(role_id)
-    }
-
-    fn stop_embedded_role_under_window_sequence(&self, role_id: &str) -> CoreResult<()> {
         self.stop_embedded_role_with_operation_lease(role_id, true)
     }
 
@@ -4328,82 +4328,137 @@ impl AppCore {
             })
             .transpose()?;
         let result = (|| {
-            let _sequence = self.embedded_runtime_sequence.acquire()?;
-            let snapshot = self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                .snapshot;
-            let previous_runtime = self
-                .browser_runtime
-                .lock()
-                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-                .clone();
-            let Some(role) = snapshot
-                .roles
-                .iter()
-                .find(|candidate| candidate.role_id == role_id && candidate.runtime == "embedded")
-                .cloned()
-            else {
-                return Ok(());
-            };
-            let tab_id = role
-                .tab_id
-                .clone()
-                .ok_or_else(|| CoreError::Internal("embedded role has no tab".to_owned()))?;
-            let source_window_id = snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.id == tab_id)
-                .map(|tab| tab.window_id.clone());
-            self.macro_runtime.stop_role(role_id)?;
-            self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
-                role_id: role_id.to_owned(),
-                runtime: "embedded".to_owned(),
-                workspace_id: role.workspace_id.clone(),
-                tab_id: Some(tab_id.clone()),
-                state: "stopping".to_owned(),
-                launched_at: role.launched_at.clone(),
-            })?;
-            let tab_role_count = snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.id == tab_id)
-                .map_or(1, |tab| tab.role_ids.len());
-            let next_active_tab_id = (tab_role_count <= 1)
-                .then(|| next_active_tab_after_removal(&snapshot, &tab_id))
-                .flatten();
-            let action = if tab_role_count <= 1 {
-                CoreEffectAction::EmbeddedDestroyTab {
-                    tab_id: tab_id.clone(),
-                    next_active_tab_id,
-                }
-            } else {
-                CoreEffectAction::EmbeddedDestroyRole {
+            let prepared = {
+                let _sequence = self.embedded_runtime_sequence.acquire()?;
+                let snapshot = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot;
+                let Some(role) = snapshot
+                    .roles
+                    .iter()
+                    .find(|candidate| {
+                        candidate.role_id == role_id && candidate.runtime == "embedded"
+                    })
+                    .cloned()
+                else {
+                    return Ok(());
+                };
+                let tab_id = role
+                    .tab_id
+                    .clone()
+                    .ok_or_else(|| CoreError::Internal("embedded role has no tab".to_owned()))?;
+                let source_window_id = snapshot
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == tab_id)
+                    .map(|tab| tab.window_id.clone());
+                let tab_role_count = snapshot
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == tab_id)
+                    .map_or(1, |tab| tab.role_ids.len());
+                let next_active_tab_id = (tab_role_count <= 1)
+                    .then(|| next_active_tab_after_removal(&snapshot, &tab_id))
+                    .flatten();
+
+                // Cancellation is a fence, not a synchronous worker join. Native
+                // isolation must never wait for the macro cleanup timeout.
+                self.macro_runtime.request_stop_role(role_id)?;
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                     role_id: role_id.to_owned(),
-                }
+                    runtime: "embedded".to_owned(),
+                    workspace_id: role.workspace_id.clone(),
+                    tab_id: Some(tab_id.clone()),
+                    state: "stopping".to_owned(),
+                    launched_at: role.launched_at.clone(),
+                })?;
+                let action = if tab_role_count <= 1 {
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::HideTab {
+                        tab_id: tab_id.clone(),
+                    })?;
+                    if let Some(next_tab_id) = next_active_tab_id.as_ref() {
+                        self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
+                            tab_id: next_tab_id.clone(),
+                        })?;
+                    }
+                    self.embedded_closing_tabs
+                        .lock()
+                        .map_err(|_| {
+                            CoreError::Internal("embedded closing tab lock poisoned".to_owned())
+                        })?
+                        .insert(tab_id.clone());
+                    CoreEffectAction::EmbeddedDestroyTab {
+                        tab_id: tab_id.clone(),
+                        next_active_tab_id,
+                    }
+                } else {
+                    CoreEffectAction::EmbeddedDestroyRole {
+                        role_id: role_id.to_owned(),
+                    }
+                };
+                (role, tab_id, source_window_id, tab_role_count, action)
             };
-            if let Err(error) = self.run_effect_plan(vec![effect_step(
+
+            // Persist the user's close intent without scheduling another native
+            // projection effect ahead of isolation. The preview already owns the
+            // visible presentation, and a busy global effect lane must not keep the
+            // exact game surface alive.
+            if let Ok(intent_snapshot) = self
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+                .map(|result| result.snapshot)
+            {
+                let _ = self.sync_game_windows_from_runtime(
+                    &intent_snapshot,
+                    &std::collections::HashSet::new(),
+                );
+            }
+            self.emit_browser_statuses();
+            let (role, tab_id, source_window_id, tab_role_count, action) = prepared;
+            self.run_effect_plan(vec![effect_step(
                 role_id,
                 action,
-                Duration::from_secs(15),
+                Duration::from_secs(3),
                 None,
-            )]) {
-                if let Ok(mut runtime) = self.browser_runtime.lock() {
-                    *runtime = previous_runtime;
+            )])?;
+
+            {
+                let _sequence = self.embedded_runtime_sequence.acquire()?;
+                let current = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot;
+                if current
+                    .roles
+                    .iter()
+                    .find(|candidate| candidate.role_id == role_id)
+                    .is_none_or(|candidate| {
+                        candidate.tab_id.as_deref() != Some(tab_id.as_str())
+                            || candidate.state != "stopping"
+                    })
+                {
+                    return Err(CoreError::Domain {
+                        code: "SYSTEM_SURFACE_CLOSE_STALE",
+                        message: "The role changed before its close transaction committed."
+                            .to_owned(),
+                    });
                 }
-                self.publish_embedded_runtime_snapshot_best_effort();
-                return Err(error);
-            }
-            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
-                role_id: role_id.to_owned(),
-            })?;
-            if tab_role_count <= 1 {
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
-                    tab_id: tab_id.clone(),
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+                    role_id: role_id.to_owned(),
                 })?;
-                if let Some(workspace_id) = role.workspace_id {
-                    self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-                        workspace_id,
+                if tab_role_count <= 1 {
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                        tab_id: tab_id.clone(),
                     })?;
+                    if let Some(workspace_id) = role.workspace_id {
+                        self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
+                            workspace_id,
+                        })?;
+                    }
+                    self.embedded_closing_tabs
+                        .lock()
+                        .map_err(|_| {
+                            CoreError::Internal("embedded closing tab lock poisoned".to_owned())
+                        })?
+                        .remove(&tab_id);
                 }
             }
             let removed_window_ids = if tab_role_count <= 1 {
@@ -4414,7 +4469,11 @@ impl AppCore {
             } else {
                 std::collections::HashSet::new()
             };
-            self.publish_embedded_runtime_snapshot_with_removed(&removed_window_ids)?;
+            if tab_role_count <= 1 {
+                self.commit_embedded_runtime_snapshot_without_native_effect(&removed_window_ids)?;
+            } else {
+                self.publish_embedded_runtime_snapshot_with_removed(&removed_window_ids)?;
+            }
             Ok(())
         })();
         let Some(lease) = lease else {
@@ -4428,20 +4487,6 @@ impl AppCore {
     }
 
     fn stop_embedded_workspace(&self, workspace_id: &str) -> CoreResult<()> {
-        let role_ids = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
-            .workspaces
-            .iter()
-            .find(|workspace| workspace.workspace_id == workspace_id)
-            .map(|workspace| workspace.role_ids.clone())
-            .unwrap_or_default();
-        self.cancel_embedded_operations(&role_ids)?;
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        self.stop_embedded_workspace_under_window_sequence(workspace_id)
-    }
-
-    fn stop_embedded_workspace_under_window_sequence(&self, workspace_id: &str) -> CoreResult<()> {
         self.stop_embedded_workspace_with_operation_lease(workspace_id, true)
     }
 
@@ -4477,79 +4522,131 @@ impl AppCore {
             })
             .transpose()?;
         let result = (|| {
-            let _sequence = self.embedded_runtime_sequence.acquire()?;
-            let snapshot = self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                .snapshot;
-            let previous_runtime = self
-                .browser_runtime
-                .lock()
-                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-                .clone();
-            let Some(workspace) = snapshot
-                .workspaces
-                .iter()
-                .find(|workspace| {
-                    workspace.workspace_id == workspace_id && workspace.runtime == "embedded"
-                })
-                .cloned()
-            else {
-                return Ok(());
-            };
-            let tab_id = workspace
-                .tab_id
-                .clone()
-                .ok_or_else(|| CoreError::Internal("embedded workspace has no tab".to_owned()))?;
-            let source_window_id = snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.id == tab_id)
-                .map(|tab| tab.window_id.clone());
-            for role_id in &workspace.role_ids {
-                self.macro_runtime.stop_role(role_id)?;
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
-                    role_id: role_id.clone(),
-                    runtime: "embedded".to_owned(),
-                    workspace_id: Some(workspace_id.to_owned()),
-                    tab_id: Some(tab_id.clone()),
-                    state: "stopping".to_owned(),
-                    launched_at: snapshot
-                        .roles
-                        .iter()
-                        .find(|role| role.role_id == *role_id)
-                        .and_then(|role| role.launched_at.clone()),
+            let prepared = {
+                let _sequence = self.embedded_runtime_sequence.acquire()?;
+                let snapshot = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot;
+                let Some(workspace) = snapshot
+                    .workspaces
+                    .iter()
+                    .find(|workspace| {
+                        workspace.workspace_id == workspace_id && workspace.runtime == "embedded"
+                    })
+                    .cloned()
+                else {
+                    return Ok(());
+                };
+                let tab_id = workspace.tab_id.clone().ok_or_else(|| {
+                    CoreError::Internal("embedded workspace has no tab".to_owned())
                 })?;
+                let source_window_id = snapshot
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == tab_id)
+                    .map(|tab| tab.window_id.clone());
+                for role_id in &workspace.role_ids {
+                    self.macro_runtime.request_stop_role(role_id)?;
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+                        role_id: role_id.clone(),
+                        runtime: "embedded".to_owned(),
+                        workspace_id: Some(workspace_id.to_owned()),
+                        tab_id: Some(tab_id.clone()),
+                        state: "stopping".to_owned(),
+                        launched_at: snapshot
+                            .roles
+                            .iter()
+                            .find(|role| role.role_id == *role_id)
+                            .and_then(|role| role.launched_at.clone()),
+                    })?;
+                }
+                self.invoke_browser_runtime(BrowserRuntimeCommand::SetWorkspaceState {
+                    workspace_id: workspace_id.to_owned(),
+                    state: "stopping".to_owned(),
+                })?;
+                let next_active_tab_id = next_active_tab_after_removal(&snapshot, &tab_id);
+                self.invoke_browser_runtime(BrowserRuntimeCommand::HideTab {
+                    tab_id: tab_id.clone(),
+                })?;
+                if let Some(next_tab_id) = next_active_tab_id.as_ref() {
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
+                        tab_id: next_tab_id.clone(),
+                    })?;
+                }
+                self.embedded_closing_tabs
+                    .lock()
+                    .map_err(|_| {
+                        CoreError::Internal("embedded closing tab lock poisoned".to_owned())
+                    })?
+                    .insert(tab_id.clone());
+                (workspace, tab_id, source_window_id, next_active_tab_id)
+            };
+
+            if let Ok(intent_snapshot) = self
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+                .map(|result| result.snapshot)
+            {
+                let _ = self.sync_game_windows_from_runtime(
+                    &intent_snapshot,
+                    &std::collections::HashSet::new(),
+                );
             }
-            let next_active_tab_id = next_active_tab_after_removal(&snapshot, &tab_id);
-            if let Err(error) = self.run_effect_plan(vec![effect_step(
+            self.emit_browser_statuses();
+            let (workspace, tab_id, source_window_id, next_active_tab_id) = prepared;
+            self.run_effect_plan(vec![effect_step(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
                     next_active_tab_id,
                 },
-                Duration::from_secs(15),
+                Duration::from_secs(3),
                 None,
-            )]) {
-                if let Ok(mut runtime) = self.browser_runtime.lock() {
-                    *runtime = previous_runtime;
+            )])?;
+
+            {
+                let _sequence = self.embedded_runtime_sequence.acquire()?;
+                let current = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot;
+                if workspace.role_ids.iter().any(|role_id| {
+                    current
+                        .roles
+                        .iter()
+                        .find(|role| role.role_id == *role_id)
+                        .is_none_or(|role| {
+                            role.tab_id.as_deref() != Some(tab_id.as_str())
+                                || role.state != "stopping"
+                        })
+                }) {
+                    return Err(CoreError::Domain {
+                        code: "SYSTEM_SURFACE_CLOSE_STALE",
+                        message: "The workspace changed before its close transaction committed."
+                            .to_owned(),
+                    });
                 }
-                self.publish_embedded_runtime_snapshot_best_effort();
-                return Err(error);
-            }
-            for role_id in &workspace.role_ids {
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
-                    role_id: role_id.clone(),
+                for role_id in &workspace.role_ids {
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+                        role_id: role_id.clone(),
+                    })?;
+                }
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                    tab_id: tab_id.clone(),
                 })?;
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
+                    workspace_id: workspace_id.to_owned(),
+                })?;
+                self.embedded_closing_tabs
+                    .lock()
+                    .map_err(|_| {
+                        CoreError::Internal("embedded closing tab lock poisoned".to_owned())
+                    })?
+                    .remove(&tab_id);
             }
-            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id })?;
-            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-                workspace_id: workspace_id.to_owned(),
-            })?;
             let removed_window_ids = source_window_id
                 .iter()
                 .cloned()
                 .collect::<std::collections::HashSet<_>>();
-            self.publish_embedded_runtime_snapshot_with_removed(&removed_window_ids)?;
+            self.commit_embedded_runtime_snapshot_without_native_effect(&removed_window_ids)?;
             Ok(())
         })();
         let Some(lease) = lease else {
@@ -4572,24 +4669,30 @@ impl AppCore {
             .flat_map(|tab| tab.role_ids.iter().cloned())
             .collect::<Vec<_>>();
         self.cancel_embedded_operations(&pending_role_ids)?;
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        let snapshot = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot;
-        let mut sources = snapshot
-            .tabs
-            .iter()
-            .filter(|tab| tab.window_id == window_id)
-            .map(|tab| (tab.tab_type.clone(), tab.source_id.clone()))
-            .collect::<Vec<_>>();
-        sources.sort();
-        sources.dedup();
+        for role_id in &pending_role_ids {
+            self.macro_runtime.request_stop_role(role_id)?;
+        }
+        let sources = {
+            let _window_sequence = self.embedded_window_sequence.acquire()?;
+            let snapshot = self
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                .snapshot;
+            let mut sources = snapshot
+                .tabs
+                .iter()
+                .filter(|tab| tab.window_id == window_id)
+                .map(|tab| (tab.tab_type.clone(), tab.source_id.clone()))
+                .collect::<Vec<_>>();
+            sources.sort();
+            sources.dedup();
+            sources
+        };
 
         for (tab_type, source_id) in sources {
             if tab_type == "workspace" {
-                self.stop_embedded_workspace_under_window_sequence(&source_id)?;
+                self.stop_embedded_workspace_with_operation_lease(&source_id, true)?;
             } else {
-                self.stop_embedded_role_under_window_sequence(&source_id)?;
+                self.stop_embedded_role_with_operation_lease(&source_id, true)?;
             }
         }
 
@@ -4597,6 +4700,10 @@ impl AppCore {
             return Ok(());
         }
 
+        // Native isolation above deliberately runs without either global runtime
+        // sequence. Reacquire the window sequence only for the short final delete
+        // commit so a slow surface cannot stall unrelated windows.
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
         let runtime_window_exists = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot
@@ -5208,6 +5315,11 @@ impl AppCore {
         snapshot: &crate::model::BrowserRuntimeSnapshot,
         removed_window_ids: &std::collections::HashSet<String>,
     ) -> (Vec<StateGameWindowRecord>, bool) {
+        let closing_tabs = self
+            .embedded_closing_tabs
+            .lock()
+            .map(|tabs| tabs.clone())
+            .unwrap_or_default();
         let previous_tabs = game_windows
             .iter()
             .flat_map(|window| window.tabs.iter().cloned())
@@ -5226,6 +5338,7 @@ impl AppCore {
             let tabs = runtime_window
                 .tab_ids
                 .iter()
+                .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
                 .filter_map(|tab_id| snapshot.tabs.iter().find(|tab| &tab.id == tab_id))
                 .map(|tab| {
                     let previous = previous_tabs.get(&tab.id);
@@ -5244,7 +5357,11 @@ impl AppCore {
                 })
                 .collect::<Vec<_>>();
             game_window.tabs = tabs;
-            game_window.active_tab_id = runtime_window.active_tab_id.clone();
+            game_window.active_tab_id = runtime_window
+                .active_tab_id
+                .as_ref()
+                .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
+                .cloned();
             game_window.updated_at = chrono::Utc::now().to_rfc3339();
             changed = true;
         }
@@ -5255,6 +5372,40 @@ impl AppCore {
         &self,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         self.publish_embedded_runtime_snapshot_with_removed(&std::collections::HashSet::new())
+    }
+
+    fn commit_embedded_runtime_snapshot_without_native_effect(
+        &self,
+        removed_window_ids: &std::collections::HashSet<String>,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        let removed_window_ids = removed_window_ids
+            .iter()
+            .filter(|window_id| {
+                snapshot
+                    .windows
+                    .iter()
+                    .find(|window| &window.window_id == *window_id)
+                    .is_some_and(|window| window.tab_ids.is_empty())
+            })
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        self.sync_game_windows_from_runtime(&snapshot, &removed_window_ids)?;
+        for window_id in &removed_window_ids {
+            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
+                window_id: window_id.clone(),
+            })?;
+        }
+        self.emit_browser_statuses();
+        if removed_window_ids.is_empty() {
+            Ok(snapshot)
+        } else {
+            Ok(self
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                .snapshot)
+        }
     }
 
     fn publish_embedded_runtime_snapshot_with_removed(
@@ -6490,13 +6641,16 @@ fn next_active_tab_after_removal(
         .find(|tab| tab.id == removed_tab_id)?
         .window_id
         .clone();
-    snapshot
+    let ordered = &snapshot
         .windows
         .iter()
         .find(|window| window.window_id == window_id)?
-        .tab_ids
+        .tab_ids;
+    let removed_index = ordered.iter().position(|tab_id| tab_id == removed_tab_id)?;
+    ordered
         .iter()
-        .filter(|tab_id| tab_id.as_str() != removed_tab_id)
+        .skip(removed_index + 1)
+        .chain(ordered[..removed_index].iter().rev())
         .find(|tab_id| {
             snapshot
                 .tabs
@@ -8419,18 +8573,17 @@ mod tests {
                 .iter()
                 .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
         );
-        assert!(stop_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                if snapshot.roles.is_empty() && snapshot.tabs.is_empty()
-        )));
         assert!(
-            core.invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
-                .unwrap()
-                .snapshot
-                .roles
-                .is_empty()
+            stop_actions
+                .iter()
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
         );
+        let stopped_snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(stopped_snapshot.roles.is_empty());
+        assert!(stopped_snapshot.tabs.is_empty());
         core.shutdown();
     }
 
@@ -8664,7 +8817,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_embedded_stop_republishes_the_running_projection() {
+    fn failed_embedded_stop_keeps_the_close_intent_and_stopping_projection() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let (launch, _) = drive_command(
@@ -8690,22 +8843,45 @@ mod tests {
         );
         assert_eq!(stop.unwrap_err().code(), "DESKTOP_EFFECT_FAILED");
         assert!(
-            actions.iter().any(|action| matches!(
-                action,
-                CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                    if snapshot.roles.iter().any(|role| {
-                        role.role_id == role_id && role.state == "running"
-                    })
-            )),
-            "{actions:?}"
+            actions
+                .iter()
+                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
         );
         assert!(
-            core.invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
-                .unwrap()
-                .snapshot
+            actions
+                .iter()
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. })),
+            "close isolation must not queue behind a projection effect: {actions:?}"
+        );
+        let snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(
+            snapshot
                 .roles
                 .iter()
-                .any(|role| role.role_id == role_id && role.state == "running")
+                .any(|role| { role.role_id == role_id && role.state == "stopping" })
+        );
+        assert!(
+            snapshot
+                .tabs
+                .iter()
+                .any(|tab| { tab.role_ids.contains(&role_id) && tab.hidden })
+        );
+        assert!(
+            core.invoke(CoreCommand::GameWindowsList)
+                .unwrap()
+                .as_array()
+                .is_some_and(|windows| windows.iter().all(|window| {
+                    window["tabs"].as_array().is_none_or(|tabs| {
+                        tabs.iter().all(|tab| {
+                            tab["roleIds"].as_array().is_none_or(|ids| {
+                                ids.iter().all(|id| id.as_str() != Some(role_id.as_str()))
+                            })
+                        })
+                    })
+                }))
         );
 
         let (cleanup, _) = drive_command(
@@ -9035,13 +9211,23 @@ mod tests {
                 None,
             );
             assert!(stop.is_ok());
-            assert!(stop_actions.iter().any(|action| matches!(
-                action,
-                CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                    if snapshot.roles.is_empty()
-                        && snapshot.tabs.is_empty()
-                        && snapshot.workspaces.is_empty()
-            )));
+            assert!(
+                stop_actions
+                    .iter()
+                    .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+            );
+            assert!(
+                stop_actions
+                    .iter()
+                    .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
+            );
+            let stopped_snapshot = core
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+                .unwrap()
+                .snapshot;
+            assert!(stopped_snapshot.roles.is_empty());
+            assert!(stopped_snapshot.tabs.is_empty());
+            assert!(stopped_snapshot.workspaces.is_empty());
             core.shutdown();
         }
     }

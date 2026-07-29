@@ -123,30 +123,23 @@ static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
     @try {
       lease.quiesceRequested = YES;
       if (lease.blankNavigationRequested) return true;
-      __weak WKWebView *weakWebView = webView;
-      __weak RionWKSurfaceLease *weakLease = lease;
-      [webView
-          evaluateJavaScript:
-              @"try { globalThis.__rionPrepareForNativeClose?.(); } catch {}"
-          completionHandler:^(__unused id result, __unused NSError *error) {
-            WKWebView *strongWebView = weakWebView;
-            RionWKSurfaceLease *strongLease = weakLease;
-            if (!strongWebView || !strongLease ||
-                strongLease.blankNavigationRequested) return;
-            uintptr_t completionDataStore = (uintptr_t)(__bridge void *)
-                strongWebView.configuration.websiteDataStore;
-            if (completionDataStore == 0 ||
-                completionDataStore != strongLease.dataStoreIdentity) return;
-            @try {
-              [strongWebView stopLoading];
-              NSURL *blankURL = [NSURL URLWithString:@"about:blank"];
-              if (!blankURL) return;
-              strongLease.blankNavigationRequested = YES;
-              [strongWebView
-                  loadRequest:[NSURLRequest requestWithURL:blankURL]];
-            } @catch (__unused NSException *exception) {
-            }
-          }];
+      // JavaScript completion is best-effort. A busy or wedged WebContent process
+      // may never invoke it, and tying native isolation to that callback leaves the
+      // exact game page online until the close transaction times out. WebKit keeps
+      // script evaluation and the following navigation ordered for a healthy page;
+      // issue the native stop/blank request immediately in either case.
+      @try {
+        [webView
+            evaluateJavaScript:
+                @"try { globalThis.__rionPrepareForNativeClose?.(); } catch {}"
+            completionHandler:nil];
+      } @catch (__unused NSException *exception) {
+      }
+      [webView stopLoading];
+      NSURL *blankURL = [NSURL URLWithString:@"about:blank"];
+      if (!blankURL) return false;
+      lease.blankNavigationRequested = YES;
+      [webView loadRequest:[NSURLRequest requestWithURL:blankURL]];
       return true;
     } @catch (__unused NSException *exception) {
       return false;

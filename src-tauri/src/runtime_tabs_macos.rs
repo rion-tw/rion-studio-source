@@ -623,7 +623,9 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             if action_type == "stop"
                 && let Some(tab_id) = preview_tab_id.as_deref()
             {
-                state.runtime.resolve_tab_close_preview(tab_id);
+                state
+                    .runtime
+                    .resolve_tab_close_preview(tab_id, result.is_ok());
             }
             if let Err(error) = result {
                 if action_type == "activate"
@@ -638,7 +640,7 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         {
             // The native control already removed the item optimistically. If the
             // scoped command could not be created, repaint the authoritative tab.
-            state.runtime.resolve_tab_close_preview(tab_id);
+            state.runtime.cancel_tab_close_preview(tab_id);
         }
     });
 }

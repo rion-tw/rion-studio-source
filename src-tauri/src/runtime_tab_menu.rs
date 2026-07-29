@@ -434,7 +434,9 @@ pub async fn handle_scoped_action(
     }
     let result = state.core.invoke_async(command).await;
     if action_type == "stop" {
-        state.runtime.resolve_tab_close_preview(tab_id);
+        state
+            .runtime
+            .resolve_tab_close_preview(tab_id, result.is_ok());
     } else if action_type == "activate" && result.is_err() {
         state.runtime.reconcile_tab_activation(&window_id);
     }

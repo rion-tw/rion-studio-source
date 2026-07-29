@@ -44,12 +44,14 @@ describe("Tauri System WebView runtime source", () => {
 
     const navigation = recovery.indexOf(".navigate(current_url.clone())");
     const controlledNavigation = recovery.indexOf("begin_controlled_navigation");
+    const nativeLifecycleLane = recovery.indexOf("native_lifecycle_lane");
     const controlledNavigationCleanup = recovery.indexOf("finish_controlled_navigations");
     const swapFence = recovery.indexOf("surface_recovery_swap_is_current(");
     const closeOld = recovery.indexOf(
       "self.close_managed_surface_and_wait(&old_surface_instance_id"
     );
     expect(navigation).toBeGreaterThan(-1);
+    expect(nativeLifecycleLane).toBeLessThan(navigation);
     expect(controlledNavigation).toBeLessThan(navigation);
     expect(controlledNavigationCleanup).toBeGreaterThan(navigation);
     expect(closeOld).toBeGreaterThan(swapFence);
@@ -57,7 +59,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(recovery).toContain("ManagedSurfaceKind::Recovery");
     expect(recovery).toContain("ManagedSurfacePhase::Provisional");
     expect(recovery).toContain("ManagedSurfacePhase::Retired");
-    expect(recovery.indexOf("ManagedSurfacePhase::Active")).toBeGreaterThan(navigation);
+    expect(recovery).toContain("state.close_coordinator.closing_roles.contains(role_id)");
+    expect(recovery.indexOf("ManagedSurfacePhase::Live")).toBeGreaterThan(navigation);
     expect(recovery).not.toContain("close_surface_and_wait(&old_webview");
   });
 
@@ -72,45 +75,86 @@ describe("Tauri System WebView runtime source", () => {
     );
     const commitRole = runtime.slice(
       runtime.indexOf("fn commit_released_role("),
-      runtime.indexOf("fn persist_local_storage_sync_source_before_stop(")
+      runtime.indexOf("fn destroy_tab(")
     );
-    const closeRole = releaseRole.indexOf("self.close_managed_surface_and_wait(&instance_id");
+    const closeRole = releaseRole.indexOf("self.close_managed_surface_and_wait(instance_id, role_id)");
     expect(closeRole).toBeGreaterThan(-1);
     expect(releaseRole).toContain("managed_surface_ids_for_role(role_id)");
+    expect(releaseRole).toContain("std::thread::scope(|scope|");
+    expect(releaseRole).toContain("scope.spawn(move ||");
     expect(commitRole).toContain("state.role_tabs.remove(&released.role_id)");
-    expect(releaseRole.indexOf("self.close_popup_and_wait(&label")).toBeLessThan(
-      releaseRole.indexOf("self.forget_popup(&label)")
-    );
+    expect(releaseRole.indexOf("self.forget_popup(&label)")).toBeGreaterThan(closeRole);
 
     const destroyTab = runtime.slice(
       runtime.indexOf("fn destroy_tab("),
       runtime.indexOf("fn show_tab(")
     );
     const releaseRoles = destroyTab.indexOf("self.release_marked_role_surfaces(role_id");
-    const releaseDividers = destroyTab.indexOf("self.close_managed_surface_and_wait(instance_id");
+    const releaseDividers = destroyTab.indexOf("self.close_managed_divider(instance_id");
     const commitTab = destroyTab.indexOf("state.tabs.remove(tab_id)");
     expect(releaseRoles).toBeGreaterThan(-1);
     expect(releaseDividers).toBeGreaterThan(releaseRoles);
     expect(commitTab).toBeGreaterThan(releaseDividers);
     expect(destroyTab).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
     expect(destroyTab).toContain("surface_registry");
+    expect(destroyTab).toContain("surface.kind != ManagedSurfaceKind::Divider");
+    expect(destroyTab).not.toContain("local_storage_sync_lane");
+    expect(destroyTab).not.toContain("read_scoped_local_storage_entries");
     expect(runtime).toContain("closing_webviews");
     expect(runtime).toContain("closing_roles");
-    expect(runtime).toContain('"surface.quiesced"');
+    expect(runtime).toContain('"surface.isolated"');
     expect(runtime).toContain('"surface.quiesce-unverified"');
-    expect(runtime).toContain('"surface.native-unverified"');
+    expect(runtime).toContain('"surface.release-deferred"');
+    expect(runtime).toContain('"surface.quarantine-persisted"');
 
     const nativeClose = runtime.slice(
       runtime.indexOf("fn close_surface_and_wait("),
       runtime.indexOf("fn close_managed_surface_and_wait(")
     );
-    expect(nativeClose.indexOf("while self.app.get_webview(&label).is_some()")).toBeLessThan(
-      nativeClose.indexOf("wait_for_platform_release(platform, remaining")
-    );
     expect(nativeClose.indexOf("quiesce_platform_surface(webview, lifecycle)")).toBeLessThan(
-      nativeClose.indexOf("if surface_is_registered")
+      nativeClose.indexOf("webview.close()")
     );
+    expect(nativeClose.indexOf("webview.close()")).toBeLessThan(
+      nativeClose.indexOf("wait_for_platform_surface_quiesced(")
+    );
+    expect(nativeClose).toContain("SURFACE_ISOLATION_TIMEOUT");
+    expect(nativeClose).not.toContain("wait_for_platform_release(");
     expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
+  });
+
+  it("routes close around slow effects and keeps failed close intent committed", async () => {
+    const [runtime, core, macroRuntime] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8"),
+      readFile(new URL("../crates/rion-core/src/macro_runtime.rs", import.meta.url), "utf8")
+    ]);
+    const enqueue = runtime.slice(
+      runtime.indexOf("pub fn enqueue_effect("),
+      runtime.indexOf("fn execute_serial_work(")
+    );
+    expect(enqueue.indexOf("if is_surface_close_effect(&effect.action)")).toBeLessThan(
+      enqueue.indexOf("self.effect_sender")
+    );
+    expect(enqueue).toContain("rion-surface-close-");
+
+    const stopRole = core.slice(
+      core.indexOf("fn stop_embedded_role_with_operation_lease("),
+      core.indexOf("fn stop_embedded_workspace(")
+    );
+    expect(stopRole).toContain("request_stop_role(role_id)");
+    expect(stopRole).toContain("Duration::from_secs(3)");
+    expect(stopRole).toContain("commit_embedded_runtime_snapshot_without_native_effect");
+    expect(stopRole).not.toContain("previous_runtime");
+    expect(stopRole).not.toContain("publish_embedded_runtime_snapshot_best_effort");
+    const stopWindow = core.slice(
+      core.indexOf("fn stop_embedded_window("),
+      core.indexOf("fn run_effect_plan(")
+    );
+    const isolateTabs = stopWindow.indexOf("for (tab_type, source_id) in sources");
+    expect(stopWindow.indexOf("let sources = {")).toBeLessThan(isolateTabs);
+    expect(stopWindow.lastIndexOf("embedded_window_sequence.acquire()?")).toBeGreaterThan(isolateTabs);
+    expect(stopWindow.slice(0, isolateTabs)).toContain("sources\n        };");
+    expect(macroRuntime).toContain("pub fn request_stop_role(");
   });
 
   it("keeps tab interaction responsive while native launch verification is pending", async () => {
@@ -133,8 +177,25 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("fn preview_tab_close(");
     expect(runtime).toContain("optimistic_closed_tabs");
     expect(runtime).toContain("runtime_tab.visible");
+    const activationPreview = runtime.slice(
+      runtime.indexOf("pub(crate) fn preview_tab_activation("),
+      runtime.indexOf("pub(crate) fn preview_tab_close(")
+    );
+    expect(activationPreview).toContain("presentation_lane");
+    expect(activationPreview).toContain("preview_tab_activation_under_presentation_lane");
+    expect(activationPreview).toContain("show_tab_under_presentation_lane");
+    expect(activationPreview.indexOf("presentation_lane")).toBeLessThan(
+      activationPreview.indexOf("presentation_revision")
+    );
+    const closePreview = runtime.slice(
+      runtime.indexOf("pub(crate) fn preview_tab_close("),
+      runtime.indexOf("pub(crate) fn reconcile_tab_activation(")
+    );
+    expect(closePreview).toContain("surface.hide()");
+    expect(closePreview).toContain("successor_tab_after_close(");
+    expect(closePreview).toContain("window.hide()");
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
-    expect(menu).toContain("resolve_tab_close_preview(tab_id)");
+    expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
     expect(macBridge).toContain("update_generation: AtomicU64");
     expect(macBridge).toContain("inner.update_generation.load(Ordering::Acquire) != generation");
     expect(macController).toContain("item.activeTab = active;");
@@ -149,7 +210,11 @@ describe("Tauri System WebView runtime source", () => {
       "utf8"
     );
     expect(runtime).toContain("struct ManagedSurface {");
+    expect(runtime).toContain("struct CloseCoordinator {");
+    expect(runtime).toContain("struct CloseTransaction {");
     expect(runtime).toContain("surface_registry: HashMap<String, ManagedSurface>");
+    expect(runtime).toContain("fn wait_for_managed_surface_isolation(");
+    expect(runtime).toContain("state.close_coordinator.closing_roles.contains(role_id)");
     expect(runtime).toContain("surface_instance_id: String");
     for (const kind of ["Role", "Recovery", "Popup", "Divider"]) {
       expect(runtime).toContain(`ManagedSurfaceKind::${kind}`);
@@ -202,7 +267,7 @@ describe("Tauri System WebView runtime source", () => {
       "utf8"
     );
     const executor = runtime.slice(
-      runtime.indexOf("fn execute_serial_work("),
+      runtime.indexOf("fn execute_effect_work("),
       runtime.indexOf("pub fn registration(")
     );
     const persist = executor.indexOf("self.persist_restore_session(false)");
@@ -406,6 +471,15 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("webView.superview || webView.window");
     expect(macInput).toContain('[url.absoluteString isEqualToString:@"about:blank"]');
     expect(macInput).toContain("rion_wk_surface_lifecycle_self_test");
+    const nativeQuiesce = macInput.slice(
+      macInput.indexOf("static bool RionWKQuiesceSurfaceOnMain("),
+      macInput.indexOf("bool rion_wk_quiesce_surface(")
+    );
+    expect(nativeQuiesce).toContain("completionHandler:nil");
+    expect(nativeQuiesce.indexOf("[webView stopLoading]")).toBeGreaterThan(
+      nativeQuiesce.indexOf("evaluateJavaScript:")
+    );
+    expect(nativeQuiesce).not.toContain("weakWebView");
     expect(macInput).toContain("rion_wk_window_content_layout_metrics");
     expect(macInput).toContain("window.contentLayoutRect");
     expect(macInput).not.toContain("[window makeFirstResponder:webView]");

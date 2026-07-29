@@ -188,6 +188,7 @@ pub struct AppCore {
     runtime: Mutex<Option<Runtime>>,
     shutdown_started: AtomicBool,
     embedded_runtime_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
+    embedded_window_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     event_sender: Sender<Vec<CoreEvent>>,
     state_mutation_guard: Mutex<()>,
     subscribers: Arc<Mutex<Vec<Sender<Vec<CoreEvent>>>>>,
@@ -318,6 +319,9 @@ impl AppCore {
             })),
             shutdown_started: AtomicBool::new(false),
             embedded_runtime_sequence: Arc::new(
+                crate::runtime_sequence::RuntimeOperationSequence::default(),
+            ),
+            embedded_window_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
             ),
             event_sender,
@@ -1283,7 +1287,9 @@ impl AppCore {
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleStop { .. }
-            | CoreCommand::BrowserWorkspaceStop { .. } => Err(CoreError::Internal(
+            | CoreCommand::BrowserWorkspaceStop { .. }
+            | CoreCommand::BrowserWindowStop { .. }
+            | CoreCommand::BrowserWindowDelete { .. } => Err(CoreError::Internal(
                 "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),
             )),
         }
@@ -1492,6 +1498,20 @@ impl AppCore {
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "stopped": true }))
+            }
+            CoreCommand::BrowserWindowStop { window_id } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.stop_embedded_window(&window_id, false))
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(json!({ "stopped": true }))
+            }
+            CoreCommand::BrowserWindowDelete { window_id } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.stop_embedded_window(&window_id, true))
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(json!({ "deleted": true }))
             }
             command => {
                 let core = Arc::clone(self);
@@ -3768,6 +3788,7 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         zoom_factor: f64,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
         self.ensure_role_session_recovery_complete(role_id)?;
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
             role_ids: vec![role_id.to_owned()],
@@ -3988,6 +4009,7 @@ impl AppCore {
         expected_role_ids: &[String],
         target: EmbeddedLaunchTargetRecord,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
         if expected_role_ids.is_empty() {
             return Err(CoreError::Domain {
                 code: "WORKSPACE_ROLES_REQUIRED",
@@ -4266,6 +4288,12 @@ impl AppCore {
     }
 
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
+        self.cancel_embedded_operations(&[role_id.to_owned()])?;
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
+        self.stop_embedded_role_under_window_sequence(role_id)
+    }
+
+    fn stop_embedded_role_under_window_sequence(&self, role_id: &str) -> CoreResult<()> {
         self.stop_embedded_role_with_operation_lease(role_id, true)
     }
 
@@ -4388,6 +4416,20 @@ impl AppCore {
     }
 
     fn stop_embedded_workspace(&self, workspace_id: &str) -> CoreResult<()> {
+        let role_ids = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.workspace_id == workspace_id)
+            .map(|workspace| workspace.role_ids.clone())
+            .unwrap_or_default();
+        self.cancel_embedded_operations(&role_ids)?;
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
+        self.stop_embedded_workspace_under_window_sequence(workspace_id)
+    }
+
+    fn stop_embedded_workspace_under_window_sequence(&self, workspace_id: &str) -> CoreResult<()> {
         self.stop_embedded_workspace_with_operation_lease(workspace_id, true)
     }
 
@@ -4506,6 +4548,73 @@ impl AppCore {
             (Ok(()), Ok(())) => Ok(()),
             (Err(error), _) | (Ok(()), Err(error)) => Err(error),
         }
+    }
+
+    fn stop_embedded_window(&self, window_id: &str, delete: bool) -> CoreResult<()> {
+        let pending_role_ids = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot
+            .tabs
+            .iter()
+            .filter(|tab| tab.window_id == window_id)
+            .flat_map(|tab| tab.role_ids.iter().cloned())
+            .collect::<Vec<_>>();
+        self.cancel_embedded_operations(&pending_role_ids)?;
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        let mut sources = snapshot
+            .tabs
+            .iter()
+            .filter(|tab| tab.window_id == window_id)
+            .map(|tab| (tab.tab_type.clone(), tab.source_id.clone()))
+            .collect::<Vec<_>>();
+        sources.sort();
+        sources.dedup();
+
+        for (tab_type, source_id) in sources {
+            if tab_type == "workspace" {
+                self.stop_embedded_workspace_under_window_sequence(&source_id)?;
+            } else {
+                self.stop_embedded_role_under_window_sequence(&source_id)?;
+            }
+        }
+
+        if !delete {
+            return Ok(());
+        }
+
+        let runtime_window_exists = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot
+            .windows
+            .iter()
+            .any(|window| window.window_id == window_id);
+        if runtime_window_exists {
+            let _sequence = self.embedded_runtime_sequence.acquire()?;
+            self.apply_embedded_runtime_command_inner(
+                vec![BrowserRuntimeCommand::RemoveWindow {
+                    window_id: window_id.to_owned(),
+                }],
+                None,
+                Vec::new(),
+                Vec::new(),
+                None,
+                None,
+            )?;
+        }
+
+        let persisted_window_exists = self
+            .read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?
+            .iter()
+            .any(|window| window.id == window_id);
+        if persisted_window_exists {
+            self.mutate_state(StateMutation::GameWindowDelete {
+                id: window_id.to_owned(),
+            })?;
+        }
+        Ok(())
     }
 
     fn run_effect_plan(
@@ -4712,6 +4821,7 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         before_tab_id: Option<String>,
     ) -> CoreResult<StateGameWindowRecord> {
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
         let previous = self
             .browser_runtime
@@ -4870,6 +4980,7 @@ impl AppCore {
         focus_tab_id: Option<String>,
         focus_active_window_id: Option<String>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
         self.apply_embedded_runtime_command_inner(
             commands,
@@ -7045,6 +7156,105 @@ mod tests {
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
             assert_eq!(windows.as_array().unwrap().len(), 1, "{platform}");
             assert_eq!(windows[0]["id"], torn_out_id, "{platform}");
+            core.shutdown();
+        }
+    }
+
+    #[test]
+    fn window_scoped_stop_and_delete_finish_from_one_authoritative_snapshot() {
+        for platform in ["darwin", "win32"] {
+            let (_directory, core) = core_for_platform(platform);
+            let role_id = create_role(&core, &first_game_id(&core), 1);
+            let create_window = |name: &str| {
+                core.invoke(command(json!({
+                    "type": "gameWindowCreate",
+                    "input": {
+                        "name": name,
+                        "targetDisplay": { "id": 1 },
+                        "placement": {
+                            "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                            "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                            "presentation": "normal"
+                        }
+                    }
+                })))
+                .unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            };
+            let target = |window_id: &str| EmbeddedLaunchTargetRecord {
+                window_id: window_id.to_owned(),
+                display_id: 1,
+                work_area: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1440,
+                    height: 900,
+                },
+                bounds: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 960,
+                    height: 640,
+                },
+                presentation: "normal".to_owned(),
+            };
+
+            let stopped_window_id = create_window("Stop together");
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserRoleLaunch {
+                    role_id: role_id.clone(),
+                    target: target(&stopped_window_id),
+                    zoom_factor: None,
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWindowStop {
+                    window_id: stopped_window_id.clone(),
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            let runtime = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            assert!(runtime["tabs"].as_array().unwrap().is_empty(), "{platform}");
+
+            let deleted_window_id = create_window("Delete together");
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserRoleLaunch {
+                    role_id: role_id.clone(),
+                    target: target(&deleted_window_id),
+                    zoom_factor: None,
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWindowDelete {
+                    window_id: deleted_window_id.clone(),
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
+            assert!(
+                windows
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|window| window["id"].as_str() != Some(deleted_window_id.as_str())),
+                "{platform}"
+            );
             core.shutdown();
         }
     }

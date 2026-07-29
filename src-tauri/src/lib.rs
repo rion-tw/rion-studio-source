@@ -1194,19 +1194,15 @@ async fn rion_shell_invoke(
         }
         "stopGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            stop_runtime_display(&state, &window_id).await
+            Arc::clone(&state.core)
+                .invoke_async(CoreCommand::BrowserWindowStop { window_id })
+                .await
+                .map_err(error_payload)
         }
         "deleteGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            stop_runtime_display(&state, &window_id).await?;
             Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedWindowDelete {
-                    window_id: window_id.clone(),
-                })
-                .await
-                .map_err(error_payload)?;
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::GameWindowDelete { id: window_id })
+                .invoke_async(CoreCommand::BrowserWindowDelete { window_id })
                 .await
                 .map_err(error_payload)
         }
@@ -1290,7 +1286,10 @@ async fn rion_shell_invoke(
         "discardSavedGameWindows" => discard_saved_game_windows(&state, &args),
         "stopEmbeddedRuntimeWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            stop_runtime_display(&state, &window_id).await
+            Arc::clone(&state.core)
+                .invoke_async(CoreCommand::BrowserWindowStop { window_id })
+                .await
+                .map_err(error_payload)
         }
         "embeddedRuntimeState" => embedded_runtime_state(&state),
         "startMacro" => {
@@ -1697,27 +1696,6 @@ fn game_window_create_rollback_error(
             rollback_error.as_ref()
         ),
     )
-}
-
-async fn stop_runtime_display(
-    state: &CoreState,
-    window_id: &str,
-) -> Result<Value, CoreErrorPayload> {
-    let snapshot = invoke_core_sync(state, json!({ "type": "browserRuntimeSnapshot" }))?;
-    let tabs = snapshot["tabs"].as_array().cloned().unwrap_or_default();
-    for tab in tabs {
-        if tab["windowId"].as_str() != Some(window_id) {
-            continue;
-        }
-        let source_id = tab["sourceId"].as_str().unwrap_or_default();
-        let command = if tab["tabType"].as_str() == Some("workspace") {
-            json!({ "type": "browserWorkspaceStop", "workspaceId": source_id })
-        } else {
-            json!({ "type": "browserRoleStop", "roleId": source_id })
-        };
-        invoke_core_async(state, command).await?;
-    }
-    Ok(Value::Null)
 }
 
 fn core_game_window_is_empty(core: &AppCore, window_id: &str) -> bool {

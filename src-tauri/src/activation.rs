@@ -17,6 +17,7 @@ use uuid::Uuid;
 const ACTIVATION_ENDPOINT_FILE: &str = "rion-studio.activation.json";
 const ACTIVATION_TIMEOUT: Duration = Duration::from_millis(1_500);
 const MAX_ACTIVATION_MESSAGE_BYTES: usize = 16 * 1024;
+const MAX_CONCURRENT_CONNECTIONS: usize = 8;
 
 #[derive(Deserialize, Serialize)]
 struct ActivationEndpointRecord {
@@ -64,20 +65,43 @@ impl ActivationServer {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         let thread_token = token.clone();
-        let on_activate = Arc::new(on_activate);
+        let on_activate: Arc<dyn Fn() + Send + Sync> = Arc::new(on_activate);
         let thread = thread::Builder::new()
             .name("rion-cross-shell-activation".to_owned())
             .spawn(move || {
+                let mut connections = Vec::<JoinHandle<()>>::new();
                 while !thread_stop.load(Ordering::Acquire) {
+                    reap_finished_connections(&mut connections);
                     match listener.accept() {
                         Ok((stream, _)) => {
-                            handle_connection(stream, &thread_token, on_activate.as_ref());
+                            if connections.len() >= MAX_CONCURRENT_CONNECTIONS {
+                                continue;
+                            }
+                            let connection_stop = Arc::clone(&thread_stop);
+                            let connection_token = thread_token.clone();
+                            let connection_callback = Arc::clone(&on_activate);
+                            if let Ok(connection) = thread::Builder::new()
+                                .name("rion-cross-shell-activation-client".to_owned())
+                                .spawn(move || {
+                                    handle_connection(
+                                        stream,
+                                        &connection_token,
+                                        connection_callback.as_ref(),
+                                        &connection_stop,
+                                    );
+                                })
+                            {
+                                connections.push(connection);
+                            }
                         }
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(25));
                         }
                         Err(_) => break,
                     }
+                }
+                for connection in connections {
+                    let _ = connection.join();
                 }
             })?;
 
@@ -144,13 +168,15 @@ fn handle_connection(
     mut stream: TcpStream,
     expected_token: &str,
     on_activate: &(dyn Fn() + Send + Sync),
+    stop: &AtomicBool,
 ) {
     let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
     let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
     let accepted = read_message(&mut stream)
         .ok()
         .and_then(|body| serde_json::from_slice::<ActivationRequest>(&body).ok())
-        .is_some_and(|request| request.operation == "activate" && request.token == expected_token);
+        .is_some_and(|request| request.operation == "activate" && request.token == expected_token)
+        && !stop.load(Ordering::Acquire);
     if accepted {
         on_activate();
     }
@@ -160,6 +186,18 @@ fn handle_connection(
         b"{\"ok\":false}\n".as_slice()
     };
     let _ = stream.write_all(response);
+}
+
+fn reap_finished_connections(connections: &mut Vec<JoinHandle<()>>) {
+    let mut index = 0;
+    while index < connections.len() {
+        if connections[index].is_finished() {
+            let connection = connections.swap_remove(index);
+            let _ = connection.join();
+        } else {
+            index += 1;
+        }
+    }
 }
 
 fn read_message(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
@@ -247,7 +285,11 @@ fn set_owner_only_permissions(_path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        io::Write,
+        net::{SocketAddr, TcpStream},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use super::*;
 
@@ -268,6 +310,30 @@ mod tests {
         drop(server);
         assert!(!user_data_dir.path().join(ACTIVATION_ENDPOINT_FILE).exists());
         assert!(!forward_activation(user_data_dir.path()));
+    }
+
+    #[test]
+    fn slow_client_does_not_block_an_authenticated_activation() {
+        let user_data_dir = tempfile::tempdir().unwrap();
+        let activations = Arc::new(AtomicUsize::new(0));
+        let callback_activations = Arc::clone(&activations);
+        let server = ActivationServer::start(user_data_dir.path(), move || {
+            callback_activations.fetch_add(1, Ordering::SeqCst);
+        })
+        .unwrap();
+        let endpoint = read_endpoint(&user_data_dir.path().join(ACTIVATION_ENDPOINT_FILE)).unwrap();
+        let address = format!("{}:{}", endpoint.host, endpoint.port)
+            .parse::<SocketAddr>()
+            .unwrap();
+        let mut slow_client = TcpStream::connect(address).unwrap();
+        slow_client.write_all(b"{").unwrap();
+        thread::sleep(Duration::from_millis(75));
+
+        assert!(forward_activation(user_data_dir.path()));
+        assert_eq!(activations.load(Ordering::SeqCst), 1);
+
+        drop(slow_client);
+        drop(server);
     }
 
     #[test]

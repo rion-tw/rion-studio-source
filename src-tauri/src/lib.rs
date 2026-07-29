@@ -3858,8 +3858,22 @@ pub fn run() {
                                         );
                                     }
                                 });
-                            } else if state.runtime.handle_window_close_requested(&label) {
-                                api.prevent_close();
+                            } else {
+                                match state.runtime.handle_window_close_requested(&label) {
+                                    Ok(true) => api.prevent_close(),
+                                    Ok(false) => {}
+                                    Err(error) => {
+                                        api.prevent_close();
+                                        let _ = app_handle.emit(
+                                            "rion://shell-error",
+                                            json!({
+                                                "code": error.code,
+                                                "message": error.message,
+                                                "windowLabel": label
+                                            }),
+                                        );
+                                    }
+                                }
                             }
                         }
                         tauri::WindowEvent::Resized(size) => {

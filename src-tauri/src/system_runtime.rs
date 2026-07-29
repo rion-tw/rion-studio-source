@@ -540,6 +540,32 @@ fn reversible_fanout_runtime_error(
     }
 }
 
+fn apply_window_close_to_hide_transaction(
+    persist_placement: impl FnOnce() -> Result<(), String>,
+    hide: impl FnOnce() -> Result<(), String>,
+    persist_restore_session: impl FnOnce() -> Result<(), String>,
+    restore_visibility: impl FnOnce() -> Result<(), String>,
+) -> Result<(), ReversibleFanoutFailure> {
+    persist_placement().map_err(|apply_error| ReversibleFanoutFailure {
+        apply_error,
+        rollback_errors: Vec::new(),
+    })?;
+
+    if let Err(apply_error) = hide() {
+        return Err(ReversibleFanoutFailure {
+            apply_error,
+            rollback_errors: restore_visibility().err().into_iter().collect(),
+        });
+    }
+    if let Err(apply_error) = persist_restore_session() {
+        return Err(ReversibleFanoutFailure {
+            apply_error,
+            rollback_errors: restore_visibility().err().into_iter().collect(),
+        });
+    }
+    Ok(())
+}
+
 fn finalize_persisted_effect_result(
     mut result: CoreEffectResult,
     persist_runtime: bool,
@@ -2838,14 +2864,11 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.message)
     }
 
-    pub fn handle_window_close_requested(&self, label: &str) -> bool {
-        let _ = self.persist_game_window_placement(label);
+    pub(crate) fn handle_window_close_requested(&self, label: &str) -> RuntimeResult<bool> {
         let window = {
-            let Ok(mut state) = self.state.lock() else {
-                return false;
-            };
+            let mut state = self.state()?;
             if state.allow_window_close_labels.remove(label) {
-                return false;
+                return Ok(false);
             }
             let Some(window) = state
                 .display_hosts
@@ -2853,15 +2876,50 @@ impl SystemRuntimeExecutor {
                 .find(|host| host.window.label() == label)
                 .map(|host| host.window.clone())
             else {
-                return false;
+                return Ok(false);
             };
-            state.pending_window_close_labels.remove(label);
             window
         };
-        let _ = window.hide();
+        let was_visible = window.is_visible().map_err(RuntimeError::tauri)?;
+        let result = apply_window_close_to_hide_transaction(
+            || {
+                self.persist_game_window_placement(label).map_err(|error| {
+                    format!("Could not persist the game window placement: {error}")
+                })
+            },
+            || {
+                window
+                    .hide()
+                    .map_err(|error| format!("Could not hide the game window: {error}"))
+            },
+            || {
+                self.persist_restore_session(false).map_err(|error| {
+                    format!("Could not persist the runtime restore session: {error}")
+                })
+            },
+            || {
+                if was_visible {
+                    window.show().map_err(|error| error.to_string())
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        if let Err(failure) = result {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_WINDOW_CLOSE_FAILED",
+                "Closing the runtime window",
+                &failure,
+            ));
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.pending_window_close_labels.remove(label);
+        }
         self.publish_projection();
-        let _ = self.persist_restore_session(false);
-        true
+        Ok(true)
     }
 
     pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) -> bool {
@@ -11021,9 +11079,9 @@ fn set_audio_muted(_webview: &Webview, _muted: bool) -> RuntimeResult<()> {
 type RuntimeResult<T> = Result<T, RuntimeError>;
 
 #[derive(Debug)]
-struct RuntimeError {
-    code: &'static str,
-    message: String,
+pub(crate) struct RuntimeError {
+    pub(crate) code: &'static str,
+    pub(crate) message: String,
 }
 
 impl RuntimeError {
@@ -11111,6 +11169,61 @@ mod tests {
         let error = reversible_fanout_runtime_error("APPLY_FAILED", "Updating surfaces", &failure);
         assert_eq!(error.code, "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED");
         assert!(error.message.contains("Restart Rion Studio"));
+    }
+
+    #[test]
+    fn window_close_does_not_hide_when_placement_persistence_fails() {
+        let hidden = AtomicBool::new(false);
+        let failure = apply_window_close_to_hide_transaction(
+            || Err("placement failed".to_owned()),
+            || {
+                hidden.store(true, Ordering::Release);
+                Ok(())
+            },
+            || Ok(()),
+            || Ok(()),
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.apply_error, "placement failed");
+        assert!(failure.rollback_errors.is_empty());
+        assert!(!hidden.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn window_close_restores_visibility_when_restore_persistence_fails() {
+        let visible = AtomicBool::new(true);
+        let failure = apply_window_close_to_hide_transaction(
+            || Ok(()),
+            || {
+                visible.store(false, Ordering::Release);
+                Ok(())
+            },
+            || Err("restore session failed".to_owned()),
+            || {
+                visible.store(true, Ordering::Release);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.apply_error, "restore session failed");
+        assert!(failure.rollback_errors.is_empty());
+        assert!(visible.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn window_close_reports_failed_visibility_compensation() {
+        let failure = apply_window_close_to_hide_transaction(
+            || Ok(()),
+            || Err("hide failed".to_owned()),
+            || Ok(()),
+            || Err("show failed".to_owned()),
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.apply_error, "hide failed");
+        assert_eq!(failure.rollback_errors, vec!["show failed"]);
     }
 
     #[test]

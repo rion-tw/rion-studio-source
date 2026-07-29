@@ -197,12 +197,20 @@ describe("Tauri System WebView runtime source", () => {
     expect(applyRuntime).toContain("surface.hide()");
 
     const closeRuntimeWindow = runtime.slice(
-      runtime.indexOf("pub fn handle_window_close_requested("),
+      runtime.indexOf("pub(crate) fn handle_window_close_requested("),
       runtime.indexOf("pub fn resize_window(")
     );
-    expect(closeRuntimeWindow).toContain("window.hide()");
+    expect(closeRuntimeWindow).toContain(".hide()");
+    expect(closeRuntimeWindow).toContain("-> RuntimeResult<bool>");
+    expect(closeRuntimeWindow).toContain("apply_window_close_to_hide_transaction(");
+    expect(closeRuntimeWindow).toContain("persist_game_window_placement(label)");
+    expect(closeRuntimeWindow).toContain("persist_restore_session(false)");
+    expect(closeRuntimeWindow).toContain(".show()");
+    expect(closeRuntimeWindow).not.toContain("let _ = window.hide()");
     expect(closeRuntimeWindow).not.toContain("BrowserRoleStop");
     expect(closeRuntimeWindow).not.toContain("BrowserWorkspaceStop");
+    expect(shell).toContain("match state.runtime.handle_window_close_requested(&label)");
+    expect(shell).toContain('"windowLabel": label');
     const resizeRuntimeWindow = runtime.slice(
       runtime.indexOf("pub fn resize_window("),
       runtime.indexOf("pub fn move_window(")

@@ -111,6 +111,48 @@ describe("list editor navigation", () => {
     expect(onClearBrowserData).toHaveBeenCalledWith(item);
   });
 
+  it.each(["wkwebview", "webview2"] as const)(
+    "does not show the %s engine label on a running role card",
+    (resolvedEngine) => {
+      const item = role();
+
+      render(
+        <RolesView
+          activeFilter="all"
+          busyRoleIds={new Set()}
+          filteredRoles={[item]}
+          games={[]}
+          isReordering={false}
+          language="en"
+          roleStats={{ total: 1, running: 1, stopped: 0 }}
+          roles={[item]}
+          scrollPositionRef={{ current: 0 }}
+          query=""
+          statusByRole={new Map([
+            [item.id, { roleId: item.id, state: "running", resolvedEngine }]
+          ])}
+          t={t}
+          onClearQuery={vi.fn()}
+          onClearBrowserData={vi.fn()}
+          onCopy={vi.fn()}
+          onDelete={vi.fn()}
+          onDeleteMany={vi.fn().mockResolvedValue(false)}
+          onEdit={vi.fn()}
+          onError={vi.fn()}
+          onFilterChange={vi.fn()}
+          onLaunch={vi.fn()}
+          onNewRole={vi.fn()}
+          onQueryChange={vi.fn()}
+          onReorder={vi.fn()}
+          onStop={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByText(`browserEngine.actual.${resolvedEngine}`)).toBeNull();
+      expect(screen.getByRole("button", { name: "role.stop" })).toBeTruthy();
+    }
+  );
+
   it("opens a workspace editor from its action menu", async () => {
     const user = userEvent.setup();
     const assignedRole = role();

@@ -200,7 +200,7 @@ pub fn normalize_runtime_restore_session(
         let active_source_id = window.active_source_id.and_then(|active| {
             let active = active.trim().to_owned();
             tabs.iter()
-                .any(|tab| tab.source_id == active)
+                .any(|tab| tab.source_id == active && !tab.hidden)
                 .then_some(active)
         });
         windows.push(RuntimeRestoreWindowRecord {
@@ -970,8 +970,19 @@ fn normalize_game_window(mut window: StateGameWindowRecord) -> CoreResult<StateG
     } else {
         window
             .active_tab_id
-            .filter(|active| window.tabs.iter().any(|tab| &tab.id == active))
-            .or_else(|| window.tabs.first().map(|tab| tab.id.clone()))
+            .filter(|active| {
+                window
+                    .tabs
+                    .iter()
+                    .any(|tab| &tab.id == active && !tab.hidden)
+            })
+            .or_else(|| {
+                window
+                    .tabs
+                    .iter()
+                    .find(|tab| !tab.hidden)
+                    .map(|tab| tab.id.clone())
+            })
     };
     Ok(window)
 }
@@ -3006,6 +3017,60 @@ mod tests {
     }
 
     #[test]
+    fn game_window_active_tab_normalization_excludes_hidden_tabs() {
+        for platform in ["darwin", "win32"] {
+            let mut windows = Vec::new();
+            let window = create_game_window(&mut windows, game_window_input("Main")).unwrap();
+            let hidden_id = Uuid::new_v4().to_string();
+            let visible_id = Uuid::new_v4().to_string();
+            let tab = |id: &str, role_id: &str, hidden: bool| {
+                serde_json::from_value(json!({
+                    "id": id,
+                    "tabType": "role",
+                    "sourceId": role_id,
+                    "name": role_id,
+                    "roleIds": [role_id],
+                    "hidden": hidden,
+                    "audioMuted": false,
+                    "roleViews": []
+                }))
+                .unwrap()
+            };
+
+            let normalized = update_game_window(
+                &mut windows,
+                &window.id,
+                GameWindowUpdateInputRecord {
+                    tabs: Some(vec![
+                        tab(&hidden_id, "role-hidden", true),
+                        tab(&visible_id, "role-visible", false),
+                    ]),
+                    active_tab_id: Some(Some(hidden_id.clone())),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                normalized.active_tab_id.as_deref(),
+                Some(visible_id.as_str()),
+                "{platform}"
+            );
+
+            let all_hidden = update_game_window(
+                &mut windows,
+                &window.id,
+                GameWindowUpdateInputRecord {
+                    tabs: Some(vec![tab(&hidden_id, "role-hidden", true)]),
+                    active_tab_id: Some(Some(hidden_id.clone())),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(all_hidden.active_tab_id, None, "{platform}");
+        }
+    }
+
+    #[test]
     fn normalizes_browser_and_macro_settings_before_persistence() {
         let settings = serde_json::from_value(json!({
             "fonts":{"mode":"custom","families":{"fixed":"  Courier   New  ","bad":"Ignored"}},
@@ -3175,6 +3240,7 @@ mod tests {
         assert_eq!(normalized.windows[1].tabs.len(), 1);
         assert_eq!(normalized.windows[1].tabs[0].source_id, "role-2");
         assert_eq!(normalized.windows[1].tabs[0].name, "role-2");
+        assert_eq!(normalized.windows[1].active_source_id, None);
     }
 
     #[test]

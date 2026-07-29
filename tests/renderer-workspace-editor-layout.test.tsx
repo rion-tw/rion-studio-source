@@ -32,7 +32,7 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("shows every workspace layout as an expanded single-select checkbox option", async () => {
+  it("shows every workspace layout as a compact wrapping single-select option", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
       [
@@ -61,24 +61,31 @@ describe("workspace editor role picker layout", () => {
     );
 
     const layoutOptions = container.querySelector<HTMLElement>("[data-workspace-layout-options]");
-    const layoutCheckboxes = screen.getAllByRole("checkbox");
-    const selectedCheckbox = screen.getByRole("checkbox", { name: "Two columns" });
-    const nineGridCheckbox = screen.getByRole("checkbox", { name: "Nine grid" });
+    const layoutOptionLabels = container.querySelectorAll<HTMLElement>("[data-workspace-layout-option]");
+    const selectedOption = screen.getByRole("button", { name: "Two columns" });
+    const nineGridOption = screen.getByRole("button", { name: "Nine grid" });
 
     expect(screen.queryByRole("combobox", { name: "Layout" })).toBeNull();
     expect(layoutOptions?.parentElement?.parentElement?.className).toContain("col-span-full");
-    expect(layoutOptions?.className).toContain("min-[640px]:grid-cols-2");
-    expect(layoutOptions?.className).toContain("min-[1000px]:grid-cols-3");
-    expect(layoutOptions?.className).toContain("min-[1400px]:grid-cols-4");
-    expect(layoutOptions?.querySelectorAll("[data-workspace-layout-option]")).toHaveLength(workspaceLayoutTemplates.length);
-    expect(layoutCheckboxes).toHaveLength(workspaceLayoutTemplates.length);
-    expect(selectedCheckbox.getAttribute("data-state")).toBe("checked");
-    expect(nineGridCheckbox.getAttribute("data-state")).toBe("unchecked");
+    expect(layoutOptions?.className).toContain("flex-wrap");
+    expect(layoutOptions?.className).not.toContain("grid-cols");
+    expect(layoutOptionLabels).toHaveLength(workspaceLayoutTemplates.length);
+    layoutOptionLabels.forEach((option) => {
+      expect(option.className).toContain("h-[30px]");
+      expect(option.className).toContain("w-fit");
+      expect(option.className).toContain("glass-control");
+      expect(option.className).not.toContain("min-h-14");
+    });
+    expect(layoutOptions?.querySelectorAll('[role="checkbox"]')).toHaveLength(0);
+    expect(selectedOption.getAttribute("aria-pressed")).toBe("true");
+    expect(selectedOption.className).toContain("macro-role-card-selected");
+    expect(nineGridOption.getAttribute("aria-pressed")).toBe("false");
+    expect(nineGridOption.className).not.toContain("macro-role-card-selected");
 
-    fireEvent.click(nineGridCheckbox);
+    fireEvent.click(nineGridOption);
 
-    expect(screen.getByRole("checkbox", { name: "Two columns" }).getAttribute("data-state")).toBe("unchecked");
-    expect(screen.getByRole("checkbox", { name: "Nine grid" }).getAttribute("data-state")).toBe("checked");
+    expect(screen.getByRole("button", { name: "Two columns" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Nine grid" }).getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelectorAll("[data-workspace-slot-index]")).toHaveLength(9);
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

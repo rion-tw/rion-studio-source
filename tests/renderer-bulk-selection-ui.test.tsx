@@ -155,7 +155,8 @@ describe("bulk selection UI", () => {
       name: "Click for actions or drag to reorder"
     })[0];
     const actionLayer = actionButton.closest<HTMLElement>("[data-role-action-layer]");
-    expect(actionLayer?.className).toContain("z-[var(--layer-popover)]");
+    expect(actionLayer?.className).toContain("z-[var(--layer-tooltip)]");
+    expect(actionLayer?.className).not.toContain("z-[var(--layer-popover)]");
     expect(actionLayer?.className).not.toContain("z-[var(--layer-selection)]");
     await user.click(actionButton);
     expect(screen.getByRole("menu")).toBeTruthy();

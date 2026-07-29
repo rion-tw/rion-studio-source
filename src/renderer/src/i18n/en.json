@@ -1,7 +1,7 @@
 {
   "app.roles": "Roles",
   "app.workspaces": "Workspaces",
-  "app.gameWindows": "Game Windows",
+  "app.gameWindows": "Windows",
   "gameWindows.kicker": "Windows",
   "gameWindows.title": "Game Windows",
   "gameWindows.description": "Manage permanent game windows, their displays, and running tabs.",

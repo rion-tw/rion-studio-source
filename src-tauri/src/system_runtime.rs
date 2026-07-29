@@ -34,8 +34,8 @@ use sha2::{Digest, Sha256};
 #[cfg(target_os = "macos")]
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl,
-    WebviewWindowBuilder, Window,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Url, Webview,
+    WebviewUrl, WebviewWindowBuilder, Window,
     webview::{
         Cookie, DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder,
         cookie::{SameSite, time::OffsetDateTime},
@@ -2513,7 +2513,7 @@ impl SystemRuntimeExecutor {
                 let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
                 let (logical_x, logical_y) = logical_window_position(physical_x, physical_y, scale);
                 let monitor_target = window.current_monitor().ok().flatten().map(|monitor| {
-                    let scale = monitor.scale_factor();
+                    let scale = monitor.scale_factor().max(f64::EPSILON);
                     let work_area = monitor.work_area();
                     (
                         super::monitor_id(&monitor),
@@ -2523,6 +2523,7 @@ impl SystemRuntimeExecutor {
                             width: (work_area.size.width as f64 / scale).round() as i32,
                             height: (work_area.size.height as f64 / scale).round() as i32,
                         },
+                        scale,
                     )
                 });
                 Some((window_id, logical_x, logical_y, monitor_target))
@@ -2536,9 +2537,10 @@ impl SystemRuntimeExecutor {
         {
             host.target.bounds.x = logical_x;
             host.target.bounds.y = logical_y;
-            if let Some((display_id, work_area)) = monitor_target {
+            if let Some((display_id, work_area, scale_factor)) = monitor_target {
                 host.target.display_id = display_id;
                 host.target.work_area = work_area;
+                host.target.scale_factor = scale_factor;
             }
         }
         self.schedule_window_placement_persistence(label.to_owned());
@@ -2556,11 +2558,10 @@ impl SystemRuntimeExecutor {
         if window.is_maximized().unwrap_or(false) {
             window.unmaximize().map_err(|error| error.to_string())?;
         }
+        let (physical_x, physical_y) =
+            physical_window_position(target.bounds.x, target.bounds.y, target.scale_factor);
         window
-            .set_position(LogicalPosition::new(
-                target.bounds.x as f64,
-                target.bounds.y as f64,
-            ))
+            .set_position(PhysicalPosition::new(physical_x, physical_y))
             .map_err(|error| error.to_string())?;
         window
             .set_size(LogicalSize::new(
@@ -5529,16 +5530,22 @@ impl SystemRuntimeExecutor {
         let window_app = self.app.clone();
         let window_title = native_runtime_window_title(title).to_owned();
         let bounds = target.bounds.clone();
+        let physical_position = physical_window_position(bounds.x, bounds.y, target.scale_factor);
         let window = self.create_window_bounded(&target.window_id, move || {
             WindowBuilder::new(&window_app, window_label)
                 .title(window_title)
-                .position(bounds.x as f64, bounds.y as f64)
                 .inner_size(bounds.width.max(1) as f64, bounds.height.max(1) as f64)
                 .min_inner_size(640.0, 480.0)
                 .visible(false)
                 .focused(false)
                 .build()
         })?;
+        window
+            .set_position(PhysicalPosition::new(
+                physical_position.0,
+                physical_position.1,
+            ))
+            .map_err(RuntimeError::tauri)?;
         if let Err(error) = self.begin_surface_host_initialization(&window, &target.window_id) {
             let _ = window.close();
             return Err(error);
@@ -8340,11 +8347,27 @@ fn runtime_host_should_be_visible(
 }
 
 fn logical_window_position(physical_x: i32, physical_y: i32, scale: f64) -> (i32, i32) {
-    let scale = scale.max(f64::EPSILON);
+    let scale = normalized_scale_factor(scale);
     (
         (physical_x as f64 / scale).round() as i32,
         (physical_y as f64 / scale).round() as i32,
     )
+}
+
+fn physical_window_position(logical_x: i32, logical_y: i32, scale: f64) -> (i32, i32) {
+    let scale = normalized_scale_factor(scale);
+    (
+        (logical_x as f64 * scale).round() as i32,
+        (logical_y as f64 * scale).round() as i32,
+    )
+}
+
+fn normalized_scale_factor(scale: f64) -> f64 {
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    }
 }
 
 fn runtime_window_resize_is_actionable(width: u32, height: u32, minimized: bool) -> bool {
@@ -10487,6 +10510,7 @@ mod tests {
         let target = EmbeddedLaunchTargetRecord {
             window_id: "window-7".to_owned(),
             display_id: 7,
+            scale_factor: 2.0,
             work_area: rion_core::StatePixelBoundsRecord {
                 x: 100,
                 y: 50,
@@ -10523,12 +10547,18 @@ mod tests {
             ("macos", 1_846, 60, 2.0, (923, 30)),
             ("windows", -300, 225, 1.5, (-200, 150)),
         ] {
+            let logical = logical_window_position(physical_x, physical_y, scale);
             assert_eq!(
-                logical_window_position(physical_x, physical_y, scale),
-                expected,
+                logical, expected,
                 "unexpected logical position on {platform}"
             );
+            assert_eq!(
+                physical_window_position(logical.0, logical.1, scale),
+                (physical_x, physical_y),
+                "unexpected restored physical position on {platform}"
+            );
         }
+        assert_eq!(physical_window_position(120, -40, f64::NAN), (120, -40));
     }
 
     #[test]

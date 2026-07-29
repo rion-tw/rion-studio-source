@@ -10,11 +10,12 @@ use std::{
 };
 
 use rion_core::{
-    AppCore, AppCoreOptions, CoreCommand, CoreEffectAction, CoreEffectResult, CoreErrorPayload,
-    CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord, EmbeddedLaunchTargetRecord,
-    GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-    StateCollection, StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord,
-    StateResolutionRecord, StateRoleRecord, migrate_legacy_data_root,
+    AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
+    CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
+    EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
+    GameWindowTabRecord, GameWindowUpdateInputRecord, StateCollection, StateGameRecord,
+    StateGameWindowRecord, StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord,
+    migrate_legacy_data_root,
 };
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State, Webview, WebviewWindow, webview::PageLoadEvent};
@@ -85,6 +86,41 @@ struct GameWindowTabDragSession {
     tab_id: String,
     target: EmbeddedLaunchTargetRecord,
     target_display: DisplayTargetRecord,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RuntimeRestoreTabMatch {
+    Missing,
+    InTarget { hidden: bool, id: String },
+    Conflict { window_id: String },
+}
+
+struct RestoreProgressGuard<'a> {
+    active: bool,
+    state: &'a CoreState,
+}
+
+impl<'a> RestoreProgressGuard<'a> {
+    fn new(state: &'a CoreState) -> Self {
+        Self {
+            active: true,
+            state,
+        }
+    }
+
+    fn finish(mut self) -> Result<(), CoreErrorPayload> {
+        replace_restore_progress(self.state, Vec::new())?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for RestoreProgressGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = replace_restore_progress(self.state, Vec::new());
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1770,6 +1806,7 @@ async fn restore_saved_game_windows(
         state,
         selected.iter().map(|saved| saved.id.clone()).collect(),
     )?;
+    let restore_progress = RestoreProgressGuard::new(state);
     let mut restored_ids = Vec::new();
     let mut failures = Vec::new();
     for saved in selected {
@@ -1799,38 +1836,63 @@ async fn restore_saved_game_windows(
             }));
             window_failed = true;
         }
+        let mut active_runtime_tab_id = None;
         for tab in &saved.tabs {
-            let launch_result = if tab.tab_type == "workspace" {
-                invoke_core_async(
-                    state,
-                    json!({
-                        "type": "browserWorkspaceLaunch",
-                        "workspaceId": tab.source_id,
-                        "target": target
-                    }),
-                )
-                .await
-            } else {
-                invoke_core_async(
-                    state,
-                    json!({
-                        "type": "browserRoleLaunch",
-                        "roleId": tab.source_id,
-                        "target": target
-                    }),
-                )
-                .await
+            let before = browser_runtime_snapshot(state)?;
+            let ready_before = match_runtime_restore_tab(&before, &saved.id, tab);
+            let launch_succeeded = match ready_before {
+                RuntimeRestoreTabMatch::InTarget { .. } => true,
+                RuntimeRestoreTabMatch::Conflict { window_id } => {
+                    failures.push(json!({
+                        "windowId": saved.id,
+                        "tabId": tab.id,
+                        "sourceId": tab.source_id,
+                        "code": "TAURI_RESTORE_SOURCE_CONFLICT",
+                        "message": format!(
+                            "The saved source is already running in Game Window {window_id}."
+                        )
+                    }));
+                    window_failed = true;
+                    false
+                }
+                RuntimeRestoreTabMatch::Missing => {
+                    let launch_result = if tab.tab_type == "workspace" {
+                        invoke_core_async(
+                            state,
+                            json!({
+                                "type": "browserWorkspaceLaunch",
+                                "workspaceId": tab.source_id,
+                                "target": target
+                            }),
+                        )
+                        .await
+                    } else {
+                        invoke_core_async(
+                            state,
+                            json!({
+                                "type": "browserRoleLaunch",
+                                "roleId": tab.source_id,
+                                "target": target
+                            }),
+                        )
+                        .await
+                    };
+                    match launch_result {
+                        Ok(_) => true,
+                        Err(error) => {
+                            failures.push(json!({
+                                "windowId": saved.id,
+                                "tabId": tab.id,
+                                "sourceId": tab.source_id,
+                                "code": error.code,
+                                "message": error.message
+                            }));
+                            window_failed = true;
+                            false
+                        }
+                    }
+                }
             };
-            if let Err(error) = launch_result {
-                failures.push(json!({
-                    "windowId": saved.id,
-                    "tabId": tab.id,
-                    "sourceId": tab.source_id,
-                    "code": error.code,
-                    "message": error.message
-                }));
-                window_failed = true;
-            }
 
             // A launch publishes a partial runtime snapshot. Reapply the full
             // saved list until every tab is materialized so later tabs retain
@@ -1846,15 +1908,28 @@ async fn restore_saved_game_windows(
                     },
                 })
                 .map_err(error_payload)?;
-            let snapshot = invoke_core_sync(state, json!({ "type": "browserRuntimeSnapshot" }))?;
-            let restored_tab_id = snapshot["tabs"]
-                .as_array()
-                .and_then(|tabs| {
-                    tabs.iter()
-                        .find(|candidate| candidate["sourceId"].as_str() == Some(&tab.source_id))
-                })
-                .and_then(|candidate| candidate["id"].as_str())
-                .map(str::to_owned);
+            if !launch_succeeded {
+                continue;
+            }
+            let snapshot = browser_runtime_snapshot(state)?;
+            let (restored_tab_id, restored_hidden) =
+                match match_runtime_restore_tab(&snapshot, &saved.id, tab) {
+                    RuntimeRestoreTabMatch::InTarget { hidden, id } => (id, hidden),
+                    RuntimeRestoreTabMatch::Missing | RuntimeRestoreTabMatch::Conflict { .. } => {
+                        failures.push(json!({
+                            "windowId": saved.id,
+                            "tabId": tab.id,
+                            "sourceId": tab.source_id,
+                            "code": "TAURI_RESTORE_TAB_MISSING",
+                            "message": "The restored tab was not found in its target Game Window."
+                        }));
+                        window_failed = true;
+                        continue;
+                    }
+                };
+            if saved.active_tab_id.as_deref() == Some(tab.id.as_str()) {
+                active_runtime_tab_id = Some(restored_tab_id.clone());
+            }
             if tab.audio_muted
                 && let Err(error) = state.runtime.restore_tab_audio_muted(&tab.source_id, true)
             {
@@ -1868,11 +1943,13 @@ async fn restore_saved_game_windows(
                 window_failed = true;
             }
             if tab.hidden
+                && !restored_hidden
                 && saved.active_tab_id.as_deref() != Some(tab.id.as_str())
-                && let Some(tab_id) = restored_tab_id.as_deref()
-                && let Err(error) =
-                    invoke_core_async(state, json!({ "type": "embeddedTabHide", "tabId": tab_id }))
-                        .await
+                && let Err(error) = invoke_core_async(
+                    state,
+                    json!({ "type": "embeddedTabHide", "tabId": restored_tab_id }),
+                )
+                .await
             {
                 failures.push(json!({
                     "windowId": saved.id,
@@ -1884,7 +1961,7 @@ async fn restore_saved_game_windows(
                 window_failed = true;
             }
         }
-        if let Some(active_tab_id) = saved.active_tab_id.as_deref()
+        if let Some(active_tab_id) = active_runtime_tab_id.as_deref()
             && let Err(error) = invoke_core_async(
                 state,
                 json!({ "type": "embeddedTabActivate", "tabId": active_tab_id }),
@@ -1917,7 +1994,7 @@ async fn restore_saved_game_windows(
         .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned))
         .filter(|window_id| restored_ids.contains(window_id))
         .or_else(|| restored_ids.last().cloned());
-    replace_restore_progress(state, Vec::new())?;
+    restore_progress.finish()?;
     state.runtime.replace_dormant_windows(
         remaining_windows.clone(),
         recovery_flow && !remaining_windows.is_empty(),
@@ -1938,6 +2015,41 @@ async fn restore_saved_game_windows(
         "restoredWindowIds": restored_ids,
         "failures": failures
     }))
+}
+
+fn browser_runtime_snapshot(state: &CoreState) -> Result<BrowserRuntimeSnapshot, CoreErrorPayload> {
+    state
+        .core
+        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .map_err(error_payload)
+        .and_then(|snapshot| {
+            serde_json::from_value(snapshot)
+                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
+        })
+}
+
+fn match_runtime_restore_tab(
+    snapshot: &BrowserRuntimeSnapshot,
+    window_id: &str,
+    saved: &GameWindowTabRecord,
+) -> RuntimeRestoreTabMatch {
+    let Some(tab) = snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.source_id == saved.source_id && tab.tab_type == saved.tab_type)
+    else {
+        return RuntimeRestoreTabMatch::Missing;
+    };
+    if tab.window_id == window_id {
+        RuntimeRestoreTabMatch::InTarget {
+            hidden: tab.hidden,
+            id: tab.id.clone(),
+        }
+    } else {
+        RuntimeRestoreTabMatch::Conflict {
+            window_id: tab.window_id.clone(),
+        }
+    }
 }
 
 fn game_window_restore_record(
@@ -3635,6 +3747,56 @@ mod tests {
         assert!(error.message.contains("SHELL_WINDOW_FAILED"));
         assert!(error.message.contains("native create failed"));
         assert!(error.message.contains("metadata cleanup failed"));
+    }
+
+    #[test]
+    fn restore_tab_matching_is_idempotent_and_window_scoped() {
+        let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
+            "roles": [],
+            "tabs": [{
+                "id": "runtime-tab-1",
+                "sourceId": "role-1",
+                "name": "Role 1",
+                "windowId": "window-1",
+                "tabType": "role",
+                "roleIds": ["role-1"],
+                "hidden": true
+            }],
+            "windows": [],
+            "workspaces": []
+        }))
+        .unwrap();
+        let saved = GameWindowTabRecord {
+            id: "saved-tab-1".to_owned(),
+            tab_type: "role".to_owned(),
+            source_id: "role-1".to_owned(),
+            name: "Role 1".to_owned(),
+            role_ids: vec!["role-1".to_owned()],
+            hidden: true,
+            audio_muted: false,
+            role_views: Vec::new(),
+        };
+
+        assert_eq!(
+            match_runtime_restore_tab(&snapshot, "window-1", &saved),
+            RuntimeRestoreTabMatch::InTarget {
+                hidden: true,
+                id: "runtime-tab-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            match_runtime_restore_tab(&snapshot, "window-2", &saved),
+            RuntimeRestoreTabMatch::Conflict {
+                window_id: "window-1".to_owned(),
+            }
+        );
+
+        let mut missing = saved;
+        missing.source_id = "role-2".to_owned();
+        assert_eq!(
+            match_runtime_restore_tab(&snapshot, "window-1", &missing),
+            RuntimeRestoreTabMatch::Missing
+        );
     }
 
     #[test]

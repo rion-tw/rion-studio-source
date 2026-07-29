@@ -112,16 +112,17 @@ describe("bulk selection UI", () => {
   it("adds a selectable state to role cards", async () => {
     const user = userEvent.setup();
     const item = role("role-1", "Main role");
+    const otherItem = role("role-2", "Secondary role");
     render(
       <RolesRoute
         activeFilter="all"
         busyRoleIds={new Set()}
-        filteredRoles={[item]}
+        filteredRoles={[item, otherItem]}
         games={[]}
         isReordering={false}
         language="en"
-        roleStats={{ total: 1, running: 0, stopped: 1 }}
-        roles={[item]}
+        roleStats={{ total: 2, running: 0, stopped: 2 }}
+        roles={[item, otherItem]}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -143,6 +144,14 @@ describe("bulk selection UI", () => {
     );
 
     const card = getSelectionItem("role-1");
+    const actionButton = screen.getAllByRole("button", {
+      name: "Click for actions or drag to reorder"
+    })[0];
+    const actionLayer = actionButton.closest<HTMLElement>("[data-role-action-layer]");
+    expect(actionLayer?.className).toContain("z-[var(--layer-popover)]");
+    expect(actionLayer?.className).not.toContain("z-[var(--layer-selection)]");
+    await user.click(actionButton);
+    expect(screen.getByRole("menu")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Select Main role" })).toBeNull();
     await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();

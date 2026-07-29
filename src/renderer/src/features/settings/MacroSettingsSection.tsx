@@ -114,7 +114,7 @@ export function MacroSettingsSection({
                     className={`inline-flex items-start gap-1.5 ${
                       isInvalid
                         ? "text-destructive"
-                        : "text-warning"
+                        : "text-warning-foreground"
                     }`}
                     role={isInvalid ? "alert" : "status"}
                   >

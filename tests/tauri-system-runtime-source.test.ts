@@ -32,6 +32,27 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("fn close_failed_popup(");
   });
 
+  it("prepares a recovery surface before atomically replacing the old handle", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const recovery = runtime.slice(
+      runtime.indexOf("fn rebuild_role_surface("),
+      runtime.indexOf("fn apply(&self, effect:")
+    );
+
+    const navigation = recovery.indexOf(".navigate(current_url.clone())");
+    const swapFence = recovery.indexOf("surface_recovery_swap_is_current(");
+    const closeOld = recovery.indexOf(
+      "self.close_surface_and_wait(&old_surface.webview"
+    );
+    expect(navigation).toBeGreaterThan(-1);
+    expect(swapFence).toBeGreaterThan(navigation);
+    expect(closeOld).toBeGreaterThan(swapFence);
+    expect(recovery).not.toContain("close_surface_and_wait(&old_webview");
+  });
+
   it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),

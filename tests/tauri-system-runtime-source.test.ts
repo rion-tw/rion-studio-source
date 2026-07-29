@@ -376,11 +376,28 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf(".on_navigation(move |url| {"),
       runtime.indexOf(".on_new_window(move |url, features|")
     );
-    expect(mainNavigation).toContain("should_release_macros_for_navigation(url)");
-    expect(mainNavigation).toContain("CoreCommand::MacroReleaseRole { role_id }");
+    expect(mainNavigation).toContain("gate_navigation_after_macro_release(");
     expect(runtime).toContain('matches!(url.scheme(), "http" | "https")');
     expect(mainNavigation.indexOf('url.scheme() == "rion-runtime-shortcut"'))
-      .toBeLessThan(mainNavigation.indexOf("should_release_macros_for_navigation(url)"));
+      .toBeLessThan(mainNavigation.indexOf("gate_navigation_after_macro_release("));
+
+    const navigationGate = runtime.slice(
+      runtime.indexOf("fn gate_navigation_after_macro_release("),
+      runtime.indexOf("fn finish_macro_navigation_release(")
+    );
+    expect(navigationGate).toContain("MacroNavigationGateDecision::Release");
+    expect(navigationGate).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
+    expect(navigationGate).toContain("webview.navigate(url)");
+    expect(navigationGate.indexOf(".invoke_async(CoreCommand::MacroReleaseRole"))
+      .toBeLessThan(navigationGate.indexOf("webview.navigate(url)"));
+    expect(navigationGate).toContain("SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED");
+    expect(navigationGate).toContain("SYSTEM_NAVIGATION_RESUME_FAILED");
+
+    const popupNavigation = runtime.slice(
+      runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("),
+      runtime.indexOf(".on_download(move |_webview, event|", runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("))
+    );
+    expect(popupNavigation).toContain("gate_navigation_after_macro_release(");
 
     const pendingRoute = app.slice(
       app.indexOf("const consumePendingPageRequest"),

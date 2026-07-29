@@ -347,7 +347,7 @@ export function ChromeProfileImportFlow({
                       .replace("{storage}", String(item.localStorageCount))}
                   </p>
                   {unsupportedCount(item.unsupported) > 0 ? (
-                    <p className="text-warning">
+                    <p className="text-warning-foreground">
                       {t("settings.chromeImportUnsupportedCounts")
                         .replace("{partitioned}", String(item.unsupported.partitionedCookieCount))
                         .replace("{appBound}", String(item.unsupported.appBoundCookieCount))
@@ -356,7 +356,7 @@ export function ChromeProfileImportFlow({
                     </p>
                   ) : null}
                   {item.warnings.length > 0 ? (
-                    <p className="break-words text-warning">
+                    <p className="break-words text-warning-foreground">
                       {item.warnings.map((warning) => chromeImportWarningLabel(warning, t)).join(" · ")}
                     </p>
                   ) : null}
@@ -599,7 +599,7 @@ function unsupportedCount(value: ChromeProfileImportResult["items"][number]["uns
 
 function chromeImportStatusClass(status: ChromeProfileImportResult["items"][number]["status"]): string {
   if (status === "imported" || status === "alreadyAuthenticated") return "text-success";
-  if (status === "cancelled" || status === "needsLogin") return "text-warning";
+  if (status === "cancelled" || status === "needsLogin") return "text-warning-foreground";
   return "text-destructive";
 }
 

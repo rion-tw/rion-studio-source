@@ -401,7 +401,10 @@ function RoleCard({
 
       <SelectionCardOverlay isSelected={isSelected} />
 
-      <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+      <div
+        className="pointer-events-none absolute right-3 top-3 z-[var(--layer-popover)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+        data-role-action-layer
+      >
         <RoleActionMenu
           canReorder={canReorder}
           isDragging={isDragging}

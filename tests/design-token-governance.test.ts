@@ -70,6 +70,21 @@ describe("design token governance", () => {
     expect(violations).toEqual([]);
   });
 
+  it("keeps warning surface tokens out of text colors", async () => {
+    const files = (await sourceFiles(path.join(root, "src", "renderer", "src")))
+      .filter((file) => file.endsWith(".tsx"));
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const source = await readFile(file, "utf8");
+      for (const match of source.matchAll(/\btext-warning(?!-foreground)\b/g)) {
+        violations.push(`${relative(file)}: warning surface used as text: ${match[0]}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   it("rejects raw visual values outside the canonical CSS token source", async () => {
     const violations: string[] = [];
     const rules = {

@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { releasePlatformBundle } from "./releaseSigning.mjs";
 import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
 
 const publicKey = process.env.RION_STUDIO_UPDATER_PUBLIC_KEY?.trim();
@@ -16,7 +15,13 @@ if (!privateKey) {
   throw new Error("TAURI_SIGNING_PRIVATE_KEY is required for updater-signed release artifacts.");
 }
 
-const platformBundle = releasePlatformBundle(process.platform, process.env);
+const platformBundle = {};
+if (process.platform === "darwin") {
+  platformBundle.macOS = { signingIdentity: "-" };
+}
+else if (process.platform !== "win32") {
+  throw new Error("Tauri releases are supported only on macOS and Windows builders.");
+}
 
 const endpoint = process.env.RION_STUDIO_UPDATER_ENDPOINT?.trim()
   || "https://github.com/rion-tw/rion-studio/releases/latest/download/latest.json";
@@ -55,10 +60,24 @@ try {
   const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const forwardedArguments = process.argv.slice(2);
   if (forwardedArguments[0] === "--") forwardedArguments.shift();
+  const buildEnvironment = { ...process.env };
+  if (process.platform === "darwin") {
+    for (const name of [
+      "APPLE_API_ISSUER",
+      "APPLE_API_KEY",
+      "APPLE_API_KEY_PATH",
+      "APPLE_ID",
+      "APPLE_PASSWORD",
+      "APPLE_SIGNING_IDENTITY",
+      "APPLE_TEAM_ID"
+    ]) {
+      delete buildEnvironment[name];
+    }
+  }
   await run(
     command,
     ["exec", "tauri", "build", "--config", configPath, ...forwardedArguments],
-    process.env
+    buildEnvironment
   );
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });

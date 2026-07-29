@@ -204,6 +204,20 @@ being treated as a successful reusable workflow.
 Windows installer verification must use a parent-only bounded process wait because
 `Start-Process -Wait` also waits for the App launched by `--force-run`.
 
+## Owner-Locked Release Distribution Decision
+
+- This is an explicit owner decision, not a temporary fallback: production macOS
+  release artifacts use Tauri's ad-hoc identity (`-`) and are neither Developer ID
+  signed nor notarized. Production Windows installers remain Authenticode-unsigned.
+- Platform installer signing and Tauri updater signing are separate. The updater
+  signing keys, updater `.sig` files, and SHA-256 checksum verification stay required.
+- Agents must not add Apple Developer ID, Apple notarization, Windows Authenticode,
+  platform certificate secrets, or related fail-closed gates as security hardening,
+  best-practice, or release-optimization work.
+- This policy may change only when the user explicitly changes this decision and
+  confirms that both Apple and Windows production signing credentials are available.
+  A generic request to fix CI, release, or security does not authorize that change.
+
 Common test areas:
 
 - Rust domain/repository: input normalization, validation, transaction rollback,

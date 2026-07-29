@@ -55,7 +55,7 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).not.toContain("Node-API");
   });
 
-  it("requires platform code signing while updater artifacts stay verified", async () => {
+  it("keeps the owner-locked unsigned platform policy while updater artifacts stay verified", async () => {
     const [workflow, releaseScript, packageScript, macConfigSource] = await Promise.all([
       readWorkflow(".github/workflows/tauri-release-candidate.yml"),
       readWorkflow("scripts/buildTauriRelease.mjs"),
@@ -96,7 +96,7 @@ describe("Tauri-only release workflows", () => {
     expect(validate).toContain("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
-    for (const secret of [
+    for (const platformSigningInput of [
       "APPLE_CERTIFICATE",
       "APPLE_CERTIFICATE_PASSWORD",
       "APPLE_ID",
@@ -106,7 +106,7 @@ describe("Tauri-only release workflows", () => {
       "WINDOWS_CERTIFICATE_PASSWORD",
       "WINDOWS_TIMESTAMP_URL"
     ]) {
-      expect(validate).toContain(`require_secret ${secret}`);
+      expect(workflow).not.toContain(platformSigningInput);
     }
     expect(validate.indexOf("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY"))
       .toBeLessThan(validate.indexOf('[[ "${RELEASE_TAG}"'));
@@ -140,24 +140,22 @@ describe("Tauri-only release workflows", () => {
       "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
     );
     expect(workflow).toContain("codesign --verify --deep --strict");
-    expect(workflow).toContain('! grep -F "Signature=adhoc"');
-    expect(workflow).toContain('grep -F "TeamIdentifier=${APPLE_TEAM_ID}"');
-    expect(workflow).toContain("Import Apple Developer ID certificate");
-    expect(workflow).toContain("xcrun stapler validate");
-    expect(workflow).toContain("APPLE_CERTIFICATE");
-    expect(workflow).toContain("WINDOWS_CERTIFICATE");
-    expect(workflow).toContain("Import Windows Authenticode certificate");
-    expect(releaseScript).toContain("releasePlatformBundle(process.platform, process.env)");
-    expect(releaseScript).not.toContain('signingIdentity: "-"');
-    expect(releaseScript).not.toContain("delete buildEnvironment[name]");
+    expect(workflow).toContain('grep -F "Signature=adhoc"');
+    expect(workflow).toContain('grep -F "TeamIdentifier=not set"');
+    expect(workflow).not.toContain("Import Apple Developer ID certificate");
+    expect(workflow).not.toContain("xcrun stapler validate");
+    expect(workflow).not.toContain("Import Windows Authenticode certificate");
+    expect(releaseScript).toContain('signingIdentity: "-"');
+    expect(releaseScript).toContain("delete buildEnvironment[name]");
+    expect(releaseScript).not.toContain("releasePlatformBundle");
     expect(packageScript).toContain('signingIdentity: "-"');
     expect(packageScript).not.toContain("test:native:");
     expect(workflow).not.toContain("test:native:");
     expect(workflow).not.toContain("attestation");
     expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
     expect(workflow).toContain("Get-AuthenticodeSignature");
-    expect(workflow).toContain('$signature.Status -ne "Valid"');
-    expect(workflow).toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
+    expect(workflow).toContain('$signature.Status -ne "NotSigned"');
+    expect(workflow).not.toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
     expect(workflow).toContain("createTauriUpdaterManifest.mjs");
     expect(workflow).toContain("createLegacyUpdateManifests.mjs");
     expect(workflow).toContain("releaseArtifacts.mjs");
@@ -202,12 +200,18 @@ describe("Tauri-only release workflows", () => {
     expect(build).toContain(
       "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
     );
-    expect(build).toContain(
-      "APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}"
-    );
-    expect(build).toContain(
-      "WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}"
-    );
+    for (const platformSigningInput of [
+      "APPLE_CERTIFICATE",
+      "APPLE_CERTIFICATE_PASSWORD",
+      "APPLE_ID",
+      "APPLE_PASSWORD",
+      "APPLE_TEAM_ID",
+      "WINDOWS_CERTIFICATE",
+      "WINDOWS_CERTIFICATE_PASSWORD",
+      "WINDOWS_TIMESTAMP_URL"
+    ]) {
+      expect(build).not.toContain(platformSigningInput);
+    }
     expect(build).toContain("- validate-ci-run");
     expect(build).toContain("- resolve-release");
     expect(workflow).toContain("tauri-release-assets-");
@@ -231,6 +235,22 @@ describe("Tauri-only release workflows", () => {
     expect(verifyIndex).toBeGreaterThan(buildIndex);
     expect(publishIndex).toBeGreaterThan(verifyIndex);
     expect(workflow.toLowerCase()).not.toContain("electron");
+  });
+
+  it("records the owner-locked platform signing decision for future agents", async () => {
+    const [agentInstructions, agentContext] = await Promise.all([
+      readWorkflow("AGENTS.md"),
+      readWorkflow(".agents/context.md")
+    ]);
+
+    for (const source of [agentInstructions, agentContext]) {
+      expect(source).toContain("Owner-Locked Release Distribution Decision");
+      expect(source).toContain("ad-hoc identity (`-`)");
+      expect(source).toContain("Windows installers remain Authenticode-unsigned");
+      expect(source).toContain("updater signing");
+      expect(source).toContain("must not add Apple Developer ID");
+      expect(source).toContain("explicitly changes this decision");
+    }
   });
 
   it("publishes source-free assets only after draft verification", async () => {

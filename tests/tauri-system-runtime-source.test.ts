@@ -127,6 +127,29 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("SYSTEM_RUNTIME_PERSIST_FAILED");
   });
 
+  it("releases role macro input when a tracked popup is destroyed", async () => {
+    const [runtime, shell] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8")
+    ]);
+    const cleanup = runtime.slice(
+      runtime.indexOf("pub(crate) fn forget_popup("),
+      runtime.indexOf("fn register_popup(")
+    );
+    expect(cleanup).toContain("state.popup_roles.remove(window_label)");
+    expect(cleanup).toContain("tauri::async_runtime::spawn(async move");
+    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
+    expect(cleanup).toContain("CoreCommand::MacroReleaseRole {");
+    expect(cleanup).toContain("SYSTEM_POPUP_MACRO_RELEASE_FAILED");
+    expect(cleanup).toContain('"rion://shell-error"');
+
+    const destroyed = shell.slice(
+      shell.indexOf("tauri::WindowEvent::Destroyed =>"),
+      shell.indexOf("_ => {}", shell.indexOf("tauri::WindowEvent::Destroyed =>"))
+    );
+    expect(destroyed).toContain("state.runtime.forget_popup(&label)");
+  });
+
   it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),

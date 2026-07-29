@@ -89,7 +89,7 @@ export default function GameWindowsRoute({
         title={t("gameWindows.title")}
         description={t("gameWindows.description")}
         actions={(
-          <Button type="button" onClick={onNew}>
+          <Button className="page-header-control" type="button" onClick={onNew}>
             <Plus size={16} />
             {t("gameWindows.new")}
           </Button>
@@ -105,7 +105,7 @@ export default function GameWindowsRoute({
           onAction={onNew}
         />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="collection-grid collection-grid-game-windows gap-4">
           {gameWindows.map((gameWindow) => {
             const liveWindow = runtime.windows.find((item) => item.windowId === gameWindow.id);
             const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);

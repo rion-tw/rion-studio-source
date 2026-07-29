@@ -128,7 +128,7 @@ export function MacroSettingsSection({
                   <Input
                     aria-invalid={isInvalid}
                     aria-label={t(titleKey)}
-                    className={`settings-menu-control w-32 text-right tabular-nums ${
+                    className={`settings-menu-control w-32 text-right ${
                       isInvalid ? "border-destructive/60 focus-visible:ring-destructive/25" : ""
                     }`}
                     disabled={isSaving}

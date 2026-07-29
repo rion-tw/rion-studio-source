@@ -35,7 +35,9 @@ describe("create controls at the end of lists", () => {
     );
 
     const createButton = screen.getAllByRole("button", { name: "New game" }).at(-1)!;
-    expect(createButton.closest(".glass-panel")).toBe(document.querySelector(".grid.auto-rows-fr")?.lastElementChild);
+    expect(createButton.closest(".glass-panel")).toBe(
+      document.querySelector(".collection-grid-games")?.lastElementChild
+    );
     await user.click(createButton);
     expect(onNewGame).toHaveBeenCalledOnce();
   });
@@ -75,7 +77,7 @@ describe("create controls at the end of lists", () => {
 
     const createButton = screen.getAllByRole("button", { name: "New role" }).at(-1)!;
     const createCard = createButton.closest(".glass-panel");
-    expect(createCard).toBe(document.querySelector(".grid.auto-rows-fr")?.lastElementChild);
+    expect(createCard).toBe(document.querySelector(".collection-grid-roles")?.lastElementChild);
     expect(createCard?.className).toContain("aspect-[4/5]");
     await user.click(createButton);
     expect(onNewRole).toHaveBeenCalledOnce();
@@ -147,7 +149,9 @@ describe("create controls at the end of lists", () => {
     );
 
     const createButton = screen.getAllByRole("button", { name: "New workspace" }).at(-1)!;
-    expect(createButton.closest(".glass-panel")).toBe(document.querySelector(".grid.auto-rows-fr")?.lastElementChild);
+    expect(createButton.closest(".glass-panel")).toBe(
+      document.querySelector(".collection-grid-workspaces")?.lastElementChild
+    );
     await user.click(createButton);
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
   });

@@ -416,7 +416,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-4 min-[1200px]:grid-cols-3">
+      <div className="workspace-editor-fields grid gap-4">
         <Surface className="col-span-full p-4" padding="none" variant="inset">
           <FormField
             label={t("workspaces.layout")}
@@ -460,7 +460,7 @@ function WorkspaceLayoutFormEditor({
       </div>
 
       <Surface
-        className="grid overflow-hidden min-[1180px]:grid-cols-[minmax(0,1fr)_270px]"
+        className="workspace-editor-surface grid overflow-hidden"
         padding="none"
         variant="panel"
       >
@@ -510,7 +510,7 @@ function WorkspaceLayoutFormEditor({
 
         <div
           data-workspace-role-panel
-          className="flex min-h-0 flex-col border-t border-border min-[1180px]:overflow-hidden min-[1180px]:border-l min-[1180px]:border-t-0 min-[1180px]:[contain:size]"
+          className="workspace-editor-sidebar flex min-h-0 flex-col border-t border-border"
         >
           <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3">
             <FieldHeader
@@ -531,7 +531,7 @@ function WorkspaceLayoutFormEditor({
           </div>
           <div
             data-workspace-role-scroll
-            className="max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto min-[1180px]:min-h-0 min-[1180px]:max-h-none min-[1180px]:flex-1"
+            className="workspace-editor-role-list max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto"
           >
             <div
               data-workspace-role-list

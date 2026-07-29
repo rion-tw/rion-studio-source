@@ -150,7 +150,7 @@ describe("macro editor controls", () => {
     const helpList = container.querySelector<HTMLElement>("[data-macro-help-list]");
     const macroHelps = container.querySelectorAll<HTMLElement>("[data-macro-help]");
 
-    expect(helpList?.className).toContain("min-[1180px]:col-span-2");
+    expect(helpList?.className).toContain("editor-layout-macro-help");
     expect(macroHelps).toHaveLength(3);
     expect(macroHelps[0].getAttribute("data-macro-help")).toBe("activation");
     expect(macroHelps[1].getAttribute("data-macro-help")).toBe("calls");

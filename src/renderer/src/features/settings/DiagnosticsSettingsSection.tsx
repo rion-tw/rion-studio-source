@@ -232,7 +232,7 @@ function PerformanceDiagnosticsResult({
                 <p className="text-xs font-semibold text-foreground">{roleName}</p>
                 {surface.origin ? <p className="text-[10px] text-muted-foreground">{surface.origin}</p> : null}
               </div>
-              <p className="font-mono text-lg font-semibold tabular-nums text-foreground">
+              <p className="font-mono text-lg font-semibold text-foreground">
                 {formatFps(surface.averageFps)} FPS
               </p>
             </div>

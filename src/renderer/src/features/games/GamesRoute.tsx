@@ -78,8 +78,8 @@ function GamesRoute({
         title={t("games.title")}
         description={t("games.description")}
         actions={<>
-          <SearchField value={query} onChange={setQuery} placeholder={t("games.search")} />
-          <Button type="button" variant="outline" onClick={onNewGame}><Plus size={15} />{t("games.new")}</Button>
+          <SearchField className="page-header-control page-header-search" value={query} onChange={setQuery} placeholder={t("games.search")} />
+          <Button className="page-header-control" type="button" variant="outline" onClick={onNewGame}><Plus size={15} />{t("games.new")}</Button>
         </>}
       />
       {selection.hasSelection ? (
@@ -98,7 +98,7 @@ function GamesRoute({
       ) : filteredGames.length === 0 ? (
         <EmptyState icon={Search} title={t("games.noMatches.title")} description={t("games.noMatches.description")} />
       ) : (
-        <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="collection-grid collection-grid-games auto-rows-fr gap-3">
           {filteredGames.map((game) => {
             const gameRoles = roles.filter((role) => role.gameId === game.id);
             const running = gameRoles.filter((role) => statusByRole.has(role.id)).length;

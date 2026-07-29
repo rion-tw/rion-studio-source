@@ -92,7 +92,7 @@ export function PageFrame({
   return (
     <section
       ref={setFrameRef}
-      className={cn("app-page relative h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)}
+      className={cn("app-page relative h-full overflow-auto px-6 py-7", className)}
       onScroll={(event) => {
         if (scrollPositionRef) {
           scrollPositionRef.current = event.currentTarget.scrollTop;
@@ -123,13 +123,13 @@ export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "titl
 
 export function PageHeader({ actions, className, description, kicker, title, ...props }: PageHeaderProps) {
   return (
-    <header className={cn("app-page-header flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between", className)} {...props}>
+    <header className={cn("app-page-header flex flex-col gap-3", className)} {...props}>
       <div className="min-w-0 max-w-2xl">
         {kicker ? <p className="app-page-kicker">{kicker}</p> : null}
         <h1 className="app-page-title">{title}</h1>
         {description ? <p className="app-page-description">{description}</p> : null}
       </div>
-      {actions ? <div className="app-page-actions flex w-full flex-col gap-1.5 sm:flex-row lg:w-auto">{actions}</div> : null}
+      {actions ? <div className="app-page-actions flex w-full flex-col gap-1.5">{actions}</div> : null}
     </header>
   );
 }
@@ -233,8 +233,8 @@ export function FormGrid({ children, className, columns = 1, ...props }: FormGri
     <div
       className={cn(
         "grid min-w-0 gap-x-3 gap-y-3.5",
-        columns === 2 && "md:grid-cols-2",
-        columns === 3 && "md:grid-cols-3",
+        columns === 2 && "form-grid-2",
+        columns === 3 && "form-grid-3",
         className
       )}
       {...props}
@@ -253,7 +253,7 @@ function CountPill({ children, className }: CountPillProps) {
   return (
     <span
       className={cn(
-        "count-pill inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/30 bg-background/35 px-1 text-[10px] leading-none text-muted-foreground backdrop-blur-xl",
+        "count-pill inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/30 bg-background/35 px-1 text-[10px] leading-none text-muted-foreground",
         className
       )}
     >

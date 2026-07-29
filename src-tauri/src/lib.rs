@@ -106,6 +106,155 @@ struct GameWindowTabDragSession {
     target_display: DisplayTargetRecord,
 }
 
+#[derive(Clone)]
+struct WorkspaceConflictRollbackPlan {
+    active: bool,
+    audio_muted: bool,
+    before_tab_id: Option<String>,
+    hidden: bool,
+    role_zoom_factor: Option<f64>,
+    source_id: String,
+    tab_id: String,
+    tab_type: String,
+    target: EmbeddedLaunchTargetRecord,
+    window_index: usize,
+}
+
+fn sort_workspace_conflict_rollback_plans(plans: &mut [WorkspaceConflictRollbackPlan]) {
+    plans.sort_by(|left, right| {
+        left.target
+            .window_id
+            .cmp(&right.target.window_id)
+            .then(left.window_index.cmp(&right.window_index))
+    });
+}
+
+async fn stop_workspace_conflict(
+    state: &CoreState,
+    plan: &WorkspaceConflictRollbackPlan,
+) -> Result<(), CoreErrorPayload> {
+    let command = if plan.tab_type == "workspace" {
+        CoreCommand::BrowserWorkspaceStop {
+            workspace_id: plan.source_id.clone(),
+        }
+    } else {
+        CoreCommand::BrowserRoleStop {
+            role_id: plan.source_id.clone(),
+        }
+    };
+    Arc::clone(&state.core)
+        .invoke_async(command)
+        .await
+        .map(|_| ())
+        .map_err(error_payload)
+}
+
+async fn rollback_workspace_conflicts(
+    state: &CoreState,
+    plans: &[WorkspaceConflictRollbackPlan],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for plan in plans.iter().rev() {
+        let launch = if plan.tab_type == "workspace" {
+            CoreCommand::BrowserWorkspaceLaunch {
+                workspace_id: plan.source_id.clone(),
+                target: plan.target.clone(),
+            }
+        } else {
+            CoreCommand::BrowserRoleLaunch {
+                role_id: plan.source_id.clone(),
+                target: plan.target.clone(),
+                zoom_factor: plan.role_zoom_factor,
+            }
+        };
+        if let Err(error) = Arc::clone(&state.core).invoke_async(launch).await {
+            errors.push(format!("launch {}: {error}", plan.source_id));
+            continue;
+        }
+        if let Err(error) = Arc::clone(&state.core)
+            .invoke_async(CoreCommand::EmbeddedTabReorder {
+                tab_id: plan.tab_id.clone(),
+                before_tab_id: plan.before_tab_id.clone(),
+            })
+            .await
+        {
+            errors.push(format!("reorder {}: {error}", plan.tab_id));
+        }
+        if plan.hidden
+            && let Err(error) = Arc::clone(&state.core)
+                .invoke_async(CoreCommand::EmbeddedTabHide {
+                    tab_id: plan.tab_id.clone(),
+                })
+                .await
+        {
+            errors.push(format!("hide {}: {error}", plan.tab_id));
+        }
+        if plan.audio_muted
+            && let Err(error) = state.runtime.set_tab_audio_muted(&plan.tab_id, true)
+        {
+            errors.push(format!("mute {}: {error}", plan.tab_id));
+        }
+    }
+    for plan in plans.iter().filter(|plan| plan.active && !plan.hidden) {
+        if let Err(error) = Arc::clone(&state.core)
+            .invoke_async(CoreCommand::EmbeddedTabActivate {
+                tab_id: plan.tab_id.clone(),
+            })
+            .await
+        {
+            errors.push(format!("activate {}: {error}", plan.tab_id));
+        }
+    }
+    errors
+}
+
+fn restore_workspace_conflict_metadata(
+    state: &CoreState,
+    records: &[StateGameWindowRecord],
+) -> Vec<String> {
+    records
+        .iter()
+        .filter_map(|record| {
+            state
+                .core
+                .invoke(CoreCommand::GameWindowUpdate {
+                    id: record.id.clone(),
+                    input: GameWindowUpdateInputRecord {
+                        name: Some(record.name.clone()),
+                        target_display: Some(record.target_display.clone()),
+                        placement: Some(record.placement.clone()),
+                        tabs: Some(record.tabs.clone()),
+                        active_tab_id: Some(record.active_tab_id.clone()),
+                    },
+                })
+                .err()
+                .map(|error| format!("persist {}: {error}", record.id))
+        })
+        .collect()
+}
+
+fn workspace_conflict_transaction_error(
+    state: &CoreState,
+    original: CoreErrorPayload,
+    mut rollback_errors: Vec<String>,
+    recovery_records: &[StateGameWindowRecord],
+) -> CoreErrorPayload {
+    if rollback_errors.is_empty() {
+        return original;
+    }
+    rollback_errors.extend(restore_workspace_conflict_metadata(state, recovery_records));
+    state.runtime.mark_unhealthy_after_failed_compensation();
+    shell_error(
+        "TAURI_WORKSPACE_CONFLICT_ROLLBACK_FAILED",
+        format!(
+            "{} ({}) Conflict restoration also failed: {}. Restart Rion Studio to recover safely.",
+            original.message,
+            original.code,
+            rollback_errors.join("; ")
+        ),
+    )
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum RuntimeRestoreTabMatch {
     Missing,
@@ -1079,33 +1228,150 @@ async fn rion_shell_invoke(
                     "conflicts": conflicts
                 }));
             }
-            if stop_conflicts {
+            let (rollback_plans, recovery_records) = if stop_conflicts {
+                let runtime_snapshot =
+                    serde_json::from_value::<BrowserRuntimeSnapshot>(runtime.clone()).map_err(
+                        |error| shell_error("TAURI_RUNTIME_SNAPSHOT_INVALID", error.to_string()),
+                    )?;
+                let game_window_records =
+                    serde_json::from_value::<Vec<StateGameWindowRecord>>(game_windows.clone())
+                        .map_err(|error| {
+                            shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
+                        })?;
+                let mut affected_window_ids = HashSet::new();
+                let mut plans = Vec::with_capacity(conflicting_tabs.len());
                 for tab in &conflicting_tabs {
-                    let Some(source_id) = tab["sourceId"].as_str() else {
-                        continue;
-                    };
-                    let command = if tab["tabType"].as_str() == Some("workspace") {
-                        CoreCommand::BrowserWorkspaceStop {
-                            workspace_id: source_id.to_owned(),
-                        }
-                    } else {
-                        CoreCommand::BrowserRoleStop {
-                            role_id: source_id.to_owned(),
-                        }
-                    };
-                    Arc::clone(&state.core)
-                        .invoke_async(command)
-                        .await
-                        .map_err(error_payload)?;
+                    let source_id = tab["sourceId"].as_str().ok_or_else(|| {
+                        shell_error(
+                            "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                            "A conflicting runtime tab has no source id.",
+                        )
+                    })?;
+                    let tab_id = tab["id"].as_str().ok_or_else(|| {
+                        shell_error(
+                            "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                            "A conflicting runtime tab has no tab id.",
+                        )
+                    })?;
+                    let window_id = tab["windowId"].as_str().ok_or_else(|| {
+                        shell_error(
+                            "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                            "A conflicting runtime tab has no window id.",
+                        )
+                    })?;
+                    let runtime_window = runtime_snapshot
+                        .windows
+                        .iter()
+                        .find(|candidate| candidate.window_id == window_id)
+                        .ok_or_else(|| {
+                            shell_error(
+                                "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                                "A conflicting runtime tab has no runtime window.",
+                            )
+                        })?;
+                    let window_index = runtime_window
+                        .tab_ids
+                        .iter()
+                        .position(|candidate| candidate == tab_id)
+                        .ok_or_else(|| {
+                            shell_error(
+                                "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                                "A conflicting runtime tab is missing from its window order.",
+                            )
+                        })?;
+                    let game_window = game_window_records
+                        .iter()
+                        .find(|candidate| candidate.id == window_id)
+                        .ok_or_else(|| {
+                            shell_error(
+                                "SHELL_GAME_WINDOW_INVALID",
+                                "A conflicting runtime tab has no persisted Game Window.",
+                            )
+                        })?;
+                    let game_tab = game_window
+                        .tabs
+                        .iter()
+                        .find(|candidate| candidate.id == tab_id)
+                        .ok_or_else(|| {
+                            shell_error(
+                                "SHELL_GAME_WINDOW_INVALID",
+                                "A conflicting runtime tab has no persisted tab metadata.",
+                            )
+                        })?;
+                    affected_window_ids.insert(window_id.to_owned());
+                    plans.push(WorkspaceConflictRollbackPlan {
+                        active: runtime_window.active_tab_id.as_deref() == Some(tab_id),
+                        audio_muted: game_tab.audio_muted,
+                        before_tab_id: runtime_window.tab_ids.get(window_index + 1).cloned(),
+                        hidden: tab["hidden"].as_bool().unwrap_or(false),
+                        role_zoom_factor: if tab["tabType"].as_str() == Some("workspace") {
+                            None
+                        } else {
+                            Some(
+                                state
+                                    .runtime
+                                    .role_zoom_factor_for_tab(tab_id, source_id)
+                                    .map_err(|error| {
+                                        shell_error("TAURI_RUNTIME_ROLE_NOT_FOUND", error)
+                                    })?,
+                            )
+                        },
+                        source_id: source_id.to_owned(),
+                        tab_id: tab_id.to_owned(),
+                        tab_type: tab["tabType"].as_str().unwrap_or("role").to_owned(),
+                        target: state
+                            .runtime
+                            .launch_target_for_window_id(window_id)
+                            .map_err(|error| {
+                                shell_error("TAURI_RUNTIME_DISPLAY_NOT_FOUND", error)
+                            })?,
+                        window_index,
+                    });
                 }
+                sort_workspace_conflict_rollback_plans(&mut plans);
+                let records = game_window_records
+                    .into_iter()
+                    .filter(|record| affected_window_ids.contains(&record.id))
+                    .collect::<Vec<_>>();
+                (plans, records)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
+            let mut stopped_count = 0;
+            for (index, plan) in rollback_plans.iter().enumerate() {
+                if let Err(error) = stop_workspace_conflict(&state, plan).await {
+                    let rollback_errors =
+                        rollback_workspace_conflicts(&state, &rollback_plans[..=index]).await;
+                    return Err(workspace_conflict_transaction_error(
+                        &state,
+                        error,
+                        rollback_errors,
+                        &recovery_records,
+                    ));
+                }
+                stopped_count += 1;
             }
-            let statuses = Arc::clone(&state.core)
+            let statuses = match Arc::clone(&state.core)
                 .invoke_async(CoreCommand::BrowserWorkspaceLaunch {
                     workspace_id: workspace_id.clone(),
                     target,
                 })
                 .await
-                .map_err(error_payload)?;
+            {
+                Ok(statuses) => statuses,
+                Err(error) => {
+                    let rollback_errors =
+                        rollback_workspace_conflicts(&state, &rollback_plans[..stopped_count])
+                            .await;
+                    return Err(workspace_conflict_transaction_error(
+                        &state,
+                        error_payload(error),
+                        rollback_errors,
+                        &recovery_records,
+                    ));
+                }
+            };
             let runtime = state
                 .core
                 .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -3975,6 +4241,58 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn conflict_plan(
+        window_id: &str,
+        window_index: usize,
+        source_id: &str,
+    ) -> WorkspaceConflictRollbackPlan {
+        let bounds = StatePixelBoundsRecord {
+            x: 0,
+            y: 0,
+            width: 960,
+            height: 640,
+        };
+        WorkspaceConflictRollbackPlan {
+            active: false,
+            audio_muted: false,
+            before_tab_id: None,
+            hidden: false,
+            role_zoom_factor: None,
+            source_id: source_id.to_owned(),
+            tab_id: format!("tab-{source_id}"),
+            tab_type: "role".to_owned(),
+            target: EmbeddedLaunchTargetRecord {
+                window_id: window_id.to_owned(),
+                display_id: 1,
+                scale_factor: 1.0,
+                work_area: bounds.clone(),
+                bounds,
+                presentation: "normal".to_owned(),
+            },
+            window_index,
+        }
+    }
+
+    #[test]
+    fn workspace_conflict_rollback_rebuilds_each_window_in_reverse_tab_order() {
+        let mut plans = vec![
+            conflict_plan("window-a", 2, "c"),
+            conflict_plan("window-a", 0, "a"),
+            conflict_plan("window-a", 1, "b"),
+        ];
+
+        sort_workspace_conflict_rollback_plans(&mut plans);
+
+        assert_eq!(
+            plans
+                .iter()
+                .rev()
+                .map(|plan| plan.source_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c", "b", "a"]
+        );
+    }
 
     #[test]
     fn platform_name_matches_the_build_target() {

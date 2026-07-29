@@ -1271,6 +1271,38 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    pub(crate) fn mark_unhealthy_after_failed_compensation(&self) {
+        self.health.mark_unhealthy();
+    }
+
+    pub(crate) fn launch_target_for_window_id(
+        &self,
+        window_id: &str,
+    ) -> Result<EmbeddedLaunchTargetRecord, String> {
+        self.state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?
+            .display_hosts
+            .get(window_id)
+            .map(|host| host.target.clone())
+            .ok_or_else(|| "The conflicting runtime window has no live native host.".to_owned())
+    }
+
+    pub(crate) fn role_zoom_factor_for_tab(
+        &self,
+        tab_id: &str,
+        role_id: &str,
+    ) -> Result<f64, String> {
+        self.state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?
+            .tabs
+            .get(tab_id)
+            .and_then(|tab| tab.roles.get(role_id))
+            .map(|surface| surface.zoom_factor)
+            .ok_or_else(|| "The conflicting role has no live native surface.".to_owned())
+    }
+
     fn record_runtime_stage(&self, stage: impl Into<String>, status: &str, started: Instant) {
         let stage = stage.into();
         eprintln!(

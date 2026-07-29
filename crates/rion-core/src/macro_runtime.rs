@@ -21,6 +21,7 @@ use crate::{
 };
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
+const INVOCATION_STOP_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_ACTIVE_INVOCATIONS: usize = 64;
 const MAX_PENDING_ACTIONS: usize = 512;
 const PRESENTATION_STATUS_MIN_INTERVAL: Duration = Duration::from_millis(250);
@@ -275,7 +276,7 @@ impl MacroRuntime {
         }
         if early_release.as_deref() == Some("immediate") {
             cancel_control(&control);
-            wait_finished(&control);
+            wait_finished(&control)?;
             return Ok(Vec::new());
         }
         if early_release.as_deref() == Some("complete_first_iteration") {
@@ -350,12 +351,12 @@ impl MacroRuntime {
         if request.mode == "immediate" || control.first_iteration_completed.load(Ordering::Acquire)
         {
             cancel_control(&control);
-            wait_finished(&control);
+            wait_finished(&control)?;
         } else {
             control
                 .stop_after_first_iteration
                 .store(true, Ordering::Release);
-            wait_finished(&control);
+            wait_finished(&control)?;
         }
         Ok(())
     }
@@ -367,7 +368,7 @@ impl MacroRuntime {
                 .lock()
                 .is_ok_and(|ids| ids.contains(macro_id))
         })?;
-        cancel_and_wait_all(&controls);
+        cancel_and_wait_all(&controls)?;
         self.remove_statuses(|status| status.macro_id == macro_id)?;
         Ok(())
     }
@@ -408,7 +409,7 @@ impl MacroRuntime {
                 })
                 .collect::<Vec<_>>()
         };
-        cancel_and_wait_all(&controls);
+        cancel_and_wait_all(&controls)?;
         Ok(())
     }
 
@@ -490,7 +491,15 @@ impl MacroRuntime {
             controls
         };
         if stop_active {
-            cancel_and_wait_all(&controls);
+            if let Err(error) = cancel_and_wait_all(&controls) {
+                if let Ok(mut inner) = self.shared.inner.lock() {
+                    inner.mutation_leases.remove(&lease_id);
+                    for id in &macro_ids {
+                        inner.mutating_macro_ids.remove(id);
+                    }
+                }
+                return Err(error);
+            }
             self.remove_statuses(|status| macro_ids.contains(&status.macro_id))?;
         }
         Ok(lease_id)
@@ -537,7 +546,7 @@ impl MacroRuntime {
             .lock()
             .map(|inner| inner.invocations.values().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
-        cancel_and_wait_all(&controls);
+        let _ = cancel_and_wait_all(&controls);
         if let Ok(mut inner) = self.shared.inner.lock() {
             inner.held_keys.clear();
             inner.invocations.clear();
@@ -771,8 +780,7 @@ impl MacroRuntime {
                 .cloned()
                 .collect::<Vec<_>>()
         };
-        cancel_and_wait_all(&controls);
-        Ok(())
+        cancel_and_wait_all(&controls)
     }
 
     fn emit_statuses(&self) {
@@ -1295,8 +1303,9 @@ fn run_synchronous_child(
     loop {
         if context.control.cancelled.load(Ordering::Acquire) {
             cancel_control(&child);
-            wait_finished(&child);
+            let wait_result = wait_finished(&child);
             remove_owned_child(&context.control, &child.id);
+            wait_result.map_err(|error| error.to_string())?;
             return Err("macro run cancelled".to_owned());
         }
         let finished = child
@@ -1378,7 +1387,7 @@ fn spawn_triggered_macro(
             {
                 cancel_control(&child);
             }
-            wait_finished(&child);
+            let _ = wait_finished(&child);
             remove_owned_child(&context.control, &child.id);
         });
     finish_pending_child_start_after_spawn(&pending_control, &spawn);
@@ -2108,7 +2117,7 @@ fn cancel_owned_children(shared: &Arc<Shared>, control: &Arc<InvocationControl>)
             .filter_map(|id| inner.invocations.get(&id).cloned())
             .collect::<Vec<_>>()
     };
-    cancel_and_wait_all(&child_controls);
+    let _ = cancel_and_wait_all(&child_controls);
 }
 
 fn add_running_statuses(
@@ -2270,41 +2279,60 @@ fn wait_for_invocation_ready(control: &InvocationControl) -> Result<(), String> 
     }
 }
 
-fn cancel_and_wait_all(controls: &[Arc<InvocationControl>]) {
+fn cancel_and_wait_all(controls: &[Arc<InvocationControl>]) -> CoreResult<()> {
     for control in controls {
         cancel_control(control);
     }
+    let mut first_error = None;
     for control in controls {
-        wait_finished(control);
+        if let Err(error) = wait_finished(control)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
     }
+    first_error.map_or(Ok(()), Err)
 }
 
-fn wait_finished(control: &InvocationControl) {
-    let Ok(finished) = control.finished.0.lock() else {
-        return;
-    };
-    let Ok((finished, _)) =
-        control
-            .finished
-            .1
-            .wait_timeout_while(finished, Duration::from_secs(12), |finished| !*finished)
-    else {
-        return;
-    };
+fn wait_finished(control: &InvocationControl) -> CoreResult<()> {
+    wait_finished_with_timeout(control, INVOCATION_STOP_TIMEOUT)
+}
+
+fn wait_finished_with_timeout(control: &InvocationControl, timeout: Duration) -> CoreResult<()> {
+    let finished = control
+        .finished
+        .0
+        .lock()
+        .map_err(|_| CoreError::Internal("macro completion lock poisoned".to_owned()))?;
+    let (finished, _) = control
+        .finished
+        .1
+        .wait_timeout_while(finished, timeout, |finished| !*finished)
+        .map_err(|_| CoreError::Internal("macro completion lock poisoned".to_owned()))?;
     if !*finished {
-        return;
+        return Err(CoreError::Domain {
+            code: "MACRO_STOP_TIMEOUT",
+            message: format!(
+                "Macro invocation {} did not stop within {} seconds.",
+                control.id,
+                timeout.as_secs_f64()
+            ),
+        });
     }
     drop(finished);
     let worker = control
         .worker
         .lock()
-        .ok()
-        .and_then(|mut worker| worker.take());
+        .map_err(|_| CoreError::Internal("macro worker lock poisoned".to_owned()))?
+        .take();
     if let Some(worker) = worker
         && worker.thread().id() != thread::current().id()
     {
-        let _ = worker.join();
+        worker
+            .join()
+            .map_err(|_| CoreError::Internal("macro worker panicked".to_owned()))?;
     }
+    Ok(())
 }
 
 fn assigned_active_roles(
@@ -2485,6 +2513,20 @@ mod tests {
         duration_ms: u32,
         release: mpsc::SyncSender<()>,
         role_id: String,
+    }
+
+    #[test]
+    fn unfinished_invocation_reports_stop_timeout() {
+        let control = new_invocation_control(
+            "hung-invocation".to_owned(),
+            "m1".to_owned(),
+            HashSet::from(["r1".to_owned()]),
+        );
+
+        let error = wait_finished_with_timeout(&control, Duration::ZERO).unwrap_err();
+
+        assert_eq!(error.code(), "MACRO_STOP_TIMEOUT");
+        assert!(error.to_string().contains("hung-invocation"));
     }
 
     fn runtime_with_manual_wait(events: EventSink) -> (MacroRuntime, mpsc::Receiver<ManualWait>) {

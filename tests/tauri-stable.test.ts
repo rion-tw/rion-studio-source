@@ -26,13 +26,24 @@ describe("Tauri Stable shell", () => {
     });
   });
 
-  it("grants only the local main window the native capability", async () => {
-    const capability = JSON.parse(await readFile("src-tauri/capabilities/main.json", "utf8"));
+  it("grants window dragging only to the local main window", async () => {
+    const [capabilitySource, runtimeCapabilitySource, roleCapabilitySource] = await Promise.all([
+      readFile("src-tauri/capabilities/main.json", "utf8"),
+      readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
+      readFile("src-tauri/capabilities/system-role-overlay.json", "utf8")
+    ]);
+    const capability = JSON.parse(capabilitySource);
+    const runtimeCapability = JSON.parse(runtimeCapabilitySource);
+    const roleCapability = JSON.parse(roleCapabilitySource);
+
     expect(capability).toMatchObject({
       identifier: "main-local-only",
       windows: ["main"]
     });
+    expect(capability.permissions).toContain("core:window:allow-start-dragging");
     expect(capability).not.toHaveProperty("remote");
+    expect(runtimeCapability.permissions).not.toContain("core:window:allow-start-dragging");
+    expect(roleCapability.permissions).not.toContain("core:window:allow-start-dragging");
   });
 
   it("reuses the stable shared data directory and application lock", async () => {

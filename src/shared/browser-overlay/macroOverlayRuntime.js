@@ -6,8 +6,8 @@
   ];
   const controllerKey = "__rionStudioMacroOverlay";
   const scriptVersion = "2026-07-29.1";
-  const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
+  const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
   const hostStyleEntries = [
     ["bottom", "auto"],
@@ -26,7 +26,7 @@
     ["width", "max-content"],
     ["z-index", "2147483647"]
   ];
-  const binding = window[bindingName];
+  const binding = "__RION_STUDIO_MACRO_OVERLAY_BINDING__";
   const overlayTexts = {
     en: {
       holdUntilStop: "Hold",
@@ -546,7 +546,7 @@
   }
 
   function handleCoordinateClick(event) {
-    if (!coordinateMeasureActive) return;
+    if (!coordinateMeasureActive || !isTrustedUserEvent(event)) return;
     event.preventDefault();
     event.stopPropagation();
     pendingCoordinateMeasurement = coordinateMeasurementFromEvent(event);
@@ -1061,6 +1061,7 @@
     triggerElement?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (!isTrustedUserEvent(event)) return;
       setActionMenuVisible(false);
       void requestOpenMacroPage();
     });
@@ -1090,6 +1091,7 @@
     coordinateAction?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (!isTrustedUserEvent(event)) return;
       startCoordinateMeasurement();
     });
     coordinateMeasureElement?.addEventListener("pointermove", handleCoordinatePointerMove);
@@ -1322,6 +1324,9 @@
   }
 
   function handleKeyDown(event) {
+    if (!isTrustedUserEvent(event)) {
+      return;
+    }
     if (handleCoordinateKeyDown(event)) {
       return;
     }
@@ -1382,6 +1387,9 @@
   }
 
   function handleKeyUp(event) {
+    if (!isTrustedUserEvent(event)) {
+      return;
+    }
     if (coordinateMeasureActive) {
       event.preventDefault();
       event.stopPropagation();

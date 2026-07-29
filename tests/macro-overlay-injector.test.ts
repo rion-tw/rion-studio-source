@@ -21,8 +21,8 @@ const macro = {
 
 afterEach(() => {
   overlayController()?.dispose();
-  delete (window as unknown as Record<string, unknown>).__rionStudioNativeOverlayBridge;
   delete (window as unknown as Record<string, unknown>).rionStudioMacroOverlay;
+  delete (window as unknown as Record<string, unknown>).__rionTestOverlayBinding;
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   document.body.replaceChildren();
   document.documentElement.lang = "";
@@ -37,7 +37,11 @@ describe("Tauri macro overlay injector", () => {
     expect(() => new Function(sources.bridge)).not.toThrow();
     expect(() => new Function(assembled)).not.toThrow();
     expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__");
+    expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__");
+    expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_BINDING__");
+    expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_CAPABILITY__");
     expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_CSS__");
+    expect(assembled).toContain("event.isTrusted === true");
     expect(assembled).not.toContain("setInterval");
   });
 
@@ -52,45 +56,45 @@ describe("Tauri macro overlay injector", () => {
   });
 
   it("installs once per System WebView document and reinstalls after navigation", async () => {
-    const { bridge } = await overlaySources();
+    const sources = await overlaySources();
     const invoke = vi.fn(async (_command: string, _argumentsRecord: unknown) => ({}));
     installTauriInternals(invoke);
 
-    (0, eval)(bridge);
-    const first = (window as unknown as Record<string, unknown>).rionStudioMacroOverlay;
-    (0, eval)(bridge);
-    expect((window as unknown as Record<string, unknown>).rionStudioMacroOverlay).toBe(first);
+    (0, eval)(assembleRuntime(sources));
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalled());
+    const first = overlayController();
+    expect(first).toBeDefined();
 
-    delete (window as unknown as Record<string, unknown>).__rionStudioNativeOverlayBridge;
-    delete (window as unknown as Record<string, unknown>).rionStudioMacroOverlay;
-    (0, eval)(bridge);
-    expect((window as unknown as Record<string, unknown>).rionStudioMacroOverlay).not.toBe(first);
+    (0, eval)(assembleRuntime(sources));
+    expect(overlayController()).toBe(first);
+
+    first?.dispose();
+    (0, eval)(assembleRuntime(sources));
+    expect(overlayController()).toBeDefined();
+    expect(overlayController()).not.toBe(first);
+
+    expect((window as unknown as Record<string, unknown>).rionStudioMacroOverlay).toBeUndefined();
+    expect((window as unknown as Record<string, unknown>).__rionStudioNativeOverlayBridge)
+      .toBeUndefined();
   });
 
   it("forwards a raw embedded request to the typed Tauri overlay command", async () => {
     const { bridge } = await overlaySources();
     const invoke = vi.fn(async () => ({ language: "zh-TW", macros: [], statuses: [] }));
     installTauriInternals(invoke);
-    (0, eval)(bridge);
-
-    const binding = (window as unknown as {
-      rionStudioMacroOverlay(request: OverlayRequest): Promise<unknown>;
-    }).rionStudioMacroOverlay;
+    const binding = nativeBinding(bridge, "test-capability");
     await expect(binding({ macroId: "macro-1", type: "toggle" })).resolves.toEqual(
       expect.objectContaining({ language: "zh-TW" })
     );
     expect(invoke).toHaveBeenCalledWith("rion_overlay_request", {
+      capability: "test-capability",
       payload: { macroId: "macro-1", type: "toggle" }
     });
   });
 
   it("fails closed when a page is detached from Tauri IPC", async () => {
     const { bridge } = await overlaySources();
-    (0, eval)(bridge);
-
-    const binding = (window as unknown as {
-      rionStudioMacroOverlay(request: OverlayRequest): Promise<unknown>;
-    }).rionStudioMacroOverlay;
+    const binding = nativeBinding(bridge, "test-capability");
     await expect(binding({ type: "list" })).rejects.toThrow(
       "Rion Studio overlay IPC is unavailable"
     );
@@ -100,16 +104,32 @@ describe("Tauri macro overlay injector", () => {
     const { bridge } = await overlaySources();
     const invoke = vi.fn(async (_command: string, _argumentsRecord: unknown) => ({}));
     installTauriInternals(invoke);
-    (0, eval)(bridge);
-
-    const binding = (window as unknown as {
-      rionStudioMacroOverlay(request: OverlayRequest): Promise<unknown>;
-    }).rionStudioMacroOverlay;
+    const binding = nativeBinding(bridge, "test-capability");
     await binding({ type: "list" });
 
     const [, argumentsRecord] = invoke.mock.calls[0] ?? [];
-    expect(argumentsRecord).toEqual({ payload: { type: "list" } });
+    expect(argumentsRecord).toEqual({
+      capability: "test-capability",
+      payload: { type: "list" }
+    });
     expect(argumentsRecord).not.toHaveProperty("roleId");
+  });
+
+  it("rejects synthetic page events before they can invoke privileged overlay actions", async () => {
+    const binding = vi.fn(async () => ({ macros: [macro], statuses: [] }));
+    await installOverlay(binding, false);
+    binding.mockClear();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+    overlayRoot()?.querySelector<HTMLElement>(".trigger")?.click();
+    await Promise.resolve();
+
+    expect(binding).not.toHaveBeenCalled();
   });
 
   it("refreshes an installed page through events without a polling interval", async () => {
@@ -225,25 +245,57 @@ async function overlaySources() {
   return { bridge, css, guard, runtime };
 }
 
-function assembleRuntime(sources: Awaited<ReturnType<typeof overlaySources>>) {
+function assembleRuntime(
+  sources: Awaited<ReturnType<typeof overlaySources>>,
+  options: { bindingSource?: string; trustSyntheticEvents?: boolean } = {}
+) {
+  const bindingSource = options.bindingSource ?? nativeBindingSource(sources.bridge, "test-capability");
+  const trustedEventGuard = options.trustSyntheticEvents === true
+    ? "() => true"
+    : "(event) => event.isTrusted === true";
   return sources.runtime
     .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), sources.guard.trim())
+    .replace(
+      JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__"),
+      trustedEventGuard
+    )
+    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_BINDING__"), bindingSource)
     .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(sources.css));
 }
 
 async function installOverlay(
-  binding: (request: OverlayRequest) => Promise<unknown>
+  binding: (request: OverlayRequest) => Promise<unknown>,
+  trustSyntheticEvents = true
 ): Promise<OverlayController> {
   const sources = await overlaySources();
-  Object.defineProperty(window, "rionStudioMacroOverlay", {
+  Object.defineProperty(window, "__rionTestOverlayBinding", {
     configurable: true,
     value: binding
   });
-  (0, eval)(assembleRuntime(sources));
+  (0, eval)(assembleRuntime(sources, {
+    bindingSource: "globalThis.__rionTestOverlayBinding",
+    trustSyntheticEvents
+  }));
   await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
   const controller = overlayController();
   if (!controller) throw new Error("Expected an installed macro overlay controller.");
   return controller;
+}
+
+function nativeBinding(
+  bridge: string,
+  capability: string
+): (request: OverlayRequest) => Promise<unknown> {
+  return new Function(`return ${nativeBindingSource(bridge, capability)}`)() as (
+    request: OverlayRequest
+  ) => Promise<unknown>;
+}
+
+function nativeBindingSource(bridge: string, capability: string) {
+  return bridge.replace(
+    JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CAPABILITY__"),
+    JSON.stringify(capability)
+  ).trim();
 }
 
 function installTauriInternals(invoke: ReturnType<typeof vi.fn>) {

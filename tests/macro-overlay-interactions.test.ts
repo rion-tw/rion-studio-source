@@ -14,6 +14,14 @@ const shortcutGuardSource = readFileSync(
 const overlayCss = readFileSync("src/shared/browser-overlay/macroOverlay.css", "utf8");
 const MACRO_OVERLAY_SCRIPT = runtimeSource
   .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), shortcutGuardSource.trim())
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__"),
+    "() => true"
+  )
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_BINDING__"),
+    "window.rionStudioMacroOverlay"
+  )
   .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(overlayCss));
 
 interface OverlayController {

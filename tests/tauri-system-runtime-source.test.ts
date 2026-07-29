@@ -96,13 +96,19 @@ describe("Tauri System WebView runtime source", () => {
     expect(destroyTab).toContain("surface_registry");
     expect(runtime).toContain("closing_webviews");
     expect(runtime).toContain("closing_roles");
+    expect(runtime).toContain('"surface.quiesced"');
+    expect(runtime).toContain('"surface.quiesce-unverified"');
+    expect(runtime).toContain('"surface.native-unverified"');
 
     const nativeClose = runtime.slice(
       runtime.indexOf("fn close_surface_and_wait("),
       runtime.indexOf("fn close_managed_surface_and_wait(")
     );
     expect(nativeClose.indexOf("while self.app.get_webview(&label).is_some()")).toBeLessThan(
-      nativeClose.indexOf("wait_for_controller_release(platform, remaining)")
+      nativeClose.indexOf("wait_for_platform_release(platform, remaining")
+    );
+    expect(nativeClose.indexOf("quiesce_platform_surface(webview, lifecycle)")).toBeLessThan(
+      nativeClose.indexOf("if surface_is_registered")
     );
     expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
   });
@@ -336,6 +342,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain("compatibility_session_paths");
     expect(runtime).toContain("role_bounds_for_content");
     expect(runtime).toContain("logical_window_content_metrics");
+    expect(runtime).toContain('type === "beforeunload"');
+    expect(runtime).toContain("__rionPrepareForNativeClose");
+    expect(runtime).toContain("globalThis.frames[index].postMessage");
     const dividerPointer = runtime.slice(
       runtime.indexOf("pub fn handle_divider_pointer("),
       runtime.indexOf("fn send_divider_indicators(")
@@ -359,6 +368,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("RionWKSurfaceLease");
     expect(macInput).toContain("rion_wk_track_surface");
     expect(macInput).toContain("rion_wk_quiesce_surface");
+    expect(macInput).toContain("evaluateJavaScript:");
+    expect(macInput).toContain("blankNavigationRequested");
+    expect(macInput).toContain("__rionPrepareForNativeClose");
+    expect(macInput).toContain("rion_wk_surface_quiesced");
+    expect(macInput).toContain("rion_wk_surface_released");
+    expect(macInput).toContain("webView.superview || webView.window");
+    expect(macInput).toContain('[url.absoluteString isEqualToString:@"about:blank"]');
     expect(macInput).toContain("rion_wk_surface_lifecycle_self_test");
     expect(macInput).toContain("rion_wk_window_content_layout_metrics");
     expect(macInput).toContain("window.contentLayoutRect");

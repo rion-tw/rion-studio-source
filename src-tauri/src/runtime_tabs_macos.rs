@@ -3,10 +3,13 @@
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     sync::{Arc, mpsc},
+    time::Duration,
 };
 
 use rion_core::{BrowserRuntimeSnapshot, CoreCommand, RuntimeWindowPreferencesRecord};
 use tauri::{AppHandle, Manager, Window};
+
+const CONTROLLER_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[repr(C)]
 struct NativeTabInput {
@@ -69,6 +72,12 @@ struct CallbackContext {
     window_label: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ControllerCreationWaitError {
+    CallbackLost,
+    TimedOut,
+}
+
 #[derive(Clone)]
 pub struct MacRuntimeTabsController {
     inner: Arc<MacRuntimeTabsControllerInner>,
@@ -108,7 +117,7 @@ impl MacRuntimeTabsController {
         let (sender, receiver) = mpsc::sync_channel(1);
         let context_address = context as usize;
         let window_address = ns_window as usize;
-        app.run_on_main_thread(move || {
+        if let Err(error) = app.run_on_main_thread(move || {
             let raw = unsafe {
                 rion_runtime_tabs_create(
                     window_address as *mut c_void,
@@ -117,13 +126,31 @@ impl MacRuntimeTabsController {
                     layout_callback,
                 )
             };
-            let _ = sender.send(raw as usize);
-        })
-        .map_err(|error| error.to_string())?;
-        let raw = receiver
-            .recv()
-            .map_err(|_| "AppKit runtime tabs creation callback was lost.".to_owned())?
-            as *mut c_void;
+            if sender.send(raw as usize).is_err() {
+                unsafe {
+                    if !raw.is_null() {
+                        rion_runtime_tabs_destroy(raw);
+                    }
+                    drop(Box::from_raw(context_address as *mut CallbackContext));
+                }
+            }
+        }) {
+            unsafe { drop(Box::from_raw(context)) };
+            return Err(error.to_string());
+        }
+        let raw = match wait_for_controller(&receiver, CONTROLLER_CREATION_TIMEOUT) {
+            Ok(raw) => raw as *mut c_void,
+            Err(ControllerCreationWaitError::CallbackLost) => {
+                unsafe { drop(Box::from_raw(context)) };
+                return Err("AppKit runtime tabs creation callback was lost.".to_owned());
+            }
+            Err(ControllerCreationWaitError::TimedOut) => {
+                return Err(format!(
+                    "AppKit runtime tabs creation timed out after {} milliseconds.",
+                    CONTROLLER_CREATION_TIMEOUT.as_millis()
+                ));
+            }
+        };
         if raw.is_null() {
             unsafe { drop(Box::from_raw(context)) };
             return Err("AppKit runtime tabs controller could not be created.".to_owned());
@@ -222,6 +249,16 @@ impl MacRuntimeTabsController {
             rion_runtime_tabs_prepare_fullscreen(raw as *mut c_void, fullscreen);
         });
     }
+}
+
+fn wait_for_controller(
+    receiver: &mpsc::Receiver<usize>,
+    timeout: Duration,
+) -> Result<usize, ControllerCreationWaitError> {
+    receiver.recv_timeout(timeout).map_err(|error| match error {
+        mpsc::RecvTimeoutError::Timeout => ControllerCreationWaitError::TimedOut,
+        mpsc::RecvTimeoutError::Disconnected => ControllerCreationWaitError::CallbackLost,
+    })
 }
 
 impl Drop for MacRuntimeTabsControllerInner {
@@ -560,6 +597,26 @@ pub fn runtime_window_preferences(core: &rion_core::AppCore) -> RuntimeWindowPre
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::mpsc, time::Duration};
+
+    use super::{ControllerCreationWaitError, wait_for_controller};
+
+    #[test]
+    fn controller_creation_wait_is_bounded_and_distinguishes_disconnect() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+
+        assert_eq!(
+            wait_for_controller(&receiver, Duration::ZERO),
+            Err(ControllerCreationWaitError::TimedOut)
+        );
+
+        drop(sender);
+        assert_eq!(
+            wait_for_controller(&receiver, Duration::ZERO),
+            Err(ControllerCreationWaitError::CallbackLost)
+        );
+    }
+
     #[test]
     fn native_action_scope_preserves_window_identifiers() {
         assert!(unsafe { super::rion_runtime_tabs_action_scope_self_test() });

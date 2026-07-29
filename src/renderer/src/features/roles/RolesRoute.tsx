@@ -37,10 +37,6 @@ import {
 } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { getGameIconUrl } from "../../app/gamePresentation";
-import {
-  getBrowserEngineStatusTitle,
-  getResolvedBrowserEngineLabel
-} from "../../app/browserEnginePresentation";
 import { moveItemById } from "../../app/reorderItems";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { type Language, type TranslationKey, type Translator } from "../../i18n";
@@ -476,14 +472,6 @@ function RoleCard({
                   <CardTitle className="role-cover-title min-w-0 flex-1 truncate text-on-media">
                     {role.name}
                   </CardTitle>
-                  {status?.resolvedEngine ? (
-                    <span
-                      className="shrink-0 rounded-full border border-on-media/25 bg-media-black/25 px-1.5 py-0.5 text-micro font-semibold text-on-media/85 backdrop-blur-sm"
-                      title={getBrowserEngineStatusTitle(status, t)}
-                    >
-                      {getResolvedBrowserEngineLabel(status.resolvedEngine, t)}
-                    </span>
-                  ) : null}
                 </div>
                 <p className="min-w-0 truncate text-micro font-medium text-on-media-muted">
                   {game?.name ?? role.launchUrl}

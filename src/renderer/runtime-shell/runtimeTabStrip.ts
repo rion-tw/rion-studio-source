@@ -27,6 +27,9 @@ const dragActionQueue: RuntimeTabAction[] = [];
 const OVERFLOW_EPSILON = 1;
 
 const dispatch = (action: RuntimeTabAction): void => {
+  if (action.type === "activate") optimisticallyActivateTab(action.tabId);
+  else if (action.type === "activateAdjacent") optimisticallyActivateAdjacentTab(action.direction);
+  else if (action.type === "stop") optimisticallyCloseTab(action.tabId);
   if (action.type.startsWith("tabDrag")) {
     const queued = dragActionQueue.at(-1);
     if (action.type === "tabDragMove" && queued?.type === "tabDragMove"
@@ -38,8 +41,38 @@ const dispatch = (action: RuntimeTabAction): void => {
     dispatchNextDragAction();
     return;
   }
-  void invoke("rion_runtime_tab_action", { action }).catch(() => undefined);
+  void invoke("rion_runtime_tab_action", { action }).catch(() => {
+    // IPC rejection means the optimistic interaction never reached the native
+    // transaction. Repaint the latest authoritative state immediately.
+    if (current) render(current);
+  });
 };
+
+function optimisticallyActivateTab(tabId: string): void {
+  for (const tab of tabElements()) {
+    const active = tab.dataset.tabId === tabId;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  }
+  activeTabId = tabId;
+  ensureTabVisible(tabId);
+}
+
+function optimisticallyActivateAdjacentTab(direction: "next" | "previous"): void {
+  const tabs = tabElements();
+  if (tabs.length === 0) return;
+  const currentIndex = Math.max(0, tabs.findIndex((tab) => tab.classList.contains("active")));
+  const targetIndex = direction === "previous"
+    ? (currentIndex + tabs.length - 1) % tabs.length
+    : (currentIndex + 1) % tabs.length;
+  const targetId = tabs[targetIndex]?.dataset.tabId;
+  if (targetId) optimisticallyActivateTab(targetId);
+}
+
+function optimisticallyCloseTab(tabId: string): void {
+  tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
+  requestAnimationFrame(updateScrollControls);
+}
 
 const dispatchNextDragAction = (): void => {
   if (dragActionPending) return;

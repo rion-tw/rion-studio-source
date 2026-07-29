@@ -141,13 +141,18 @@ describe("Tauri-owned Windows runtime tab strip", () => {
 
     tab?.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();
 
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: { type: "stop", tabId: "tab-1" }
     });
   });
 
   it("keeps Ctrl+Tab and Ctrl+Shift+Tab inside the scoped bridge", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
     dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ctrlKey: true, code: "Tab", key: "Tab" }));
+    expect(document.querySelector('[data-tab-id="tab-2"]')?.classList.contains("active")).toBe(true);
+    dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ctrlKey: true, code: "Tab", key: "Tab" }));
+    expect(document.querySelector('[data-tab-id="tab-3"]')?.classList.contains("active")).toBe(true);
     dispatchEvent(new KeyboardEvent("keydown", {
       bubbles: true,
       ctrlKey: true,
@@ -160,8 +165,33 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       action: { type: "activateAdjacent", direction: "next" }
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: { type: "activateAdjacent", direction: "next" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "rion_runtime_tab_action", {
       action: { type: "activateAdjacent", direction: "previous" }
     });
+    expect(document.querySelector('[data-tab-id="tab-2"]')?.classList.contains("active")).toBe(true);
+  });
+
+  it("updates a clicked tab's active state before the native command settles", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    document.querySelector<HTMLElement>('[data-tab-id="tab-3"]')?.click();
+
+    expect(document.querySelector('[data-tab-id="tab-1"]')?.classList.contains("active")).toBe(false);
+    expect(document.querySelector('[data-tab-id="tab-3"]')?.classList.contains("active")).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "activate", tabId: "tab-3" }
+    });
+  });
+
+  it("restores an optimistic close when the scoped native command is rejected", async () => {
+    invoke.mockRejectedValueOnce(new Error("rejected"));
+    document.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
+
+    await Promise.resolve();
+
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeTruthy();
   });
 
   it("routes Windows application shortcuts through the scoped tab-strip bridge", () => {

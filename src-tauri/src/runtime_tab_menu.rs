@@ -327,15 +327,19 @@ pub async fn handle_scoped_action(
             .as_str()
             .filter(|value| matches!(*value, "next" | "previous"))
             .ok_or_else(|| "runtime tab direction is invalid".to_owned())?;
-        return state
+        let target_tab_id = state
+            .runtime
+            .preview_adjacent_tab_activation(&window_id, direction)?;
+        let result = state
             .core
-            .invoke_async(CoreCommand::EmbeddedTabActivateAdjacent {
-                window_id: window_id.clone(),
-                direction: direction.to_owned(),
+            .invoke_async(CoreCommand::EmbeddedTabActivate {
+                tab_id: target_tab_id,
             })
-            .await
-            .map(|_| ())
-            .map_err(|error| error.to_string());
+            .await;
+        if result.is_err() {
+            state.runtime.reconcile_tab_activation(&window_id);
+        }
+        return result.map(|_| ()).map_err(|error| error.to_string());
     }
     if action_type == "windowControl" {
         let control = action["control"]
@@ -423,12 +427,18 @@ pub async fn handle_scoped_action(
         }
         _ => return Err("runtime tab action is invalid".to_owned()),
     };
-    state
-        .core
-        .invoke_async(command)
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    if action_type == "activate" {
+        let _ = state.runtime.preview_tab_activation(tab_id);
+    } else if action_type == "stop" {
+        let _ = state.runtime.preview_tab_close(tab_id);
+    }
+    let result = state.core.invoke_async(command).await;
+    if action_type == "stop" {
+        state.runtime.resolve_tab_close_preview(tab_id);
+    } else if action_type == "activate" && result.is_err() {
+        state.runtime.reconcile_tab_activation(&window_id);
+    }
+    result.map(|_| ()).map_err(|error| error.to_string())
 }
 
 fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, workspace: bool) {

@@ -4,7 +4,7 @@ use std::{
     ffi::{CStr, CString, c_char, c_void},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     time::Duration,
@@ -98,6 +98,7 @@ struct MacRuntimeTabsControllerInner {
     app: AppHandle,
     context: *mut CallbackContext,
     raw: *mut c_void,
+    update_generation: AtomicU64,
 }
 
 // The Objective-C controller is only dereferenced by closures scheduled on the
@@ -172,6 +173,7 @@ impl MacRuntimeTabsController {
                 app: app.clone(),
                 context,
                 raw,
+                update_generation: AtomicU64::new(0),
             }),
         })
     }
@@ -184,75 +186,82 @@ impl MacRuntimeTabsController {
         always_hide_tab_close_button: bool,
         language: &str,
     ) -> Result<(), String> {
-        let raw = self.inner.raw as usize;
+        let inner = Arc::clone(&self.inner);
+        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let app = inner.app.clone();
         let window_id = window_id.to_owned();
         let labels = labels(language);
         // Runtime projections can be published from AppKit window callbacks.
         // Queueing the update is safe from every caller, while synchronously
         // waiting here would deadlock when the caller already is the main thread.
-        self.inner
-            .app
-            .run_on_main_thread(move || {
-                let strings = tabs
-                    .iter()
-                    .map(|tab| NativeTabStrings {
-                        icon: tab.icon_data_url.as_deref().map(c_string),
-                        id: c_string(&tab.id),
-                        name: c_string(&tab.name),
-                        tab_type: c_string(&tab.tab_type),
-                        tooltip: c_string(&tab.tooltip),
-                        workspace_template: tab.workspace_template.as_deref().map(c_string),
-                    })
-                    .collect::<Vec<_>>();
-                let inputs = tabs
-                    .iter()
-                    .zip(&strings)
-                    .map(|(tab, strings)| NativeTabInput {
-                        active: tab.active,
-                        audible: tab.audible,
-                        audio_muted: tab.audio_muted,
-                        identifier: strings.id.as_ptr(),
-                        name: strings.name.as_ptr(),
-                        tooltip: strings.tooltip.as_ptr(),
-                        tab_type: strings.tab_type.as_ptr(),
-                        icon_data_url: strings
-                            .icon
-                            .as_ref()
-                            .map_or(std::ptr::null(), |value| value.as_ptr()),
-                        workspace_template: strings
-                            .workspace_template
-                            .as_ref()
-                            .map_or(std::ptr::null(), |value| value.as_ptr()),
-                    })
-                    .collect::<Vec<_>>();
-                let add = c_string(labels.add);
-                let muted = c_string(labels.muted);
-                let playing = c_string(labels.playing);
-                let close = c_string(labels.close);
-                let scroll_left = c_string(labels.scroll_left);
-                let scroll_right = c_string(labels.scroll_right);
-                let window_id = c_string(&window_id);
-                unsafe {
-                    rion_runtime_tabs_set_fullscreen_policy(
-                        raw as *mut c_void,
-                        always_show_in_fullscreen,
-                    );
-                    rion_runtime_tabs_update(
-                        raw as *mut c_void,
-                        window_id.as_ptr(),
-                        inputs.as_ptr(),
-                        inputs.len(),
-                        always_hide_tab_close_button,
-                        add.as_ptr(),
-                        muted.as_ptr(),
-                        playing.as_ptr(),
-                        close.as_ptr(),
-                        scroll_left.as_ptr(),
-                        scroll_right.as_ptr(),
-                    );
-                }
-            })
-            .map_err(|error| error.to_string())
+        app.run_on_main_thread(move || {
+            // Several projection sources can publish in quick succession. Ignore an
+            // older AppKit closure if a newer native visibility transaction already
+            // queued its state; otherwise the selected highlight appears one tab late.
+            if inner.update_generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            let raw = inner.raw as usize;
+            let strings = tabs
+                .iter()
+                .map(|tab| NativeTabStrings {
+                    icon: tab.icon_data_url.as_deref().map(c_string),
+                    id: c_string(&tab.id),
+                    name: c_string(&tab.name),
+                    tab_type: c_string(&tab.tab_type),
+                    tooltip: c_string(&tab.tooltip),
+                    workspace_template: tab.workspace_template.as_deref().map(c_string),
+                })
+                .collect::<Vec<_>>();
+            let inputs = tabs
+                .iter()
+                .zip(&strings)
+                .map(|(tab, strings)| NativeTabInput {
+                    active: tab.active,
+                    audible: tab.audible,
+                    audio_muted: tab.audio_muted,
+                    identifier: strings.id.as_ptr(),
+                    name: strings.name.as_ptr(),
+                    tooltip: strings.tooltip.as_ptr(),
+                    tab_type: strings.tab_type.as_ptr(),
+                    icon_data_url: strings
+                        .icon
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                    workspace_template: strings
+                        .workspace_template
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                })
+                .collect::<Vec<_>>();
+            let add = c_string(labels.add);
+            let muted = c_string(labels.muted);
+            let playing = c_string(labels.playing);
+            let close = c_string(labels.close);
+            let scroll_left = c_string(labels.scroll_left);
+            let scroll_right = c_string(labels.scroll_right);
+            let window_id = c_string(&window_id);
+            unsafe {
+                rion_runtime_tabs_set_fullscreen_policy(
+                    raw as *mut c_void,
+                    always_show_in_fullscreen,
+                );
+                rion_runtime_tabs_update(
+                    raw as *mut c_void,
+                    window_id.as_ptr(),
+                    inputs.as_ptr(),
+                    inputs.len(),
+                    always_hide_tab_close_button,
+                    add.as_ptr(),
+                    muted.as_ptr(),
+                    playing.as_ptr(),
+                    close.as_ptr(),
+                    scroll_left.as_ptr(),
+                    scroll_right.as_ptr(),
+                );
+            }
+        })
+        .map_err(|error| error.to_string())
     }
 
     pub fn prepare_fullscreen(&self, fullscreen: bool) {
@@ -520,6 +529,8 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             return;
         }
         let target_window_id = target_window_id.or(host_window_id);
+        let preview_tab_id = tab_id.clone();
+        let preview_window_id = target_window_id.clone();
         if matches!(
             action_type.as_str(),
             "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
@@ -598,10 +609,36 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             _ => None,
         };
         let _ = source_window_id;
-        if let Some(command) = command
-            && let Err(error) = state.core.invoke_async(command).await
+        if let Some(command) = command {
+            if action_type == "activate" {
+                if let Some(tab_id) = preview_tab_id.as_deref() {
+                    let _ = state.runtime.preview_tab_activation(tab_id);
+                }
+            } else if action_type == "stop"
+                && let Some(tab_id) = preview_tab_id.as_deref()
+            {
+                let _ = state.runtime.preview_tab_close(tab_id);
+            }
+            let result = state.core.invoke_async(command).await;
+            if action_type == "stop"
+                && let Some(tab_id) = preview_tab_id.as_deref()
+            {
+                state.runtime.resolve_tab_close_preview(tab_id);
+            }
+            if let Err(error) = result {
+                if action_type == "activate"
+                    && let Some(window_id) = preview_window_id.as_deref()
+                {
+                    state.runtime.reconcile_tab_activation(window_id);
+                }
+                crate::reveal_shell_error(&app, error.payload());
+            }
+        } else if action_type == "stop"
+            && let Some(tab_id) = preview_tab_id.as_deref()
         {
-            crate::reveal_shell_error(&app, error.payload());
+            // The native control already removed the item optimistically. If the
+            // scoped command could not be created, repaint the authoritative tab.
+            state.runtime.resolve_tab_close_preview(tab_id);
         }
     });
 }

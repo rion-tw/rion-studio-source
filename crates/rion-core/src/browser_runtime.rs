@@ -395,9 +395,14 @@ impl BrowserRuntime {
         if let Some(source) = self.windows.get_mut(&source_id) {
             source.tab_ids.retain(|id| id != tab_id);
             if source.active_tab_id.as_deref() == Some(tab_id) {
-                source.active_tab_id = source.tab_ids.first().cloned();
+                source.active_tab_id = source
+                    .tab_ids
+                    .iter()
+                    .find(|id| self.tabs.get(*id).is_some_and(|tab| !tab.hidden))
+                    .cloned();
             }
         }
+        self.tabs.get_mut(tab_id).expect("tab exists").hidden = false;
         let target = self.windows.get_mut(window_id).expect("window exists");
         target.tab_ids.push(tab_id.to_owned());
         target.active_tab_id = Some(tab_id.to_owned());
@@ -535,11 +540,9 @@ impl BrowserRuntime {
                     ));
                 }
             }
-            if window
-                .active_tab_id
-                .as_ref()
-                .is_some_and(|id| !window.tab_ids.contains(id))
-            {
+            if window.active_tab_id.as_ref().is_some_and(|id| {
+                !window.tab_ids.contains(id) || self.tabs.get(id).is_none_or(|tab| tab.hidden)
+            }) {
                 return Err(CoreError::Internal(
                     "browser runtime active tab is inconsistent".to_owned(),
                 ));
@@ -762,5 +765,85 @@ mod tests {
                 .collect::<Vec<_>>(),
             [second, first, third]
         );
+    }
+
+    #[test]
+    fn moving_tabs_reveals_the_target_and_keeps_source_active_tab_visible() {
+        for platform in ["darwin", "win32"] {
+            let mut runtime = BrowserRuntime::default();
+            let create = |runtime: &mut BrowserRuntime, tab_id: &str, role_id: &str| {
+                runtime
+                    .invoke(command(json!({
+                        "type":"createTab","tabId":tab_id,"sourceId":role_id,
+                        "name":role_id,"windowId":"source","tabType":"role",
+                        "roleIds":[role_id]
+                    })))
+                    .unwrap();
+            };
+            let hidden_skip = "11111111-1111-4111-8111-111111111111";
+            let hidden_moved = "22222222-2222-4222-8222-222222222222";
+            let visible_fallback = "33333333-3333-4333-8333-333333333333";
+            let active_moved = "44444444-4444-4444-8444-444444444444";
+            for (tab_id, role_id) in [
+                (hidden_skip, "role-hidden"),
+                (hidden_moved, "role-hidden-moved"),
+                (visible_fallback, "role-visible"),
+                (active_moved, "role-active"),
+            ] {
+                create(&mut runtime, tab_id, role_id);
+            }
+
+            let hidden_result = runtime
+                .invoke(command(json!({
+                    "type":"moveTab","tabId":hidden_moved,"windowId":"target"
+                })))
+                .unwrap();
+            assert!(
+                !hidden_result
+                    .snapshot
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == hidden_moved)
+                    .unwrap()
+                    .hidden,
+                "{platform}"
+            );
+
+            runtime
+                .invoke(command(
+                    json!({"type":"activateTab","tabId":visible_fallback}),
+                ))
+                .unwrap();
+            runtime
+                .invoke(command(json!({"type":"activateTab","tabId":active_moved})))
+                .unwrap();
+            let moved = runtime
+                .invoke(command(json!({
+                    "type":"moveTab","tabId":active_moved,"windowId":"target"
+                })))
+                .unwrap();
+            let source = moved
+                .snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == "source")
+                .unwrap();
+            let target = moved
+                .snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == "target")
+                .unwrap();
+            assert_eq!(
+                source.active_tab_id.as_deref(),
+                Some(visible_fallback),
+                "{platform}"
+            );
+            assert_eq!(
+                target.active_tab_id.as_deref(),
+                Some(active_moved),
+                "{platform}"
+            );
+        }
     }
 }

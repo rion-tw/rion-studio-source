@@ -2123,7 +2123,7 @@ fn game_window_restore_record(
         window
             .tabs
             .iter()
-            .find(|tab| &tab.id == active_tab_id)
+            .find(|tab| &tab.id == active_tab_id && !tab.hidden)
             .map(|tab| tab.source_id.clone())
     });
     rion_core::RuntimeRestoreWindowRecord {

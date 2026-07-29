@@ -2099,7 +2099,7 @@ fn migrate_runtime_restore_to_game_windows(transaction: &Transaction<'_>) -> Cor
             .collect::<Vec<_>>();
         let active_tab_id = saved.active_source_id.as_ref().and_then(|source_id| {
             tabs.iter()
-                .find(|tab| &tab.source_id == source_id)
+                .find(|tab| &tab.source_id == source_id && !tab.hidden)
                 .map(|tab| tab.id.clone())
         });
         let now = chrono::Utc::now().to_rfc3339();

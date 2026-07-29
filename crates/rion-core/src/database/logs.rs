@@ -8,7 +8,7 @@ use std::{
 };
 
 use chrono::{Duration as ChronoDuration, Utc};
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
+use crossbeam_channel::{Receiver, RecvTimeoutError, SendTimeoutError, Sender, bounded};
 use rusqlite::{Connection, params, params_from_iter, types::Value as SqlValue};
 use serde::Serialize;
 use serde_json::Value;
@@ -28,6 +28,8 @@ const RETENTION_DELETE_BATCH_SIZE: usize = 1_000;
 const BATCH_INTERVAL: Duration = Duration::from_millis(250);
 const BATCH_MAX_ENTRIES: usize = 50;
 const LEGACY_AUTH_LOG_SOURCE: &str = "auth";
+const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy)]
 struct RetentionPolicy {
@@ -83,9 +85,20 @@ impl LogDatabaseWorker {
             .name("rion-log-db".to_owned())
             .spawn(move || run_worker(path, receiver, ready_sender))
             .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-        ready_receiver.recv().map_err(|_| {
-            CoreError::LogDatabase("log worker stopped during startup".to_owned())
-        })??;
+        match ready_receiver.recv_timeout(WORKER_START_TIMEOUT) {
+            Ok(result) => result?,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(CoreError::LogDatabase(format!(
+                    "log worker startup timed out after {} seconds",
+                    WORKER_START_TIMEOUT.as_secs()
+                )));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(CoreError::LogDatabase(
+                    "log worker stopped during startup".to_owned(),
+                ));
+            }
+        }
         Ok(Self {
             sender,
             join: Some(join),
@@ -93,35 +106,19 @@ impl LogDatabaseWorker {
     }
 
     pub fn append(&self, entries: Vec<LogEntry>) -> CoreResult<usize> {
-        let (sender, receiver) = bounded(1);
-        self.sender
-            .send(Request::Append(entries, sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| Request::Append(entries, response))
     }
 
     pub fn query(&self, query: LogQuery) -> CoreResult<LogPageRecord> {
-        let (sender, receiver) = bounded(1);
-        self.sender
-            .send(Request::Query(query, sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| Request::Query(query, response))
     }
 
     pub fn clear(&self) -> CoreResult<()> {
-        let (sender, receiver) = bounded(1);
-        self.sender
-            .send(Request::Clear(sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, Request::Clear)
     }
 
     pub fn status(&self) -> CoreResult<LogStatus> {
-        let (sender, receiver) = bounded(1);
-        self.sender
-            .send(Request::Status(sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, Request::Status)
     }
 
     pub fn storage_status(&self, current_level: LogLevel) -> CoreResult<LogStorageStatusRecord> {
@@ -145,11 +142,7 @@ impl LogDatabaseWorker {
     }
 
     pub fn export_jsonl_to(&self, path: PathBuf) -> CoreResult<()> {
-        let (sender, receiver) = bounded(1);
-        self.sender
-            .send(Request::ExportTo(path, sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+        request(&self.sender, |response| Request::ExportTo(path, response))
     }
 
     pub fn shutdown(&mut self) {
@@ -165,6 +158,39 @@ impl LogDatabaseWorker {
 impl Drop for LogDatabaseWorker {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+fn request<T>(
+    sender: &Sender<Request>,
+    create: impl FnOnce(Sender<CoreResult<T>>) -> Request,
+) -> CoreResult<T> {
+    request_with_timeout(sender, create, WORKER_REQUEST_TIMEOUT)
+}
+
+fn request_with_timeout<T>(
+    sender: &Sender<Request>,
+    create: impl FnOnce(Sender<CoreResult<T>>) -> Request,
+    timeout: Duration,
+) -> CoreResult<T> {
+    let (response_sender, response_receiver) = bounded(1);
+    match sender.send_timeout(create(response_sender), timeout) {
+        Ok(()) => {}
+        Err(SendTimeoutError::Timeout(_)) => {
+            return Err(CoreError::LogDatabase(format!(
+                "log worker queue timed out after {} milliseconds",
+                timeout.as_millis()
+            )));
+        }
+        Err(SendTimeoutError::Disconnected(_)) => return Err(CoreError::ShuttingDown),
+    }
+    match response_receiver.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => Err(CoreError::LogDatabase(format!(
+            "log worker response timed out after {} milliseconds; the operation may still complete",
+            timeout.as_millis()
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(CoreError::ShuttingDown),
     }
 }
 
@@ -813,6 +839,21 @@ mod tests {
 
     use super::*;
     use crate::model::{LogCaptureRecord, LogSource};
+
+    #[test]
+    fn log_worker_requests_bound_queue_and_response_waits() {
+        let (blocked_sender, _blocked_receiver) = bounded::<Request>(0);
+        let queue_error =
+            request_with_timeout(&blocked_sender, Request::Status, Duration::ZERO).unwrap_err();
+        assert_eq!(queue_error.code(), "CORE_LOG_DATABASE_FAILED");
+        assert!(queue_error.to_string().contains("queue timed out"));
+
+        let (queued_sender, _queued_receiver) = bounded::<Request>(1);
+        let response_error =
+            request_with_timeout(&queued_sender, Request::Status, Duration::ZERO).unwrap_err();
+        assert_eq!(response_error.code(), "CORE_LOG_DATABASE_FAILED");
+        assert!(response_error.to_string().contains("response timed out"));
+    }
 
     fn entry(id: &str, message: &str) -> LogEntry {
         LogEntry {

@@ -2,7 +2,11 @@
 
 use std::{
     ffi::{CStr, CString, c_char, c_void},
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::Duration,
 };
 
@@ -69,7 +73,14 @@ unsafe extern "C" {
 
 struct CallbackContext {
     app: AppHandle,
+    layout_updates: Arc<LayoutUpdateState>,
     window_label: String,
+}
+
+#[derive(Default)]
+struct LayoutUpdateState {
+    requested: AtomicBool,
+    running: AtomicBool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +123,7 @@ impl MacRuntimeTabsController {
         let ns_window = window.ns_window().map_err(|error| error.to_string())?;
         let context = Box::into_raw(Box::new(CallbackContext {
             app: app.clone(),
+            layout_updates: Arc::new(LayoutUpdateState::default()),
             window_label: window.label().to_owned(),
         }));
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -387,17 +399,44 @@ unsafe extern "C" fn layout_callback(
     let context = unsafe { &*(context as *const CallbackContext) };
     let app = context.app.clone();
     let label = context.window_label.clone();
-    std::thread::spawn(move || {
-        let Some(window) = app.get_window(&label) else {
-            return;
-        };
-        let Ok(size) = window.inner_size() else {
-            return;
-        };
-        if let Some(state) = app.try_state::<crate::CoreState>() {
-            state.runtime.resize_window(&label, size.width, size.height);
+    let layout_updates = Arc::clone(&context.layout_updates);
+    if !request_layout_update(&layout_updates) {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        loop {
+            layout_updates.requested.store(false, Ordering::Release);
+            if let Some(window) = app.get_window(&label)
+                && let Ok(size) = window.inner_size()
+                && let Some(state) = app.try_state::<crate::CoreState>()
+            {
+                state.runtime.resize_window(&label, size.width, size.height);
+            }
+            if !continue_layout_updates(&layout_updates) {
+                break;
+            }
         }
     });
+}
+
+fn request_layout_update(state: &LayoutUpdateState) -> bool {
+    state.requested.store(true, Ordering::Release);
+    state
+        .running
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+fn continue_layout_updates(state: &LayoutUpdateState) -> bool {
+    if state.requested.swap(false, Ordering::AcqRel) {
+        return true;
+    }
+    state.running.store(false, Ordering::Release);
+    state.requested.load(Ordering::Acquire)
+        && state
+            .running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
 }
 
 fn c_string_from_pointer(value: *const c_char) -> Option<String> {
@@ -599,7 +638,10 @@ pub fn runtime_window_preferences(core: &rion_core::AppCore) -> RuntimeWindowPre
 mod tests {
     use std::{sync::mpsc, time::Duration};
 
-    use super::{ControllerCreationWaitError, wait_for_controller};
+    use super::{
+        ControllerCreationWaitError, LayoutUpdateState, continue_layout_updates,
+        request_layout_update, wait_for_controller,
+    };
 
     #[test]
     fn controller_creation_wait_is_bounded_and_distinguishes_disconnect() {
@@ -615,6 +657,17 @@ mod tests {
             wait_for_controller(&receiver, Duration::ZERO),
             Err(ControllerCreationWaitError::CallbackLost)
         );
+    }
+
+    #[test]
+    fn layout_updates_coalesce_while_one_worker_is_running() {
+        let state = LayoutUpdateState::default();
+
+        assert!(request_layout_update(&state));
+        assert!(!request_layout_update(&state));
+        assert!(continue_layout_updates(&state));
+        assert!(!continue_layout_updates(&state));
+        assert!(request_layout_update(&state));
     }
 
     #[test]

@@ -473,6 +473,45 @@ fn claim_surface_recovery(
         && recovering_roles.insert(role_id.to_owned())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SurfaceFailureTarget {
+    Role {
+        role_id: String,
+        generation: u64,
+    },
+    Popup {
+        label: String,
+        role_id: String,
+        generation: u64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceFailureScope {
+    Renderer,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Browser,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceFailureAction {
+    RecoverRole,
+    ClosePopup,
+}
+
+fn surface_failure_action(
+    target: &SurfaceFailureTarget,
+    scope: SurfaceFailureScope,
+) -> SurfaceFailureAction {
+    if matches!(target, SurfaceFailureTarget::Popup { .. })
+        && scope == SurfaceFailureScope::Renderer
+    {
+        SurfaceFailureAction::ClosePopup
+    } else {
+        SurfaceFailureAction::RecoverRole
+    }
+}
+
 #[derive(Clone)]
 struct LocalStorageRuntimeConfig {
     dependent_role_ids: Vec<String>,
@@ -3003,21 +3042,28 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(target_os = "macos")]
-    fn recovery_target_for_webview(&self, webview_label: &str) -> Option<(String, u64)> {
+    fn failure_target_for_webview(&self, webview_label: &str) -> Option<SurfaceFailureTarget> {
         let state = self.state.lock().ok()?;
-        let role_id = state.popup_roles.get(webview_label).cloned().or_else(|| {
-            state.role_tabs.iter().find_map(|(role_id, tab_id)| {
-                state.tabs.get(tab_id).and_then(|tab| {
-                    tab.roles
-                        .get(role_id)
-                        .filter(|surface| surface.webview.label() == webview_label)
-                        .map(|_| role_id.clone())
-                })
+        if let Some(role_id) = state.popup_roles.get(webview_label) {
+            let tab_id = state.role_tabs.get(role_id)?;
+            let generation = state.tabs.get(tab_id)?.roles.get(role_id)?.generation;
+            return Some(SurfaceFailureTarget::Popup {
+                label: webview_label.to_owned(),
+                role_id: role_id.clone(),
+                generation,
+            });
+        }
+        state.role_tabs.iter().find_map(|(role_id, tab_id)| {
+            state.tabs.get(tab_id).and_then(|tab| {
+                tab.roles
+                    .get(role_id)
+                    .filter(|surface| surface.webview.label() == webview_label)
+                    .map(|surface| SurfaceFailureTarget::Role {
+                        role_id: role_id.clone(),
+                        generation: surface.generation,
+                    })
             })
-        })?;
-        let tab_id = state.role_tabs.get(&role_id)?;
-        let generation = state.tabs.get(tab_id)?.roles.get(&role_id)?.generation;
-        Some((role_id, generation))
+        })
     }
 
     fn claim_surface_generation(&self, role_id: &str) -> RuntimeResult<u64> {
@@ -3219,10 +3265,86 @@ impl SystemRuntimeExecutor {
         webview_label: &str,
         reason: &str,
     ) {
-        let Some((role_id, generation)) = self.recovery_target_for_webview(webview_label) else {
+        let Some(target) = self.failure_target_for_webview(webview_label) else {
             return;
         };
-        self.schedule_surface_recovery(role_id, reason.to_owned(), generation);
+        self.handle_surface_process_failure(
+            target,
+            reason.to_owned(),
+            SurfaceFailureScope::Renderer,
+        );
+    }
+
+    fn handle_surface_process_failure(
+        self: &Arc<Self>,
+        target: SurfaceFailureTarget,
+        reason: String,
+        scope: SurfaceFailureScope,
+    ) {
+        match surface_failure_action(&target, scope) {
+            SurfaceFailureAction::RecoverRole => {
+                let (role_id, generation) = match target {
+                    SurfaceFailureTarget::Role {
+                        role_id,
+                        generation,
+                    }
+                    | SurfaceFailureTarget::Popup {
+                        role_id,
+                        generation,
+                        ..
+                    } => (role_id, generation),
+                };
+                self.schedule_surface_recovery(role_id, reason, generation);
+            }
+            SurfaceFailureAction::ClosePopup => {
+                let SurfaceFailureTarget::Popup {
+                    label,
+                    role_id,
+                    generation,
+                } = target
+                else {
+                    return;
+                };
+                self.close_failed_popup(&label, &role_id, generation, &reason);
+            }
+        }
+    }
+
+    fn close_failed_popup(&self, label: &str, role_id: &str, generation: u64, reason: &str) {
+        let current = self.state.lock().ok().is_some_and(|state| {
+            state.popup_roles.get(label).map(String::as_str) == Some(role_id)
+                && state.role_tabs.get(role_id).is_some_and(|tab_id| {
+                    state
+                        .tabs
+                        .get(tab_id)
+                        .and_then(|tab| tab.roles.get(role_id))
+                        .is_some_and(|surface| surface.generation == generation)
+                })
+        });
+        if !current {
+            return;
+        }
+
+        let close_error = self
+            .app
+            .get_webview_window(label)
+            .map(|window| window.close().map_err(|error| error.to_string()))
+            .unwrap_or(Ok(()))
+            .err();
+        if close_error.is_none() {
+            self.forget_popup(label);
+        }
+        let _ = self.app.emit(
+            "rion://shell-error",
+            json!({
+                "code": "SYSTEM_POPUP_PROCESS_FAILED",
+                "message": "A popup WebView process failed and the popup was isolated from its healthy role surface.",
+                "roleId": role_id,
+                "webviewLabel": label,
+                "reason": reason,
+                "closeError": close_error
+            }),
+        );
     }
 
     pub fn forget_popup(&self, window_label: &str) {
@@ -3551,8 +3673,10 @@ impl SystemRuntimeExecutor {
             install_process_failure_monitor(
                 &webview,
                 self.app.clone(),
-                role_id.to_owned(),
-                generation,
+                SurfaceFailureTarget::Role {
+                    role_id: role_id.to_owned(),
+                    generation,
+                },
             )?;
             webview
                 .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
@@ -4229,8 +4353,11 @@ impl SystemRuntimeExecutor {
                         if let Err(error) = install_process_failure_monitor(
                             window.as_ref(),
                             popup_app.clone(),
-                            role_id.clone(),
-                            generation,
+                            SurfaceFailureTarget::Popup {
+                                label: label.clone(),
+                                role_id: role_id.clone(),
+                                generation,
+                            },
                         ) {
                             let _ = window.close();
                             if let Some(state) = popup_app.try_state::<crate::CoreState>() {
@@ -5896,8 +6023,10 @@ impl SystemRuntimeExecutor {
                         install_process_failure_monitor(
                             &webview,
                             self.app.clone(),
-                            role_id.clone(),
-                            generation,
+                            SurfaceFailureTarget::Role {
+                                role_id: role_id.clone(),
+                                generation,
+                            },
                         )
                     })
                     .and_then(|()| {
@@ -9729,8 +9858,7 @@ fn platform_surface_lifecycle_tracker(
 fn install_process_failure_monitor(
     webview: &Webview,
     app: AppHandle,
-    role_id: String,
-    generation: u64,
+    target: SurfaceFailureTarget,
 ) -> RuntimeResult<()> {
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{
@@ -9747,7 +9875,7 @@ fn install_process_failure_monitor(
         .with_webview(move |platform_webview| unsafe {
             let registration_sender = sender.clone();
             let event_app = app.clone();
-            let event_role_id = role_id.clone();
+            let event_target = target.clone();
             let handler = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
                 let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
                 let kind_available =
@@ -9761,10 +9889,10 @@ fn install_process_failure_monitor(
                     )
                     && let Some(state) = event_app.try_state::<crate::CoreState>()
                 {
-                    state.runtime.schedule_surface_recovery(
-                        event_role_id.clone(),
+                    state.runtime.handle_surface_process_failure(
+                        event_target.clone(),
                         webview2_process_failure_reason(kind).to_owned(),
-                        generation,
+                        webview2_process_failure_scope(kind),
                     );
                 }
                 Ok(())
@@ -9810,12 +9938,23 @@ fn webview2_process_failure_reason(
     }
 }
 
+#[cfg(windows)]
+fn webview2_process_failure_scope(
+    kind: webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND,
+) -> SurfaceFailureScope {
+    use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+    if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+        SurfaceFailureScope::Browser
+    } else {
+        SurfaceFailureScope::Renderer
+    }
+}
+
 #[cfg(not(windows))]
 fn install_process_failure_monitor(
     _webview: &Webview,
     _app: AppHandle,
-    _role_id: String,
-    _generation: u64,
+    _target: SurfaceFailureTarget,
 ) -> RuntimeResult<()> {
     Ok(())
 }
@@ -10139,6 +10278,32 @@ mod tests {
             &mut recovering_roles,
             "role-c"
         ));
+    }
+
+    #[test]
+    fn popup_renderer_failure_is_isolated_from_role_recovery() {
+        let popup = SurfaceFailureTarget::Popup {
+            label: "popup-a".to_owned(),
+            role_id: "role-a".to_owned(),
+            generation: 7,
+        };
+        let role = SurfaceFailureTarget::Role {
+            role_id: "role-a".to_owned(),
+            generation: 7,
+        };
+
+        assert_eq!(
+            surface_failure_action(&popup, SurfaceFailureScope::Renderer),
+            SurfaceFailureAction::ClosePopup
+        );
+        assert_eq!(
+            surface_failure_action(&popup, SurfaceFailureScope::Browser),
+            SurfaceFailureAction::RecoverRole
+        );
+        assert_eq!(
+            surface_failure_action(&role, SurfaceFailureScope::Renderer),
+            SurfaceFailureAction::RecoverRole
+        );
     }
 
     fn runtime_tab_host_snapshot(active_tab_id: &str) -> BrowserRuntimeSnapshot {

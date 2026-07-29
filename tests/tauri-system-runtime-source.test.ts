@@ -3,6 +3,35 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
+  it("isolates popup renderer failures from role surface recovery", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+
+    const popupBuilderStart = runtime.indexOf(".on_new_window(move |url, features|");
+    const popupBuilder = runtime.slice(
+      popupBuilderStart,
+      runtime.indexOf("NewWindowResponse::Create { window }", popupBuilderStart)
+    );
+    expect(popupBuilder).toContain("SurfaceFailureTarget::Popup");
+
+    const failureRouting = runtime.slice(
+      runtime.indexOf("fn surface_failure_action("),
+      runtime.indexOf("#[derive(Clone)]\nstruct LocalStorageRuntimeConfig")
+    );
+    expect(failureRouting).toContain("SurfaceFailureAction::ClosePopup");
+    expect(failureRouting).toContain("SurfaceFailureAction::RecoverRole");
+
+    const windowsMonitor = runtime.slice(
+      runtime.indexOf("fn install_process_failure_monitor("),
+      runtime.indexOf("fn call_system_devtools(")
+    );
+    expect(windowsMonitor).toContain("handle_surface_process_failure");
+    expect(windowsMonitor).toContain("webview2_process_failure_scope(kind)");
+    expect(runtime).toContain("fn close_failed_popup(");
+  });
+
   it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),

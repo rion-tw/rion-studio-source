@@ -48,7 +48,14 @@ pub struct OperationOutcome {
     pub operation_id: String,
     pub results: Vec<CoreEffectResult>,
     pub compensation_results: Vec<CoreEffectResult>,
+    pub compensation_failures: Vec<OperationCompensationFailure>,
     pub error: Option<CoreErrorPayload>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OperationCompensationFailure {
+    pub effect: OperationEffect,
+    pub error: CoreErrorPayload,
 }
 
 pub struct OperationHandle {
@@ -380,6 +387,7 @@ fn run_operation(
             operation_id,
             results: Vec::new(),
             compensation_results: Vec::new(),
+            compensation_failures: Vec::new(),
             error: Some(CoreErrorPayload {
                 code: "CORE_OPERATION_RUNTIME_FAILED".to_owned(),
                 message: "The operation runtime could not be created.".to_owned(),
@@ -429,12 +437,29 @@ fn run_operation(
     }
 
     let mut compensation_results = Vec::new();
+    let mut compensation_failures = Vec::new();
     if failure.is_some() {
         for compensation in compensations.into_iter().rev() {
-            if let Ok(result) =
-                execute_effect(&runtime, Arc::clone(&actor), &operation_id, compensation)
-            {
-                compensation_results.push(result);
+            let recorded_effect = compensation.clone();
+            match execute_effect(&runtime, Arc::clone(&actor), &operation_id, compensation) {
+                Ok(result) => {
+                    if !result.ok {
+                        compensation_failures.push(OperationCompensationFailure {
+                            effect: recorded_effect,
+                            error: result.error.clone().unwrap_or_else(|| CoreErrorPayload {
+                                code: "CORE_COMPENSATION_EFFECT_FAILED".to_owned(),
+                                message: "The desktop shell compensation effect failed.".to_owned(),
+                            }),
+                        });
+                    }
+                    compensation_results.push(result);
+                }
+                Err(error) => {
+                    compensation_failures.push(OperationCompensationFailure {
+                        effect: recorded_effect,
+                        error: error.payload(),
+                    });
+                }
             }
         }
     }
@@ -443,6 +468,7 @@ fn run_operation(
         operation_id,
         results,
         compensation_results,
+        compensation_failures,
         error: failure,
     }
 }
@@ -763,6 +789,126 @@ mod tests {
             Some("TEST_EFFECT_FAILED")
         );
         assert_eq!(outcome.compensation_results.len(), 1);
+        assert!(outcome.compensation_failures.is_empty());
+    }
+
+    #[test]
+    fn reports_negative_compensation_acknowledgements() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start(OperationPlan {
+                steps: vec![
+                    OperationStep {
+                        effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: Some(1.2),
+                        }),
+                        compensation: Some(effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: Some(1.0),
+                        })),
+                    },
+                    OperationStep {
+                        effect: effect(CoreEffectAction::OverlayOpenMacroPage {
+                            role_id: "role-1".to_owned(),
+                        }),
+                        compensation: None,
+                    },
+                ],
+            })
+            .unwrap();
+        let first = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor.dispatch_results(vec![success(&first)]).unwrap();
+        let second = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor
+            .dispatch_results(vec![failed_result(
+                second.effect_id,
+                second.operation_id,
+                "TEST_EFFECT_FAILED",
+                "load failed",
+            )])
+            .unwrap();
+        let compensation = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor
+            .dispatch_results(vec![failed_result(
+                compensation.effect_id,
+                compensation.operation_id,
+                "TEST_COMPENSATION_FAILED",
+                "rollback failed",
+            )])
+            .unwrap();
+
+        let outcome = handle.outcome.blocking_recv().unwrap();
+        assert_eq!(outcome.compensation_results.len(), 1);
+        assert_eq!(outcome.compensation_failures.len(), 1);
+        assert_eq!(
+            outcome.compensation_failures[0].error.code,
+            "TEST_COMPENSATION_FAILED"
+        );
+    }
+
+    #[test]
+    fn reports_compensation_transport_timeouts() {
+        let (actor, effects) = actor();
+        let mut compensation = effect(CoreEffectAction::EmbeddedFocusRole {
+            role_id: "role-1".to_owned(),
+            zoom_factor: Some(1.0),
+        });
+        compensation.timeout = Duration::from_millis(10);
+        let handle = actor
+            .start(OperationPlan {
+                steps: vec![
+                    OperationStep {
+                        effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: Some(1.2),
+                        }),
+                        compensation: Some(compensation),
+                    },
+                    OperationStep {
+                        effect: effect(CoreEffectAction::OverlayOpenMacroPage {
+                            role_id: "role-1".to_owned(),
+                        }),
+                        compensation: None,
+                    },
+                ],
+            })
+            .unwrap();
+        let first = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor.dispatch_results(vec![success(&first)]).unwrap();
+        let second = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor
+            .dispatch_results(vec![failed_result(
+                second.effect_id,
+                second.operation_id,
+                "TEST_EFFECT_FAILED",
+                "load failed",
+            )])
+            .unwrap();
+        let _compensation = effects.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let outcome = handle.outcome.blocking_recv().unwrap();
+        assert!(outcome.compensation_results.is_empty());
+        assert_eq!(outcome.compensation_failures.len(), 1);
+        assert_eq!(
+            outcome.compensation_failures[0].error.code,
+            "CORE_EFFECT_TIMEOUT"
+        );
     }
 
     #[test]

@@ -607,8 +607,12 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     collectBrowserPerformanceDiagnostics: () =>
       invokeShell("collectBrowserPerformanceDiagnostics"),
     exportDiagnostics: () => invokeShell("exportDiagnostics"),
-    reportRendererLog: (event) =>
-      void invokeCore({ type: "logsCapture", entries: [rendererLogRecord(event)] }),
+    reportRendererLog: (event) => {
+      // This method is called from the global unhandled-rejection listener. A failed
+      // log write must terminate here or it recursively reports its own rejection.
+      void invokeCore({ type: "logsCapture", entries: [rendererLogRecord(event)] })
+        .catch(() => undefined);
+    },
     listSystemFonts: () => invokeCore({ type: "systemFontsList" }),
     consumePendingMacroPageRequest: () => invokeShell("consumePendingMacroPageRequest"),
     setOverlayLanguage: (language) =>

@@ -405,15 +405,21 @@ pub fn create_role(
         MAX_ROLE_COVER_DATA_URL_LENGTH,
         "ROLE_COVER_IMAGE_INVALID",
     )?;
+    let default_launch_url = &games
+        .iter()
+        .find(|game| game.id == game_id)
+        .expect("role game existence was validated")
+        .default_launch_url;
+    let launch_url = normalize_http_url(
+        input.launch_url.as_deref().unwrap_or(default_launch_url),
+        "ROLE_LAUNCH_URL_INVALID",
+    )?;
     let now = chrono::Utc::now().to_rfc3339();
     let role = StateRoleRecord {
         id: Uuid::new_v4().to_string(),
         game_id,
         name,
-        launch_url: normalize_http_url(
-            input.launch_url.as_deref().unwrap_or(DEFAULT_LAUNCH_URL),
-            "ROLE_LAUNCH_URL_INVALID",
-        )?,
+        launch_url,
         notes: input.notes.unwrap_or_default().trim().to_owned(),
         cover_image_dominant_color: if cover.is_some() {
             normalize_color(input.cover_image_dominant_color)?
@@ -4926,6 +4932,44 @@ mod tests {
             assert!(legacy.cover_image_data_url.is_some());
             assert!(legacy.cover_image_dominant_color.is_none());
         });
+    }
+
+    #[test]
+    fn new_roles_inherit_the_selected_game_url_unless_explicitly_overridden() {
+        for platform in ["darwin", "win32"] {
+            let games = vec![game_record(json!({
+                "id":"custom-game","source":"custom","name":"Custom",
+                "defaultLaunchUrl":"https://custom.test/launch","browserLaunchMode":"inherit",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }))];
+            let input = |name: &str, launch_url: Option<&str>| RoleCreateInputRecord {
+                game_id: "custom-game".to_owned(),
+                name: name.to_owned(),
+                launch_url: launch_url.map(str::to_owned),
+                notes: None,
+                cover_image_data_url: None,
+                cover_image_dominant_color: None,
+                local_storage_source_role_id: None,
+            };
+            let mut roles = Vec::new();
+
+            let inherited = create_role(&games, &mut roles, input("Inherited", None)).unwrap();
+            let overridden = create_role(
+                &games,
+                &mut roles,
+                input("Override", Some("https://override.test/play")),
+            )
+            .unwrap();
+
+            assert_eq!(
+                inherited.launch_url, "https://custom.test/launch",
+                "{platform}"
+            );
+            assert_eq!(
+                overridden.launch_url, "https://override.test/play",
+                "{platform}"
+            );
+        }
     }
 
     #[test]

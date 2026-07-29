@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppUpdateStatus } from "../../../shared/types";
 
@@ -20,6 +20,7 @@ interface UseAppUpdatesResult {
 export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAppUpdatesResult {
   const [appVersion, setAppVersion] = useState("");
   const [status, setStatus] = useState<AppUpdateStatus | null>(null);
+  const checkInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) {
@@ -51,14 +52,17 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
   }, [enabled, onError]);
 
   const checkForUpdates = useCallback(async () => {
-    if (!enabled) {
+    if (!enabled || checkInFlightRef.current) {
       return;
     }
 
+    checkInFlightRef.current = true;
     try {
       setStatus(await window.rionStudio.checkForUpdates());
     } catch (error) {
       onError(error);
+    } finally {
+      checkInFlightRef.current = false;
     }
   }, [enabled, onError]);
 

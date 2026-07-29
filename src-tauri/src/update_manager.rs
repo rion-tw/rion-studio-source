@@ -35,6 +35,7 @@ struct PendingUpdate {
 pub struct UpdateManager {
     app: AppHandle,
     auto_update_enabled: Mutex<bool>,
+    check_gate: tokio::sync::Mutex<()>,
     current_version: String,
     packaged: bool,
     pending: Mutex<Option<PendingUpdate>>,
@@ -52,6 +53,7 @@ impl UpdateManager {
         Self {
             app,
             auto_update_enabled: Mutex::new(auto_update_enabled),
+            check_gate: tokio::sync::Mutex::new(()),
             current_version: current_version.clone(),
             packaged,
             pending: Mutex::new(None),
@@ -112,12 +114,9 @@ impl UpdateManager {
                 self.error_status("This build does not contain a Tauri updater verification key."),
             );
         };
-        if matches!(
-            self.status()["state"].as_str(),
-            Some("checking" | "downloading")
-        ) {
+        let Ok(_check_guard) = self.check_gate.try_lock() else {
             return self.status();
-        }
+        };
         if let Ok(mut pending) = self.pending.lock() {
             *pending = None;
         }
@@ -394,5 +393,26 @@ mod tests {
 
         fs::write(&path, b"not-json").unwrap();
         assert!(load_auto_update_enabled(&path));
+    }
+
+    #[tokio::test]
+    async fn update_check_gate_releases_after_success_and_error_returns() {
+        async fn run(gate: &tokio::sync::Mutex<()>, fail: bool) -> Result<(), ()> {
+            let _guard = gate.try_lock().map_err(|_| ())?;
+            if fail {
+                return Err(());
+            }
+            Ok(())
+        }
+
+        let gate = tokio::sync::Mutex::new(());
+        let held = gate.try_lock().unwrap();
+        assert!(run(&gate, false).await.is_err());
+        drop(held);
+
+        assert!(run(&gate, false).await.is_ok());
+        assert!(gate.try_lock().is_ok());
+        assert!(run(&gate, true).await.is_err());
+        assert!(gate.try_lock().is_ok());
     }
 }

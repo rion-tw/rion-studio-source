@@ -25,7 +25,19 @@ const catalog: BrowserFontCatalogEntry[] = [
   ["wdxl-lubrifont-tc", "WDXL Lubrifont TC", "display", ["tc", "latin"], "body"],
   ["pixelify-sans", "Pixelify Sans", "display", ["latin"], "body"],
   ["jetbrains-mono", "JetBrains Mono", "monospace", ["latin"], "technical"],
-  ["noto-sans-math", "Noto Sans Math", "math", ["math", "latin"], "technical"]
+  ["noto-sans-math", "Noto Sans Math", "math", ["math", "latin"], "technical"],
+  ["atkinson-hyperlegible-next", "Atkinson Hyperlegible Next", "sans", ["latin"], "body"],
+  ["atkinson-hyperlegible-mono", "Atkinson Hyperlegible Mono", "monospace", ["latin"], "technical"],
+  ["roboto-condensed", "Roboto Condensed", "sans", ["latin"], "body"],
+  ["cinzel", "Cinzel", "serif", ["latin"], "accent"],
+  ["kaisei-tokumin", "Kaisei Tokumin", "serif", ["jp", "latin"], "body"],
+  ["chocolate-classical-sans", "Chocolate Classical Sans", "sans", ["tc", "latin"], "body"],
+  ["zen-kaku-gothic-new", "Zen Kaku Gothic New", "sans", ["jp", "latin"], "body"],
+  ["exo-2", "Exo 2", "sans", ["latin"], "body"],
+  ["orbitron", "Orbitron", "display", ["latin"], "accent"],
+  ["huninn", "Huninn", "sans", ["tc", "latin"], "body"],
+  ["kiwi-maru", "Kiwi Maru", "serif", ["jp", "latin"], "body"],
+  ["nunito", "Nunito", "sans", ["latin"], "body"]
 ].map(([catalogId, family, category, scripts, usage]) => ({
   catalogId: catalogId as string,
   family: family as string,
@@ -147,7 +159,14 @@ describe("browser font settings", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /High-legibility reading/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Compact dashboard/u })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Natural handwriting/u })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Distinctive styles/u }));
+    expect(screen.getByRole("button", { name: /Fantasy chronicle/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Future interface/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Relaxed dialogue/u })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
     expect(screen.getByRole("button", { name: /Natural handwriting/u })).toBeTruthy();
@@ -323,6 +342,49 @@ describe("browser font settings", () => {
               cjk: { source: "google", catalogId: "iansui" },
               latin: { source: "google", catalogId: "patrick-hand" },
               numeric: { source: "google", catalogId: "caveat" }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("downloads shared high-legibility slots only once before applying", async () => {
+    const installBrowserFont = vi.fn(async (catalogId: string) => ({
+      catalogId,
+      installed: true,
+      cachedBytes: 1024
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
+    expect(await screen.findByText("Everyday presets")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /High-legibility reading/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
+
+    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(4));
+    expect(installBrowserFont).toHaveBeenCalledWith("noto-sans-tc");
+    expect(installBrowserFont).toHaveBeenCalledWith("atkinson-hyperlegible-next");
+    expect(installBrowserFont).toHaveBeenCalledWith("atkinson-hyperlegible-mono");
+    expect(installBrowserFont).toHaveBeenCalledWith("noto-sans-math");
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            presetId: "high-legibility",
+            slots: expect.objectContaining({
+              cjk: { source: "google", catalogId: "noto-sans-tc" },
+              latin: { source: "google", catalogId: "atkinson-hyperlegible-next" },
+              numeric: { source: "google", catalogId: "atkinson-hyperlegible-mono" },
+              monospace: { source: "google", catalogId: "atkinson-hyperlegible-mono" }
             })
           })
         })

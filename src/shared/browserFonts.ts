@@ -25,13 +25,18 @@ export type BrowserFontPresetId =
   | "clear-interface"
   | "clear-numbers"
   | "code-monospace"
+  | "high-legibility"
+  | "compact-dashboard"
   | "natural-handwriting"
   | "playful-handwriting"
   | "calligraphic-handwriting"
   | "friendly-rounded"
   | "marker-notes"
   | "editorial-serif"
-  | "retro-game";
+  | "retro-game"
+  | "fantasy-chronicle"
+  | "future-interface"
+  | "relaxed-dialogue";
 
 export interface BrowserFontPresetDefinition {
   id: BrowserFontPresetId;
@@ -87,6 +92,18 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     slots: { latin: google("jetbrains-mono"), numeric: google("jetbrains-mono"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   },
   {
+    id: "high-legibility",
+    category: "general",
+    cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
+    slots: { latin: google("atkinson-hyperlegible-next"), numeric: google("atkinson-hyperlegible-mono"), monospace: google("atkinson-hyperlegible-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "compact-dashboard",
+    category: "general",
+    cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
+    slots: { latin: google("roboto-condensed"), numeric: google("roboto-condensed"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
     id: "natural-handwriting",
     category: "handwriting",
     cjkCatalog: { tc: "iansui", sc: "ma-shan-zheng", jp: "klee-one" },
@@ -127,6 +144,24 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     category: "personality",
     cjkCatalog: { tc: "wdxl-lubrifont-tc", sc: "wdxl-lubrifont-sc", jp: "wdxl-lubrifont-jp-n" },
     slots: { latin: google("pixelify-sans"), numeric: google("pixelify-sans"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "fantasy-chronicle",
+    category: "personality",
+    cjkCatalog: { tc: "cactus-classical-serif", sc: "zcool-xiaowei", jp: "kaisei-tokumin" },
+    slots: { latin: google("cinzel"), numeric: google("cinzel"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "future-interface",
+    category: "personality",
+    cjkCatalog: { tc: "chocolate-classical-sans", sc: "zcool-qingke-huangyou", jp: "zen-kaku-gothic-new" },
+    slots: { latin: google("exo-2"), numeric: google("orbitron"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "relaxed-dialogue",
+    category: "personality",
+    cjkCatalog: { tc: "huninn", sc: "zcool-kuaile", jp: "kiwi-maru" },
+    slots: { latin: google("nunito"), numeric: google("nunito"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
   }
 ];
 

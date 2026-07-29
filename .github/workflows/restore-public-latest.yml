@@ -40,16 +40,16 @@ jobs:
           test "${CONFIRM}" = "true"
 
       - name: Checkout verification scripts
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
 
       - name: Create public repository token
         id: public-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.RION_RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}

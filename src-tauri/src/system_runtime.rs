@@ -8199,9 +8199,7 @@ impl SystemRuntimeExecutor {
         if require_exact_local_storage_sync_origin(&webview, &config.origin).is_err() {
             return Ok(());
         }
-        let Ok(entries) = read_scoped_local_storage_entries(&webview, &config.keys) else {
-            return Ok(());
-        };
+        let entries = read_scoped_local_storage_entries(&webview, &config.keys)?;
         // The document observer reports asynchronously. Capture the live source immediately
         // before closing it so a stop cannot leave the encrypted bootstrap snapshot stale.
         self.persist_local_storage_sync_snapshot(PersistedLocalStorageSyncSnapshot {

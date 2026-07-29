@@ -13,6 +13,168 @@ enum {
   RionWKHighRefreshRateFailed = 2,
 };
 
+typedef void (*RionWKSurfaceReleasedCallback)(void *context);
+typedef void (*RionWKSurfaceContextDestructor)(void *context);
+
+@interface RionWKSurfaceLease : NSObject
+@property(nonatomic, weak) WKWebView *webView;
+@property(nonatomic, assign) uintptr_t dataStoreIdentity;
+@property(nonatomic, assign) uint64_t token;
+@property(nonatomic, assign) void *context;
+@property(nonatomic, assign) RionWKSurfaceReleasedCallback releasedCallback;
+@property(nonatomic, assign) RionWKSurfaceContextDestructor contextDestructor;
+@end
+
+@implementation RionWKSurfaceLease
+- (void)dealloc {
+  if (_context && _releasedCallback) _releasedCallback(_context);
+  if (_context && _contextDestructor) _contextDestructor(_context);
+}
+@end
+
+static char RionWKSurfaceLeaseKey;
+
+static NSMapTable<NSNumber *, RionWKSurfaceLease *> *RionWKSurfaceLeases(void) {
+  static NSMapTable<NSNumber *, RionWKSurfaceLease *> *leases;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    leases = [NSMapTable strongToWeakObjectsMapTable];
+  });
+  return leases;
+}
+
+static uint64_t RionWKNextSurfaceToken(void) {
+  static uint64_t nextToken = 1;
+  @synchronized(RionWKSurfaceLeases()) {
+    return nextToken++;
+  }
+}
+
+static uint64_t RionWKAttachSurfaceLease(
+    WKWebView *webView, uintptr_t dataStoreIdentity, void *context,
+    RionWKSurfaceReleasedCallback releasedCallback,
+    RionWKSurfaceContextDestructor contextDestructor) {
+  if (!webView || dataStoreIdentity == 0 || !context || !releasedCallback ||
+      !contextDestructor) return 0;
+  RionWKSurfaceLease *lease = [[RionWKSurfaceLease alloc] init];
+  lease.webView = webView;
+  lease.dataStoreIdentity = dataStoreIdentity;
+  lease.token = RionWKNextSurfaceToken();
+  lease.context = context;
+  lease.releasedCallback = releasedCallback;
+  lease.contextDestructor = contextDestructor;
+  objc_setAssociatedObject(webView, &RionWKSurfaceLeaseKey, lease,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [RionWKSurfaceLeases() setObject:lease forKey:@(lease.token)];
+  return lease.token;
+}
+
+uint64_t rion_wk_track_surface(
+    void *rawWebView, void *context,
+    RionWKSurfaceReleasedCallback releasedCallback,
+    RionWKSurfaceContextDestructor contextDestructor) {
+  @autoreleasepool {
+    if (!rawWebView) return 0;
+    WKWebView *webView = (__bridge WKWebView *)rawWebView;
+    uintptr_t dataStoreIdentity = (uintptr_t)(__bridge void *)
+        webView.configuration.websiteDataStore;
+    return RionWKAttachSurfaceLease(
+        webView, dataStoreIdentity, context, releasedCallback,
+        contextDestructor);
+  }
+}
+
+static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
+  @autoreleasepool {
+    RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
+    WKWebView *webView = lease.webView;
+    if (!lease || !webView) return false;
+    uintptr_t currentDataStore = (uintptr_t)(__bridge void *)
+        webView.configuration.websiteDataStore;
+    if (currentDataStore == 0 || currentDataStore != lease.dataStoreIdentity) {
+      return false;
+    }
+    @try {
+      [webView stopLoading];
+      NSURL *blankURL = [NSURL URLWithString:@"about:blank"];
+      if (!blankURL) return false;
+      [webView loadRequest:[NSURLRequest requestWithURL:blankURL]];
+      return true;
+    } @catch (__unused NSException *exception) {
+      return false;
+    }
+  }
+}
+
+bool rion_wk_quiesce_surface(uint64_t token) {
+  if (NSThread.isMainThread) return RionWKQuiesceSurfaceOnMain(token);
+  __block bool result = false;
+  dispatch_sync(dispatch_get_main_queue(), ^{
+    result = RionWKQuiesceSurfaceOnMain(token);
+  });
+  return result;
+}
+
+static bool RionWKSurfaceReleasedOnMain(uint64_t token) {
+  @autoreleasepool {
+    RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
+    return !lease || !lease.webView;
+  }
+}
+
+bool rion_wk_surface_released(uint64_t token) {
+  if (NSThread.isMainThread) return RionWKSurfaceReleasedOnMain(token);
+  __block bool result = false;
+  dispatch_sync(dispatch_get_main_queue(), ^{
+    result = RionWKSurfaceReleasedOnMain(token);
+  });
+  return result;
+}
+
+static void RionWKNoopSurfaceCallback(void *context) { (void)context; }
+static void RionWKMarkSurfaceReleased(void *context) {
+  if (context) (*(int *)context)++;
+}
+
+bool rion_wk_surface_lifecycle_self_test(void) {
+  @autoreleasepool {
+    NSObject *firstFixture = [[NSObject alloc] init];
+    NSObject *secondFixture = [[NSObject alloc] init];
+    WKWebView *first = (WKWebView *)firstFixture;
+    WKWebView *second = (WKWebView *)secondFixture;
+    int firstContext = 0;
+    int secondContext = 0;
+    uint64_t firstToken = RionWKAttachSurfaceLease(
+        first, 101, &firstContext, RionWKMarkSurfaceReleased,
+        RionWKNoopSurfaceCallback);
+    uint64_t secondToken = RionWKAttachSurfaceLease(
+        second, 202, &secondContext, RionWKMarkSurfaceReleased,
+        RionWKNoopSurfaceCallback);
+    BOOL distinct = firstToken != 0 && secondToken != 0 && firstToken != secondToken;
+    RionWKSurfaceLease *firstLease =
+        [RionWKSurfaceLeases() objectForKey:@(firstToken)];
+    RionWKSurfaceLease *secondLease =
+        [RionWKSurfaceLeases() objectForKey:@(secondToken)];
+    uintptr_t firstDataStoreIdentity = firstLease.dataStoreIdentity;
+    uintptr_t secondDataStoreIdentity = secondLease.dataStoreIdentity;
+    BOOL distinctDataStores = firstDataStoreIdentity != 0 &&
+        secondDataStoreIdentity != 0 &&
+        firstDataStoreIdentity != secondDataStoreIdentity;
+    BOOL live = firstLease.webView == first && secondLease.webView == second;
+    firstLease.releasedCallback(firstLease.context);
+    BOOL isolated = firstContext == 1 && secondContext == 0;
+    secondLease.releasedCallback(secondLease.context);
+    BOOL callbacksMatched = firstContext == 1 && secondContext == 1;
+    firstLease.context = NULL;
+    secondLease.context = NULL;
+    objc_setAssociatedObject(first, &RionWKSurfaceLeaseKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(second, &RionWKSurfaceLeaseKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return distinct && distinctDataStores && live && isolated && callbacksMatched;
+  }
+}
+
 static id RionWKFeatureWithKey(NSArray *features, NSString *expectedKey) {
   SEL keySelector = NSSelectorFromString(@"key");
   for (id feature in features) {

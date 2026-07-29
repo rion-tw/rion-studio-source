@@ -19,7 +19,7 @@ import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
-import { toMessage } from "./app/errorUtils";
+import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
@@ -344,7 +344,11 @@ export function App(): JSX.Element {
   const { reload: reloadLegal } = legal;
 
   useEffect(() => {
-    if (initialLoadState !== "ready" || data.error === null) {
+    if (
+      initialLoadState !== "ready" ||
+      data.error === null ||
+      isPersistentRuntimeError(data.error)
+    ) {
       return;
     }
 

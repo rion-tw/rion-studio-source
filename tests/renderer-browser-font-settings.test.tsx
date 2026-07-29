@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
@@ -41,6 +42,30 @@ beforeAll(() => {
     disconnect(): void {}
     observe(): void {}
     unobserve(): void {}
+  });
+  if (!("PointerEvent" in window)) {
+    Object.defineProperty(window, "PointerEvent", {
+      configurable: true,
+      value: MouseEvent
+    });
+  }
+  Object.defineProperties(HTMLElement.prototype, {
+    hasPointerCapture: {
+      configurable: true,
+      value: () => false
+    },
+    releasePointerCapture: {
+      configurable: true,
+      value: () => undefined
+    },
+    scrollIntoView: {
+      configurable: true,
+      value: () => undefined
+    },
+    setPointerCapture: {
+      configurable: true,
+      value: () => undefined
+    }
   });
 });
 
@@ -130,6 +155,137 @@ describe("browser font settings", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Distinctive styles")).toBeNull();
+  });
+
+  it("searches and applies a system font within an individual font slot", async () => {
+    const user = userEvent.setup();
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await screen.findByText("Distinctive styles");
+
+    const trigger = screen.getByRole("button", { name: "English & Latin" });
+    await user.click(trigger);
+    const search = await screen.findByRole("textbox", {
+      name: "Search system and Google fonts for English & Latin"
+    });
+    await waitFor(() => expect(document.activeElement).toBe(search));
+
+    await user.type(search, "Arial");
+    const option = screen.getByRole("menuitemradio", { name: "Arial · System" });
+    expect(screen.queryByRole("menuitemradio", { name: /Patrick Hand/u })).toBeNull();
+    await user.click(option);
+
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(trigger.textContent).toContain("Arial · System");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            mode: "custom",
+            slots: expect.objectContaining({
+              latin: { source: "system", family: "Arial" }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("keeps system fonts outside the Google category filter and downloads a searched Google font", async () => {
+    const user = userEvent.setup();
+    const installBrowserFont = vi.fn(async (catalogId: string) => ({
+      catalogId,
+      installed: true,
+      cachedBytes: 1024
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await screen.findByText("Distinctive styles");
+    await user.click(screen.getByRole("combobox", { name: "Font category" }));
+    await user.click(screen.getByRole("option", { name: "Handwriting" }));
+
+    await user.click(screen.getByRole("button", { name: "Chinese & Japanese" }));
+    const search = await screen.findByRole("textbox", {
+      name: "Search system and Google fonts for Chinese & Japanese"
+    });
+    await user.type(search, "Arial");
+    expect(screen.getByRole("menuitemradio", { name: "Arial · System" })).toBeTruthy();
+
+    await user.clear(search);
+    await user.type(search, "patrick-hand");
+    expect(screen.queryByRole("menuitemradio", { name: /Patrick Hand/u })).toBeNull();
+    expect(screen.getByText("No matching fonts found.")).toBeTruthy();
+
+    await user.clear(search);
+    await user.type(search, "iansui");
+    await user.click(screen.getByRole("menuitemradio", { name: "Iansui · Download on apply" }));
+    await user.click(screen.getByRole("button", { name: "Download 1 and apply" }));
+
+    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(1));
+    expect(installBrowserFont).toHaveBeenCalledWith("iansui");
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            slots: expect.objectContaining({
+              cjk: { source: "google", catalogId: "iansui" }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("restores results after clearing search and supports keyboard entry and dismissal", async () => {
+    const user = userEvent.setup();
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+
+    renderSettings(vi.fn(async (settings) => settings));
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await screen.findByText("Distinctive styles");
+
+    const trigger = screen.getByRole("button", { name: "Numbers" });
+    await user.click(trigger);
+    const search = await screen.findByRole("textbox", {
+      name: "Search system and Google fonts for Numbers"
+    });
+    await user.type(search, "missing-font");
+    expect(screen.getByText("No matching fonts found.")).toBeTruthy();
+
+    await user.clear(search);
+    expect(screen.getByRole("menuitemradio", { name: "Pixelify Sans · Download on apply" })).toBeTruthy();
+    await user.type(search, "pixel");
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitemradio", { name: "Pixelify Sans · Download on apply" })
+    );
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("shows handwriting presets and downloads every missing pack before applying", async () => {

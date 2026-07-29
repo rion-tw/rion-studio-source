@@ -138,6 +138,10 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.macroUnassignedWorkflow",
   "Launch workspace has no roles.": "error.workspaceEmpty",
   "Unable to start the hidden Rion Studio browser helper.": "error.hiddenBrowserHelperUnavailable",
+  "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.":
+    "error.surfaceReleaseUnverified",
+  "Rion Studio could not verify that every native game page stopped. The tab was kept open; retry or restart Rion Studio.":
+    "error.surfaceReleaseUnverified",
   "Unable to load the game page. Check the operating-system network settings or game accelerator mode.":
     "error.gamePageLoadFailed",
 };

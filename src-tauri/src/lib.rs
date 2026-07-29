@@ -841,6 +841,30 @@ async fn rion_shell_invoke(
             }
             Ok(Value::Null)
         }
+        "executeApplicationShortcut" => {
+            if window.label() != "main" {
+                return Err(shell_error(
+                    "TAURI_SHELL_UNAUTHORIZED",
+                    "Application shortcuts from the renderer are restricted to the main window.",
+                ));
+            }
+            let command = string_argument(&args, 0, "Application shortcut command")?;
+            let command = application_menu::ApplicationShortcutCommand::parse(&command)
+                .ok_or_else(|| {
+                    shell_error(
+                        "TAURI_SHELL_INPUT_INVALID",
+                        "Application shortcut command is not supported.",
+                    )
+                })?;
+            application_menu::execute_shortcut(
+                &app,
+                &state,
+                command,
+                application_menu::ApplicationShortcutTarget::MainWindow(&window),
+            )
+            .map(|()| Value::Null)
+            .map_err(|error| shell_error("TAURI_APPLICATION_SHORTCUT_FAILED", error))
+        }
         "displays" => display_inventory(&window),
         "launchRole" => {
             let role_id = string_argument(&args, 0, "Role ID")?;

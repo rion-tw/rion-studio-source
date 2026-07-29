@@ -23,6 +23,7 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "fullscreenToolbarEnter" })).toBe(true);
     expect(isRuntimeTabAction({ type: "fullscreenToolbarLeave" })).toBe(true);
     expect(isRuntimeTabAction({ type: "activateAdjacent", direction: "next" })).toBe(true);
+    expect(isRuntimeTabAction({ type: "applicationShortcut", command: "zoomIn" })).toBe(true);
     expect(isRuntimeTabAction({ type: "windowControl", control: "close" })).toBe(true);
 
     expect(isRuntimeTabAction({ type: "activate", tabId: "" })).toBe(false);
@@ -33,6 +34,8 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "openLauncher", itemId: "role-1" })).toBe(false);
     expect(isRuntimeTabAction({ type: "windowControl", control: "fullscreen" })).toBe(false);
     expect(isRuntimeTabAction({ type: "activateAdjacent", direction: "up" })).toBe(false);
+    expect(isRuntimeTabAction({ type: "applicationShortcut", command: "quit" })).toBe(false);
+    expect(isRuntimeTabAction({ type: "applicationShortcut", command: "zoomIn", extra: true })).toBe(false);
   });
 
   it("preserves workspace role details in localized tooltips", () => {

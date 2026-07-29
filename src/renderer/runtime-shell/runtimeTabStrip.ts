@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { applicationShortcutForKeyEvent } from "../../shared/applicationShortcuts";
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
 
 declare global {
@@ -234,6 +235,13 @@ addEventListener("keydown", (event) => {
   if (event.key === "Escape" && draggingTabId) {
     dragCancelled = true;
     if (dragSessionId) dispatch({ type: "tabDragCancel", sessionId: dragSessionId });
+    return;
+  }
+  const applicationCommand = applicationShortcutForKeyEvent(event);
+  if (applicationCommand) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    dispatch({ type: "applicationShortcut", command: applicationCommand });
     return;
   }
   if (event.key !== "Tab" || !event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;

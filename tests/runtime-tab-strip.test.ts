@@ -152,6 +152,37 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
   });
 
+  it("routes Windows application shortcuts through the scoped tab-strip bridge", () => {
+    dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      ctrlKey: true,
+      code: "KeyN",
+      key: "n"
+    }));
+    dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      code: "F11",
+      key: "F11"
+    }));
+    dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      ctrlKey: true,
+      shiftKey: true,
+      code: "Equal",
+      key: "+"
+    }));
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+      action: { type: "applicationShortcut", command: "newGameWindow" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: { type: "applicationShortcut", command: "toggleFullscreen" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "rion_runtime_tab_action", {
+      action: { type: "applicationShortcut", command: "zoomIn" }
+    });
+  });
+
   it("opens the scoped role/workspace launcher from the add button", () => {
     const add = document.querySelector<HTMLButtonElement>("#add");
     add?.click();

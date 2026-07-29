@@ -931,7 +931,7 @@
       "id": "behavior-6fe182c3b2d9",
       "deduplicationKey": "shell\u0000src-tauri/src/application_menu.rs\u0000localizes_all_supported_languages",
       "status": "preserved",
-      "contract": "Tauri native menus restore Edit, zoom, fullscreen, window actions, and toolbar preference.",
+      "contract": "Tauri keeps the native Application Menu on macOS; Windows uses scoped shortcuts for zoom, fullscreen, and window actions, with the toolbar preference in Settings.",
       "evidence": [
         {
           "kind": "executable-test",

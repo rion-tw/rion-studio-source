@@ -1109,6 +1109,21 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    pub fn window_id_for_webview(&self, webview_label: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|state| {
+            let popup_role_id = state.popup_roles.get(webview_label);
+            state.tabs.values().find_map(|tab| {
+                let owns_webview = popup_role_id
+                    .is_some_and(|role_id| tab.roles.contains_key(role_id))
+                    || tab
+                        .roles
+                        .values()
+                        .any(|surface| surface.webview.label() == webview_label);
+                owns_webview.then(|| tab.window_id.clone())
+            })
+        })
+    }
+
     pub fn prepare_provisional_game_window(
         &self,
         target: &EmbeddedLaunchTargetRecord,
@@ -1737,24 +1752,32 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn toggle_focused_runtime_fullscreen(&self) -> Result<bool, String> {
-        let window = {
+        let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
                 .display_hosts
                 .values()
                 .find(|host| host.window.is_focused().unwrap_or(false))
-                .map(|host| host.window.clone())
+                .map(|host| host.target.window_id.clone())
         };
-        let Some(window) = window else {
+        let Some(window_id) = window_id else {
             return Ok(false);
         };
+        self.toggle_runtime_window_fullscreen(&window_id)?;
+        Ok(true)
+    }
+
+    pub fn toggle_runtime_window_fullscreen(&self, window_id: &str) -> Result<(), String> {
+        let window = self
+            .window_for_id(window_id)
+            .ok_or_else(|| "Runtime window was not found.".to_owned())?;
         let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
         #[cfg(target_os = "macos")]
         self.prepare_runtime_window_fullscreen(window.label(), !fullscreen);
         window
             .set_fullscreen(!fullscreen)
             .map_err(|error| error.to_string())?;
-        Ok(true)
+        Ok(())
     }
 
     pub fn collect_browser_performance_diagnostics(
@@ -1946,16 +1969,30 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn zoom_focused_runtime(&self, action: &str) -> Result<bool, String> {
-        let focused_host = {
+        let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
                 .display_hosts
                 .values()
                 .find(|host| host.window.is_focused().unwrap_or(false))
-                .map(|host| (host.target.window_id.clone(), host.zoom_factor))
+                .map(|host| host.target.window_id.clone())
         };
-        let Some((window_id, current_zoom)) = focused_host else {
+        let Some(window_id) = window_id else {
             return Ok(false);
+        };
+        self.zoom_runtime_window(&window_id, action)
+    }
+
+    pub fn zoom_runtime_window(&self, window_id: &str, action: &str) -> Result<bool, String> {
+        if !matches!(action, "in" | "out" | "reset") {
+            return Err("Runtime window zoom action is invalid.".to_owned());
+        }
+        let current_zoom = {
+            let state = self.state().map_err(|error| error.message)?;
+            let Some(host) = state.display_hosts.get(window_id) else {
+                return Ok(false);
+            };
+            host.zoom_factor
         };
         let next_zoom = next_zoom_factor(current_zoom, action, 0.25, 5.0);
         let snapshot = self
@@ -1969,7 +2006,7 @@ impl SystemRuntimeExecutor {
         let Some(tab_id) = snapshot
             .windows
             .iter()
-            .find(|window| window.window_id == window_id)
+            .find(|window| window.window_id == *window_id)
             .and_then(|window| window.active_tab_id.as_deref())
         else {
             return Ok(false);
@@ -1983,7 +2020,7 @@ impl SystemRuntimeExecutor {
             let surfaces = state
                 .tabs
                 .values()
-                .filter(|tab| tab.window_id == window_id)
+                .filter(|tab| tab.window_id == *window_id)
                 .flat_map(|tab| {
                     tab.roles.iter().map(|(role_id, surface)| {
                         (
@@ -2007,7 +2044,7 @@ impl SystemRuntimeExecutor {
                 .filter_map(|(label, role_id)| {
                     let tab_id = state.role_tabs.get(role_id)?;
                     let tab = state.tabs.get(tab_id)?;
-                    if tab.window_id != window_id {
+                    if tab.window_id != *window_id {
                         return None;
                     }
                     let base = tab.roles.get(role_id)?.zoom_factor;
@@ -2021,7 +2058,7 @@ impl SystemRuntimeExecutor {
             }
         }
         if let Ok(mut state) = self.state()
-            && let Some(host) = state.display_hosts.get_mut(&window_id)
+            && let Some(host) = state.display_hosts.get_mut(window_id)
         {
             host.zoom_factor = next_zoom;
         }
@@ -9209,6 +9246,32 @@ fn windows_role_zoom_action(
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_application_shortcut_command(
+    virtual_key: u32,
+    control: bool,
+    alt: bool,
+    meta: bool,
+    shift: bool,
+    repeat: bool,
+) -> Option<crate::application_menu::ApplicationShortcutCommand> {
+    use crate::application_menu::ApplicationShortcutCommand;
+
+    if virtual_key == 0x7A {
+        return (!control && !alt && !meta && !shift && !repeat)
+            .then_some(ApplicationShortcutCommand::ToggleFullscreen);
+    }
+    if virtual_key == 0x4E {
+        return (control && !alt && !meta && !shift && !repeat)
+            .then_some(ApplicationShortcutCommand::NewGameWindow);
+    }
+    windows_role_zoom_action(virtual_key, control, alt, meta, shift).map(|action| match action {
+        "in" => ApplicationShortcutCommand::ZoomIn,
+        "out" => ApplicationShortcutCommand::ZoomOut,
+        _ => ApplicationShortcutCommand::ZoomReset,
+    })
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 fn macos_role_zoom_action(
     key_code: u16,
@@ -9316,7 +9379,7 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
         AcceleratorKeyPressedEventHandler,
         Microsoft::Web::WebView2::Win32::{
             COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-            COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+            COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
         },
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -9345,19 +9408,43 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
                     }
                     let mut virtual_key = 0;
                     args.VirtualKey(&mut virtual_key)?;
+                    let mut physical_status = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
+                    args.PhysicalKeyStatus(&mut physical_status)?;
                     let pressed = |key: u16| GetKeyState(i32::from(key)) < 0;
-                    let action = windows_role_zoom_action(
+                    let command = windows_application_shortcut_command(
                         virtual_key,
                         pressed(VK_CONTROL.0),
                         pressed(VK_MENU.0),
                         pressed(VK_LWIN.0) || pressed(VK_RWIN.0),
                         pressed(VK_SHIFT.0),
+                        physical_status.WasKeyDown.as_bool(),
                     );
-                    let Some(action) = action else {
+                    let Some(command) = command else {
                         return Ok(());
                     };
                     args.SetHandled(true)?;
-                    dispatch_role_zoom_shortcut(&shortcut_app, &shortcut_label, action);
+                    let result = shortcut_app
+                        .try_state::<crate::CoreState>()
+                        .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
+                        .and_then(|state| {
+                            crate::application_menu::execute_shortcut(
+                                &shortcut_app,
+                                &state,
+                                command,
+                                crate::application_menu::ApplicationShortcutTarget::RoleWebview(
+                                    &shortcut_label,
+                                ),
+                            )
+                        });
+                    if let Err(message) = result {
+                        let _ = shortcut_app.emit(
+                            "rion://shell-error",
+                            json!({
+                                "code": "TAURI_APPLICATION_SHORTCUT_FAILED",
+                                "message": message
+                            }),
+                        );
+                    }
                     Ok(())
                 }));
             let mut token = 0;
@@ -10695,6 +10782,36 @@ mod tests {
                 assert_eq!(action("plus", false, false), Some("in"), "{platform}");
             }
         }
+    }
+
+    #[test]
+    fn windows_application_shortcuts_cover_discrete_commands_and_repeats() {
+        use crate::application_menu::ApplicationShortcutCommand;
+
+        assert_eq!(
+            windows_application_shortcut_command(0x4E, true, false, false, false, false),
+            Some(ApplicationShortcutCommand::NewGameWindow)
+        );
+        assert_eq!(
+            windows_application_shortcut_command(0x7A, false, false, false, false, false),
+            Some(ApplicationShortcutCommand::ToggleFullscreen)
+        );
+        assert_eq!(
+            windows_application_shortcut_command(0xBB, true, false, false, true, true),
+            Some(ApplicationShortcutCommand::ZoomIn)
+        );
+        assert_eq!(
+            windows_application_shortcut_command(0x4E, true, false, false, false, true),
+            None
+        );
+        assert_eq!(
+            windows_application_shortcut_command(0x7A, false, false, false, false, true),
+            None
+        );
+        assert_eq!(
+            windows_application_shortcut_command(0x7A, false, true, false, false, false),
+            None
+        );
     }
 
     #[cfg(target_os = "macos")]

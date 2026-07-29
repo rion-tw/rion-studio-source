@@ -13,9 +13,12 @@ describe("Tauri Stable shell", () => {
 
   it("owns the stable application identity and shared renderer build", async () => {
     const config = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
+    const macConfig = JSON.parse(await readFile("src-tauri/tauri.macos.conf.json", "utf8"));
 
     expect(config.productName).toBe("Rion Studio");
     expect(config.identifier).toBe("com.rionstudio.launcher");
+    expect(config.app.windows[0].title).toBe("Rion Studio");
+    expect(macConfig.app.windows[0].title).toBe("");
     expect(config.build).toMatchObject({
       frontendDist: "../out/renderer",
       beforeDevCommand: "pnpm run dev:renderer",
@@ -23,7 +26,7 @@ describe("Tauri Stable shell", () => {
     });
     expect(config.app.windows[0]).toMatchObject({
       label: "main",
-      title: "",
+      title: "Rion Studio",
       minWidth: 960,
       minHeight: 640,
       visible: false

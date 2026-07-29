@@ -10041,6 +10041,7 @@ fn install_platform_security_policy(_webview: &Webview) -> RuntimeResult<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn dispatch_role_zoom_shortcut(app: &AppHandle, webview_label: &str, action: &str) {
     let result = app
         .try_state::<crate::CoreState>()

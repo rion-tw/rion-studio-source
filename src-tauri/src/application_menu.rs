@@ -52,6 +52,7 @@ pub(crate) enum ApplicationShortcutTarget<'a> {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(target_os = "macos")]
 struct Labels {
     app: &'static str,
     edit: &'static str,
@@ -335,13 +336,10 @@ fn zoom(
             zoom_main_window(state, &window, action)
         }
         ApplicationShortcutTarget::MainWindow(window) => zoom_main_window(state, window, action),
-        ApplicationShortcutTarget::RoleWebview(webview_label) => {
-            let window_id = state
-                .runtime
-                .window_id_for_webview(webview_label)
-                .ok_or_else(|| "runtime WebView is not associated with a window".to_owned())?;
-            zoom_runtime_window(state, &window_id, action)
-        }
+        ApplicationShortcutTarget::RoleWebview(webview_label) => state
+            .runtime
+            .zoom_role_for_webview(webview_label, action)
+            .map(|_| ()),
         ApplicationShortcutTarget::RuntimeWindow(window_id) => {
             zoom_runtime_window(state, window_id, action)
         }
@@ -387,6 +385,7 @@ fn next_zoom(value: f64, action: &str) -> f64 {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn labels(language: &str) -> Labels {
     match language {
         "zh-TW" => Labels {
@@ -444,6 +443,7 @@ fn labels(language: &str) -> Labels {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn localizes_all_supported_languages() {
         assert_eq!(labels("en").app, "Rion Studio");

@@ -81,6 +81,14 @@ describe("Tauri shell parity guard", () => {
     expect(menu).toContain("pub fn install(_app: &AppHandle");
     expect(menu).toContain("ApplicationShortcutTarget::RuntimeWindow");
     expect(menu).toContain("window_id_for_webview(webview_label)");
+    const roleZoom = menu.slice(
+      menu.indexOf("fn zoom("),
+      menu.indexOf("fn zoom_runtime_window(")
+    );
+    expect(roleZoom).toContain(".zoom_role_for_webview(webview_label, action)");
+    expect(roleZoom).not.toContain("window_id_for_webview(webview_label)");
+    expect(menu).toContain('#[cfg(target_os = "macos")]\nstruct Labels');
+    expect(menu).toContain('#[cfg(target_os = "macos")]\nfn labels(');
     expect(quickMenu).toContain("restore_saved_game_windows");
     expect(quickMenu).not.toContain("targetDisplay");
     expect(tabs).toContain("rion-runtime-shortcut://tabs/");
@@ -112,6 +120,9 @@ describe("Tauri shell parity guard", () => {
     expect(nativeInput).toContain("rion_wk_install_role_zoom_shortcut");
     expect(nativeInput).toContain("RionRoleZoomBindingForResponder");
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
+    expect(tabs).toContain(
+      '#[cfg(target_os = "macos")]\nfn dispatch_role_zoom_shortcut('
+    );
     expect(JSON.parse(capability)).toMatchObject({
       local: true,
       webviews: ["game-tab-strip-*", "game-divider-*"],

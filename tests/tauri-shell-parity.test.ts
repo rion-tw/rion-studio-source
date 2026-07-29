@@ -139,6 +139,12 @@ describe("Tauri shell parity guard", () => {
       ]
     });
     expect(shell).toContain('"moveGameWindowTabToNewWindow"');
+    expect(shell).toContain("struct WorkspaceConflictRollbackPlan");
+    expect(shell).toContain("rollback_workspace_conflicts(");
+    expect(shell).toContain("restore_workspace_conflict_metadata(");
+    expect(shell).toContain("TAURI_WORKSPACE_CONFLICT_ROLLBACK_FAILED");
+    expect(shell).toContain("&rollback_plans[..=index]");
+    expect(shell).toContain("&rollback_plans[..stopped_count]");
     expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');
   });
 

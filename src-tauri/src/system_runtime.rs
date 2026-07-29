@@ -1255,7 +1255,7 @@ impl SystemRuntimeExecutor {
                 popup: degraded_if(available),
                 audio_mute: supported_if(available),
                 custom_fonts: degraded_if(available),
-                downloads: degraded_if(available),
+                downloads: EngineCapabilityStatus::Disabled,
                 file_upload: supported_if(available),
                 permissions: if available {
                     EngineCapabilityStatus::Degraded
@@ -8603,23 +8603,28 @@ fn handle_browser_download(
     role_id: Option<&str>,
     event: DownloadEvent<'_>,
 ) -> bool {
-    let payload = match event {
-        DownloadEvent::Requested { url, destination } => json!({
-            "state": "started",
-            "roleId": role_id,
-            "url": url,
-            "path": destination.to_string_lossy()
-        }),
-        DownloadEvent::Finished { url, path, success } => json!({
-            "state": if success { "completed" } else { "failed" },
-            "roleId": role_id,
-            "url": url,
-            "path": path.map(|path| path.to_string_lossy().into_owned())
-        }),
-        _ => return true,
+    let (payload, allowed) = match event {
+        DownloadEvent::Requested { url, .. } => (
+            json!({
+                "state": "blocked",
+                "roleId": role_id,
+                "url": url
+            }),
+            false,
+        ),
+        DownloadEvent::Finished { url, path, success } => (
+            json!({
+                "state": if success { "completed" } else { "failed" },
+                "roleId": role_id,
+                "url": url,
+                "path": path.map(|path| path.to_string_lossy().into_owned())
+            }),
+            true,
+        ),
+        _ => return false,
     };
     let _ = app.emit("rion://browser-download", payload);
-    true
+    allowed
 }
 
 fn evaluate_system_webview(webview: &Webview, source: &str) -> RuntimeResult<String> {

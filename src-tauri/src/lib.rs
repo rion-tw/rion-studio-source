@@ -694,24 +694,65 @@ fn start_display_watcher(app: AppHandle) -> Result<(), String> {
                     .iter()
                     .map(|display| display.id)
                     .collect::<HashSet<_>>();
-                if let Ok(game_windows) =
-                    state
+                let game_windows =
+                    match state
                         .core
                         .invoke(CoreCommand::GameWindowsList)
                         .and_then(|value| {
                             serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                                 .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
-                        })
-                {
-                    for game_window in game_windows.iter().filter(|game_window| {
-                        !available_ids.contains(&game_window.target_display.id)
-                    }) {
-                        if let Ok(target) = launch_target_for_game_window(&app, &game_window.id) {
-                            let _ = state.runtime.relocate_game_window(target);
+                        }) {
+                        Ok(game_windows) => game_windows,
+                        Err(error) => {
+                            reveal_shell_error(&app, error_payload(error));
+                            continue;
                         }
+                    };
+                let mut reconcile_failed = false;
+                for game_window in game_windows
+                    .iter()
+                    .filter(|game_window| !available_ids.contains(&game_window.target_display.id))
+                {
+                    let result = resolve_game_window_launch_target(&app, game_window).and_then(
+                        |resolution| {
+                            let Some(remap) = resolution.remap else {
+                                return Ok(());
+                            };
+                            let target = resolution.target;
+                            relocate_before_display_remap(
+                                || {
+                                    state
+                                        .runtime
+                                        .relocate_game_window_if_live(target.clone())
+                                        .map(|_| ())
+                                        .map_err(|error| {
+                                            shell_error("TAURI_RUNTIME_WINDOW_MOVE_FAILED", error)
+                                        })
+                                },
+                                || {
+                                    persist_game_window_display_remap(
+                                        &app,
+                                        &state,
+                                        &game_window.id,
+                                        target.display_id,
+                                        remap,
+                                    )
+                                },
+                            )
+                        },
+                    );
+                    if let Err(error) = result {
+                        reveal_shell_error(&app, error);
+                        reconcile_failed = true;
                     }
                 }
-                let _ = state.runtime.persist_restore_session(false);
+                if reconcile_failed {
+                    continue;
+                }
+                if let Err(error) = state.runtime.persist_restore_session(false) {
+                    reveal_shell_error(&app, shell_error("TAURI_RESTORE_PERSIST_FAILED", error));
+                    continue;
+                }
                 state.runtime.publish_projection();
                 let _ = app.emit("rion://displays", &displays);
                 previous = Some(displays);
@@ -2458,16 +2499,29 @@ pub(crate) fn launch_target_for_game_window(
     let state = app
         .try_state::<CoreState>()
         .ok_or_else(|| shell_error("SHELL_STATE_UNAVAILABLE", "App state is unavailable."))?;
-    let record = state
-        .core
-        .invoke(CoreCommand::GameWindowGet {
-            id: window_id.to_owned(),
-        })
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<StateGameWindowRecord>(value)
-                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
-        })?;
+    let record = game_window_record(&state.core, window_id)?;
+    let resolution = resolve_game_window_launch_target(app, &record)?;
+    if let Some(remap) = resolution.remap {
+        persist_game_window_display_remap(
+            app,
+            &state,
+            window_id,
+            resolution.target.display_id,
+            remap,
+        )?;
+    }
+    Ok(resolution.target)
+}
+
+struct GameWindowLaunchResolution {
+    target: EmbeddedLaunchTargetRecord,
+    remap: Option<GameWindowUpdateInputRecord>,
+}
+
+fn resolve_game_window_launch_target(
+    app: &AppHandle,
+    record: &StateGameWindowRecord,
+) -> Result<GameWindowLaunchResolution, CoreErrorPayload> {
     let monitors = app
         .available_monitors()
         .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
@@ -2526,42 +2580,62 @@ pub(crate) fn launch_target_for_game_window(
         .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
     let remapped = exact.is_none();
     let mut target = embedded_target_for_monitor(&selected);
-    target.window_id = window_id.to_owned();
+    target.window_id = record.id.clone();
     target.presentation = record.placement.presentation.clone();
-    if remapped {
+    let remap = if remapped {
         target.bounds = remap_window_bounds(
             &record.placement.normal_bounds,
             &record.placement.saved_work_area,
             &target.work_area,
         );
-        state
-            .core
-            .invoke(CoreCommand::GameWindowUpdate {
-                id: window_id.to_owned(),
-                input: rion_core::GameWindowUpdateInputRecord {
-                    target_display: Some(DisplayTargetRecord {
-                        id: target.display_id,
-                        fingerprint: display_target_and_work_area(&selected, primary_id)
-                            .0
-                            .fingerprint,
-                    }),
-                    placement: Some(GameWindowPlacementRecord {
-                        normal_bounds: target.bounds.clone(),
-                        saved_work_area: target.work_area.clone(),
-                        presentation: target.presentation.clone(),
-                    }),
-                    ..rion_core::GameWindowUpdateInputRecord::default()
-                },
-            })
-            .map_err(error_payload)?;
-        let _ = app.emit(
-            "rion://game-window-display-remapped",
-            json!({ "windowId": window_id, "displayId": target.display_id }),
-        );
+        Some(GameWindowUpdateInputRecord {
+            target_display: Some(DisplayTargetRecord {
+                id: target.display_id,
+                fingerprint: display_target_and_work_area(&selected, primary_id)
+                    .0
+                    .fingerprint,
+            }),
+            placement: Some(GameWindowPlacementRecord {
+                normal_bounds: target.bounds.clone(),
+                saved_work_area: target.work_area.clone(),
+                presentation: target.presentation.clone(),
+            }),
+            ..GameWindowUpdateInputRecord::default()
+        })
     } else {
         target.bounds = clamp_window_bounds(&record.placement.normal_bounds, &target.work_area);
-    }
-    Ok(target)
+        None
+    };
+    Ok(GameWindowLaunchResolution { target, remap })
+}
+
+fn persist_game_window_display_remap(
+    app: &AppHandle,
+    state: &CoreState,
+    window_id: &str,
+    display_id: i64,
+    input: GameWindowUpdateInputRecord,
+) -> Result<(), CoreErrorPayload> {
+    state
+        .core
+        .invoke(CoreCommand::GameWindowUpdate {
+            id: window_id.to_owned(),
+            input,
+        })
+        .map_err(error_payload)?;
+    let _ = app.emit(
+        "rion://game-window-display-remapped",
+        json!({ "windowId": window_id, "displayId": display_id }),
+    );
+    Ok(())
+}
+
+fn relocate_before_display_remap(
+    relocate: impl FnOnce() -> Result<(), CoreErrorPayload>,
+    persist: impl FnOnce() -> Result<(), CoreErrorPayload>,
+) -> Result<(), CoreErrorPayload> {
+    relocate()?;
+    persist()
 }
 
 fn display_fingerprint_matches(
@@ -3927,6 +4001,41 @@ mod tests {
             nearest_drag_rect_index(&physical_rects, 800.0, 300.0),
             Some(0)
         );
+    }
+
+    #[test]
+    fn display_remap_persists_only_after_native_relocation_succeeds() {
+        for platform in ["darwin", "win32"] {
+            let steps = Mutex::new(Vec::new());
+            relocate_before_display_remap(
+                || {
+                    steps.lock().unwrap().push("relocate");
+                    Ok(())
+                },
+                || {
+                    steps.lock().unwrap().push("persist");
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                *steps.lock().unwrap(),
+                ["relocate", "persist"],
+                "{platform}"
+            );
+
+            let persisted = AtomicBool::new(false);
+            let error = relocate_before_display_remap(
+                || Err(shell_error("MOVE_FAILED", "move failed")),
+                || {
+                    persisted.store(true, Ordering::Release);
+                    Ok(())
+                },
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "MOVE_FAILED", "{platform}");
+            assert!(!persisted.load(Ordering::Acquire), "{platform}");
+        }
     }
 
     #[test]

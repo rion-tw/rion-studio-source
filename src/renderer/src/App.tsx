@@ -80,6 +80,7 @@ export function App(): JSX.Element {
     });
   const [notice, setNotice] = useState<string | null>(null);
   const [isSavingGameWindow, setIsSavingGameWindow] = useState(false);
+  const isSavingGameWindowRef = useRef(false);
   const notifiedEngineIssues = useRef(new Map<string, string>());
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
@@ -128,7 +129,8 @@ export function App(): JSX.Element {
     targetDisplay: Parameters<typeof window.rionStudio.createGameWindow>[0]["targetDisplay"];
     placement: Parameters<typeof window.rionStudio.createGameWindow>[0]["placement"];
   }): Promise<GameWindow | undefined> => {
-    if (!window.rionStudio || isSavingGameWindow) return undefined;
+    if (!window.rionStudio || isSavingGameWindowRef.current) return undefined;
+    isSavingGameWindowRef.current = true;
     setIsSavingGameWindow(true);
     const reportError = data.beginErrorOperation();
     try {
@@ -151,9 +153,10 @@ export function App(): JSX.Element {
       reportError(error);
       return undefined;
     } finally {
+      isSavingGameWindowRef.current = false;
       setIsSavingGameWindow(false);
     }
-  }, [data, isSavingGameWindow]);
+  }, [data]);
   const navigateToNewMacro = useCallback((roleId?: string) => {
     const searchParams = roleId ? new URLSearchParams({ roleId }) : undefined;
     navigate(createNewEditorPath("macros", searchParams));

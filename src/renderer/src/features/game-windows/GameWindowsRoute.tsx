@@ -10,7 +10,7 @@ import {
   Volume2,
   VolumeX
 } from "lucide-react";
-import { type JSX, useMemo, useState } from "react";
+import { type JSX, useMemo } from "react";
 
 import type {
   DisplayInfo,
@@ -30,7 +30,12 @@ import {
   DropdownMenuTrigger
 } from "../../components/ui/dropdown-menu";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
+import { useBusyIds } from "../../hooks/useBusyIds";
 import type { Translator } from "../../i18n";
+
+const windowBusyKey = (windowId: string): string => `window:${windowId}`;
+const tabBusyKey = (tabId: string): string => `tab:${tabId}`;
+const NEW_WINDOW_BUSY_KEY = "window:new";
 
 interface GameWindowsRouteProps {
   displays: DisplayInfo[];
@@ -52,24 +57,23 @@ export default function GameWindowsRoute({
   onNew
 }: GameWindowsRouteProps): JSX.Element {
   const confirm = useConfirmation();
-  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
+  const { beginBusyMany, busyIds } = useBusyIds();
   const displayById = useMemo(() => new Map(displays.map((display) => [display.id, display])), [displays]);
 
-  async function run(windowId: string, action: () => Promise<unknown>): Promise<void> {
-    if (busyIds.has(windowId)) return;
-    setBusyIds((current) => new Set(current).add(windowId));
+  async function run(ids: Iterable<string>, action: () => Promise<unknown>): Promise<void> {
+    const finishBusy = beginBusyMany(ids);
+    if (!finishBusy) return;
     try {
       await action();
     } catch (error) {
       onError(error);
     } finally {
-      setBusyIds((current) => {
-        const next = new Set(current);
-        next.delete(windowId);
-        return next;
-      });
+      finishBusy();
     }
   }
+
+  const runWindow = (windowId: string, action: () => Promise<unknown>): Promise<void> =>
+    run([windowBusyKey(windowId)], action);
 
   async function remove(gameWindow: GameWindow): Promise<void> {
     const accepted = await confirm({
@@ -79,7 +83,9 @@ export default function GameWindowsRoute({
       confirmLabel: t("confirm.delete"),
       tone: "destructive"
     });
-    if (accepted) await run(gameWindow.id, () => window.rionStudio.deleteGameWindow(gameWindow.id));
+    if (accepted) {
+      await runWindow(gameWindow.id, () => window.rionStudio.deleteGameWindow(gameWindow.id));
+    }
   }
 
   return (
@@ -107,6 +113,7 @@ export default function GameWindowsRoute({
       ) : (
         <div className="collection-grid collection-grid-game-windows gap-4">
           {gameWindows.map((gameWindow) => {
+            const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
             const liveWindow = runtime.windows.find((item) => item.windowId === gameWindow.id);
             const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
             const display = displayById.get(gameWindow.targetDisplay.id);
@@ -144,36 +151,36 @@ export default function GameWindowsRoute({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Button
-                      disabled={busyIds.has(gameWindow.id)}
+                      disabled={windowIsBusy}
                       type="button"
-                      onClick={() => void run(gameWindow.id, () => window.rionStudio.showGameWindow(gameWindow.id))}
+                      onClick={() => void runWindow(gameWindow.id, () => window.rionStudio.showGameWindow(gameWindow.id))}
                     >
                       <Eye size={15} />
                       {t("gameWindows.show")}
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button aria-label={t("gameWindows.actions")} size="icon" type="button" variant="outline">
+                        <Button aria-label={t("gameWindows.actions")} disabled={windowIsBusy} size="icon" type="button" variant="outline">
                           <MoreHorizontal size={16} />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => onEdit(gameWindow.id)}>
+                        <DropdownMenuItem disabled={windowIsBusy} onSelect={() => onEdit(gameWindow.id)}>
                           {t("gameWindows.edit")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          disabled={!liveWindow}
-                          onSelect={() => void run(gameWindow.id, () => window.rionStudio.closeGameWindow(gameWindow.id))}
+                          disabled={windowIsBusy || !liveWindow}
+                          onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.closeGameWindow(gameWindow.id))}
                         >
                           {t("gameWindows.close")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          disabled={gameWindow.tabs.length === 0}
-                          onSelect={() => void run(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
+                          disabled={windowIsBusy || gameWindow.tabs.length === 0}
+                          onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
                         >
                           {t("gameWindows.stopAll")}
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onSelect={() => void remove(gameWindow)}>
+                        <DropdownMenuItem className="text-destructive" disabled={windowIsBusy} onSelect={() => void remove(gameWindow)}>
                           <Trash2 className="mr-2" size={14} />
                           {t("gameWindows.delete")}
                         </DropdownMenuItem>
@@ -196,7 +203,14 @@ export default function GameWindowsRoute({
                           runtime={runtime}
                           tab={tab}
                           t={t}
-                          onError={onError}
+                          busy={windowIsBusy || busyIds.has(tabBusyKey(tab.id))}
+                          onInvoke={(targetWindowId, action) => void run([
+                            tabBusyKey(tab.id),
+                            windowBusyKey(gameWindow.id),
+                            ...(targetWindowId
+                              ? [targetWindowId === "new" ? NEW_WINDOW_BUSY_KEY : windowBusyKey(targetWindowId)]
+                              : [])
+                          ], action)}
                         />
                       ))}
                     </div>
@@ -217,22 +231,25 @@ function GameWindowTabRow({
   runtime,
   tab,
   t,
-  onError
+  busy,
+  onInvoke
 }: {
   gameWindow: GameWindow;
   gameWindows: GameWindow[];
   runtime: EmbeddedRuntimeState;
   tab: GameWindowTab;
   t: Translator;
-  onError: (error: unknown) => void;
+  busy: boolean;
+  onInvoke: (targetWindowId: string | undefined, action: () => Promise<unknown>) => void;
 }): JSX.Element {
   const live = runtime.tabs.find((item) => item.id === tab.id);
-  const invoke = (action: () => Promise<unknown>): void => void action().catch(onError);
+  const invoke = (action: () => Promise<unknown>, targetWindowId?: string): void =>
+    onInvoke(targetWindowId, action);
   return (
     <Surface className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5" variant="inset">
       <button
         className="min-w-0 text-left"
-        disabled={!live}
+        disabled={busy || !live}
         type="button"
         onClick={() => invoke(() => window.rionStudio.showGameWindowTab(tab.id))}
       >
@@ -247,14 +264,14 @@ function GameWindowTabRow({
           aria-label={t("gameWindows.moveTab")}
           className="glass-control h-8 max-w-40 rounded-md px-2 text-xs"
           defaultValue=""
-          disabled={!live}
+          disabled={busy || !live}
           onChange={(event) => {
             const target = event.currentTarget.value;
             event.currentTarget.value = "";
             if (target === "new") {
-              invoke(() => window.rionStudio.moveGameWindowTabToNewWindow(tab.id));
+              invoke(() => window.rionStudio.moveGameWindowTabToNewWindow(tab.id), "new");
             } else if (target) {
-              invoke(() => window.rionStudio.moveGameWindowTab(tab.id, target));
+              invoke(() => window.rionStudio.moveGameWindowTab(tab.id, target), target);
             }
           }}
         >
@@ -266,7 +283,7 @@ function GameWindowTabRow({
         </select>
         <Button
           aria-label={tab.audioMuted ? t("gameWindows.unmute") : t("gameWindows.mute")}
-          disabled={!live}
+          disabled={busy || !live}
           size="icon"
           type="button"
           variant="ghost"
@@ -276,7 +293,7 @@ function GameWindowTabRow({
         </Button>
         <Button
           aria-label={tab.hidden ? t("gameWindows.showTab") : t("gameWindows.hideTab")}
-          disabled={!live}
+          disabled={busy || !live}
           size="icon"
           type="button"
           variant="ghost"
@@ -286,7 +303,7 @@ function GameWindowTabRow({
         </Button>
         <Button
           aria-label={t("gameWindows.stopTab")}
-          disabled={!live}
+          disabled={busy || !live}
           size="icon"
           type="button"
           variant="ghost"

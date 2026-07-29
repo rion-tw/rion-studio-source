@@ -465,6 +465,15 @@ fn surface_recovery_swap_is_current(
         && surface_generation_is_current(active_generation, expected_generation)
 }
 
+fn surface_close_commit_is_current(
+    active_tab_id: &str,
+    expected_tab_id: &str,
+    active_label: &str,
+    closed_label: &str,
+) -> bool {
+    active_tab_id == expected_tab_id && active_label == closed_label
+}
+
 fn runtime_tab_is_visible(snapshot: &BrowserRuntimeSnapshot, tab_id: &str) -> bool {
     snapshot
         .tabs
@@ -682,6 +691,9 @@ struct RuntimeState {
     allow_window_close_labels: HashSet<String>,
     audible_webviews: HashMap<String, bool>,
     auto_restore_attempted: bool,
+    closing_roles: HashSet<String>,
+    closing_tabs: HashSet<String>,
+    closing_webviews: HashSet<String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
@@ -2994,7 +3006,13 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+        if state.closing_webviews.contains(webview_label) {
+            return Err("Overlay WebView is closing.".to_owned());
+        }
         if let Some(role_id) = state.popup_roles.get(webview_label) {
+            if state.closing_roles.contains(role_id) {
+                return Err("Overlay role is closing.".to_owned());
+            }
             return Ok(role_id.clone());
         }
         state
@@ -3004,7 +3022,10 @@ impl SystemRuntimeExecutor {
                 state.tabs.get(tab_id).and_then(|tab| {
                     tab.roles
                         .get(role_id)
-                        .filter(|surface| surface.webview.label() == webview_label)
+                        .filter(|surface| {
+                            surface.webview.label() == webview_label
+                                && !state.closing_roles.contains(role_id)
+                        })
                         .map(|_| role_id.clone())
                 })
             })
@@ -3020,6 +3041,9 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+        if state.closing_webviews.contains(webview_label) {
+            return Err("The overlay WebView is closing.".to_owned());
+        }
         if state
             .overlay_capabilities
             .get(webview_label)
@@ -3029,6 +3053,9 @@ impl SystemRuntimeExecutor {
             return Err("The overlay capability is missing or no longer valid.".to_owned());
         }
         if let Some(role_id) = state.popup_roles.get(webview_label) {
+            if state.closing_roles.contains(role_id) {
+                return Err("The overlay role is closing.".to_owned());
+            }
             return Ok(role_id.clone());
         }
         state
@@ -3038,7 +3065,10 @@ impl SystemRuntimeExecutor {
                 state.tabs.get(tab_id).and_then(|tab| {
                     tab.roles
                         .get(role_id)
-                        .filter(|surface| surface.webview.label() == webview_label)
+                        .filter(|surface| {
+                            surface.webview.label() == webview_label
+                                && !state.closing_roles.contains(role_id)
+                        })
                         .map(|_| role_id.clone())
                 })
             })
@@ -3104,6 +3134,9 @@ impl SystemRuntimeExecutor {
 
     fn surface_generation_for_role(&self, role_id: &str) -> Option<u64> {
         let state = self.state.lock().ok()?;
+        if state.closing_roles.contains(role_id) {
+            return None;
+        }
         let tab_id = state.role_tabs.get(role_id)?;
         state
             .tabs
@@ -3378,6 +3411,7 @@ impl SystemRuntimeExecutor {
             state.popup_roles.remove(window_label);
             state.audible_webviews.remove(window_label);
             state.overlay_capabilities.remove(window_label);
+            state.closing_webviews.remove(window_label);
         }
         self.publish_projection();
     }
@@ -6947,43 +6981,121 @@ impl SystemRuntimeExecutor {
         role_id: &str,
     ) -> RuntimeResult<()> {
         let label = webview.label().to_owned();
-        self.revoke_overlay_capability(&label);
-        webview.close().map_err(RuntimeError::tauri)?;
-        wait_for_tauri_main_thread(&self.app)?;
-        let platform = if cfg!(windows) { "windows" } else { "macos" };
-        let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
-        while self.app.get_webview(&label).is_some() {
-            if Instant::now() >= deadline {
-                self.health.mark_unhealthy();
-                #[cfg(windows)]
-                let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
-                #[cfg(not(windows))]
-                let browser_process_id = 0;
-                let message = format!(
-                    "The System WebView surface {label} did not release its native controller within {}ms. Restart Rion Studio before launching another browser role.",
-                    PLATFORM_CALLBACK_TIMEOUT.as_millis()
-                );
-                let _ = self.app.emit(
-                    "rion://shell-error",
-                    json!({
-                        "browserProcessId": browser_process_id,
-                        "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
-                        "failureKind": "controller-release-timeout",
-                        "message": message,
-                        "roleId": role_id,
-                        "webviewLabel": label
-                    }),
-                );
+        {
+            let mut state = self.state()?;
+            if !state.closing_webviews.insert(label.clone()) {
                 return Err(RuntimeError::new(
-                    "SYSTEM_WEBVIEW_CREATION_STALLED",
-                    message,
+                    "SYSTEM_SURFACE_ALREADY_CLOSING",
+                    "The System WebView surface is already closing.",
                 ));
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
-        lifecycle.mark_controller_released();
-        debug_assert!(lifecycle.wait_for_controller_release(platform, Duration::from_millis(0)));
-        Ok(())
+        let result = (|| -> RuntimeResult<()> {
+            webview.close().map_err(RuntimeError::tauri)?;
+            wait_for_tauri_main_thread(&self.app)?;
+            let platform = if cfg!(windows) { "windows" } else { "macos" };
+            let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+            while self.app.get_webview(&label).is_some() {
+                if Instant::now() >= deadline {
+                    self.health.mark_unhealthy();
+                    #[cfg(windows)]
+                    let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
+                    #[cfg(not(windows))]
+                    let browser_process_id = 0;
+                    let message = format!(
+                        "The System WebView surface {label} did not release its native controller within {}ms. Restart Rion Studio before launching another browser role.",
+                        PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                    );
+                    let _ = self.app.emit(
+                        "rion://shell-error",
+                        json!({
+                            "browserProcessId": browser_process_id,
+                            "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
+                            "failureKind": "controller-release-timeout",
+                            "message": message,
+                            "roleId": role_id,
+                            "webviewLabel": label
+                        }),
+                    );
+                    return Err(RuntimeError::new(
+                        "SYSTEM_WEBVIEW_CREATION_STALLED",
+                        message,
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            lifecycle.mark_controller_released();
+            debug_assert!(
+                lifecycle.wait_for_controller_release(platform, Duration::from_millis(0))
+            );
+            Ok(())
+        })();
+        if result.is_ok() {
+            self.revoke_overlay_capability(&label);
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.closing_webviews.remove(&label);
+        }
+        result
+    }
+
+    fn close_untracked_webview_and_wait(
+        &self,
+        webview: &Webview,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<()> {
+        let label = webview.label().to_owned();
+        self.close_webview_label_and_wait(&label, lifecycle_id, || webview.close())
+    }
+
+    fn close_popup_and_wait(&self, label: &str, role_id: &str) -> RuntimeResult<()> {
+        let window = self.app.get_webview_window(label);
+        self.close_webview_label_and_wait(label, role_id, move || {
+            window.map(|window| window.close()).unwrap_or(Ok(()))
+        })
+    }
+
+    fn close_webview_label_and_wait(
+        &self,
+        label: &str,
+        lifecycle_id: &str,
+        close: impl FnOnce() -> tauri::Result<()>,
+    ) -> RuntimeResult<()> {
+        {
+            let mut state = self.state()?;
+            if !state.closing_webviews.insert(label.to_owned()) {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_ALREADY_CLOSING",
+                    "The System WebView surface is already closing.",
+                ));
+            }
+        }
+        let result = (|| -> RuntimeResult<()> {
+            close().map_err(RuntimeError::tauri)?;
+            wait_for_tauri_main_thread(&self.app)?;
+            let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+            while self.app.get_webview(label).is_some() {
+                if Instant::now() >= deadline {
+                    self.health.mark_unhealthy();
+                    return Err(RuntimeError::new(
+                        "SYSTEM_WEBVIEW_CREATION_STALLED",
+                        format!(
+                            "The System WebView surface {label} did not close within {}ms during {lifecycle_id}.",
+                            PLATFORM_CALLBACK_TIMEOUT.as_millis()
+                        ),
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(())
+        })();
+        if result.is_ok() {
+            self.revoke_overlay_capability(label);
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.closing_webviews.remove(label);
+        }
+        result
     }
 
     fn add_child_bounded(
@@ -7233,43 +7345,117 @@ impl SystemRuntimeExecutor {
             )
         })?;
         self.persist_local_storage_sync_source_before_stop(role_id)?;
-        let mut state = self.state()?;
-        let tab_id = state.role_tabs.remove(role_id).ok_or_else(|| {
-            RuntimeError::new(
-                "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                "Runtime role was not found.",
-            )
-        })?;
-        let tab = state.tabs.get_mut(&tab_id).ok_or_else(|| {
-            RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-        })?;
-        let role = tab.roles.remove(role_id).ok_or_else(|| {
-            RuntimeError::new(
-                "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                "Runtime role was not found.",
-            )
-        })?;
-        let popup_labels = state
-            .popup_roles
-            .iter()
-            .filter(|(_, popup_role_id)| popup_role_id.as_str() == role_id)
-            .map(|(label, _)| label.clone())
-            .collect::<Vec<_>>();
-        popup_labels.iter().for_each(|label| {
-            state.popup_roles.remove(label);
-            state.audible_webviews.remove(label);
-            state.overlay_capabilities.remove(label);
-        });
-        state.audible_webviews.remove(role.webview.label());
-        drop(state);
-        for label in popup_labels {
-            if let Some(window) = self.app.get_webview_window(&label) {
-                let _ = window.close();
+        {
+            let mut state = self.state()?;
+            let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role was not found.",
+                )
+            })?;
+            if state.closing_tabs.contains(tab_id)
+                || !state.closing_roles.insert(role_id.to_owned())
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_ALREADY_CLOSING",
+                    "The runtime role is already closing.",
+                ));
             }
         }
-        wait_for_tauri_main_thread(&self.app)?;
+        let result = self.destroy_marked_role(role_id, None);
+        if let Ok(mut state) = self.state.lock() {
+            state.closing_roles.remove(role_id);
+        }
+        result
+    }
+
+    fn destroy_marked_role(
+        &self,
+        role_id: &str,
+        expected_tab_id: Option<&str>,
+    ) -> RuntimeResult<()> {
+        let (tab_id, webview, lifecycle, webview_label, popup_labels) = {
+            let state = self.state()?;
+            let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role was not found.",
+                )
+            })?;
+            if expected_tab_id.is_some_and(|expected| expected != tab_id) {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_CLOSE_STALE",
+                    "The runtime role moved before its close transaction completed.",
+                ));
+            }
+            let surface = state
+                .tabs
+                .get(&tab_id)
+                .and_then(|tab| tab.roles.get(role_id))
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                        "Runtime role was not found.",
+                    )
+                })?;
+            let popup_labels = state
+                .popup_roles
+                .iter()
+                .filter(|(_, popup_role_id)| popup_role_id.as_str() == role_id)
+                .map(|(label, _)| label.clone())
+                .collect::<Vec<_>>();
+            (
+                tab_id,
+                surface.webview.clone(),
+                Arc::clone(&surface.lifecycle),
+                surface.webview.label().to_owned(),
+                popup_labels,
+            )
+        };
+
+        for label in popup_labels {
+            self.close_popup_and_wait(&label, role_id)?;
+            self.forget_popup(&label);
+        }
         self.clear_role_keys(role_id);
-        self.close_surface_and_wait(&role.webview, &role.lifecycle, role_id)?;
+        self.close_surface_and_wait(&webview, &lifecycle, role_id)?;
+
+        let mut state = self.state()?;
+        let current_tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_CLOSE_STALE",
+                "The closed runtime role no longer has an authoritative mapping.",
+            )
+        })?;
+        let current_label = state
+            .tabs
+            .get(&tab_id)
+            .and_then(|tab| tab.roles.get(role_id))
+            .map(|surface| surface.webview.label());
+        if current_label.is_none_or(|current_label| {
+            !surface_close_commit_is_current(
+                &current_tab_id,
+                &tab_id,
+                current_label,
+                &webview_label,
+            )
+        }) {
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_CLOSE_STALE",
+                "A newer runtime role surface superseded the closed handle.",
+            ));
+        }
+        state.role_tabs.remove(role_id);
+        state.audible_webviews.remove(&webview_label);
+        state.recovery_budgets.remove(role_id);
+        state.recovery_generations.remove(role_id);
+        state.recovering_roles.remove(role_id);
+        state
+            .tabs
+            .get_mut(&tab_id)
+            .expect("the close transaction validated the runtime tab")
+            .roles
+            .remove(role_id);
         Ok(())
     }
 
@@ -7331,43 +7517,76 @@ impl SystemRuntimeExecutor {
         for role_id in &role_ids {
             self.persist_local_storage_sync_source_before_stop(role_id)?;
         }
-        let mut state = self.state()?;
-        let tab = state.tabs.remove(tab_id).ok_or_else(|| {
-            RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-        })?;
-        for role_id in tab.roles.keys() {
-            state.role_tabs.remove(role_id);
-        }
-        let tab_role_ids = tab.roles.keys().cloned().collect::<HashSet<_>>();
-        let popup_labels = state
-            .popup_roles
-            .iter()
-            .filter(|(_, role_id)| tab_role_ids.contains(*role_id))
-            .map(|(label, _)| label.clone())
-            .collect::<Vec<_>>();
-        popup_labels.iter().for_each(|label| {
-            state.popup_roles.remove(label);
-            state.audible_webviews.remove(label);
-            state.overlay_capabilities.remove(label);
-        });
-        for surface in tab.roles.values() {
-            state.audible_webviews.remove(surface.webview.label());
-        }
-        drop(state);
-        for label in popup_labels {
-            if let Some(window) = self.app.get_webview_window(&label) {
-                let _ = window.close();
+        {
+            let mut state = self.state()?;
+            if state.closing_tabs.contains(tab_id)
+                || role_ids
+                    .iter()
+                    .any(|role_id| state.closing_roles.contains(role_id))
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_ALREADY_CLOSING",
+                    "The runtime tab or one of its roles is already closing.",
+                ));
             }
+            state.closing_tabs.insert(tab_id.to_owned());
+            state.closing_roles.extend(role_ids.iter().cloned());
         }
-        wait_for_tauri_main_thread(&self.app)?;
-        for (role_id, surface) in &tab.roles {
-            self.clear_role_keys(role_id);
-            self.close_surface_and_wait(&surface.webview, &surface.lifecycle, role_id)?;
+        let result = (|| -> RuntimeResult<()> {
+            for role_id in &role_ids {
+                self.destroy_marked_role(role_id, Some(tab_id))?;
+            }
+            loop {
+                let divider = {
+                    let state = self.state()?;
+                    state
+                        .tabs
+                        .get(tab_id)
+                        .and_then(|tab| tab.dividers.first())
+                        .map(|divider| (divider.index, divider.webview.clone()))
+                };
+                let Some((divider_index, divider)) = divider else {
+                    break;
+                };
+                self.close_untracked_webview_and_wait(&divider, tab_id)?;
+                let mut state = self.state()?;
+                let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_CLOSE_STALE",
+                        "The runtime tab disappeared during divider cleanup.",
+                    )
+                })?;
+                let Some(position) = tab.dividers.iter().position(|candidate| {
+                    candidate.index == divider_index && candidate.webview.label() == divider.label()
+                }) else {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_CLOSE_STALE",
+                        "A newer divider superseded the closed handle.",
+                    ));
+                };
+                tab.dividers.remove(position);
+            }
+            let mut state = self.state()?;
+            let removable = state
+                .tabs
+                .get(tab_id)
+                .is_some_and(|tab| tab.roles.is_empty() && tab.dividers.is_empty());
+            if !removable {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_CLOSE_STALE",
+                    "The runtime tab changed before its close transaction committed.",
+                ));
+            }
+            state.tabs.remove(tab_id);
+            Ok(())
+        })();
+        if let Ok(mut state) = self.state.lock() {
+            state.closing_tabs.remove(tab_id);
+            role_ids.iter().for_each(|role_id| {
+                state.closing_roles.remove(role_id);
+            });
         }
-        for divider in &tab.dividers {
-            let _ = divider.webview.close();
-        }
-        Ok(())
+        result
     }
 
     fn show_tab(&self, tab_id: &str, focus: bool) -> RuntimeResult<()> {
@@ -10392,6 +10611,28 @@ mod tests {
             "role-surface-a",
             8,
             7
+        ));
+    }
+
+    #[test]
+    fn close_commit_requires_the_same_authoritative_handle() {
+        assert!(surface_close_commit_is_current(
+            "tab-a",
+            "tab-a",
+            "surface-a",
+            "surface-a"
+        ));
+        assert!(!surface_close_commit_is_current(
+            "tab-b",
+            "tab-a",
+            "surface-a",
+            "surface-a"
+        ));
+        assert!(!surface_close_commit_is_current(
+            "tab-a",
+            "tab-a",
+            "surface-b",
+            "surface-a"
         ));
     }
 

@@ -53,6 +53,34 @@ describe("Tauri System WebView runtime source", () => {
     expect(recovery).not.toContain("close_surface_and_wait(&old_webview");
   });
 
+  it("commits role and tab removal only after native close acknowledgement", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const destroyRole = runtime.slice(
+      runtime.indexOf("fn destroy_marked_role("),
+      runtime.indexOf("fn persist_local_storage_sync_source_before_stop(")
+    );
+    const closeRole = destroyRole.indexOf("self.close_surface_and_wait(&webview");
+    const commitRole = destroyRole.indexOf("state.role_tabs.remove(role_id)");
+    expect(closeRole).toBeGreaterThan(-1);
+    expect(commitRole).toBeGreaterThan(closeRole);
+    expect(destroyRole.indexOf("self.close_popup_and_wait(&label")).toBeLessThan(
+      destroyRole.indexOf("self.forget_popup(&label)")
+    );
+
+    const destroyTab = runtime.slice(
+      runtime.indexOf("fn destroy_tab("),
+      runtime.indexOf("fn show_tab(")
+    );
+    expect(destroyTab.indexOf("self.destroy_marked_role(role_id")).toBeLessThan(
+      destroyTab.indexOf("state.tabs.remove(tab_id)")
+    );
+    expect(runtime).toContain("closing_webviews");
+    expect(runtime).toContain("closing_roles");
+  });
+
   it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),

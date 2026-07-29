@@ -593,6 +593,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     listBrowserFontCatalog: () => invokeCore({ type: "browserFontCatalogList" }),
     installBrowserFont: (catalogId) =>
       invokeCore({ type: "browserFontPackInstall", catalogId }),
+    installGoogleFont: (family) =>
+      invokeCore({ type: "browserFontFamilyInstall", family }),
     removeBrowserFont: (catalogId) =>
       invokeCore({ type: "browserFontPackRemove", catalogId }),
     getBrowserFontPreview: (settings) =>

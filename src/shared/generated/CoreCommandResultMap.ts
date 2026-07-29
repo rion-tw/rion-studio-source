@@ -96,6 +96,7 @@ type TypedCoreCommandResultMap = {
   gameBrowserSettingsPatch: GameBrowserSettingsRecord;
   browserFontCatalogList: BrowserFontCatalogEntryRecord[];
   browserFontPackInstall: BrowserFontInstallResultRecord;
+  browserFontFamilyInstall: BrowserFontInstallResultRecord;
   browserFontPackRemove: BrowserFontInstallResultRecord;
   browserFontRuntimePayload: BrowserFontRuntimePayloadRecord;
   macroSettingsGet: MacroSettingsRecord;

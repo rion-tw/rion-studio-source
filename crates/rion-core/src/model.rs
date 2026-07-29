@@ -444,6 +444,9 @@ pub enum CoreCommand {
         #[ts(rename = "catalogId")]
         catalog_id: String,
     },
+    BrowserFontFamilyInstall {
+        family: String,
+    },
     BrowserFontPackRemove {
         #[ts(rename = "catalogId")]
         catalog_id: String,
@@ -2310,7 +2313,7 @@ pub struct BrowserFontSettingsRecord {
     pub cjk_variant: String,
     #[serde(default)]
     #[ts(
-        type = "Partial<Record<\"cjk\" | \"latin\" | \"numeric\" | \"monospace\" | \"math\", { source: \"system\", family: string } | { source: \"google\", catalogId: string }>>"
+        type = "Partial<Record<\"cjk\" | \"latin\" | \"numeric\" | \"monospace\" | \"math\", { source: \"system\", family: string } | { source: \"google\", catalogId: string, family?: string }>>"
     )]
     pub slots: std::collections::HashMap<String, BrowserFontSelectionRecord>,
     #[serde(default, skip_serializing)]
@@ -2334,8 +2337,15 @@ fn default_browser_font_smoothing_enabled() -> bool {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum BrowserFontSelectionRecord {
-    System { family: String },
-    Google { catalog_id: String },
+    System {
+        family: String,
+    },
+    Google {
+        catalog_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        family: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

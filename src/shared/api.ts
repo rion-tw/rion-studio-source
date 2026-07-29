@@ -149,6 +149,7 @@ export interface RionStudioApi {
   patchGameBrowserSettings: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
   listBrowserFontCatalog: () => Promise<BrowserFontCatalogEntry[]>;
   installBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;
+  installGoogleFont: (family: string) => Promise<BrowserFontInstallResult>;
   removeBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;
   getBrowserFontPreview: (settings: BrowserFontSettings) => Promise<BrowserFontRuntimePayload>;
   getLogStatus: () => Promise<LogStorageStatus>;

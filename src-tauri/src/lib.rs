@@ -506,6 +506,7 @@ fn core_command_refreshes_browser_fonts(command: &CoreCommand) -> bool {
         command,
         CoreCommand::GameBrowserSettingsReplace { .. }
             | CoreCommand::BrowserFontPackInstall { .. }
+            | CoreCommand::BrowserFontFamilyInstall { .. }
             | CoreCommand::BrowserFontPackRemove { .. }
     )
 }

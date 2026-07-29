@@ -4774,6 +4774,25 @@ impl AppCore {
             })?;
             operations.retain(|_, candidate| candidate != &operation_id);
         }
+        if !outcome.compensation_failures.is_empty() {
+            let compensation_codes = outcome
+                .compensation_failures
+                .iter()
+                .map(|failure| failure.error.code.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let journal_error = self
+                .record_operation_compensation_failure(&outcome, role_ids)
+                .err()
+                .map(|error| format!(" The recovery journal also failed: {error}"))
+                .unwrap_or_default();
+            return Err(CoreError::Effect {
+                code: "CORE_OPERATION_COMPENSATION_FAILED".to_owned(),
+                message: format!(
+                    "The desktop shell operation failed and its native compensation did not complete ({compensation_codes}). Restart Rion Studio before retrying.{journal_error}"
+                ),
+            });
+        }
         if let Some(error) = &outcome.error {
             if error.code == "CORE_OPERATION_CANCELLED" {
                 return Err(CoreError::Effect {
@@ -4787,6 +4806,37 @@ impl AppCore {
             });
         }
         Ok(outcome)
+    }
+
+    fn record_operation_compensation_failure(
+        &self,
+        outcome: &crate::operation_actor::OperationOutcome,
+        role_ids: &[String],
+    ) -> CoreResult<()> {
+        let failures = outcome
+            .compensation_failures
+            .iter()
+            .map(|failure| {
+                json!({
+                    "target": &failure.effect.target,
+                    "action": &failure.effect.action,
+                    "error": &failure.error,
+                })
+            })
+            .collect::<Vec<_>>();
+        self.with_runtime(|runtime| {
+            runtime.state.put_operation_journal(OperationJournalRecord {
+                id: format!("native-compensation-{}", outcome.operation_id),
+                kind: "native_effect_compensation_v1".to_owned(),
+                phase: "restart-required".to_owned(),
+                payload: json!({
+                    "operationId": outcome.operation_id,
+                    "roleIds": role_ids,
+                    "originalError": &outcome.error,
+                    "failures": failures,
+                }),
+            })
+        })
     }
 
     fn cancel_embedded_operations(&self, role_ids: &[String]) -> CoreResult<()> {
@@ -6145,6 +6195,19 @@ fn recover_operation_journals(
     user_data_dir: &std::path::Path,
 ) -> CoreResult<()> {
     for journal in state.operation_journals()? {
+        if journal.kind == "native_effect_compensation_v1" {
+            if journal.phase != "restart-required" {
+                return Err(CoreError::Migration(format!(
+                    "unsupported native compensation journal phase: {}",
+                    journal.phase
+                )));
+            }
+            // Tauri windows and WebViews cannot survive a process restart. At this point the
+            // orphaned native handles are gone and the persisted runtime projection is once
+            // again authoritative, so the restart itself completes this recovery boundary.
+            state.delete_operation_journal(journal.id)?;
+            continue;
+        }
         let role_id = journal
             .payload
             .get("roleId")
@@ -6877,6 +6940,14 @@ mod tests {
         command: CoreCommand,
         fail_action: Option<&'static str>,
     ) -> (CoreResult<Value>, Vec<CoreEffectAction>) {
+        drive_command_with(core, command, |effect| effect_result(effect, fail_action))
+    }
+
+    fn drive_command_with(
+        core: Arc<AppCore>,
+        command: CoreCommand,
+        mut result_for: impl FnMut(CoreEffectRequest) -> CoreEffectResult,
+    ) -> (CoreResult<Value>, Vec<CoreEffectAction>) {
         let receiver = core.subscribe().unwrap();
         let invocation_core = Arc::clone(&core);
         let invocation = thread::spawn(move || invocation_core.invoke(command));
@@ -6893,7 +6964,7 @@ mod tests {
                     .into_iter()
                     .map(|effect| {
                         actions.lock().unwrap().push(effect.action.clone());
-                        effect_result(effect, fail_action)
+                        result_for(effect)
                     })
                     .collect();
                 core.dispatch_core_effect_results(results).unwrap();
@@ -8650,6 +8721,79 @@ mod tests {
                 if snapshot.roles.is_empty() && snapshot.tabs.is_empty()
         )));
         core.shutdown();
+    }
+
+    #[test]
+    fn failed_native_compensation_requires_restart_and_is_journaled() {
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let expected_role_id = role_id.clone();
+        let (result, actions) = drive_command_with(
+            Arc::clone(&core),
+            command(json!({
+                "type": "embeddedRoleLaunch",
+                "roleId": role_id,
+                "target": {
+                    "displayId": 1,
+                    "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+                }
+            })),
+            |effect| {
+                let (failed, code) = match &effect.action {
+                    CoreEffectAction::EmbeddedLoadRoles { .. } => (true, "GAME_PAGE_LOAD_FAILED"),
+                    CoreEffectAction::EmbeddedDestroyTab { .. } => (true, "NATIVE_DESTROY_FAILED"),
+                    _ => (false, ""),
+                };
+                CoreEffectResult {
+                    effect_id: effect.effect_id,
+                    operation_id: effect.operation_id,
+                    ok: !failed,
+                    value_json: None,
+                    error: failed.then(|| CoreErrorPayload {
+                        code: code.to_owned(),
+                        message: "Injected native effect failure.".to_owned(),
+                    }),
+                }
+            },
+        );
+
+        let error = result.unwrap_err();
+        assert_eq!(error.code(), "CORE_OPERATION_COMPENSATION_FAILED");
+        assert!(error.to_string().contains("Restart Rion Studio"));
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+        );
+        let journals = core
+            .with_runtime(|runtime| runtime.state.operation_journals())
+            .unwrap();
+        assert_eq!(journals.len(), 1);
+        assert_eq!(journals[0].kind, "native_effect_compensation_v1");
+        assert_eq!(journals[0].phase, "restart-required");
+        assert_eq!(journals[0].payload["roleIds"], json!([expected_role_id]));
+        assert_eq!(
+            journals[0].payload["failures"][0]["error"]["code"],
+            json!("NATIVE_DESTROY_FAILED")
+        );
+
+        let data_dir = directory.path().to_string_lossy().into_owned();
+        core.shutdown();
+        drop(core);
+        let restarted = AppCore::create(AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(),
+            platform: "darwin".to_owned(),
+            user_data_dir: data_dir,
+            performance_telemetry_path: None,
+        })
+        .unwrap();
+        assert!(
+            restarted
+                .with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .is_empty()
+        );
+        restarted.shutdown();
     }
 
     #[test]

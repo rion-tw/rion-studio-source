@@ -81,6 +81,33 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("closing_roles");
   });
 
+  it("rolls back every provisional move stage and surfaces compensation errors", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const move = runtime.slice(
+      runtime.indexOf("pub fn provisionally_move_tab("),
+      runtime.indexOf("pub fn cancel_provisional_tab_move(")
+    );
+    const hidePhase = move.indexOf("for surface in &surfaces");
+    const reparentPhase = move.indexOf("for (index, surface) in surfaces.iter().enumerate()");
+    const stateCommit = move.indexOf("tab.window_id = target_window_id.to_owned()");
+    expect(hidePhase).toBeGreaterThan(-1);
+    expect(reparentPhase).toBeGreaterThan(hidePhase);
+    expect(stateCommit).toBeGreaterThan(reparentPhase);
+    expect(move).toContain("rollback_provisional_tab_move(");
+    expect(move).toContain("provisional_move_error(");
+
+    const rollback = runtime.slice(
+      runtime.indexOf("fn rollback_provisional_tab_move("),
+      runtime.indexOf("fn provisional_move_error(")
+    );
+    expect(rollback).toContain("errors.push");
+    expect(rollback).not.toMatch(/let _ = surface\.(hide|show|reparent)/);
+    expect(runtime).toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
+  });
+
   it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),

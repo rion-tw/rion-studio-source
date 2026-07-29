@@ -474,6 +474,17 @@ fn surface_close_commit_is_current(
     active_tab_id == expected_tab_id && active_label == closed_label
 }
 
+fn provisional_move_failure_message(original: String, rollback_errors: &[String]) -> String {
+    if rollback_errors.is_empty() {
+        original
+    } else {
+        format!(
+            "SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED: {original} Compensation failed: {}. Restart Rion Studio to recover safely.",
+            rollback_errors.join("; ")
+        )
+    }
+}
+
 fn runtime_tab_is_visible(snapshot: &BrowserRuntimeSnapshot, tab_id: &str) -> bool {
     snapshot
         .tabs
@@ -1328,31 +1339,122 @@ impl SystemRuntimeExecutor {
         if source_window_id == target_window_id {
             return Ok(());
         }
+        let runtime_snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let tab_was_visible = runtime_tab_is_visible(&runtime_snapshot, tab_id);
+        let source_window_was_visible = source_window
+            .is_visible()
+            .map_err(|error| error.to_string())?;
+        let target_window_was_visible = target_window
+            .is_visible()
+            .map_err(|error| error.to_string())?;
 
-        let mut moved: Vec<Webview> = Vec::new();
         for surface in &surfaces {
-            surface.hide().map_err(|error| error.to_string())?;
-            if let Err(error) = surface.reparent(&target_window) {
-                for moved_surface in moved.iter().rev() {
-                    let _ = moved_surface.reparent(&source_window);
-                }
-                for source_surface in &surfaces {
-                    let _ = source_surface.show();
-                }
-                return Err(error.to_string());
+            if let Err(error) = surface.hide() {
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    0,
+                    false,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(error.to_string(), rollback_errors));
             }
-            moved.push(surface.clone());
+        }
+        for (index, surface) in surfaces.iter().enumerate() {
+            if let Err(error) = surface.reparent(&target_window) {
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    index + 1,
+                    false,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+            }
         }
         let source_is_empty = {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
-            state
-                .tabs
-                .get_mut(tab_id)
-                .ok_or_else(|| "Runtime tab was not found.".to_owned())?
-                .window_id = target_window_id.to_owned();
+            let mut state = match self.state.lock() {
+                Ok(state) => state,
+                Err(_) => {
+                    let rollback_errors = self.rollback_provisional_tab_move(
+                        tab_id,
+                        &source_window_id,
+                        target_window_id,
+                        &source_window,
+                        &target_window,
+                        &surfaces,
+                        surfaces.len(),
+                        false,
+                        tab_was_visible,
+                        source_window_was_visible,
+                        target_window_was_visible,
+                    );
+                    return Err(self.provisional_move_error(
+                        "The System WebView runtime state lock was poisoned.".to_owned(),
+                        rollback_errors,
+                    ));
+                }
+            };
+            let Some(tab) = state.tabs.get_mut(tab_id) else {
+                drop(state);
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    surfaces.len(),
+                    false,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(
+                    "Runtime tab was not found.".to_owned(),
+                    rollback_errors,
+                ));
+            };
+            if tab.window_id != source_window_id {
+                drop(state);
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    surfaces.len(),
+                    false,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(
+                    "Runtime tab moved before the provisional transaction committed.".to_owned(),
+                    rollback_errors,
+                ));
+            }
+            tab.window_id = target_window_id.to_owned();
             !state
                 .tabs
                 .values()
@@ -1361,36 +1463,113 @@ impl SystemRuntimeExecutor {
         let reveal_result = (|| {
             self.layout_runtime_tab(tab_id)
                 .map_err(|error| error.message)?;
-            for surface in &surfaces {
-                surface.show().map_err(|error| error.to_string())?;
+            if tab_was_visible {
+                for surface in &surfaces {
+                    surface.show().map_err(|error| error.to_string())?;
+                }
+                target_window.show().map_err(|error| error.to_string())?;
             }
-            target_window.show().map_err(|error| error.to_string())?;
             if source_is_empty {
                 source_window.hide().map_err(|error| error.to_string())?;
             }
             Ok::<(), String>(())
         })();
         if let Err(message) = reveal_result {
-            for surface in &surfaces {
-                let _ = surface.hide();
-                let _ = surface.reparent(&source_window);
-            }
-            if let Ok(mut state) = self.state.lock()
-                && let Some(tab) = state.tabs.get_mut(tab_id)
-            {
-                tab.window_id = source_window_id;
-            }
-            let _ = self.layout_runtime_tab(tab_id);
-            for surface in &surfaces {
-                let _ = surface.show();
-            }
-            let _ = source_window.show();
-            let _ = target_window.hide();
-            self.publish_projection();
-            return Err(message);
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(message, rollback_errors));
         }
         self.publish_projection();
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rollback_provisional_tab_move(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        target_window_id: &str,
+        source_window: &Window,
+        target_window: &Window,
+        surfaces: &[Webview],
+        reparent_attempted: usize,
+        state_committed: bool,
+        tab_was_visible: bool,
+        source_window_was_visible: bool,
+        target_window_was_visible: bool,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        if reparent_attempted > 0 {
+            for surface in surfaces {
+                if let Err(error) = surface.hide() {
+                    errors.push(format!("hide {}: {error}", surface.label()));
+                }
+            }
+            for surface in surfaces.iter().take(reparent_attempted).rev() {
+                if let Err(error) = surface.reparent(source_window) {
+                    errors.push(format!("reparent {}: {error}", surface.label()));
+                }
+            }
+        }
+        if state_committed {
+            match self.state.lock() {
+                Ok(mut state) => match state.tabs.get_mut(tab_id) {
+                    Some(tab) if tab.window_id == target_window_id => {
+                        tab.window_id = source_window_id.to_owned();
+                    }
+                    Some(_) => errors.push("runtime tab host changed during rollback".to_owned()),
+                    None => errors.push("runtime tab disappeared during rollback".to_owned()),
+                },
+                Err(_) => errors.push("runtime state lock was poisoned during rollback".to_owned()),
+            }
+            if let Err(error) = self.layout_runtime_tab(tab_id) {
+                errors.push(format!("layout: {}", error.message));
+            }
+        }
+        if tab_was_visible {
+            for surface in surfaces {
+                if let Err(error) = surface.show() {
+                    errors.push(format!("show {}: {error}", surface.label()));
+                }
+            }
+        }
+        let source_visibility = if source_window_was_visible {
+            source_window.show()
+        } else {
+            source_window.hide()
+        };
+        if let Err(error) = source_visibility {
+            errors.push(format!("source window visibility: {error}"));
+        }
+        let target_visibility = if target_window_was_visible {
+            target_window.show()
+        } else {
+            target_window.hide()
+        };
+        if let Err(error) = target_visibility {
+            errors.push(format!("target window visibility: {error}"));
+        }
+        self.publish_projection();
+        errors
+    }
+
+    fn provisional_move_error(&self, original: String, rollback_errors: Vec<String>) -> String {
+        if rollback_errors.is_empty() {
+            return original;
+        }
+        self.health.mark_unhealthy();
+        provisional_move_failure_message(original, &rollback_errors)
     }
 
     pub fn cancel_provisional_tab_move(
@@ -10634,6 +10813,25 @@ mod tests {
             "surface-b",
             "surface-a"
         ));
+    }
+
+    #[test]
+    fn provisional_move_surfaces_incomplete_compensation() {
+        let original = "second surface hide failed".to_owned();
+        assert_eq!(
+            provisional_move_failure_message(original.clone(), &[]),
+            original
+        );
+        let message = provisional_move_failure_message(
+            "reparent failed".to_owned(),
+            &[
+                "reparent role-b: denied".to_owned(),
+                "layout: stale".to_owned(),
+            ],
+        );
+        assert!(message.starts_with("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED"));
+        assert!(message.contains("reparent role-b: denied"));
+        assert!(message.contains("Restart Rion Studio"));
     }
 
     #[test]

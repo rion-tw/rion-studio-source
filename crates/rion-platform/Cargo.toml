@@ -22,6 +22,7 @@ thiserror.workspace = true
 tempfile = "3.24.0"
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Security",
@@ -30,3 +31,4 @@ windows = { version = "0.62.2", features = [
   "Win32_Storage_FileSystem",
   "Win32_System_Threading",
 ] }
+windows-webview2 = { package = "windows", version = "=0.61.3" }

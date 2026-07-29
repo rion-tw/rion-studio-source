@@ -151,6 +151,10 @@ describe("Tauri System WebView runtime source", () => {
     expect(platformProbe).toContain('has_instance_selector(webview, "_setPageMuted:")');
     expect(platformProbe).not.toContain('has_instance_selector(webview, "_setMuted:")');
     expect(platformProbe).toContain("macro_input_available");
+    expect(platformProbe).toContain("GetAvailableCoreWebView2BrowserVersionString");
+    expect(platformProbe).toContain("classify_windows_runtime_version");
+    expect(platformProbe).not.toContain("LoadLibraryW");
+    expect(platformProbe).not.toContain("WebView2Loader.dll");
 
     for (const source of [runtime, shell, macInput]) {
       expect(source).not.toMatch(/attestation/i);

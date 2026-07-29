@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri Stable shell", () => {
+  it("uses the GUI subsystem only for Windows release builds", async () => {
+    const entrypoint = await readFile("src-tauri/src/main.rs", "utf8");
+
+    expect(entrypoint).toContain(
+      '#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]'
+    );
+  });
+
   it("owns the stable application identity and shared renderer build", async () => {
     const config = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
 

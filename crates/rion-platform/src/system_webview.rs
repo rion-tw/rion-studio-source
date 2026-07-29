@@ -135,74 +135,10 @@ fn probe_macos() -> RawSystemWebViewProbe {
     }
 }
 
-#[cfg(windows)]
-fn probe_windows() -> RawSystemWebViewProbe {
-    use std::{ffi::CString, os::windows::ffi::OsStrExt, ptr};
-
-    type ModuleHandle = *mut core::ffi::c_void;
-    type GetAvailableVersion = unsafe extern "system" fn(*const u16, *mut *mut u16) -> i32;
-
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn LoadLibraryW(name: *const u16) -> ModuleHandle;
-        fn GetProcAddress(module: ModuleHandle, name: *const u8) -> *mut core::ffi::c_void;
-        fn FreeLibrary(module: ModuleHandle) -> i32;
-    }
-
-    #[link(name = "ole32")]
-    unsafe extern "system" {
-        fn CoTaskMemFree(value: *const core::ffi::c_void);
-    }
-
-    let library_name = std::ffi::OsStr::new("WebView2Loader.dll")
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    // SAFETY: library_name is NUL terminated. The handle is released below.
-    let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
-    if module.is_null() {
-        return RawSystemWebViewProbe {
-            reason_codes: vec!["webview2-loader-unavailable".to_owned()],
-            ..RawSystemWebViewProbe::default()
-        };
-    }
-    let symbol = CString::new("GetAvailableCoreWebView2BrowserVersionString")
-        .expect("static WebView2 symbol");
-    // SAFETY: module is a valid loaded library and symbol is NUL terminated.
-    let procedure = unsafe { GetProcAddress(module, symbol.as_ptr().cast()) };
-    if procedure.is_null() {
-        // SAFETY: module came from LoadLibraryW.
-        unsafe { FreeLibrary(module) };
-        return RawSystemWebViewProbe {
-            reason_codes: vec!["webview2-version-api-unavailable".to_owned()],
-            ..RawSystemWebViewProbe::default()
-        };
-    }
-    // SAFETY: The symbol name is defined by the WebView2 loader ABI.
-    let get_version: GetAvailableVersion = unsafe { core::mem::transmute(procedure) };
-    let mut version = ptr::null_mut();
-    // SAFETY: A null browser folder requests the installed Evergreen runtime and
-    // version points to an out parameter released with CoTaskMemFree.
-    let result = unsafe { get_version(ptr::null(), &mut version) };
-    let runtime_version = if result >= 0 && !version.is_null() {
-        let mut length = 0;
-        // SAFETY: Successful WebView2 calls return a NUL-terminated UTF-16 string.
-        unsafe {
-            while *version.add(length) != 0 {
-                length += 1;
-            }
-        }
-        // SAFETY: length was measured within the NUL-terminated allocation.
-        let value =
-            String::from_utf16_lossy(unsafe { core::slice::from_raw_parts(version, length) });
-        // SAFETY: WebView2 documents this allocation as CoTaskMem-owned.
-        unsafe { CoTaskMemFree(version.cast()) };
-        Some(value)
-    } else {
-        None
-    };
-    // SAFETY: module came from LoadLibraryW and no function pointer escapes.
-    unsafe { FreeLibrary(module) };
+#[cfg(any(windows, test))]
+fn classify_windows_runtime_version(runtime_version: Option<String>) -> RawSystemWebViewProbe {
+    let runtime_version =
+        runtime_version.and_then(|version| (!version.trim().is_empty()).then_some(version));
     let runtime_available = runtime_version.is_some();
     RawSystemWebViewProbe {
         public_api_available: runtime_available,
@@ -214,6 +150,22 @@ fn probe_windows() -> RawSystemWebViewProbe {
             .into_iter()
             .collect(),
     }
+}
+
+#[cfg(windows)]
+fn probe_windows() -> RawSystemWebViewProbe {
+    use webview2_com::{
+        Microsoft::Web::WebView2::Win32::GetAvailableCoreWebView2BrowserVersionString, take_pwstr,
+    };
+    use windows_webview2::core::{PCWSTR, PWSTR};
+
+    let mut version = PWSTR::null();
+    // SAFETY: A null browser folder requests the installed Evergreen runtime. The
+    // returned string is CoTaskMem-owned and take_pwstr releases it below.
+    let query =
+        unsafe { GetAvailableCoreWebView2BrowserVersionString(PCWSTR::null(), &mut version) };
+    let value = (!version.is_null()).then(|| take_pwstr(version));
+    classify_windows_runtime_version(query.is_ok().then_some(value).flatten())
 }
 
 #[cfg(not(windows))]
@@ -297,33 +249,27 @@ mod tests {
     }
 
     #[test]
-    fn classifies_windows_webview2_available_missing_and_damaged_scenarios() {
+    fn classifies_windows_webview2_version_query_results() {
         let available = classify_probe(
             Platform::Windows,
-            RawSystemWebViewProbe {
-                runtime_version: Some("fixture".to_owned()),
-                public_api_available: true,
-                macro_input_available: true,
-                audio_mute_available: true,
-                ..RawSystemWebViewProbe::default()
-            },
+            classify_windows_runtime_version(Some("fixture".to_owned())),
         );
         assert!(available.available);
+        assert_eq!(available.runtime_version.as_deref(), Some("fixture"));
+        assert!(available.reason_codes.is_empty());
 
-        for reason in [
-            "webview2-loader-unavailable",
-            "webview2-version-api-unavailable",
-            "webview2-runtime-unavailable",
-        ] {
+        for runtime_version in [None, Some(String::new()), Some("  ".to_owned())] {
             let unavailable = classify_probe(
                 Platform::Windows,
-                RawSystemWebViewProbe {
-                    reason_codes: vec![reason.to_owned()],
-                    ..RawSystemWebViewProbe::default()
-                },
+                classify_windows_runtime_version(runtime_version),
             );
             assert!(!unavailable.available);
-            assert!(unavailable.reason_codes.contains(&reason.to_owned()));
+            assert_eq!(unavailable.runtime_version, None);
+            assert!(
+                unavailable
+                    .reason_codes
+                    .contains(&"webview2-runtime-unavailable".to_owned())
+            );
         }
     }
 }

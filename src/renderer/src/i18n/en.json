@@ -935,7 +935,7 @@
   "error.rolesAlreadyRunning": "Already running in another game window: {names}.",
   "error.hiddenBrowserHelperUnavailable": "Unable to start the hidden browser helper.",
   "error.gamePageLoadFailed": "Unable to load the game page. Check the operating-system network settings or game accelerator mode.",
-  "error.surfaceReleaseUnverified": "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+  "error.surfaceReleaseUnverified": "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
   "notice.roleBrowserDataCleared": "Saved browser data for \"{name}\" was cleared.",
   "notice.localStorageSyncBound": "The local data binding was saved. If an active role has not applied it yet, synchronization will keep retrying in the background.",
   "notice.roleSessionMigrated": "“{name}” moved to the System engine after verifying {count} cookies.",

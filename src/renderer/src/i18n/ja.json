@@ -898,7 +898,7 @@
   "error.rolesAlreadyRunning": "次のロールは別のゲームウィンドウで実行中です: {names}。停止してから再度起動してください。",
   "error.hiddenBrowserHelperUnavailable": "Unable to start the hidden browser helper.",
   "error.gamePageLoadFailed": "ゲームページを読み込めません。オペレーティングシステムのネットワーク設定またはゲームアクセラレーターモードを確認してください。",
-  "error.surfaceReleaseUnverified": "ネイティブのゲームページが停止したことを確認できませんでした。タブは保持されています。再試行するか、Rion Studio を再起動してください。",
+  "error.surfaceReleaseUnverified": "ネイティブのゲームページが停止したことを確認できませんでした。タブは閉じたままです。このロールを再度開く前に Rion Studio を再起動してください。",
   "notice.roleBrowserDataCleared": "「{name}」のブラウザデータを消去しました。",
   "notice.localStorageSyncBound": "ローカルデータのバインドを保存しました。実行中のロールへの適用が未完了の場合は、バックグラウンドで同期を再試行します。",
   "notice.roleSessionMigrated": "{count} 個の Cookie を検証し、「{name}」をシステムエンジンへ移行しました。",

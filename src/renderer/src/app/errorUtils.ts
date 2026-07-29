@@ -33,7 +33,8 @@ export function isPersistentRuntimeError(error: unknown): boolean {
 
 function isSurfaceReleaseMessage(message: string): boolean {
   return (
-    message.startsWith("Rion Studio could not verify that ") &&
+    (message.startsWith("Rion Studio could not verify that ") ||
+      message.startsWith("Rion Studio still cannot verify that ")) &&
     message.includes("native game page")
   );
 }

@@ -1547,6 +1547,10 @@ async fn rion_shell_invoke(
         }
         "showGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            state
+                .runtime
+                .preview_tab_activation(&tab_id)
+                .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
             Arc::clone(&state.core)
                 .invoke_async(CoreCommand::EmbeddedTabActivate { tab_id })
                 .await
@@ -1586,6 +1590,10 @@ async fn rion_shell_invoke(
             let command = if hidden {
                 CoreCommand::EmbeddedTabHide { tab_id }
             } else {
+                state
+                    .runtime
+                    .preview_tab_activation(&tab_id)
+                    .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
                 CoreCommand::EmbeddedTabActivate { tab_id }
             };
             Arc::clone(&state.core)
@@ -1613,7 +1621,15 @@ async fn rion_shell_invoke(
             } else {
                 json!({ "type": "browserRoleStop", "roleId": source_id })
             };
-            invoke_core_async(&state, command).await
+            state
+                .runtime
+                .preview_tab_close(&tab_id)
+                .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
+            let result = invoke_core_async(&state, command).await;
+            state
+                .runtime
+                .resolve_tab_close_preview(&tab_id, result.is_ok());
+            result
         }
         "restoreSavedGameWindows" => restore_saved_game_windows(&state, &window, &args).await,
         "autoRestoreSavedGameWindows" => {

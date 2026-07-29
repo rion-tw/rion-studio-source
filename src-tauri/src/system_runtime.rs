@@ -49,6 +49,8 @@ const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
 const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
+const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
+const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_RELEASE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
@@ -451,6 +453,12 @@ struct ReleasedRoleSurface {
     webview_label: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurfaceCloseOutcome {
+    isolated: bool,
+    released: bool,
+}
+
 #[derive(Default)]
 struct SurfaceReleaseState {
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -508,6 +516,7 @@ impl SurfaceLifecycleTracker {
         })
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     fn wait_for_platform_release(
         &self,
         platform: &str,
@@ -612,29 +621,55 @@ const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ManagedSurfacePhase {
-    Active,
-    Closing,
+    Live,
+    CloseRequested,
+    Isolating,
+    Isolated,
     Provisional,
+    Quarantined,
+    Releasing,
+    Released,
     Retired,
 }
 
 impl ManagedSurfacePhase {
     const fn as_str(self) -> &'static str {
         match self {
-            Self::Active => "active",
-            Self::Closing => "closing",
+            Self::Live => "live",
+            Self::CloseRequested => "closeRequested",
+            Self::Isolating => "isolating",
+            Self::Isolated => "isolated",
             Self::Provisional => "provisional",
+            Self::Quarantined => "quarantined",
+            Self::Releasing => "releasing",
+            Self::Released => "released",
             Self::Retired => "retired",
         }
     }
 }
 
+impl ManagedSurfacePhase {
+    const fn blocks_role_relaunch(self) -> bool {
+        matches!(
+            self,
+            Self::Live
+                | Self::CloseRequested
+                | Self::Isolating
+                | Self::Provisional
+                | Self::Quarantined
+                | Self::Retired
+        )
+    }
+}
+
 #[derive(Clone)]
 struct ManagedSurface {
+    close_started_at: Option<Instant>,
     generation: u64,
     instance_id: String,
     kind: ManagedSurfaceKind,
     lifecycle: Arc<SurfaceLifecycleTracker>,
+    native_lifecycle_lane: Arc<Mutex<()>>,
     phase: ManagedSurfacePhase,
     role_id: Option<String>,
     tab_id: Option<String>,
@@ -797,6 +832,30 @@ fn runtime_tab_is_visible(snapshot: &BrowserRuntimeSnapshot, tab_id: &str) -> bo
                     .and_then(|window| window.active_tab_id.as_deref())
                     == Some(tab_id)
         })
+}
+
+fn successor_tab_after_close(
+    ordered_tab_ids: &[String],
+    closing_tab_id: &str,
+    mut selectable: impl FnMut(&str) -> bool,
+) -> Option<String> {
+    let closing_index = ordered_tab_ids
+        .iter()
+        .position(|tab_id| tab_id == closing_tab_id)?;
+    ordered_tab_ids
+        .iter()
+        .skip(closing_index + 1)
+        .chain(ordered_tab_ids[..closing_index].iter().rev())
+        .find(|tab_id| selectable(tab_id))
+        .cloned()
+}
+
+fn native_presentation_owns_selection(
+    effect_revision: u64,
+    presentation_revision: u64,
+    native_selection_pending: bool,
+) -> bool {
+    native_selection_pending || effect_revision < presentation_revision
 }
 
 fn accept_local_storage_sync_sequence(last_accepted: &mut u64, incoming: u64) -> bool {
@@ -1006,6 +1065,14 @@ impl RecoveryBudget {
 }
 
 #[derive(Default)]
+struct CloseCoordinator {
+    closing_roles: HashSet<String>,
+    closing_tabs: HashSet<String>,
+    closing_webviews: HashSet<String>,
+    quarantined_roles: HashSet<String>,
+}
+
+#[derive(Default)]
 struct RuntimeState {
     active_window_placement_workers: HashSet<String>,
     active_window_resize_workers: HashSet<String>,
@@ -1013,14 +1080,15 @@ struct RuntimeState {
     approved_macro_release_navigations: HashSet<(String, String)>,
     audible_webviews: HashMap<String, bool>,
     auto_restore_attempted: bool,
-    closing_roles: HashSet<String>,
-    closing_tabs: HashSet<String>,
-    closing_webviews: HashSet<String>,
+    close_coordinator: CloseCoordinator,
     controlled_navigation_webviews: HashSet<String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
     pending_macro_release_navigations: HashSet<(String, String)>,
+    close_previews: HashMap<String, CloseTransaction>,
     optimistic_closed_tabs: HashSet<String>,
+    presentation_revision: u64,
+    presentation_selections: HashMap<String, PresentationSelection>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
@@ -1036,6 +1104,19 @@ struct RuntimeState {
     surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
+}
+
+#[derive(Clone)]
+struct CloseTransaction {
+    original_active_tab_id: Option<String>,
+    revision: u64,
+    window_id: String,
+}
+
+#[derive(Clone)]
+struct PresentationSelection {
+    revision: u64,
+    selected_tab_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1118,6 +1199,7 @@ pub struct SystemRuntimeExecutor {
     resolved_theme: Mutex<String>,
     last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
     local_storage_sync_lane: Mutex<()>,
+    presentation_lane: Mutex<()>,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
 }
@@ -1153,6 +1235,7 @@ enum SystemRuntimeWork {
     Effect {
         action_name: &'static str,
         effect: Box<CoreEffectRequest>,
+        presentation_revision: u64,
         persist_runtime: bool,
     },
     RecoverSurface {
@@ -1160,6 +1243,18 @@ enum SystemRuntimeWork {
         reason: String,
         role_id: String,
     },
+    FinalizeSurfaceRelease {
+        instance_id: String,
+        isolated: bool,
+        released: bool,
+    },
+}
+
+fn is_surface_close_effect(action: &CoreEffectAction) -> bool {
+    matches!(
+        action,
+        CoreEffectAction::EmbeddedDestroyRole { .. } | CoreEffectAction::EmbeddedDestroyTab { .. }
+    )
 }
 
 fn run_serial_runtime_work_loop<T>(receiver: Receiver<T>, mut execute: impl FnMut(T)) {
@@ -1316,6 +1411,7 @@ impl SystemRuntimeExecutor {
             resolved_theme: Mutex::new("light".to_owned()),
             last_performance_diagnostics: Mutex::new(None),
             local_storage_sync_lane: Mutex::new(()),
+            presentation_lane: Mutex::new(()),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -1345,66 +1441,74 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn enqueue_effect(
-        &self,
+        self: &Arc<Self>,
         effect: CoreEffectRequest,
         action_name: &'static str,
         persist_runtime: bool,
     ) -> Result<(), String> {
+        let presentation_revision = self
+            .state
+            .lock()
+            .map(|state| state.presentation_revision)
+            .unwrap_or_default();
+        if is_surface_close_effect(&effect.action) {
+            let runtime = Arc::clone(self);
+            let effect_id = effect.effect_id.clone();
+            let operation_id = effect.operation_id.clone();
+            return std::thread::Builder::new()
+                .name(format!("rion-surface-close-{effect_id}"))
+                .spawn(move || {
+                    runtime.execute_effect_work(
+                        action_name,
+                        effect,
+                        presentation_revision,
+                        persist_runtime,
+                    );
+                })
+                .map(|_| ())
+                .or_else(|error| {
+                    self.core
+                        .dispatch_core_effect_results(vec![CoreEffectResult {
+                            effect_id,
+                            operation_id,
+                            ok: false,
+                            value_json: None,
+                            error: Some(rion_core::CoreErrorPayload {
+                                code: "SYSTEM_SURFACE_CLOSE_WORKER_FAILED".to_owned(),
+                                message: format!(
+                                    "The native surface close worker could not start: {error}"
+                                ),
+                            }),
+                        }])
+                        .map(|_| ())
+                        .map_err(|dispatch_error| dispatch_error.to_string())
+                });
+        }
         self.effect_sender
             .get()
             .ok_or_else(|| "The System WebView effect executor is unavailable.".to_owned())?
             .send(SystemRuntimeWork::Effect {
                 action_name,
                 effect: Box::new(effect),
+                presentation_revision,
                 persist_runtime,
             })
             .map_err(|_| "The System WebView effect executor stopped unexpectedly.".to_owned())
     }
 
-    fn execute_serial_work(&self, work: SystemRuntimeWork) {
+    fn execute_serial_work(self: &Arc<Self>, work: SystemRuntimeWork) {
         match work {
             SystemRuntimeWork::Effect {
                 action_name,
                 effect,
+                presentation_revision,
                 persist_runtime,
-            } => {
-                let effect_id = effect.effect_id.clone();
-                let started = Instant::now();
-                let scope = native_effect_scope(&effect);
-                eprintln!(
-                    "System WebView effect: {action_name} started (effect={effect_id}, {scope})."
-                );
-                let result = if self.health.is_healthy() {
-                    self.execute(*effect)
-                } else {
-                    CoreEffectResult {
-                        effect_id: effect.effect_id,
-                        operation_id: effect.operation_id,
-                        ok: false,
-                        value_json: None,
-                        error: Some(rion_core::CoreErrorPayload {
-                            code: "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY".to_owned(),
-                            message: "The System WebView runtime stopped accepting native lifecycle operations after a stalled callback. Restart Rion Studio to recover safely.".to_owned(),
-                        }),
-                    }
-                };
-                let persistence_error = (result.ok && persist_runtime)
-                    .then(|| self.persist_restore_session(false).err())
-                    .flatten();
-                let result =
-                    finalize_persisted_effect_result(result, persist_runtime, persistence_error);
-                let succeeded = result.ok;
-                eprintln!(
-                    "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
-                    started.elapsed().as_millis()
-                );
-                if self.core.dispatch_core_effect_results(vec![result]).is_ok()
-                    && succeeded
-                    && persist_runtime
-                {
-                    self.publish_projection();
-                }
-            }
+            } => self.execute_effect_work(
+                action_name,
+                *effect,
+                presentation_revision,
+                persist_runtime,
+            ),
             SystemRuntimeWork::RecoverSurface {
                 allowed,
                 reason,
@@ -1427,6 +1531,55 @@ impl SystemRuntimeExecutor {
                     );
                 }
             }
+            SystemRuntimeWork::FinalizeSurfaceRelease {
+                instance_id,
+                isolated,
+                released,
+            } => self.finalize_surface_release(&instance_id, isolated, released),
+        }
+    }
+
+    fn execute_effect_work(
+        &self,
+        action_name: &'static str,
+        effect: CoreEffectRequest,
+        presentation_revision: u64,
+        persist_runtime: bool,
+    ) {
+        let effect_id = effect.effect_id.clone();
+        let started = Instant::now();
+        let scope = native_effect_scope(&effect);
+        eprintln!("System WebView effect: {action_name} started (effect={effect_id}, {scope}).");
+        let result = if self.health.is_healthy() || is_surface_close_effect(&effect.action) {
+            // Close remains available for quarantined surfaces even if another native
+            // lifecycle operation marked the general runtime unhealthy.
+            self.execute(effect, presentation_revision)
+        } else {
+            CoreEffectResult {
+                effect_id: effect.effect_id,
+                operation_id: effect.operation_id,
+                ok: false,
+                value_json: None,
+                error: Some(rion_core::CoreErrorPayload {
+                    code: "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY".to_owned(),
+                    message: "The System WebView runtime stopped accepting native lifecycle operations after a stalled callback. Restart Rion Studio to recover safely.".to_owned(),
+                }),
+            }
+        };
+        let persistence_error = (result.ok && persist_runtime)
+            .then(|| self.persist_restore_session(false).err())
+            .flatten();
+        let result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
+        let succeeded = result.ok;
+        eprintln!(
+            "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
+            started.elapsed().as_millis()
+        );
+        if self.core.dispatch_core_effect_results(vec![result]).is_ok()
+            && succeeded
+            && persist_runtime
+        {
+            self.publish_projection();
         }
     }
 
@@ -1544,19 +1697,40 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<String> {
         let instance_id = next_surface_instance_id(webview.label());
         let surface = ManagedSurface {
+            close_started_at: None,
             generation,
             instance_id: instance_id.clone(),
             kind,
             lifecycle: Arc::clone(lifecycle),
+            native_lifecycle_lane: Arc::new(Mutex::new(())),
             phase,
             role_id: role_id.map(str::to_owned),
             tab_id: tab_id.map(str::to_owned),
             webview: webview.clone(),
             window_id: window_id.to_owned(),
         };
-        self.state()?
-            .surface_registry
-            .insert(instance_id.clone(), surface.clone());
+        let role_fenced = {
+            let mut state = self.state()?;
+            let fenced = role_id.is_some_and(|role_id| {
+                state.close_coordinator.closing_roles.contains(role_id)
+                    || state.close_coordinator.quarantined_roles.contains(role_id)
+            });
+            if !fenced {
+                state
+                    .surface_registry
+                    .insert(instance_id.clone(), surface.clone());
+            }
+            fenced
+        };
+        if role_fenced {
+            if let Some(role_id) = role_id {
+                let _ = self.close_surface_and_wait(webview, lifecycle, role_id);
+            }
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                "The role is closing or quarantined and cannot register another native surface until Rion Studio restarts.",
+            ));
+        }
         self.record_surface_event(
             LogLevel::Debug,
             "surface.registered",
@@ -1584,7 +1758,9 @@ impl SystemRuntimeExecutor {
             .state()?
             .surface_registry
             .values()
-            .filter(|surface| surface.role_id.as_deref() == Some(role_id))
+            .filter(|surface| {
+                surface.role_id.as_deref() == Some(role_id) && surface.phase.blocks_role_relaunch()
+            })
             .map(|surface| {
                 let order = managed_surface_close_priority(surface.kind);
                 (order, surface.instance_id.clone())
@@ -1611,6 +1787,9 @@ impl SystemRuntimeExecutor {
                 )
             })?;
             surface.phase = phase;
+            if phase == ManagedSurfacePhase::CloseRequested {
+                surface.close_started_at = Some(Instant::now());
+            }
             surface.clone()
         };
         self.record_surface_event(
@@ -1623,7 +1802,13 @@ impl SystemRuntimeExecutor {
     }
 
     fn remove_managed_surface(&self, instance_id: &str) -> RuntimeResult<()> {
-        let removed = self.state()?.surface_registry.remove(instance_id);
+        let removed = {
+            let mut state = self.state()?;
+            if let Some(surface) = state.surface_registry.get_mut(instance_id) {
+                surface.phase = ManagedSurfacePhase::Released;
+            }
+            state.surface_registry.remove(instance_id)
+        };
         if let Some(surface) = removed {
             self.record_surface_event(
                 LogLevel::Debug,
@@ -1644,6 +1829,12 @@ impl SystemRuntimeExecutor {
     ) {
         let core = Arc::clone(&self.core);
         let context = json!({
+            "isolationMs": (event == "surface.isolated")
+                .then(|| surface.close_started_at.map(|started| started.elapsed().as_millis()))
+                .flatten(),
+            "releaseMs": (event == "surface.released")
+                .then(|| surface.close_started_at.map(|started| started.elapsed().as_millis()))
+                .flatten(),
             "generation": surface.generation,
             "instanceId": surface.instance_id,
             "kind": surface.kind.as_str(),
@@ -1662,6 +1853,37 @@ impl SystemRuntimeExecutor {
                         source: LogSource::Browser,
                         event: event.to_owned(),
                         message: message.to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
+    fn record_tab_close_presentation(
+        &self,
+        tab_id: &str,
+        next_tab_id: Option<&str>,
+        revision: u64,
+        elapsed: Duration,
+    ) {
+        let core = Arc::clone(&self.core);
+        let context = json!({
+            "nextTabId": next_tab_id,
+            "nextTabVisibleMs": elapsed.as_millis(),
+            "presentationRevision": revision,
+            "tabId": tab_id,
+            "uiHiddenMs": elapsed.as_millis(),
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Debug,
+                        source: LogSource::Browser,
+                        event: "surface.presentation-closed".to_owned(),
+                        message: "Runtime tab presentation closed immediately.".to_owned(),
                         context_raw_json: serde_json::to_string(&context).ok(),
                         error: None,
                     }],
@@ -2148,6 +2370,7 @@ impl SystemRuntimeExecutor {
                 return None;
             }
             let host = state.display_hosts.remove(window_id)?;
+            state.presentation_selections.remove(window_id);
             state
                 .allow_window_close_labels
                 .insert(host.window.label().to_owned());
@@ -2985,10 +3208,14 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn execute(&self, effect: CoreEffectRequest) -> CoreEffectResult {
+    pub fn execute(
+        &self,
+        effect: CoreEffectRequest,
+        presentation_revision: u64,
+    ) -> CoreEffectResult {
         let effect_id = effect.effect_id.clone();
         let operation_id = effect.operation_id.clone();
-        match self.apply(effect) {
+        match self.apply(effect, presentation_revision) {
             Ok(value_json) => CoreEffectResult {
                 effect_id,
                 operation_id,
@@ -3098,13 +3325,31 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .filter_map(|runtime_window| {
                     let host = state.display_hosts.get(&runtime_window.window_id)?;
+                    let presented_active_tab_id = state
+                        .tabs
+                        .iter()
+                        .find(|(tab_id, tab)| {
+                            tab.window_id == runtime_window.window_id
+                                && tab.visible
+                                && !state.optimistic_closed_tabs.contains(*tab_id)
+                        })
+                        .map(|(tab_id, _)| tab_id.clone())
+                        .or_else(|| {
+                            runtime_window
+                                .active_tab_id
+                                .as_ref()
+                                .filter(|tab_id| {
+                                    !state.optimistic_closed_tabs.contains(tab_id.as_str())
+                                })
+                                .cloned()
+                        });
                     Some((
                         host.window.label().to_owned(),
                         runtime_window.window_id.clone(),
                         host.target.display_id,
                         host.target.work_area.clone(),
                         host.window.clone(),
-                        runtime_window.active_tab_id.clone(),
+                        presented_active_tab_id,
                         runtime_window.tab_ids.len(),
                     ))
                 })
@@ -3231,8 +3476,50 @@ impl SystemRuntimeExecutor {
     /// visibility change is reversible and the matching core command still follows as the
     /// authoritative commit.
     pub(crate) fn preview_tab_activation(&self, tab_id: &str) -> Result<(), String> {
-        self.show_tab(tab_id, true).map_err(|error| error.message)?;
+        let presentation_guard = self
+            .presentation_lane
+            .lock()
+            .map_err(|_| "The runtime tab presentation lane is unavailable.".to_owned())?;
+        self.preview_tab_activation_under_presentation_lane(tab_id)?;
+        drop(presentation_guard);
         self.publish_projection();
+        Ok(())
+    }
+
+    fn preview_tab_activation_under_presentation_lane(&self, tab_id: &str) -> Result<(), String> {
+        let (window_id, revision) = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            if state.optimistic_closed_tabs.contains(tab_id) {
+                return Err("The runtime tab is closing.".to_owned());
+            }
+            let window_id = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "Runtime tab was not found.".to_owned())?
+                .window_id
+                .clone();
+            state.presentation_revision = state.presentation_revision.saturating_add(1);
+            let revision = state.presentation_revision;
+            state.presentation_selections.insert(
+                window_id.clone(),
+                PresentationSelection {
+                    revision,
+                    selected_tab_id: Some(tab_id.to_owned()),
+                },
+            );
+            (window_id, revision)
+        };
+        if let Err(error) = self.show_tab_under_presentation_lane(tab_id, true) {
+            if let Ok(mut state) = self.state.lock()
+                && state
+                    .presentation_selections
+                    .get(&window_id)
+                    .is_some_and(|selection| selection.revision == revision)
+            {
+                state.presentation_selections.remove(&window_id);
+            }
+            return Err(error.message);
+        }
         Ok(())
     }
 
@@ -3241,6 +3528,10 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         direction: &str,
     ) -> Result<String, String> {
+        let presentation_guard = self
+            .presentation_lane
+            .lock()
+            .map_err(|_| "The runtime tab presentation lane is unavailable.".to_owned())?;
         let value = self
             .core
             .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -3285,30 +3576,324 @@ impl SystemRuntimeExecutor {
             (current + 1) % candidates.len()
         };
         let target_id = candidates[target_index].clone();
-        self.preview_tab_activation(&target_id)?;
+        self.preview_tab_activation_under_presentation_lane(&target_id)?;
+        drop(presentation_guard);
+        self.publish_projection();
         Ok(target_id)
     }
 
     pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<(), String> {
-        {
+        let _presentation_guard = self
+            .presentation_lane
+            .lock()
+            .map_err(|_| "The runtime tab presentation lane is unavailable.".to_owned())?;
+        let started = Instant::now();
+        let snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let (window, window_id, updates, next_tab_id, revision) = {
             let mut state = self.state().map_err(|error| error.message)?;
-            if !state.tabs.contains_key(tab_id) {
-                return Err("Runtime tab was not found.".to_owned());
-            }
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+            let window_id = tab.window_id.clone();
+            let was_visible = tab.visible;
+            let original_active_tab_id = state
+                .tabs
+                .iter()
+                .find(|(_, candidate)| candidate.window_id == window_id && candidate.visible)
+                .map(|(candidate_id, _)| candidate_id.clone());
+            let ordered_tab_ids = snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == window_id)
+                .map(|window| window.tab_ids.as_slice())
+                .unwrap_or_default();
+            let next_tab_id = was_visible
+                .then(|| {
+                    successor_tab_after_close(ordered_tab_ids, tab_id, |candidate_id| {
+                        state.tabs.get(candidate_id).is_some_and(|candidate| {
+                            candidate.window_id == window_id
+                                && !state.optimistic_closed_tabs.contains(candidate_id)
+                        })
+                    })
+                })
+                .flatten();
+            let updates = state
+                .tabs
+                .iter()
+                .filter(|(_, candidate)| candidate.window_id == window_id)
+                .map(|(candidate_id, candidate)| {
+                    let mut surfaces = candidate
+                        .roles
+                        .values()
+                        .map(|role| role.webview.clone())
+                        .collect::<Vec<_>>();
+                    surfaces.extend(
+                        candidate
+                            .dividers
+                            .iter()
+                            .map(|divider| divider.webview.clone()),
+                    );
+                    let visible = if candidate_id == tab_id {
+                        false
+                    } else if was_visible {
+                        next_tab_id.as_deref() == Some(candidate_id.as_str())
+                    } else {
+                        candidate.visible
+                    };
+                    (candidate_id.clone(), candidate.visible, visible, surfaces)
+                })
+                .collect::<Vec<_>>();
+            let host = state
+                .display_hosts
+                .get(&window_id)
+                .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
+            let window = host.window.clone();
             state.optimistic_closed_tabs.insert(tab_id.to_owned());
+            state.presentation_revision = state.presentation_revision.saturating_add(1);
+            let revision = state.presentation_revision;
+            state.close_previews.insert(
+                tab_id.to_owned(),
+                CloseTransaction {
+                    original_active_tab_id,
+                    revision,
+                    window_id: window_id.clone(),
+                },
+            );
+            state.presentation_selections.insert(
+                window_id.clone(),
+                PresentationSelection {
+                    revision,
+                    selected_tab_id: next_tab_id.clone(),
+                },
+            );
+            (window, window_id, updates, next_tab_id, revision)
+        };
+        let window_was_visible = window.is_visible().unwrap_or(false);
+        let visibility_mutations = updates
+            .iter()
+            .flat_map(|(_, was_visible, visible, surfaces)| {
+                surfaces
+                    .iter()
+                    .cloned()
+                    .map(|surface| (surface, *was_visible, *visible))
+            })
+            .collect::<Vec<_>>();
+        if let Err(failure) = apply_reversible_fanout(
+            &visibility_mutations,
+            |index, (surface, _, visible)| {
+                (if *visible {
+                    surface.show()
+                } else {
+                    surface.hide()
+                })
+                .map_err(|error| format!("surface {index}: {error}"))
+            },
+            |index, (surface, previous_visible, _)| {
+                (if *previous_visible {
+                    surface.show()
+                } else {
+                    surface.hide()
+                })
+                .map_err(|error| format!("surface {index}: {error}"))
+            },
+        ) {
+            if let Ok(mut state) = self.state.lock() {
+                state.optimistic_closed_tabs.remove(tab_id);
+                state.close_previews.remove(tab_id);
+                if state
+                    .presentation_selections
+                    .get(&window_id)
+                    .is_some_and(|selection| selection.revision == revision)
+                {
+                    state.presentation_selections.remove(&window_id);
+                }
+            }
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_VISIBILITY_FAILED",
+                "Hiding the closing runtime tab",
+                &failure,
+            )
+            .message);
         }
+        let should_show_window = updates.iter().any(|(_, _, visible, _)| *visible);
+        let host_result = if should_show_window {
+            window.show()
+        } else {
+            window.hide()
+        };
+        if let Err(error) = host_result {
+            let rollback_errors = rollback_reversible_fanout(
+                &visibility_mutations,
+                |index, (surface, previous_visible, _)| {
+                    (if *previous_visible {
+                        surface.show()
+                    } else {
+                        surface.hide()
+                    })
+                    .map_err(|error| format!("surface {index}: {error}"))
+                },
+            );
+            if let Ok(mut state) = self.state.lock() {
+                state.optimistic_closed_tabs.remove(tab_id);
+                state.close_previews.remove(tab_id);
+                if state
+                    .presentation_selections
+                    .get(&window_id)
+                    .is_some_and(|selection| selection.revision == revision)
+                {
+                    state.presentation_selections.remove(&window_id);
+                }
+            }
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(format!("Could not update the closing tab host: {error}"));
+        }
+        let commit = (|| -> RuntimeResult<()> {
+            let mut state = self.state()?;
+            if state.presentation_revision != revision
+                || updates
+                    .iter()
+                    .any(|(candidate_id, previous_visible, _, _)| {
+                        state
+                            .tabs
+                            .get(candidate_id)
+                            .is_none_or(|tab| tab.visible != *previous_visible)
+                    })
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_STALE",
+                    "The runtime tab presentation changed during close preview.",
+                ));
+            }
+            for (candidate_id, _, visible, _) in &updates {
+                state
+                    .tabs
+                    .get_mut(candidate_id)
+                    .expect("the close preview validated every runtime tab")
+                    .visible = *visible;
+            }
+            Ok(())
+        })();
+        if let Err(error) = commit {
+            let mut rollback_errors = rollback_reversible_fanout(
+                &visibility_mutations,
+                |index, (surface, previous_visible, _)| {
+                    (if *previous_visible {
+                        surface.show()
+                    } else {
+                        surface.hide()
+                    })
+                    .map_err(|error| format!("surface {index}: {error}"))
+                },
+            );
+            let restore_window = if window_was_visible {
+                window.show()
+            } else {
+                window.hide()
+            };
+            if let Err(rollback_error) = restore_window {
+                rollback_errors.push(format!("window: {rollback_error}"));
+            }
+            if let Ok(mut state) = self.state.lock() {
+                state.optimistic_closed_tabs.remove(tab_id);
+                state.close_previews.remove(tab_id);
+                if state
+                    .presentation_selections
+                    .get(&window_id)
+                    .is_some_and(|selection| selection.revision == revision)
+                {
+                    state.presentation_selections.remove(&window_id);
+                }
+            }
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(error.message);
+        }
+        let elapsed = started.elapsed();
+        self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
+        eprintln!(
+            "Runtime tab close preview: tabId={tab_id}, nextTabId={}, revision={revision}, uiHiddenMs={}",
+            next_tab_id.as_deref().unwrap_or("none"),
+            elapsed.as_millis()
+        );
         self.publish_projection();
         Ok(())
     }
 
-    pub(crate) fn resolve_tab_close_preview(&self, tab_id: &str) {
+    pub(crate) fn resolve_tab_close_preview(&self, tab_id: &str, succeeded: bool) {
         if let Ok(mut state) = self.state.lock() {
-            state.optimistic_closed_tabs.remove(tab_id);
+            state.close_previews.remove(tab_id);
+            if succeeded || !state.tabs.contains_key(tab_id) {
+                state.optimistic_closed_tabs.remove(tab_id);
+            } else {
+                let role_ids = state
+                    .tabs
+                    .get(tab_id)
+                    .map(|tab| tab.roles.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                state.close_coordinator.quarantined_roles.extend(role_ids);
+                for surface in state
+                    .surface_registry
+                    .values_mut()
+                    .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                {
+                    surface.phase = ManagedSurfacePhase::Quarantined;
+                }
+            }
+        }
+        self.publish_projection();
+    }
+
+    pub(crate) fn cancel_tab_close_preview(&self, tab_id: &str) {
+        let restore_tab_id = self.state.lock().ok().and_then(|mut state| {
+            let removed = state.optimistic_closed_tabs.remove(tab_id);
+            let preview = state.close_previews.remove(tab_id);
+            let restore_current_selection = preview
+                .as_ref()
+                .is_some_and(|preview| preview.revision == state.presentation_revision);
+            state.presentation_revision = state.presentation_revision.saturating_add(1);
+            let revision = state.presentation_revision;
+            if let Some(preview) = preview.as_ref() {
+                state.presentation_selections.insert(
+                    preview.window_id.clone(),
+                    PresentationSelection {
+                        revision,
+                        selected_tab_id: preview.original_active_tab_id.clone(),
+                    },
+                );
+            }
+            removed
+                .then(|| {
+                    restore_current_selection
+                        .then(|| preview.and_then(|preview| preview.original_active_tab_id))
+                        .flatten()
+                })
+                .flatten()
+        });
+        if let Some(restore_tab_id) = restore_tab_id {
+            let _ = self.show_tab(&restore_tab_id, false);
         }
         self.publish_projection();
     }
 
     pub(crate) fn reconcile_tab_activation(&self, window_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.presentation_revision = state.presentation_revision.saturating_add(1);
+            state.presentation_selections.remove(window_id);
+        }
         let active_tab_id = self
             .core
             .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -3322,7 +3907,14 @@ impl SystemRuntimeExecutor {
                     .and_then(|window| window.active_tab_id)
             });
         if let Some(tab_id) = active_tab_id {
-            let _ = self.show_tab(&tab_id, true);
+            let should_show = self
+                .state
+                .lock()
+                .ok()
+                .is_some_and(|state| !state.optimistic_closed_tabs.contains(&tab_id));
+            if should_show {
+                let _ = self.show_tab(&tab_id, true);
+            }
         }
         self.publish_projection();
     }
@@ -3339,11 +3931,12 @@ impl SystemRuntimeExecutor {
             .iter()
             .map(|(tab_id, tab)| (tab_id.as_str(), tab.window_id.as_str()))
             .collect::<HashMap<_, _>>();
-        let active_tab_ids = snapshot
-            .windows
+        let native_active_tabs = state
+            .tabs
             .iter()
-            .filter_map(|window| window.active_tab_id.clone())
-            .collect::<HashSet<_>>();
+            .filter(|(tab_id, tab)| tab.visible && !state.optimistic_closed_tabs.contains(*tab_id))
+            .map(|(tab_id, tab)| (tab.window_id.as_str(), tab_id.as_str()))
+            .collect::<HashMap<_, _>>();
         let provisional_active_tabs = snapshot
             .tabs
             .iter()
@@ -3379,7 +3972,7 @@ impl SystemRuntimeExecutor {
                 .find(|window| window.window_id == tab.window_id)
                 .expect("native tab window was inserted");
             window.tab_ids.push(tab.id.clone());
-            if active_tab_ids.contains(&tab.id) {
+            if native_active_tabs.get(tab.window_id.as_str()).copied() == Some(tab.id.as_str()) {
                 window.active_tab_id = Some(tab.id.clone());
             }
         }
@@ -3388,7 +3981,11 @@ impl SystemRuntimeExecutor {
                 window.active_tab_id = Some(tab_id.clone());
             }
             if window.active_tab_id.is_none() {
-                window.active_tab_id = window.tab_ids.first().cloned();
+                window.active_tab_id = window
+                    .tab_ids
+                    .iter()
+                    .find(|tab_id| !state.optimistic_closed_tabs.contains(tab_id.as_str()))
+                    .cloned();
             }
         }
         snapshot
@@ -3951,11 +4548,15 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-        if state.closing_webviews.contains(webview_label) {
+        if state
+            .close_coordinator
+            .closing_webviews
+            .contains(webview_label)
+        {
             return Err("Overlay WebView is closing.".to_owned());
         }
         if let Some(role_id) = state.popup_roles.get(webview_label) {
-            if state.closing_roles.contains(role_id) {
+            if state.close_coordinator.closing_roles.contains(role_id) {
                 return Err("Overlay role is closing.".to_owned());
             }
             return Ok(role_id.clone());
@@ -3969,7 +4570,7 @@ impl SystemRuntimeExecutor {
                         .get(role_id)
                         .filter(|surface| {
                             surface.webview.label() == webview_label
-                                && !state.closing_roles.contains(role_id)
+                                && !state.close_coordinator.closing_roles.contains(role_id)
                         })
                         .map(|_| role_id.clone())
                 })
@@ -3986,7 +4587,11 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-        if state.closing_webviews.contains(webview_label) {
+        if state
+            .close_coordinator
+            .closing_webviews
+            .contains(webview_label)
+        {
             return Err("The overlay WebView is closing.".to_owned());
         }
         if state
@@ -3998,7 +4603,7 @@ impl SystemRuntimeExecutor {
             return Err("The overlay capability is missing or no longer valid.".to_owned());
         }
         if let Some(role_id) = state.popup_roles.get(webview_label) {
-            if state.closing_roles.contains(role_id) {
+            if state.close_coordinator.closing_roles.contains(role_id) {
                 return Err("The overlay role is closing.".to_owned());
             }
             return Ok(role_id.clone());
@@ -4012,7 +4617,7 @@ impl SystemRuntimeExecutor {
                         .get(role_id)
                         .filter(|surface| {
                             surface.webview.label() == webview_label
-                                && !state.closing_roles.contains(role_id)
+                                && !state.close_coordinator.closing_roles.contains(role_id)
                         })
                         .map(|_| role_id.clone())
                 })
@@ -4079,7 +4684,7 @@ impl SystemRuntimeExecutor {
 
     fn surface_generation_for_role(&self, role_id: &str) -> Option<u64> {
         let state = self.state.lock().ok()?;
-        if state.closing_roles.contains(role_id) {
+        if state.close_coordinator.closing_roles.contains(role_id) {
             return None;
         }
         let tab_id = state.role_tabs.get(role_id)?;
@@ -4415,7 +5020,10 @@ impl SystemRuntimeExecutor {
             let role_id = state.popup_roles.remove(window_label);
             state.audible_webviews.remove(window_label);
             state.overlay_capabilities.remove(window_label);
-            state.closing_webviews.remove(window_label);
+            state
+                .close_coordinator
+                .closing_webviews
+                .remove(window_label);
             state
                 .approved_macro_release_navigations
                 .retain(|(label, _)| label != window_label);
@@ -4692,7 +5300,7 @@ impl SystemRuntimeExecutor {
             webview,
             lifecycle,
             ManagedSurfaceKind::Popup,
-            ManagedSurfacePhase::Active,
+            ManagedSurfacePhase::Live,
             Some(&role_id),
             Some(&tab_id),
             &window_id,
@@ -4721,6 +5329,11 @@ impl SystemRuntimeExecutor {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
+            if state.close_coordinator.closing_roles.contains(&role_id)
+                || state.close_coordinator.quarantined_roles.contains(&role_id)
+            {
+                return;
+            }
             let Some(tab_id) = state.role_tabs.get(&role_id) else {
                 return;
             };
@@ -4776,6 +5389,16 @@ impl SystemRuntimeExecutor {
     }
 
     fn recover_system_surface(&self, role_id: String, reason: String, allowed: bool) {
+        if self.state.lock().ok().is_some_and(|mut state| {
+            let fenced = state.close_coordinator.closing_roles.contains(&role_id)
+                || state.close_coordinator.quarantined_roles.contains(&role_id);
+            if fenced {
+                state.recovering_roles.remove(&role_id);
+            }
+            fenced
+        }) {
+            return;
+        }
         self.clear_role_keys(&role_id);
         let _ = self.core.invoke(CoreCommand::EmbeddedSystemSurfaceFailed {
             role_id: role_id.clone(),
@@ -4816,6 +5439,17 @@ impl SystemRuntimeExecutor {
     }
 
     fn rebuild_role_surface(&self, role_id: &str) -> RuntimeResult<()> {
+        {
+            let state = self.state()?;
+            if state.close_coordinator.closing_roles.contains(role_id)
+                || state.close_coordinator.quarantined_roles.contains(role_id)
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "The role is closing or quarantined and cannot be recovered until Rion Studio restarts.",
+                ));
+            }
+        }
         let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
             RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_LANE_POISONED",
@@ -5091,31 +5725,84 @@ impl SystemRuntimeExecutor {
         }
 
         let controlled_label = replacement_label.clone();
-        if let Err(error) = self.begin_controlled_navigation(&controlled_label) {
-            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
-            return Err(error);
-        }
-        navigation.reset();
-        let navigation_result = webview
-            .navigate(current_url.clone())
-            .map_err(RuntimeError::tauri)
-            .and_then(|()| {
-                navigation
-                    .wait()
-                    .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))
-            });
+        let replacement_surface = self.managed_surface(&replacement_instance_id)?;
+        let navigation_start = (|| -> RuntimeResult<()> {
+            let _native_lifecycle_guard = replacement_surface
+                .native_lifecycle_lane
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
+                        "The native surface lifecycle lane is unavailable.",
+                    )
+                })?;
+            let close_fenced = {
+                let state = self.state()?;
+                state.close_coordinator.closing_roles.contains(role_id)
+                    || state.close_coordinator.quarantined_roles.contains(role_id)
+                    || state
+                        .surface_registry
+                        .get(&replacement_instance_id)
+                        .is_none_or(|surface| surface.phase != ManagedSurfacePhase::Provisional)
+            };
+            if close_fenced {
+                Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RECOVERY_STALE",
+                    "The role began closing before its replacement surface could navigate.",
+                ))
+            } else {
+                self.begin_controlled_navigation(&controlled_label)?;
+                navigation.reset();
+                webview
+                    .navigate(current_url.clone())
+                    .map_err(RuntimeError::tauri)
+            }
+        })();
+        let navigation_result = navigation_start.and_then(|()| {
+            navigation
+                .wait()
+                .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))
+        });
         self.finish_controlled_navigations(&[controlled_label]);
         if let Err(error) = navigation_result {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
         }
-        if audio_muted && let Err(error) = set_audio_muted(&webview, true) {
+        let presentation_result = (|| -> RuntimeResult<()> {
+            let _native_lifecycle_guard = replacement_surface
+                .native_lifecycle_lane
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
+                        "The native surface lifecycle lane is unavailable.",
+                    )
+                })?;
+            let state = self.state()?;
+            if state.close_coordinator.closing_roles.contains(role_id)
+                || state.close_coordinator.quarantined_roles.contains(role_id)
+                || state
+                    .surface_registry
+                    .get(&replacement_instance_id)
+                    .is_none_or(|surface| surface.phase != ManagedSurfacePhase::Provisional)
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RECOVERY_STALE",
+                    "The role began closing before its replacement surface could be shown.",
+                ));
+            }
+            drop(state);
+            if audio_muted {
+                set_audio_muted(&webview, true)?;
+            }
+            if tab_visible {
+                webview.show().map_err(RuntimeError::tauri)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = presentation_result {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
-        }
-        if tab_visible && let Err(error) = webview.show() {
-            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
-            return Err(RuntimeError::tauri(error));
         }
 
         let mut state = self.state()?;
@@ -5135,7 +5822,9 @@ impl SystemRuntimeExecutor {
                     "Runtime role stopped while its System WebView was recovering.",
                 )
             })?;
-        if active_tab_id != tab_id
+        if state.close_coordinator.closing_roles.contains(role_id)
+            || state.close_coordinator.quarantined_roles.contains(role_id)
+            || active_tab_id != tab_id
             || active_surface.surface_instance_id != old_surface_instance_id
             || !surface_recovery_swap_is_current(
                 active_surface.webview.label(),
@@ -5178,7 +5867,7 @@ impl SystemRuntimeExecutor {
             .insert(role_id.to_owned(), generation);
         if let Some(surface) = state.surface_registry.get_mut(&replacement_instance_id) {
             surface.kind = ManagedSurfaceKind::Role;
-            surface.phase = ManagedSurfacePhase::Active;
+            surface.phase = ManagedSurfacePhase::Live;
         }
         drop(state);
         if let Ok(surface) = self.managed_surface(&replacement_instance_id) {
@@ -5192,7 +5881,11 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn apply(&self, effect: CoreEffectRequest) -> RuntimeResult<Option<String>> {
+    fn apply(
+        &self,
+        effect: CoreEffectRequest,
+        presentation_revision: u64,
+    ) -> RuntimeResult<Option<String>> {
         match effect.action {
             CoreEffectAction::LocalStorageSyncRefresh {
                 source_role_id,
@@ -5255,6 +5948,7 @@ impl SystemRuntimeExecutor {
                     &reveal_window_ids,
                     &focus_window_ids,
                     focus_tab_id.as_deref(),
+                    presentation_revision,
                 )?;
                 Ok(None)
             }
@@ -6034,7 +6728,9 @@ impl SystemRuntimeExecutor {
         let result = webview
             .clear_all_browsing_data()
             .map_err(RuntimeError::tauri);
-        let cleanup = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+        let cleanup = self
+            .close_surface_and_wait(&webview, &lifecycle, role_id)
+            .map(|_| ());
         let _ = window.close();
         result.and(cleanup)
     }
@@ -6557,7 +7253,9 @@ impl SystemRuntimeExecutor {
         webview: Webview,
         lifecycle: &Arc<SurfaceLifecycleTracker>,
     ) -> RuntimeResult<()> {
-        let surface_cleanup = self.close_surface_and_wait(&webview, lifecycle, role_id);
+        let surface_cleanup = self
+            .close_surface_and_wait(&webview, lifecycle, role_id)
+            .map(|_| ());
         let window_cleanup = window.close().map_err(RuntimeError::tauri);
         surface_cleanup.and(window_cleanup)
     }
@@ -7522,6 +8220,25 @@ impl SystemRuntimeExecutor {
                     "The System WebView tab already exists.",
                 ));
             }
+            if tab.roles.iter().any(|role| {
+                state
+                    .close_coordinator
+                    .closing_roles
+                    .contains(&role.role.id)
+                    || state
+                        .close_coordinator
+                        .quarantined_roles
+                        .contains(&role.role.id)
+                    || state.surface_registry.values().any(|surface| {
+                        surface.role_id.as_deref() == Some(role.role.id.as_str())
+                            && surface.phase.blocks_role_relaunch()
+                    })
+            }) {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "A closing or quarantined native surface still owns this role. Restart Rion Studio before reopening it.",
+                ));
+            }
         }
         let mut refreshed_sources = HashSet::new();
         for role in &tab.roles {
@@ -7650,7 +8367,7 @@ impl SystemRuntimeExecutor {
                     &webview,
                     &lifecycle,
                     ManagedSurfaceKind::Role,
-                    ManagedSurfacePhase::Active,
+                    ManagedSurfacePhase::Live,
                     Some(&role_id),
                     Some(&tab.tab_id),
                     &target.window_id,
@@ -7724,7 +8441,7 @@ impl SystemRuntimeExecutor {
                     &webview,
                     &lifecycle,
                     ManagedSurfaceKind::Divider,
-                    ManagedSurfacePhase::Active,
+                    ManagedSurfacePhase::Live,
                     None,
                     Some(&tab.tab_id),
                     &target.window_id,
@@ -7798,6 +8515,23 @@ impl SystemRuntimeExecutor {
                     return Err(RuntimeError::new(
                         "SYSTEM_RUNTIME_ENGINE_MISMATCH",
                         "The role did not resolve to the current platform System WebView.",
+                    ));
+                }
+                let close_fenced = {
+                    let state = self.state()?;
+                    state
+                        .close_coordinator
+                        .closing_roles
+                        .contains(&role.role_id)
+                        || state
+                            .close_coordinator
+                            .quarantined_roles
+                            .contains(&role.role_id)
+                };
+                if close_fenced {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "The role is closing or quarantined and cannot navigate to the game.",
                     ));
                 }
                 let (surface, navigation, base_zoom_factor, effective_zoom) = {
@@ -7966,7 +8700,14 @@ impl SystemRuntimeExecutor {
         reveal_window_ids: &[String],
         focus_window_ids: &[String],
         focus_tab_id: Option<&str>,
+        presentation_revision: u64,
     ) -> RuntimeResult<()> {
+        let _presentation_guard = self.presentation_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                "The runtime tab presentation lane is unavailable.",
+            )
+        })?;
         struct TabUpdate {
             active: bool,
             window_id: String,
@@ -8057,8 +8798,32 @@ impl SystemRuntimeExecutor {
                             .iter()
                             .map(|divider| divider.webview.clone()),
                     );
+                    let close_preview_controls_window =
+                        state.optimistic_closed_tabs.iter().any(|closing_tab_id| {
+                            state.tabs.get(closing_tab_id).is_some_and(|closing_tab| {
+                                closing_tab.window_id == runtime_tab.window_id
+                            })
+                        });
+                    let pending_selection_disagrees = state
+                        .presentation_selections
+                        .get(&runtime_tab.window_id)
+                        .is_some_and(|selection| {
+                            active_tabs.get(runtime_tab.window_id.as_str()).copied()
+                                != selection.selected_tab_id.as_deref()
+                        });
+                    let presentation_owns_selection = native_presentation_owns_selection(
+                        presentation_revision,
+                        state.presentation_revision,
+                        close_preview_controls_window || pending_selection_disagrees,
+                    );
                     Some(TabUpdate {
-                        active: plan.active,
+                        active: if state.optimistic_closed_tabs.contains(&plan.tab_id) {
+                            false
+                        } else if presentation_owns_selection {
+                            runtime_tab.visible
+                        } else {
+                            plan.active
+                        },
                         window_id: plan.window_id.clone(),
                         focus: plan.focus,
                         moved: plan.moved,
@@ -8252,6 +9017,13 @@ impl SystemRuntimeExecutor {
                     .expect("the visibility transaction validated every runtime tab")
                     .visible = update.active;
             }
+            state
+                .presentation_selections
+                .retain(|window_id, selection| {
+                    selection.revision > presentation_revision
+                        || active_tabs.get(window_id.as_str()).copied()
+                            != selection.selected_tab_id.as_deref()
+                });
             Ok(())
         })();
         if let Err(error) = visibility_commit {
@@ -8294,7 +9066,34 @@ impl SystemRuntimeExecutor {
                 .values()
                 .map(|host| {
                     let window_id = &host.target.window_id;
-                    let active_tab = active_tabs.get(window_id.as_str()).copied();
+                    let presentation_controls_window = native_presentation_owns_selection(
+                        presentation_revision,
+                        state.presentation_revision,
+                        state.optimistic_closed_tabs.iter().any(|closing_tab_id| {
+                            state
+                                .tabs
+                                .get(closing_tab_id)
+                                .is_some_and(|closing_tab| closing_tab.window_id == *window_id)
+                        }) || state.presentation_selections.get(window_id).is_some_and(
+                            |selection| {
+                                active_tabs.get(window_id.as_str()).copied()
+                                    != selection.selected_tab_id.as_deref()
+                            },
+                        ),
+                    );
+                    let active_tab = if presentation_controls_window {
+                        state
+                            .tabs
+                            .iter()
+                            .find(|(tab_id, tab)| {
+                                tab.window_id == *window_id
+                                    && tab.visible
+                                    && !state.optimistic_closed_tabs.contains(*tab_id)
+                            })
+                            .map(|(tab_id, _)| tab_id.as_str())
+                    } else {
+                        active_tabs.get(window_id.as_str()).copied()
+                    };
                     let active_webview = active_tab.and_then(|tab_id| {
                         state
                             .tabs
@@ -8323,7 +9122,8 @@ impl SystemRuntimeExecutor {
                     });
                     HostUpdate {
                         active_webview,
-                        focus: !suppress_focus
+                        focus: !presentation_controls_window
+                            && !suppress_focus
                             && (focus_window_ids.contains(window_id)
                                 || tab_updates
                                     .iter()
@@ -8650,18 +9450,22 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         lifecycle: &Arc<SurfaceLifecycleTracker>,
         role_id: &str,
-    ) -> RuntimeResult<()> {
+    ) -> RuntimeResult<SurfaceCloseOutcome> {
         let label = webview.label().to_owned();
         {
             let mut state = self.state()?;
-            if !state.closing_webviews.insert(label.clone()) {
+            if !state
+                .close_coordinator
+                .closing_webviews
+                .insert(label.clone())
+            {
                 return Err(RuntimeError::new(
                     "SYSTEM_SURFACE_ALREADY_CLOSING",
                     "The System WebView surface is already closing.",
                 ));
             }
         }
-        let result = (|| -> RuntimeResult<()> {
+        let result = (|| -> RuntimeResult<SurfaceCloseOutcome> {
             let platform = if cfg!(windows) {
                 "windows"
             } else if cfg!(target_os = "macos") {
@@ -8669,125 +9473,60 @@ impl SystemRuntimeExecutor {
             } else {
                 "other"
             };
-            let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
+            let deadline = Instant::now() + SURFACE_ISOLATION_TIMEOUT;
             let surface_is_registered = self.app.get_webview(&label).is_some();
-            let mut close_error = None;
-            let mut main_thread_flush_error = None;
-            if !lifecycle.native_surface_is_released() {
-                if let Err(error) = quiesce_platform_surface(webview, lifecycle) {
-                    self.record_surface_stage_by_label(
-                        LogLevel::Error,
-                        "surface.quiesce-unverified",
-                        "Native surface isolation request failed.",
-                        &label,
-                    );
-                    let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
-                    let _ = self.app.emit(
-                        "rion://shell-error",
-                        json!({
-                            "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                            "failureKind": "native-quiesce-failed",
-                            "message": message,
-                            "roleId": role_id,
-                            "webviewLabel": label,
-                            "quiesceError": error.message
-                        }),
-                    );
-                    return Err(RuntimeError::new(
-                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                        message,
-                    ));
-                }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if !wait_for_platform_surface_quiesced(lifecycle, remaining) {
-                    self.record_surface_stage_by_label(
-                        LogLevel::Error,
-                        "surface.quiesce-unverified",
-                        "Native surface isolation could not be verified.",
-                        &label,
-                    );
-                    let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
-                    let _ = self.app.emit(
-                        "rion://shell-error",
-                        json!({
-                            "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                            "failureKind": "native-quiesce-timeout",
-                            "message": message,
-                            "roleId": role_id,
-                            "webviewLabel": label
-                        }),
-                    );
-                    return Err(RuntimeError::new(
-                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                        message,
-                    ));
-                }
-                self.record_surface_stage_by_label(
-                    LogLevel::Debug,
-                    "surface.quiesced",
-                    "Native surface stopped and committed its isolated page.",
-                    &label,
-                );
-            }
-            if surface_is_registered {
-                close_error = webview.close().err().map(|error| error.to_string());
-                main_thread_flush_error = wait_for_tauri_main_thread(&self.app)
+            // Isolation and controller close are one native request. Neither a
+            // JavaScript callback nor an about:blank navigation completion may
+            // prevent the Wry close request from being issued.
+            let quiesce_result = if lifecycle.native_surface_is_released() {
+                Ok(())
+            } else {
+                quiesce_platform_surface(webview, lifecycle)
+            };
+            let close_error = surface_is_registered
+                .then(|| webview.close().err().map(|error| error.to_string()))
+                .flatten();
+            let main_thread_flush_error = surface_is_registered
+                .then(|| {
+                    wait_for_tauri_main_thread_with_timeout(
+                        &self.app,
+                        deadline.saturating_duration_since(Instant::now()),
+                        "closing the System WebView",
+                    )
                     .err()
-                    .map(|error| error.message);
+                    .map(|error| error.message)
+                })
+                .flatten();
+            if (!surface_is_registered || main_thread_flush_error.is_none())
+                && self.app.get_webview(&label).is_none()
+            {
+                lifecycle.mark_controller_released();
             }
-            while self.app.get_webview(&label).is_some() {
-                if Instant::now() >= deadline {
-                    self.record_surface_stage_by_label(
-                        LogLevel::Error,
-                        "surface.controller-unverified",
-                        "Tauri surface removal could not be verified.",
-                        &label,
-                    );
-                    #[cfg(windows)]
-                    let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
-                    #[cfg(not(windows))]
-                    let browser_process_id = 0;
-                    let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
-                    let _ = self.app.emit(
-                        "rion://shell-error",
-                        json!({
-                            "browserProcessId": browser_process_id,
-                            "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                            "failureKind": "controller-release-timeout",
-                            "message": message,
-                            "roleId": role_id,
-                            "webviewLabel": label,
-                            "closeError": close_error,
-                            "mainThreadFlushError": main_thread_flush_error
-                        }),
-                    );
-                    return Err(RuntimeError::new(
-                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                        message,
+
+            let isolated = lifecycle.native_surface_is_released()
+                || (quiesce_result.is_ok()
+                    && wait_for_platform_surface_quiesced(
+                        lifecycle,
+                        deadline.saturating_duration_since(Instant::now()),
                     ));
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            lifecycle.mark_controller_released();
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if !lifecycle.wait_for_platform_release(platform, remaining, || {
-                confirm_platform_surface_release(lifecycle)
-            }) {
+            if !isolated {
                 self.record_surface_stage_by_label(
                     LogLevel::Error,
-                    "surface.native-unverified",
-                    "Native surface detachment could not be verified.",
+                    "surface.quiesce-unverified",
+                    "Native surface isolation could not be verified.",
                     &label,
                 );
-                let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
+                let quiesce_error = quiesce_result.err().map(|error| error.message);
+                let message = "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.".to_owned();
                 let _ = self.app.emit(
                     "rion://shell-error",
                     json!({
                         "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                        "failureKind": "native-release-timeout",
+                        "failureKind": "native-isolation-timeout",
                         "message": message,
                         "roleId": role_id,
                         "webviewLabel": label,
+                        "quiesceError": quiesce_error,
                         "closeError": close_error,
                         "mainThreadFlushError": main_thread_flush_error
                     }),
@@ -8797,13 +9536,27 @@ impl SystemRuntimeExecutor {
                     message,
                 ));
             }
-            Ok(())
+            self.record_surface_stage_by_label(
+                LogLevel::Debug,
+                "surface.isolated",
+                "Native surface isolation confirmed.",
+                &label,
+            );
+
+            if self.app.get_webview(&label).is_none() {
+                lifecycle.mark_controller_released();
+            }
+            if confirm_platform_surface_release(lifecycle) {
+                lifecycle.mark_native_surface_released();
+            }
+            let released = lifecycle.wait_for_controller_release(platform, Duration::ZERO);
+            Ok(SurfaceCloseOutcome { isolated, released })
         })();
         if result.is_ok() {
             self.revoke_overlay_capability(&label);
         }
         if let Ok(mut state) = self.state.lock() {
-            state.closing_webviews.remove(&label);
+            state.close_coordinator.closing_webviews.remove(&label);
             if result.is_ok() {
                 state
                     .approved_macro_release_navigations
@@ -8822,7 +9575,59 @@ impl SystemRuntimeExecutor {
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
         let surface = self.managed_surface(instance_id)?;
-        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Closing)?;
+        match surface.phase {
+            ManagedSurfacePhase::Isolated
+            | ManagedSurfacePhase::Releasing
+            | ManagedSurfacePhase::Released => return Ok(()),
+            ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => {
+                return self.wait_for_managed_surface_isolation(instance_id, &surface);
+            }
+            ManagedSurfacePhase::Live
+            | ManagedSurfacePhase::Provisional
+            | ManagedSurfacePhase::Quarantined
+            | ManagedSurfacePhase::Retired => {}
+        }
+        let native_lifecycle_guard = surface.native_lifecycle_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
+                "The native surface lifecycle lane is unavailable.",
+            )
+        })?;
+        let (surface, owns_close) = {
+            let mut state = self.state()?;
+            let surface = state.surface_registry.get_mut(instance_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_REGISTRY_MISSING",
+                    "The native surface registry entry is missing.",
+                )
+            })?;
+            let owns_close = match surface.phase {
+                ManagedSurfacePhase::Isolated
+                | ManagedSurfacePhase::Releasing
+                | ManagedSurfacePhase::Released => return Ok(()),
+                ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => false,
+                ManagedSurfacePhase::Live
+                | ManagedSurfacePhase::Provisional
+                | ManagedSurfacePhase::Quarantined
+                | ManagedSurfacePhase::Retired => {
+                    surface.phase = ManagedSurfacePhase::CloseRequested;
+                    surface.close_started_at = Some(Instant::now());
+                    true
+                }
+            };
+            (surface.clone(), owns_close)
+        };
+        if !owns_close {
+            drop(native_lifecycle_guard);
+            return self.wait_for_managed_surface_isolation(instance_id, &surface);
+        }
+        self.record_surface_event(
+            LogLevel::Debug,
+            "surface.phase",
+            "Native surface phase changed.",
+            &surface,
+        );
+        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolating)?;
         self.record_surface_event(
             LogLevel::Info,
             "surface.close-requested",
@@ -8831,23 +9636,184 @@ impl SystemRuntimeExecutor {
         );
         let result =
             self.close_surface_and_wait(&surface.webview, &surface.lifecycle, lifecycle_id);
-        if result.is_ok() {
-            self.remove_managed_surface(instance_id)?;
-        } else if let Ok(mut state) = self.state.lock()
-            && let Some(current) = state.surface_registry.get_mut(instance_id)
-        {
-            current.phase = surface.phase;
+        match result {
+            Ok(outcome) => {
+                self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
+                if outcome.released {
+                    self.remove_managed_surface(instance_id)?;
+                } else {
+                    self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Releasing)?;
+                    self.schedule_surface_reclamation(surface, true);
+                }
+                Ok(())
+            }
+            Err(error) => {
+                if let Ok(mut state) = self.state.lock() {
+                    if let Some(current) = state.surface_registry.get_mut(instance_id) {
+                        current.phase = ManagedSurfacePhase::Quarantined;
+                    }
+                    if let Some(role_id) = surface.role_id.as_ref() {
+                        state
+                            .close_coordinator
+                            .quarantined_roles
+                            .insert(role_id.clone());
+                    }
+                }
+                self.record_surface_event(
+                    LogLevel::Error,
+                    "surface.close-unverified",
+                    "Native surface close could not be verified.",
+                    &surface,
+                );
+                self.schedule_surface_reclamation(surface, false);
+                Err(RuntimeError::new(error.code, error.message))
+            }
         }
-        if let Err(error) = &result {
+    }
+
+    fn wait_for_managed_surface_isolation(
+        &self,
+        instance_id: &str,
+        surface: &ManagedSurface,
+    ) -> RuntimeResult<()> {
+        let deadline = surface
+            .close_started_at
+            .unwrap_or_else(Instant::now)
+            .checked_add(SURFACE_ISOLATION_TIMEOUT)
+            .unwrap_or_else(Instant::now);
+        loop {
+            let phase = self
+                .state()?
+                .surface_registry
+                .get(instance_id)
+                .map(|surface| surface.phase);
+            match phase {
+                None
+                | Some(
+                    ManagedSurfacePhase::Isolated
+                    | ManagedSurfacePhase::Releasing
+                    | ManagedSurfacePhase::Released,
+                ) => return Ok(()),
+                Some(ManagedSurfacePhase::Quarantined) => {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
+                    ));
+                }
+                Some(_) if Instant::now() < deadline => {
+                    std::thread::sleep(SURFACE_RELEASE_POLL_INTERVAL);
+                }
+                Some(_) => {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
+                    ));
+                }
+            }
+        }
+    }
+
+    fn schedule_surface_reclamation(&self, surface: ManagedSurface, isolated: bool) {
+        let Some(sender) = self.effect_sender.get().cloned() else {
+            return;
+        };
+        let app = self.app.clone();
+        let instance_id = surface.instance_id.clone();
+        let lifecycle = Arc::clone(&surface.lifecycle);
+        let webview = surface.webview.clone();
+        let release_needs_quiesce = surface.kind == ManagedSurfaceKind::Divider;
+        let spawn = std::thread::Builder::new()
+            .name(format!("rion-surface-release-{instance_id}"))
+            .spawn(move || {
+                let platform = if cfg!(windows) {
+                    "windows"
+                } else if cfg!(target_os = "macos") {
+                    "macos"
+                } else {
+                    "other"
+                };
+                let label = webview.label().to_owned();
+                let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
+                let mut isolated = isolated;
+                let released = loop {
+                    let isolation_requested = if isolated && !release_needs_quiesce {
+                        true
+                    } else {
+                        quiesce_platform_surface(&webview, &lifecycle).is_ok()
+                    };
+                    if app.get_webview(&label).is_some() {
+                        let _ = webview.close();
+                        let _ = wait_for_tauri_main_thread_with_timeout(
+                            &app,
+                            deadline
+                                .saturating_duration_since(Instant::now())
+                                .min(Duration::from_millis(250)),
+                            "reclaiming the System WebView",
+                        );
+                    }
+                    if app.get_webview(&label).is_none() {
+                        lifecycle.mark_controller_released();
+                    }
+                    if confirm_platform_surface_release(&lifecycle) {
+                        lifecycle.mark_native_surface_released();
+                    }
+                    isolated = isolated
+                        || lifecycle.native_surface_is_released()
+                        || (isolation_requested && confirm_platform_surface_quiesced(&lifecycle));
+                    let released = lifecycle.wait_for_controller_release(platform, Duration::ZERO);
+                    if released || Instant::now() >= deadline {
+                        break released;
+                    }
+                    std::thread::sleep(SURFACE_RELEASE_POLL_INTERVAL);
+                };
+                let _ = sender.send(SystemRuntimeWork::FinalizeSurfaceRelease {
+                    instance_id,
+                    isolated,
+                    released,
+                });
+            });
+        if let Err(error) = spawn {
+            eprintln!(
+                "System WebView lifecycle: stage=surface-release-worker status=failed error={error}"
+            );
+        }
+    }
+
+    fn finalize_surface_release(&self, instance_id: &str, isolated: bool, released: bool) {
+        let Ok(surface) = self.managed_surface(instance_id) else {
+            return;
+        };
+        if released {
+            let _ = self.remove_managed_surface(instance_id);
+            return;
+        }
+        if isolated {
+            let _ = self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Releasing);
             self.record_surface_event(
-                LogLevel::Error,
-                "surface.close-unverified",
-                "Native surface close could not be verified.",
+                LogLevel::Warn,
+                "surface.release-deferred",
+                "Native surface is isolated but its resource release remains pending.",
                 &surface,
             );
-            return Err(RuntimeError::new(error.code, error.message.clone()));
+            return;
         }
-        Ok(())
+        let _ = self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Quarantined);
+        self.record_surface_event(
+            LogLevel::Error,
+            "surface.quarantine-persisted",
+            "Native surface isolation remained unverified after background retries.",
+            &surface,
+        );
+        let _ = self.app.emit(
+            "rion://shell-error",
+            json!({
+                "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                "failureKind": "native-isolation-retry-exhausted",
+                "message": "Rion Studio still cannot verify that the native game page stopped. Keep this tab closed and restart Rion Studio before reopening the role.",
+                "roleId": surface.role_id,
+                "webviewLabel": surface.webview.label()
+            }),
+        );
     }
 
     fn close_popup_and_wait(&self, label: &str, role_id: &str) -> RuntimeResult<()> {
@@ -8868,6 +9834,23 @@ impl SystemRuntimeExecutor {
                 )
             })?;
         self.close_managed_surface_and_wait(&instance_id, role_id)
+    }
+
+    fn close_managed_divider(&self, instance_id: &str) -> RuntimeResult<()> {
+        let surface = self.managed_surface(instance_id)?;
+        if surface.kind != ManagedSurfaceKind::Divider {
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_REGISTRY_MISMATCH",
+                "The native surface is not a workspace divider.",
+            ));
+        }
+        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::CloseRequested)?;
+        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolating)?;
+        let _ = surface.webview.close();
+        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
+        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Releasing)?;
+        self.schedule_surface_reclamation(surface, true);
+        Ok(())
     }
 
     fn add_child_bounded(
@@ -9110,13 +10093,6 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
-        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
-            RuntimeError::new(
-                "LOCAL_STORAGE_SYNC_LANE_POISONED",
-                "The localStorage synchronization lifecycle lane is unavailable.",
-            )
-        })?;
-        self.persist_local_storage_sync_source_before_stop(role_id)?;
         {
             let mut state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
@@ -9125,8 +10101,11 @@ impl SystemRuntimeExecutor {
                     "Runtime role was not found.",
                 )
             })?;
-            if state.closing_tabs.contains(tab_id)
-                || !state.closing_roles.insert(role_id.to_owned())
+            if state.close_coordinator.closing_tabs.contains(tab_id)
+                || !state
+                    .close_coordinator
+                    .closing_roles
+                    .insert(role_id.to_owned())
             {
                 return Err(RuntimeError::new(
                     "SYSTEM_SURFACE_ALREADY_CLOSING",
@@ -9136,7 +10115,7 @@ impl SystemRuntimeExecutor {
         }
         let result = self.destroy_marked_role(role_id, None);
         if let Ok(mut state) = self.state.lock() {
-            state.closing_roles.remove(role_id);
+            state.close_coordinator.closing_roles.remove(role_id);
         }
         result
     }
@@ -9196,22 +10175,51 @@ impl SystemRuntimeExecutor {
         };
 
         self.clear_role_keys(role_id);
-        for label in popup_labels {
-            self.close_popup_and_wait(&label, role_id)?;
-            self.forget_popup(&label);
-        }
         let surface_ids = self.managed_surface_ids_for_role(role_id)?;
-        if surface_ids.is_empty() {
+        let isolation_result = if surface_ids.is_empty() {
             self.close_surface_and_wait(&webview, &lifecycle, role_id)?;
+            Ok(())
         } else {
-            for instance_id in surface_ids {
-                self.close_managed_surface_and_wait(&instance_id, role_id)?;
-            }
+            // A role page, recovery replacement and its popups are independent
+            // controllers. Request isolation concurrently so a wedged popup cannot
+            // delay the exact game surface or multiply the two-second bound.
+            std::thread::scope(|scope| {
+                let handles = surface_ids
+                    .iter()
+                    .map(|instance_id| {
+                        scope.spawn(move || {
+                            self.close_managed_surface_and_wait(instance_id, role_id)
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let mut first_error = None;
+                for handle in handles {
+                    match handle.join() {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => {
+                            first_error.get_or_insert(error);
+                        }
+                        Err(_) => {
+                            first_error.get_or_insert_with(|| {
+                                RuntimeError::new(
+                                    "SYSTEM_SURFACE_CLOSE_WORKER_FAILED",
+                                    "A native role surface close worker panicked.",
+                                )
+                            });
+                        }
+                    }
+                }
+                first_error.map_or(Ok(()), Err)
+            })
+        };
+        isolation_result?;
+        for label in popup_labels {
+            self.forget_popup(&label);
         }
         if !self.managed_surface_ids_for_role(role_id)?.is_empty() {
             return Err(RuntimeError::new(
                 "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+                "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
             ));
         }
 
@@ -9272,82 +10280,61 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn persist_local_storage_sync_source_before_stop(&self, role_id: &str) -> RuntimeResult<()> {
-        let (webview, config) = {
-            let state = self.state()?;
-            let Some(tab_id) = state.role_tabs.get(role_id) else {
-                return Ok(());
-            };
-            let Some(surface) = state
-                .tabs
-                .get(tab_id)
-                .and_then(|tab| tab.roles.get(role_id))
-            else {
-                return Ok(());
-            };
-            let Some(config) = surface.local_storage_sync.clone() else {
-                return Ok(());
-            };
-            (surface.webview.clone(), config)
-        };
-        if config.source_role_id.is_some() || config.dependent_role_ids.is_empty() {
-            return Ok(());
-        }
-        if require_exact_local_storage_sync_origin(&webview, &config.origin).is_err() {
-            return Ok(());
-        }
-        let entries = read_scoped_local_storage_entries(&webview, &config.keys)?;
-        // The document observer reports asynchronously. Capture the live source immediately
-        // before closing it so a stop cannot leave the encrypted bootstrap snapshot stale.
-        self.persist_local_storage_sync_snapshot(PersistedLocalStorageSyncSnapshot {
-            schema_version: 1,
-            source_role_id: role_id.to_owned(),
-            origin: config.origin,
-            entries,
-        })
-    }
-
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {
-        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
-            RuntimeError::new(
-                "LOCAL_STORAGE_SYNC_LANE_POISONED",
-                "The localStorage synchronization lifecycle lane is unavailable.",
-            )
-        })?;
-        let role_ids = self
-            .state()?
-            .tabs
-            .get(tab_id)
-            .ok_or_else(|| {
+        let (role_ids, window_id) = {
+            let state = self.state()?;
+            let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-            })?
-            .roles
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        for role_id in &role_ids {
-            self.persist_local_storage_sync_source_before_stop(role_id)?;
-        }
+            })?;
+            (
+                tab.roles.keys().cloned().collect::<Vec<_>>(),
+                tab.window_id.clone(),
+            )
+        };
         {
             let mut state = self.state()?;
-            if state.closing_tabs.contains(tab_id)
+            if state.close_coordinator.closing_tabs.contains(tab_id)
                 || role_ids
                     .iter()
-                    .any(|role_id| state.closing_roles.contains(role_id))
+                    .any(|role_id| state.close_coordinator.closing_roles.contains(role_id))
             {
                 return Err(RuntimeError::new(
                     "SYSTEM_SURFACE_ALREADY_CLOSING",
                     "The runtime tab or one of its roles is already closing.",
                 ));
             }
-            state.closing_tabs.insert(tab_id.to_owned());
-            state.closing_roles.extend(role_ids.iter().cloned());
+            state
+                .close_coordinator
+                .closing_tabs
+                .insert(tab_id.to_owned());
+            state
+                .close_coordinator
+                .closing_roles
+                .extend(role_ids.iter().cloned());
         }
         let result = (|| -> RuntimeResult<()> {
-            let mut released_roles = Vec::with_capacity(role_ids.len());
-            for role_id in &role_ids {
-                released_roles.push(self.release_marked_role_surfaces(role_id, Some(tab_id))?);
-            }
+            // A workspace's game surfaces are independent native controllers. Isolate
+            // them concurrently so one wedged role cannot serialize every sibling.
+            let released_roles = std::thread::scope(|scope| {
+                let handles = role_ids
+                    .iter()
+                    .map(|role_id| {
+                        scope
+                            .spawn(move || self.release_marked_role_surfaces(role_id, Some(tab_id)))
+                    })
+                    .collect::<Vec<_>>();
+                handles
+                    .into_iter()
+                    .map(|handle| {
+                        handle.join().unwrap_or_else(|_| {
+                            Err(RuntimeError::new(
+                                "SYSTEM_SURFACE_CLOSE_WORKER_FAILED",
+                                "A native workspace surface close worker panicked.",
+                            ))
+                        })
+                    })
+                    .collect::<RuntimeResult<Vec<_>>>()
+            })?;
             let released_dividers = {
                 let state = self.state()?;
                 state
@@ -9371,18 +10358,18 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>()
             };
             for (_, instance_id, _) in &released_dividers {
-                self.close_managed_surface_and_wait(instance_id, tab_id)?;
+                self.close_managed_divider(instance_id)?;
             }
 
             let mut state = self.state()?;
-            if state
-                .surface_registry
-                .values()
-                .any(|surface| surface.tab_id.as_deref() == Some(tab_id))
-            {
+            if state.surface_registry.values().any(|surface| {
+                surface.tab_id.as_deref() == Some(tab_id)
+                    && surface.kind != ManagedSurfaceKind::Divider
+                    && surface.phase.blocks_role_relaunch()
+            }) {
                 return Err(RuntimeError::new(
                     "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                    "Rion Studio could not verify that every native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+                    "Rion Studio could not verify that every native game page stopped. The tab remains closed; restart Rion Studio before reopening these roles.",
                 ));
             }
             let current_tab = state.tabs.get(tab_id).ok_or_else(|| {
@@ -9427,15 +10414,28 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if let Ok(mut state) = self.state.lock() {
-            state.closing_tabs.remove(tab_id);
+            state.close_coordinator.closing_tabs.remove(tab_id);
             role_ids.iter().for_each(|role_id| {
-                state.closing_roles.remove(role_id);
+                state.close_coordinator.closing_roles.remove(role_id);
             });
+        }
+        if result.is_ok() {
+            self.remove_empty_display_host(&window_id, true);
         }
         result
     }
 
     fn show_tab(&self, tab_id: &str, focus: bool) -> RuntimeResult<()> {
+        let _presentation_guard = self.presentation_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                "The runtime tab presentation lane is unavailable.",
+            )
+        })?;
+        self.show_tab_under_presentation_lane(tab_id, focus)
+    }
+
+    fn show_tab_under_presentation_lane(&self, tab_id: &str, focus: bool) -> RuntimeResult<()> {
         let (window_id, window, updates, active_webview) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
@@ -9986,19 +10986,29 @@ fn platform_display_refresh_rate(_window: &Window) -> Option<f64> {
 }
 
 fn wait_for_tauri_main_thread(app: &AppHandle) -> RuntimeResult<()> {
+    wait_for_tauri_main_thread_with_timeout(
+        app,
+        PLATFORM_CALLBACK_TIMEOUT,
+        "updating the System WebView",
+    )
+}
+
+fn wait_for_tauri_main_thread_with_timeout(
+    app: &AppHandle,
+    timeout: Duration,
+    action: &str,
+) -> RuntimeResult<()> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
         let _ = sender.send(());
     })
     .map_err(RuntimeError::tauri)?;
-    receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| {
-            RuntimeError::new(
-                "TAURI_MAIN_THREAD_TIMEOUT",
-                "The Tauri main thread did not finish creating the System WebView.",
-            )
-        })
+    receiver.recv_timeout(timeout).map_err(|_| {
+        RuntimeError::new(
+            "TAURI_MAIN_THREAD_TIMEOUT",
+            format!("The Tauri main thread timed out while {action}."),
+        )
+    })
 }
 
 fn surface_host_initialization_requires_visible_parent(platform: &str) -> bool {
@@ -12330,7 +13340,7 @@ fn quiesce_platform_surface(
     if token == 0 || !unsafe { rion_wk_quiesce_surface(token) } {
         return Err(RuntimeError::new(
             "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-            "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+            "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
         ));
     }
     Ok(())
@@ -12427,7 +13437,7 @@ fn quiesce_platform_surface(
         })
         .map_err(RuntimeError::tauri)?;
     receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .recv_timeout(SURFACE_ISOLATION_TIMEOUT)
         .map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
@@ -12983,6 +13993,77 @@ mod tests {
             managed_surface_close_priority(ManagedSurfaceKind::Role)
                 < managed_surface_close_priority(ManagedSurfaceKind::Divider)
         );
+    }
+
+    #[test]
+    fn close_presentation_selects_right_then_left_without_reopening_the_closed_tab() {
+        let ids = ["a", "b", "c", "d"].map(str::to_owned);
+        assert_eq!(
+            successor_tab_after_close(&ids, "a", |_| true).as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            successor_tab_after_close(&ids, "b", |_| true).as_deref(),
+            Some("c")
+        );
+        assert_eq!(
+            successor_tab_after_close(&ids, "d", |_| true).as_deref(),
+            Some("c")
+        );
+        assert_eq!(
+            successor_tab_after_close(&ids, "b", |candidate| candidate == "a").as_deref(),
+            Some("a")
+        );
+        assert_eq!(successor_tab_after_close(&ids[..1], "a", |_| true), None);
+    }
+
+    #[test]
+    fn newer_native_selection_rejects_stale_core_projection() {
+        assert!(native_presentation_owns_selection(4, 5, false));
+        assert!(!native_presentation_owns_selection(5, 5, false));
+        assert!(native_presentation_owns_selection(5, 5, true));
+    }
+
+    #[test]
+    fn only_unisolated_surface_phases_block_role_relaunch() {
+        for phase in [
+            ManagedSurfacePhase::Live,
+            ManagedSurfacePhase::CloseRequested,
+            ManagedSurfacePhase::Isolating,
+            ManagedSurfacePhase::Provisional,
+            ManagedSurfacePhase::Quarantined,
+            ManagedSurfacePhase::Retired,
+        ] {
+            assert!(phase.blocks_role_relaunch(), "{phase:?}");
+        }
+        for phase in [
+            ManagedSurfacePhase::Isolated,
+            ManagedSurfacePhase::Releasing,
+            ManagedSurfacePhase::Released,
+        ] {
+            assert!(!phase.blocks_role_relaunch(), "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn only_native_close_effects_leave_the_global_effect_fifo() {
+        assert!(is_surface_close_effect(
+            &CoreEffectAction::EmbeddedDestroyRole {
+                role_id: "role-a".to_owned()
+            }
+        ));
+        assert!(is_surface_close_effect(
+            &CoreEffectAction::EmbeddedDestroyTab {
+                tab_id: "tab-a".to_owned(),
+                next_active_tab_id: None
+            }
+        ));
+        assert!(!is_surface_close_effect(
+            &CoreEffectAction::EmbeddedFocusRole {
+                role_id: "role-a".to_owned(),
+                zoom_factor: None
+            }
+        ));
     }
 
     #[test]

@@ -71,7 +71,12 @@ enum Request {
     Clear(Sender<CoreResult<()>>),
     Status(Sender<CoreResult<LogStatus>>),
     ExportTo(PathBuf, Sender<CoreResult<()>>),
-    Shutdown(Sender<()>),
+    Shutdown(Sender<CoreResult<()>>),
+}
+
+struct PendingAppend {
+    accepted: usize,
+    response: Sender<CoreResult<usize>>,
 }
 
 pub struct LogDatabaseWorker {
@@ -147,22 +152,37 @@ impl LogDatabaseWorker {
         request(&self.sender, |response| Request::ExportTo(path, response))
     }
 
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) -> CoreResult<()> {
+        if self.join.is_none() {
+            return Ok(());
+        }
         let (sender, receiver) = bounded(1);
-        if self
+        let result = match self
             .sender
             .send_timeout(Request::Shutdown(sender), WORKER_SHUTDOWN_TIMEOUT)
-            .is_ok()
         {
-            let _ = receiver.recv_timeout(WORKER_SHUTDOWN_TIMEOUT);
-        }
+            Ok(()) => match receiver.recv_timeout(WORKER_SHUTDOWN_TIMEOUT) {
+                Ok(result) => result,
+                Err(RecvTimeoutError::Timeout) => Err(CoreError::LogDatabase(format!(
+                    "log worker shutdown timed out after {} seconds",
+                    WORKER_SHUTDOWN_TIMEOUT.as_secs()
+                ))),
+                Err(RecvTimeoutError::Disconnected) => Err(CoreError::ShuttingDown),
+            },
+            Err(SendTimeoutError::Timeout(_)) => Err(CoreError::LogDatabase(format!(
+                "log worker shutdown queue timed out after {} seconds",
+                WORKER_SHUTDOWN_TIMEOUT.as_secs()
+            ))),
+            Err(SendTimeoutError::Disconnected(_)) => Err(CoreError::ShuttingDown),
+        };
         join_worker_if_finished(&mut self.join);
+        result
     }
 }
 
 impl Drop for LogDatabaseWorker {
     fn drop(&mut self) {
-        self.shutdown();
+        let _ = self.shutdown();
     }
 }
 
@@ -217,92 +237,105 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
         }
     };
     let mut pending = Vec::<LogEntry>::with_capacity(BATCH_MAX_ENTRIES);
+    let mut pending_appends = Vec::<PendingAppend>::new();
     let mut last_flush = Instant::now();
-    let mut sticky_error: Option<String> = None;
     loop {
         let timeout = BATCH_INTERVAL.saturating_sub(last_flush.elapsed());
         let message = match receiver.recv_timeout(timeout) {
             Ok(message) => message,
             Err(RecvTimeoutError::Timeout) => {
-                if let Err(error) = flush_pending(&mut connection, &mut pending) {
-                    sticky_error = Some(error.to_string());
-                }
+                let _ = flush_pending(&mut connection, &mut pending, &mut pending_appends);
                 last_flush = Instant::now();
                 continue;
             }
             Err(RecvTimeoutError::Disconnected) => {
-                let _ = flush_pending(&mut connection, &mut pending);
+                let _ = flush_pending(&mut connection, &mut pending, &mut pending_appends);
                 break;
             }
         };
         match message {
             Request::Append(entries, response) => {
                 let accepted = entries.len();
-                let result = if let Some(error) = sticky_error.take() {
-                    Err(CoreError::LogDatabase(error))
-                } else if let Err(error) = entries.iter().try_for_each(validate_entry) {
-                    Err(error)
+                if let Err(error) = entries.iter().try_for_each(validate_entry) {
+                    let _ = response.send(Err(error));
                 } else {
                     let urgent = entries
                         .iter()
                         .any(|entry| matches!(entry.level, LogLevel::Warn | LogLevel::Error));
                     pending.extend(entries);
+                    pending_appends.push(PendingAppend { accepted, response });
                     if urgent || pending.len() >= BATCH_MAX_ENTRIES {
-                        let result = flush_pending(&mut connection, &mut pending).map(|_| accepted);
+                        let _ = flush_pending(&mut connection, &mut pending, &mut pending_appends);
                         last_flush = Instant::now();
-                        result
-                    } else {
-                        Ok(accepted)
                     }
-                };
-                let _ = response.send(result);
+                }
             }
             Request::Query(query, response) => {
-                let result = flush_pending(&mut connection, &mut pending)
+                let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
                     .and_then(|_| query_entries(&connection, &query));
                 last_flush = Instant::now();
                 let _ = response.send(result);
             }
             Request::Clear(response) => {
-                let result = flush_pending(&mut connection, &mut pending)
+                let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
                     .and_then(|_| clear_entries(&connection));
                 last_flush = Instant::now();
                 let _ = response.send(result);
             }
             Request::Status(response) => {
-                let result = flush_pending(&mut connection, &mut pending)
+                let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
                     .and_then(|_| read_status(&connection, &path));
                 last_flush = Instant::now();
                 let _ = response.send(result);
             }
             Request::ExportTo(path, response) => {
-                let result = flush_pending(&mut connection, &mut pending)
+                let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
                     .and_then(|_| export_jsonl_to(&connection, &path));
                 last_flush = Instant::now();
                 let _ = response.send(result);
             }
             Request::Shutdown(response) => {
-                let _ = flush_pending(&mut connection, &mut pending);
-                let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-                let _ = response.send(());
+                let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
+                    .and_then(|_| {
+                        connection
+                            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                            .map_err(|error| CoreError::LogDatabase(error.to_string()))
+                    });
+                let _ = response.send(result);
                 break;
             }
         }
     }
 }
 
-fn flush_pending(connection: &mut Connection, pending: &mut Vec<LogEntry>) -> CoreResult<usize> {
+fn flush_pending(
+    connection: &mut Connection,
+    pending: &mut Vec<LogEntry>,
+    pending_appends: &mut Vec<PendingAppend>,
+) -> CoreResult<usize> {
     if pending.is_empty() {
+        debug_assert!(pending_appends.is_empty());
         return Ok(0);
     }
     let entries = std::mem::take(pending);
-    match append_entries(connection, &entries) {
-        Ok(inserted) => Ok(inserted),
+    let appends = std::mem::take(pending_appends);
+    let result = append_entries(connection, &entries);
+    match &result {
+        Ok(_) => {
+            for append in appends {
+                let _ = append.response.send(Ok(append.accepted));
+            }
+        }
         Err(error) => {
-            *pending = entries;
-            Err(error)
+            let message = error.to_string();
+            for append in appends {
+                let _ = append
+                    .response
+                    .send(Err(CoreError::LogDatabase(message.clone())));
+            }
         }
     }
+    result
 }
 
 pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResult<()> {
@@ -1261,16 +1294,25 @@ mod tests {
     }
 
     #[test]
-    fn worker_flushes_warn_immediately_and_pending_info_before_reads() {
+    fn worker_acknowledges_only_durable_appends() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("logs.sqlite3");
         let mut worker = LogDatabaseWorker::start(path.clone()).unwrap();
         worker.append(vec![entry("info", "queued")]).unwrap();
+        let reader = Connection::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .query_row("SELECT COUNT(*) FROM log_entries", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            1,
+            "append must not acknowledge entries before their transaction commits"
+        );
         let mut warning = entry("warn", "urgent");
         warning.level = LogLevel::Warn;
         worker.append(vec![warning]).unwrap();
 
-        let reader = Connection::open(&path).unwrap();
         assert_eq!(
             reader
                 .query_row("SELECT COUNT(*) FROM log_entries", [], |row| {
@@ -1288,7 +1330,7 @@ mod tests {
         let storage = worker.storage_status(LogLevel::Info).unwrap();
         assert_eq!(storage.entry_count, 3);
         assert_eq!(storage.file_count, status.file_count);
-        worker.shutdown();
+        worker.shutdown().unwrap();
     }
 
     #[test]
@@ -1296,8 +1338,16 @@ mod tests {
         let directory = tempdir().unwrap();
         let path = directory.path().join("logs.sqlite3");
         let mut worker = LogDatabaseWorker::start(path.clone()).unwrap();
-        worker.append(vec![entry("shutdown", "pending")]).unwrap();
-        worker.shutdown();
+        let (response_sender, response_receiver) = bounded(1);
+        worker
+            .sender
+            .send(Request::Append(
+                vec![entry("shutdown", "pending")],
+                response_sender,
+            ))
+            .unwrap();
+        worker.shutdown().unwrap();
+        assert_eq!(response_receiver.recv().unwrap().unwrap(), 1);
 
         let connection = Connection::open(path).unwrap();
         assert_eq!(
@@ -1308,5 +1358,25 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+
+    #[test]
+    fn worker_shutdown_propagates_flush_failures() {
+        let (sender, receiver) = bounded(1);
+        let join = thread::spawn(move || {
+            let Request::Shutdown(response) = receiver.recv().unwrap() else {
+                panic!("expected shutdown request");
+            };
+            let _ = response.send(Err(CoreError::LogDatabase("flush failed".to_owned())));
+        });
+        let mut worker = LogDatabaseWorker {
+            sender,
+            join: Some(join),
+        };
+
+        let error = worker.shutdown().unwrap_err();
+
+        assert_eq!(error.code(), "CORE_LOG_DATABASE_FAILED");
+        assert!(error.to_string().contains("flush failed"));
     }
 }

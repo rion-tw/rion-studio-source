@@ -5677,7 +5677,9 @@ impl AppCore {
             runtime.scheduler.shutdown();
             runtime.telemetry.record_core_effects(core_effects);
             runtime.telemetry.shutdown();
-            runtime.logs.shutdown();
+            if let Err(error) = runtime.logs.shutdown() {
+                eprintln!("Rion Studio log database shutdown failed: {error}");
+            }
             runtime.state.shutdown();
         }
         self.emit(vec![CoreEvent::Shutdown]);

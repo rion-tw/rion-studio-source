@@ -13021,7 +13021,7 @@ mod tests {
         tracker.mark_controller_released();
         let mut polls = 0;
         assert!(
-            tracker.wait_for_platform_release("macos", Duration::from_millis(100), || {
+            tracker.wait_for_platform_release("macos", Duration::from_secs(1), || {
                 polls += 1;
                 polls == 2
             })

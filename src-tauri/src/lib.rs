@@ -3917,9 +3917,17 @@ pub fn run() {
                                             .invoke(CoreCommand::GamesList)
                                             .ok()
                                             .and_then(|value| serde_json::from_value(value).ok());
-                                        if let (Some(roles), Some(games)) = (roles, games) {
-                                            let _ = effect_runtime
-                                                .refresh_local_storage_sync_metadata(&roles, &games);
+                                        if let (Some(roles), Some(games)) = (roles, games)
+                                            && let Err(message) = effect_runtime
+                                                .refresh_local_storage_sync_metadata(&roles, &games)
+                                        {
+                                            reveal_shell_error(
+                                                &app_handle,
+                                                shell_error(
+                                                    "LOCAL_STORAGE_SYNC_METADATA_REFRESH_FAILED",
+                                                    message,
+                                                ),
+                                            );
                                         }
                                     }
                                     if matches!(&event, CoreEvent::BrowserStatuses { .. })

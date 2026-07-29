@@ -420,7 +420,10 @@ function RoleCard({
       </div>
 
       {canUsePrimaryOverlayAction ? (
-        <div className="pointer-events-none absolute inset-0 z-[var(--layer-selection)] grid place-items-center">
+        <div
+          className="pointer-events-none absolute inset-0 z-[var(--layer-popover)] grid place-items-center"
+          data-role-primary-action-layer
+        >
           <Button
             className={cn(
               "pointer-events-auto size-16 rounded-full p-0 shadow-lg transition-[opacity,transform,background-color] duration-150",

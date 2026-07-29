@@ -113,6 +113,7 @@ describe("bulk selection UI", () => {
     const user = userEvent.setup();
     const item = role("role-1", "Main role");
     const otherItem = role("role-2", "Secondary role");
+    const onLaunch = vi.fn();
     render(
       <RolesRoute
         activeFilter="all"
@@ -135,7 +136,7 @@ describe("bulk selection UI", () => {
         onEdit={vi.fn()}
         onError={vi.fn()}
         onFilterChange={vi.fn()}
-        onLaunch={vi.fn()}
+        onLaunch={onLaunch}
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
@@ -144,6 +145,12 @@ describe("bulk selection UI", () => {
     );
 
     const card = getSelectionItem("role-1");
+    const launchButton = screen.getAllByRole("button", { name: "Launch" })[0];
+    const primaryActionLayer = launchButton.closest<HTMLElement>("[data-role-primary-action-layer]");
+    expect(primaryActionLayer?.className).toContain("z-[var(--layer-popover)]");
+    expect(primaryActionLayer?.className).not.toContain("z-[var(--layer-selection)]");
+    await user.click(launchButton);
+    expect(onLaunch).toHaveBeenCalledWith(item.id);
     const actionButton = screen.getAllByRole("button", {
       name: "Click for actions or drag to reorder"
     })[0];

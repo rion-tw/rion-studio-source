@@ -6,12 +6,35 @@ document.body.dataset.axis = axis;
 let dragging = false;
 let pending: number | undefined;
 let frame: number | undefined;
+let actionPending = false;
+type DividerAction = {
+  phase: "start" | "move" | "end" | "reset";
+  screenPosition?: number;
+};
+const actionQueue: DividerAction[] = [];
 const pointerCoordinate = (event: PointerEvent): number =>
   axis === "vertical" ? event.screenX : event.screenY;
 const send = (phase: "start" | "move" | "end" | "reset", screenPosition?: number): void => {
-  void invoke("rion_divider_pointer", {
-    payload: { phase, ...(screenPosition === undefined ? {} : { screenPosition }) }
-  }).catch(() => undefined);
+  const action = { phase, ...(screenPosition === undefined ? {} : { screenPosition }) };
+  const queued = actionQueue.at(-1);
+  if (phase === "move" && queued?.phase === "move") {
+    actionQueue[actionQueue.length - 1] = action;
+  } else {
+    actionQueue.push(action);
+  }
+  sendNext();
+};
+const sendNext = (): void => {
+  if (actionPending) return;
+  const action = actionQueue.shift();
+  if (!action) return;
+  actionPending = true;
+  void invoke("rion_divider_pointer", { payload: action })
+    .catch(() => undefined)
+    .finally(() => {
+      actionPending = false;
+      sendNext();
+    });
 };
 const flush = (): void => {
   if (frame !== undefined) cancelAnimationFrame(frame);
@@ -22,6 +45,7 @@ const flush = (): void => {
   send("move", position);
 };
 addEventListener("pointerdown", (event) => {
+  if (dragging || event.button !== 0) return;
   dragging = true;
   document.body.setPointerCapture?.(event.pointerId);
   send("start", pointerCoordinate(event));
@@ -40,7 +64,7 @@ const finish = (event?: PointerEvent): void => {
   send("end");
 };
 addEventListener("pointerup", (event) => finish(event));
-addEventListener("pointercancel", (event) => finish(event));
+addEventListener("pointercancel", () => finish());
 addEventListener("blur", () => finish());
 addEventListener("dblclick", (event) => {
   dragging = false;

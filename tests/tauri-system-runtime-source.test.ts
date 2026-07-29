@@ -100,6 +100,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain("compatibility_session_paths");
     expect(runtime).toContain("role_bounds_for_content");
     expect(runtime).toContain("logical_window_content_metrics");
+    const dividerPointer = runtime.slice(
+      runtime.indexOf("pub fn handle_divider_pointer("),
+      runtime.indexOf("fn send_divider_indicators(")
+    );
+    expect(dividerPointer).toContain("persist_runtime_tab_role_views");
+    expect(dividerPointer).not.toContain("persist_restore_session(false)");
+    expect(runtime).toContain("pub fn restore_tab_role_views(");
 
     expect(shell).toContain("on_web_content_process_terminate");
     expect(shell).toContain("rion-tauri-display-watcher");

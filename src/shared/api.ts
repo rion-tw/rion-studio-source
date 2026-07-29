@@ -73,6 +73,7 @@ export interface RionStudioApi {
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
+  confirmApplicationQuit: () => Promise<void>;
   requestCurrentWindowClose: () => void;
   startCurrentWindowDrag: () => Promise<void>;
   toggleCurrentWindowMaximize: () => Promise<void>;
@@ -167,6 +168,7 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
+  onApplicationQuitRequested: (callback: () => void) => () => void;
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;

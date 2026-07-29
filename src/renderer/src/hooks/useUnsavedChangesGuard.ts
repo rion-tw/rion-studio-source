@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useBeforeUnload, useBlocker } from "react-router";
 
 import { useConfirmation, type ConfirmationOptions } from "../components/confirmation";
+import { useApplicationQuitBlocker } from "../components/applicationQuitGuardRegistry";
 import type { RionStudioApi } from "../../../shared/api";
 
 export function useUnsavedChangesGuard(
@@ -12,6 +13,7 @@ export function useUnsavedChangesGuard(
   const allowNavigationRef = useRef(false);
   const isPromptingRef = useRef(false);
   const confirm = useConfirmation();
+  useApplicationQuitBlocker(enabled, isNavigationLocked, options);
   const blocker = useBlocker(
     useCallback(
       () => (enabled || isNavigationLocked) && !allowNavigationRef.current,

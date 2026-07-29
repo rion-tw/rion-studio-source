@@ -26,6 +26,8 @@
     "src/renderer/src/app/types.ts",
     "src/renderer/src/components/AppSidebar.tsx",
     "src/renderer/src/components/AppRouteError.tsx",
+    "src/renderer/src/components/ApplicationQuitGuard.tsx",
+    "src/renderer/src/components/applicationQuitGuardRegistry.ts",
     "src/renderer/src/components/ConfirmationDialog.tsx",
     "src/renderer/src/components/CreateListItem.tsx",
     "src/renderer/src/components/ListSelection.tsx",

@@ -67,6 +67,7 @@ struct CoreState {
     _activation: ActivationServer,
     _quick_menu: tauri::tray::TrayIcon,
     core: Arc<AppCore>,
+    application_exit_guard: ApplicationExitGuard,
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
     runtime: Arc<SystemRuntimeExecutor>,
@@ -74,6 +75,21 @@ struct CoreState {
     tab_drag_finished: Mutex<VecDeque<String>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
     updates: Arc<update_manager::UpdateManager>,
+}
+
+#[derive(Default)]
+struct ApplicationExitGuard {
+    permitted: AtomicBool,
+}
+
+impl ApplicationExitGuard {
+    fn permit(&self) {
+        self.permitted.store(true, Ordering::Release);
+    }
+
+    fn should_prevent(&self) -> bool {
+        !self.permitted.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Clone)]
@@ -814,6 +830,11 @@ async fn rion_shell_invoke(
             app.exit(0);
             Ok(Value::Null)
         }
+        "confirmApplicationQuit" => {
+            state.application_exit_guard.permit();
+            app.exit(0);
+            Ok(Value::Null)
+        }
         "requestCurrentWindowClose" => {
             window
                 .close()
@@ -1387,6 +1408,7 @@ async fn rion_shell_invoke(
                 .updates
                 .install_downloaded()
                 .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))?;
+            state.application_exit_guard.permit();
             app.restart();
         }
         "consumePendingMacroPageRequest" => Ok(state
@@ -3511,6 +3533,11 @@ pub fn run() {
                                             eprintln!(
                                                 "System WebView effect executor failed: {error}"
                                             );
+                                            if let Some(state) =
+                                                app_handle.try_state::<CoreState>()
+                                            {
+                                                state.application_exit_guard.permit();
+                                            }
                                             app_handle.exit(9);
                                             break;
                                         }
@@ -3601,6 +3628,7 @@ pub fn run() {
                 _activation: activation,
                 _quick_menu: quick_menu,
                 core,
+                application_exit_guard: ApplicationExitGuard::default(),
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
                 runtime,
@@ -3677,10 +3705,20 @@ pub fn run() {
         .expect("failed to build Rion Studio")
         .run(|app_handle, event| {
             match event {
-                tauri::RunEvent::ExitRequested { .. } => {
+                tauri::RunEvent::ExitRequested { api, .. } => {
                     let Some(state) = app_handle.try_state::<CoreState>() else {
                         return;
                     };
+                    if state.application_exit_guard.should_prevent() {
+                        api.prevent_exit();
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app_handle.emit("rion://application-quit-requested", ());
+                        return;
+                    }
                     prune_empty_game_window_records(&state.core);
                     let _ = state.runtime.persist_all_game_window_placements();
                     if let Err(error) = state.runtime.persist_restore_session(true) {
@@ -3846,6 +3884,16 @@ mod tests {
         assert_eq!(platform_name().unwrap(), "darwin");
         #[cfg(target_os = "windows")]
         assert_eq!(platform_name().unwrap(), "win32");
+    }
+
+    #[test]
+    fn application_exit_guard_requires_explicit_renderer_confirmation() {
+        for platform in ["darwin", "win32"] {
+            let guard = ApplicationExitGuard::default();
+            assert!(guard.should_prevent(), "{platform}");
+            guard.permit();
+            assert!(!guard.should_prevent(), "{platform}");
+        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ import { App } from "./App";
 import { AppRouteError } from "./components/AppRouteError";
 import { AppWindowStateSync } from "./components/AppWindowStateSync";
 import { ConfirmationProvider } from "./components/ConfirmationDialog";
+import { ApplicationQuitGuardProvider } from "./components/ApplicationQuitGuard";
 import { RendererReadyReporter } from "./components/RendererReadyReporter";
 import { showStartupFailure, startupFailureMessage } from "./app/startupFallback";
 import {
@@ -49,7 +50,9 @@ async function bootstrapRenderer(): Promise<void> {
       path: "*",
       element: (
         <ConfirmationProvider>
-          <App />
+          <ApplicationQuitGuardProvider>
+            <App />
+          </ApplicationQuitGuardProvider>
         </ConfirmationProvider>
       ),
       errorElement: <AppRouteError />

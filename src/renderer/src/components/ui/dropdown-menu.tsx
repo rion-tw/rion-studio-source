@@ -79,6 +79,35 @@ export const DropdownMenuCheckboxItem = forwardRef<
 
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
+export function DropdownMenuRadioGroup(
+  props: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>
+): React.ReactElement {
+  return <DropdownMenuPrimitive.RadioGroup {...props} />;
+}
+
+export const DropdownMenuRadioItem = forwardRef<
+  React.ComponentRef<typeof DropdownMenuPrimitive.RadioItem>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
+>(({ className, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.RadioItem
+    ref={ref}
+    className={cn(
+      "relative flex min-h-[var(--control-min-size)] w-full cursor-default select-none items-center overflow-hidden rounded-sm py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute left-2 flex size-3.5 items-center justify-center">
+      <DropdownMenuPrimitive.ItemIndicator>
+        <Check className="size-3.5" aria-hidden="true" />
+      </DropdownMenuPrimitive.ItemIndicator>
+    </span>
+    <span className="min-w-0 flex-1 truncate">{children}</span>
+  </DropdownMenuPrimitive.RadioItem>
+));
+
+DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;
+
 export const DropdownMenuLabel = forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label>
@@ -91,3 +120,16 @@ export const DropdownMenuLabel = forwardRef<
 ));
 
 DropdownMenuLabel.displayName = DropdownMenuPrimitive.Label.displayName;
+
+export const DropdownMenuSeparator = forwardRef<
+  React.ComponentRef<typeof DropdownMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Separator
+    ref={ref}
+    className={cn("glass-divider -mx-1 my-1 h-px bg-border/50", className)}
+    {...props}
+  />
+));
+
+DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName;

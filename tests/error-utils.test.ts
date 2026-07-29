@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { isPersistentRuntimeError } from "../src/renderer/src/app/errorUtils";
 import { loadTranslations, localizeErrorMessage } from "../src/renderer/src/i18n";
 
 describe("renderer error localization", () => {
@@ -41,6 +42,29 @@ describe("renderer error localization", () => {
     );
     expect(localizeErrorMessage(message, "zh-CN")).toBe(
       "无法加载游戏页面。请检查操作系统网络设置或游戏加速器模式。"
+    );
+  });
+
+  it("keeps unverified native surface release failures visible", async () => {
+    const message =
+      "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.";
+    await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);
+
+    expect(isPersistentRuntimeError({
+      code: "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+      message
+    })).toBe(true);
+    expect(isPersistentRuntimeError(new Error(message))).toBe(true);
+    expect(isPersistentRuntimeError(message)).toBe(true);
+    expect(isPersistentRuntimeError({ code: "ROLE_NOT_FOUND", message: "Role not found." })).toBe(false);
+    expect(localizeErrorMessage(message, "zh-TW")).toBe(
+      "無法確認角色的原生遊戲頁面已停止。分頁已保留，請重試或重新啟動 Rion Studio。"
+    );
+    expect(localizeErrorMessage(message, "zh-CN")).toBe(
+      "无法确认角色的原生游戏页面已停止。分页已保留，请重试或重新启动 Rion Studio。"
+    );
+    expect(localizeErrorMessage(message, "ja")).toBe(
+      "ネイティブのゲームページが停止したことを確認できませんでした。タブは保持されています。再試行するか、Rion Studio を再起動してください。"
     );
   });
 

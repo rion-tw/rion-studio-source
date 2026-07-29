@@ -4,6 +4,15 @@ import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "../../components/ui/dropdown-menu";
 import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
 import type { LegalDocumentKind } from "../legal/legalDocuments";
 import { Input } from "../../components/ui/input";
@@ -831,7 +840,6 @@ function BrowserFontsSettingsRows({
   const [availableFonts, setAvailableFonts] = useState<SystemFontFamily[]>(systemFonts);
   const [catalog, setCatalog] = useState<BrowserFontCatalogEntry[]>([]);
   const [category, setCategory] = useState<"all" | BrowserFontCategory>("all");
-  const [fontSearch, setFontSearch] = useState("");
   const [isLoadingFonts, setIsLoadingFonts] = useState(systemFonts.length === 0);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1099,7 +1107,8 @@ function BrowserFontsSettingsRows({
       />
 
       {isExpanded ? (
-        <div className="glass-divider border-b border-t bg-background/[0.08] px-4 pb-4 pt-4">
+        <div className="glass-divider border-b bg-background/[0.08] px-4 pb-4">
+          <div className="mb-4 h-px bg-border/35" />
           <div className="grid gap-4">
             <StatusCallout className="leading-5" tone="warning">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -1150,17 +1159,10 @@ function BrowserFontsSettingsRows({
               </div>
 
               <div className="grid gap-3 rounded-md border border-border/25 bg-muted/[0.07] p-3">
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <label className="relative min-w-0 flex-1">
-                    <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-                    <Input
-                      className="pl-8"
-                      disabled={isSaving}
-                      placeholder={t("settings.browserFontsSearchPlaceholder")}
-                      value={fontSearch}
-                      onChange={(event) => setFontSearch(event.target.value)}
-                    />
-                  </label>
+                <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-end">
+                  <span className="text-caption font-semibold text-muted-foreground">
+                    {t("settings.browserFontsCategory")}
+                  </span>
                   <Select
                     disabled={isSaving}
                     value={category}
@@ -1191,7 +1193,6 @@ function BrowserFontsSettingsRows({
                       disabled={isSaving}
                       label={t(browserFontSlotLabelKeys[slot])}
                       description={t(browserFontSlotDescriptionKeys[slot])}
-                      search={fontSearch}
                       selection={draft.fonts.slots[slot]}
                       slot={slot}
                       systemFonts={fontOptions}
@@ -1384,7 +1385,6 @@ interface BrowserFontSelectionPickerProps {
   disabled: boolean;
   label: string;
   description: string;
-  search: string;
   selection?: BrowserFontSelection;
   slot: BrowserFontSlot;
   systemFonts: SystemFontFamily[];
@@ -1399,62 +1399,160 @@ function BrowserFontSelectionPicker({
   disabled,
   label,
   description,
-  search,
   selection,
   slot,
   systemFonts,
   t,
   onChange
 }: BrowserFontSelectionPickerProps): JSX.Element {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const query = search.trim().toLocaleLowerCase();
-  const selectedCatalogId = selection?.source === "google" ? selection.catalogId : undefined;
-  const selectedSystemFamily = selection?.source === "system" ? selection.family : undefined;
-  const filteredSystemFonts = systemFonts.filter(
-    (font) => !query || font.family.toLocaleLowerCase().includes(query) || font.label.toLocaleLowerCase().includes(query)
-  );
-  const filteredCatalog = catalog.filter((font) => {
-    const matchesSearch = !query || font.family.toLocaleLowerCase().includes(query);
-    const matchesCategory = category === "all" || font.category === category;
-    const matchesScript = slot !== "cjk" || font.scripts.includes(cjkVariant);
-    return font.catalogId === selectedCatalogId || (matchesSearch && matchesCategory && matchesScript);
-  });
+  const filteredSystemFonts = systemFonts
+    .filter(
+      (font) =>
+        !query ||
+        font.family.toLocaleLowerCase().includes(query) ||
+        font.label.toLocaleLowerCase().includes(query)
+    )
+    .sort((left, right) => left.label.localeCompare(right.label));
+  const filteredCatalog = catalog
+    .filter((font) => {
+      const matchesSearch =
+        !query ||
+        font.family.toLocaleLowerCase().includes(query) ||
+        font.catalogId.toLocaleLowerCase().includes(query);
+      const matchesCategory = category === "all" || font.category === category;
+      const matchesScript = slot !== "cjk" || font.scripts.includes(cjkVariant);
+      return matchesSearch && matchesCategory && matchesScript;
+    })
+    .sort((left, right) => left.family.localeCompare(right.family));
   const value = browserFontSelectionValue(selection);
+  const selectedLabel = browserFontSelectionLabel(selection, systemFonts, catalog, t);
+  const hasFontResults = filteredSystemFonts.length > 0 || filteredCatalog.length > 0;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const animationFrame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [isOpen]);
+
+  function handleOpenChange(nextOpen: boolean): void {
+    setIsOpen(nextOpen);
+    if (!nextOpen) setSearch("");
+  }
+
+  function handleValueChange(nextValue: string): void {
+    onChange(slot, parseBrowserFontSelectionValue(nextValue));
+    setSearch("");
+    setIsOpen(false);
+  }
 
   return (
-    <label className="grid min-w-0 gap-1.5 rounded-md border border-border/20 bg-background/[0.12] p-2.5">
+    <div className="grid min-w-0 gap-1.5 rounded-md border border-border/20 bg-background/[0.12] p-2.5">
       <span className="text-xs font-semibold leading-5 text-foreground">{label}</span>
       <span className="min-h-8 text-micro text-muted-foreground">{description}</span>
-      <Select
-        disabled={disabled}
-        value={value}
-        onValueChange={(nextValue) => onChange(slot, parseBrowserFontSelectionValue(nextValue))}
-      >
-        <SelectTrigger className="w-full" aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent position="popper">
-          <SelectItem value="fallback">{t("settings.browserFontsFallback")}</SelectItem>
-          {selectedSystemFamily && !filteredSystemFonts.some((font) => font.family === selectedSystemFamily) ? (
-            <SelectItem value={`system:${selectedSystemFamily}`}>{selectedSystemFamily}</SelectItem>
-          ) : null}
-          {selectedCatalogId && !filteredCatalog.some((font) => font.catalogId === selectedCatalogId) ? (
-            <SelectItem value={`google:${selectedCatalogId}`}>{selectedCatalogId}</SelectItem>
-          ) : null}
-          {filteredSystemFonts.map((font) => (
-            <SelectItem key={`system:${font.family}`} value={`system:${font.family}`}>
-              {font.label} · {t("settings.browserFontsSourceSystem")}
-            </SelectItem>
-          ))}
-          {filteredCatalog.map((font) => (
-            <SelectItem key={`google:${font.catalogId}`} value={`google:${font.catalogId}`}>
-              {font.family} · {font.installed
-                ? t("settings.browserFontsInstalled")
-                : t("settings.browserFontsNotDownloaded")}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </label>
+      <DropdownMenu open={isOpen} onOpenChange={handleOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between overflow-hidden px-2.5 font-normal"
+            aria-label={label}
+            disabled={disabled}
+          >
+            <span className="min-w-0 flex-1 truncate text-left">{selectedLabel}</span>
+            <ChevronDown
+              className={isOpen ? "size-3 rotate-180 transition-transform duration-150" : "size-3 transition-transform duration-150"}
+              aria-hidden="true"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-64 max-w-[calc(100vw-1rem)] p-0"
+        >
+          <div className="relative p-1.5">
+            <Search className="pointer-events-none absolute left-4 top-3.5 size-3.5 text-muted-foreground" aria-hidden="true" />
+            <Input
+              ref={searchInputRef}
+              className="pl-8"
+              aria-label={t("settings.browserFontsSearchForSlot").replace("{slot}", label)}
+              placeholder={t("settings.browserFontsSearchPlaceholder")}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  const firstResult = resultsRef.current?.querySelector<HTMLElement>(
+                    query
+                      ? '[data-font-option]:not([data-disabled])'
+                      : '[role="menuitemradio"]:not([data-disabled])'
+                  );
+                  if (firstResult) {
+                    event.preventDefault();
+                    firstResult.focus();
+                  }
+                  return;
+                }
+                if (event.key !== "Escape" && event.key !== "Tab") {
+                  event.stopPropagation();
+                }
+              }}
+            />
+          </div>
+          <DropdownMenuSeparator className="m-0" />
+          <div ref={resultsRef} className="max-h-60 overflow-y-auto p-1">
+            <DropdownMenuRadioGroup value={value} onValueChange={handleValueChange}>
+              <DropdownMenuRadioItem value="fallback">
+                {t("settings.browserFontsFallback")}
+              </DropdownMenuRadioItem>
+
+              {filteredSystemFonts.length > 0 ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{t("settings.browserFontsSourceSystem")}</DropdownMenuLabel>
+                  {filteredSystemFonts.map((font) => (
+                    <DropdownMenuRadioItem
+                      key={`system:${font.family}`}
+                      value={`system:${font.family}`}
+                      data-font-option
+                    >
+                      {font.label} · {t("settings.browserFontsSourceSystem")}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </>
+              ) : null}
+
+              {filteredCatalog.length > 0 ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{t("settings.browserFontsSourceGoogle")}</DropdownMenuLabel>
+                  {filteredCatalog.map((font) => (
+                    <DropdownMenuRadioItem
+                      key={`google:${font.catalogId}`}
+                      value={`google:${font.catalogId}`}
+                      data-font-option
+                    >
+                      {font.family} · {font.installed
+                        ? t("settings.browserFontsInstalled")
+                        : t("settings.browserFontsNotDownloaded")}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </>
+              ) : null}
+
+              {!hasFontResults ? (
+                <p role="status" className="px-2 py-3 text-center text-caption text-muted-foreground">
+                  {t("settings.browserFontsNoResults")}
+                </p>
+              ) : null}
+            </DropdownMenuRadioGroup>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -1742,6 +1840,25 @@ function browserFontSelectionValue(selection?: BrowserFontSelection): string {
   return selection.source === "system"
     ? `system:${selection.family}`
     : `google:${selection.catalogId}`;
+}
+
+function browserFontSelectionLabel(
+  selection: BrowserFontSelection | undefined,
+  systemFonts: SystemFontFamily[],
+  catalog: BrowserFontCatalogEntry[],
+  t: Translator
+): string {
+  if (!selection) return t("settings.browserFontsFallback");
+  if (selection.source === "system") {
+    const font = systemFonts.find((candidate) => candidate.family === selection.family);
+    return `${font?.label ?? selection.family} · ${t("settings.browserFontsSourceSystem")}`;
+  }
+
+  const font = catalog.find((candidate) => candidate.catalogId === selection.catalogId);
+  const status = font?.installed
+    ? t("settings.browserFontsInstalled")
+    : t("settings.browserFontsNotDownloaded");
+  return `${font?.family ?? selection.catalogId} · ${status}`;
 }
 
 function parseBrowserFontSelectionValue(value: string): BrowserFontSelection | undefined {

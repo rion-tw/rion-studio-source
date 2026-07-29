@@ -20,9 +20,9 @@ use rion_core::{
     EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
     GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowRoleViewRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
-    LayoutRect, LayoutRoleInput, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
-    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, SessionCookieRecord,
-    SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
+    LayoutRect, LayoutRoleInput, LogCaptureRecord, LogLevel, LogSource, ResolvedBrowserEngine,
+    RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
+    SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
     StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
     SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
@@ -60,6 +60,7 @@ static MACOS_KEY_DISPATCH_STATE: std::sync::OnceLock<Mutex<Option<String>>> =
     std::sync::OnceLock::new();
 static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
@@ -375,9 +376,17 @@ struct RoleSurface {
     local_storage_sync_sequence: u64,
     navigation: Arc<NavigationTracker>,
     rect: rion_core::StateNormalizedRectRecord,
+    surface_instance_id: String,
     webview: Webview,
     zoom_factor: f64,
     zoom_mode: String,
+}
+
+struct ReleasedRoleSurface {
+    role_id: String,
+    surface_instance_id: String,
+    tab_id: String,
+    webview_label: String,
 }
 
 #[derive(Default)]
@@ -385,12 +394,17 @@ struct SurfaceReleaseState {
     #[cfg_attr(not(windows), allow(dead_code))]
     browser_process_exited: bool,
     controller_released: bool,
+    native_surface_released: bool,
 }
 
 #[derive(Default)]
 struct SurfaceLifecycleTracker {
     #[cfg(windows)]
     browser_process_id: AtomicU64,
+    #[cfg(windows)]
+    controller_identity: AtomicU64,
+    #[cfg(target_os = "macos")]
+    native_token: AtomicU64,
     changed: Condvar,
     release: Mutex<SurfaceReleaseState>,
 }
@@ -400,6 +414,7 @@ impl SurfaceLifecycleTracker {
     fn mark_browser_process_exited(&self) {
         if let Ok(mut release) = self.release.lock() {
             release.browser_process_exited = true;
+            release.native_surface_released = true;
             self.changed.notify_all();
         }
     }
@@ -407,6 +422,13 @@ impl SurfaceLifecycleTracker {
     fn mark_controller_released(&self) {
         if let Ok(mut release) = self.release.lock() {
             release.controller_released = true;
+            self.changed.notify_all();
+        }
+    }
+
+    fn mark_native_surface_released(&self) {
+        if let Ok(mut release) = self.release.lock() {
+            release.native_surface_released = true;
             self.changed.notify_all();
         }
     }
@@ -448,7 +470,89 @@ impl SurfaceLifecycleTracker {
 }
 
 fn surface_release_complete(platform: &str, release: &SurfaceReleaseState) -> bool {
-    matches!(platform, "windows" | "macos") && release.controller_released
+    match platform {
+        "windows" => release.controller_released && release.native_surface_released,
+        "macos" => release.controller_released && release.native_surface_released,
+        _ => release.controller_released,
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_surface_identity_matches(
+    expected_controller: u64,
+    actual_controller: u64,
+    expected_process_id: u32,
+    actual_process_id: u32,
+) -> bool {
+    expected_controller != 0
+        && expected_controller == actual_controller
+        && expected_process_id != 0
+        && expected_process_id == actual_process_id
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ManagedSurfaceKind {
+    Divider,
+    Popup,
+    Recovery,
+    Role,
+}
+
+impl ManagedSurfaceKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Divider => "divider",
+            Self::Popup => "popup",
+            Self::Recovery => "recovery",
+            Self::Role => "role",
+        }
+    }
+}
+
+const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
+    match kind {
+        ManagedSurfaceKind::Popup => 0,
+        ManagedSurfaceKind::Recovery => 1,
+        ManagedSurfaceKind::Role => 2,
+        ManagedSurfaceKind::Divider => 3,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ManagedSurfacePhase {
+    Active,
+    Closing,
+    Provisional,
+    Retired,
+}
+
+impl ManagedSurfacePhase {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Closing => "closing",
+            Self::Provisional => "provisional",
+            Self::Retired => "retired",
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ManagedSurface {
+    generation: u64,
+    instance_id: String,
+    kind: ManagedSurfaceKind,
+    lifecycle: Arc<SurfaceLifecycleTracker>,
+    phase: ManagedSurfacePhase,
+    role_id: Option<String>,
+    tab_id: Option<String>,
+    webview: Webview,
+    window_id: String,
+}
+
+fn next_surface_instance_id(label: &str) -> String {
+    let sequence = SURFACE_INSTANCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{label}:{sequence}")
 }
 
 fn surface_generation_is_current(active: u64, reported: u64) -> bool {
@@ -773,6 +877,7 @@ fn runtime_tab_is_audible(state: &RuntimeState, tab: &RuntimeTab) -> bool {
 struct RuntimeDivider {
     descriptor: WorkspaceDividerDescriptor,
     index: u32,
+    surface_instance_id: String,
     webview: Webview,
 }
 
@@ -835,6 +940,7 @@ struct RuntimeState {
     recovering_roles: HashSet<String>,
     role_tabs: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
+    surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
 }
@@ -1331,6 +1437,146 @@ impl SystemRuntimeExecutor {
         platform_surface_lifecycle_tracker(webview)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn register_managed_surface(
+        &self,
+        webview: &Webview,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+        kind: ManagedSurfaceKind,
+        phase: ManagedSurfacePhase,
+        role_id: Option<&str>,
+        tab_id: Option<&str>,
+        window_id: &str,
+        generation: u64,
+    ) -> RuntimeResult<String> {
+        let instance_id = next_surface_instance_id(webview.label());
+        let surface = ManagedSurface {
+            generation,
+            instance_id: instance_id.clone(),
+            kind,
+            lifecycle: Arc::clone(lifecycle),
+            phase,
+            role_id: role_id.map(str::to_owned),
+            tab_id: tab_id.map(str::to_owned),
+            webview: webview.clone(),
+            window_id: window_id.to_owned(),
+        };
+        self.state()?
+            .surface_registry
+            .insert(instance_id.clone(), surface.clone());
+        self.record_surface_event(
+            LogLevel::Debug,
+            "surface.registered",
+            "Native surface registered.",
+            &surface,
+        );
+        Ok(instance_id)
+    }
+
+    fn managed_surface(&self, instance_id: &str) -> RuntimeResult<ManagedSurface> {
+        self.state()?
+            .surface_registry
+            .get(instance_id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_REGISTRY_MISSING",
+                    "The native surface registry entry is missing.",
+                )
+            })
+    }
+
+    fn managed_surface_ids_for_role(&self, role_id: &str) -> RuntimeResult<Vec<String>> {
+        let mut surfaces = self
+            .state()?
+            .surface_registry
+            .values()
+            .filter(|surface| surface.role_id.as_deref() == Some(role_id))
+            .map(|surface| {
+                let order = managed_surface_close_priority(surface.kind);
+                (order, surface.instance_id.clone())
+            })
+            .collect::<Vec<_>>();
+        surfaces.sort();
+        Ok(surfaces
+            .into_iter()
+            .map(|(_, instance_id)| instance_id)
+            .collect())
+    }
+
+    fn set_managed_surface_phase(
+        &self,
+        instance_id: &str,
+        phase: ManagedSurfacePhase,
+    ) -> RuntimeResult<()> {
+        let surface = {
+            let mut state = self.state()?;
+            let surface = state.surface_registry.get_mut(instance_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_REGISTRY_MISSING",
+                    "The native surface registry entry is missing.",
+                )
+            })?;
+            surface.phase = phase;
+            surface.clone()
+        };
+        self.record_surface_event(
+            LogLevel::Debug,
+            "surface.phase",
+            "Native surface phase changed.",
+            &surface,
+        );
+        Ok(())
+    }
+
+    fn remove_managed_surface(&self, instance_id: &str) -> RuntimeResult<()> {
+        let removed = self.state()?.surface_registry.remove(instance_id);
+        if let Some(surface) = removed {
+            self.record_surface_event(
+                LogLevel::Debug,
+                "surface.released",
+                "Native surface release confirmed.",
+                &surface,
+            );
+        }
+        Ok(())
+    }
+
+    fn record_surface_event(
+        &self,
+        level: LogLevel,
+        event: &'static str,
+        message: &'static str,
+        surface: &ManagedSurface,
+    ) {
+        let core = Arc::clone(&self.core);
+        let context = json!({
+            "generation": surface.generation,
+            "instanceId": surface.instance_id,
+            "kind": surface.kind.as_str(),
+            "phase": surface.phase.as_str(),
+            "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+            "roleId": surface.role_id,
+            "tabId": surface.tab_id,
+            "webviewLabel": surface.webview.label(),
+            "windowId": surface.window_id,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level,
+                        source: LogSource::Browser,
+                        event: event.to_owned(),
+                        message: message.to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
     pub fn set_language(&self, language: &str) {
         if matches!(language, "en" | "zh-TW" | "zh-CN" | "ja") {
             if let Ok(mut current) = self.language.lock() {
@@ -1543,7 +1789,7 @@ impl SystemRuntimeExecutor {
                 return Err(self.provisional_move_error(error.to_string(), rollback_errors));
             }
         }
-        let source_is_empty = {
+        let (source_is_empty, moved_surfaces) = {
             let mut state = match self.state.lock() {
                 Ok(state) => state,
                 Err(_) => {
@@ -1607,11 +1853,31 @@ impl SystemRuntimeExecutor {
                 ));
             }
             tab.window_id = target_window_id.to_owned();
-            !state
+            for surface in state.surface_registry.values_mut() {
+                if surface.tab_id.as_deref() == Some(tab_id) {
+                    surface.window_id = target_window_id.to_owned();
+                }
+            }
+            let moved_surfaces = state
+                .surface_registry
+                .values()
+                .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            let source_is_empty = !state
                 .tabs
                 .values()
-                .any(|tab| tab.window_id == source_window_id)
+                .any(|tab| tab.window_id == source_window_id);
+            (source_is_empty, moved_surfaces)
         };
+        for surface in &moved_surfaces {
+            self.record_surface_event(
+                LogLevel::Debug,
+                "surface.moved",
+                "Native surface ownership moved to another window.",
+                surface,
+            );
+        }
         let reveal_result = (|| {
             self.layout_runtime_tab(tab_id)
                 .map_err(|error| error.message)?;
@@ -1662,6 +1928,7 @@ impl SystemRuntimeExecutor {
         target_window_was_visible: bool,
     ) -> Vec<String> {
         let mut errors = Vec::new();
+        let mut rolled_back_surfaces = Vec::new();
         if reparent_attempted > 0 {
             for surface in surfaces {
                 if let Err(error) = surface.hide() {
@@ -1679,11 +1946,25 @@ impl SystemRuntimeExecutor {
                 Ok(mut state) => match state.tabs.get_mut(tab_id) {
                     Some(tab) if tab.window_id == target_window_id => {
                         tab.window_id = source_window_id.to_owned();
+                        for surface in state.surface_registry.values_mut() {
+                            if surface.tab_id.as_deref() == Some(tab_id) {
+                                surface.window_id = source_window_id.to_owned();
+                                rolled_back_surfaces.push(surface.clone());
+                            }
+                        }
                     }
                     Some(_) => errors.push("runtime tab host changed during rollback".to_owned()),
                     None => errors.push("runtime tab disappeared during rollback".to_owned()),
                 },
                 Err(_) => errors.push("runtime state lock was poisoned during rollback".to_owned()),
+            }
+            for surface in &rolled_back_surfaces {
+                self.record_surface_event(
+                    LogLevel::Warn,
+                    "surface.move-rolled-back",
+                    "Native surface ownership move was rolled back.",
+                    surface,
+                );
             }
             if let Err(error) = self.layout_runtime_tab(tab_id) {
                 errors.push(format!("layout: {}", error.message));
@@ -3895,10 +4176,19 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn forget_popup(&self, window_label: &str) {
-        let role_id = {
+        let (role_id, released_surfaces) = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
+            let released_surfaces = state
+                .surface_registry
+                .values()
+                .filter(|surface| {
+                    surface.kind == ManagedSurfaceKind::Popup
+                        && surface.webview.label() == window_label
+                })
+                .map(|surface| (surface.instance_id.clone(), Arc::clone(&surface.lifecycle)))
+                .collect::<Vec<_>>();
             let role_id = state.popup_roles.remove(window_label);
             state.audible_webviews.remove(window_label);
             state.overlay_capabilities.remove(window_label);
@@ -3909,8 +4199,23 @@ impl SystemRuntimeExecutor {
             state
                 .pending_macro_release_navigations
                 .retain(|(label, _)| label != window_label);
-            role_id
+            (role_id, released_surfaces)
         };
+        let platform = if cfg!(windows) {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "other"
+        };
+        for (instance_id, lifecycle) in released_surfaces {
+            lifecycle.mark_controller_released();
+            #[cfg(windows)]
+            lifecycle.mark_native_surface_released();
+            if lifecycle.wait_for_controller_release(platform, Duration::ZERO) {
+                let _ = self.remove_managed_surface(&instance_id);
+            }
+        }
         let Some(role_id) = role_id else {
             return;
         };
@@ -4113,26 +4418,71 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    fn register_popup(&self, window_label: String, role_id: String) {
-        let effective_zoom = self.state.lock().ok().and_then(|mut state| {
-            let tab_id = state.role_tabs.get(&role_id)?.clone();
-            let tab = state.tabs.get(&tab_id)?;
-            let role_zoom = tab.roles.get(&role_id)?.zoom_factor;
+    fn register_popup(
+        &self,
+        webview: &Webview,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+        window_label: String,
+        role_id: String,
+        generation: u64,
+    ) -> RuntimeResult<()> {
+        let (tab_id, window_id, effective_zoom) = {
+            let mut state = self.state()?;
+            let tab_id = state.role_tabs.get(&role_id).cloned().ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role was not found while registering its popup.",
+                )
+            })?;
+            let tab = state.tabs.get(&tab_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "Runtime tab was not found while registering its popup.",
+                )
+            })?;
+            let role_zoom = tab
+                .roles
+                .get(&role_id)
+                .map(|role| role.zoom_factor)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                        "Runtime role surface was not found while registering its popup.",
+                    )
+                })?;
+            let window_id = tab.window_id.clone();
             let window_zoom = state
                 .display_hosts
-                .get(&tab.window_id)
+                .get(&window_id)
                 .map(|host| host.zoom_factor)
                 .unwrap_or(1.0);
             state
                 .popup_roles
                 .insert(window_label.clone(), role_id.clone());
-            Some(effective_zoom_factor(role_zoom, window_zoom))
-        });
-        if let Some(effective_zoom) = effective_zoom
-            && let Some(webview) = self.app.get_webview(&window_label)
-        {
-            let _ = webview.set_zoom(effective_zoom);
+            (
+                tab_id,
+                window_id,
+                effective_zoom_factor(role_zoom, window_zoom),
+            )
+        };
+        if let Err(error) = self.register_managed_surface(
+            webview,
+            lifecycle,
+            ManagedSurfaceKind::Popup,
+            ManagedSurfacePhase::Active,
+            Some(&role_id),
+            Some(&tab_id),
+            &window_id,
+            generation,
+        ) {
+            if let Ok(mut state) = self.state.lock() {
+                state.popup_roles.remove(&window_label);
+            }
+            return Err(error);
         }
+        webview
+            .set_zoom(effective_zoom)
+            .map_err(RuntimeError::tauri)
     }
 
     fn schedule_surface_recovery(
@@ -4251,7 +4601,9 @@ impl SystemRuntimeExecutor {
         })?;
         let (
             tab_id,
+            window_id,
             window,
+            old_surface_instance_id,
             old_webview_label,
             expected_generation,
             rect,
@@ -4272,6 +4624,7 @@ impl SystemRuntimeExecutor {
             })?;
             let (
                 window_id,
+                old_surface_instance_id,
                 old_webview_label,
                 expected_generation,
                 rect,
@@ -4298,6 +4651,7 @@ impl SystemRuntimeExecutor {
                 })?;
                 (
                     tab.window_id.clone(),
+                    role.surface_instance_id.clone(),
                     role.webview.label().to_owned(),
                     role.generation,
                     role.rect.clone(),
@@ -4325,7 +4679,9 @@ impl SystemRuntimeExecutor {
                 .saturating_add(1);
             (
                 tab_id,
+                window_id,
                 window,
+                old_surface_instance_id,
                 old_webview_label,
                 expected_generation,
                 rect,
@@ -4404,9 +4760,25 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
+        let replacement_instance_id = match self.register_managed_surface(
+            &webview,
+            &lifecycle,
+            ManagedSurfaceKind::Recovery,
+            ManagedSurfacePhase::Provisional,
+            Some(role_id),
+            Some(&tab_id),
+            &window_id,
+            generation,
+        ) {
+            Ok(instance_id) => instance_id,
+            Err(error) => {
+                let _ = webview.close();
+                let _ = wait_for_tauri_main_thread(&self.app);
+                return Err(error);
+            }
+        };
         let preparation = (|| -> RuntimeResult<()> {
-            // Prepare the replacement off-screen. The current surface remains authoritative
-            // until every fallible creation, security, navigation and audio step has succeeded.
+            // The replacement remains about:blank until the old native surface is gone.
             webview.hide().map_err(RuntimeError::tauri)?;
             install_platform_security_policy(&webview)?;
             install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
@@ -4421,86 +4793,145 @@ impl SystemRuntimeExecutor {
             webview
                 .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
                 .map_err(RuntimeError::tauri)?;
-            let controlled_label = webview.label().to_owned();
-            self.begin_controlled_navigation(&controlled_label)?;
-            let navigation_result = (|| -> RuntimeResult<()> {
-                navigation.reset();
-                webview
-                    .navigate(current_url.clone())
-                    .map_err(RuntimeError::tauri)?;
-                navigation
-                    .wait()
-                    .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))
-            })();
-            self.finish_controlled_navigations(&[controlled_label]);
-            navigation_result?;
-            if audio_muted {
-                set_audio_muted(&webview, true)?;
-            }
             Ok(())
         })();
         if let Err(error) = preparation {
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
         }
-        if tab_visible && let Err(error) = webview.show() {
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
-            return Err(RuntimeError::tauri(error));
-        }
         let replacement_label = webview.label().to_owned();
-        let mut state = match self.state() {
-            Ok(state) => state,
+        let popup_labels = (|| -> RuntimeResult<Vec<String>> {
+            let state = self.state()?;
+            let active_tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role stopped while its System WebView was recovering.",
+                )
+            })?;
+            let active_surface = state
+                .tabs
+                .get(active_tab_id)
+                .and_then(|tab| tab.roles.get(role_id))
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                        "Runtime role stopped while its System WebView was recovering.",
+                    )
+                })?;
+            if active_tab_id != &tab_id
+                || active_surface.surface_instance_id != old_surface_instance_id
+                || !surface_recovery_swap_is_current(
+                    active_surface.webview.label(),
+                    &old_webview_label,
+                    active_surface.generation,
+                    expected_generation,
+                )
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RECOVERY_STALE",
+                    "A newer System WebView surface superseded this recovery attempt.",
+                ));
+            }
+            Ok(state
+                .popup_roles
+                .iter()
+                .filter(|(_, popup_role_id)| *popup_role_id == role_id)
+                .map(|(label, _)| label.clone())
+                .collect::<Vec<_>>())
+        })();
+        let popup_labels = match popup_labels {
+            Ok(labels) => labels,
             Err(error) => {
-                let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+                let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
                 return Err(error);
             }
         };
-        let Some(active_tab_id) = state.role_tabs.get(role_id).cloned() else {
-            drop(state);
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
-            return Err(RuntimeError::new(
-                "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                "Runtime role stopped while its System WebView was recovering.",
-            ));
-        };
-        if active_tab_id != tab_id {
-            drop(state);
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
-            return Err(RuntimeError::new(
-                "SYSTEM_SURFACE_RECOVERY_STALE",
-                "Runtime role moved while its System WebView was recovering.",
-            ));
+
+        for label in popup_labels {
+            if let Err(error) = self.close_popup_and_wait(&label, role_id) {
+                let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+                return Err(error);
+            }
+            self.forget_popup(&label);
         }
-        let Some(tab) = state.tabs.get_mut(&tab_id) else {
-            drop(state);
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
-            return Err(RuntimeError::new(
-                "TAURI_RUNTIME_TAB_NOT_FOUND",
-                "Runtime tab was not found.",
-            ));
-        };
-        let Some(active_surface) = tab.roles.get(role_id) else {
-            drop(state);
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
-            return Err(RuntimeError::new(
+
+        if let Err(error) =
+            self.set_managed_surface_phase(&old_surface_instance_id, ManagedSurfacePhase::Retired)
+        {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+        let old_close = self.close_managed_surface_and_wait(&old_surface_instance_id, role_id);
+        if let Err(error) = old_close {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+
+        let controlled_label = replacement_label.clone();
+        if let Err(error) = self.begin_controlled_navigation(&controlled_label) {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+        navigation.reset();
+        let navigation_result = webview
+            .navigate(current_url.clone())
+            .map_err(RuntimeError::tauri)
+            .and_then(|()| {
+                navigation
+                    .wait()
+                    .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))
+            });
+        self.finish_controlled_navigations(&[controlled_label]);
+        if let Err(error) = navigation_result {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+        if audio_muted && let Err(error) = set_audio_muted(&webview, true) {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+        if tab_visible && let Err(error) = webview.show() {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(RuntimeError::tauri(error));
+        }
+
+        let mut state = self.state()?;
+        let active_tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
+            RuntimeError::new(
                 "TAURI_RUNTIME_ROLE_NOT_FOUND",
                 "Runtime role stopped while its System WebView was recovering.",
-            ));
-        };
-        if !surface_recovery_swap_is_current(
-            active_surface.webview.label(),
-            &old_webview_label,
-            active_surface.generation,
-            expected_generation,
-        ) {
+            )
+        })?;
+        let active_surface = state
+            .tabs
+            .get(&active_tab_id)
+            .and_then(|tab| tab.roles.get(role_id))
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role stopped while its System WebView was recovering.",
+                )
+            })?;
+        if active_tab_id != tab_id
+            || active_surface.surface_instance_id != old_surface_instance_id
+            || !surface_recovery_swap_is_current(
+                active_surface.webview.label(),
+                &old_webview_label,
+                active_surface.generation,
+                expected_generation,
+            )
+        {
             drop(state);
-            let _ = self.close_surface_and_wait(&webview, &lifecycle, role_id);
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(RuntimeError::new(
                 "SYSTEM_SURFACE_RECOVERY_STALE",
                 "A newer System WebView surface superseded this recovery attempt.",
             ));
         }
-        let old_surface = tab
+        state
+            .tabs
+            .get_mut(&tab_id)
+            .expect("the recovery tab was validated above")
             .roles
             .insert(
                 role_id.to_owned(),
@@ -4513,58 +4944,26 @@ impl SystemRuntimeExecutor {
                     local_storage_sync_sequence: 0,
                     navigation,
                     rect,
+                    surface_instance_id: replacement_instance_id.clone(),
                     webview,
                     zoom_factor,
                     zoom_mode,
                 },
-            )
-            .expect("the recovery role was validated above");
+            );
         state
             .recovery_generations
             .insert(role_id.to_owned(), generation);
-        let popup_labels = state
-            .popup_roles
-            .iter()
-            .filter(|(_, popup_role_id)| *popup_role_id == role_id)
-            .map(|(label, _)| label.clone())
-            .collect::<Vec<_>>();
-        drop(state);
-
-        for label in popup_labels {
-            let close_error = self
-                .app
-                .get_webview_window(&label)
-                .map(|window| window.close().map_err(|error| error.to_string()))
-                .unwrap_or(Ok(()))
-                .err();
-            if close_error.is_none() {
-                self.forget_popup(&label);
-            } else {
-                let _ = self.app.emit(
-                    "rion://shell-error",
-                    json!({
-                        "code": "SYSTEM_POPUP_RECOVERY_CLEANUP_FAILED",
-                        "message": "A popup from the failed System WebView could not be closed.",
-                        "roleId": role_id,
-                        "webviewLabel": label,
-                        "closeError": close_error
-                    }),
-                );
-            }
+        if let Some(surface) = state.surface_registry.get_mut(&replacement_instance_id) {
+            surface.kind = ManagedSurfaceKind::Role;
+            surface.phase = ManagedSurfacePhase::Active;
         }
-
-        if let Err(error) =
-            self.close_surface_and_wait(&old_surface.webview, &old_surface.lifecycle, role_id)
-        {
-            let _ = self.app.emit(
-                "rion://shell-error",
-                json!({
-                    "code": "SYSTEM_SURFACE_OLD_CLEANUP_FAILED",
-                    "message": error.message,
-                    "roleId": role_id,
-                    "webviewLabel": old_webview_label,
-                    "replacementLabel": replacement_label
-                }),
+        drop(state);
+        if let Ok(surface) = self.managed_surface(&replacement_instance_id) {
+            self.record_surface_event(
+                LogLevel::Info,
+                "surface.recovered",
+                "Replacement native surface activated after the old surface was released.",
+                &surface,
             );
         }
         Ok(())
@@ -5194,6 +5593,33 @@ impl SystemRuntimeExecutor {
                             }
                             return NewWindowResponse::Deny;
                         };
+                        let lifecycle =
+                            match popup_app.try_state::<crate::CoreState>().map(|state| {
+                                state
+                                    .runtime
+                                    .install_surface_lifecycle_tracker(window.as_ref())
+                            }) {
+                                Some(Ok(lifecycle)) => lifecycle,
+                                Some(Err(error)) => {
+                                    let _ = window.close();
+                                    if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                        state.runtime.revoke_overlay_capability(&label);
+                                    }
+                                    let _ = popup_app.emit(
+                                        "rion://shell-error",
+                                        json!({
+                                            "code": error.code,
+                                            "message": error.message,
+                                            "roleId": role_id
+                                        }),
+                                    );
+                                    return NewWindowResponse::Deny;
+                                }
+                                None => {
+                                    let _ = window.close();
+                                    return NewWindowResponse::Deny;
+                                }
+                            };
                         if let Err(error) = install_process_failure_monitor(
                             window.as_ref(),
                             popup_app.clone(),
@@ -5236,8 +5662,35 @@ impl SystemRuntimeExecutor {
                             );
                             return NewWindowResponse::Deny;
                         }
-                        if let Some(state) = popup_app.try_state::<crate::CoreState>() {
-                            state.runtime.register_popup(label, role_id.clone());
+                        match popup_app.try_state::<crate::CoreState>().map(|state| {
+                            state.runtime.register_popup(
+                                window.as_ref(),
+                                &lifecycle,
+                                label.clone(),
+                                role_id.clone(),
+                                generation,
+                            )
+                        }) {
+                            Some(Ok(())) => {}
+                            Some(Err(error)) => {
+                                let _ = window.close();
+                                if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                    state.runtime.revoke_overlay_capability(&label);
+                                }
+                                let _ = popup_app.emit(
+                                    "rion://shell-error",
+                                    json!({
+                                        "code": error.code,
+                                        "message": error.message,
+                                        "roleId": role_id
+                                    }),
+                                );
+                                return NewWindowResponse::Deny;
+                            }
+                            None => {
+                                let _ = window.close();
+                                return NewWindowResponse::Deny;
+                            }
                         }
                         NewWindowResponse::Create { window }
                     }
@@ -6947,12 +7400,26 @@ impl SystemRuntimeExecutor {
                     &webview,
                     self.configuration.macos_high_refresh_rate,
                 );
-                created_surfaces.push((role_id.clone(), webview.clone(), None));
+                created_surfaces.push((role_id.clone(), webview.clone(), None, None));
                 let lifecycle = self.install_surface_lifecycle_tracker(&webview)?;
                 created_surfaces
                     .last_mut()
                     .expect("role surface was just recorded")
                     .2 = Some(Arc::clone(&lifecycle));
+                let surface_instance_id = self.register_managed_surface(
+                    &webview,
+                    &lifecycle,
+                    ManagedSurfaceKind::Role,
+                    ManagedSurfacePhase::Active,
+                    Some(&role_id),
+                    Some(&tab.tab_id),
+                    &target.window_id,
+                    generation,
+                )?;
+                created_surfaces
+                    .last_mut()
+                    .expect("role surface was just registered")
+                    .3 = Some(surface_instance_id.clone());
                 install_platform_security_policy(&webview)
                     .and_then(|()| install_role_zoom_shortcut_handler(&webview, self.app.clone()))
                     .and_then(|()| {
@@ -6983,6 +7450,7 @@ impl SystemRuntimeExecutor {
                         local_storage_sync_sequence: 0,
                         navigation,
                         rect: role.rect.clone(),
+                        surface_instance_id,
                         webview,
                         zoom_factor: base_zoom_factor,
                         zoom_mode: role.zoom_mode.clone(),
@@ -7005,15 +7473,32 @@ impl SystemRuntimeExecutor {
                     LogicalSize::new(bounds.width, bounds.height),
                     &format!("{}:divider:{index}", tab.tab_id),
                 )?;
-                created_surfaces.push((
-                    format!("{}:divider:{index}", tab.tab_id),
-                    webview.clone(),
+                let lifecycle_id = format!("{}:divider:{index}", tab.tab_id);
+                created_surfaces.push((lifecycle_id.clone(), webview.clone(), None, None));
+                let lifecycle = self.install_surface_lifecycle_tracker(&webview)?;
+                created_surfaces
+                    .last_mut()
+                    .expect("divider surface was just recorded")
+                    .2 = Some(Arc::clone(&lifecycle));
+                let surface_instance_id = self.register_managed_surface(
+                    &webview,
+                    &lifecycle,
+                    ManagedSurfaceKind::Divider,
+                    ManagedSurfacePhase::Active,
                     None,
-                ));
+                    Some(&tab.tab_id),
+                    &target.window_id,
+                    0,
+                )?;
+                created_surfaces
+                    .last_mut()
+                    .expect("divider surface was just registered")
+                    .3 = Some(surface_instance_id.clone());
                 webview.hide().map_err(RuntimeError::tauri)?;
                 dividers.push(RuntimeDivider {
                     descriptor,
                     index,
+                    surface_instance_id,
                     webview,
                 });
             }
@@ -7048,8 +7533,10 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if result.is_err() {
-            for (surface_id, webview, lifecycle) in created_surfaces {
-                if let Some(lifecycle) = lifecycle {
+            for (surface_id, webview, lifecycle, instance_id) in created_surfaces {
+                if let Some(instance_id) = instance_id {
+                    let _ = self.close_managed_surface_and_wait(&instance_id, &surface_id);
+                } else if let Some(lifecycle) = lifecycle {
                     let _ = self.close_surface_and_wait(&webview, &lifecycle, &surface_id);
                 } else {
                     let _ = webview.close();
@@ -7385,7 +7872,7 @@ impl SystemRuntimeExecutor {
             }
         }
 
-        let obsolete_window_ids = {
+        let (obsolete_window_ids, moved_registry_surfaces) = {
             let mut state = self.state()?;
             if let Some(target) = target.as_ref()
                 && let Some(host) = state.display_hosts.get_mut(&target.window_id)
@@ -7396,14 +7883,38 @@ impl SystemRuntimeExecutor {
                 if let Some(runtime_tab) = state.tabs.get_mut(&update.tab_id) {
                     runtime_tab.window_id = update.window_id.clone();
                 }
+                for surface in state.surface_registry.values_mut() {
+                    if surface.tab_id.as_deref() == Some(update.tab_id.as_str()) {
+                        surface.window_id = update.window_id.clone();
+                    }
+                }
             }
-            state
+            let moved_registry_surfaces = state
+                .surface_registry
+                .values()
+                .filter(|surface| {
+                    tab_updates.iter().any(|update| {
+                        update.moved && surface.tab_id.as_deref() == Some(update.tab_id.as_str())
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let obsolete_window_ids = state
                 .display_hosts
                 .keys()
                 .filter(|window_id| !desired_windows.contains(window_id.as_str()))
                 .cloned()
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (obsolete_window_ids, moved_registry_surfaces)
         };
+        for surface in &moved_registry_surfaces {
+            self.record_surface_event(
+                LogLevel::Debug,
+                "surface.moved",
+                "Native surface ownership moved to another window.",
+                surface,
+            );
+        }
 
         if let Some(target) = target.as_ref()
             && let Some(window) = self.window_for_id(&target.window_id)
@@ -7899,43 +8410,78 @@ impl SystemRuntimeExecutor {
             }
         }
         let result = (|| -> RuntimeResult<()> {
-            webview.close().map_err(RuntimeError::tauri)?;
-            wait_for_tauri_main_thread(&self.app)?;
-            let platform = if cfg!(windows) { "windows" } else { "macos" };
+            let surface_is_registered = self.app.get_webview(&label).is_some();
+            let quiesce_error = if surface_is_registered {
+                quiesce_platform_surface(webview, lifecycle).err()
+            } else {
+                None
+            };
+            let mut close_error = None;
+            let mut main_thread_flush_error = None;
+            if surface_is_registered {
+                close_error = webview.close().err().map(|error| error.to_string());
+                main_thread_flush_error = wait_for_tauri_main_thread(&self.app)
+                    .err()
+                    .map(|error| error.message);
+            }
+            let platform = if cfg!(windows) {
+                "windows"
+            } else if cfg!(target_os = "macos") {
+                "macos"
+            } else {
+                "other"
+            };
             let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
             while self.app.get_webview(&label).is_some() {
                 if Instant::now() >= deadline {
-                    self.health.mark_unhealthy();
                     #[cfg(windows)]
                     let browser_process_id = lifecycle.browser_process_id.load(Ordering::Acquire);
                     #[cfg(not(windows))]
                     let browser_process_id = 0;
-                    let message = format!(
-                        "The System WebView surface {label} did not release its native controller within {}ms. Restart Rion Studio before launching another browser role.",
-                        PLATFORM_CALLBACK_TIMEOUT.as_millis()
-                    );
+                    let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
                     let _ = self.app.emit(
                         "rion://shell-error",
                         json!({
                             "browserProcessId": browser_process_id,
-                            "code": "SYSTEM_WEBVIEW_CREATION_STALLED",
+                            "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
                             "failureKind": "controller-release-timeout",
                             "message": message,
                             "roleId": role_id,
-                            "webviewLabel": label
+                            "webviewLabel": label,
+                            "closeError": close_error,
+                            "mainThreadFlushError": main_thread_flush_error,
+                            "quiesceError": quiesce_error.map(|error| error.message)
                         }),
                     );
                     return Err(RuntimeError::new(
-                        "SYSTEM_WEBVIEW_CREATION_STALLED",
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
                         message,
                     ));
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
             lifecycle.mark_controller_released();
-            debug_assert!(
-                lifecycle.wait_for_controller_release(platform, Duration::from_millis(0))
-            );
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if !lifecycle.wait_for_controller_release(platform, remaining) {
+                let message = "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.".to_owned();
+                let _ = self.app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "failureKind": "native-release-timeout",
+                        "message": message,
+                        "roleId": role_id,
+                        "webviewLabel": label,
+                        "closeError": close_error,
+                        "mainThreadFlushError": main_thread_flush_error,
+                        "quiesceError": quiesce_error.map(|error| error.message)
+                    }),
+                );
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    message,
+                ));
+            }
             Ok(())
         })();
         if result.is_ok() {
@@ -7955,63 +8501,58 @@ impl SystemRuntimeExecutor {
         result
     }
 
-    fn close_untracked_webview_and_wait(
+    fn close_managed_surface_and_wait(
         &self,
-        webview: &Webview,
+        instance_id: &str,
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
-        let label = webview.label().to_owned();
-        self.close_webview_label_and_wait(&label, lifecycle_id, || webview.close())
+        let surface = self.managed_surface(instance_id)?;
+        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Closing)?;
+        self.record_surface_event(
+            LogLevel::Info,
+            "surface.close-requested",
+            "Native surface close requested.",
+            &surface,
+        );
+        let result =
+            self.close_surface_and_wait(&surface.webview, &surface.lifecycle, lifecycle_id);
+        if result.is_ok() {
+            self.remove_managed_surface(instance_id)?;
+        } else if let Ok(mut state) = self.state.lock()
+            && let Some(current) = state.surface_registry.get_mut(instance_id)
+        {
+            current.phase = surface.phase;
+        }
+        if let Err(error) = &result {
+            self.record_surface_event(
+                LogLevel::Error,
+                "surface.close-unverified",
+                "Native surface close could not be verified.",
+                &surface,
+            );
+            return Err(RuntimeError::new(error.code, error.message.clone()));
+        }
+        Ok(())
     }
 
     fn close_popup_and_wait(&self, label: &str, role_id: &str) -> RuntimeResult<()> {
-        let window = self.app.get_webview_window(label);
-        self.close_webview_label_and_wait(label, role_id, move || {
-            window.map(|window| window.close()).unwrap_or(Ok(()))
-        })
-    }
-
-    fn close_webview_label_and_wait(
-        &self,
-        label: &str,
-        lifecycle_id: &str,
-        close: impl FnOnce() -> tauri::Result<()>,
-    ) -> RuntimeResult<()> {
-        {
-            let mut state = self.state()?;
-            if !state.closing_webviews.insert(label.to_owned()) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_ALREADY_CLOSING",
-                    "The System WebView surface is already closing.",
-                ));
-            }
-        }
-        let result = (|| -> RuntimeResult<()> {
-            close().map_err(RuntimeError::tauri)?;
-            wait_for_tauri_main_thread(&self.app)?;
-            let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
-            while self.app.get_webview(label).is_some() {
-                if Instant::now() >= deadline {
-                    self.health.mark_unhealthy();
-                    return Err(RuntimeError::new(
-                        "SYSTEM_WEBVIEW_CREATION_STALLED",
-                        format!(
-                            "The System WebView surface {label} did not close within {}ms during {lifecycle_id}.",
-                            PLATFORM_CALLBACK_TIMEOUT.as_millis()
-                        ),
-                    ));
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Ok(())
-        })();
-        if result.is_ok() {
-            self.revoke_overlay_capability(label);
-        }
-        if let Ok(mut state) = self.state.lock() {
-            state.closing_webviews.remove(label);
-        }
-        result
+        let instance_id = self
+            .state()?
+            .surface_registry
+            .values()
+            .find(|surface| {
+                surface.kind == ManagedSurfaceKind::Popup
+                    && surface.role_id.as_deref() == Some(role_id)
+                    && surface.webview.label() == label
+            })
+            .map(|surface| surface.instance_id.clone())
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_REGISTRY_MISSING",
+                    "The popup native surface registry entry is missing.",
+                )
+            })?;
+        self.close_managed_surface_and_wait(&instance_id, role_id)
     }
 
     fn add_child_bounded(
@@ -8290,7 +8831,16 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         expected_tab_id: Option<&str>,
     ) -> RuntimeResult<()> {
-        let (tab_id, webview, lifecycle, webview_label, popup_labels) = {
+        let released = self.release_marked_role_surfaces(role_id, expected_tab_id)?;
+        self.commit_released_role(released)
+    }
+
+    fn release_marked_role_surfaces(
+        &self,
+        role_id: &str,
+        expected_tab_id: Option<&str>,
+    ) -> RuntimeResult<ReleasedRoleSurface> {
+        let (tab_id, webview, lifecycle, surface_instance_id, webview_label, popup_labels) = {
             let state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
@@ -8324,54 +8874,86 @@ impl SystemRuntimeExecutor {
                 tab_id,
                 surface.webview.clone(),
                 Arc::clone(&surface.lifecycle),
+                surface.surface_instance_id.clone(),
                 surface.webview.label().to_owned(),
                 popup_labels,
             )
         };
 
+        self.clear_role_keys(role_id);
         for label in popup_labels {
             self.close_popup_and_wait(&label, role_id)?;
             self.forget_popup(&label);
         }
-        self.clear_role_keys(role_id);
-        self.close_surface_and_wait(&webview, &lifecycle, role_id)?;
+        let surface_ids = self.managed_surface_ids_for_role(role_id)?;
+        if surface_ids.is_empty() {
+            self.close_surface_and_wait(&webview, &lifecycle, role_id)?;
+        } else {
+            for instance_id in surface_ids {
+                self.close_managed_surface_and_wait(&instance_id, role_id)?;
+            }
+        }
+        if !self.managed_surface_ids_for_role(role_id)?.is_empty() {
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+            ));
+        }
 
+        Ok(ReleasedRoleSurface {
+            role_id: role_id.to_owned(),
+            surface_instance_id,
+            tab_id,
+            webview_label,
+        })
+    }
+
+    fn commit_released_role(&self, released: ReleasedRoleSurface) -> RuntimeResult<()> {
         let mut state = self.state()?;
-        let current_tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
-            RuntimeError::new(
-                "SYSTEM_SURFACE_CLOSE_STALE",
-                "The closed runtime role no longer has an authoritative mapping.",
-            )
-        })?;
-        let current_label = state
+        let current_tab_id = state
+            .role_tabs
+            .get(&released.role_id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_CLOSE_STALE",
+                    "The closed runtime role no longer has an authoritative mapping.",
+                )
+            })?;
+        let current_surface = state
             .tabs
-            .get(&tab_id)
-            .and_then(|tab| tab.roles.get(role_id))
-            .map(|surface| surface.webview.label());
-        if current_label.is_none_or(|current_label| {
+            .get(&released.tab_id)
+            .and_then(|tab| tab.roles.get(&released.role_id))
+            .map(|surface| {
+                (
+                    surface.webview.label(),
+                    surface.surface_instance_id.as_str(),
+                )
+            });
+        if current_surface.is_none_or(|(current_label, current_instance_id)| {
             !surface_close_commit_is_current(
                 &current_tab_id,
-                &tab_id,
+                &released.tab_id,
                 current_label,
-                &webview_label,
-            )
+                &released.webview_label,
+            ) || current_instance_id != released.surface_instance_id
         }) {
             return Err(RuntimeError::new(
                 "SYSTEM_SURFACE_CLOSE_STALE",
                 "A newer runtime role surface superseded the closed handle.",
             ));
         }
-        state.role_tabs.remove(role_id);
-        state.audible_webviews.remove(&webview_label);
-        state.recovery_budgets.remove(role_id);
-        state.recovery_generations.remove(role_id);
-        state.recovering_roles.remove(role_id);
+        state.role_tabs.remove(&released.role_id);
+        state.audible_webviews.remove(&released.webview_label);
+        state.recovery_budgets.remove(&released.role_id);
+        state.recovery_generations.remove(&released.role_id);
+        state.recovering_roles.remove(&released.role_id);
         state
             .tabs
-            .get_mut(&tab_id)
+            .get_mut(&released.tab_id)
             .expect("the close transaction validated the runtime tab")
             .roles
-            .remove(role_id);
+            .remove(&released.role_id);
         Ok(())
     }
 
@@ -8447,49 +9029,84 @@ impl SystemRuntimeExecutor {
             state.closing_roles.extend(role_ids.iter().cloned());
         }
         let result = (|| -> RuntimeResult<()> {
+            let mut released_roles = Vec::with_capacity(role_ids.len());
             for role_id in &role_ids {
-                self.destroy_marked_role(role_id, Some(tab_id))?;
+                released_roles.push(self.release_marked_role_surfaces(role_id, Some(tab_id))?);
             }
-            loop {
-                let divider = {
-                    let state = self.state()?;
-                    state
-                        .tabs
-                        .get(tab_id)
-                        .and_then(|tab| tab.dividers.first())
-                        .map(|divider| (divider.index, divider.webview.clone()))
-                };
-                let Some((divider_index, divider)) = divider else {
-                    break;
-                };
-                self.close_untracked_webview_and_wait(&divider, tab_id)?;
-                let mut state = self.state()?;
-                let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
-                    RuntimeError::new(
-                        "SYSTEM_SURFACE_CLOSE_STALE",
-                        "The runtime tab disappeared during divider cleanup.",
-                    )
-                })?;
-                let Some(position) = tab.dividers.iter().position(|candidate| {
-                    candidate.index == divider_index && candidate.webview.label() == divider.label()
-                }) else {
-                    return Err(RuntimeError::new(
-                        "SYSTEM_SURFACE_CLOSE_STALE",
-                        "A newer divider superseded the closed handle.",
-                    ));
-                };
-                tab.dividers.remove(position);
+            let released_dividers = {
+                let state = self.state()?;
+                state
+                    .tabs
+                    .get(tab_id)
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_SURFACE_CLOSE_STALE",
+                            "The runtime tab disappeared during divider cleanup.",
+                        )
+                    })?
+                    .dividers
+                    .iter()
+                    .map(|divider| {
+                        (
+                            divider.index,
+                            divider.surface_instance_id.clone(),
+                            divider.webview.label().to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for (_, instance_id, _) in &released_dividers {
+                self.close_managed_surface_and_wait(instance_id, tab_id)?;
             }
+
             let mut state = self.state()?;
-            let removable = state
-                .tabs
-                .get(tab_id)
-                .is_some_and(|tab| tab.roles.is_empty() && tab.dividers.is_empty());
-            if !removable {
+            if state
+                .surface_registry
+                .values()
+                .any(|surface| surface.tab_id.as_deref() == Some(tab_id))
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "Rion Studio could not verify that every native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+                ));
+            }
+            let current_tab = state.tabs.get(tab_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_CLOSE_STALE",
+                    "The runtime tab disappeared before its close transaction committed.",
+                )
+            })?;
+            let roles_current = current_tab.roles.len() == released_roles.len()
+                && released_roles.iter().all(|released| {
+                    state.role_tabs.get(&released.role_id) == Some(&released.tab_id)
+                        && current_tab
+                            .roles
+                            .get(&released.role_id)
+                            .is_some_and(|surface| {
+                                surface.surface_instance_id == released.surface_instance_id
+                                    && surface.webview.label() == released.webview_label
+                            })
+                });
+            let dividers_current = current_tab.dividers.len() == released_dividers.len()
+                && released_dividers.iter().all(|(index, instance_id, label)| {
+                    current_tab.dividers.iter().any(|divider| {
+                        divider.index == *index
+                            && divider.surface_instance_id == *instance_id
+                            && divider.webview.label() == label
+                    })
+                });
+            if !roles_current || !dividers_current {
                 return Err(RuntimeError::new(
                     "SYSTEM_SURFACE_CLOSE_STALE",
                     "The runtime tab changed before its close transaction committed.",
                 ));
+            }
+            for released in &released_roles {
+                state.role_tabs.remove(&released.role_id);
+                state.audible_webviews.remove(&released.webview_label);
+                state.recovery_budgets.remove(&released.role_id);
+                state.recovery_generations.remove(&released.role_id);
+                state.recovering_roles.remove(&released.role_id);
             }
             state.tabs.remove(tab_id);
             Ok(())
@@ -11266,7 +11883,8 @@ fn platform_surface_lifecycle_tracker(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let result = (|| -> Result<u32, String> {
+            let result = (|| -> Result<(u32, u64), String> {
+                let controller = platform_webview.controller();
                 let core: ICoreWebView2 = platform_webview
                     .controller()
                     .CoreWebView2()
@@ -11288,12 +11906,12 @@ fn platform_surface_lifecycle_tracker(
                 environment
                     .add_BrowserProcessExited(&handler, &mut token)
                     .map_err(|error| error.to_string())?;
-                Ok(browser_process_id)
+                Ok((browser_process_id, controller.as_raw() as usize as u64))
             })();
             let _ = sender.send(result);
         })
         .map_err(RuntimeError::tauri)?;
-    let browser_process_id = receiver
+    let (browser_process_id, controller_identity) = receiver
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|_| {
             RuntimeError::new(
@@ -11305,14 +11923,167 @@ fn platform_surface_lifecycle_tracker(
     tracker
         .browser_process_id
         .store(u64::from(browser_process_id), Ordering::Release);
+    tracker
+        .controller_identity
+        .store(controller_identity, Ordering::Release);
     Ok(tracker)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_surface_released(context: *mut std::ffi::c_void) {
+    if context.is_null() {
+        return;
+    }
+    let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
+    tracker.mark_native_surface_released();
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn drop_macos_surface_context(context: *mut std::ffi::c_void) {
+    if !context.is_null() {
+        drop(unsafe { Arc::from_raw(context.cast::<SurfaceLifecycleTracker>()) });
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_surface_lifecycle_tracker(
+    webview: &Webview,
+) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    unsafe extern "C" {
+        fn rion_wk_track_surface(
+            webview: *mut std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            released_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
+            context_destructor: unsafe extern "C" fn(*mut std::ffi::c_void),
+        ) -> u64;
+    }
+
+    let tracker = Arc::new(SurfaceLifecycleTracker::default());
+    let context = Arc::into_raw(Arc::clone(&tracker)) as usize;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    if let Err(error) = webview.with_webview(move |platform_webview| {
+        let token = unsafe {
+            rion_wk_track_surface(
+                platform_webview.inner(),
+                context as *mut std::ffi::c_void,
+                macos_surface_released,
+                drop_macos_surface_context,
+            )
+        };
+        let _ = sender.send(token);
+    }) {
+        drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
+        return Err(RuntimeError::tauri(error));
+    }
+    let token = receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_LIFECYCLE_TIMEOUT",
+                "WKWebView surface lifecycle registration timed out.",
+            )
+        })?;
+    if token == 0 {
+        drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
+        return Err(RuntimeError::new(
+            "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+            "WKWebView surface lifecycle registration failed.",
+        ));
+    }
+    tracker.native_token.store(token, Ordering::Release);
+    Ok(tracker)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn platform_surface_lifecycle_tracker(
     _webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
-    Ok(Arc::new(SurfaceLifecycleTracker::default()))
+    let tracker = Arc::new(SurfaceLifecycleTracker::default());
+    tracker.mark_native_surface_released();
+    Ok(tracker)
+}
+
+#[cfg(target_os = "macos")]
+fn quiesce_platform_surface(
+    _webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<()> {
+    unsafe extern "C" {
+        fn rion_wk_quiesce_surface(token: u64) -> bool;
+    }
+    let token = lifecycle.native_token.load(Ordering::Acquire);
+    if token == 0 || !unsafe { rion_wk_quiesce_surface(token) } {
+        return Err(RuntimeError::new(
+            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+            "Rion Studio could not verify that the native game page stopped. The tab was kept open; retry or restart Rion Studio.",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn quiesce_platform_surface(
+    webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<()> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+
+    use windows::core::Interface;
+
+    let expected_process_id = lifecycle.browser_process_id.load(Ordering::Acquire) as u32;
+    let expected_controller_identity = lifecycle.controller_identity.load(Ordering::Acquire);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let controller = platform_webview.controller();
+            let result = (|| -> windows::core::Result<()> {
+                let actual_controller_identity = controller.as_raw() as usize as u64;
+                let core: ICoreWebView2 = controller.CoreWebView2()?;
+                let mut process_id = 0;
+                core.BrowserProcessId(&mut process_id)?;
+                if !windows_surface_identity_matches(
+                    expected_controller_identity,
+                    actual_controller_identity,
+                    expected_process_id,
+                    process_id,
+                ) {
+                    return Err(windows::core::Error::from_hresult(windows::core::HRESULT(
+                        0x80004005_u32 as i32,
+                    )));
+                }
+                core.Stop()?;
+                core.Navigate(&windows::core::HSTRING::from("about:blank"))?;
+                controller.Close()
+            })()
+            .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        })
+        .map_err(RuntimeError::tauri)?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                "WebView2 surface identity verification timed out.",
+            )
+        })?
+        .map_err(|message| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                format!("WebView2 surface identity verification failed: {message}"),
+            )
+        })?;
+    lifecycle.mark_native_surface_released();
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn quiesce_platform_surface(
+    _webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<()> {
+    lifecycle.mark_native_surface_released();
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -11801,12 +12572,20 @@ mod tests {
 
     #[test]
     fn surface_release_barrier_is_platform_explicit() {
-        for (platform, controller_released, browser_process_exited, expected) in [
-            ("macos", false, false, false),
-            ("macos", true, false, true),
-            ("windows", false, true, false),
-            ("windows", true, false, true),
-            ("windows", true, true, true),
+        for (
+            platform,
+            controller_released,
+            native_surface_released,
+            browser_process_exited,
+            expected,
+        ) in [
+            ("macos", false, false, false, false),
+            ("macos", true, false, false, false),
+            ("macos", true, true, false, true),
+            ("windows", false, true, true, false),
+            ("windows", true, false, true, false),
+            ("windows", true, true, false, true),
+            ("windows", true, true, true, true),
         ] {
             assert_eq!(
                 surface_release_complete(
@@ -11814,12 +12593,38 @@ mod tests {
                     &SurfaceReleaseState {
                         browser_process_exited,
                         controller_released,
+                        native_surface_released,
                     }
                 ),
                 expected,
-                "{platform}: controller={controller_released}, browser={browser_process_exited}"
+                "{platform}: controller={controller_released}, native={native_surface_released}, browser={browser_process_exited}"
             );
         }
+    }
+
+    #[test]
+    fn managed_surfaces_close_role_pages_before_dividers() {
+        assert!(
+            managed_surface_close_priority(ManagedSurfaceKind::Popup)
+                < managed_surface_close_priority(ManagedSurfaceKind::Recovery)
+        );
+        assert!(
+            managed_surface_close_priority(ManagedSurfaceKind::Recovery)
+                < managed_surface_close_priority(ManagedSurfaceKind::Role)
+        );
+        assert!(
+            managed_surface_close_priority(ManagedSurfaceKind::Role)
+                < managed_surface_close_priority(ManagedSurfaceKind::Divider)
+        );
+    }
+
+    #[test]
+    fn windows_surface_close_mock_rejects_the_wrong_controller_or_process() {
+        assert!(windows_surface_identity_matches(41, 41, 700, 700));
+        assert!(!windows_surface_identity_matches(41, 42, 700, 700));
+        assert!(!windows_surface_identity_matches(41, 41, 700, 701));
+        assert!(!windows_surface_identity_matches(0, 0, 700, 700));
+        assert!(!windows_surface_identity_matches(41, 41, 0, 0));
     }
 
     #[test]
@@ -11830,11 +12635,14 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
 
         tracker.mark_controller_released();
+        assert!(!tracker.wait_for_controller_release("macos", Duration::from_millis(5)));
+        tracker.mark_native_surface_released();
         assert!(tracker.wait_for_controller_release("macos", Duration::from_millis(5)));
-        assert!(tracker.wait_for_controller_release("windows", Duration::from_millis(5)));
 
         #[cfg(windows)]
         {
+            assert!(tracker.wait_for_controller_release("windows", Duration::from_millis(5)));
+            assert!(!tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
             tracker.mark_browser_process_exited();
             assert!(tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
         }
@@ -12474,6 +13282,15 @@ mod tests {
             fn rion_wk_high_refresh_rate_self_test() -> bool;
         }
         assert!(unsafe { rion_wk_high_refresh_rate_self_test() });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_surface_leases_keep_exact_webviews_isolated() {
+        unsafe extern "C" {
+            fn rion_wk_surface_lifecycle_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_surface_lifecycle_self_test() });
     }
 
     #[test]

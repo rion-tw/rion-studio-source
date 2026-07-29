@@ -32,7 +32,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("fn close_failed_popup(");
   });
 
-  it("prepares a recovery surface before atomically replacing the old handle", async () => {
+  it("keeps recovery provisional until the old native surface is released", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
@@ -47,13 +47,17 @@ describe("Tauri System WebView runtime source", () => {
     const controlledNavigationCleanup = recovery.indexOf("finish_controlled_navigations");
     const swapFence = recovery.indexOf("surface_recovery_swap_is_current(");
     const closeOld = recovery.indexOf(
-      "self.close_surface_and_wait(&old_surface.webview"
+      "self.close_managed_surface_and_wait(&old_surface_instance_id"
     );
     expect(navigation).toBeGreaterThan(-1);
     expect(controlledNavigation).toBeLessThan(navigation);
     expect(controlledNavigationCleanup).toBeGreaterThan(navigation);
-    expect(swapFence).toBeGreaterThan(navigation);
     expect(closeOld).toBeGreaterThan(swapFence);
+    expect(navigation).toBeGreaterThan(closeOld);
+    expect(recovery).toContain("ManagedSurfaceKind::Recovery");
+    expect(recovery).toContain("ManagedSurfacePhase::Provisional");
+    expect(recovery).toContain("ManagedSurfacePhase::Retired");
+    expect(recovery.indexOf("ManagedSurfacePhase::Active")).toBeGreaterThan(navigation);
     expect(recovery).not.toContain("close_surface_and_wait(&old_webview");
   });
 
@@ -62,27 +66,71 @@ describe("Tauri System WebView runtime source", () => {
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
     );
-    const destroyRole = runtime.slice(
-      runtime.indexOf("fn destroy_marked_role("),
+    const releaseRole = runtime.slice(
+      runtime.indexOf("fn release_marked_role_surfaces("),
+      runtime.indexOf("fn commit_released_role(")
+    );
+    const commitRole = runtime.slice(
+      runtime.indexOf("fn commit_released_role("),
       runtime.indexOf("fn persist_local_storage_sync_source_before_stop(")
     );
-    const closeRole = destroyRole.indexOf("self.close_surface_and_wait(&webview");
-    const commitRole = destroyRole.indexOf("state.role_tabs.remove(role_id)");
+    const closeRole = releaseRole.indexOf("self.close_managed_surface_and_wait(&instance_id");
     expect(closeRole).toBeGreaterThan(-1);
-    expect(commitRole).toBeGreaterThan(closeRole);
-    expect(destroyRole.indexOf("self.close_popup_and_wait(&label")).toBeLessThan(
-      destroyRole.indexOf("self.forget_popup(&label)")
+    expect(releaseRole).toContain("managed_surface_ids_for_role(role_id)");
+    expect(commitRole).toContain("state.role_tabs.remove(&released.role_id)");
+    expect(releaseRole.indexOf("self.close_popup_and_wait(&label")).toBeLessThan(
+      releaseRole.indexOf("self.forget_popup(&label)")
     );
 
     const destroyTab = runtime.slice(
       runtime.indexOf("fn destroy_tab("),
       runtime.indexOf("fn show_tab(")
     );
-    expect(destroyTab.indexOf("self.destroy_marked_role(role_id")).toBeLessThan(
-      destroyTab.indexOf("state.tabs.remove(tab_id)")
-    );
+    const releaseRoles = destroyTab.indexOf("self.release_marked_role_surfaces(role_id");
+    const releaseDividers = destroyTab.indexOf("self.close_managed_surface_and_wait(instance_id");
+    const commitTab = destroyTab.indexOf("state.tabs.remove(tab_id)");
+    expect(releaseRoles).toBeGreaterThan(-1);
+    expect(releaseDividers).toBeGreaterThan(releaseRoles);
+    expect(commitTab).toBeGreaterThan(releaseDividers);
+    expect(destroyTab).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
+    expect(destroyTab).toContain("surface_registry");
     expect(runtime).toContain("closing_webviews");
     expect(runtime).toContain("closing_roles");
+
+    const nativeClose = runtime.slice(
+      runtime.indexOf("fn close_surface_and_wait("),
+      runtime.indexOf("fn close_managed_surface_and_wait(")
+    );
+    expect(nativeClose.indexOf("while self.app.get_webview(&label).is_some()")).toBeLessThan(
+      nativeClose.indexOf("wait_for_controller_release(platform, remaining)")
+    );
+    expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
+  });
+
+  it("tracks exact native surface ownership across roles, popups, dividers, and moves", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    expect(runtime).toContain("struct ManagedSurface {");
+    expect(runtime).toContain("surface_registry: HashMap<String, ManagedSurface>");
+    expect(runtime).toContain("surface_instance_id: String");
+    for (const kind of ["Role", "Recovery", "Popup", "Divider"]) {
+      expect(runtime).toContain(`ManagedSurfaceKind::${kind}`);
+    }
+    const move = runtime.slice(
+      runtime.indexOf("pub fn provisionally_move_tab("),
+      runtime.indexOf("pub fn cancel_provisional_tab_move(")
+    );
+    expect(move).toContain("state.surface_registry.values_mut()");
+    expect(move).toContain("surface.window_id = target_window_id.to_owned()");
+    expect(move).toContain("surface.window_id = source_window_id.to_owned()");
+    const popup = runtime.slice(
+      runtime.indexOf("fn register_popup("),
+      runtime.indexOf("fn schedule_surface_recovery(")
+    );
+    expect(popup).toContain("ManagedSurfaceKind::Popup");
+    expect(popup).toContain("register_managed_surface(");
   });
 
   it("rolls back every provisional move stage and surfaces compensation errors", async () => {
@@ -176,6 +224,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain("proxy_url");
     expect(runtime).toContain("add_ProcessFailed");
     expect(runtime).toContain("add_BrowserProcessExited");
+    expect(runtime).toContain("controller_identity");
+    expect(runtime).toContain("controller.Close()");
+    expect(runtime).toContain("mark_native_surface_released");
     expect(runtime).toContain("fn add_child_bounded(");
     expect(runtime).toContain("fn create_window_bounded(");
     expect(runtime).toContain("surface_host_initialization_requires_visible_parent");
@@ -305,6 +356,10 @@ describe("Tauri System WebView runtime source", () => {
     expect(macInput).toContain("[responder keyDown:event]");
     expect(macInput).toContain("[responder keyUp:event]");
     expect(macInput).toContain("rion_wk_install_security_policy");
+    expect(macInput).toContain("RionWKSurfaceLease");
+    expect(macInput).toContain("rion_wk_track_surface");
+    expect(macInput).toContain("rion_wk_quiesce_surface");
+    expect(macInput).toContain("rion_wk_surface_lifecycle_self_test");
     expect(macInput).toContain("rion_wk_window_content_layout_metrics");
     expect(macInput).toContain("window.contentLayoutRect");
     expect(macInput).not.toContain("[window makeFirstResponder:webView]");
@@ -320,6 +375,15 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("macos_key_dispatch_needs_settle");
     expect(runtime).toContain('b"_setPageMuted:\\0"');
     expect(runtime).not.toContain('b"_setMuted:\\0"');
+    const surfaceLogging = runtime.slice(
+      runtime.indexOf("fn record_surface_event("),
+      runtime.indexOf("pub fn window_contains_screen_point(")
+    );
+    expect(surfaceLogging).toContain('"instanceId"');
+    expect(surfaceLogging).toContain('"generation"');
+    expect(surfaceLogging).toContain('"roleId"');
+    expect(surfaceLogging).not.toContain('"url"');
+    expect(surfaceLogging).not.toMatch(/cookie|session/i);
     expect(platformProbe).toContain('has_instance_selector(webview, "_setPageMuted:")');
     expect(platformProbe).not.toContain('has_instance_selector(webview, "_setMuted:")');
     expect(platformProbe).toContain("macro_input_available");

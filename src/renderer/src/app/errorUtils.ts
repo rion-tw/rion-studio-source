@@ -16,6 +16,28 @@ export function toMessage(error: unknown, language: Language, t: Translator): st
   return t("error.unexpected");
 }
 
+export function isPersistentRuntimeError(error: unknown): boolean {
+  if (typeof error === "string") {
+    return isSurfaceReleaseMessage(error);
+  }
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const payload = error as { code?: unknown; message?: unknown };
+  return (
+    payload.code === "SYSTEM_SURFACE_RELEASE_UNVERIFIED" ||
+    (typeof payload.message === "string" && isSurfaceReleaseMessage(payload.message))
+  );
+}
+
+function isSurfaceReleaseMessage(message: string): boolean {
+  return (
+    message.startsWith("Rion Studio could not verify that ") &&
+    message.includes("native game page")
+  );
+}
+
 function isErrorLike(error: unknown): error is { message: string } {
   return (
     typeof error === "object" &&

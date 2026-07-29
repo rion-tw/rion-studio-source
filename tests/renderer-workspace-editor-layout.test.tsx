@@ -150,6 +150,7 @@ describe("workspace editor role picker layout", () => {
     );
 
     const rolePanel = container.querySelector<HTMLElement>("[data-workspace-role-panel]");
+    const layoutPreview = container.querySelector<HTMLElement>("[data-workspace-layout-preview]");
     const scrollRegion = container.querySelector<HTMLElement>("[data-workspace-role-scroll]");
     const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
     const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
@@ -194,6 +195,9 @@ describe("workspace editor role picker layout", () => {
     expect(rolePanel?.className).toContain("flex-col");
     expect(rolePanel?.className).toContain("min-[1180px]:overflow-hidden");
     expect(rolePanel?.className).toContain("min-[1180px]:[contain:size]");
+    expect(layoutPreview?.className).toContain("aspect-[8/5]");
+    expect(layoutPreview?.className).toContain("min-h-[320px]");
+    expect(layoutPreview?.className).not.toContain("aspect-[16/9]");
     expect(scrollRegion?.className).toContain("max-h-[clamp(320px,45vh,440px)]");
     expect(scrollRegion?.className).toContain("overflow-y-auto");
     expect(scrollRegion?.className).toContain("overflow-x-hidden");

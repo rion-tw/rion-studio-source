@@ -7408,24 +7408,27 @@ impl SystemRuntimeExecutor {
         if let Some(target) = target.as_ref()
             && let Some(window) = self.window_for_id(&target.window_id)
         {
-            if window.is_fullscreen().unwrap_or(false) {
-                window.set_fullscreen(false).map_err(RuntimeError::tauri)?;
+            let fullscreen = window.is_fullscreen().unwrap_or(false);
+            if runtime_target_requires_placement_reapply(&target.presentation, fullscreen) {
+                if fullscreen {
+                    window.set_fullscreen(false).map_err(RuntimeError::tauri)?;
+                }
+                if window.is_maximized().unwrap_or(false) {
+                    window.unmaximize().map_err(RuntimeError::tauri)?;
+                }
+                window
+                    .set_position(LogicalPosition::new(
+                        target.bounds.x as f64,
+                        target.bounds.y as f64,
+                    ))
+                    .map_err(RuntimeError::tauri)?;
+                window
+                    .set_size(LogicalSize::new(
+                        target.bounds.width.max(1) as f64,
+                        target.bounds.height.max(1) as f64,
+                    ))
+                    .map_err(RuntimeError::tauri)?;
             }
-            if window.is_maximized().unwrap_or(false) {
-                window.unmaximize().map_err(RuntimeError::tauri)?;
-            }
-            window
-                .set_position(LogicalPosition::new(
-                    target.bounds.x as f64,
-                    target.bounds.y as f64,
-                ))
-                .map_err(RuntimeError::tauri)?;
-            window
-                .set_size(LogicalSize::new(
-                    target.bounds.width.max(1) as f64,
-                    target.bounds.height.max(1) as f64,
-                ))
-                .map_err(RuntimeError::tauri)?;
         }
 
         for update in &tab_updates {
@@ -10095,6 +10098,10 @@ fn runtime_host_should_be_visible(
     reveal || (currently_visible && retain_visibility)
 }
 
+fn runtime_target_requires_placement_reapply(presentation: &str, fullscreen: bool) -> bool {
+    presentation != "fullscreen" || !fullscreen
+}
+
 fn logical_window_position(physical_x: i32, physical_y: i32, scale: f64) -> (i32, i32) {
     let scale = normalized_scale_factor(scale);
     (
@@ -12660,6 +12667,26 @@ mod tests {
                 runtime_host_should_be_visible(reveal, retain_visibility, currently_visible),
                 expected,
                 "unexpected runtime host visibility on {platform}"
+            );
+        }
+    }
+
+    #[test]
+    fn matching_fullscreen_runtime_targets_preserve_native_window_presentation() {
+        for (platform, fullscreen, presentation, expected) in [
+            ("macos", true, "fullscreen", false),
+            ("windows", true, "fullscreen", false),
+            ("macos", false, "fullscreen", true),
+            ("windows", false, "fullscreen", true),
+            ("macos", true, "normal", true),
+            ("windows", true, "normal", true),
+            ("macos", true, "maximized", true),
+            ("windows", true, "maximized", true),
+        ] {
+            assert_eq!(
+                runtime_target_requires_placement_reapply(presentation, fullscreen),
+                expected,
+                "unexpected placement policy on {platform}: fullscreen={fullscreen}, presentation={presentation}"
             );
         }
     }

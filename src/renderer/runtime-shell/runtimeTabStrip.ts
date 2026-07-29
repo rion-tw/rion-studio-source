@@ -20,11 +20,41 @@ let dragMoveFrame: number | undefined;
 let pendingDragPoint: { screenX: number; screenY: number } | undefined;
 let renderRevision = 0;
 let activeTabId: string | undefined;
+let dragActionPending = false;
+const dragActionQueue: RuntimeTabAction[] = [];
 
 const OVERFLOW_EPSILON = 1;
 
 const dispatch = (action: RuntimeTabAction): void => {
+  if (action.type.startsWith("tabDrag")) {
+    const queued = dragActionQueue.at(-1);
+    if (action.type === "tabDragMove" && queued?.type === "tabDragMove"
+      && action.sessionId === queued.sessionId) {
+      dragActionQueue[dragActionQueue.length - 1] = action;
+    } else {
+      dragActionQueue.push(action);
+    }
+    dispatchNextDragAction();
+    return;
+  }
   void invoke("rion_runtime_tab_action", { action }).catch(() => undefined);
+};
+
+const dispatchNextDragAction = (): void => {
+  if (dragActionPending) return;
+  const action = dragActionQueue.shift();
+  if (!action) return;
+  dragActionPending = true;
+  void invoke("rion_runtime_tab_action", { action })
+    .catch(() => {
+      if (action.type === "tabDragDrop" || action.type === "tabDragEnd") {
+        dragActionQueue.unshift({ type: "tabDragCancel", sessionId: action.sessionId });
+      }
+    })
+    .finally(() => {
+      dragActionPending = false;
+      dispatchNextDragAction();
+    });
 };
 
 function render(state: RuntimeTabStripState): void {

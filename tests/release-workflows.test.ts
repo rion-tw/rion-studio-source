@@ -55,7 +55,7 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).not.toContain("Node-API");
   });
 
-  it("keeps legacy platform code-signing behavior while updater artifacts stay verified", async () => {
+  it("requires platform code signing while updater artifacts stay verified", async () => {
     const [workflow, releaseScript, packageScript, macConfigSource] = await Promise.all([
       readWorkflow(".github/workflows/tauri-release-candidate.yml"),
       readWorkflow("scripts/buildTauriRelease.mjs"),
@@ -96,6 +96,18 @@ describe("Tauri-only release workflows", () => {
     expect(validate).toContain("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
+    for (const secret of [
+      "APPLE_CERTIFICATE",
+      "APPLE_CERTIFICATE_PASSWORD",
+      "APPLE_ID",
+      "APPLE_PASSWORD",
+      "APPLE_TEAM_ID",
+      "WINDOWS_CERTIFICATE",
+      "WINDOWS_CERTIFICATE_PASSWORD",
+      "WINDOWS_TIMESTAMP_URL"
+    ]) {
+      expect(validate).toContain(`require_secret ${secret}`);
+    }
     expect(validate.indexOf("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY"))
       .toBeLessThan(validate.indexOf('[[ "${RELEASE_TAG}"'));
     expect(quality).toContain("if: github.event_name == 'workflow_dispatch'");
@@ -128,22 +140,24 @@ describe("Tauri-only release workflows", () => {
       "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
     );
     expect(workflow).toContain("codesign --verify --deep --strict");
-    expect(workflow).toContain("Signature=adhoc");
-    expect(workflow).toContain("TeamIdentifier=not set");
-    expect(workflow).not.toContain("Import Developer ID certificate");
-    expect(workflow).not.toContain("xcrun stapler validate");
-    expect(workflow).not.toContain("APPLE_CERTIFICATE");
-    expect(workflow).not.toContain("WINDOWS_CERTIFICATE");
-    expect(workflow).not.toContain("Import Windows Authenticode certificate");
-    expect(releaseScript).toContain('signingIdentity: "-"');
-    expect(releaseScript).toContain('delete buildEnvironment[name]');
+    expect(workflow).toContain('! grep -F "Signature=adhoc"');
+    expect(workflow).toContain('grep -F "TeamIdentifier=${APPLE_TEAM_ID}"');
+    expect(workflow).toContain("Import Apple Developer ID certificate");
+    expect(workflow).toContain("xcrun stapler validate");
+    expect(workflow).toContain("APPLE_CERTIFICATE");
+    expect(workflow).toContain("WINDOWS_CERTIFICATE");
+    expect(workflow).toContain("Import Windows Authenticode certificate");
+    expect(releaseScript).toContain("releasePlatformBundle(process.platform, process.env)");
+    expect(releaseScript).not.toContain('signingIdentity: "-"');
+    expect(releaseScript).not.toContain("delete buildEnvironment[name]");
     expect(packageScript).toContain('signingIdentity: "-"');
     expect(packageScript).not.toContain("test:native:");
     expect(workflow).not.toContain("test:native:");
     expect(workflow).not.toContain("attestation");
     expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
     expect(workflow).toContain("Get-AuthenticodeSignature");
-    expect(workflow).toContain('$signature.Status -ne "NotSigned"');
+    expect(workflow).toContain('$signature.Status -ne "Valid"');
+    expect(workflow).toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
     expect(workflow).toContain("createTauriUpdaterManifest.mjs");
     expect(workflow).toContain("createLegacyUpdateManifests.mjs");
     expect(workflow).toContain("releaseArtifacts.mjs");
@@ -187,6 +201,12 @@ describe("Tauri-only release workflows", () => {
     );
     expect(build).toContain(
       "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+    );
+    expect(build).toContain(
+      "APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}"
+    );
+    expect(build).toContain(
+      "WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}"
     );
     expect(build).toContain("- validate-ci-run");
     expect(build).toContain("- resolve-release");

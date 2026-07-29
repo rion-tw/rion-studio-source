@@ -442,6 +442,9 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
         emit("shellError", payload);
       }
     ),
+    () => listen("rion://application-quit-requested", () => {
+      emit("applicationQuitRequested");
+    }),
     () => listen("rion://quick-menu-restore", () => {
       void invokeShell("restoreSavedGameWindows", [{ scope: "all" }])
         .then(() => invokeShell("refreshQuickMenu"))
@@ -471,6 +474,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       return status;
     },
     quitApplication: () => invokeShell("quitApplication"),
+    confirmApplicationQuit: () => invokeShell("confirmApplicationQuit"),
     requestCurrentWindowClose: () => void invokeShell("requestCurrentWindowClose"),
     startCurrentWindowDrag: () => invokeShell("startCurrentWindowDrag"),
     toggleCurrentWindowMaximize: () => invokeShell("toggleCurrentWindowMaximize"),
@@ -616,6 +620,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     openUpdateDownload: () => invokeShell("openUpdateDownload"),
     installDownloadedUpdate: () => invokeShell("installDownloadedUpdate"),
     onRoleStatusChanged: (callback) => on("roleStatuses", callback as Listener),
+    onApplicationQuitRequested: (callback) =>
+      on("applicationQuitRequested", callback as Listener),
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
     onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
     onGamesChanged: (callback) => on("games", callback as Listener),

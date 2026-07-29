@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { invoke, listen } = vi.hoisted(() => ({
   invoke: vi.fn(() => Promise.resolve()),
-  listen: vi.fn(() => Promise.resolve(vi.fn()))
+  listen: vi.fn((_event: string, _callback: (event: { payload: unknown }) => void) =>
+    Promise.resolve(vi.fn())
+  )
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -32,6 +34,20 @@ describe("application shortcut bridge", () => {
     expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
       operation: "executeApplicationShortcut",
       args: ["zoomIn"]
+    });
+    const onQuitRequested = vi.fn();
+    window.rionStudio.onApplicationQuitRequested(onQuitRequested);
+    const nativeListener = listen.mock.calls.find(
+      ([event]) => event === "rion://application-quit-requested"
+    )?.[1] as ((event: { payload: null }) => void) | undefined;
+
+    nativeListener?.({ payload: null });
+    await window.rionStudio.confirmApplicationQuit();
+
+    expect(onQuitRequested).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
+      operation: "confirmApplicationQuit",
+      args: []
     });
   });
 });

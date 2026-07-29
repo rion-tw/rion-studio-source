@@ -2,11 +2,12 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { type JSX } from "react";
+import { type JSX, useState } from "react";
 import { createMemoryRouter, RouterProvider, useNavigate } from "react-router";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
+import { ApplicationQuitGuardProvider } from "../src/renderer/src/components/ApplicationQuitGuard";
 import { useUnsavedChangesGuard } from "../src/renderer/src/hooks/useUnsavedChangesGuard";
 
 const confirmationOptions = {
@@ -52,20 +53,20 @@ describe("useUnsavedChangesGuard", () => {
 
   it("keeps the window open when the user continues editing", async () => {
     const user = userEvent.setup();
-    const requestCurrentWindowClose = installBridge();
+    const bridge = installBridge();
     renderGuard({ dirty: true });
 
     const event = dispatchBeforeUnload();
     await user.click(await screen.findByRole("button", { name: "Keep editing" }));
 
     expect(event.defaultPrevented).toBe(true);
-    expect(requestCurrentWindowClose).not.toHaveBeenCalled();
+    expect(bridge.requestCurrentWindowClose).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("requests one native close after discarding and suppresses duplicate prompts", async () => {
     const user = userEvent.setup();
-    const requestCurrentWindowClose = installBridge();
+    const bridge = installBridge();
     renderGuard({ dirty: true });
 
     const firstEvent = dispatchBeforeUnload();
@@ -76,23 +77,23 @@ describe("useUnsavedChangesGuard", () => {
 
     expect(firstEvent.defaultPrevented).toBe(true);
     expect(repeatedEvent.defaultPrevented).toBe(true);
-    expect(requestCurrentWindowClose).toHaveBeenCalledOnce();
+    expect(bridge.requestCurrentWindowClose).toHaveBeenCalledOnce();
   });
 
   it("blocks native close without offering discard while a save is in progress", () => {
-    const requestCurrentWindowClose = installBridge();
+    const bridge = installBridge();
     renderGuard({ dirty: true, locked: true });
 
     const event = dispatchBeforeUnload();
 
     expect(event.defaultPrevented).toBe(true);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(requestCurrentWindowClose).not.toHaveBeenCalled();
+    expect(bridge.requestCurrentWindowClose).not.toHaveBeenCalled();
   });
 
   it("preserves the existing confirmation flow for router navigation", async () => {
     const user = userEvent.setup();
-    const requestCurrentWindowClose = installBridge();
+    const bridge = installBridge();
     renderGuard({ dirty: true, includeNextRoute: true });
 
     await user.click(screen.getByRole("button", { name: "Leave editor" }));
@@ -103,18 +104,65 @@ describe("useUnsavedChangesGuard", () => {
     await user.click(await screen.findByRole("button", { name: "Discard changes" }));
 
     expect(await screen.findByText("Next route")).toBeTruthy();
-    expect(requestCurrentWindowClose).not.toHaveBeenCalled();
+    expect(bridge.requestCurrentWindowClose).not.toHaveBeenCalled();
+  });
+
+  it("confirms a native application quit immediately when the editor is clean", async () => {
+    const bridge = installBridge();
+    renderGuard({ dirty: false });
+
+    act(() => bridge.requestApplicationQuit());
+
+    await vi.waitFor(() => {
+      expect(bridge.confirmApplicationQuit).toHaveBeenCalledOnce();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("uses one discard prompt for repeated native quit requests", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: true });
+
+    act(() => {
+      bridge.requestApplicationQuit();
+      bridge.requestApplicationQuit();
+    });
+    expect(await screen.findAllByRole("dialog")).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    expect(bridge.confirmApplicationQuit).not.toHaveBeenCalled();
+  });
+
+  it("waits for an active save before reevaluating the native quit request", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: true, locked: true });
+
+    act(() => bridge.requestApplicationQuit());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(bridge.confirmApplicationQuit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Finish saving" }));
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+
+    expect(bridge.confirmApplicationQuit).toHaveBeenCalledOnce();
   });
 });
 
 function GuardHarness({ dirty, locked = false }: { dirty: boolean; locked?: boolean }): JSX.Element {
   const navigate = useNavigate();
-  useUnsavedChangesGuard(dirty, confirmationOptions, locked);
+  const [isLocked, setIsLocked] = useState(locked);
+  useUnsavedChangesGuard(dirty, confirmationOptions, isLocked);
 
   return (
     <div>
       <span>Editor</span>
       <button type="button" onClick={() => navigate("/next")}>Leave editor</button>
+      {isLocked ? (
+        <button type="button" onClick={() => setIsLocked(false)}>Finish saving</button>
+      ) : null}
     </div>
   );
 }
@@ -132,7 +180,9 @@ function renderGuard({
     path: "/",
     element: (
       <ConfirmationProvider>
-        <GuardHarness dirty={dirty} locked={locked} />
+        <ApplicationQuitGuardProvider>
+          <GuardHarness dirty={dirty} locked={locked} />
+        </ApplicationQuitGuardProvider>
       </ConfirmationProvider>
     )
   }];
@@ -153,11 +203,30 @@ function dispatchBeforeUnload(): Event {
   return event;
 }
 
-function installBridge() {
+function installBridge(): {
+  confirmApplicationQuit: ReturnType<typeof vi.fn>;
+  requestApplicationQuit: () => void;
+  requestCurrentWindowClose: ReturnType<typeof vi.fn>;
+} {
+  let applicationQuitRequested: (() => void) | null = null;
+  const confirmApplicationQuit = vi.fn().mockResolvedValue(undefined);
   const requestCurrentWindowClose = vi.fn();
   Object.defineProperty(window, "rionStudio", {
     configurable: true,
-    value: { requestCurrentWindowClose }
+    value: {
+      confirmApplicationQuit,
+      onApplicationQuitRequested: (callback: () => void) => {
+        applicationQuitRequested = callback;
+        return () => {
+          applicationQuitRequested = null;
+        };
+      },
+      requestCurrentWindowClose
+    }
   });
-  return requestCurrentWindowClose;
+  return {
+    confirmApplicationQuit,
+    requestApplicationQuit: () => applicationQuitRequested?.(),
+    requestCurrentWindowClose
+  };
 }

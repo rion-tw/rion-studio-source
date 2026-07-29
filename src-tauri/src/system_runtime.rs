@@ -2598,11 +2598,7 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
                     .map_err(|error| error.to_string())
             })?;
-        session.schema_version = 2;
-        session.updated_at = chrono::Utc::now().to_rfc3339();
-        session.clean_exit = clean_exit;
-        session.restore_in_progress_window_ids.clear();
-        session.windows.clear();
+        prepare_restore_session_for_persist(&mut session, clean_exit);
         self.core
             .invoke(CoreCommand::RuntimeRestoreSessionReplace { session })
             .map(|_| ())
@@ -8009,6 +8005,19 @@ fn should_refresh_macro_overlay(role_ids: &[String], role_id: &str) -> bool {
     role_ids.is_empty() || role_ids.iter().any(|candidate| candidate == role_id)
 }
 
+fn prepare_restore_session_for_persist(
+    session: &mut RuntimeRestoreSessionRecord,
+    clean_exit: bool,
+) {
+    session.schema_version = 2;
+    session.updated_at = chrono::Utc::now().to_rfc3339();
+    session.clean_exit = clean_exit;
+    if clean_exit {
+        session.restore_in_progress_window_ids.clear();
+    }
+    session.windows.clear();
+}
+
 fn refresh_macro_overlay_handles<T, E>(
     handles: impl IntoIterator<Item = T>,
     mut refresh: impl FnMut(T) -> Result<(), E>,
@@ -9539,6 +9548,31 @@ mod tests {
         assert_eq!(*observed.lock().unwrap(), (0..64).collect::<Vec<_>>());
         assert_eq!(peak.load(Ordering::SeqCst), 1);
         assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn runtime_persistence_preserves_an_active_restore_fence_until_clean_exit() {
+        let mut session = RuntimeRestoreSessionRecord {
+            schema_version: 1,
+            session_generation: 4,
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+            clean_exit: true,
+            last_focused_window_id: Some("window-1".to_owned()),
+            restore_in_progress_window_ids: vec!["window-1".to_owned()],
+            windows: Vec::new(),
+        };
+
+        prepare_restore_session_for_persist(&mut session, false);
+        assert_eq!(session.schema_version, 2);
+        assert!(!session.clean_exit);
+        assert_eq!(
+            session.restore_in_progress_window_ids,
+            vec!["window-1".to_owned()]
+        );
+
+        prepare_restore_session_for_persist(&mut session, true);
+        assert!(session.clean_exit);
+        assert!(session.restore_in_progress_window_ids.is_empty());
     }
 
     #[test]

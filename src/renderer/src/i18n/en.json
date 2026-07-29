@@ -639,6 +639,8 @@
   "settings.browserFontsCustomEmpty": "Custom fonts enabled without selected families.",
   "settings.browserFontsSaved": "Saved and applied to open role windows.",
   "settings.browserFontsForceWarning": "Font overrides take priority over game-page styles and also apply to Canvas 2D and WebGL text generated through a main-thread canvas. Existing canvas pixels change on the next redraw. Icons are protected where possible; Worker rendering and prebuilt bitmap/SDF fonts are unchanged.",
+  "settings.browserFontsPresets": "Choose a preset",
+  "settings.browserFontsFineTune": "Fine-tune by text type",
   "settings.browserFontsPresetsGeneral": "Everyday presets",
   "settings.browserFontsPresetsHandwriting": "Handwriting styles",
   "settings.browserFontsPresetsPersonality": "Distinctive styles",

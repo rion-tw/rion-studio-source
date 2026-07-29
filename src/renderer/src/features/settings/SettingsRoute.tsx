@@ -1,4 +1,4 @@
-import { ChevronDown, CloudDownload, Download, FileJson, FileText, Laptop, Moon, PenLine, RefreshCw, RotateCcw, Search, Sparkles, Sun, Trash2, Upload } from "lucide-react";
+import { Check, ChevronDown, CloudDownload, Download, FileJson, FileText, Laptop, Moon, PenLine, RefreshCw, RotateCcw, Search, SlidersHorizontal, Sparkles, Sun, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -192,6 +192,9 @@ const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationK
   "editorial-serif": "settings.browserFonts.preset.editorialSerifDescription",
   "retro-game": "settings.browserFonts.preset.retroGameDescription"
 };
+
+const browserFontPresetCategories = ["general", "handwriting", "personality"] as const;
+type BrowserFontPresetCategory = (typeof browserFontPresetCategories)[number];
 
 function SettingsViewBase({
   activeSection,
@@ -1081,106 +1084,122 @@ function BrowserFontsSettingsRows({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            className="px-2.5"
             aria-label={t("settings.browserFontsCustomize")}
             aria-expanded={isExpanded}
             onClick={() => setIsExpanded((current) => !current)}
           >
+            <span>{t("settings.browserFontsCustomize")}</span>
             <ChevronDown
-              size={16}
-              className={isExpanded ? "rotate-180 transition-transform" : "transition-transform"}
+              size={14}
+              className={isExpanded ? "rotate-180 transition-transform duration-150" : "transition-transform duration-150"}
             />
           </Button>
         }
       />
 
       {isExpanded ? (
-        <div className="glass-divider border-b px-4 pb-4 pt-1">
-          <div className="mb-4 h-px bg-border/35" />
-          <div className="grid gap-5">
-            <StatusCallout tone="warning">
-              {t("settings.browserFontsForceWarning")}
+        <div className="glass-divider border-b border-t bg-background/[0.08] px-4 pb-4 pt-4">
+          <div className="grid gap-4">
+            <StatusCallout className="leading-5" tone="warning">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>{t("settings.browserFontsForceWarning")}</span>
             </StatusCallout>
 
-            <BrowserFontPresetCards
-              activePresetId={draft.fonts.presetId}
-              disabled={isSaving}
-              t={t}
-              onSelect={handlePresetChange}
-            />
-
-            <div className="grid gap-2">
-              <p className="text-xs font-semibold leading-5 text-foreground">
-                {t("settings.browserFontsCjkVariant")}
-              </p>
-              <SegmentedControl<BrowserFontCjkVariant>
-                className="grid-cols-4"
+            <div className="grid gap-2.5">
+              <div className="flex items-center gap-2 px-0.5 text-xs font-semibold leading-5 text-foreground">
+                <Type className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <p>{t("settings.browserFontsPresets")}</p>
+              </div>
+              <BrowserFontPresetCards
+                activePresetId={draft.fonts.presetId}
                 disabled={isSaving}
-                items={(["auto", "tc", "sc", "jp"] as const).map((value) => ({
-                  value,
-                  label: t(`settings.browserFonts.cjk.${value}` as TranslationKey)
-                }))}
-                value={draft.fonts.cjkVariant}
-                onValueChange={handleCjkVariantChange}
+                t={t}
+                onSelect={handlePresetChange}
               />
-              <p className="text-caption text-muted-foreground">
-                {t("settings.browserFontsCjkResolved").replace(
-                  "{variant}",
-                  t(`settings.browserFonts.cjk.${effectiveCjkVariant}` as TranslationKey)
-                )}
-              </p>
             </div>
 
-            <div className="grid gap-2">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <label className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-                  <Input
-                    className="pl-8"
-                    disabled={isSaving}
-                    placeholder={t("settings.browserFontsSearchPlaceholder")}
-                    value={fontSearch}
-                    onChange={(event) => setFontSearch(event.target.value)}
-                  />
-                </label>
-                <Select
-                  disabled={isSaving}
-                  value={category}
-                  onValueChange={(value) => setCategory(value as "all" | BrowserFontCategory)}
-                >
-                  <SelectTrigger className="w-full sm:w-44" aria-label={t("settings.browserFontsCategory")}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(["all", "sans", "serif", "handwriting", "display", "monospace", "math"] as const).map(
-                      (value) => (
-                        <SelectItem key={value} value={value}>
-                          {t(`settings.browserFonts.category.${value}` as TranslationKey)}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
+            <div className="grid gap-3">
+              <div className="flex items-center gap-2 px-0.5 text-xs font-semibold leading-5 text-foreground">
+                <SlidersHorizontal className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <p>{t("settings.browserFontsFineTune")}</p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                {browserFontSlots.map((slot) => (
-                  <BrowserFontSelectionPicker
-                    key={slot}
-                    catalog={catalog}
-                    category={category}
-                    cjkVariant={effectiveCjkVariant}
+              <div className="grid gap-3 rounded-md border border-border/25 bg-muted/[0.07] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(22rem,1.25fr)] sm:items-center">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold leading-5 text-foreground">
+                    {t("settings.browserFontsCjkVariant")}
+                  </p>
+                  <p className="mt-0.5 text-caption text-muted-foreground">
+                    {t("settings.browserFontsCjkResolved").replace(
+                      "{variant}",
+                      t(`settings.browserFonts.cjk.${effectiveCjkVariant}` as TranslationKey)
+                    )}
+                  </p>
+                </div>
+                <SegmentedControl<BrowserFontCjkVariant>
+                  className="grid-cols-4"
+                  disabled={isSaving}
+                  items={(["auto", "tc", "sc", "jp"] as const).map((value) => ({
+                    value,
+                    label: t(`settings.browserFonts.cjk.${value}` as TranslationKey)
+                  }))}
+                  value={draft.fonts.cjkVariant}
+                  onValueChange={handleCjkVariantChange}
+                />
+              </div>
+
+              <div className="grid gap-3 rounded-md border border-border/25 bg-muted/[0.07] p-3">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <label className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+                    <Input
+                      className="pl-8"
+                      disabled={isSaving}
+                      placeholder={t("settings.browserFontsSearchPlaceholder")}
+                      value={fontSearch}
+                      onChange={(event) => setFontSearch(event.target.value)}
+                    />
+                  </label>
+                  <Select
                     disabled={isSaving}
-                    label={t(browserFontSlotLabelKeys[slot])}
-                    description={t(browserFontSlotDescriptionKeys[slot])}
-                    search={fontSearch}
-                    selection={draft.fonts.slots[slot]}
-                    slot={slot}
-                    systemFonts={fontOptions}
-                    t={t}
-                    onChange={handleFontSelectionChange}
-                  />
-                ))}
+                    value={category}
+                    onValueChange={(value) => setCategory(value as "all" | BrowserFontCategory)}
+                  >
+                    <SelectTrigger className="w-full sm:w-44" aria-label={t("settings.browserFontsCategory")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["all", "sans", "serif", "handwriting", "display", "monospace", "math"] as const).map(
+                        (value) => (
+                          <SelectItem key={value} value={value}>
+                            {t(`settings.browserFonts.category.${value}` as TranslationKey)}
+                          </SelectItem>
+                        )
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  {browserFontSlots.map((slot) => (
+                    <BrowserFontSelectionPicker
+                      key={slot}
+                      catalog={catalog}
+                      category={category}
+                      cjkVariant={effectiveCjkVariant}
+                      disabled={isSaving}
+                      label={t(browserFontSlotLabelKeys[slot])}
+                      description={t(browserFontSlotDescriptionKeys[slot])}
+                      search={fontSearch}
+                      selection={draft.fonts.slots[slot]}
+                      slot={slot}
+                      systemFonts={fontOptions}
+                      t={t}
+                      onChange={handleFontSelectionChange}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1194,56 +1213,58 @@ function BrowserFontsSettingsRows({
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
             ) : null}
 
-            <p className="text-caption text-muted-foreground">
-              {t("settings.browserFontsGoogleNotice")}
-            </p>
+            <div className="grid gap-2.5">
+              <p className="px-0.5 text-caption leading-5 text-muted-foreground">
+                {t("settings.browserFontsGoogleNotice")}
+              </p>
 
-            <details className="rounded-md border border-border/25 px-3 py-2">
-              <summary className="cursor-pointer select-none text-xs font-semibold leading-5 text-foreground">
-                {t("settings.browserFontsCache")} · {formatBrowserFontBytes(
-                  installedFonts.reduce((total, font) => total + font.cachedBytes, 0)
-                )}
-              </summary>
-              <div className="mt-2 grid gap-2">
-                <p className="text-caption text-muted-foreground">
-                  {t("settings.browserFontsCacheDescription")}
-                </p>
-                {installedFonts.length === 0 ? (
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("settings.browserFontsCacheEmpty")}
+              <details className="rounded-md border border-border/25 bg-muted/[0.06] px-3 py-2">
+                <summary className="cursor-pointer select-none text-xs font-semibold leading-5 text-foreground">
+                  {t("settings.browserFontsCache")} · {formatBrowserFontBytes(
+                    installedFonts.reduce((total, font) => total + font.cachedBytes, 0)
+                  )}
+                </summary>
+                <div className="mt-2 grid gap-2">
+                  <p className="text-caption text-muted-foreground">
+                    {t("settings.browserFontsCacheDescription")}
                   </p>
-                ) : (
-                  installedFonts.map((font) => {
-                    const isSelected = selectedCatalogIds.includes(font.catalogId);
-                    return (
-                      <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
-                          <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                  {installedFonts.length === 0 ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t("settings.browserFontsCacheEmpty")}
+                    </p>
+                  ) : (
+                    installedFonts.map((font) => {
+                      const isSelected = selectedCatalogIds.includes(font.catalogId);
+                      return (
+                        <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
+                            <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("settings.browserFontsRemove")}
+                            disabled={isSaving || busyCatalogId === font.catalogId || isSelected}
+                            title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
+                            onClick={() => void removeCatalogFont(font.catalogId)}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("settings.browserFontsRemove")}
-                          disabled={isSaving || busyCatalogId === font.catalogId || isSelected}
-                          title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
-                          onClick={() => void removeCatalogFont(font.catalogId)}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </details>
+                      );
+                    })
+                  )}
+                </div>
+              </details>
+            </div>
 
             {downloadProgress ? (
               <p className="text-control font-medium text-activity">{downloadProgress}</p>
             ) : null}
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="glass-divider flex flex-wrap items-center justify-end gap-2 border-t pt-3">
               <Button
                 type="button"
                 variant="outline"
@@ -1294,51 +1315,64 @@ function BrowserFontPresetCards({
   t,
   onSelect
 }: BrowserFontPresetCardsProps): JSX.Element {
+  const activePresetCategory = browserFontPresets.find((preset) => preset.id === activePresetId)?.category ?? "general";
+  const [selectedCategory, setSelectedCategory] = useState<BrowserFontPresetCategory>(activePresetCategory);
+
+  useEffect(() => {
+    const nextCategory = browserFontPresets.find((preset) => preset.id === activePresetId)?.category;
+    if (nextCategory) setSelectedCategory(nextCategory);
+  }, [activePresetId]);
+
   return (
-    <div className="grid gap-3">
-      {(["general", "handwriting", "personality"] as const).map((category) => (
-        <div key={category} className="grid gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold leading-5 text-foreground">
-            {category === "handwriting" ? <PenLine size={14} /> : null}
-            {category === "personality" ? <Sparkles size={14} /> : null}
-            {t(
-              category === "general"
-                ? "settings.browserFontsPresetsGeneral"
-                : category === "handwriting"
-                  ? "settings.browserFontsPresetsHandwriting"
-                  : "settings.browserFontsPresetsPersonality"
-            )}
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {browserFontPresets
-              .filter((preset) => preset.category === category)
-              .map((preset) => {
-                const isActive = activePresetId === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    aria-pressed={isActive}
-                    disabled={disabled}
-                    className={`min-h-[74px] rounded-md border px-3 py-2 text-left transition-colors disabled:opacity-45 ${
-                      isActive
-                        ? "border-activity/45 bg-activity/[0.08] text-foreground"
-                        : "border-border/30 bg-muted/10 text-muted-foreground hover:bg-accent/30 hover:text-foreground"
-                    }`}
-                    onClick={() => onSelect(preset.id)}
-                  >
-                    <span className="block text-xs font-semibold leading-5">
-                      {t(browserFontPresetLabelKeys[preset.id])}
-                    </span>
-                    <span className="mt-0.5 block text-micro">
-                      {t(browserFontPresetDescriptionKeys[preset.id])}
-                    </span>
-                  </button>
-                );
-              })}
-          </div>
-        </div>
-      ))}
+    <div className="grid gap-2.5">
+      <SegmentedControl<BrowserFontPresetCategory>
+        className="grid-cols-3"
+        disabled={disabled}
+        items={browserFontPresetCategories.map((category) => ({
+          value: category,
+          count: browserFontPresets.filter((preset) => preset.category === category).length,
+          icon: category === "general" ? Type : category === "handwriting" ? PenLine : Sparkles,
+          label: t(
+            category === "general"
+              ? "settings.browserFontsPresetsGeneral"
+              : category === "handwriting"
+                ? "settings.browserFontsPresetsHandwriting"
+                : "settings.browserFontsPresetsPersonality"
+          )
+        }))}
+        value={selectedCategory}
+        onValueChange={setSelectedCategory}
+      />
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {browserFontPresets
+          .filter((preset) => preset.category === selectedCategory)
+          .map((preset) => {
+            const isActive = activePresetId === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                aria-pressed={isActive}
+                disabled={disabled}
+                className={`group min-h-[76px] rounded-md border px-3 py-2.5 text-left transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:opacity-45 ${
+                  isActive
+                    ? "border-activity/45 bg-activity/[0.08] text-foreground shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))]"
+                    : "border-border/25 bg-muted/[0.07] text-muted-foreground hover:border-border/40 hover:bg-accent/25 hover:text-foreground"
+                }`}
+                onClick={() => onSelect(preset.id)}
+              >
+                <span className="flex items-start justify-between gap-2 text-xs font-semibold leading-5">
+                  <span>{t(browserFontPresetLabelKeys[preset.id])}</span>
+                  {isActive ? <Check className="mt-0.5 size-3.5 shrink-0 text-activity" aria-hidden="true" /> : null}
+                </span>
+                <span className="mt-0.5 block text-micro leading-4">
+                  {t(browserFontPresetDescriptionKeys[preset.id])}
+                </span>
+              </button>
+            );
+          })}
+      </div>
     </div>
   );
 }
@@ -1387,7 +1421,7 @@ function BrowserFontSelectionPicker({
   const value = browserFontSelectionValue(selection);
 
   return (
-    <label className="grid min-w-0 gap-1.5 rounded-md border border-border/20 bg-muted/[0.08] p-2.5">
+    <label className="grid min-w-0 gap-1.5 rounded-md border border-border/20 bg-background/[0.12] p-2.5">
       <span className="text-xs font-semibold leading-5 text-foreground">{label}</span>
       <span className="min-h-8 text-micro text-muted-foreground">{description}</span>
       <Select
@@ -1440,8 +1474,11 @@ function BrowserFontsPreview({
   const mathFamily = browserFontPreviewFamily(settings.fonts.slots.math, previewFamilies);
 
   return (
-    <div className="grid gap-2 rounded-md border border-border/25 px-3 py-3 text-xs leading-5 text-muted-foreground">
-      <p className="font-semibold text-foreground">{t("settings.browserFontsPreview")}</p>
+    <Surface className="grid gap-2 border border-border/25 px-3 py-3 text-xs leading-5 text-muted-foreground" variant="inset">
+      <p className="flex items-center gap-2 font-semibold text-foreground">
+        <Type className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        {t("settings.browserFontsPreview")}
+      </p>
       <p className="text-base leading-7">
         <span style={{ fontFamily: cjkFamily }}>繁體中文 · 简体中文 · 日本語 </span>
         <span style={{ fontFamily: latinFamily }}>Rion Studio </span>
@@ -1456,7 +1493,7 @@ function BrowserFontsPreview({
             '<math style="font: inherit;"><mrow><msqrt><mrow><mi>x</mi><mo>+</mo><mn>1</mn></mrow></msqrt><mo>=</mo><mi>y</mi></mrow></math>'
         }}
       />
-    </div>
+    </Surface>
   );
 }
 

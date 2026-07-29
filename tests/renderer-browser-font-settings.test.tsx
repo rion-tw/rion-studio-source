@@ -122,6 +122,10 @@ describe("browser font settings", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Natural handwriting/u })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
+    expect(screen.getByRole("button", { name: /Natural handwriting/u })).toBeTruthy();
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -146,6 +150,7 @@ describe("browser font settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
     expect(await screen.findByText("Handwriting styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
     expect(screen.getByText("Chinese & Japanese")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Natural handwriting/u }));
     fireEvent.click(screen.getByRole("button", { name: "Download 5 and apply" }));
@@ -187,6 +192,7 @@ describe("browser font settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
     expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Distinctive styles/u }));
     fireEvent.click(screen.getByRole("button", { name: /Friendly rounded/u }));
     fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
 
@@ -233,6 +239,7 @@ describe("browser font settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
     expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Distinctive styles/u }));
     fireEvent.click(screen.getByRole("button", { name: /Retro game/u }));
     fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
 
@@ -287,6 +294,7 @@ describe("browser font settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
     expect(await screen.findByText("Handwriting styles")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
     fireEvent.click(screen.getByRole("button", { name: /Natural handwriting/u }));
     fireEvent.click(screen.getByRole("button", { name: "Download 5 and apply" }));
 

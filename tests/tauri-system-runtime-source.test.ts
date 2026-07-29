@@ -113,6 +113,36 @@ describe("Tauri System WebView runtime source", () => {
     expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
   });
 
+  it("keeps tab interaction responsive while native launch verification is pending", async () => {
+    const [runtime, menu, macBridge, macController, windowsStrip] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/runtime_tab_menu.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8"),
+      readFile(
+        new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src/renderer/runtime-shell/runtimeTabStrip.ts", import.meta.url),
+        "utf8"
+      )
+    ]);
+
+    expect(runtime).toContain("fn preview_tab_activation(");
+    expect(runtime).toContain("fn preview_adjacent_tab_activation(");
+    expect(runtime).toContain("fn preview_tab_close(");
+    expect(runtime).toContain("optimistic_closed_tabs");
+    expect(runtime).toContain("runtime_tab.visible");
+    expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
+    expect(menu).toContain("resolve_tab_close_preview(tab_id)");
+    expect(macBridge).toContain("update_generation: AtomicU64");
+    expect(macBridge).toContain("inner.update_generation.load(Ordering::Acquire) != generation");
+    expect(macController).toContain("item.activeTab = active;");
+    expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
+    expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
+    expect(windowsStrip).toContain("optimisticallyCloseTab");
+  });
+
   it("tracks exact native surface ownership across roles, popups, dividers, and moves", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),

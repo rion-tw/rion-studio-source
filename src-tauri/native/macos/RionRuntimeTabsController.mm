@@ -726,6 +726,7 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
            audioMutedLabel:(NSString *)audioMutedLabel
              windowActive:(BOOL)windowActive;
 - (void)updateWindowActive:(BOOL)windowActive;
+- (void)updateVisualStateAnimated:(BOOL)animate;
 
 @end
 
@@ -2661,6 +2662,17 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)activateTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
+    // Selection is a reversible UI/native-surface intent. Paint it before the
+    // asynchronous core transaction so fast clicks and keyboard cycling never
+    // leave the highlight one action behind.
+    for (RionRuntimeTabItemView *item in _tabItems) {
+      BOOL active = [item.tabIdentifier isEqualToString:tabIdentifier];
+      if (item.activeTab == active) continue;
+      item.activeTab = active;
+      item.accessibilityValue = @(active);
+      [item updateVisualStateAnimated:YES];
+    }
+    [self scrollActiveTabIntoView];
     _actionHandler(@{ @"type" : @"activate", @"tabId" : tabIdentifier,
                       @"sourceWindowId" : _windowID });
   }
@@ -2668,6 +2680,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)closeTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
+    NSUInteger index = [_tabItems indexOfObjectPassingTest:
+        ^BOOL(RionRuntimeTabItemView *item, NSUInteger candidateIndex,
+              BOOL *stop) {
+      (void)candidateIndex;
+      if ([item.tabIdentifier isEqualToString:tabIdentifier]) *stop = YES;
+      return [item.tabIdentifier isEqualToString:tabIdentifier];
+    }];
+    if (index != NSNotFound) {
+      [_tabSurfaces[index] removeFromSuperview];
+      [_tabItems removeObjectAtIndex:index];
+      [_tabSurfaces removeObjectAtIndex:index];
+      [self layoutTitlebarContent];
+    }
     _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier,
                       @"sourceWindowId" : _windowID });
   }

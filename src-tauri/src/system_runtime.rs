@@ -1020,6 +1020,7 @@ struct RuntimeState {
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     pending_macro_page_request: Option<Value>,
     pending_macro_release_navigations: HashSet<(String, String)>,
+    optimistic_closed_tabs: HashSet<String>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
@@ -3058,9 +3059,17 @@ impl SystemRuntimeExecutor {
                 .tabs
                 .iter()
                 .map(|tab| {
-                    let active = snapshot.windows.iter().any(|window| {
-                        window.active_tab_id.as_deref() == Some(tab.id.as_str())
-                    });
+                    // The native visibility transaction is the earliest committed source for
+                    // the tab the user can actually see. It intentionally leads the core
+                    // snapshot while a launch navigation or another effect is still pending.
+                    let active = state.tabs.get(&tab.id).map_or_else(
+                        || {
+                            snapshot.windows.iter().any(|window| {
+                                window.active_tab_id.as_deref() == Some(tab.id.as_str())
+                            })
+                        },
+                        |runtime_tab| runtime_tab.visible,
+                    );
                     let audio_muted = state
                         .tabs
                         .get(&tab.id)
@@ -3077,7 +3086,7 @@ impl SystemRuntimeExecutor {
                         "windowId": tab.window_id,
                         "roleIds": tab.role_ids,
                         "roleNames": tab.role_ids.iter().filter_map(|role_id| role_names.get(role_id).cloned()).collect::<Vec<_>>(),
-                        "hidden": tab.hidden,
+                        "hidden": tab.hidden || state.optimistic_closed_tabs.contains(&tab.id),
                         "active": active,
                         "audible": audible,
                         "audioMuted": audio_muted
@@ -3213,6 +3222,109 @@ impl SystemRuntimeExecutor {
         let _ = self
             .app
             .emit("rion://runtime-state", self.projection(&snapshot));
+    }
+
+    /// Applies a user tab selection directly to the already-created native surfaces.
+    ///
+    /// Launch navigation is deliberately verified by the core effect plan and can take
+    /// tens of seconds. Tab selection must not wait behind that verification: the native
+    /// visibility change is reversible and the matching core command still follows as the
+    /// authoritative commit.
+    pub(crate) fn preview_tab_activation(&self, tab_id: &str) -> Result<(), String> {
+        self.show_tab(tab_id, true).map_err(|error| error.message)?;
+        self.publish_projection();
+        Ok(())
+    }
+
+    pub(crate) fn preview_adjacent_tab_activation(
+        &self,
+        window_id: &str,
+        direction: &str,
+    ) -> Result<String, String> {
+        let value = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())?;
+        let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+            .map_err(|error| error.to_string())?;
+        let candidates = {
+            let state = self.state().map_err(|error| error.message)?;
+            snapshot
+                .tabs
+                .iter()
+                .filter(|tab| {
+                    tab.window_id == window_id
+                        && !tab.hidden
+                        && state.tabs.contains_key(&tab.id)
+                        && !state.optimistic_closed_tabs.contains(&tab.id)
+                })
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>()
+        };
+        if candidates.is_empty() {
+            return Err("The runtime window has no selectable tabs.".to_owned());
+        }
+        let current = {
+            let state = self.state().map_err(|error| error.message)?;
+            candidates
+                .iter()
+                .position(|tab_id| state.tabs.get(tab_id).is_some_and(|tab| tab.visible))
+        }
+        .or_else(|| {
+            snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == window_id)
+                .and_then(|window| window.active_tab_id.as_ref())
+                .and_then(|active_id| candidates.iter().position(|tab_id| tab_id == active_id))
+        })
+        .unwrap_or(0);
+        let target_index = if direction == "previous" {
+            (current + candidates.len() - 1) % candidates.len()
+        } else {
+            (current + 1) % candidates.len()
+        };
+        let target_id = candidates[target_index].clone();
+        self.preview_tab_activation(&target_id)?;
+        Ok(target_id)
+    }
+
+    pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        {
+            let mut state = self.state().map_err(|error| error.message)?;
+            if !state.tabs.contains_key(tab_id) {
+                return Err("Runtime tab was not found.".to_owned());
+            }
+            state.optimistic_closed_tabs.insert(tab_id.to_owned());
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    pub(crate) fn resolve_tab_close_preview(&self, tab_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.optimistic_closed_tabs.remove(tab_id);
+        }
+        self.publish_projection();
+    }
+
+    pub(crate) fn reconcile_tab_activation(&self, window_id: &str) {
+        let active_tab_id = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .ok()
+            .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())
+            .and_then(|snapshot| {
+                snapshot
+                    .windows
+                    .into_iter()
+                    .find(|window| window.window_id == window_id)
+                    .and_then(|window| window.active_tab_id)
+            });
+        if let Some(tab_id) = active_tab_id {
+            let _ = self.show_tab(&tab_id, true);
+        }
+        self.publish_projection();
     }
 
     fn snapshot_with_native_tab_locations(
@@ -5565,14 +5677,31 @@ impl SystemRuntimeExecutor {
                                 .find(|tab| tab.role_ids.iter().any(|id| id == role_id))
                                 .map(|tab| tab.window_id.clone())
                         {
+                            let target_tab_id = navigation_app
+                                .try_state::<crate::CoreState>()
+                                .and_then(|state| {
+                                    state
+                                        .runtime
+                                        .preview_adjacent_tab_activation(&window_id, &direction)
+                                        .ok()
+                                });
                             let core = Arc::clone(&shortcut_core);
+                            let shortcut_app = navigation_app.clone();
+                            let reconcile_window_id = window_id.clone();
                             tauri::async_runtime::spawn(async move {
-                                let _ = core
-                                    .invoke_async(CoreCommand::EmbeddedTabActivateAdjacent {
+                                let command = target_tab_id.map_or_else(
+                                    || CoreCommand::EmbeddedTabActivateAdjacent {
                                         window_id,
                                         direction,
-                                    })
-                                    .await;
+                                    },
+                                    |tab_id| CoreCommand::EmbeddedTabActivate { tab_id },
+                                );
+                                if core.invoke_async(command).await.is_err()
+                                    && let Some(state) =
+                                        shortcut_app.try_state::<crate::CoreState>()
+                                {
+                                    state.runtime.reconcile_tab_activation(&reconcile_window_id);
+                                }
                             });
                         }
                     }
@@ -8313,7 +8442,11 @@ impl SystemRuntimeExecutor {
                 let tabs = snapshot
                     .tabs
                     .iter()
-                    .filter(|tab| &tab.window_id == window_id && !tab.hidden)
+                    .filter(|tab| {
+                        &tab.window_id == window_id
+                            && !tab.hidden
+                            && !state.optimistic_closed_tabs.contains(&tab.id)
+                    })
                     .filter_map(|tab| {
                         let live = state.tabs.get(&tab.id)?;
                         let names = tab
@@ -8338,7 +8471,15 @@ impl SystemRuntimeExecutor {
                                 .map(|value| (*value).to_owned())
                         });
                         Some(crate::runtime_tabs_macos::MacRuntimeTabState {
-                            active: active_id == Some(tab.id.as_str()),
+                            active: if live.visible {
+                                true
+                            } else if state.tabs.values().any(|candidate| {
+                                candidate.window_id == *window_id && candidate.visible
+                            }) {
+                                false
+                            } else {
+                                active_id == Some(tab.id.as_str())
+                            },
                             audio_muted: live.audio_muted,
                             audible: runtime_tab_is_audible(&state, live),
                             icon_data_url,

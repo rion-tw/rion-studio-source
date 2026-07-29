@@ -379,12 +379,16 @@ function WorkspaceLayoutFormEditor({
       }
     };
 
-    const finishResize = (): void => {
+    const settleResize = (commit: boolean): void => {
       if (controller.signal.aborted) {
         return;
       }
 
-      flushScheduledResize();
+      if (commit) {
+        flushScheduledResize();
+      } else {
+        cancelScheduledResize();
+      }
       controller.abort();
       if (resizeAbortRef.current === controller) {
         resizeAbortRef.current = null;
@@ -392,14 +396,26 @@ function WorkspaceLayoutFormEditor({
       setActiveResize(null);
       setDragSlots(null);
 
-      if (nextSlots !== slots) {
+      if (commit && nextSlots !== slots) {
         updateSlots(nextSlots);
       }
     };
 
-    const handlePointerEnd = (pointerEvent: PointerEvent): void => {
+    const handlePointerUp = (pointerEvent: PointerEvent): void => {
       if (pointerEvent.pointerId === event.pointerId) {
-        finishResize();
+        settleResize(true);
+      }
+    };
+    const handlePointerCancel = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId === event.pointerId) {
+        settleResize(false);
+      }
+    };
+    const handleKeyDown = (keyboardEvent: KeyboardEvent): void => {
+      if (keyboardEvent.key === "Escape") {
+        keyboardEvent.preventDefault();
+        keyboardEvent.stopImmediatePropagation();
+        settleResize(false);
       }
     };
 
@@ -409,9 +425,13 @@ function WorkspaceLayoutFormEditor({
       passive: true,
       signal: controller.signal
     });
-    window.addEventListener("pointerup", handlePointerEnd, { signal: controller.signal });
-    window.addEventListener("pointercancel", handlePointerEnd, { signal: controller.signal });
-    window.addEventListener("blur", finishResize, { signal: controller.signal });
+    window.addEventListener("pointerup", handlePointerUp, { signal: controller.signal });
+    window.addEventListener("pointercancel", handlePointerCancel, { signal: controller.signal });
+    window.addEventListener("blur", () => settleResize(false), { signal: controller.signal });
+    window.addEventListener("keydown", handleKeyDown, {
+      capture: true,
+      signal: controller.signal
+    });
   }
 
   return (

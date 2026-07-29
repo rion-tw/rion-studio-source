@@ -1,16 +1,14 @@
 (() => {
-  const version = "rion-tauri-overlay-1";
-  if (globalThis.__rionStudioNativeOverlayBridge?.version === version) return;
-  const invoke = (payload) => {
-    const internals = globalThis.__TAURI_INTERNALS__;
-    if (!internals || typeof internals.invoke !== "function") {
+  const capability = "__RION_STUDIO_MACRO_OVERLAY_CAPABILITY__";
+  const internals = globalThis.__TAURI_INTERNALS__;
+  const nativeInvoke = typeof internals?.invoke === "function"
+    ? internals.invoke.bind(internals)
+    : undefined;
+
+  return (payload) => {
+    if (!nativeInvoke) {
       return Promise.reject(new Error("Rion Studio overlay IPC is unavailable."));
     }
-    return internals.invoke("rion_overlay_request", { payload });
+    return nativeInvoke("rion_overlay_request", { capability, payload });
   };
-  globalThis.__rionStudioNativeOverlayBridge = Object.freeze({ version });
-  Object.defineProperty(globalThis, "rionStudioMacroOverlay", {
-    configurable: true,
-    value: invoke
-  });
-})();
+})()

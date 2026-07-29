@@ -69,7 +69,12 @@ const MACRO_OVERLAY_RUNTIME_SOURCE: &str =
 const MACRO_OVERLAY_CSS: &str = include_str!("../../src/shared/browser-overlay/macroOverlay.css");
 const MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/macroOverlayShortcutGuard.js");
+const MACRO_OVERLAY_BINDING_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_BINDING__";
+const MACRO_OVERLAY_CAPABILITY_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_CAPABILITY__";
 const MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
+const MACRO_OVERLAY_TRUSTED_EVENT_GUARD_TOKEN: &str =
+    "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
+const MACRO_OVERLAY_TRUSTED_EVENT_GUARD_SOURCE: &str = "(event) => event.isTrusted === true";
 const MACRO_OVERLAY_CSS_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
 const MACRO_OVERLAY_REFRESH_SOURCE: &str = "void globalThis.__rionStudioMacroOverlay?.refresh?.()";
 const RUNTIME_INDICATOR_RUNTIME_SOURCE: &str =
@@ -618,6 +623,7 @@ struct RuntimeState {
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
     pending_window_close_labels: HashSet<String>,
+    overlay_capabilities: HashMap<String, String>,
     popup_roles: HashMap<String, String>,
     recovery_required: bool,
     recovery_budgets: HashMap<String, RecoveryBudget>,
@@ -658,7 +664,7 @@ struct RuntimeWebViewConfiguration {
     additional_browser_arguments: String,
     document_start_script: String,
     macos_high_refresh_rate: bool,
-    overlay_document_start_script: String,
+    overlay_document_start_script_template: String,
 }
 
 #[derive(Deserialize)]
@@ -829,7 +835,8 @@ impl SystemRuntimeExecutor {
         .filter(|source| !source.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-        let overlay_document_start_script = macro_overlay_document_start_script()?;
+        let overlay_document_start_script_template =
+            macro_overlay_document_start_script_template()?;
         let stored_restore_session = core
             .invoke(CoreCommand::RuntimeRestoreSessionGet)
             .map_err(|error| error.to_string())
@@ -897,7 +904,7 @@ impl SystemRuntimeExecutor {
                 additional_browser_arguments,
                 document_start_script,
                 macos_high_refresh_rate: settings.performance.macos_high_refresh_rate,
-                overlay_document_start_script,
+                overlay_document_start_script_template,
             },
             core,
             effect_sender: OnceLock::new(),
@@ -2131,6 +2138,7 @@ impl SystemRuntimeExecutor {
                 .into_keys()
                 .collect::<Vec<_>>();
             state.audible_webviews.clear();
+            state.overlay_capabilities.clear();
             state.role_tabs.clear();
             state.allow_window_close_labels.extend(
                 display_hosts
@@ -2938,6 +2946,62 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Overlay WebView is not associated with a running role.".to_owned())
     }
 
+    pub fn authorize_overlay_request(
+        &self,
+        webview_label: &str,
+        capability: &str,
+    ) -> Result<String, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+        if state
+            .overlay_capabilities
+            .get(webview_label)
+            .map(String::as_str)
+            != Some(capability)
+        {
+            return Err("The overlay capability is missing or no longer valid.".to_owned());
+        }
+        if let Some(role_id) = state.popup_roles.get(webview_label) {
+            return Ok(role_id.clone());
+        }
+        state
+            .role_tabs
+            .iter()
+            .find_map(|(role_id, tab_id)| {
+                state.tabs.get(tab_id).and_then(|tab| {
+                    tab.roles
+                        .get(role_id)
+                        .filter(|surface| surface.webview.label() == webview_label)
+                        .map(|_| role_id.clone())
+                })
+            })
+            .ok_or_else(|| "Overlay WebView is not associated with a running role.".to_owned())
+    }
+
+    fn overlay_document_start_script_for_label(&self, label: &str) -> RuntimeResult<String> {
+        let capability = {
+            let mut state = self.state()?;
+            state
+                .overlay_capabilities
+                .entry(label.to_owned())
+                .or_insert_with(|| uuid::Uuid::new_v4().to_string())
+                .clone()
+        };
+        macro_overlay_document_start_script(
+            &self.configuration.overlay_document_start_script_template,
+            &capability,
+        )
+        .map_err(|message| RuntimeError::new("SYSTEM_OVERLAY_SCRIPT_INVALID", message))
+    }
+
+    fn revoke_overlay_capability(&self, label: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.overlay_capabilities.remove(label);
+        }
+    }
+
     #[cfg(target_os = "macos")]
     fn recovery_target_for_webview(&self, webview_label: &str) -> Option<(String, u64)> {
         let state = self.state.lock().ok()?;
@@ -3165,6 +3229,7 @@ impl SystemRuntimeExecutor {
         if let Ok(mut state) = self.state.lock() {
             state.popup_roles.remove(window_label);
             state.audible_webviews.remove(window_label);
+            state.overlay_capabilities.remove(window_label);
         }
         self.publish_projection();
     }
@@ -3381,6 +3446,7 @@ impl SystemRuntimeExecutor {
             for label in &popup_labels {
                 state.popup_roles.remove(label);
                 state.audible_webviews.remove(label);
+                state.overlay_capabilities.remove(label);
             }
             let next_generation = state
                 .recovery_generations
@@ -3997,11 +4063,10 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         let popup_additional_browser_arguments =
             self.configuration.additional_browser_arguments.clone();
-        let popup_document_start_script = [
-            self.configuration.document_start_script.clone(),
-            self.configuration.overlay_document_start_script.clone(),
-        ]
-        .join("\n");
+        let popup_base_document_start_script = self.configuration.document_start_script.clone();
+        let overlay_document_start_script = role_id
+            .map(|_| self.overlay_document_start_script_for_label(&label))
+            .transpose()?;
         let download_app = self.app.clone();
         let download_role_id = role_id.map(str::to_owned);
         let shortcut_core = Arc::clone(&self.core);
@@ -4070,6 +4135,32 @@ impl SystemRuntimeExecutor {
                 }
                 let sequence = POPUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let label = runtime_label("game-role-popup", &format!("{role_id}:{sequence}"));
+                let overlay_document_start_script =
+                    match popup_app.try_state::<crate::CoreState>().map(|state| {
+                        state
+                            .runtime
+                            .overlay_document_start_script_for_label(&label)
+                    }) {
+                        Some(Ok(source)) => source,
+                        Some(Err(error)) => {
+                            let _ = popup_app.emit(
+                                "rion://shell-error",
+                                json!({
+                                    "code": error.code,
+                                    "message": error.message,
+                                    "roleId": role_id,
+                                    "url": url
+                                }),
+                            );
+                            return NewWindowResponse::Deny;
+                        }
+                        None => return NewWindowResponse::Deny,
+                    };
+                let popup_document_start_script = [
+                    popup_base_document_start_script.clone(),
+                    overlay_document_start_script,
+                ]
+                .join("\n");
                 let blank = match "about:blank".parse() {
                     Ok(blank) => blank,
                     Err(_) => return NewWindowResponse::Deny,
@@ -4111,6 +4202,9 @@ impl SystemRuntimeExecutor {
                         );
                         if let Err(error) = install_platform_security_policy(window.as_ref()) {
                             let _ = window.close();
+                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                state.runtime.revoke_overlay_capability(&label);
+                            }
                             let _ = popup_app.emit(
                                 "rion://shell-error",
                                 json!({
@@ -4127,6 +4221,9 @@ impl SystemRuntimeExecutor {
                             .and_then(|state| state.runtime.surface_generation_for_role(role_id));
                         let Some(generation) = generation else {
                             let _ = window.close();
+                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                state.runtime.revoke_overlay_capability(&label);
+                            }
                             return NewWindowResponse::Deny;
                         };
                         if let Err(error) = install_process_failure_monitor(
@@ -4136,6 +4233,9 @@ impl SystemRuntimeExecutor {
                             generation,
                         ) {
                             let _ = window.close();
+                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                state.runtime.revoke_overlay_capability(&label);
+                            }
                             let _ = popup_app.emit(
                                 "rion://shell-error",
                                 json!({
@@ -4151,6 +4251,9 @@ impl SystemRuntimeExecutor {
                             install_role_zoom_shortcut_handler(window.as_ref(), popup_app.clone())
                         {
                             let _ = window.close();
+                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                state.runtime.revoke_overlay_capability(&label);
+                            }
                             let _ = popup_app.emit(
                                 "rion://shell-error",
                                 json!({
@@ -4168,6 +4271,9 @@ impl SystemRuntimeExecutor {
                         NewWindowResponse::Create { window }
                     }
                     Err(error) => {
+                        if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                            state.runtime.revoke_overlay_capability(&label);
+                        }
                         let _ = popup_app.emit(
                             "rion://shell-error",
                             json!({
@@ -4185,9 +4291,9 @@ impl SystemRuntimeExecutor {
                 handle_browser_download(&download_app, download_role_id.as_deref(), event)
             });
         if role_id.is_some() {
-            builder = builder.initialization_script_for_all_frames(
-                &self.configuration.overlay_document_start_script,
-            );
+            if let Some(source) = overlay_document_start_script.as_deref() {
+                builder = builder.initialization_script_for_all_frames(source);
+            }
             #[cfg(target_os = "macos")]
             {
                 // Match browser-like background tabs: keep hidden game pages throttled instead
@@ -5967,15 +6073,17 @@ impl SystemRuntimeExecutor {
     fn install_overlays(&self, role_ids: &[String]) -> RuntimeResult<()> {
         for role_id in role_ids {
             let webview = self.role_webview(role_id)?;
+            let overlay_document_start_script =
+                self.overlay_document_start_script_for_label(webview.label())?;
             webview
-                .eval(&self.configuration.overlay_document_start_script)
+                .eval(&overlay_document_start_script)
                 .map_err(RuntimeError::tauri)?;
             let deadline = Instant::now() + PLATFORM_CALLBACK_TIMEOUT;
             let mut last_error = None;
             loop {
                 match self.evaluate_webview(
                     &webview,
-                    "typeof globalThis.rionStudioMacroOverlay === 'function' && typeof globalThis.__rionStudioMacroOverlay === 'object'",
+                    "typeof globalThis.rionStudioMacroOverlay === 'undefined' && typeof globalThis.__rionStudioMacroOverlay === 'object'",
                 ) {
                     Ok(ready) if matches!(serde_json::from_str::<bool>(&ready), Ok(true)) => {
                         break;
@@ -6617,6 +6725,7 @@ impl SystemRuntimeExecutor {
         role_id: &str,
     ) -> RuntimeResult<()> {
         let label = webview.label().to_owned();
+        self.revoke_overlay_capability(&label);
         webview.close().map_err(RuntimeError::tauri)?;
         wait_for_tauri_main_thread(&self.app)?;
         let platform = if cfg!(windows) { "windows" } else { "macos" };
@@ -6927,6 +7036,7 @@ impl SystemRuntimeExecutor {
         popup_labels.iter().for_each(|label| {
             state.popup_roles.remove(label);
             state.audible_webviews.remove(label);
+            state.overlay_capabilities.remove(label);
         });
         state.audible_webviews.remove(role.webview.label());
         drop(state);
@@ -7016,6 +7126,7 @@ impl SystemRuntimeExecutor {
         popup_labels.iter().for_each(|label| {
             state.popup_roles.remove(label);
             state.audible_webviews.remove(label);
+            state.overlay_capabilities.remove(label);
         });
         for surface in tab.roles.values() {
             state.audible_webviews.remove(surface.webview.label());
@@ -8239,9 +8350,13 @@ fn verify_local_storage_snapshot(
     }
 }
 
-fn macro_overlay_document_start_script() -> Result<String, String> {
+fn macro_overlay_document_start_script_template() -> Result<String, String> {
     let guard_token = serde_json::to_string(MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN)
         .map_err(|error| error.to_string())?;
+    let trusted_event_guard_token = serde_json::to_string(MACRO_OVERLAY_TRUSTED_EVENT_GUARD_TOKEN)
+        .map_err(|error| error.to_string())?;
+    let binding_token =
+        serde_json::to_string(MACRO_OVERLAY_BINDING_TOKEN).map_err(|error| error.to_string())?;
     let css_token =
         serde_json::to_string(MACRO_OVERLAY_CSS_TOKEN).map_err(|error| error.to_string())?;
     let with_guard = replace_single_script_token(
@@ -8249,10 +8364,26 @@ fn macro_overlay_document_start_script() -> Result<String, String> {
         &guard_token,
         MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE.trim(),
     )?;
+    let with_trusted_event_guard = replace_single_script_token(
+        &with_guard,
+        &trusted_event_guard_token,
+        MACRO_OVERLAY_TRUSTED_EVENT_GUARD_SOURCE,
+    )?;
     let css = serde_json::to_string(&format!("{DESIGN_TOKENS_CSS}\n{MACRO_OVERLAY_CSS}"))
         .map_err(|error| error.to_string())?;
-    let runtime = replace_single_script_token(&with_guard, &css_token, &css)?;
-    Ok(format!("{TAURI_MACRO_OVERLAY_BRIDGE_SOURCE}\n{runtime}"))
+    let runtime = replace_single_script_token(&with_trusted_event_guard, &css_token, &css)?;
+    replace_single_script_token(
+        &runtime,
+        &binding_token,
+        TAURI_MACRO_OVERLAY_BRIDGE_SOURCE.trim(),
+    )
+}
+
+fn macro_overlay_document_start_script(template: &str, capability: &str) -> Result<String, String> {
+    let capability_token =
+        serde_json::to_string(MACRO_OVERLAY_CAPABILITY_TOKEN).map_err(|error| error.to_string())?;
+    let capability = serde_json::to_string(capability).map_err(|error| error.to_string())?;
+    replace_single_script_token(template, &capability_token, &capability)
 }
 
 fn runtime_indicator_document_start_script() -> Result<String, String> {
@@ -10655,15 +10786,22 @@ mod tests {
 
     #[test]
     fn shared_macro_overlay_builds_with_the_tauri_only_bridge() {
-        let source = macro_overlay_document_start_script().unwrap();
+        let template = macro_overlay_document_start_script_template().unwrap();
+        let source = macro_overlay_document_start_script(&template, "test-capability").unwrap();
         assert!(source.contains("rion_overlay_request"));
+        assert!(source.contains("test-capability"));
+        assert!(source.contains("event.isTrusted === true"));
         assert!(source.contains("rion-studio-macro-overlay-v56"));
         assert!(source.contains("const overlayCss = \"/*"));
         assert!(source.contains("--font-ui: system-ui"));
         assert!(source.contains("*{box-sizing:border-box;font-family:var(--font-ui)"));
         assert!(source.contains("@media (prefers-reduced-motion:reduce)"));
         assert!(!source.contains(MACRO_OVERLAY_SHORTCUT_GUARD_TOKEN));
+        assert!(!source.contains(MACRO_OVERLAY_BINDING_TOKEN));
+        assert!(!source.contains(MACRO_OVERLAY_CAPABILITY_TOKEN));
+        assert!(!source.contains(MACRO_OVERLAY_TRUSTED_EVENT_GUARD_TOKEN));
         assert!(!source.contains(MACRO_OVERLAY_CSS_TOKEN));
+        assert!(!source.contains("globalThis.rionStudioMacroOverlay"));
         assert!(!source.contains("chrome.webview"));
         assert!(!source.contains("webkit.messageHandlers"));
     }

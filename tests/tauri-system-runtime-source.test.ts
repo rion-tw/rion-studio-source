@@ -200,7 +200,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(overlayRequest).toContain("overlay_request_activates_webview(&payload)");
     expect(overlayRequest).toContain("webview.set_focus()");
     expect(overlayRequest).toContain('"OVERLAY_WEBVIEW_FOCUS_FAILED"');
-    expect(overlayRequest.indexOf("role_id_for_webview(webview.label())"))
+    expect(overlayRequest).toContain("authorize_overlay_request(webview.label(), &capability)");
+    expect(overlayRequest).toContain('"OVERLAY_REQUEST_UNAUTHORIZED"');
+    expect(overlayRequest.indexOf("authorize_overlay_request(webview.label(), &capability)"))
       .toBeLessThan(overlayRequest.indexOf("webview.set_focus()"));
 
     const openMacroPage = runtime.slice(

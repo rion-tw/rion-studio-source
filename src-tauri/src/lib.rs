@@ -452,8 +452,13 @@ async fn rion_browser_font_payload(
 async fn rion_overlay_request(
     webview: Webview,
     state: State<'_, CoreState>,
+    capability: String,
     payload: Value,
 ) -> Result<Value, CoreErrorPayload> {
+    let role_id = state
+        .runtime
+        .authorize_overlay_request(webview.label(), &capability)
+        .map_err(|message| shell_error("OVERLAY_REQUEST_UNAUTHORIZED", message))?;
     let request_json = serde_json::to_string(&payload).map_err(|error| CoreErrorPayload {
         code: "OVERLAY_REQUEST_INVALID".to_owned(),
         message: error.to_string(),
@@ -464,10 +469,6 @@ async fn rion_overlay_request(
             "The overlay request exceeds the allowed size.",
         ));
     }
-    let role_id = state
-        .runtime
-        .role_id_for_webview(webview.label())
-        .map_err(|message| shell_error("OVERLAY_ROLE_UNAVAILABLE", message))?;
     if overlay_request_activates_webview(&payload) {
         webview.set_focus().map_err(|error| {
             shell_error(

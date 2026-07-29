@@ -124,8 +124,9 @@ describe("Tauri development and release commands", () => {
     expect(releaseLauncher).toContain('import { spawnPlatformCommand }');
     expect(releaseLauncher).toContain("spawnPlatformCommand(executable, args");
     expect(releaseLauncher).not.toContain("spawnSync");
-    expect(releaseLauncher).toContain("releasePlatformBundle(process.platform, process.env)");
-    expect(releaseLauncher).not.toContain('signingIdentity: "-"');
+    expect(releaseLauncher).toContain('signingIdentity: "-"');
+    expect(releaseLauncher).toContain("delete buildEnvironment[name]");
+    expect(releaseLauncher).not.toContain("releasePlatformBundle");
     expect(releaseLauncher).not.toContain("verifyWindowsCertificatePublisher");
     expect(releaseLauncher).not.toContain("certificateThumbprint");
     expect(packageJson.scripts).not.toHaveProperty("dev:tauri");

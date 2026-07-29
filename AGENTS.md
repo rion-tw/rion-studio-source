@@ -44,6 +44,20 @@ before changing code.
   workflow. A local pass on one platform is not evidence that the other platform
   passes; use CI for the unavailable native platform before considering work done.
 
+## Owner-Locked Release Distribution Decision
+
+- This is an explicit owner decision, not a temporary fallback: production macOS
+  release artifacts use Tauri's ad-hoc identity (`-`) and are neither Developer ID
+  signed nor notarized. Production Windows installers remain Authenticode-unsigned.
+- Platform installer signing and Tauri updater signing are separate. Updater signing,
+  updater `.sig` files, and SHA-256 checksum verification remain mandatory.
+- Agents must not add Apple Developer ID, Apple notarization, Windows Authenticode,
+  platform certificate secrets, or related fail-closed release gates as hardening,
+  best-practice, security, or release-optimization work.
+- This policy may change only when the user explicitly changes this decision and
+  confirms that both Apple and Windows production signing credentials are available.
+  A generic request to fix CI, release, or security does not authorize that change.
+
 ## IPC Contract Changes
 
 When adding or changing an app capability exposed to the renderer, update the full

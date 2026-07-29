@@ -1355,7 +1355,8 @@ fn spawn_triggered_macro(
     }
     let shared = Arc::clone(shared);
     let context = context.clone();
-    let _ = thread::Builder::new()
+    let pending_control = Arc::clone(&context.control);
+    let spawn = thread::Builder::new()
         .name("rion-macro-trigger".to_owned())
         .spawn(move || {
             let started = start_child_invocation(
@@ -1367,10 +1368,7 @@ fn spawn_triggered_macro(
                 &context.control,
                 true,
             );
-            if let Ok(mut children) = context.control.children.0.lock() {
-                children.pending_starts = children.pending_starts.saturating_sub(1);
-                context.control.children.1.notify_all();
-            }
+            finish_pending_child_start(&context.control);
             let Ok(Some(child)) = started else {
                 return;
             };
@@ -1383,6 +1381,20 @@ fn spawn_triggered_macro(
             wait_finished(&child);
             remove_owned_child(&context.control, &child.id);
         });
+    finish_pending_child_start_after_spawn(&pending_control, &spawn);
+}
+
+fn finish_pending_child_start(control: &InvocationControl) {
+    if let Ok(mut children) = control.children.0.lock() {
+        children.pending_starts = children.pending_starts.saturating_sub(1);
+        control.children.1.notify_all();
+    }
+}
+
+fn finish_pending_child_start_after_spawn<T, E>(control: &InvocationControl, spawn: &Result<T, E>) {
+    if spawn.is_err() {
+        finish_pending_child_start(control);
+    }
 }
 
 fn start_child_invocation(
@@ -5754,6 +5766,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn triggered_child_spawn_failure_releases_the_pending_start_guard() {
+        let control = new_invocation_control(
+            "parent".to_owned(),
+            "macro-parent".to_owned(),
+            HashSet::from(["r1".to_owned()]),
+        );
+        control.children.0.lock().unwrap().pending_starts = 1;
+
+        finish_pending_child_start_after_spawn(&control, &Err::<(), _>("spawn denied"));
+
+        assert_eq!(control.children.0.lock().unwrap().pending_starts, 0);
     }
 
     #[test]

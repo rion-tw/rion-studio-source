@@ -468,7 +468,7 @@ function WorkspaceLayoutFormEditor({
           <div
             ref={previewRef}
             data-workspace-layout-preview
-            className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
+            className="relative aspect-[8/5] min-h-[320px] overflow-hidden"
           >
             {slots.map((slot, index) => {
               const role = slot.roleId ? roleById.get(slot.roleId) : undefined;

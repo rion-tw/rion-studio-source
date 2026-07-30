@@ -56,10 +56,10 @@ describe("Tauri-only release workflows", () => {
     expect(windowsLoaderDiagnostic).toContain('"application-manifest.xml"');
     expect(windowsLoaderDiagnostic).toContain("Common Controls v6 dependency");
     expect(tauriBuildScript).toContain(
-      'embed_resource::compile_for_tests("windows-test-manifest.rc"'
+      'embed_resource::compile_for_everything("windows-test-manifest.rc"'
     );
     expect(tauriBuildScript).toContain(".manifest_required()");
-    expect(tauriBuildScript).toContain('include_str!("windows-app-manifest.xml")');
+    expect(tauriBuildScript).toContain("WindowsAttributes::new_without_app_manifest()");
     expect(windowsManifest).toContain('name="Microsoft.Windows.Common-Controls"');
     expect(windowsManifest).toContain('version="6.0.0.0"');
     expect(windowsTestResource).toContain(

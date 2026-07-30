@@ -1,4 +1,8 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use rion_core::{AppCore, BrowserRuntimeSnapshot, CoreCommand};
 use tauri::{
@@ -14,12 +18,8 @@ const STOP_WORKSPACE_PREFIX: &str = "stop-workspace:";
 const SHOW_DISPLAY_PREFIX: &str = "show-display:";
 const RESTORE_WINDOW_PREFIX: &str = "restore-window:";
 
-pub fn create(
-    app: &AppHandle,
-    core: Arc<AppCore>,
-    runtime: Arc<crate::SystemRuntimeExecutor>,
-) -> Result<TrayIcon, String> {
-    let menu = menu(app, &core, &runtime, "en")?;
+pub fn create(app: &AppHandle, core: Arc<AppCore>) -> Result<TrayIcon, String> {
+    let menu = starter_menu(app, "en")?;
     let event_core = Arc::clone(&core);
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -46,47 +46,236 @@ pub fn create(
     builder.build(app).map_err(|error| error.to_string())
 }
 
-pub fn refresh(
-    app: &AppHandle,
-    core: &AppCore,
-    runtime: &crate::SystemRuntimeExecutor,
-    language: &str,
-) -> Result<(), String> {
-    let tray = app
-        .tray_by_id(TRAY_ID)
-        .ok_or_else(|| "Rion Studio Quick Menu is unavailable.".to_owned())?;
-    tray.set_menu(Some(menu(app, core, runtime, language)?))
+#[derive(Clone, Default)]
+pub struct RefreshCoordinator {
+    state: Arc<Mutex<RefreshState>>,
+}
+
+#[derive(Default)]
+struct RefreshState {
+    language: String,
+    last_fingerprint: Option<String>,
+    revision: u64,
+    worker_running: bool,
+}
+
+struct MenuModel {
+    language: String,
+    legal_accepted: bool,
+    role_statuses: serde_json::Value,
+    roles: serde_json::Value,
+    runtime_projection: serde_json::Value,
+    workspace_statuses: serde_json::Value,
+    workspaces: serde_json::Value,
+}
+
+impl RefreshCoordinator {
+    /// Requests a coalesced refresh without ever reading Core state on AppKit's main thread.
+    ///
+    /// Core and SQLite snapshots are collected on one bounded worker. Only the already-built
+    /// model is handed to the native event loop, so a busy runtime can delay the tray menu but
+    /// can never stall a game-window tab selection.
+    pub fn request(
+        &self,
+        app: AppHandle,
+        core: Arc<AppCore>,
+        runtime: Arc<crate::SystemRuntimeExecutor>,
+        language: String,
+    ) -> Result<(), String> {
+        let should_spawn = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "quick-menu refresh coordinator lock poisoned".to_owned())?;
+            state.revision = state.revision.wrapping_add(1).max(1);
+            state.language = language;
+            if state.worker_running {
+                false
+            } else {
+                state.worker_running = true;
+                true
+            }
+        };
+        if !should_spawn {
+            return Ok(());
+        }
+
+        let coordinator = self.clone();
+        let spawn = thread::Builder::new()
+            .name("rion-quick-menu-model".to_owned())
+            .spawn(move || coordinator.run_worker(app, core, runtime));
+        match spawn {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                if let Ok(mut state) = self.state.lock() {
+                    state.worker_running = false;
+                }
+                Err(error.to_string())
+            }
+        }
+    }
+
+    fn run_worker(
+        &self,
+        app: AppHandle,
+        core: Arc<AppCore>,
+        runtime: Arc<crate::SystemRuntimeExecutor>,
+    ) {
+        loop {
+            let (revision, language) = match self.state.lock() {
+                Ok(state) => (state.revision, state.language.clone()),
+                Err(_) => return,
+            };
+            let result = MenuModel::load(&core, &runtime, language);
+            let Ok(model) = result else {
+                eprintln!(
+                    "Rion Studio Quick Menu model refresh failed: {}",
+                    result.err().unwrap_or_default()
+                );
+                if self.finish_or_retry(revision, None) {
+                    return;
+                }
+                continue;
+            };
+            let fingerprint = model.fingerprint();
+            let should_apply = match self.state.lock() {
+                Ok(state) => {
+                    state.revision == revision
+                        && state.last_fingerprint.as_deref() != Some(fingerprint.as_str())
+                }
+                Err(_) => return,
+            };
+            if should_apply {
+                let menu_app = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    let result = menu(&menu_app, &model).and_then(|menu| {
+                        let tray = menu_app
+                            .tray_by_id(TRAY_ID)
+                            .ok_or_else(|| "Rion Studio Quick Menu is unavailable.".to_owned())?;
+                        tray.set_menu(Some(menu)).map_err(|error| error.to_string())
+                    });
+                    if let Err(error) = result {
+                        eprintln!("Rion Studio Quick Menu native refresh failed: {error}");
+                    }
+                });
+            }
+            if self.finish_or_retry(revision, should_apply.then_some(fingerprint)) {
+                return;
+            }
+        }
+    }
+
+    fn finish_or_retry(&self, revision: u64, fingerprint: Option<String>) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return true;
+        };
+        if state.revision != revision {
+            return false;
+        }
+        if let Some(fingerprint) = fingerprint {
+            state.last_fingerprint = Some(fingerprint);
+        }
+        state.worker_running = false;
+        true
+    }
+}
+
+impl MenuModel {
+    fn load(
+        core: &AppCore,
+        runtime: &crate::SystemRuntimeExecutor,
+        language: String,
+    ) -> Result<Self, String> {
+        let roles = core
+            .invoke(CoreCommand::RolesList)
+            .map_err(|error| error.to_string())?;
+        let workspaces = core
+            .invoke(CoreCommand::WorkspacesList)
+            .map_err(|error| error.to_string())?;
+        let role_statuses = core
+            .invoke(CoreCommand::BrowserStatuses)
+            .map_err(|error| error.to_string())?;
+        let workspace_statuses = core
+            .invoke(CoreCommand::BrowserWorkspaceStatuses)
+            .map_err(|error| error.to_string())?;
+        let legal_accepted = legal_is_accepted(core);
+        let runtime_projection = core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .ok()
+            .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())
+            .map(|snapshot| runtime.projection(&snapshot))
+            .unwrap_or_else(|| serde_json::json!({ "windows": [], "savedWindows": [] }));
+        Ok(Self {
+            language,
+            legal_accepted,
+            role_statuses,
+            roles,
+            runtime_projection,
+            workspace_statuses,
+            workspaces,
+        })
+    }
+
+    fn fingerprint(&self) -> String {
+        let windows = self.runtime_projection["windows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|window| {
+                serde_json::json!({
+                    "windowId": window["windowId"],
+                    "displayId": window["displayId"],
+                    "tabCount": window["tabCount"],
+                    "visible": window["visible"],
+                })
+            })
+            .collect::<Vec<_>>();
+        let saved_windows = self.runtime_projection["savedWindows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|window| {
+                serde_json::json!({
+                    "id": window["id"],
+                    "displayLabel": window["displayLabel"],
+                    "tabCount": window["tabCount"],
+                    "state": window["state"],
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::to_string(&serde_json::json!({
+            "language": self.language,
+            "legalAccepted": self.legal_accepted,
+            "roleStatuses": self.role_statuses,
+            "roles": self.roles,
+            "runtimeProjection": { "windows": windows, "savedWindows": saved_windows },
+            "workspaceStatuses": self.workspace_statuses,
+            "workspaces": self.workspaces,
+        }))
+        .unwrap_or_default()
+    }
+}
+
+fn starter_menu(app: &AppHandle, language: &str) -> Result<Menu<tauri::Wry>, String> {
+    let labels = labels(language);
+    MenuBuilder::new(app)
+        .text("open-app", labels.open)
+        .separator()
+        .text("quit-app", labels.quit)
+        .build()
         .map_err(|error| error.to_string())
 }
 
-fn menu(
-    app: &AppHandle,
-    core: &AppCore,
-    runtime: &crate::SystemRuntimeExecutor,
-    language: &str,
-) -> Result<Menu<tauri::Wry>, String> {
-    let labels = labels(language);
-    let roles = core
-        .invoke(CoreCommand::RolesList)
-        .map_err(|error| error.to_string())?;
-    let workspaces = core
-        .invoke(CoreCommand::WorkspacesList)
-        .map_err(|error| error.to_string())?;
-    let role_statuses = core
-        .invoke(CoreCommand::BrowserStatuses)
-        .map_err(|error| error.to_string())?;
-    let workspace_statuses = core
-        .invoke(CoreCommand::BrowserWorkspaceStatuses)
-        .map_err(|error| error.to_string())?;
-    let legal_accepted = legal_is_accepted(core);
-    let runtime_projection = core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .ok()
-        .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())
-        .map(|snapshot| runtime.projection(&snapshot))
-        .unwrap_or_else(|| serde_json::json!({ "windows": [], "savedWindows": [] }));
-    let role_state = |id: &str| status_state(&role_statuses, "roleId", id);
-    let workspace_state = |id: &str| status_state(&workspace_statuses, "workspaceId", id);
+fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> {
+    let labels = labels(&model.language);
+    let roles = &model.roles;
+    let workspaces = &model.workspaces;
+    let role_statuses = &model.role_statuses;
+    let workspace_statuses = &model.workspace_statuses;
+    let legal_accepted = model.legal_accepted;
+    let runtime_projection = &model.runtime_projection;
+    let role_state = |id: &str| status_state(role_statuses, "roleId", id);
+    let workspace_state = |id: &str| status_state(workspace_statuses, "workspaceId", id);
     let mut role_menu = SubmenuBuilder::new(app, labels.roles);
     let role_values = roles.as_array().cloned().unwrap_or_default();
     let role_ids = role_values
@@ -329,6 +518,15 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     return;
                 }
             };
+            let preview = state
+                .runtime
+                .preview_tab_launch(
+                    &target,
+                    &source_id,
+                    if workspace { "workspace" } else { "role" },
+                )
+                .ok();
+            let runtime = Arc::clone(&state.runtime);
             let core = Arc::clone(core);
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -344,7 +542,11 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                         zoom_factor: None,
                     }
                 };
-                if let Err(error) = core.invoke_async(command).await {
+                let result = core.invoke_async(command).await;
+                if let Some(key) = preview {
+                    runtime.cancel_tab_launch_preview(&key);
+                }
+                if let Err(error) = result {
                     crate::reveal_shell_error(&app, error.payload());
                 }
             });
@@ -516,5 +718,29 @@ mod tests {
             Some("launching")
         );
         assert_eq!(status_state(&statuses, "roleId", "role-missing"), None);
+    }
+
+    #[test]
+    fn quick_menu_fingerprint_ignores_runtime_active_tab_metadata() {
+        let model = |active_tab_id: &str| MenuModel {
+            language: "en".to_owned(),
+            legal_accepted: true,
+            role_statuses: serde_json::json!([]),
+            roles: serde_json::json!([]),
+            runtime_projection: serde_json::json!({
+                "windows": [{
+                    "windowId": "window-1",
+                    "displayId": 1,
+                    "tabCount": 3,
+                    "visible": true,
+                    "activeTabId": active_tab_id,
+                }],
+                "savedWindows": [],
+            }),
+            workspace_statuses: serde_json::json!([]),
+            workspaces: serde_json::json!([]),
+        };
+
+        assert_eq!(model("tab-a").fingerprint(), model("tab-c").fingerprint());
     }
 }

@@ -4428,7 +4428,7 @@ impl AppCore {
             self.run_effect_plan(vec![effect_step(
                 role_id,
                 action,
-                Duration::from_secs(3),
+                Duration::from_secs(12),
                 None,
             )])?;
 
@@ -4610,7 +4610,7 @@ impl AppCore {
                     tab_id: tab_id.clone(),
                     next_active_tab_id,
                 },
-                Duration::from_secs(3),
+                Duration::from_secs(12),
                 None,
             )])?;
 
@@ -5418,9 +5418,11 @@ impl AppCore {
         command: BrowserRuntimeCommand,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         self.invoke_browser_runtime(command)?;
-        self.commit_embedded_runtime_snapshot_without_native_effect(
-            &std::collections::HashSet::new(),
-        )
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        self.sync_game_windows_from_runtime(&snapshot, &std::collections::HashSet::new())?;
+        Ok(snapshot)
     }
 
     fn publish_embedded_runtime_snapshot_with_removed(
@@ -6482,9 +6484,8 @@ fn embedded_launch_effects(
     tab_id: &str,
     tab: EmbeddedTabEffectRecord,
     roles: &[StateRoleRecord],
-    runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
+    _runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
 ) -> Vec<crate::operation_actor::OperationStep> {
-    let target = tab.target.clone();
     let zoom_factors = tab
         .roles
         .iter()
@@ -6495,29 +6496,15 @@ fn embedded_launch_effects(
         .iter()
         .map(|role| (role.role.id.clone(), role.resolved_engine))
         .collect::<std::collections::HashMap<_, _>>();
-    let mut steps = vec![
-        effect_step(
-            tab_id,
-            CoreEffectAction::EmbeddedApplyRuntime {
-                snapshot: runtime_snapshot,
-                target: Some(target.clone()),
-                reveal_window_ids: vec![target.window_id.clone()],
-                focus_window_ids: vec![target.window_id.clone()],
-                focus_tab_id: None,
-            },
-            Duration::from_secs(10),
-            None,
-        ),
-        effect_step(
-            tab_id,
-            CoreEffectAction::EmbeddedCreateTab { tab: Box::new(tab) },
-            Duration::from_secs(15),
-            Some(CoreEffectAction::EmbeddedDestroyTab {
-                tab_id: tab_id.to_owned(),
-                next_active_tab_id: None,
-            }),
-        ),
-    ];
+    let mut steps = vec![effect_step(
+        tab_id,
+        CoreEffectAction::EmbeddedCreateTab { tab: Box::new(tab) },
+        Duration::from_secs(15),
+        Some(CoreEffectAction::EmbeddedDestroyTab {
+            tab_id: tab_id.to_owned(),
+            next_active_tab_id: None,
+        }),
+    )];
     let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
     steps.push(effect_step(
         tab_id,
@@ -8530,17 +8517,17 @@ mod tests {
         );
         assert!(launch.is_ok());
         assert!(matches!(
-            launch_actions.get(1),
+            launch_actions.first(),
             Some(CoreEffectAction::EmbeddedCreateTab { tab })
                 if tab.roles.iter().all(|role| {
                     role.resolved_engine == crate::model::ResolvedBrowserEngine::Wkwebview
                 })
         ));
-        assert!(matches!(
-            launch_actions.first(),
-            Some(CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. })
-                if snapshot.tabs.iter().any(|tab| tab.role_ids == vec![role_id.clone()])
-        ));
+        assert!(
+            launch_actions
+                .iter()
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
+        );
         assert!(launch_actions.iter().any(|action| matches!(
             action,
             CoreEffectAction::EmbeddedLoadRoles { roles }
@@ -8584,6 +8571,7 @@ mod tests {
             None,
         );
         assert!(hide.is_ok());
+        let activation_events = core.subscribe().unwrap();
         let (activate, activate_actions, _) = drive_async_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedTabActivate { tab_id },
@@ -8591,6 +8579,14 @@ mod tests {
         );
         assert!(activate.is_ok());
         assert!(activate_actions.is_empty());
+        let activation_events = std::iter::from_fn(|| activation_events.try_recv().ok())
+            .flatten()
+            .collect::<Vec<_>>();
+        assert!(
+            activation_events
+                .iter()
+                .all(|event| !matches!(event, CoreEvent::BrowserStatuses { .. }))
+        );
 
         let (stop, stop_actions) = drive_command(
             Arc::clone(&core),

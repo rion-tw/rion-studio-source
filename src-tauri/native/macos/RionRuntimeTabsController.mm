@@ -622,6 +622,62 @@ void rion_runtime_tabs_set_reveal_locked(void *rawController, bool locked) {
   }
 }
 
+void rion_runtime_tabs_set_active(void *rawController,
+                                  const char *tabIdentifier) {
+  @autoreleasepool {
+    if (!rawController) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller setActiveTabIdentifier:RionStringFromUTF8(tabIdentifier)];
+  }
+}
+
+void rion_runtime_tabs_reserve(void *rawController, const char *tabIdentifier,
+                               const char *name, const char *type,
+                               const char *workspaceTemplate) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifier || !name || !type) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller reserveTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                                name:RionStringFromUTF8(name)
+                                type:RionStringFromUTF8(type)
+                   workspaceTemplate:RionStringFromUTF8(workspaceTemplate)];
+  }
+}
+
+void rion_runtime_tabs_replace(void *rawController,
+                               const char *provisionalIdentifier,
+                               const char *tabIdentifier, const char *name,
+                               const char *type,
+                               const char *workspaceTemplate,
+                               const char *activeTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !provisionalIdentifier || !tabIdentifier || !name ||
+        !type) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller
+        replaceTabIdentifier:RionStringFromUTF8(provisionalIdentifier)
+              withIdentifier:RionStringFromUTF8(tabIdentifier)
+                        name:RionStringFromUTF8(name)
+                        type:RionStringFromUTF8(type)
+           workspaceTemplate:RionStringFromUTF8(workspaceTemplate)
+         activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
+  }
+}
+
+void rion_runtime_tabs_remove(void *rawController, const char *tabIdentifier,
+                              const char *activeTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifier) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller removeTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
+  }
+}
+
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(void *rawController) {
   if (!rawController) return (RionRuntimeContentLayout){0, 0, NO};
   return [(__bridge RionRuntimeTabsController *)rawController contentLayout];
@@ -684,6 +740,22 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
                                          900.0) == 360.0 &&
            hiddenWidth < visibleWidth;
   }
+}
+
+bool rion_runtime_tabs_shortcut_self_test(void) {
+  NSEventModifierFlags control = NSEventModifierFlagControl;
+  NSEventModifierFlags shift = NSEventModifierFlagShift;
+  NSEventModifierFlags command = NSEventModifierFlagCommand;
+  NSEventModifierFlags option = NSEventModifierFlagOption;
+  NSEventModifierFlags mask = NSEventModifierFlagDeviceIndependentFlagsMask;
+  auto accepts = ^BOOL(unsigned short keyCode, NSEventModifierFlags flags) {
+    flags &= mask;
+    return keyCode == 48 && (flags & control) != 0 &&
+        (flags & (command | option | NSEventModifierFlagFunction)) == 0;
+  };
+  return accepts(48, control) && accepts(48, control | shift) &&
+      !accepts(48, command) && !accepts(48, control | option) &&
+      !accepts(49, control);
 }
 
 @interface RionRuntimeBackdropView : NSVisualEffectView
@@ -1492,6 +1564,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   BOOL _hasStableTitlebarWidgetInset;
   __weak NSWindow *_window;
   NSMutableArray<id> *_windowObservers;
+  id _tabShortcutMonitor;
   BOOL _destroyed;
   BOOL _contentLayoutObserved;
   BOOL _enforcingTrafficLightVisibility;
@@ -1679,6 +1752,37 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self layoutTitlebarContent];
   [self captureWindowedTrafficLightFrames];
   [self installWindowObservers];
+  __weak RionRuntimeTabsController *weakShortcutSelf = self;
+  _tabShortcutMonitor = [NSEvent
+      addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                handler:^NSEvent *(NSEvent *event) {
+    RionRuntimeTabsController *strongSelf = weakShortcutSelf;
+    if (!strongSelf || strongSelf->_destroyed || event.window != strongSelf->_window ||
+        event.keyCode != 48) {
+      return event;
+    }
+    NSEventModifierFlags flags = event.modifierFlags &
+        NSEventModifierFlagDeviceIndependentFlagsMask;
+    if ((flags & NSEventModifierFlagControl) == 0 ||
+        (flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption |
+                  NSEventModifierFlagFunction)) != 0 ||
+        strongSelf->_tabItems.count < 2) {
+      return event;
+    }
+    NSUInteger activeIndex = [strongSelf->_tabItems indexOfObjectPassingTest:
+        ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
+      (void)index;
+      if (item.activeTab) *stop = YES;
+      return item.activeTab;
+    }];
+    if (activeIndex == NSNotFound) activeIndex = 0;
+    BOOL previous = (flags & NSEventModifierFlagShift) != 0;
+    NSUInteger count = strongSelf->_tabItems.count;
+    NSUInteger targetIndex = previous ? (activeIndex + count - 1) % count
+                                      : (activeIndex + 1) % count;
+    [strongSelf activateTab:strongSelf->_tabItems[targetIndex].tabIdentifier];
+    return nil;
+  }];
   // A controller can be created for a window that is already fullscreen
   // (for example after a display-host rebuild). Register that settled state
   // immediately instead of waiting for a future fullscreen notification.
@@ -2719,17 +2823,135 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     // Selection is a reversible UI/native-surface intent. Paint it before the
     // asynchronous core transaction so fast clicks and keyboard cycling never
     // leave the highlight one action behind.
-    for (RionRuntimeTabItemView *item in _tabItems) {
-      BOOL active = [item.tabIdentifier isEqualToString:tabIdentifier];
-      if (item.activeTab == active) continue;
-      item.activeTab = active;
-      item.accessibilityValue = @(active);
-      [item updateVisualStateAnimated:YES];
-    }
-    [self scrollActiveTabIntoView];
+    [self setActiveTabIdentifier:tabIdentifier];
     _actionHandler(@{ @"type" : @"activate", @"tabId" : tabIdentifier,
                       @"sourceWindowId" : _windowID });
   }
+}
+
+- (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier {
+  if (_destroyed) return;
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    BOOL active = tabIdentifier.length > 0 &&
+        [item.tabIdentifier isEqualToString:tabIdentifier];
+    if (item.activeTab == active) continue;
+    item.activeTab = active;
+    item.accessibilityValue = @(active);
+    [item updateVisualStateAnimated:YES];
+  }
+  [self scrollActiveTabIntoView];
+}
+
+- (void)reserveTabIdentifier:(NSString *)tabIdentifier
+                        name:(NSString *)name
+                        type:(NSString *)type
+           workspaceTemplate:(nullable NSString *)workspaceTemplate {
+  if (_destroyed || tabIdentifier.length == 0) return;
+  NSUInteger existingIndex = [_tabItems indexOfObjectPassingTest:
+      ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
+    (void)index;
+    if ([item.tabIdentifier isEqualToString:tabIdentifier]) *stop = YES;
+    return [item.tabIdentifier isEqualToString:tabIdentifier];
+  }];
+  if (existingIndex == NSNotFound) {
+    RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
+    tab.active = YES;
+    tab.audible = NO;
+    tab.audioMuted = NO;
+    tab.identifier = tabIdentifier;
+    tab.name = name.length > 0 ? name : tabIdentifier;
+    tab.tooltip = tab.name;
+    tab.type = type.length > 0 ? type : @"role";
+    tab.workspaceTemplate = workspaceTemplate;
+    RionRuntimeTabItemView *item =
+        [[RionRuntimeTabItemView alloc] initWithFrame:NSZeroRect];
+    item.tabsController = self;
+    item.target = self;
+    item.action = @selector(tabPressed:);
+    item.sourceWindowID = _windowID;
+    RionRuntimeSurfaceView *surface =
+        [[RionRuntimeSurfaceView alloc] initWithContentView:item cornerRadius:14.0];
+    item.surfaceView = surface;
+    [item configureWithTab:tab
+                     image:[self imageForTab:tab]
+        hideTabCloseButton:NO
+                closeLabel:@"Stop and close tab"
+         audioPlayingLabel:@"Playing audio"
+            audioMutedLabel:@"Tab muted"
+               windowActive:_window.isKeyWindow];
+    [_tabItems addObject:item];
+    [_tabSurfaces addObject:surface];
+    [_tabCanvas addSubview:surface];
+  }
+  [self setActiveTabIdentifier:tabIdentifier];
+  [self layoutTitlebarContent];
+}
+
+- (void)replaceTabIdentifier:(NSString *)provisionalIdentifier
+              withIdentifier:(NSString *)tabIdentifier
+                        name:(NSString *)name
+                        type:(NSString *)type
+           workspaceTemplate:(nullable NSString *)workspaceTemplate
+         activeTabIdentifier:(nullable NSString *)activeTabIdentifier {
+  if (_destroyed || provisionalIdentifier.length == 0 ||
+      tabIdentifier.length == 0) return;
+  NSUInteger index = [_tabItems indexOfObjectPassingTest:
+      ^BOOL(RionRuntimeTabItemView *item, NSUInteger candidateIndex, BOOL *stop) {
+    (void)candidateIndex;
+    BOOL matches = [item.tabIdentifier isEqualToString:provisionalIdentifier];
+    if (matches) *stop = YES;
+    return matches;
+  }];
+  if (index == NSNotFound) {
+    [self reserveTabIdentifier:tabIdentifier
+                          name:name
+                          type:type
+             workspaceTemplate:workspaceTemplate];
+    [self setActiveTabIdentifier:activeTabIdentifier];
+    return;
+  }
+  RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
+  tab.active = activeTabIdentifier.length > 0 &&
+      [activeTabIdentifier isEqualToString:tabIdentifier];
+  tab.audible = NO;
+  tab.audioMuted = NO;
+  tab.identifier = tabIdentifier;
+  tab.name = name.length > 0 ? name : tabIdentifier;
+  tab.tooltip = tab.name;
+  tab.type = type.length > 0 ? type : @"role";
+  tab.workspaceTemplate = workspaceTemplate;
+  RionRuntimeTabItemView *item = _tabItems[index];
+  [item configureWithTab:tab
+                   image:[self imageForTab:tab]
+      hideTabCloseButton:NO
+              closeLabel:@"Stop and close tab"
+       audioPlayingLabel:@"Playing audio"
+          audioMutedLabel:@"Tab muted"
+            windowActive:_window.isKeyWindow];
+  [_tabIconCache removeObjectForKey:provisionalIdentifier];
+  [_tabIconCacheKeys removeObjectForKey:provisionalIdentifier];
+  [self setActiveTabIdentifier:activeTabIdentifier];
+  [self layoutTitlebarContent];
+}
+
+- (void)removeTabIdentifier:(NSString *)tabIdentifier
+         activeTabIdentifier:(nullable NSString *)activeTabIdentifier {
+  if (_destroyed || tabIdentifier.length == 0) return;
+  NSUInteger index = [_tabItems indexOfObjectPassingTest:
+      ^BOOL(RionRuntimeTabItemView *item, NSUInteger candidate, BOOL *stop) {
+    (void)candidate;
+    if ([item.tabIdentifier isEqualToString:tabIdentifier]) *stop = YES;
+    return [item.tabIdentifier isEqualToString:tabIdentifier];
+  }];
+  if (index != NSNotFound) {
+    [_tabSurfaces[index] removeFromSuperview];
+    [_tabItems removeObjectAtIndex:index];
+    [_tabSurfaces removeObjectAtIndex:index];
+    [_tabIconCache removeObjectForKey:tabIdentifier];
+    [_tabIconCacheKeys removeObjectForKey:tabIdentifier];
+  }
+  [self setActiveTabIdentifier:activeTabIdentifier];
+  [self layoutTitlebarContent];
 }
 
 - (void)closeTab:(NSString *)tabIdentifier {
@@ -3331,6 +3553,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (_destroyed) return;
   RionSetFullscreenPresentationPolicyMarker(_window, NO, NO);
   _destroyed = YES;
+  if (_tabShortcutMonitor) {
+    [NSEvent removeMonitor:_tabShortcutMonitor];
+    _tabShortcutMonitor = nil;
+  }
   // Remove this controller before tearing down its AppKit hosts so a pending
   // fullscreen policy cannot keep AutoHideToolbar overridden after destroy.
   RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,

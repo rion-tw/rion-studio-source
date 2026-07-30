@@ -65,10 +65,34 @@ unsafe extern "C" {
     );
     fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
+    fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
+    fn rion_runtime_tabs_reserve(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        name: *const c_char,
+        tab_type: *const c_char,
+        workspace_template: *const c_char,
+    );
+    fn rion_runtime_tabs_replace(
+        controller: *mut c_void,
+        provisional_id: *const c_char,
+        tab_id: *const c_char,
+        name: *const c_char,
+        tab_type: *const c_char,
+        workspace_template: *const c_char,
+        active_tab_id: *const c_char,
+    );
+    fn rion_runtime_tabs_remove(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        active_tab_id: *const c_char,
+    );
     #[cfg(test)]
     fn rion_runtime_tabs_action_scope_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_shortcut_self_test() -> bool;
 }
 
 struct CallbackContext {
@@ -269,6 +293,124 @@ impl MacRuntimeTabsController {
         let _ = self.inner.app.run_on_main_thread(move || unsafe {
             rion_runtime_tabs_prepare_fullscreen(raw as *mut c_void, fullscreen);
         });
+    }
+
+    pub fn set_active(&self, tab_id: Option<&str>) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let tab_id = tab_id.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || {
+            if inner.update_generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            unsafe {
+                rion_runtime_tabs_set_active(
+                    inner.raw,
+                    tab_id
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                );
+            }
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn reserve(
+        &self,
+        tab_id: &str,
+        name: &str,
+        tab_type: &str,
+        workspace_template: Option<&str>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let tab_id = c_string(tab_id);
+        let name = c_string(name);
+        let tab_type = c_string(tab_type);
+        let workspace_template = workspace_template.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || {
+            if inner.update_generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            unsafe {
+                rion_runtime_tabs_reserve(
+                    inner.raw,
+                    tab_id.as_ptr(),
+                    name.as_ptr(),
+                    tab_type.as_ptr(),
+                    workspace_template
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                );
+            }
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn remove(&self, tab_id: &str, active_tab_id: Option<&str>) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let tab_id = c_string(tab_id);
+        let active_tab_id = active_tab_id.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || {
+            if inner.update_generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            unsafe {
+                rion_runtime_tabs_remove(
+                    inner.raw,
+                    tab_id.as_ptr(),
+                    active_tab_id
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                );
+            }
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn replace_reservation(
+        &self,
+        provisional_id: &str,
+        tab_id: &str,
+        name: &str,
+        tab_type: &str,
+        workspace_template: Option<&str>,
+        active_tab_id: Option<&str>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let provisional_id = c_string(provisional_id);
+        let tab_id = c_string(tab_id);
+        let name = c_string(name);
+        let tab_type = c_string(tab_type);
+        let workspace_template = workspace_template.map(c_string);
+        let active_tab_id = active_tab_id.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || {
+            if inner.update_generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            unsafe {
+                rion_runtime_tabs_replace(
+                    inner.raw,
+                    provisional_id.as_ptr(),
+                    tab_id.as_ptr(),
+                    name.as_ptr(),
+                    tab_type.as_ptr(),
+                    workspace_template
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                    active_tab_id
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                );
+            }
+        })
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -530,7 +672,6 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         }
         let target_window_id = target_window_id.or(host_window_id);
         let preview_tab_id = tab_id.clone();
-        let preview_window_id = target_window_id.clone();
         if matches!(
             action_type.as_str(),
             "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
@@ -545,8 +686,18 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             );
             return;
         }
+        if action_type == "activate" {
+            if let Some(tab_id) = tab_id.as_deref()
+                && let Err(message) = crate::preview_and_commit_tab_selection(&app, &state, tab_id)
+            {
+                crate::reveal_shell_error(
+                    &app,
+                    crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
+                );
+            }
+            return;
+        }
         let command = match action_type.as_str() {
-            "activate" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabActivate { tab_id }),
             "hide" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabHide { tab_id }),
             "reorder" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabReorder {
                 tab_id,
@@ -610,11 +761,7 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         };
         let _ = source_window_id;
         if let Some(command) = command {
-            if action_type == "activate" {
-                if let Some(tab_id) = preview_tab_id.as_deref() {
-                    let _ = state.runtime.preview_tab_activation(tab_id);
-                }
-            } else if action_type == "stop"
+            if action_type == "stop"
                 && let Some(tab_id) = preview_tab_id.as_deref()
             {
                 let _ = state.runtime.preview_tab_close(tab_id);
@@ -628,11 +775,6 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                     .resolve_tab_close_preview(tab_id, result.is_ok());
             }
             if let Err(error) = result {
-                if action_type == "activate"
-                    && let Some(window_id) = preview_window_id.as_deref()
-                {
-                    state.runtime.reconcile_tab_activation(window_id);
-                }
                 crate::reveal_shell_error(&app, error.payload());
             }
         } else if action_type == "stop"
@@ -723,5 +865,10 @@ mod tests {
     #[test]
     fn native_tab_overflow_layout_clamps_and_reclaims_hidden_close_width() {
         assert!(unsafe { super::rion_runtime_tabs_overflow_layout_self_test() });
+    }
+
+    #[test]
+    fn native_control_tab_shortcut_is_scoped_and_does_not_capture_command_tab() {
+        assert!(unsafe { super::rion_runtime_tabs_shortcut_self_test() });
     }
 }

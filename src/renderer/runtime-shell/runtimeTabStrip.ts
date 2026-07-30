@@ -6,8 +6,18 @@ import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtim
 declare global {
   interface Window {
     __rionApplyRuntimeTabState?: (state: RuntimeTabStripState) => void;
+    __rionPendingRuntimeTabs?: ProvisionalRuntimeTab[];
+    __rionRemoveRuntimeTab?: (tabId: string, nextTabId?: string) => void;
+    __rionReserveRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
+    __rionSetActiveRuntimeTab?: (tabId?: string) => void;
   }
 }
+
+type ProvisionalRuntimeTab = {
+  id: string;
+  name: string;
+  type: "role" | "workspace";
+};
 
 const root = document.querySelector<HTMLDivElement>("#tabs")!;
 const add = document.querySelector<HTMLButtonElement>("#add")!;
@@ -293,6 +303,59 @@ function reconcileTabButtons(nextButtons: HTMLButtonElement[]): void {
 }
 
 window.__rionApplyRuntimeTabState = render;
+window.__rionReserveRuntimeTab = (tab) => {
+  let button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.className = "tab";
+    button.dataset.tabId = tab.id;
+    button.role = "tab";
+    button.setAttribute("aria-selected", "false");
+    button.title = tab.name;
+    const icon = document.createElement("span");
+    icon.className = "icon fallback";
+    icon.textContent = tab.type === "workspace" ? "W" : "R";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = tab.name;
+    const close = document.createElement("span");
+    close.className = "close";
+    close.textContent = "×";
+    close.role = "button";
+    close.tabIndex = 0;
+    close.ariaLabel = "Stop and close tab";
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      dispatch({ type: "stop", tabId: tab.id });
+    });
+    button.append(icon, name, close);
+    button.addEventListener("click", () => dispatch({ type: "activate", tabId: tab.id }));
+    root.append(button);
+  }
+  optimisticallyActivateTab(tab.id);
+  requestAnimationFrame(updateScrollControls);
+};
+window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
+  tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
+  if (nextTabId) optimisticallyActivateTab(nextTabId);
+  else activeTabId = undefined;
+  requestAnimationFrame(updateScrollControls);
+};
+window.__rionSetActiveRuntimeTab = (tabId) => {
+  if (tabId) optimisticallyActivateTab(tabId);
+  else {
+    for (const tab of tabElements()) {
+      tab.classList.remove("active");
+      tab.setAttribute("aria-selected", "false");
+    }
+    activeTabId = undefined;
+  }
+};
+for (const tab of window.__rionPendingRuntimeTabs ?? []) {
+  window.__rionReserveRuntimeTab(tab);
+}
+window.__rionPendingRuntimeTabs = [];
 document.body.addEventListener("pointerenter", () => {
   if (current?.fullscreen && !current.alwaysShowToolbarInFullScreen) {
     dispatch({ type: "fullscreenToolbarEnter" });
@@ -373,8 +436,8 @@ function runtimeTabDragPayload(
   }
 }
 
-function tabElements(): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(".tab"));
+function tabElements(): HTMLButtonElement[] {
+  return Array.from(root.querySelectorAll<HTMLButtonElement>(".tab"));
 }
 
 function visibleWidthWithoutScrollControls(): number {

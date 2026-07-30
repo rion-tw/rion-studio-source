@@ -178,13 +178,9 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
         return true;
     };
     if let Some(tab_id) = id.strip_prefix(ACTIVATE_PREFIX) {
-        spawn_command(
-            app,
-            &state.core,
-            CoreCommand::EmbeddedTabActivate {
-                tab_id: tab_id.to_owned(),
-            },
-        );
+        if let Err(message) = crate::preview_and_commit_tab_selection(app, &state, tab_id) {
+            reveal_menu_error(app, message);
+        }
     } else if let Some(tab_id) = id.strip_prefix(HIDE_PREFIX) {
         spawn_command(
             app,
@@ -330,16 +326,7 @@ pub async fn handle_scoped_action(
         let target_tab_id = state
             .runtime
             .preview_adjacent_tab_activation(&window_id, direction)?;
-        let result = state
-            .core
-            .invoke_async(CoreCommand::EmbeddedTabActivate {
-                tab_id: target_tab_id,
-            })
-            .await;
-        if result.is_err() {
-            state.runtime.reconcile_tab_activation(&window_id);
-        }
-        return result.map(|_| ()).map_err(|error| error.to_string());
+        return crate::commit_previewed_tab_selection(app, state, &window_id, &target_tab_id);
     }
     if action_type == "windowControl" {
         let control = action["control"]
@@ -385,10 +372,10 @@ pub async fn handle_scoped_action(
     if action_type == "openTabMenu" {
         return open_tab(app, tab_id);
     }
+    if action_type == "activate" {
+        return crate::preview_and_commit_tab_selection(app, state, tab_id);
+    }
     let command = match action_type {
-        "activate" => CoreCommand::EmbeddedTabActivate {
-            tab_id: tab_id.to_owned(),
-        },
         "hide" => CoreCommand::EmbeddedTabHide {
             tab_id: tab_id.to_owned(),
         },
@@ -427,9 +414,7 @@ pub async fn handle_scoped_action(
         }
         _ => return Err("runtime tab action is invalid".to_owned()),
     };
-    if action_type == "activate" {
-        let _ = state.runtime.preview_tab_activation(tab_id);
-    } else if action_type == "stop" {
+    if action_type == "stop" {
         let _ = state.runtime.preview_tab_close(tab_id);
     }
     let result = state.core.invoke_async(command).await;
@@ -437,8 +422,6 @@ pub async fn handle_scoped_action(
         state
             .runtime
             .resolve_tab_close_preview(tab_id, result.is_ok());
-    } else if action_type == "activate" && result.is_err() {
-        state.runtime.reconcile_tab_activation(&window_id);
     }
     result.map(|_| ()).map_err(|error| error.to_string())
 }
@@ -455,6 +438,11 @@ fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, work
             return;
         }
     };
+    let tab_type = if workspace { "workspace" } else { "role" };
+    let preview = state
+        .runtime
+        .preview_tab_launch(&target, source_id, tab_type)
+        .ok();
     let command = if workspace {
         CoreCommand::BrowserWorkspaceLaunch {
             workspace_id: source_id.to_owned(),
@@ -467,7 +455,18 @@ fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, work
             zoom_factor: None,
         }
     };
-    spawn_command(app, &state.core, command);
+    let app = app.clone();
+    let core = std::sync::Arc::clone(&state.core);
+    let runtime = std::sync::Arc::clone(&state.runtime);
+    tauri::async_runtime::spawn(async move {
+        let result = core.invoke_async(command).await;
+        if let Some(key) = preview {
+            runtime.cancel_tab_launch_preview(&key);
+        }
+        if let Err(error) = result {
+            crate::reveal_shell_error(&app, error.payload());
+        }
+    });
 }
 
 fn spawn_command(app: &AppHandle, core: &std::sync::Arc<rion_core::AppCore>, command: CoreCommand) {

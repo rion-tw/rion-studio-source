@@ -14,7 +14,11 @@ enum {
 };
 
 typedef void (*RionWKSurfaceReleasedCallback)(void *context);
+typedef void (*RionWKSurfaceIsolatedCallback)(void *context);
 typedef void (*RionWKSurfaceContextDestructor)(void *context);
+
+static char RionWKSurfaceURLObservationContext;
+static char RionWKSurfaceLoadingObservationContext;
 
 @interface RionWKSurfaceLease : NSObject
 @property(nonatomic, weak) WKWebView *webView;
@@ -22,20 +26,86 @@ typedef void (*RionWKSurfaceContextDestructor)(void *context);
 @property(nonatomic, assign) uint64_t token;
 @property(nonatomic, assign) void *context;
 @property(nonatomic, assign) RionWKSurfaceReleasedCallback releasedCallback;
+@property(nonatomic, assign) RionWKSurfaceIsolatedCallback isolatedCallback;
 @property(nonatomic, assign) RionWKSurfaceContextDestructor contextDestructor;
 @property(nonatomic, assign) BOOL quiesceRequested;
 @property(nonatomic, assign) BOOL blankNavigationRequested;
+@property(nonatomic, assign) BOOL isolationConfirmed;
+@property(nonatomic, assign) BOOL observingIsolation;
+- (void)beginIsolationObservation;
+- (void)confirmIsolationIfReady;
 - (void)finishRelease;
 @end
 
 @implementation RionWKSurfaceLease
+- (void)beginIsolationObservation {
+  WKWebView *webView = _webView;
+  if (!webView || _observingIsolation) return;
+  @try {
+    [webView addObserver:self forKeyPath:@"URL" options:0
+                 context:&RionWKSurfaceURLObservationContext];
+    [webView addObserver:self forKeyPath:@"loading" options:0
+                 context:&RionWKSurfaceLoadingObservationContext];
+    _observingIsolation = YES;
+  } @catch (__unused NSException *exception) {
+    _observingIsolation = NO;
+  }
+}
+
+- (void)confirmIsolationIfReady {
+  if (_isolationConfirmed || !_quiesceRequested ||
+      !_blankNavigationRequested) return;
+  WKWebView *webView = _webView;
+  if (!webView) return;
+  uintptr_t currentDataStore = (uintptr_t)(__bridge void *)
+      webView.configuration.websiteDataStore;
+  if (currentDataStore == 0 || currentDataStore != _dataStoreIdentity) return;
+  @try {
+    NSURL *url = webView.URL;
+    if (!url || ![url.absoluteString isEqualToString:@"about:blank"] ||
+        webView.loading) return;
+    [webView stopLoading];
+    _isolationConfirmed = YES;
+    if (_context && _isolatedCallback) _isolatedCallback(_context);
+  } @catch (__unused NSException *exception) {
+  }
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey, id> *)change
+                       context:(void *)context {
+  (void)keyPath;
+  (void)object;
+  (void)change;
+  if (context == &RionWKSurfaceURLObservationContext ||
+      context == &RionWKSurfaceLoadingObservationContext) {
+    [self confirmIsolationIfReady];
+    return;
+  }
+  [super observeValueForKeyPath:keyPath ofObject:object change:change
+                        context:context];
+}
+
 - (void)finishRelease {
   if (!_context) return;
+  WKWebView *webView = _webView;
+  if (_observingIsolation && webView) {
+    @try {
+      [webView removeObserver:self forKeyPath:@"URL"
+                      context:&RionWKSurfaceURLObservationContext];
+      [webView removeObserver:self forKeyPath:@"loading"
+                      context:&RionWKSurfaceLoadingObservationContext];
+    } @catch (__unused NSException *exception) {
+    }
+  }
+  _observingIsolation = NO;
   void *context = _context;
   RionWKSurfaceReleasedCallback releasedCallback = _releasedCallback;
   RionWKSurfaceContextDestructor contextDestructor = _contextDestructor;
   _context = NULL;
   _releasedCallback = NULL;
+  _isolatedCallback = NULL;
   _contextDestructor = NULL;
   if (releasedCallback) releasedCallback(context);
   if (contextDestructor) contextDestructor(context);
@@ -66,16 +136,18 @@ static uint64_t RionWKNextSurfaceToken(void) {
 
 static uint64_t RionWKAttachSurfaceLease(
     WKWebView *webView, uintptr_t dataStoreIdentity, void *context,
+    RionWKSurfaceIsolatedCallback isolatedCallback,
     RionWKSurfaceReleasedCallback releasedCallback,
     RionWKSurfaceContextDestructor contextDestructor) {
   if (!webView || dataStoreIdentity == 0 || !context || !releasedCallback ||
-      !contextDestructor) return 0;
+      !isolatedCallback || !contextDestructor) return 0;
   RionWKSurfaceLease *lease = [[RionWKSurfaceLease alloc] init];
   lease.webView = webView;
   lease.dataStoreIdentity = dataStoreIdentity;
   lease.token = RionWKNextSurfaceToken();
   lease.context = context;
   lease.releasedCallback = releasedCallback;
+  lease.isolatedCallback = isolatedCallback;
   lease.contextDestructor = contextDestructor;
   objc_setAssociatedObject(webView, &RionWKSurfaceLeaseKey, lease,
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -97,6 +169,7 @@ static void RionWKFinishSurfaceLease(RionWKSurfaceLease *lease) {
 
 uint64_t rion_wk_track_surface(
     void *rawWebView, void *context,
+    RionWKSurfaceIsolatedCallback isolatedCallback,
     RionWKSurfaceReleasedCallback releasedCallback,
     RionWKSurfaceContextDestructor contextDestructor) {
   @autoreleasepool {
@@ -104,9 +177,12 @@ uint64_t rion_wk_track_surface(
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
     uintptr_t dataStoreIdentity = (uintptr_t)(__bridge void *)
         webView.configuration.websiteDataStore;
-    return RionWKAttachSurfaceLease(
-        webView, dataStoreIdentity, context, releasedCallback,
+    uint64_t token = RionWKAttachSurfaceLease(
+        webView, dataStoreIdentity, context, isolatedCallback, releasedCallback,
         contextDestructor);
+    RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
+    [lease beginIsolationObservation];
+    return token;
   }
 }
 
@@ -122,7 +198,7 @@ static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
     }
     @try {
       lease.quiesceRequested = YES;
-      if (lease.blankNavigationRequested) return true;
+      if (lease.isolationConfirmed) return true;
       // JavaScript completion is best-effort. A busy or wedged WebContent process
       // may never invoke it, and tying native isolation to that callback leaves the
       // exact game page online until the close transaction times out. WebKit keeps
@@ -140,6 +216,7 @@ static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
       if (!blankURL) return false;
       lease.blankNavigationRequested = YES;
       [webView loadRequest:[NSURLRequest requestWithURL:blankURL]];
+      [lease confirmIsolationIfReady];
       return true;
     } @catch (__unused NSException *exception) {
       return false;
@@ -149,11 +226,11 @@ static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
 
 bool rion_wk_quiesce_surface(uint64_t token) {
   if (NSThread.isMainThread) return RionWKQuiesceSurfaceOnMain(token);
-  __block bool result = false;
-  dispatch_sync(dispatch_get_main_queue(), ^{
-    result = RionWKQuiesceSurfaceOnMain(token);
+  if (token == 0) return false;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    (void)RionWKQuiesceSurfaceOnMain(token);
   });
-  return result;
+  return true;
 }
 
 static bool RionWKSurfaceQuiescedOnMain(uint64_t token) {
@@ -182,11 +259,7 @@ static bool RionWKSurfaceQuiescedOnMain(uint64_t token) {
 
 bool rion_wk_surface_quiesced(uint64_t token) {
   if (NSThread.isMainThread) return RionWKSurfaceQuiescedOnMain(token);
-  __block bool result = false;
-  dispatch_sync(dispatch_get_main_queue(), ^{
-    result = RionWKSurfaceQuiescedOnMain(token);
-  });
-  return result;
+  return false;
 }
 
 static bool RionWKSurfaceReleasedOnMain(uint64_t token) {
@@ -225,11 +298,7 @@ static bool RionWKSurfaceReleasedOnMain(uint64_t token) {
 
 bool rion_wk_surface_released(uint64_t token) {
   if (NSThread.isMainThread) return RionWKSurfaceReleasedOnMain(token);
-  __block bool result = false;
-  dispatch_sync(dispatch_get_main_queue(), ^{
-    result = RionWKSurfaceReleasedOnMain(token);
-  });
-  return result;
+  return false;
 }
 
 static void RionWKNoopSurfaceCallback(void *context) { (void)context; }
@@ -246,10 +315,12 @@ bool rion_wk_surface_lifecycle_self_test(void) {
     int firstContext = 0;
     int secondContext = 0;
     uint64_t firstToken = RionWKAttachSurfaceLease(
-        first, 101, &firstContext, RionWKMarkSurfaceReleased,
+        first, 101, &firstContext, RionWKNoopSurfaceCallback,
+        RionWKMarkSurfaceReleased,
         RionWKNoopSurfaceCallback);
     uint64_t secondToken = RionWKAttachSurfaceLease(
-        second, 202, &secondContext, RionWKMarkSurfaceReleased,
+        second, 202, &secondContext, RionWKNoopSurfaceCallback,
+        RionWKMarkSurfaceReleased,
         RionWKNoopSurfaceCallback);
     BOOL distinct = firstToken != 0 && secondToken != 0 && firstToken != secondToken;
     RionWKSurfaceLease *firstLease =

@@ -1,4 +1,5 @@
 #import "RionRuntimeTabsController.h"
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 #include <cmath>
@@ -43,6 +44,53 @@ static std::mutex RionRuntimeTitlebarWidgetInsetHookMutex;
 static std::unordered_map<Class, IMP>
     RionRuntimeOriginalTitlebarWidgetInsetIMPs;
 static char RionRuntimeFullscreenPresentationPolicyAssociationKey;
+
+// Tao implements TaoWindow's -sendEvent: in an extern "C" Rust callback. The
+// macOS 26 crash reports repeatedly show that callback panicking while invoking
+// `[NSEvent type]`. objc2 turns Objective-C exceptions into Rust panics, but
+// Tao's callback cannot unwind, so the process aborts before Rion receives the
+// event. Keep the same Tao behavior in Objective-C, where AppKit exceptions can
+// be contained safely. This is limited to Tao's exact runtime window class.
+static void RionSafeTaoWindowSendEvent(id window, SEL selector,
+                                       NSEvent *event) {
+  @autoreleasepool {
+    if (!window || !event) return;
+    @try {
+      if (event.type == NSEventTypeLeftMouseDown &&
+          [window isMovableByWindowBackground]) {
+        [window performWindowDragWithEvent:event];
+      }
+
+      Class taoWindow = NSClassFromString(@"TaoWindow");
+      Class superclass = taoWindow ? class_getSuperclass(taoWindow) : Nil;
+      Method method = class_getInstanceMethod(superclass, selector);
+      IMP implementation = method ? method_getImplementation(method) : nullptr;
+      if (!implementation) return;
+      using SendEventFunction = void (*)(id, SEL, NSEvent *);
+      reinterpret_cast<SendEventFunction>(implementation)(window, selector,
+                                                          event);
+    } @catch (NSException *exception) {
+      NSLog(@"Rion Studio discarded an invalid native window event: %@",
+            exception.reason);
+    }
+  }
+}
+
+bool rion_runtime_tabs_install_safe_tao_event_dispatch(void) {
+  @autoreleasepool {
+    Class taoWindow = NSClassFromString(@"TaoWindow");
+    if (!taoWindow) return false;
+    SEL selector = @selector(sendEvent:);
+    Method method = class_getInstanceMethod(taoWindow, selector);
+    if (!method) return false;
+    IMP safeImplementation =
+        reinterpret_cast<IMP>(RionSafeTaoWindowSendEvent);
+    if (method_getImplementation(method) != safeImplementation) {
+      method_setImplementation(method, safeImplementation);
+    }
+    return method_getImplementation(method) == safeImplementation;
+  }
+}
 
 static BOOL RionRuntimeTabsOverflow(CGFloat contentWidth,
                                     CGFloat availableWidth) {

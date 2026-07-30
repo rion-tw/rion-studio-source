@@ -4004,6 +4004,9 @@ pub fn run() {
     builder
         .setup(|app| {
             let setup_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+            #[cfg(target_os = "macos")]
+            runtime_tabs_macos::install_safe_tao_event_dispatch()
+                .map_err(std::io::Error::other)?;
             let user_data_dir = shared_user_data_dir(app)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let app_version = app.package_info().version.to_string();

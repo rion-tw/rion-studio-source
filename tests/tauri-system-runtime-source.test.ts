@@ -217,6 +217,18 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("mainQueueWaitMs");
     expect(runtime).toContain("mainThreadMs");
     expect(runtime).toContain("tab.selection-superseded");
+    expect(shell).toContain("install_safe_tao_event_dispatch()");
+    expect(macBridge).toContain("rion_runtime_tabs_install_safe_tao_event_dispatch");
+    expect(macBridge).toContain("std::panic::catch_unwind");
+    expect(macController).toContain("RionSafeTaoWindowSendEvent");
+    expect(macController).toContain("method_setImplementation(method, safeImplementation)");
+    expect(macController).toContain("@catch (NSException *exception)");
+    const macPrewarm = runtime.slice(
+      runtime.indexOf('#[cfg(target_os = "macos")]\n    pub fn schedule_webview_prewarm'),
+      runtime.indexOf('#[cfg(not(target_os = "macos"))]\n    pub fn schedule_webview_prewarm')
+    );
+    expect(macPrewarm).not.toContain("WebviewWindowBuilder");
+    expect(macPrewarm).toContain('"runtime-prewarm", "skipped"');
     const activateCommand = core.slice(
       core.indexOf("CoreCommand::EmbeddedTabActivate { tab_id }"),
       core.indexOf("CoreCommand::EmbeddedTabHide { tab_id }")

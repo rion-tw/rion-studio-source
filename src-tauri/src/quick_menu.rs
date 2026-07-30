@@ -122,6 +122,10 @@ impl RefreshCoordinator {
         runtime: Arc<crate::SystemRuntimeExecutor>,
     ) {
         loop {
+            // Tray projection is never launch-critical. Wait until presentation,
+            // attach and close traffic has yielded before reading snapshots or
+            // rebuilding an AppKit/Win32 native menu.
+            runtime.wait_for_shell_idle();
             let (revision, language) = match self.state.lock() {
                 Ok(state) => (state.revision, state.language.clone()),
                 Err(_) => return,

@@ -1,5 +1,4 @@
 use std::{
-    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     thread,
 };
@@ -29,8 +28,8 @@ pub(crate) struct RefreshCoordinator {
 struct RefreshState {
     language: String,
     loading_menu: Option<Menu<tauri::Wry>>,
-    menus: HashMap<String, Menu<tauri::Wry>>,
-    model: Option<Arc<LauncherMenuModel>>,
+    menu: Option<Menu<tauri::Wry>>,
+    popup_window_id: Option<String>,
     revision: u64,
     worker_running: bool,
 }
@@ -39,8 +38,6 @@ struct RefreshState {
 struct LauncherMenuModel {
     language: String,
     roles: serde_json::Value,
-    runtime: BrowserRuntimeSnapshot,
-    window_ids: Vec<String>,
     workspaces: serde_json::Value,
 }
 
@@ -132,17 +129,13 @@ impl RefreshCoordinator {
         {
             return;
         }
-        let mut menus = HashMap::new();
-        for window_id in &model.window_ids {
-            match launcher_menu(app, &model, window_id) {
-                Ok(menu) => {
-                    menus.insert(window_id.clone(), menu);
-                }
-                Err(error) => {
-                    eprintln!("Runtime launcher menu refresh failed for {window_id}: {error}");
-                }
+        let menu = match launcher_menu(app, &model) {
+            Ok(menu) => Some(menu),
+            Err(error) => {
+                eprintln!("Runtime launcher menu refresh failed: {error}");
+                None
             }
-        }
+        };
         let Ok(mut state) = self.state.lock() else {
             return;
         };
@@ -150,8 +143,9 @@ impl RefreshCoordinator {
             return;
         }
         state.loading_menu = launcher_loading_menu(app, &model.language).ok();
-        state.menus = menus;
-        state.model = Some(Arc::new(model));
+        if menu.is_some() {
+            state.menu = menu;
+        }
     }
 
     fn popup(
@@ -162,16 +156,14 @@ impl RefreshCoordinator {
         window_id: &str,
         window: Window,
     ) -> Result<(), String> {
-        let (cached_menu, loading_menu) = self
-            .state
-            .lock()
-            .map(|state| {
-                (
-                    state.menus.get(window_id).cloned(),
-                    state.loading_menu.clone(),
-                )
-            })
-            .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+        let (cached_menu, loading_menu) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+            state.popup_window_id = Some(window_id.to_owned());
+            (state.menu.clone(), state.loading_menu.clone())
+        };
         let menu = if let Some(menu) = cached_menu {
             menu
         } else {
@@ -185,31 +177,28 @@ impl RefreshCoordinator {
         };
         menu.popup(window).map_err(|error| error.to_string())
     }
+
+    fn popup_window_id(&self) -> Result<String, String> {
+        self.state
+            .lock()
+            .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?
+            .popup_window_id
+            .clone()
+            .ok_or_else(|| "runtime launcher menu has no target window".to_owned())
+    }
 }
 
 impl LauncherMenuModel {
     fn load(core: &AppCore, language: String) -> Result<Self, String> {
-        let runtime = snapshot(core)?;
         let roles = core
             .invoke(CoreCommand::RolesList)
             .map_err(|error| error.to_string())?;
         let workspaces = core
             .invoke(CoreCommand::WorkspacesList)
             .map_err(|error| error.to_string())?;
-        let mut window_ids = runtime
-            .windows
-            .iter()
-            .map(|window| window.window_id.clone())
-            .chain(runtime.tabs.iter().map(|tab| tab.window_id.clone()))
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        window_ids.sort();
         Ok(Self {
             language,
             roles,
-            runtime,
-            window_ids,
             workspaces,
         })
     }
@@ -305,11 +294,7 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
         .popup(app, Arc::clone(&state.core), language, window_id, window)
 }
 
-fn launcher_menu(
-    app: &AppHandle,
-    model: &LauncherMenuModel,
-    window_id: &str,
-) -> Result<Menu<tauri::Wry>, String> {
+fn launcher_menu(app: &AppHandle, model: &LauncherMenuModel) -> Result<Menu<tauri::Wry>, String> {
     let text = labels(&model.language);
     let mut roles_menu = SubmenuBuilder::new(app, text.roles);
     let role_values = model.roles.as_array().cloned().unwrap_or_default();
@@ -324,17 +309,7 @@ fn launcher_menu(
             let (Some(id), Some(name)) = (role["id"].as_str(), role["name"].as_str()) else {
                 continue;
             };
-            if let Some(tab) = model
-                .runtime
-                .tabs
-                .iter()
-                .find(|tab| tab.role_ids.iter().any(|value| value == id))
-            {
-                roles_menu =
-                    roles_menu.text(format!("{ACTIVATE_PREFIX}{}", tab.id), format!("✓ {name}"));
-            } else {
-                roles_menu = roles_menu.text(format!("{LAUNCH_ROLE_PREFIX}{window_id}:{id}"), name);
-            }
+            roles_menu = roles_menu.text(format!("{LAUNCH_ROLE_PREFIX}{id}"), name);
         }
     }
     let mut workspaces_menu = SubmenuBuilder::new(app, text.workspaces);
@@ -351,18 +326,7 @@ fn launcher_menu(
             else {
                 continue;
             };
-            if let Some(tab) = model
-                .runtime
-                .tabs
-                .iter()
-                .find(|tab| tab.tab_type == "workspace" && tab.source_id == id)
-            {
-                workspaces_menu = workspaces_menu
-                    .text(format!("{ACTIVATE_PREFIX}{}", tab.id), format!("✓ {name}"));
-            } else {
-                workspaces_menu = workspaces_menu
-                    .text(format!("{LAUNCH_WORKSPACE_PREFIX}{window_id}:{id}"), name);
-            }
+            workspaces_menu = workspaces_menu.text(format!("{LAUNCH_WORKSPACE_PREFIX}{id}"), name);
         }
     }
     MenuBuilder::new(app)
@@ -461,9 +425,15 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             Err(error) => crate::reveal_shell_error(app, error),
         }
     } else if let Some(value) = id.strip_prefix(LAUNCH_ROLE_PREFIX) {
-        launch_from_menu(app, &state, value, false);
+        match state.runtime_launcher_refresh.popup_window_id() {
+            Ok(window_id) => launch_from_menu(app, &state, &window_id, value, false),
+            Err(message) => reveal_menu_error(app, message),
+        }
     } else if let Some(value) = id.strip_prefix(LAUNCH_WORKSPACE_PREFIX) {
-        launch_from_menu(app, &state, value, true);
+        match state.runtime_launcher_refresh.popup_window_id() {
+            Ok(window_id) => launch_from_menu(app, &state, &window_id, value, true),
+            Err(message) => reveal_menu_error(app, message),
+        }
     }
     true
 }
@@ -657,11 +627,20 @@ pub async fn handle_scoped_action(
     result.map(|_| ()).map_err(|error| error.to_string())
 }
 
-fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, workspace: bool) {
-    let Some((window_id, source_id)) = value.split_once(':') else {
-        reveal_menu_error(app, "runtime launch menu target is invalid");
+fn launch_from_menu(
+    app: &AppHandle,
+    state: &crate::CoreState,
+    window_id: &str,
+    source_id: &str,
+    workspace: bool,
+) {
+    let tab_type = if workspace { "workspace" } else { "role" };
+    if let Some(tab_id) = state.runtime.presented_tab_for_source(source_id, tab_type) {
+        if let Err(message) = crate::preview_and_commit_native_tab_selection(app, state, &tab_id) {
+            reveal_menu_error(app, message);
+        }
         return;
-    };
+    }
     let target = match crate::launch_target_for_game_window(app, window_id) {
         Ok(target) => target,
         Err(error) => {
@@ -669,7 +648,6 @@ fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, work
             return;
         }
     };
-    let tab_type = if workspace { "workspace" } else { "role" };
     let source_id = source_id.to_owned();
     // The launcher menu belongs to an already-live game window. Commit its
     // provisional presentation before returning from the native menu action so

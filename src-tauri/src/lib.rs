@@ -4082,15 +4082,6 @@ pub fn run() {
                         for event in events {
                             match event {
                                 CoreEvent::CoreEffects { effects } => {
-                                    let refresh_runtime_launcher = effects.iter().any(|effect| {
-                                        matches!(
-                                            effect.action,
-                                            CoreEffectAction::EmbeddedCreateTab { .. }
-                                                | CoreEffectAction::EmbeddedDestroyRole { .. }
-                                                | CoreEffectAction::EmbeddedDestroyTab { .. }
-                                                | CoreEffectAction::EmbeddedApplyRuntime { .. }
-                                        )
-                                    });
                                     for effect in effects {
                                         let action_name = core_effect_action_name(&effect.action);
                                         let persist_runtime = matches!(
@@ -4115,23 +4106,6 @@ pub fn run() {
                                             app_handle.exit(9);
                                             break;
                                         }
-                                    }
-                                    if refresh_runtime_launcher {
-                                        let language = app_handle
-                                            .try_state::<CoreState>()
-                                            .and_then(|state| {
-                                                state
-                                                    .menu_language
-                                                    .lock()
-                                                    .ok()
-                                                    .map(|value| value.clone())
-                                            })
-                                            .unwrap_or_else(|| "en".to_owned());
-                                        let _ = effect_runtime_launcher_refresh.request(
-                                            app_handle.clone(),
-                                            Arc::clone(&effect_core),
-                                            language,
-                                        );
                                     }
                                 }
                                 CoreEvent::OverlayChanged { role_ids } => {
@@ -4171,8 +4145,9 @@ pub fn run() {
                                             );
                                         }
                                     }
-                                    if matches!(&event, CoreEvent::BrowserStatuses { .. })
-                                        || matches!(
+                                    let refresh_quick_menu =
+                                        matches!(&event, CoreEvent::BrowserStatuses { .. })
+                                            || matches!(
                                         &event,
                                         CoreEvent::StateChanged {
                                             changed_collections,
@@ -4186,8 +4161,21 @@ pub fn run() {
                                                         | StateCollection::GameWindows
                                                 )
                                             })
-                                    )
-                                    {
+                                    );
+                                    let refresh_runtime_launcher = matches!(
+                                        &event,
+                                        CoreEvent::StateChanged {
+                                            changed_collections,
+                                            ..
+                                        } if changed_collections.iter().any(|collection| {
+                                            matches!(
+                                                collection,
+                                                StateCollection::Roles
+                                                    | StateCollection::LaunchWorkspaces
+                                            )
+                                        })
+                                    );
+                                    if refresh_quick_menu || refresh_runtime_launcher {
                                         let language = app_handle
                                             .try_state::<CoreState>()
                                             .and_then(|state| {
@@ -4198,17 +4186,21 @@ pub fn run() {
                                                     .map(|value| value.clone())
                                             })
                                             .unwrap_or_else(|| "en".to_owned());
-                                        let _ = effect_quick_menu_refresh.request(
-                                            app_handle.clone(),
-                                            Arc::clone(&effect_core),
-                                            Arc::clone(&effect_runtime),
-                                            language.clone(),
-                                        );
-                                        let _ = effect_runtime_launcher_refresh.request(
-                                            app_handle.clone(),
-                                            Arc::clone(&effect_core),
-                                            language,
-                                        );
+                                        if refresh_quick_menu {
+                                            let _ = effect_quick_menu_refresh.request(
+                                                app_handle.clone(),
+                                                Arc::clone(&effect_core),
+                                                Arc::clone(&effect_runtime),
+                                                language.clone(),
+                                            );
+                                        }
+                                        if refresh_runtime_launcher {
+                                            let _ = effect_runtime_launcher_refresh.request(
+                                                app_handle.clone(),
+                                                Arc::clone(&effect_core),
+                                                language,
+                                            );
+                                        }
                                     }
                                     renderer_events.push(event);
                                 }

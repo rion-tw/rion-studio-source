@@ -999,6 +999,10 @@ impl LaunchPhase {
             Self::Degraded => "degraded",
         }
     }
+
+    fn blocks_optional_idle(self) -> bool {
+        matches!(self, Self::Attaching | Self::Navigating)
+    }
 }
 
 struct RuntimeDisplayHost {
@@ -1662,6 +1666,20 @@ impl PresentationRegistry {
                 .lock()
                 .ok()
                 .and_then(|state| state.tabs.iter().find(|tab| tab.id == tab_id).cloned())
+        })
+    }
+
+    fn tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
+        self.windows.lock().ok().and_then(|windows| {
+            windows.values().find_map(|window| {
+                window.lock().ok().and_then(|state| {
+                    state
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.source_id == source_id && tab.tab_type == tab_type)
+                        .map(|tab| tab.id.clone())
+                })
+            })
         })
     }
 
@@ -2802,6 +2820,16 @@ impl SystemRuntimeExecutor {
 
     fn wait_for_optional_idle(&self) {
         loop {
+            let launch_busy = self.state.lock().ok().is_some_and(|state| {
+                state
+                    .launch_phases
+                    .values()
+                    .any(|phase| phase.blocks_optional_idle())
+            });
+            if launch_busy {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
             let remaining = self
                 .last_critical_activity
                 .lock()
@@ -2815,6 +2843,10 @@ impl SystemRuntimeExecutor {
             }
             std::thread::sleep(remaining.min(Duration::from_millis(50)));
         }
+    }
+
+    pub(crate) fn wait_for_shell_idle(&self) {
+        self.wait_for_optional_idle();
     }
 
     fn schedule_optional_hydration(&self, tab_id: &str) {
@@ -3910,6 +3942,7 @@ impl SystemRuntimeExecutor {
         workspace_template: Option<&str>,
         revision: u64,
     ) -> RuntimeResult<()> {
+        let started = Instant::now();
         #[cfg(not(target_os = "macos"))]
         let _ = workspace_template;
         #[cfg(target_os = "macos")]
@@ -3976,7 +4009,7 @@ impl SystemRuntimeExecutor {
             Some(tab_id),
             revision,
             "launch",
-            0,
+            started.elapsed().as_millis().min(u64::MAX as u128) as u64,
         );
         result
     }
@@ -4304,6 +4337,14 @@ impl SystemRuntimeExecutor {
                 .get(window_id)
                 .map(|host| host.window.clone())
         })
+    }
+
+    pub(crate) fn presented_tab_for_source(
+        &self,
+        source_id: &str,
+        tab_type: &str,
+    ) -> Option<String> {
+        self.presentation.tab_for_source(source_id, tab_type)
     }
 
     pub fn window_id_for_webview(&self, webview_label: &str) -> Option<String> {
@@ -10577,6 +10618,7 @@ impl SystemRuntimeExecutor {
         source_id: &str,
         tab_type: &str,
     ) -> RuntimeResult<String> {
+        let preview_started = Instant::now();
         self.mark_critical_activity();
         let key = format!("{tab_type}:{source_id}");
         if self.state()?.provisional_launches.contains_key(&key) {
@@ -10667,12 +10709,9 @@ impl SystemRuntimeExecutor {
             self.cancel_tab_launch_preview(&key);
             return Err(error);
         }
-        self.apply_native_active_style(
-            &target.window_id,
-            Some(&provisional_id),
-            revision,
-            "launch-preview",
-        );
+        // Both native reserve implementations activate the inserted item in the
+        // same UI callback. Scheduling a second active-style callback only adds
+        // event-loop work during a rapid launch burst.
         self.dispatch_native_presentation(
             target.window_id.clone(),
             Some(provisional_id),
@@ -10686,6 +10725,25 @@ impl SystemRuntimeExecutor {
             None,
             Some(true),
             false,
+        );
+        self.record_presentation_event(
+            LogLevel::Debug,
+            "tab.launch-preview-committed",
+            "The launcher action committed its provisional presentation.",
+            &target.window_id,
+            self.state
+                .lock()
+                .ok()
+                .and_then(|state| {
+                    state
+                        .provisional_launches
+                        .get(&key)
+                        .map(|launch| launch.id.clone())
+                })
+                .as_deref(),
+            revision,
+            "launch-preview",
+            preview_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
         );
         Ok(key)
     }
@@ -17133,6 +17191,69 @@ mod tests {
             Some("runtime-a")
         );
         assert_eq!(registry.resolve_tab_alias("unknown"), None);
+    }
+
+    #[test]
+    fn launcher_source_lookup_uses_presentation_without_runtime_or_page_readiness() {
+        let registry = PresentationRegistry::default();
+        let coordinator = registry.coordinator("window-a").unwrap();
+        {
+            let mut state = coordinator.lock().unwrap();
+            state.insert_tab(
+                TabPresentation {
+                    closable: true,
+                    icon_data_url: None,
+                    id: "provisional-a".to_owned(),
+                    phase: TabPresentationPhase::Reserved,
+                    source_id: "role-a".to_owned(),
+                    tab_type: "role".to_owned(),
+                    title: "Loading".to_owned(),
+                    #[cfg(target_os = "macos")]
+                    workspace_template: None,
+                },
+                1,
+                true,
+            );
+        }
+        assert_eq!(
+            registry.tab_for_source("role-a", "role").as_deref(),
+            Some("provisional-a")
+        );
+        assert_eq!(registry.tab_for_source("role-a", "workspace"), None);
+
+        coordinator.lock().unwrap().replace_tab_id(
+            "provisional-a",
+            TabPresentation {
+                closable: true,
+                icon_data_url: None,
+                id: "runtime-a".to_owned(),
+                phase: TabPresentationPhase::Attaching,
+                source_id: "role-a".to_owned(),
+                tab_type: "role".to_owned(),
+                title: "Role A".to_owned(),
+                #[cfg(target_os = "macos")]
+                workspace_template: None,
+            },
+            2,
+        );
+        assert_eq!(
+            registry.tab_for_source("role-a", "role").as_deref(),
+            Some("runtime-a")
+        );
+    }
+
+    #[test]
+    fn optional_native_work_waits_for_every_essential_launch_phase() {
+        assert!(LaunchPhase::Attaching.blocks_optional_idle());
+        assert!(LaunchPhase::Navigating.blocks_optional_idle());
+        for phase in [
+            LaunchPhase::EssentialReady,
+            LaunchPhase::OptionalHydrating,
+            LaunchPhase::Ready,
+            LaunchPhase::Degraded,
+        ] {
+            assert!(!phase.blocks_optional_idle(), "{phase:?}");
+        }
     }
 
     #[test]

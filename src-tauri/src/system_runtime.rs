@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::cell::RefCell;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -68,6 +70,19 @@ static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(windows)]
+static WINDOWS_DOCUMENT_NAVIGATION_DEFERRAL_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(windows)]
+thread_local! {
+    // WebView2 delivers WebResourceRequested on its owning UI thread. Keep each
+    // apartment-bound deferral on that thread, then resolve the token after
+    // run_on_main_thread returns from the asynchronous macro-release command.
+    // This also avoids adding an eager COM entry-point import to the process.
+    static WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS: RefCell<HashMap<
+        u64,
+        webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+    >> = RefCell::new(HashMap::new());
+}
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../src/shared/designTokens.css");
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str =
@@ -959,6 +974,7 @@ struct RuntimeTab {
     roles: HashMap<String, RoleSurface>,
     workspace_id: Option<String>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
+    #[cfg(target_os = "macos")]
     workspace_template: Option<String>,
 }
 
@@ -1401,6 +1417,7 @@ struct TabPresentation {
     source_id: String,
     tab_type: String,
     title: String,
+    #[cfg(target_os = "macos")]
     workspace_template: Option<String>,
 }
 
@@ -10631,6 +10648,7 @@ impl SystemRuntimeExecutor {
                     source_id: source_id.to_owned(),
                     tab_type: tab_type.to_owned(),
                     title: placeholder_name.to_owned(),
+                    #[cfg(target_os = "macos")]
                     workspace_template: None,
                 },
                 revision,
@@ -10862,6 +10880,7 @@ impl SystemRuntimeExecutor {
                     roles: HashMap::new(),
                     workspace_id: tab.workspace_id.clone(),
                     workspace_appearance: tab.workspace_appearance.clone(),
+                    #[cfg(target_os = "macos")]
                     workspace_template: tab.workspace_template.clone(),
                 },
             );
@@ -10892,6 +10911,7 @@ impl SystemRuntimeExecutor {
                 source_id: tab.source_id.clone(),
                 tab_type: tab_type.to_owned(),
                 title: tab.name.clone(),
+                #[cfg(target_os = "macos")]
                 workspace_template: tab.workspace_template.clone(),
             };
             if let Some(preview) = launch_preview.as_ref() {
@@ -15416,7 +15436,7 @@ fn install_document_navigation_macro_release_handler(
 }
 
 #[cfg(windows)]
-unsafe fn register_windows_document_navigation_handler(
+fn register_windows_document_navigation_handler(
     core_webview: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
     callback_app: AppHandle,
     role_id: String,
@@ -15426,7 +15446,7 @@ unsafe fn register_windows_document_navigation_handler(
         Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
         WebResourceRequestedEventHandler,
     };
-    use windows::core::{AgileReference, HSTRING};
+    use windows::core::HSTRING;
 
     let handler = WebResourceRequestedEventHandler::create(Box::new(move |_core, args| {
         let Some(args) = args else {
@@ -15441,7 +15461,9 @@ unsafe fn register_windows_document_navigation_handler(
         {
             return Ok(());
         }
-        let deferral = match args.GetDeferral() {
+        // SAFETY: WebView2 supplied these event args to this callback, and the
+        // callback is still executing on the owning UI thread.
+        let deferral = match unsafe { args.GetDeferral() } {
             Ok(deferral) => deferral,
             Err(error) => {
                 emit_windows_document_navigation_error(
@@ -15456,32 +15478,7 @@ unsafe fn register_windows_document_navigation_handler(
             }
         };
         let completed = Arc::new(AtomicBool::new(false));
-        let deferral = match AgileReference::new(&deferral) {
-            Ok(deferral) => deferral,
-            Err(error) => {
-                emit_windows_document_navigation_error(
-                    &callback_app,
-                    "SYSTEM_NAVIGATION_DEFERRAL_FAILED",
-                    "The Windows document request deferral could not be marshalled and was allowed to continue.",
-                    &role_id,
-                    &webview_label,
-                    &error.to_string(),
-                );
-                if let Err(error) =
-                    complete_navigation_deferral_once(&completed, || deferral.Complete())
-                {
-                    emit_windows_document_navigation_error(
-                        &callback_app,
-                        "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
-                        "The Windows document request deferral could not be completed.",
-                        &role_id,
-                        &webview_label,
-                        &error.to_string(),
-                    );
-                }
-                return Ok(());
-            }
-        };
+        let deferral_token = retain_windows_document_navigation_deferral(deferral);
         let core = Arc::clone(&state.core);
         let release_app = callback_app.clone();
         let release_role_id = role_id.clone();
@@ -15502,14 +15499,13 @@ unsafe fn register_windows_document_navigation_handler(
                     &error.to_string(),
                 );
             }
-            let scheduled_deferral = deferral.clone();
             let scheduled_completed = Arc::clone(&completed);
             let completion_app = release_app.clone();
             let completion_role_id = release_role_id.clone();
             let completion_webview_label = release_webview_label.clone();
             let scheduling = release_app.run_on_main_thread(move || {
                 if let Err(error) = complete_windows_document_navigation_deferral(
-                    &scheduled_deferral,
+                    deferral_token,
                     &scheduled_completed,
                 ) {
                     emit_windows_document_navigation_error(
@@ -15526,49 +15522,57 @@ unsafe fn register_windows_document_navigation_handler(
                 emit_windows_document_navigation_error(
                     &release_app,
                     "SYSTEM_NAVIGATION_DEFERRAL_SCHEDULE_FAILED",
-                    "The Windows document request could not be resumed on the main thread; an immediate completion was attempted.",
+                    "The Windows document request could not be resumed because the app event loop was unavailable.",
                     &release_role_id,
                     &release_webview_label,
                     &error.to_string(),
                 );
-                if let Err(error) =
-                    complete_windows_document_navigation_deferral(&deferral, &completed)
-                {
-                    emit_windows_document_navigation_error(
-                        &release_app,
-                        "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
-                        "The Windows document request deferral could not be completed.",
-                        &release_role_id,
-                        &release_webview_label,
-                        &error,
-                    );
-                }
             }
         });
         Ok(())
     }));
     for pattern in ["http://*", "https://*"] {
-        core_webview.AddWebResourceRequestedFilter(
-            &HSTRING::from(pattern),
-            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
-        )?;
+        // SAFETY: `core_webview` remains owned by the WebView2 UI thread for
+        // the duration of handler registration.
+        unsafe {
+            core_webview.AddWebResourceRequestedFilter(
+                &HSTRING::from(pattern),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
+            )?;
+        }
     }
     let mut token = 0;
-    core_webview.add_WebResourceRequested(&handler, &mut token)
+    // SAFETY: The handler and event token are valid for this registration call,
+    // which runs on the WebView2 UI thread.
+    unsafe { core_webview.add_WebResourceRequested(&handler, &mut token) }
+}
+
+#[cfg(windows)]
+fn retain_windows_document_navigation_deferral(
+    deferral: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+) -> u64 {
+    let token = WINDOWS_DOCUMENT_NAVIGATION_DEFERRAL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS.with(|deferrals| {
+        let previous = deferrals.borrow_mut().insert(token, deferral);
+        debug_assert!(
+            previous.is_none(),
+            "document navigation deferral token reused"
+        );
+    });
+    token
 }
 
 #[cfg(windows)]
 fn complete_windows_document_navigation_deferral(
-    deferral: &windows::core::AgileReference<
-        webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
-    >,
+    token: u64,
     completed: &AtomicBool,
 ) -> Result<bool, String> {
     complete_navigation_deferral_once(completed, || {
-        let deferral = deferral.resolve()?;
-        unsafe { deferral.Complete() }
+        let deferral = WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS
+            .with(|deferrals| deferrals.borrow_mut().remove(&token))
+            .ok_or_else(|| "The Windows document request deferral was not found.".to_owned())?;
+        unsafe { deferral.Complete() }.map_err(|error| error.to_string())
     })
-    .map_err(|error| error.to_string())
 }
 
 #[cfg(windows)]
@@ -16974,6 +16978,7 @@ mod tests {
             source_id: format!("source-{id}"),
             tab_type: "role".to_owned(),
             title: format!("Tab {id}"),
+            #[cfg(target_os = "macos")]
             workspace_template: None,
         }
     }

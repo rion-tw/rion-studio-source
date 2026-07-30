@@ -137,10 +137,14 @@ describe("Tauri System WebView runtime source", () => {
       enqueue.indexOf("self.effect_sender")
     );
     expect(enqueue).toContain("is_independent_tab_launch_effect(&effect.action)");
-    expect(enqueue).toContain(".concurrent_effect_sender");
+    expect(enqueue).toContain("self.close_effect_sender.get()");
+    expect(enqueue).toContain("self.launch_effect_sender.get()");
     expect(enqueue).toContain(".try_send(ConcurrentRuntimeWork");
     expect(enqueue).not.toContain("std::thread::Builder::new()");
-    expect(runtime).toContain("for index in 0..8");
+    expect(runtime).toContain("for index in 0..2");
+    expect(runtime).toContain("for index in 0..4");
+    expect(runtime).toContain('name(format!("rion-native-close-{index}"))');
+    expect(runtime).toContain('name(format!("rion-native-launch-{index}"))');
     expect(runtime).toContain("mpsc::sync_channel(64)");
 
     const stopRole = core.slice(
@@ -242,8 +246,20 @@ describe("Tauri System WebView runtime source", () => {
     expect(createTab).toContain("take_tab_launch_preview(");
     expect(createTab).toContain("selection.tab_order[index] = created_tab_id.clone()");
     expect(createTab).toContain("replace_native_tab_reservation(");
-    const loadRoles = runtime.slice(runtime.indexOf("fn load_roles("), runtime.indexOf("fn install_overlays("));
+    const loadRoles = runtime.slice(
+      runtime.indexOf("fn start_role_loads("),
+      runtime.indexOf("fn install_overlays(")
+    );
     expect(loadRoles).toContain("current_url.as_ref() != Some(&url)");
+    expect(runtime).toContain("navigation.wait_async().await");
+    const overlays = runtime.slice(
+      runtime.indexOf("fn install_overlays("),
+      runtime.indexOf("fn focus_role(")
+    );
+    expect(overlays).toContain("self.require_roles(role_ids)?");
+    expect(overlays).toContain("MACRO_OVERLAY_REFRESH_SOURCE");
+    expect(overlays).not.toContain("evaluate_webview");
+    expect(overlays).not.toContain("thread::sleep");
     expect(shell).toContain("TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150)");
     expect(shell).toContain("tokio::sync::watch::channel(request)");
     expect(shell).toContain("preview_and_commit_tab_selection");
@@ -554,7 +570,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain('  publish();\n})();\n"#;');
 
     const roleLoading = runtime.slice(
-      runtime.indexOf("fn load_roles("),
+      runtime.indexOf("fn start_role_loads("),
       runtime.indexOf("fn install_overlays(")
     );
     expect(roleLoading).toContain("let mut pending_navigations");
@@ -564,12 +580,14 @@ describe("Tauri System WebView runtime source", () => {
     expect(roleLoading.indexOf("pending_navigations.push")).toBeGreaterThan(
       roleLoading.indexOf("surface.navigate")
     );
-    expect(roleLoading.indexOf(".wait()")).toBeGreaterThan(
+    expect(roleLoading.indexOf("fn load_roles(")).toBeGreaterThan(
       roleLoading.indexOf("pending_navigations.push")
     );
-    expect(roleLoading.indexOf("finish_controlled_navigations")).toBeGreaterThan(
-      roleLoading.indexOf(".wait()")
+    const compatibilityWait = roleLoading.slice(roleLoading.indexOf("fn load_roles("));
+    expect(compatibilityWait.indexOf("finish_controlled_navigations")).toBeGreaterThan(
+      compatibilityWait.indexOf(".wait()")
     );
+    expect(runtime).toContain("navigation.wait_async().await");
 
     const reloadTab = runtime.slice(
       runtime.indexOf("pub fn reload_tab("),

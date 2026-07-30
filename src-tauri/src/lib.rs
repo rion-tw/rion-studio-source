@@ -829,6 +829,18 @@ async fn rion_overlay_request(
 }
 
 #[tauri::command]
+async fn rion_overlay_ready(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    capability: String,
+) -> Result<(), CoreErrorPayload> {
+    state
+        .runtime
+        .mark_overlay_ready(webview.label(), &capability)
+        .map_err(|message| shell_error("OVERLAY_READY_UNAUTHORIZED", message))
+}
+
+#[tauri::command]
 async fn rion_runtime_audio_state(
     webview: Webview,
     state: State<'_, CoreState>,
@@ -4047,6 +4059,7 @@ pub fn run() {
                 Arc::clone(&core),
             )?);
             runtime.start_effect_executor()?;
+            runtime.schedule_webview_prewarm();
             core.invoke(CoreCommand::SystemWebViewRuntimeRegister {
                 registration: runtime.registration(),
             })?;
@@ -4261,6 +4274,7 @@ pub fn run() {
             rion_browser_font_payload,
             rion_divider_pointer,
             rion_overlay_request,
+            rion_overlay_ready,
             rion_local_storage_sync_changed,
             rion_runtime_audio_state,
             rion_runtime_tab_action,

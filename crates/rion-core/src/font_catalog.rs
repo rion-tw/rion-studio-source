@@ -224,6 +224,22 @@ const CATALOG: &[CatalogSpec] = &[
         &[300, 400, 700],
         "body",
     ),
+    spec(
+        "handlee",
+        "Handlee",
+        "handwriting",
+        &["latin"],
+        &[400],
+        "body",
+    ),
+    spec(
+        "short-stack",
+        "Short Stack",
+        "handwriting",
+        &["latin"],
+        &[400],
+        "body",
+    ),
     cjk_spec(
         "chiron-go-round-tc",
         "Chiron GoRound TC",
@@ -1117,6 +1133,8 @@ mod tests {
         let directory = tempdir().unwrap();
         let entries = list(directory.path());
         let expected = [
+            ("handlee", "handwriting", "latin", "400", "400", "body"),
+            ("short-stack", "handwriting", "latin", "400", "400", "body"),
             (
                 "atkinson-hyperlegible-next",
                 "sans",

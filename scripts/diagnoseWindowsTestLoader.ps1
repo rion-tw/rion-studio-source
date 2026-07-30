@@ -63,3 +63,45 @@ $dependents | Tee-Object -FilePath (Join-Path $diagnosticsDirectory "dependents.
 if ($dumpbinExitCode -ne 0) {
   throw "dumpbin dependency inspection failed with exit code $dumpbinExitCode."
 }
+
+$vcruntimeReport = [System.Collections.Generic.List[string]]::new()
+$vcruntimePath = Join-Path $testBinary.DirectoryName "VCRUNTIME140.dll"
+if (-not (Test-Path -LiteralPath $vcruntimePath)) {
+  $vcruntimePath = "VCRUNTIME140.dll"
+}
+
+$vcruntimeHandle = [IntPtr]::Zero
+try {
+  $vcruntimeHandle = [System.Runtime.InteropServices.NativeLibrary]::Load($vcruntimePath)
+  $loadedModule = Get-Process -Id $PID -Module |
+    Where-Object { $_.ModuleName -ieq "VCRUNTIME140.dll" } |
+    Select-Object -First 1
+  if ($null -ne $loadedModule) {
+    $vcruntimeReport.Add("Path: $($loadedModule.FileName)")
+    $vcruntimeReport.Add("File version: $($loadedModule.FileVersionInfo.FileVersion)")
+  } else {
+    $vcruntimeReport.Add("Path: $vcruntimePath")
+  }
+
+  foreach ($symbol in @(
+    "__CxxFrameHandler3",
+    "_CxxThrowException",
+    "__current_exception",
+    "__current_exception_context"
+  )) {
+    $address = [IntPtr]::Zero
+    $available = [System.Runtime.InteropServices.NativeLibrary]::TryGetExport(
+      $vcruntimeHandle,
+      $symbol,
+      [ref] $address
+    )
+    $vcruntimeReport.Add("${symbol}: $available")
+  }
+} catch {
+  $vcruntimeReport.Add("Load error: $($_.Exception.Message)")
+} finally {
+  if ($vcruntimeHandle -ne [IntPtr]::Zero) {
+    [System.Runtime.InteropServices.NativeLibrary]::Free($vcruntimeHandle)
+  }
+}
+$vcruntimeReport | Tee-Object -FilePath (Join-Path $diagnosticsDirectory "vcruntime.txt")

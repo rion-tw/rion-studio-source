@@ -1,17 +1,16 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v56";
+  const hostId = "rion-studio-macro-overlay-v57";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 54 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 55 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-30.1";
+  const scriptVersion = "2026-07-30.2";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
   const hostStyleEntries = [
     ["bottom", "auto"],
-    ["color-scheme", "dark"],
     ["display", "grid"],
     ["font-family", "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"],
     ["justify-items", "end"],
@@ -194,6 +193,7 @@
     },
     macros: [],
     requestVersion: 0,
+    resolvedTheme: "light",
     statuses: []
   };
   const pendingMacroActions = new Set();
@@ -572,6 +572,10 @@
       : undefined;
   }
 
+  function normalizeResolvedTheme(theme, fallback = state.resolvedTheme) {
+    return theme === "light" || theme === "dark" ? theme : fallback;
+  }
+
   function normalizeMacroBadgePosition(value, fallback = state.macroBadgePosition) {
     const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     return {
@@ -604,6 +608,8 @@
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
     state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+    state.resolvedTheme = normalizeResolvedTheme(nextState?.resolvedTheme);
+    applyHostTheme();
     const activeMacroIds = new Set(state.macros.map((macro) => String(macro.id)));
     macroIterationTimings.forEach((_value, macroId) => {
       if (!activeMacroIds.has(macroId)) macroIterationTimings.delete(macroId);
@@ -988,6 +994,13 @@
     hostStyleEntries.forEach(([property, value]) => {
       host.style.setProperty(property, value, "important");
     });
+    applyHostTheme();
+  }
+
+  function applyHostTheme() {
+    if (!host) return;
+    host.dataset.theme = state.resolvedTheme;
+    host.style.setProperty("color-scheme", state.resolvedTheme, "important");
   }
 
   function ensureHost() {

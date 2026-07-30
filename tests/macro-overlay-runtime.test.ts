@@ -48,6 +48,35 @@ afterEach(() => {
 });
 
 describe("shell-neutral macro overlay runtime", () => {
+  it("applies resolved themes to the isolated host and preserves the current theme on invalid input", async () => {
+    let resolvedTheme = "dark";
+    const binding = vi.fn(async () => ({
+      macroBadgePosition: { horizontalAlign: "center", horizontalMarginPx: 8, topPx: 128 },
+      macros: [],
+      resolvedTheme,
+      statuses: []
+    }));
+    (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
+
+    (0, eval)(await overlayRuntimeSource());
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
+
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v57");
+    expect(host?.dataset.theme).toBe("dark");
+    expect(host?.style.getPropertyValue("color-scheme")).toBe("dark");
+    expect(host?.style.getPropertyPriority("color-scheme")).toBe("important");
+
+    resolvedTheme = "light";
+    await overlayController().refresh();
+    expect(host?.dataset.theme).toBe("light");
+    expect(host?.style.getPropertyValue("color-scheme")).toBe("light");
+
+    resolvedTheme = "unsupported";
+    await overlayController().refresh();
+    expect(host?.dataset.theme).toBe("light");
+    expect(host?.style.getPropertyValue("color-scheme")).toBe("light");
+  });
+
   it("preserves coordinate, shortcut, held-release, canvas, editable, and dense queue behavior", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
@@ -95,7 +124,7 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v56");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v57");
     const root = host?.shadowRoot;
     expect(root).toBeTruthy();
 
@@ -230,7 +259,7 @@ describe("shell-neutral macro overlay runtime", () => {
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
     const root = document
-      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v56")
+      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v57")
       ?.shadowRoot;
     expect(root).toBeTruthy();
     const activeBadges = root?.querySelector<HTMLElement>(".active-badges");

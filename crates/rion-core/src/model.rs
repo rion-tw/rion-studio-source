@@ -3640,6 +3640,8 @@ pub struct MacroOverlayViewModelRecord {
     pub language: Option<String>,
     pub macro_badge_position: MacroBadgePositionRecord,
     pub macros: Vec<MacroDefinition>,
+    #[ts(type = "\"light\" | \"dark\"")]
+    pub resolved_theme: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub start_summary: Option<MacroOverlayStartSummaryRecord>,

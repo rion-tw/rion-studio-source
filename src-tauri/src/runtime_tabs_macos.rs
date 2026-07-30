@@ -54,6 +54,7 @@ unsafe extern "C" {
     fn rion_runtime_tabs_destroy(controller: *mut c_void);
     fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
+    fn rion_runtime_tabs_is_main_thread() -> bool;
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
     fn rion_runtime_tabs_reserve(
         controller: *mut c_void,
@@ -306,6 +307,21 @@ impl MacRuntimeTabsController {
         let tab_type = c_string(tab_type);
         let workspace_template = workspace_template.map(c_string);
         let window_id = c_string(window_id);
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            unsafe {
+                rion_runtime_tabs_reserve(
+                    inner.raw,
+                    tab_id.as_ptr(),
+                    name.as_ptr(),
+                    tab_type.as_ptr(),
+                    workspace_template
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                    window_id.as_ptr(),
+                );
+            }
+            return Ok(());
+        }
         let app = inner.app.clone();
         app.run_on_main_thread(move || unsafe {
             rion_runtime_tabs_reserve(

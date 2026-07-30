@@ -1464,7 +1464,12 @@ impl AppCore {
                 target,
                 zoom_factor,
             } => {
+                let launch_started = std::time::Instant::now();
                 self.restore_legacy_session_if_needed(&role_id).await?;
+                eprintln!(
+                    "Core launch phase: role-session-preflight completed elapsedMs={}",
+                    launch_started.elapsed().as_millis()
+                );
                 let core = Arc::clone(self);
                 let statuses = tokio::task::spawn_blocking(move || {
                     core.launch_embedded_role(&role_id, target, zoom_factor.unwrap_or(1.0))
@@ -3922,17 +3927,6 @@ impl AppCore {
         self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
             tab_id: tab_id.clone(),
         })?;
-        if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
-            &std::collections::HashSet::new(),
-        ) {
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
-                role_id: role.id.clone(),
-            });
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
-                tab_id: tab_id.clone(),
-            });
-            return Err(error);
-        }
 
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
@@ -3958,9 +3952,45 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let launch =
-            self.run_system_launch(&tab_id, tab, std::slice::from_ref(&role), runtime_snapshot);
-        if let Err(error) = launch {
+        let launch_started = std::time::Instant::now();
+        let (launch, persistence) = match self.start_system_launch(
+            &tab_id,
+            tab,
+            std::slice::from_ref(&role),
+            runtime_snapshot,
+        ) {
+            Ok(handle) => {
+                let persistence = self
+                    .commit_embedded_runtime_snapshot_without_native_effect(
+                        &std::collections::HashSet::new(),
+                    )
+                    .map(|_| ());
+                if persistence.is_err() {
+                    let _ = self.operation_actor.cancel(&handle.operation_id);
+                }
+                let launch = self.finish_system_launch(handle, std::slice::from_ref(&role));
+                (launch, persistence)
+            }
+            Err(error) => (Err(error), Ok(())),
+        };
+        eprintln!(
+            "Core launch phase: native-and-persistence completed elapsedMs={} nativeOk={} persistenceOk={}",
+            launch_started.elapsed().as_millis(),
+            launch.is_ok(),
+            persistence.is_ok()
+        );
+        if launch.is_err() || persistence.is_err() {
+            if launch.is_ok() {
+                let _ = self.run_effect_plan(vec![effect_step(
+                    &tab_id,
+                    CoreEffectAction::EmbeddedDestroyTab {
+                        tab_id: tab_id.clone(),
+                        next_active_tab_id: None,
+                    },
+                    Duration::from_secs(15),
+                    None,
+                )]);
+            }
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                 role_id: role.id.clone(),
             });
@@ -3968,7 +3998,10 @@ impl AppCore {
                 tab_id: tab_id.clone(),
             });
             self.publish_embedded_runtime_snapshot_best_effort();
-            return Err(error);
+            return Err(persistence
+                .err()
+                .or_else(|| launch.err())
+                .expect("launch failed"));
         }
 
         let launched_at = chrono::Utc::now().to_rfc3339();
@@ -4200,22 +4233,6 @@ impl AppCore {
         self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
             tab_id: tab_id.clone(),
         })?;
-        if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
-            &std::collections::HashSet::new(),
-        ) {
-            for role_id in &role_ids {
-                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
-                    role_id: role_id.clone(),
-                });
-            }
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
-                tab_id: tab_id.clone(),
-            });
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-                workspace_id: workspace.id.clone(),
-            });
-            return Err(error);
-        }
         let effect_roles = workspace
             .slots
             .iter()
@@ -4254,8 +4271,41 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let launch = self.run_system_launch(&tab_id, tab, &roles, runtime_snapshot);
-        if let Err(error) = launch {
+        let launch_started = std::time::Instant::now();
+        let (launch, persistence) =
+            match self.start_system_launch(&tab_id, tab, &roles, runtime_snapshot) {
+                Ok(handle) => {
+                    let persistence = self
+                        .commit_embedded_runtime_snapshot_without_native_effect(
+                            &std::collections::HashSet::new(),
+                        )
+                        .map(|_| ());
+                    if persistence.is_err() {
+                        let _ = self.operation_actor.cancel(&handle.operation_id);
+                    }
+                    let launch = self.finish_system_launch(handle, &roles);
+                    (launch, persistence)
+                }
+                Err(error) => (Err(error), Ok(())),
+            };
+        eprintln!(
+            "Core launch phase: workspace-native-and-persistence completed elapsedMs={} nativeOk={} persistenceOk={}",
+            launch_started.elapsed().as_millis(),
+            launch.is_ok(),
+            persistence.is_ok()
+        );
+        if launch.is_err() || persistence.is_err() {
+            if launch.is_ok() {
+                let _ = self.run_effect_plan(vec![effect_step(
+                    &tab_id,
+                    CoreEffectAction::EmbeddedDestroyTab {
+                        tab_id: tab_id.clone(),
+                        next_active_tab_id: None,
+                    },
+                    Duration::from_secs(15),
+                    None,
+                )]);
+            }
             for role_id in &role_ids {
                 let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                     role_id: role_id.clone(),
@@ -4268,7 +4318,10 @@ impl AppCore {
                 workspace_id: workspace.id.clone(),
             });
             self.publish_embedded_runtime_snapshot_best_effort();
-            return Err(error);
+            return Err(persistence
+                .err()
+                .or_else(|| launch.err())
+                .expect("launch failed"));
         }
 
         let launched_at = chrono::Utc::now().to_rfc3339();
@@ -4747,18 +4800,27 @@ impl AppCore {
         self.run_effect_plan_for_roles(steps, &[])
     }
 
-    fn run_system_launch(
+    fn start_system_launch(
         &self,
         tab_id: &str,
         tab: EmbeddedTabEffectRecord,
         roles: &[StateRoleRecord],
         runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
-    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+    ) -> CoreResult<crate::operation_actor::OperationHandle> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
-        let launch = self.run_effect_plan_for_roles(
+        self.start_effect_plan_for_roles(
             embedded_launch_effects(tab_id, tab.clone(), roles, runtime_snapshot.clone()),
             &role_ids,
-        );
+        )
+    }
+
+    fn finish_system_launch(
+        &self,
+        handle: crate::operation_actor::OperationHandle,
+        roles: &[StateRoleRecord],
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
+        let launch = self.finish_effect_plan_for_roles(handle, &role_ids);
         let error = match launch {
             Ok(outcome) => return Ok(outcome),
             Err(error) => error,
@@ -4869,6 +4931,15 @@ impl AppCore {
         steps: Vec<crate::operation_actor::OperationStep>,
         role_ids: &[String],
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        let handle = self.start_effect_plan_for_roles(steps, role_ids)?;
+        self.finish_effect_plan_for_roles(handle, role_ids)
+    }
+
+    fn start_effect_plan_for_roles(
+        &self,
+        steps: Vec<crate::operation_actor::OperationStep>,
+        role_ids: &[String],
+    ) -> CoreResult<crate::operation_actor::OperationHandle> {
         let plan = crate::operation_actor::OperationPlan { steps };
         let handle = if role_ids.is_empty() {
             self.operation_actor.start(plan)?
@@ -4877,22 +4948,38 @@ impl AppCore {
         };
         let operation_id = handle.operation_id.clone();
         if !role_ids.is_empty() {
-            let mut operations = self.embedded_operations.lock().map_err(|_| {
-                CoreError::Internal("embedded operation registry poisoned".to_owned())
-            })?;
+            let mut operations = match self.embedded_operations.lock() {
+                Ok(operations) => operations,
+                Err(_) => {
+                    let _ = self.operation_actor.cancel(&operation_id);
+                    return Err(CoreError::Internal(
+                        "embedded operation registry poisoned".to_owned(),
+                    ));
+                }
+            };
             role_ids.iter().for_each(|role_id| {
                 operations.insert(role_id.clone(), operation_id.clone());
             });
         }
+        Ok(handle)
+    }
+
+    fn finish_effect_plan_for_roles(
+        &self,
+        handle: crate::operation_actor::OperationHandle,
+        role_ids: &[String],
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        let operation_id = handle.operation_id.clone();
         let outcome = handle.outcome.blocking_recv().map_err(|_| {
             CoreError::Internal("operation actor stopped before returning an outcome".to_owned())
-        })?;
+        });
         if !role_ids.is_empty() {
             let mut operations = self.embedded_operations.lock().map_err(|_| {
                 CoreError::Internal("embedded operation registry poisoned".to_owned())
             })?;
             operations.retain(|_, candidate| candidate != &operation_id);
         }
+        let outcome = outcome?;
         if !outcome.compensation_failures.is_empty() {
             let compensation_codes = outcome
                 .compensation_failures

@@ -624,6 +624,10 @@ void rion_runtime_tabs_set_fullscreen_policy(void *rawController, bool alwaysSho
   }
 }
 
+bool rion_runtime_tabs_is_main_thread(void) {
+  return [NSThread isMainThread];
+}
+
 void rion_runtime_tabs_set_reveal_locked(void *rawController, bool locked) {
   if (rawController) {
     [(__bridge RionRuntimeTabsController *)rawController setRevealLocked:locked];

@@ -310,6 +310,16 @@ describe("Tauri System WebView runtime source", () => {
     expect(quickMenu).toContain("Core and SQLite snapshots are collected on one bounded worker");
     expect(menu).toContain('name("rion-runtime-launcher-model".to_owned())');
     expect(menu).toContain("native plus button never");
+    expect(menu).toContain("popup_window_id");
+    expect(menu).toContain("presented_tab_for_source(source_id, tab_type)");
+    expect(menu).not.toContain("model.runtime");
+    expect(menu).not.toContain("window_ids");
+    expect(quickMenu).toContain("runtime.wait_for_shell_idle()");
+    const coreEffects = shell.slice(
+      shell.indexOf("CoreEvent::CoreEffects { effects }"),
+      shell.indexOf("CoreEvent::OverlayChanged", shell.indexOf("CoreEvent::CoreEffects { effects }"))
+    );
+    expect(coreEffects).not.toContain("runtime_launcher_refresh.request");
     const openLauncher = menu.slice(
       menu.indexOf("pub fn open_launcher("),
       menu.indexOf("fn launcher_menu(")
@@ -339,6 +349,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(macBridge).toContain("selection_generation: AtomicU64");
     expect(macBridge).toContain("inner.selection_generation.load(Ordering::Acquire) != generation");
     expect(macBridge).toContain("pub fn replace_reservation(");
+    expect(macBridge).toContain("rion_runtime_tabs_is_main_thread()");
     expect(macController).toContain("_tabItemsByIdentifier[tabIdentifier]");
     expect(macController).toContain("[previousItem updateVisualStateAnimated:NO]");
     expect(macController).toContain("[nextItem updateVisualStateAnimated:NO]");

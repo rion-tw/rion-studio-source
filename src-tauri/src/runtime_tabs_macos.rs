@@ -1,6 +1,7 @@
 #![cfg(target_os = "macos")]
 
 use std::{
+    collections::HashMap,
     ffi::{CStr, CString, c_char, c_void},
     sync::{
         Arc, Mutex,
@@ -51,19 +52,6 @@ unsafe extern "C" {
         layout: LayoutCallback,
     ) -> *mut c_void;
     fn rion_runtime_tabs_destroy(controller: *mut c_void);
-    fn rion_runtime_tabs_update(
-        controller: *mut c_void,
-        window_id: *const c_char,
-        tabs: *const NativeTabInput,
-        tab_count: usize,
-        always_hide_tab_close_button: bool,
-        add_label: *const c_char,
-        audio_muted_label: *const c_char,
-        audio_playing_label: *const c_char,
-        close_label: *const c_char,
-        scroll_left_label: *const c_char,
-        scroll_right_label: *const c_char,
-    );
     fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
@@ -73,6 +61,7 @@ unsafe extern "C" {
         name: *const c_char,
         tab_type: *const c_char,
         workspace_template: *const c_char,
+        window_id: *const c_char,
     );
     fn rion_runtime_tabs_replace(
         controller: *mut c_void,
@@ -87,6 +76,17 @@ unsafe extern "C" {
         controller: *mut c_void,
         tab_id: *const c_char,
         active_tab_id: *const c_char,
+    );
+    fn rion_runtime_tabs_update_metadata(
+        controller: *mut c_void,
+        tab: *const NativeTabInput,
+        always_hide_tab_close_button: bool,
+        audio_muted_label: *const c_char,
+        audio_playing_label: *const c_char,
+        close_label: *const c_char,
+        add_label: *const c_char,
+        scroll_left_label: *const c_char,
+        scroll_right_label: *const c_char,
     );
     #[cfg(test)]
     fn rion_runtime_tabs_action_scope_self_test() -> bool;
@@ -131,9 +131,17 @@ struct MacRuntimeTabsControllerInner {
     app: AppHandle,
     context: *mut CallbackContext,
     latest_active_tab_id: Mutex<Option<Option<String>>>,
+    metadata_pending: Mutex<HashMap<String, PendingMacTabMetadata>>,
+    metadata_scheduled: AtomicBool,
     raw: *mut c_void,
     selection_generation: AtomicU64,
-    update_generation: AtomicU64,
+}
+
+struct PendingMacTabMetadata {
+    always_hide_tab_close_button: bool,
+    always_show_in_fullscreen: bool,
+    language: String,
+    tab: MacRuntimeTabState,
 }
 
 // The Objective-C controller is only dereferenced by closures scheduled on the
@@ -208,104 +216,12 @@ impl MacRuntimeTabsController {
                 app: app.clone(),
                 context,
                 latest_active_tab_id: Mutex::new(None),
+                metadata_pending: Mutex::new(HashMap::new()),
+                metadata_scheduled: AtomicBool::new(false),
                 raw,
                 selection_generation: AtomicU64::new(0),
-                update_generation: AtomicU64::new(0),
             }),
         })
-    }
-
-    pub fn update(
-        &self,
-        window_id: &str,
-        tabs: Vec<MacRuntimeTabState>,
-        always_show_in_fullscreen: bool,
-        always_hide_tab_close_button: bool,
-        language: &str,
-    ) -> Result<(), String> {
-        let inner = Arc::clone(&self.inner);
-        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let app = inner.app.clone();
-        let window_id = window_id.to_owned();
-        let labels = labels(language);
-        // Runtime projections can be published from AppKit window callbacks.
-        // Queueing the update is safe from every caller, while synchronously
-        // waiting here would deadlock when the caller already is the main thread.
-        app.run_on_main_thread(move || {
-            // Several projection sources can publish in quick succession. Ignore an
-            // older AppKit closure if a newer native visibility transaction already
-            // queued its state; otherwise the selected highlight appears one tab late.
-            if inner.update_generation.load(Ordering::Acquire) != generation {
-                return;
-            }
-            let raw = inner.raw as usize;
-            let latest_active_tab_id = inner
-                .latest_active_tab_id
-                .lock()
-                .ok()
-                .and_then(|selection| selection.clone());
-            let strings = tabs
-                .iter()
-                .map(|tab| NativeTabStrings {
-                    icon: tab.icon_data_url.as_deref().map(c_string),
-                    id: c_string(&tab.id),
-                    name: c_string(&tab.name),
-                    tab_type: c_string(&tab.tab_type),
-                    tooltip: c_string(&tab.tooltip),
-                    workspace_template: tab.workspace_template.as_deref().map(c_string),
-                })
-                .collect::<Vec<_>>();
-            let inputs = tabs
-                .iter()
-                .zip(&strings)
-                .map(|(tab, strings)| NativeTabInput {
-                    active: latest_active_tab_id.as_ref().map_or(tab.active, |tab_id| {
-                        tab_id.as_deref() == Some(tab.id.as_str())
-                    }),
-                    audible: tab.audible,
-                    audio_muted: tab.audio_muted,
-                    identifier: strings.id.as_ptr(),
-                    name: strings.name.as_ptr(),
-                    tooltip: strings.tooltip.as_ptr(),
-                    tab_type: strings.tab_type.as_ptr(),
-                    icon_data_url: strings
-                        .icon
-                        .as_ref()
-                        .map_or(std::ptr::null(), |value| value.as_ptr()),
-                    workspace_template: strings
-                        .workspace_template
-                        .as_ref()
-                        .map_or(std::ptr::null(), |value| value.as_ptr()),
-                })
-                .collect::<Vec<_>>();
-            let add = c_string(labels.add);
-            let muted = c_string(labels.muted);
-            let playing = c_string(labels.playing);
-            let close = c_string(labels.close);
-            let scroll_left = c_string(labels.scroll_left);
-            let scroll_right = c_string(labels.scroll_right);
-            let window_id = c_string(&window_id);
-            unsafe {
-                rion_runtime_tabs_set_fullscreen_policy(
-                    raw as *mut c_void,
-                    always_show_in_fullscreen,
-                );
-                rion_runtime_tabs_update(
-                    raw as *mut c_void,
-                    window_id.as_ptr(),
-                    inputs.as_ptr(),
-                    inputs.len(),
-                    always_hide_tab_close_button,
-                    add.as_ptr(),
-                    muted.as_ptr(),
-                    playing.as_ptr(),
-                    close.as_ptr(),
-                    scroll_left.as_ptr(),
-                    scroll_right.as_ptr(),
-                );
-            }
-        })
-        .map_err(|error| error.to_string())
     }
 
     pub fn prepare_fullscreen(&self, fullscreen: bool) {
@@ -313,6 +229,37 @@ impl MacRuntimeTabsController {
         let _ = self.inner.app.run_on_main_thread(move || unsafe {
             rion_runtime_tabs_prepare_fullscreen(raw as *mut c_void, fullscreen);
         });
+    }
+
+    pub fn update_metadata(
+        &self,
+        tab: MacRuntimeTabState,
+        always_show_in_fullscreen: bool,
+        always_hide_tab_close_button: bool,
+        language: &str,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        inner
+            .metadata_pending
+            .lock()
+            .map_err(|_| "AppKit tab metadata queue is unavailable.".to_owned())?
+            .insert(
+                tab.id.clone(),
+                PendingMacTabMetadata {
+                    always_hide_tab_close_button,
+                    always_show_in_fullscreen,
+                    language: language.to_owned(),
+                    tab,
+                },
+            );
+        if inner
+            .metadata_scheduled
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            schedule_metadata_batch(inner)?;
+        }
+        Ok(())
     }
 
     pub fn set_active(&self, tab_id: Option<&str>) -> Result<(), String> {
@@ -347,6 +294,7 @@ impl MacRuntimeTabsController {
 
     pub fn reserve(
         &self,
+        window_id: &str,
         tab_id: &str,
         name: &str,
         tab_type: &str,
@@ -357,6 +305,7 @@ impl MacRuntimeTabsController {
         let name = c_string(name);
         let tab_type = c_string(tab_type);
         let workspace_template = workspace_template.map(c_string);
+        let window_id = c_string(window_id);
         let app = inner.app.clone();
         app.run_on_main_thread(move || unsafe {
             rion_runtime_tabs_reserve(
@@ -367,6 +316,7 @@ impl MacRuntimeTabsController {
                 workspace_template
                     .as_ref()
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
+                window_id.as_ptr(),
             );
         })
         .map_err(|error| error.to_string())
@@ -422,6 +372,94 @@ impl MacRuntimeTabsController {
             );
         })
         .map_err(|error| error.to_string())
+    }
+}
+
+fn schedule_metadata_batch(inner: Arc<MacRuntimeTabsControllerInner>) -> Result<(), String> {
+    let app = inner.app.clone();
+    let error_inner = Arc::clone(&inner);
+    app.run_on_main_thread(move || {
+        let pending = inner
+            .metadata_pending
+            .lock()
+            .ok()
+            .map(|mut pending| std::mem::take(&mut *pending))
+            .unwrap_or_default();
+        for update in pending.into_values() {
+            apply_metadata_update(&inner, update);
+        }
+        inner.metadata_scheduled.store(false, Ordering::Release);
+        let has_pending = inner
+            .metadata_pending
+            .lock()
+            .ok()
+            .is_some_and(|pending| !pending.is_empty());
+        if has_pending
+            && inner
+                .metadata_scheduled
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            && let Err(error) = schedule_metadata_batch(Arc::clone(&inner))
+        {
+            inner.metadata_scheduled.store(false, Ordering::Release);
+            eprintln!("AppKit tab metadata batch could not be rescheduled: {error}");
+        }
+    })
+    .map_err(|error| {
+        error_inner
+            .metadata_scheduled
+            .store(false, Ordering::Release);
+        error.to_string()
+    })
+}
+
+fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingMacTabMetadata) {
+    let tab = update.tab;
+    let strings = NativeTabStrings {
+        icon: tab.icon_data_url.as_deref().map(c_string),
+        id: c_string(&tab.id),
+        name: c_string(&tab.name),
+        tab_type: c_string(&tab.tab_type),
+        tooltip: c_string(&tab.tooltip),
+        workspace_template: tab.workspace_template.as_deref().map(c_string),
+    };
+    let labels = labels(&update.language);
+    let muted = c_string(labels.muted);
+    let playing = c_string(labels.playing);
+    let close = c_string(labels.close);
+    let add = c_string(labels.add);
+    let scroll_left = c_string(labels.scroll_left);
+    let scroll_right = c_string(labels.scroll_right);
+    let input = NativeTabInput {
+        active: tab.active,
+        audible: tab.audible,
+        audio_muted: tab.audio_muted,
+        identifier: strings.id.as_ptr(),
+        name: strings.name.as_ptr(),
+        tooltip: strings.tooltip.as_ptr(),
+        tab_type: strings.tab_type.as_ptr(),
+        icon_data_url: strings
+            .icon
+            .as_ref()
+            .map_or(std::ptr::null(), |value| value.as_ptr()),
+        workspace_template: strings
+            .workspace_template
+            .as_ref()
+            .map_or(std::ptr::null(), |value| value.as_ptr()),
+    };
+    unsafe {
+        rion_runtime_tabs_set_fullscreen_policy(inner.raw, update.always_show_in_fullscreen);
+        rion_runtime_tabs_update_metadata(
+            inner.raw,
+            &input,
+            update.always_hide_tab_close_button,
+            muted.as_ptr(),
+            playing.as_ptr(),
+            close.as_ptr(),
+            add.as_ptr(),
+            scroll_left.as_ptr(),
+            scroll_right.as_ptr(),
+        );
     }
 }
 
@@ -537,16 +575,10 @@ unsafe extern "C" fn action_callback(
             // AppKit invokes this callback inside the plus button's mouse event. The launcher
             // model and native Menu are prebuilt, so popup can run in this same event turn
             // instead of entering Tauri's async queue behind surface setup or navigation work.
-            let window_id = source_window_id.clone().or_else(|| {
-                context
-                    .app
-                    .try_state::<crate::CoreState>()
-                    .and_then(|state| state.runtime.window_id_for_label(&context.window_label))
-            });
-            if let Some(window_id) = window_id
-                && let Err(message) =
-                    crate::runtime_tab_menu::open_launcher(&context.app, &window_id)
-            {
+            let Some(window_id) = source_window_id else {
+                return;
+            };
+            if let Err(message) = crate::runtime_tab_menu::open_launcher(&context.app, &window_id) {
                 crate::reveal_shell_error(
                     &context.app,
                     crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),

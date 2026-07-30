@@ -14,7 +14,7 @@ describe("System WebView background throttling", () => {
     );
     const applyRuntime = runtime.slice(
       runtime.indexOf("fn apply_runtime("),
-      runtime.indexOf("fn sync_native_tab_strip(")
+      runtime.indexOf("fn sync_native_tab_metadata(")
     );
     const presentationBatch = runtime.slice(
       runtime.indexOf("fn apply_native_presentation_batch("),

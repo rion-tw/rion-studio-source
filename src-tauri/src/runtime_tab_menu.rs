@@ -28,6 +28,7 @@ pub(crate) struct RefreshCoordinator {
 #[derive(Default)]
 struct RefreshState {
     language: String,
+    loading_menu: Option<Menu<tauri::Wry>>,
     menus: HashMap<String, Menu<tauri::Wry>>,
     model: Option<Arc<LauncherMenuModel>>,
     revision: u64,
@@ -44,6 +45,17 @@ struct LauncherMenuModel {
 }
 
 impl RefreshCoordinator {
+    pub(crate) fn prime(&self, app: &AppHandle, language: &str) -> Result<(), String> {
+        let menu = launcher_loading_menu(app, language)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+        state.language = language.to_owned();
+        state.loading_menu = Some(menu);
+        Ok(())
+    }
+
     /// Coalesces Core and SQLite reads on a dedicated worker so the native plus button never
     /// performs database work or waits for an in-flight game launch.
     pub(crate) fn request(
@@ -137,6 +149,7 @@ impl RefreshCoordinator {
         if state.revision != revision {
             return;
         }
+        state.loading_menu = launcher_loading_menu(app, &model.language).ok();
         state.menus = menus;
         state.model = Some(Arc::new(model));
     }
@@ -149,24 +162,26 @@ impl RefreshCoordinator {
         window_id: &str,
         window: Window,
     ) -> Result<(), String> {
-        let (cached_menu, cached_model) = self
+        let (cached_menu, loading_menu) = self
             .state
             .lock()
-            .map(|state| (state.menus.get(window_id).cloned(), state.model.clone()))
+            .map(|state| {
+                (
+                    state.menus.get(window_id).cloned(),
+                    state.loading_menu.clone(),
+                )
+            })
             .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
         let menu = if let Some(menu) = cached_menu {
             menu
-        } else if let Some(model) = cached_model {
-            let menu = launcher_menu(app, &model, window_id)?;
-            if let Ok(mut state) = self.state.lock() {
-                state.menus.insert(window_id.to_owned(), menu.clone());
-            }
-            menu
         } else {
-            // The first click can race startup projection collection. Show a native menu in the
-            // same event turn and refresh the real model in the background for the next click.
+            // The first click can race startup projection collection. The loading menu was
+            // prebuilt during app setup, so this event still performs no Core/SQLite read and
+            // no native menu construction.
             let _ = self.request(app.clone(), core, language.clone());
-            launcher_loading_menu(app, &language)?
+            loading_menu.ok_or_else(|| {
+                "The runtime launcher projection has not been initialized yet.".to_owned()
+            })?
         };
         menu.popup(window).map_err(|error| error.to_string())
     }

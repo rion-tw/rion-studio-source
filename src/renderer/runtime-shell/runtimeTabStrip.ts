@@ -10,6 +10,8 @@ declare global {
     __rionRemoveRuntimeTab?: (tabId: string, nextTabId?: string) => void;
     __rionReserveRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionSetActiveRuntimeTab?: (tabId?: string) => void;
+    __rionUpdateRuntimeTabMetadata?: (tab: RuntimeTabMetadata) => void;
+    __rionUpdateRuntimeTabMetadataBatch?: (tabs: RuntimeTabMetadata[]) => void;
   }
 }
 
@@ -17,6 +19,19 @@ type ProvisionalRuntimeTab = {
   id: string;
   name: string;
   type: "role" | "workspace";
+};
+
+type RuntimeTabMetadata = ProvisionalRuntimeTab & {
+  audible: boolean;
+  audioMuted: boolean;
+  closeLabel: string;
+  hideCloseButton: boolean;
+  iconDataUrl?: string;
+  mutedLabel: string;
+  phase: "reserved" | "attaching" | "loading" | "ready" | "degraded" | "failed";
+  playingLabel: string;
+  sourceId: string;
+  tooltip: string;
 };
 
 const root = document.querySelector<HTMLDivElement>("#tabs")!;
@@ -369,6 +384,61 @@ window.__rionSetActiveRuntimeTab = (tabId) => {
     activeTabId = undefined;
     optimisticActiveTabId = undefined;
   }
+};
+window.__rionUpdateRuntimeTabMetadata = (tab) => {
+  const button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
+  if (!button) return;
+  button.title = tab.tooltip;
+  button.dataset.phase = tab.phase;
+  button.dataset.sourceId = tab.sourceId;
+  const name = button.querySelector<HTMLElement>(".name");
+  if (name) name.textContent = tab.name;
+  const previousIcon = button.querySelector<HTMLElement>(".icon");
+  const icon = tab.iconDataUrl ? document.createElement("img") : document.createElement("span");
+  icon.className = `icon${tab.iconDataUrl ? "" : " fallback"}`;
+  if (icon instanceof HTMLImageElement) icon.src = tab.iconDataUrl ?? "";
+  else icon.textContent = tab.type === "workspace" ? "W" : "R";
+  previousIcon?.replaceWith(icon);
+
+  button.querySelector(".audio")?.remove();
+  if (tab.audioMuted || tab.audible) {
+    const audio = document.createElement("span");
+    audio.className = "audio";
+    audio.textContent = tab.audioMuted ? "⌁" : "◖";
+    audio.role = "img";
+    audio.ariaLabel = tab.audioMuted ? tab.mutedLabel : tab.playingLabel;
+    button.querySelector(".more, .close")?.before(audio);
+  }
+
+  let more = button.querySelector<HTMLElement>(".more");
+  if (!more) {
+    more = document.createElement("span");
+    more.className = "more";
+    more.textContent = "•••";
+    more.addEventListener("click", (event) => {
+      event.stopPropagation();
+      dispatch({ type: "openTabMenu", tabId: tab.id });
+    });
+    button.append(more);
+  }
+  let close = button.querySelector<HTMLElement>(".close");
+  if (tab.hideCloseButton) close?.remove();
+  else if (!close) {
+    close = document.createElement("span");
+    close.className = "close";
+    close.textContent = "×";
+    close.role = "button";
+    close.tabIndex = 0;
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      dispatch({ type: "stop", tabId: tab.id });
+    });
+    button.append(close);
+  }
+  if (close) close.ariaLabel = tab.closeLabel;
+};
+window.__rionUpdateRuntimeTabMetadataBatch = (tabs) => {
+  for (const tab of tabs) window.__rionUpdateRuntimeTabMetadata?.(tab);
 };
 for (const tab of window.__rionPendingRuntimeTabs ?? []) {
   window.__rionReserveRuntimeTab(tab);

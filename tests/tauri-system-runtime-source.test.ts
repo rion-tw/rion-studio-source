@@ -190,14 +190,17 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("fn preview_adjacent_tab_activation(");
     expect(runtime).toContain("fn preview_tab_close(");
     expect(runtime).toContain("optimistic_closed_tabs");
-    expect(runtime).toContain("runtime_tab.visible");
+    expect(runtime).toContain("struct WindowPresentationState {");
+    expect(runtime).toContain("selected_tab_id: Option<String>");
+    expect(runtime).toContain("surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>");
+    expect(runtime).not.toContain("runtime_tab.visible");
     const activationPreview = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_activation("),
       runtime.indexOf("pub(crate) fn preview_tab_close(")
     );
     expect(activationPreview).toContain("request_tab_presentation");
     expect(activationPreview).toContain("request_provisional_tab_presentation");
-    expect(activationPreview).toContain("desired_revision");
+    expect(activationPreview).toContain("selected_tab_id");
     expect(activationPreview).toContain("dispatch_native_presentation");
     expect(activationPreview).not.toContain("BrowserRuntimeSnapshot");
     expect(activationPreview).not.toContain("presentation_lane");
@@ -205,10 +208,10 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("pub(crate) fn preview_tab_close("),
       runtime.indexOf("pub(crate) fn reconcile_tab_activation(")
     );
-    expect(closePreview).toContain("closing_tab.visible = false");
+    expect(closePreview).toContain("window_state.remove_tab(");
     expect(closePreview).toContain("successor_tab_after_close(");
     expect(closePreview).toContain("dispatch_native_presentation(");
-    expect(runtime).toContain("struct PresentationCoordinator {");
+    expect(runtime).toContain("struct WindowPresentationState {");
     expect(runtime).toContain("struct LatestOnlyPresentationQueue<T>");
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
     expect(runtime).toContain("tab.selection-coalesced");
@@ -256,13 +259,14 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(createTab).toContain("role_bounds_for_content(content_metrics, &role.rect)");
     expect(createTab).toContain("take_tab_launch_preview(");
-    expect(createTab).toContain("selection.tab_order[index] = created_tab_id.clone()");
+    expect(createTab).toContain("selection.replace_tab_id(&preview.id, presentation_tab");
+    expect(createTab).toContain("presentation.bind_surface(");
     expect(createTab).toContain("replace_native_tab_reservation(");
-    expect(createTab).toContain("self.setup_role_surface(&webview)");
+    expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
     const macRoleSetup = runtime.slice(
       runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup('),
-      runtime.indexOf('#[cfg(not(target_os = "macos"))]\nfn platform_role_surface_setup(')
+      runtime.indexOf('#[cfg(windows)]\nfn platform_role_surface_setup(')
     );
     expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(macRoleSetup).toContain("rion_wk_install_security_policy(native)");
@@ -314,9 +318,10 @@ describe("Tauri System WebView runtime source", () => {
     expect(quickMenuNativeBuild).not.toContain("core.invoke(");
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
     expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
-    expect(macBridge).toContain("update_generation: AtomicU64");
+    expect(macBridge).toContain("metadata_pending: Mutex<HashMap<String, PendingMacTabMetadata>>");
+    expect(macBridge).toContain("metadata_scheduled: AtomicBool");
+    expect(macBridge).toContain("fn schedule_metadata_batch(");
     expect(macBridge).toContain("selection_generation: AtomicU64");
-    expect(macBridge).toContain("inner.update_generation.load(Ordering::Acquire) != generation");
     expect(macBridge).toContain("inner.selection_generation.load(Ordering::Acquire) != generation");
     expect(macBridge).toContain("pub fn replace_reservation(");
     expect(macController).toContain("_tabItemsByIdentifier[tabIdentifier]");
@@ -327,7 +332,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).not.toContain("nextEventMatchingMask:");
     expect(macController).toContain("- (void)mouseDragged:(NSEvent *)event");
     expect(macController).toContain("_tabIconCacheKeys");
-    expect(macController).toContain("nextIdentifiers");
+    expect(macController).toContain("updateTabMetadata:(RionRuntimeTabModel *)tab");
+    expect(macController).not.toContain("- (void)updateState:");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");
     expect(windowsStrip).toContain("reconcileTabButtons(nextButtons)");
@@ -368,7 +374,9 @@ describe("Tauri System WebView runtime source", () => {
       createTab.indexOf("with_native_creation_lane")
     );
     expect(runtime).toContain("pub(crate) fn cancel_provisional_tab_launch(");
-    expect(runtime).toContain("launch.id == *tab_id && launch.window_id == window_id && !launch.cancelled");
+    expect(runtime).toContain(".find(|launch| launch.id == tab_id)");
+    expect(runtime).toContain("launch.cancelled = true");
+    expect(runtime).toContain(".is_some_and(|launch| launch.cancelled)");
     expect(shell).toContain("state.runtime.cancel_provisional_tab_launch(&tab_id)");
     expect(shell).toContain("preview_tab_activation(tab_id, native_style_applied)?");
     expect(shell).toContain("preview_and_commit_native_tab_selection");
@@ -549,25 +557,27 @@ describe("Tauri System WebView runtime source", () => {
 
     const applyRuntime = runtime.slice(
       runtime.indexOf("fn apply_runtime("),
-      runtime.indexOf("fn sync_native_tab_strip(")
+      runtime.indexOf("fn sync_native_tab_metadata(")
     );
-    expect(applyRuntime).not.toContain("sync_native_tab_strip");
+    expect(applyRuntime).not.toContain("sync_native_tab_metadata");
     expect(runtime).toContain("struct RuntimeDisplayHost");
     expect(runtime).toContain('runtime_label("game-display"');
     expect(runtime).not.toContain('runtime_label("game-tab", &tab.tab_id)');
     const windowsTabStrip = runtime.slice(
-      runtime.indexOf("fn sync_windows_tab_strip("),
+      runtime.indexOf("fn sync_windows_tab_metadata("),
       runtime.indexOf("fn windows_tab_strip_height(")
     );
-    expect(windowsTabStrip).toContain("crate::display_inventory(&window)");
-    expect(windowsTabStrip).not.toContain("crate::workspace_displays(&window)");
-    expect(windowsTabStrip).toContain('"resolvedTheme".to_owned()');
-    expect(windowsTabStrip).toContain("json!(resolved_theme)");
+    expect(windowsTabStrip).toContain("__rionUpdateRuntimeTabMetadataBatch");
+    expect(windowsTabStrip).not.toContain("__rionApplyRuntimeTabState");
+    expect(windowsTabStrip).not.toContain("display_inventory");
+    expect(windowsTabStrip).toContain("presented.phase.as_str()");
     const nativeMacTabs = runtime.slice(
-      runtime.indexOf("fn sync_native_tab_strip("),
-      runtime.indexOf("fn sync_windows_tab_strip(")
+      runtime.indexOf("fn sync_native_tab_metadata("),
+      runtime.indexOf("fn sync_windows_tab_metadata(")
     );
     expect(nativeMacTabs).not.toContain("resolved_theme");
+    expect(nativeMacTabs).toContain("controller.update_metadata(");
+    expect(nativeMacTabs).not.toContain("controller.update(");
     expect(applyRuntime).toContain("surface.reparent(&window)");
     expect(applyRuntime).toContain('reconcile_window_presentation(window_id, "topology-reconciled")');
     expect(applyRuntime).not.toContain("visibility_mutations");
@@ -798,8 +808,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(windowsDocumentHandler).not.toContain("navigate(");
     expect(runtime).toContain("deferral.Complete()");
     expect(runtime).toContain('should_defer_document_navigation("windows"');
-    expect(runtime.match(/install_document_navigation_macro_release_handler\(/g)?.length)
-      .toBeGreaterThanOrEqual(5);
+    expect(runtime).toContain("register_windows_document_navigation_handler(");
+    const windowsRoleSetup = runtime.slice(
+      runtime.indexOf('#[cfg(windows)]\nfn platform_role_surface_setup('),
+      runtime.indexOf('#[cfg(not(any(windows, target_os = "macos")))]\nfn platform_role_surface_setup(')
+    );
+    expect(windowsRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
+    expect(windowsRoleSetup).toContain("register_windows_document_navigation_handler(");
 
     const popupNavigation = runtime.slice(
       runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("),

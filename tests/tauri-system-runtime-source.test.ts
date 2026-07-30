@@ -204,6 +204,23 @@ describe("Tauri System WebView runtime source", () => {
     expect(windowsStrip).toContain("optimisticallyCloseTab");
   });
 
+  it("keeps native macOS close rollback state out of Windows builds", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const closeTransaction = runtime.slice(
+      runtime.indexOf("struct CloseTransaction {"),
+      runtime.indexOf("struct PresentationSelection {")
+    );
+    for (const field of ["original_active_tab_id", "revision", "window_id"]) {
+      expect(closeTransaction).toContain(`#[cfg(target_os = "macos")]\n    ${field}`);
+    }
+    expect(runtime).toContain(
+      '#[cfg(target_os = "macos")]\n    pub(crate) fn cancel_tab_close_preview('
+    );
+  });
+
   it("tracks exact native surface ownership across roles, popups, dividers, and moves", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),

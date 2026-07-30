@@ -96,14 +96,16 @@ describe("browser performance settings", () => {
     }));
     renderSettings("mac", onGameBrowserSettingsPatch);
 
-    const gameSection = screen.getByRole("heading", { name: "Game" }).parentElement;
-    expect(gameSection).not.toBeNull();
-    expect(gameSection?.contains(screen.getByRole("switch", { name: "Experimental high refresh rate" }))).toBe(true);
+    const languageRow = screen.getByRole("combobox", { name: "Language" }).closest(".settings-row");
+    const highRefreshSwitch = screen.getByRole("switch", { name: "Experimental high refresh rate" });
+    const highRefreshRow = highRefreshSwitch.closest(".settings-row");
+    expect(languageRow?.nextElementSibling).toBe(highRefreshRow);
+    expect(screen.queryByRole("heading", { name: "Game" })).toBeNull();
 
     expect(
       screen.getByText(/Requires restarting Rion Studio and may increase energy use and temperature/u)
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("switch", { name: "Experimental high refresh rate" }));
+    fireEvent.click(highRefreshSwitch);
 
     await waitFor(() => {
       expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({

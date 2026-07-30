@@ -485,9 +485,23 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+              {isMacOS ? (
+                <SettingsRow
+                  title={t("settings.macosHighRefreshRate")}
+                  description={t("settings.macosHighRefreshRateDescription")}
+                  control={
+                    <Switch
+                      aria-label={t("settings.macosHighRefreshRate")}
+                      checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
+                      disabled={isBrowserPerformanceSaving}
+                      onCheckedChange={updateBrowserPerformanceSettings}
+                    />
+                  }
+                />
+              ) : null}
             </SettingsSection>
 
-            <SettingsSection title={t("settings.game")}>
+            <SettingsSection title={t("settings.gameFonts")}>
               <SettingsRow
                 title={t("settings.browserFontSmoothing")}
                 description={t("settings.browserFontSmoothingDescription")}
@@ -509,21 +523,6 @@ function SettingsViewBase({
                 onLoadSystemFonts={onLoadSystemFonts}
                 onSave={onGameBrowserSettingsChange}
               />
-              {isMacOS ? (
-                <SettingsRow
-                  showDivider={false}
-                  title={t("settings.macosHighRefreshRate")}
-                  description={t("settings.macosHighRefreshRateDescription")}
-                  control={
-                    <Switch
-                      aria-label={t("settings.macosHighRefreshRate")}
-                      checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
-                      disabled={isBrowserPerformanceSaving}
-                      onCheckedChange={updateBrowserPerformanceSettings}
-                    />
-                  }
-                />
-              ) : null}
             </SettingsSection>
 
             <SettingsSection title={t("settings.gameWindows")}>
@@ -875,7 +874,10 @@ function BrowserFontsSettingsRows({
   );
   const installedFonts = catalog.filter((font) => font.installed);
   const normalizedCustomFontFamily = normalizeBrowserFontFamily(customFontFamily);
+  const savedSettings = normalizeGameBrowserSettings(settings);
+  const savedCjkVariant = savedSettings.fonts.cjkVariant;
   const effectiveCjkVariant = resolveEffectiveBrowserFontCjkVariant(draft.fonts.cjkVariant, language);
+  const savedEffectiveCjkVariant = resolveEffectiveBrowserFontCjkVariant(savedCjkVariant, language);
   const previewKey = `${JSON.stringify(draft.fonts)}:${catalog
     .filter((font) => font.installed)
     .map((font) => `${font.catalogId}:${font.cachedBytes}`)
@@ -1030,24 +1032,18 @@ function BrowserFontsSettingsRows({
   }
 
   function handleCjkVariantChange(cjkVariant: BrowserFontCjkVariant): void {
-    setMessage(null);
-    setDraft((current) => {
-      const preset = browserFontPresets.find((candidate) => candidate.id === current.fonts.presetId);
-      if (!preset) {
-        return { ...current, fonts: { ...current.fonts, cjkVariant } };
-      }
-      return {
-        ...current,
-        fonts: {
+    const preset = browserFontPresets.find((candidate) => candidate.id === savedSettings.fonts.presetId);
+    const fonts = preset
+      ? {
           ...resolveBrowserFontPreset(
             preset.id,
             resolveEffectiveBrowserFontCjkVariant(cjkVariant, language)
           ),
           cjkVariant,
-          fontSmoothingEnabled: current.fonts.fontSmoothingEnabled
+          fontSmoothingEnabled: savedSettings.fonts.fontSmoothingEnabled
         }
-      };
-    });
+      : { ...savedSettings.fonts, cjkVariant };
+    void saveSettings({ ...savedSettings, fonts });
   }
 
   async function reloadCatalog(): Promise<BrowserFontCatalogEntry[]> {
@@ -1184,30 +1180,6 @@ function BrowserFontsSettingsRows({
               <div className="flex items-center gap-2 px-0.5 text-xs font-semibold leading-5 text-foreground">
                 <SlidersHorizontal className="size-3.5 text-muted-foreground" aria-hidden="true" />
                 <p>{t("settings.browserFontsFineTune")}</p>
-              </div>
-
-              <div className="grid gap-3 rounded-md border border-border/25 bg-muted/[0.07] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(22rem,1.25fr)] sm:items-center">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold leading-5 text-foreground">
-                    {t("settings.browserFontsCjkVariant")}
-                  </p>
-                  <p className="mt-0.5 text-caption text-muted-foreground">
-                    {t("settings.browserFontsCjkResolved").replace(
-                      "{variant}",
-                      t(`settings.browserFonts.cjk.${effectiveCjkVariant}` as TranslationKey)
-                    )}
-                  </p>
-                </div>
-                <SegmentedControl<BrowserFontCjkVariant>
-                  className="grid-cols-4"
-                  disabled={isSaving}
-                  items={(["auto", "tc", "sc", "jp"] as const).map((value) => ({
-                    value,
-                    label: t(`settings.browserFonts.cjk.${value}` as TranslationKey)
-                  }))}
-                  value={draft.fonts.cjkVariant}
-                  onValueChange={handleCjkVariantChange}
-                />
               </div>
 
               <div className="grid gap-3 rounded-md border border-border/25 bg-muted/[0.07] p-3">
@@ -1421,6 +1393,35 @@ function BrowserFontsSettingsRows({
           </div>
         </div>
       ) : null}
+
+      <SettingsRow
+        title={t("settings.browserFontsCjkVariant")}
+        description={t("settings.browserFontsCjkResolved").replace(
+          "{variant}",
+          t(`settings.browserFonts.cjk.${savedEffectiveCjkVariant}` as TranslationKey)
+        )}
+        control={
+          <Select
+            disabled={isSaving || isInstallingCustomFont}
+            value={savedCjkVariant}
+            onValueChange={(value) => handleCjkVariantChange(value as BrowserFontCjkVariant)}
+          >
+            <SelectTrigger
+              className="settings-menu-control"
+              aria-label={t("settings.browserFontsCjkVariant")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["auto", "tc", "sc", "jp"] as const).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {t(`settings.browserFonts.cjk.${value}` as TranslationKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
     </>
   );
 }

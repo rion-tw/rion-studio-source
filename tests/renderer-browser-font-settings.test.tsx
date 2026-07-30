@@ -145,6 +145,31 @@ function renderSettings(
 }
 
 describe("browser font settings", () => {
+  it("persists the top-level Chinese and Japanese glyph preference", async () => {
+    const user = userEvent.setup();
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+    renderSettings(onGameBrowserSettingsChange);
+
+    const gameFontsSection = screen.getByRole("heading", { name: "Game fonts" }).parentElement;
+    const cjkPreference = screen.getByRole("combobox", {
+      name: "Chinese and Japanese glyph style"
+    });
+    expect(gameFontsSection?.contains(cjkPreference)).toBe(true);
+
+    await user.click(cjkPreference);
+    await user.click(screen.getByRole("option", { name: "Japanese" }));
+
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith({
+        ...DEFAULT_GAME_BROWSER_SETTINGS,
+        fonts: {
+          ...DEFAULT_GAME_BROWSER_SETTINGS.fonts,
+          cjkVariant: "jp"
+        }
+      });
+    });
+  });
+
   it("starts collapsed and toggles the font controls on demand", async () => {
     window.rionStudio = {
       listBrowserFontCatalog: vi.fn(async () => catalog),

@@ -95,10 +95,14 @@ describe("browser font smoothing settings", () => {
       const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
       renderSettings(platform, onGameBrowserSettingsChange);
 
-      const gameSection = screen.getByRole("heading", { name: "Game" }).parentElement;
-      expect(gameSection).not.toBeNull();
-      expect(gameSection?.contains(screen.getByRole("switch", { name: "Font smoothing" }))).toBe(true);
-      expect(gameSection?.contains(screen.getByRole("button", { name: "Customize fonts" }))).toBe(true);
+      const gameFontsSection = screen.getByRole("heading", { name: "Game fonts" }).parentElement;
+      expect(gameFontsSection).not.toBeNull();
+      expect(gameFontsSection?.contains(screen.getByRole("switch", { name: "Font smoothing" }))).toBe(true);
+      expect(gameFontsSection?.contains(screen.getByRole("button", { name: "Customize fonts" }))).toBe(true);
+      expect(
+        gameFontsSection?.contains(screen.getByRole("combobox", { name: "Chinese and Japanese glyph style" }))
+      ).toBe(true);
+      expect(screen.queryByRole("heading", { name: "Game" })).toBeNull();
 
       const toggle = screen.getByRole("switch", { name: "Font smoothing" });
       expect(toggle.getAttribute("data-state")).toBe("checked");

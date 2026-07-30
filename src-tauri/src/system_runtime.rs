@@ -3381,6 +3381,8 @@ impl SystemRuntimeExecutor {
         workspace_template: Option<&str>,
         revision: u64,
     ) -> RuntimeResult<()> {
+        #[cfg(not(target_os = "macos"))]
+        let _ = workspace_template;
         #[cfg(target_os = "macos")]
         let controller = {
             self.state()?
@@ -3497,6 +3499,8 @@ impl SystemRuntimeExecutor {
         active_tab_id: Option<&str>,
         revision: u64,
     ) -> RuntimeResult<()> {
+        #[cfg(not(target_os = "macos"))]
+        let _ = workspace_template;
         #[cfg(target_os = "macos")]
         let result = self
             .state()?
@@ -14846,7 +14850,7 @@ fn install_document_navigation_macro_release_handler(
                             &error.to_string(),
                         );
                         if let Err(error) = complete_navigation_deferral_once(&completed, || {
-                            unsafe { deferral.Complete() }
+                            deferral.Complete()
                         }) {
                             emit_windows_document_navigation_error(
                                 &callback_app,

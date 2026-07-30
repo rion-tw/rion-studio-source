@@ -55,6 +55,15 @@ describe("Tauri macro overlay injector", () => {
     expect(css).toContain("@media (prefers-reduced-motion:reduce){.active-badge.is-iteration-flash::after{animation:none;will-change:auto;}}");
   });
 
+  it("keeps shortcut chips padded and shortcutless badges balanced", async () => {
+    const { css } = await overlaySources();
+
+    expect(css).toMatch(/\.active-badge\{[^}]*padding:var\(--space-1\) var\(--space-2\) var\(--space-1\) var\(--space-1\);/);
+    expect(css).toMatch(/\.active-badge\.is-shortcutless\{padding-left:var\(--space-2\);\}/);
+    expect(css).toMatch(/\.active-badge-shortcut\{[^}]*border-radius:var\(--radius-pill\);/);
+    expect(css).toMatch(/\.active-badge-shortcut\{[^}]*min-height:var\(--space-4\);min-width:var\(--space-4\);padding:0 var\(--space-1\);/);
+  });
+
   it("installs once per System WebView document and reinstalls after navigation", async () => {
     const sources = await overlaySources();
     const invoke = vi.fn(async (_command: string, _argumentsRecord: unknown) => ({}));

@@ -28,11 +28,19 @@ before changing code.
 
 - macOS and Windows are both required target platforms. Every new or changed
   feature must be designed, implemented, and verified for both operating systems.
+- Before changing runtime, native, filesystem, process, or build code, explicitly
+  audit the Windows impact: `#[cfg]` reachability, Win32/WebView2 behavior, path
+  semantics, file locking, and PowerShell command behavior. Include the matching
+  Windows validation in the task's implementation and handoff.
 - A feature is not complete if it works on only one target platform. When behavior
   differs by platform, keep the shared behavior consistent and provide explicit
   macOS and Windows implementations instead of omitting or deferring one platform.
 - Isolate operating-system-specific APIs behind Tauri/native modules or adapters;
   do not leak platform assumptions into the renderer or shared contracts.
+- Keep Rust platform gates aligned between definitions and every call site. Fields,
+  methods, imports, and variables used by only one operating system must carry the
+  same `#[cfg]` boundary; do not use `allow(dead_code)` to hide an unaudited target
+  mismatch.
 - Add focused coverage for shared behavior and each platform branch. Where local
   end-to-end verification is unavailable, use platform-aware unit tests or mocks
   and document any remaining native verification required before release.
@@ -43,6 +51,7 @@ before changing code.
 - Keep both `macos-latest` and `windows-latest` validation jobs in the release
   workflow. A local pass on one platform is not evidence that the other platform
   passes; use CI for the unavailable native platform before considering work done.
+  AI-agent handoffs must state which Windows checks ran and which still require CI.
 
 ## Owner-Locked Release Distribution Decision
 

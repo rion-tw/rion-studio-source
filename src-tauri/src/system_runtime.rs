@@ -1108,8 +1108,11 @@ struct RuntimeState {
 
 #[derive(Clone)]
 struct CloseTransaction {
+    #[cfg(target_os = "macos")]
     original_active_tab_id: Option<String>,
+    #[cfg(target_os = "macos")]
     revision: u64,
+    #[cfg(target_os = "macos")]
     window_id: String,
 }
 
@@ -3604,6 +3607,7 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
             let window_id = tab.window_id.clone();
             let was_visible = tab.visible;
+            #[cfg(target_os = "macos")]
             let original_active_tab_id = state
                 .tabs
                 .iter()
@@ -3662,8 +3666,11 @@ impl SystemRuntimeExecutor {
             state.close_previews.insert(
                 tab_id.to_owned(),
                 CloseTransaction {
+                    #[cfg(target_os = "macos")]
                     original_active_tab_id,
+                    #[cfg(target_os = "macos")]
                     revision,
+                    #[cfg(target_os = "macos")]
                     window_id: window_id.clone(),
                 },
             );
@@ -3857,6 +3864,7 @@ impl SystemRuntimeExecutor {
         self.publish_projection();
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn cancel_tab_close_preview(&self, tab_id: &str) {
         let restore_tab_id = self.state.lock().ok().and_then(|mut state| {
             let removed = state.optimistic_closed_tabs.remove(tab_id);

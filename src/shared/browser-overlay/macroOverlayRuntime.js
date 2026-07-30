@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v58";
+  const hostId = "rion-studio-macro-overlay-v59";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 56 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 57 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-31.1";
+  const scriptVersion = "2026-07-31.2";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -32,6 +32,7 @@
       coordinateCopied: "Copied",
       coordinateCopyFailed: "Unable to copy coordinates. Try again.",
       coordinateCopying: "Copying…",
+      coordinateAnchor: "Anchor",
       coordinateMeasure: "Measure coordinates",
       coordinateMeasureAria: "Measure game coordinates",
       coordinateMeasureHint: "Click to copy · Esc to cancel",
@@ -44,6 +45,7 @@
       coordinateCopied: "已複製",
       coordinateCopyFailed: "無法複製座標，請再試一次。",
       coordinateCopying: "複製中…",
+      coordinateAnchor: "錨點",
       coordinateMeasure: "測量座標",
       coordinateMeasureAria: "測量遊戲座標",
       coordinateMeasureHint: "點擊複製 · Esc 取消",
@@ -56,6 +58,7 @@
       coordinateCopied: "已复制",
       coordinateCopyFailed: "无法复制坐标，请重试。",
       coordinateCopying: "复制中…",
+      coordinateAnchor: "锚点",
       coordinateMeasure: "测量坐标",
       coordinateMeasureAria: "测量游戏坐标",
       coordinateMeasureHint: "点击复制 · Esc 取消",
@@ -68,6 +71,7 @@
       coordinateCopied: "コピーしました",
       coordinateCopyFailed: "座標をコピーできません。もう一度お試しください。",
       coordinateCopying: "コピー中…",
+      coordinateAnchor: "アンカー",
       coordinateMeasure: "座標を測定",
       coordinateMeasureAria: "ゲーム座標を測定",
       coordinateMeasureHint: "クリックでコピー · Esc でキャンセル",
@@ -150,6 +154,8 @@
   let coordinateCopyInFlight = false;
   let coordinateMeasureActive = false;
   let coordinateAnchorLayerElement = null;
+  let coordinateAnchorConnectorElement = null;
+  let coordinateAnchorConnectorSvgElement = null;
   let coordinateMeasureElement = null;
   let coordinateReadoutElement = null;
   let clickMarkerLayerElement = null;
@@ -336,11 +342,34 @@
     return Math.round(value * 100) / 100;
   }
 
-  function coordinateMeasurementFromEvent(event) {
-    const viewport = getVisualViewportSize();
-    const xPx = clampCoordinate(event.clientX, viewport.width);
-    const yPx = clampCoordinate(event.clientY, viewport.height);
+  function resolveCoordinateAnchor(measurement, viewport) {
+    let nearestAnchor = coordinateAnchorDefinitions[0].anchor;
+    let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+    coordinateAnchorDefinitions.forEach((definition) => {
+      const anchorX = (viewport.width * definition.xPercent) / 100;
+      const anchorY = (viewport.height * definition.yPercent) / 100;
+      const deltaX = measurement.xPx - anchorX;
+      const deltaY = measurement.yPx - anchorY;
+      const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+      if (distanceSquared < nearestDistanceSquared) {
+        nearestDistanceSquared = distanceSquared;
+        nearestAnchor = definition.anchor;
+      }
+    });
+    return nearestAnchor;
+  }
+
+  function resolveCoordinateAnchorPosition(anchorValue, viewport) {
+    const definition = coordinateAnchorDefinitions.find((candidate) => candidate.anchor === anchorValue)
+      ?? coordinateAnchorDefinitions[0];
     return {
+      xPx: clampCoordinate((viewport.width * definition.xPercent) / 100, viewport.width),
+      yPx: clampCoordinate((viewport.height * definition.yPercent) / 100, viewport.height)
+    };
+  }
+
+  function coordinateMeasurementFromPoint(xPx, yPx, viewport = getVisualViewportSize()) {
+    const measurement = {
       xPercent: roundCoordinatePercent((xPx / viewport.width) * 100),
       xPx,
       viewportHeightPx: viewport.height,
@@ -348,6 +377,19 @@
       yPercent: roundCoordinatePercent((yPx / viewport.height) * 100),
       yPx
     };
+    return {
+      ...measurement,
+      anchor: resolveCoordinateAnchor(measurement, viewport)
+    };
+  }
+
+  function coordinateMeasurementFromEvent(event) {
+    const viewport = getVisualViewportSize();
+    return coordinateMeasurementFromPoint(
+      clampCoordinate(event.clientX, viewport.width),
+      clampCoordinate(event.clientY, viewport.height),
+      viewport
+    );
   }
 
   function formatCoordinatePercent(value) {
@@ -364,8 +406,29 @@
       String(measurement.yPx),
       "px (",
       formatCoordinatePercent(measurement.yPercent),
-      "%)"
+      "%), ",
+      getText().coordinateAnchor,
+      ": ",
+      String(measurement.anchor || coordinateAnchorDefinitions[0].anchor)
     ].join("");
+  }
+
+  function updateCoordinateAnchorConnector(measurement, viewport) {
+    if (!coordinateAnchorConnectorElement || !coordinateAnchorConnectorSvgElement) return;
+    const anchor = resolveCoordinateAnchorPosition(measurement.anchor, viewport);
+    coordinateAnchorConnectorSvgElement.setAttribute(
+      "viewBox",
+      ["0", "0", String(viewport.width), String(viewport.height)].join(" ")
+    );
+    coordinateAnchorConnectorElement.setAttribute("x1", String(anchor.xPx));
+    coordinateAnchorConnectorElement.setAttribute("y1", String(anchor.yPx));
+    coordinateAnchorConnectorElement.setAttribute("x2", String(measurement.xPx));
+    coordinateAnchorConnectorElement.setAttribute("y2", String(measurement.yPx));
+    if (anchor.xPx === measurement.xPx && anchor.yPx === measurement.yPx) {
+      coordinateAnchorConnectorSvgElement.setAttribute("hidden", "");
+    } else {
+      coordinateAnchorConnectorSvgElement.removeAttribute("hidden");
+    }
   }
 
   function setCoordinateReadoutStatus(status) {
@@ -393,6 +456,7 @@
     if (!coordinateMeasureElement) return;
     const viewport = getVisualViewportSize();
     updateCoordinateAnchorGuides(viewport);
+    updateCoordinateAnchorConnector(measurement, viewport);
     coordinateMeasureElement.style.setProperty("--coordinate-x", String(measurement.xPx) + "px");
     coordinateMeasureElement.style.setProperty("--coordinate-y", String(measurement.yPx) + "px");
     coordinateMeasureElement.style.setProperty("--coordinate-width", String(viewport.width) + "px");
@@ -448,7 +512,14 @@
   }
 
   function handleCoordinateViewportResize() {
-    if (coordinateMeasureActive) {
+    if (coordinateMeasureActive && coordinateMeasurement) {
+      const viewport = getVisualViewportSize();
+      updateCoordinateMeasurement(coordinateMeasurementFromPoint(
+        clampCoordinate((coordinateMeasurement.xPercent * viewport.width) / 100, viewport.width),
+        clampCoordinate((coordinateMeasurement.yPercent * viewport.height) / 100, viewport.height),
+        viewport
+      ));
+    } else if (coordinateMeasureActive) {
       updateCoordinateAnchorGuides();
     }
     renderClickMarkers();
@@ -488,14 +559,7 @@
     const viewport = getVisualViewportSize();
     const xPx = Math.floor(viewport.width / 2);
     const yPx = Math.floor(viewport.height / 2);
-    updateCoordinateMeasurement({
-      xPercent: roundCoordinatePercent((xPx / viewport.width) * 100),
-      xPx,
-      viewportHeightPx: viewport.height,
-      viewportWidthPx: viewport.width,
-      yPercent: roundCoordinatePercent((yPx / viewport.height) * 100),
-      yPx
-    });
+    updateCoordinateMeasurement(coordinateMeasurementFromPoint(xPx, yPx, viewport));
   }
 
   function stopCoordinateMeasurement() {
@@ -509,6 +573,9 @@
     if (coordinateAnchorLayerElement) {
       coordinateAnchorLayerElement.hidden = true;
     }
+    if (coordinateAnchorConnectorSvgElement) {
+      coordinateAnchorConnectorSvgElement.setAttribute("hidden", "");
+    }
   }
 
   async function copyCoordinateMeasurement() {
@@ -516,7 +583,9 @@
     coordinateCopyInFlight = true;
     setCoordinateReadoutStatus("copying");
     try {
-      const nextState = await binding({ type: "copy-coordinate", ...coordinateMeasurement });
+      const coordinate = { ...coordinateMeasurement };
+      delete coordinate.anchor;
+      const nextState = await binding({ type: "copy-coordinate", ...coordinate });
       if (disposeIfDetached(nextState)) return;
       applyState(nextState);
       updatePresentation();
@@ -1012,6 +1081,8 @@
       activeBadgesElement = null;
       actionMenuElement = null;
       clickMarkerLayerElement = null;
+      coordinateAnchorConnectorElement = null;
+      coordinateAnchorConnectorSvgElement = null;
       host = null;
       renderedActiveBadgesMarkup = null;
       renderedClickOverlayMarkup = null;
@@ -1088,6 +1159,9 @@
       '<div class="coordinate-anchor-layer" hidden aria-hidden="true">',
       coordinateAnchorDefinitions.map((definition) => '<div class="coordinate-anchor-marker" data-anchor="' + definition.anchor + '"></div>').join(""),
       "</div>",
+      '<svg class="click-connector-svg coordinate-anchor-connector-svg" hidden aria-hidden="true" focusable="false" viewBox="0 0 1 1" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">',
+      '<line class="click-connector coordinate-anchor-connector" />',
+      "</svg>",
       '<div class="coordinate-line coordinate-line-horizontal"></div>',
       '<div class="coordinate-line coordinate-line-vertical"></div>',
       '<div class="coordinate-readout"></div>',
@@ -1099,6 +1173,8 @@
     triggerElement = root.querySelector(".trigger");
     actionMenuElement = root.querySelector(".action-menu");
     coordinateAnchorLayerElement = root.querySelector(".coordinate-anchor-layer");
+    coordinateAnchorConnectorElement = root.querySelector(".coordinate-anchor-connector");
+    coordinateAnchorConnectorSvgElement = root.querySelector(".coordinate-anchor-connector-svg");
     coordinateMeasureElement = root.querySelector(".coordinate-picker");
     coordinateReadoutElement = root.querySelector(".coordinate-readout");
     clickMarkerLayerElement?.addEventListener("animationend", handleClickMarkerAnimationEnd);

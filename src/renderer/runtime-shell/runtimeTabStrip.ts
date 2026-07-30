@@ -31,6 +31,7 @@ let dragMoveFrame: number | undefined;
 let pendingDragPoint: { screenX: number; screenY: number } | undefined;
 let renderRevision = 0;
 let activeTabId: string | undefined;
+let optimisticActiveTabId: string | undefined;
 let dragActionPending = false;
 const dragActionQueue: RuntimeTabAction[] = [];
 
@@ -65,6 +66,7 @@ function optimisticallyActivateTab(tabId: string): void {
     tab.setAttribute("aria-selected", String(active));
   }
   activeTabId = tabId;
+  optimisticActiveTabId = tabId;
   ensureTabVisible(tabId);
 }
 
@@ -89,7 +91,10 @@ function optimisticallyCloseTab(tabId: string): void {
     const remaining = tabElements();
     const successor = remaining[Math.min(closingIndex, remaining.length - 1)];
     if (successor?.dataset.tabId) optimisticallyActivateTab(successor.dataset.tabId);
-    else activeTabId = undefined;
+    else {
+      activeTabId = undefined;
+      optimisticActiveTabId = undefined;
+    }
   }
   requestAnimationFrame(updateScrollControls);
 }
@@ -119,16 +124,27 @@ function render(state: RuntimeTabStripState): void {
   document.documentElement.dataset.theme = state.resolvedTheme;
   document.documentElement.style.colorScheme = state.resolvedTheme;
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);
-  const nextButtons = state.tabs
-    .filter((tab) => tab.windowId === state.windowId && !tab.hidden)
+  const visibleTabs = state.tabs
+    .filter((tab) => tab.windowId === state.windowId && !tab.hidden);
+  const snapshotActiveTabId = visibleTabs.find((tab) => tab.active)?.id;
+  // Native presentation owns selection. A delayed Core projection may refresh metadata and
+  // topology, but it must not repaint an older active tab over an optimistic pointer/key action.
+  const optimisticSelectionIsVisible = optimisticActiveTabId
+    && visibleTabs.some((tab) => tab.id === optimisticActiveTabId);
+  if (optimisticActiveTabId && !optimisticSelectionIsVisible) optimisticActiveTabId = undefined;
+  const presentationActiveTabId = optimisticSelectionIsVisible
+    ? optimisticActiveTabId
+    : snapshotActiveTabId;
+  const nextButtons = visibleTabs
     .map((tab) => {
+      const active = tab.id === presentationActiveTabId;
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `tab${tab.active ? " active" : ""}`;
+      button.className = `tab${active ? " active" : ""}`;
       button.dataset.tabId = tab.id;
       button.draggable = true;
       button.role = "tab";
-      button.setAttribute("aria-selected", String(tab.active));
+      button.setAttribute("aria-selected", String(active));
       button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
         ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
         : tab.name;
@@ -254,9 +270,7 @@ function render(state: RuntimeTabStripState): void {
       return button;
     });
   reconcileTabButtons(nextButtons);
-  const nextActiveTabId = state.tabs.find((tab) =>
-    tab.windowId === state.windowId && !tab.hidden && tab.active
-  )?.id;
+  const nextActiveTabId = presentationActiveTabId;
   root.scrollLeft = previousScrollLeft;
   requestAnimationFrame(() => {
     if (revision !== renderRevision) return;
@@ -339,7 +353,10 @@ window.__rionReserveRuntimeTab = (tab) => {
 window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
   tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
   if (nextTabId) optimisticallyActivateTab(nextTabId);
-  else activeTabId = undefined;
+  else {
+    activeTabId = undefined;
+    optimisticActiveTabId = undefined;
+  }
   requestAnimationFrame(updateScrollControls);
 };
 window.__rionSetActiveRuntimeTab = (tabId) => {
@@ -350,6 +367,7 @@ window.__rionSetActiveRuntimeTab = (tabId) => {
       tab.setAttribute("aria-selected", "false");
     }
     activeTabId = undefined;
+    optimisticActiveTabId = undefined;
   }
 };
 for (const tab of window.__rionPendingRuntimeTabs ?? []) {

@@ -1543,7 +1543,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   dispatch_block_t _pendingContentLayoutNotification;
   dispatch_block_t _pendingFullscreenHostRefresh;
   RionRuntimeDraggableView *_tabCanvas;
+  __weak RionRuntimeTabItemView *_activeTabItem;
   NSMutableArray<RionRuntimeTabItemView *> *_tabItems;
+  NSMutableDictionary<NSString *, RionRuntimeTabItemView *> *_tabItemsByIdentifier;
   NSMutableDictionary<NSString *, NSImage *> *_tabIconCache;
   NSMutableDictionary<NSString *, NSString *> *_tabIconCacheKeys;
   NSScrollView *_tabScrollView;
@@ -1597,6 +1599,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _originalTrafficLightStates = [NSMutableDictionary dictionary];
   _windowedTrafficLightFrames = [NSMutableDictionary dictionary];
   _tabItems = [NSMutableArray array];
+  _tabItemsByIdentifier = [NSMutableDictionary dictionary];
   _tabIconCache = [NSMutableDictionary dictionary];
   _tabIconCacheKeys = [NSMutableDictionary dictionary];
   _tabSurfaces = [NSMutableArray array];
@@ -2665,6 +2668,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }
   _tabItems = nextItems;
   _tabSurfaces = nextSurfaces;
+  [_tabItemsByIdentifier removeAllObjects];
+  _activeTabItem = nil;
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    if (item.tabIdentifier.length > 0) {
+      _tabItemsByIdentifier[item.tabIdentifier] = item;
+    }
+    if (item.activeTab) _activeTabItem = item;
+  }
   NSView *previousSurface = nil;
   for (NSView *surface in _tabSurfaces) {
     if (surface.superview != _tabCanvas) {
@@ -2740,18 +2751,15 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)scrollActiveTabIntoView {
   if (_tabScrollView.bounds.size.width <= 0) return;
-  NSUInteger activeIndex = [_tabItems indexOfObjectPassingTest:
-      ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
-    (void)index;
-    if (item.activeTab) *stop = YES;
-    return item.activeTab;
-  }];
-  if (activeIndex == NSNotFound) return;
-  NSRect activeFrame = _tabSurfaces[activeIndex].frame;
+  RionRuntimeTabItemView *activeItem = _activeTabItem;
+  RionRuntimeSurfaceView *activeSurface = activeItem.surfaceView;
+  if (!activeItem || !activeSurface) return;
+  NSRect activeFrame = activeSurface.frame;
   NSRect visible = _tabScrollView.contentView.bounds;
   CGFloat originX = RionRuntimeRevealScrollOrigin(
       NSMinX(activeFrame), NSMaxX(activeFrame), visible.origin.x,
       visible.size.width, _tabCanvas.frame.size.width);
+  if (fabs(originX - visible.origin.x) < 0.5) return;
   [_tabScrollView.contentView scrollToPoint:NSMakePoint(originX, 0)];
   [_tabScrollView reflectScrolledClipView:_tabScrollView.contentView];
 }
@@ -2831,13 +2839,22 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier {
   if (_destroyed) return;
-  for (RionRuntimeTabItemView *item in _tabItems) {
-    BOOL active = tabIdentifier.length > 0 &&
-        [item.tabIdentifier isEqualToString:tabIdentifier];
-    if (item.activeTab == active) continue;
-    item.activeTab = active;
-    item.accessibilityValue = @(active);
-    [item updateVisualStateAnimated:YES];
+  RionRuntimeTabItemView *nextItem = tabIdentifier.length > 0
+      ? _tabItemsByIdentifier[tabIdentifier]
+      : nil;
+  RionRuntimeTabItemView *previousItem = _activeTabItem;
+  if (previousItem != nextItem) {
+    if (previousItem) {
+      previousItem.activeTab = NO;
+      previousItem.accessibilityValue = @NO;
+      [previousItem updateVisualStateAnimated:NO];
+    }
+    if (nextItem) {
+      nextItem.activeTab = YES;
+      nextItem.accessibilityValue = @YES;
+      [nextItem updateVisualStateAnimated:NO];
+    }
+    _activeTabItem = nextItem;
   }
   [self scrollActiveTabIntoView];
 }
@@ -2882,6 +2899,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [_tabItems addObject:item];
     [_tabSurfaces addObject:surface];
     [_tabCanvas addSubview:surface];
+    _tabItemsByIdentifier[tabIdentifier] = item;
   }
   [self setActiveTabIdentifier:tabIdentifier];
   [self layoutTitlebarContent];
@@ -2921,6 +2939,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   tab.type = type.length > 0 ? type : @"role";
   tab.workspaceTemplate = workspaceTemplate;
   RionRuntimeTabItemView *item = _tabItems[index];
+  [_tabItemsByIdentifier removeObjectForKey:provisionalIdentifier];
   [item configureWithTab:tab
                    image:[self imageForTab:tab]
       hideTabCloseButton:NO
@@ -2930,6 +2949,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
             windowActive:_window.isKeyWindow];
   [_tabIconCache removeObjectForKey:provisionalIdentifier];
   [_tabIconCacheKeys removeObjectForKey:provisionalIdentifier];
+  _tabItemsByIdentifier[tabIdentifier] = item;
   [self setActiveTabIdentifier:activeTabIdentifier];
   [self layoutTitlebarContent];
 }
@@ -2944,11 +2964,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     return [item.tabIdentifier isEqualToString:tabIdentifier];
   }];
   if (index != NSNotFound) {
+    RionRuntimeTabItemView *removedItem = _tabItems[index];
+    if (_activeTabItem == removedItem) _activeTabItem = nil;
     [_tabSurfaces[index] removeFromSuperview];
     [_tabItems removeObjectAtIndex:index];
     [_tabSurfaces removeObjectAtIndex:index];
     [_tabIconCache removeObjectForKey:tabIdentifier];
     [_tabIconCacheKeys removeObjectForKey:tabIdentifier];
+    [_tabItemsByIdentifier removeObjectForKey:tabIdentifier];
   }
   [self setActiveTabIdentifier:activeTabIdentifier];
   [self layoutTitlebarContent];
@@ -2965,20 +2988,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     }];
     if (index != NSNotFound) {
       BOOL wasActive = _tabItems[index].activeTab;
+      [_tabItemsByIdentifier removeObjectForKey:tabIdentifier];
+      if (_activeTabItem == _tabItems[index]) _activeTabItem = nil;
       [_tabSurfaces[index] removeFromSuperview];
       [_tabItems removeObjectAtIndex:index];
       [_tabSurfaces removeObjectAtIndex:index];
       if (wasActive && _tabItems.count > 0) {
         NSUInteger successorIndex = MIN(index, _tabItems.count - 1);
-        for (NSUInteger candidateIndex = 0;
-             candidateIndex < _tabItems.count; ++candidateIndex) {
-          RionRuntimeTabItemView *item = _tabItems[candidateIndex];
-          BOOL active = candidateIndex == successorIndex;
-          if (item.activeTab == active) continue;
-          item.activeTab = active;
-          item.accessibilityValue = @(active);
-          [item updateVisualStateAnimated:YES];
-        }
+        [self setActiveTabIdentifier:_tabItems[successorIndex].tabIdentifier];
       }
       [self layoutTitlebarContent];
     }

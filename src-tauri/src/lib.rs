@@ -182,8 +182,42 @@ pub(crate) fn preview_and_commit_tab_selection(
     state: &CoreState,
     tab_id: &str,
 ) -> Result<(), String> {
-    let window_id = state.runtime.preview_tab_activation(tab_id)?;
-    commit_previewed_tab_selection(app, state, &window_id, tab_id)
+    preview_and_commit_tab_selection_inner(app, state, tab_id, false)
+}
+
+fn preview_and_commit_tab_selection_inner(
+    app: &AppHandle,
+    state: &CoreState,
+    tab_id: &str,
+    native_style_applied: bool,
+) -> Result<(), String> {
+    let (window_id, provisional, resolved_tab_id) = state
+        .runtime
+        .preview_tab_activation(tab_id, native_style_applied)?;
+    if provisional {
+        return Ok(());
+    }
+    commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)
+}
+
+pub(crate) fn preview_and_commit_native_tab_selection(
+    app: &AppHandle,
+    state: &CoreState,
+    tab_id: &str,
+) -> Result<(), String> {
+    match preview_and_commit_tab_selection_inner(app, state, tab_id, true) {
+        Err(message)
+            if matches!(
+                message.as_str(),
+                "Runtime tab was not found." | "The runtime tab is closing."
+            ) =>
+        {
+            // Native pointer/key actions can arrive after an optimistic close or provisional-ID
+            // replacement. They are stale presentation intents, not user-visible failures.
+            Ok(())
+        }
+        result => result,
+    }
 }
 
 pub(crate) fn commit_previewed_tab_selection(
@@ -663,17 +697,31 @@ async fn rion_core_invoke(
     let launch_preview = match &command {
         CoreCommand::BrowserRoleLaunch {
             role_id, target, ..
-        } => state
-            .runtime
-            .preview_tab_launch(target, role_id, "role")
-            .ok(),
+        } => {
+            let runtime = Arc::clone(&state.runtime);
+            let role_id = role_id.clone();
+            let target = target.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                runtime.preview_tab_launch(&target, &role_id, "role")
+            })
+            .await
+            .ok()
+            .and_then(Result::ok)
+        }
         CoreCommand::BrowserWorkspaceLaunch {
             workspace_id,
             target,
-        } => state
-            .runtime
-            .preview_tab_launch(target, workspace_id, "workspace")
-            .ok(),
+        } => {
+            let runtime = Arc::clone(&state.runtime);
+            let workspace_id = workspace_id.clone();
+            let target = target.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                runtime.preview_tab_launch(&target, &workspace_id, "workspace")
+            })
+            .await
+            .ok()
+            .and_then(Result::ok)
+        }
         _ => None,
     };
     let result = if command.requires_async_dispatch() {
@@ -1741,6 +1789,9 @@ async fn rion_shell_invoke(
         }
         "stopGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            if state.runtime.cancel_provisional_tab_launch(&tab_id) {
+                return Ok(Value::Null);
+            }
             let snapshot = invoke_core_sync(&state, json!({ "type": "browserRuntimeSnapshot" }))?;
             let tab = snapshot["tabs"]
                 .as_array()

@@ -16,11 +16,17 @@ describe("System WebView background throttling", () => {
       runtime.indexOf("fn apply_runtime("),
       runtime.indexOf("fn sync_native_tab_strip(")
     );
+    const presentationBatch = runtime.slice(
+      runtime.indexOf("fn apply_native_presentation_batch("),
+      runtime.indexOf("fn capture_presentation_batch_events(")
+    );
 
     expect(builder.match(/background_throttling\(BackgroundThrottlingPolicy::Throttle\)/gu)).toHaveLength(2);
     expect(builder).toContain('if role_id.is_some()');
     expect(builder).toContain('#[cfg(target_os = "macos")]');
-    expect(applyRuntime).toContain("surface.show()");
+    expect(presentationBatch).toContain("surface.show()");
+    expect(presentationBatch).toContain("surface.hide()");
+    expect(applyRuntime).not.toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");
     expect(runtime).not.toContain("PreferredBackgroundTimerWakeInterval");
     expect(runtime).not.toContain("MemoryUsageTargetLevel");

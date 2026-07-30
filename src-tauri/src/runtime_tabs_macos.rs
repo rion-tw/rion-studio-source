@@ -533,6 +533,27 @@ unsafe extern "C" fn action_callback(
         let before_tab_id = c_string_from_pointer(before_tab_id);
         let source_window_id = c_string_from_pointer(source_window_id);
         let target_window_id = c_string_from_pointer(target_window_id);
+        if action_type == "openLauncher" {
+            // AppKit invokes this callback inside the plus button's mouse event. The launcher
+            // model and native Menu are prebuilt, so popup can run in this same event turn
+            // instead of entering Tauri's async queue behind surface setup or navigation work.
+            let window_id = source_window_id.clone().or_else(|| {
+                context
+                    .app
+                    .try_state::<crate::CoreState>()
+                    .and_then(|state| state.runtime.window_id_for_label(&context.window_label))
+            });
+            if let Some(window_id) = window_id
+                && let Err(message) =
+                    crate::runtime_tab_menu::open_launcher(&context.app, &window_id)
+            {
+                crate::reveal_shell_error(
+                    &context.app,
+                    crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
+                );
+            }
+            return;
+        }
         dispatch_action(
             context.app.clone(),
             context.window_label.clone(),

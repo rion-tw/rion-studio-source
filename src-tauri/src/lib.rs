@@ -71,6 +71,7 @@ struct CoreState {
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
     quick_menu_refresh: quick_menu::RefreshCoordinator,
+    runtime_launcher_refresh: runtime_tab_menu::RefreshCoordinator,
     runtime: Arc<SystemRuntimeExecutor>,
     tab_selection_commit: TabSelectionCommitCoordinator,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
@@ -750,6 +751,10 @@ async fn rion_core_invoke(
         }
         state.runtime.set_language(&language);
         let _ = application_menu::install(&app, &state.core, &language);
+        let _ =
+            state
+                .runtime_launcher_refresh
+                .request(app.clone(), Arc::clone(&state.core), language);
     }
     if result.is_ok()
         && let Some(theme) = runtime_theme
@@ -4068,6 +4073,7 @@ pub fn run() {
             })?;
             let receiver = core.subscribe()?;
             let quick_menu_refresh = quick_menu::RefreshCoordinator::default();
+            let runtime_launcher_refresh = runtime_tab_menu::RefreshCoordinator::default();
             let quick_menu = quick_menu::create(&app.handle().clone(), Arc::clone(&core))?;
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),
@@ -4078,6 +4084,7 @@ pub fn run() {
             let effect_core = Arc::clone(&core);
             let effect_runtime = Arc::clone(&runtime);
             let effect_quick_menu_refresh = quick_menu_refresh.clone();
+            let effect_runtime_launcher_refresh = runtime_launcher_refresh.clone();
             thread::Builder::new()
                 .name("rion-tauri-core-events".to_owned())
                 .spawn(move || {
@@ -4087,6 +4094,15 @@ pub fn run() {
                         for event in events {
                             match event {
                                 CoreEvent::CoreEffects { effects } => {
+                                    let refresh_runtime_launcher = effects.iter().any(|effect| {
+                                        matches!(
+                                            effect.action,
+                                            CoreEffectAction::EmbeddedCreateTab { .. }
+                                                | CoreEffectAction::EmbeddedDestroyRole { .. }
+                                                | CoreEffectAction::EmbeddedDestroyTab { .. }
+                                                | CoreEffectAction::EmbeddedApplyRuntime { .. }
+                                        )
+                                    });
                                     for effect in effects {
                                         let action_name = core_effect_action_name(&effect.action);
                                         let persist_runtime = matches!(
@@ -4111,6 +4127,23 @@ pub fn run() {
                                             app_handle.exit(9);
                                             break;
                                         }
+                                    }
+                                    if refresh_runtime_launcher {
+                                        let language = app_handle
+                                            .try_state::<CoreState>()
+                                            .and_then(|state| {
+                                                state
+                                                    .menu_language
+                                                    .lock()
+                                                    .ok()
+                                                    .map(|value| value.clone())
+                                            })
+                                            .unwrap_or_else(|| "en".to_owned());
+                                        let _ = effect_runtime_launcher_refresh.request(
+                                            app_handle.clone(),
+                                            Arc::clone(&effect_core),
+                                            language,
+                                        );
                                     }
                                 }
                                 CoreEvent::OverlayChanged { role_ids } => {
@@ -4181,6 +4214,11 @@ pub fn run() {
                                             app_handle.clone(),
                                             Arc::clone(&effect_core),
                                             Arc::clone(&effect_runtime),
+                                            language.clone(),
+                                        );
+                                        let _ = effect_runtime_launcher_refresh.request(
+                                            app_handle.clone(),
+                                            Arc::clone(&effect_core),
                                             language,
                                         );
                                     }
@@ -4205,6 +4243,7 @@ pub fn run() {
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
                 quick_menu_refresh: quick_menu_refresh.clone(),
+                runtime_launcher_refresh: runtime_launcher_refresh.clone(),
                 runtime,
                 tab_selection_commit: TabSelectionCommitCoordinator::default(),
                 tab_drag: Mutex::new(None),
@@ -4217,6 +4256,11 @@ pub fn run() {
                     app.handle().clone(),
                     Arc::clone(&state.core),
                     Arc::clone(&state.runtime),
+                    "en".to_owned(),
+                );
+                let _ = state.runtime_launcher_refresh.request(
+                    app.handle().clone(),
+                    Arc::clone(&state.core),
                     "en".to_owned(),
                 );
             }

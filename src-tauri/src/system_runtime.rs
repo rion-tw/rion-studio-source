@@ -87,6 +87,8 @@ const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../src/shared/designTokens.css");
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/macroOverlayRuntime.js");
+const MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE: &str =
+    include_str!("../../src/shared/browser-overlay/macroCoordinateMeasurement.js");
 const MACRO_OVERLAY_CSS: &str = include_str!("../../src/shared/browser-overlay/macroOverlay.css");
 const MACRO_OVERLAY_SHORTCUT_GUARD_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/macroOverlayShortcutGuard.js");
@@ -97,6 +99,12 @@ const MACRO_OVERLAY_TRUSTED_EVENT_GUARD_TOKEN: &str =
     "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
 const MACRO_OVERLAY_TRUSTED_EVENT_GUARD_SOURCE: &str = "(event) => event.isTrusted === true";
 const MACRO_OVERLAY_CSS_TOKEN: &str = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
+const MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE_TOKEN: &str =
+    "__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__";
+const MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_TOKEN: &str =
+    "__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__";
+const MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_SOURCE: &str =
+    "(moduleUrl) => import(moduleUrl)";
 const MACRO_OVERLAY_REFRESH_SOURCE: &str = "void globalThis.__rionStudioMacroOverlay?.refresh?.()";
 const RUNTIME_INDICATOR_RUNTIME_SOURCE: &str =
     include_str!("../../src/shared/browser-overlay/runtimeIndicators.js");
@@ -14628,6 +14636,12 @@ fn macro_overlay_document_start_script_template() -> Result<String, String> {
         serde_json::to_string(MACRO_OVERLAY_BINDING_TOKEN).map_err(|error| error.to_string())?;
     let css_token =
         serde_json::to_string(MACRO_OVERLAY_CSS_TOKEN).map_err(|error| error.to_string())?;
+    let coordinate_measurement_module_token =
+        serde_json::to_string(MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE_TOKEN)
+            .map_err(|error| error.to_string())?;
+    let coordinate_measurement_module_importer_token =
+        serde_json::to_string(MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_TOKEN)
+            .map_err(|error| error.to_string())?;
     let with_guard = replace_single_script_token(
         MACRO_OVERLAY_RUNTIME_SOURCE,
         &guard_token,
@@ -14640,7 +14654,20 @@ fn macro_overlay_document_start_script_template() -> Result<String, String> {
     )?;
     let css = serde_json::to_string(&format!("{DESIGN_TOKENS_CSS}\n{MACRO_OVERLAY_CSS}"))
         .map_err(|error| error.to_string())?;
-    let runtime = replace_single_script_token(&with_trusted_event_guard, &css_token, &css)?;
+    let with_css = replace_single_script_token(&with_trusted_event_guard, &css_token, &css)?;
+    let coordinate_measurement_module =
+        serde_json::to_string(MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE)
+            .map_err(|error| error.to_string())?;
+    let with_coordinate_measurement_module = replace_single_script_token(
+        &with_css,
+        &coordinate_measurement_module_token,
+        &coordinate_measurement_module,
+    )?;
+    let runtime = replace_single_script_token(
+        &with_coordinate_measurement_module,
+        &coordinate_measurement_module_importer_token,
+        MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_SOURCE,
+    )?;
     replace_single_script_token(
         &runtime,
         &binding_token,
@@ -18497,7 +18524,9 @@ mod tests {
         assert!(source.contains("binding.ready"));
         assert!(source.contains("test-capability"));
         assert!(source.contains("event.isTrusted === true"));
-        assert!(source.contains("rion-studio-macro-overlay-v57"));
+        assert!(source.contains("rion-studio-macro-overlay-v60"));
+        assert!(source.contains("createMacroCoordinateMeasurement"));
+        assert!(source.contains(MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_SOURCE));
         assert!(source.contains("const overlayCss = \"/*"));
         assert!(source.contains("--font-ui: system-ui"));
         assert!(source.contains("*{box-sizing:border-box;font-family:var(--font-ui)"));
@@ -18507,6 +18536,8 @@ mod tests {
         assert!(!source.contains(MACRO_OVERLAY_CAPABILITY_TOKEN));
         assert!(!source.contains(MACRO_OVERLAY_TRUSTED_EVENT_GUARD_TOKEN));
         assert!(!source.contains(MACRO_OVERLAY_CSS_TOKEN));
+        assert!(!source.contains(MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE_TOKEN));
+        assert!(!source.contains(MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_TOKEN));
         assert!(!source.contains("globalThis.rionStudioMacroOverlay"));
         assert!(!source.contains("chrome.webview"));
         assert!(!source.contains("webkit.messageHandlers"));

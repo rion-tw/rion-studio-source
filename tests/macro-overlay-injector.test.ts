@@ -41,6 +41,10 @@ describe("Tauri macro overlay injector", () => {
     expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_BINDING__");
     expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_CAPABILITY__");
     expect(assembled).not.toContain("__RION_STUDIO_MACRO_OVERLAY_CSS__");
+    expect(assembled).not.toContain("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__");
+    expect(assembled).not.toContain("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__");
+    expect(assembled).toContain("createMacroCoordinateMeasurement");
+    expect(assembled).toContain("(moduleUrl) => import(moduleUrl)");
     expect(assembled).toContain("event.isTrusted === true");
     expect(assembled).not.toContain("setInterval");
   });
@@ -232,7 +236,7 @@ describe("Tauri macro overlay injector", () => {
     controller.dispose();
     await controller.refresh();
 
-    expect(document.querySelector("#rion-studio-macro-overlay-v59")).toBeNull();
+    expect(document.querySelector("#rion-studio-macro-overlay-v60")).toBeNull();
     expect(binding).toHaveBeenCalledTimes(requestCount);
   });
 
@@ -263,13 +267,14 @@ describe("Tauri macro overlay injector", () => {
 });
 
 async function overlaySources() {
-  const [bridge, runtime, guard, css] = await Promise.all([
+  const [bridge, runtime, guard, css, coordinateMeasurementModule] = await Promise.all([
     readFile("src/shared/browser-overlay/macroOverlayNativeBridge.js", "utf8"),
     readFile("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8"),
     readFile("src/shared/browser-overlay/macroOverlayShortcutGuard.js", "utf8"),
-    readFile("src/shared/browser-overlay/macroOverlay.css", "utf8")
+    readFile("src/shared/browser-overlay/macroOverlay.css", "utf8"),
+    readFile("src/shared/browser-overlay/macroCoordinateMeasurement.js", "utf8")
   ]);
-  return { bridge, css, guard, runtime };
+  return { bridge, coordinateMeasurementModule, css, guard, runtime };
 }
 
 function assembleRuntime(
@@ -287,7 +292,15 @@ function assembleRuntime(
       trustedEventGuard
     )
     .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_BINDING__"), bindingSource)
-    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(sources.css));
+    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(sources.css))
+    .replace(
+      JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__"),
+      JSON.stringify(sources.coordinateMeasurementModule)
+    )
+    .replace(
+      JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__"),
+      "(moduleUrl) => import(moduleUrl)"
+    );
 }
 
 async function installOverlay(
@@ -338,7 +351,7 @@ function overlayController(): OverlayController | undefined {
 }
 
 function overlayRoot(): ShadowRoot | undefined {
-  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v59")
+  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v60")
     ?.shadowRoot ?? undefined;
 }
 

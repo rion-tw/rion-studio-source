@@ -12,6 +12,12 @@ const shortcutGuardSource = readFileSync(
   "utf8"
 );
 const overlayCss = readFileSync("src/shared/browser-overlay/macroOverlay.css", "utf8");
+const coordinateMeasurementModuleSource = readFileSync(
+  "src/shared/browser-overlay/macroCoordinateMeasurement.js",
+  "utf8"
+);
+const coordinateMeasurementModuleUrl =
+  `data:text/javascript;charset=utf-8,${encodeURIComponent(coordinateMeasurementModuleSource)}`;
 const MACRO_OVERLAY_SCRIPT = runtimeSource
   .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), shortcutGuardSource.trim())
   .replace(
@@ -22,7 +28,15 @@ const MACRO_OVERLAY_SCRIPT = runtimeSource
     JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_BINDING__"),
     "window.rionStudioMacroOverlay"
   )
-  .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(overlayCss));
+  .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(overlayCss))
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__"),
+    JSON.stringify(coordinateMeasurementModuleSource)
+  )
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__"),
+    "window.__rionTestCoordinateMeasurementModuleImporter"
+  );
 
 interface OverlayController {
   clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
@@ -34,6 +48,7 @@ interface OverlayController {
 interface OverlayTestWindow extends Window {
   __rionStudioMacroOverlay?: OverlayController;
   rionStudioMacroOverlay?: (request: unknown) => Promise<unknown>;
+  __rionTestCoordinateMeasurementModuleImporter?: (url: string) => Promise<unknown>;
 }
 
 const assignedMacro: Macro = {
@@ -63,6 +78,18 @@ describe("macro overlay interactions", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     document.documentElement.lang = "en";
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => coordinateMeasurementModuleUrl)
+    });
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn()
+    });
+    Object.defineProperty(window, "__rionTestCoordinateMeasurementModuleImporter", {
+      configurable: true,
+      value: (url: string) => import(url)
+    });
   });
 
   afterEach(() => {
@@ -70,6 +97,7 @@ describe("macro overlay interactions", () => {
     overlayWindow.__rionStudioMacroOverlay?.dispose();
     delete overlayWindow.__rionStudioMacroOverlay;
     delete overlayWindow.rionStudioMacroOverlay;
+    delete overlayWindow.__rionTestCoordinateMeasurementModuleImporter;
     document.body.innerHTML = "";
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -159,7 +187,7 @@ describe("macro overlay interactions", () => {
       statuses: [],
       ...(isRecord(request) && request.type === "copy-coordinate" ? { copied: true } : {})
     }));
-    installOverlay(window, binding);
+    const controller = installOverlay(window, binding);
     await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
 
     const root = getOverlayRoot(document);
@@ -169,11 +197,15 @@ describe("macro overlay interactions", () => {
     if (!trigger || !menu || !measureAction) throw new Error("Expected coordinate menu controls.");
 
     expect(menu.hidden).toBe(true);
+    expect(root.querySelector(".coordinate-picker")).toBeNull();
+    expect(window.URL.createObjectURL).not.toHaveBeenCalled();
     trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
     expect(menu.hidden).toBe(false);
     expect(measureAction.textContent).toContain("Measure coordinates");
 
     measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+    expect(window.URL.createObjectURL).toHaveBeenCalledOnce();
     const picker = root.querySelector<HTMLElement>(".coordinate-picker");
     const readout = root.querySelector<HTMLElement>(".coordinate-readout");
     if (!picker || !readout) throw new Error("Expected coordinate picker.");
@@ -218,7 +250,24 @@ describe("macro overlay interactions", () => {
       .map(([request]) => request)
       .find((request) => isRecord(request) && request.type === "copy-coordinate");
     expect(copyRequest).not.toHaveProperty("anchor");
-    await vi.waitFor(() => expect(picker.hidden).toBe(true));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).toBeNull());
+    expect(picker.isConnected).toBe(false);
+
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+    const secondPicker = root.querySelector<HTMLElement>(".coordinate-picker");
+    expect(secondPicker).not.toBe(picker);
+    expect(window.URL.createObjectURL).toHaveBeenCalledOnce();
+    document.dispatchEvent(new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Escape",
+      key: "Escape"
+    }));
+    expect(root.querySelector(".coordinate-picker")).toBeNull();
+    controller.dispose();
+    expect(window.URL.revokeObjectURL).toHaveBeenCalledWith(coordinateMeasurementModuleUrl);
   });
 
   it("calculates the nearest measurement anchor and draws its connector in real time", async () => {
@@ -245,6 +294,7 @@ describe("macro overlay interactions", () => {
       root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
         createMouseEvent(window, "click")
       );
+      await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
 
       const picker = root.querySelector<HTMLElement>(".coordinate-picker");
       const readout = root.querySelector<HTMLElement>(".coordinate-readout");
@@ -313,6 +363,7 @@ describe("macro overlay interactions", () => {
       root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
         createMouseEvent(window, "click")
       );
+      await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
       const picker = root.querySelector<HTMLElement>(".coordinate-picker");
       const readout = root.querySelector<HTMLElement>(".coordinate-readout");
       if (!picker || !readout) throw new Error("Expected coordinate readout.");
@@ -368,6 +419,7 @@ describe("macro overlay interactions", () => {
       root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
         createMouseEvent(window, "click")
       );
+      await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
 
       const picker = root.querySelector<HTMLElement>(".coordinate-picker");
       const layer = root.querySelector<HTMLElement>(".coordinate-anchor-layer");
@@ -429,6 +481,7 @@ describe("macro overlay interactions", () => {
     root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
       createMouseEvent(window, "click")
     );
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
     const picker = root.querySelector<HTMLElement>(".coordinate-picker");
     if (!picker) throw new Error("Expected coordinate picker.");
     picker.dispatchEvent(new MouseEvent("mousemove", {
@@ -454,7 +507,8 @@ describe("macro overlay interactions", () => {
       key: "Escape"
     });
     expect(document.dispatchEvent(escape)).toBe(false);
-    expect(picker.hidden).toBe(true);
+    expect(root.querySelector(".coordinate-picker")).toBeNull();
+    expect(picker.isConnected).toBe(false);
     expect(cancelFrame).toHaveBeenCalledWith(9);
     expect(binding.mock.calls.some(([request]) => isRecord(request) && request.type === "copy-coordinate")).toBe(false);
   });
@@ -478,6 +532,7 @@ describe("macro overlay interactions", () => {
     root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
       createMouseEvent(window, "click")
     );
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
     const picker = root.querySelector<HTMLElement>(".coordinate-picker");
     const readout = root.querySelector<HTMLElement>(".coordinate-readout");
     if (!picker || !readout) throw new Error("Expected coordinate picker.");
@@ -497,6 +552,78 @@ describe("macro overlay interactions", () => {
 
     await vi.waitFor(() => expect(readout.dataset.status).toBe("failed"));
     expect(picker.hidden).toBe(false);
+  });
+
+  it("cleans up a failed lazy import and retries from the coordinate action", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const importer = vi.fn()
+      .mockRejectedValueOnce(new Error("module blocked"))
+      .mockImplementation((url: string) => import(url));
+    Object.defineProperty(window, "__rionTestCoordinateMeasurementModuleImporter", {
+      configurable: true,
+      value: importer
+    });
+    const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+    const root = getOverlayRoot(document);
+    const trigger = root.querySelector<HTMLButtonElement>(".trigger");
+    const measureAction = root.querySelector<HTMLButtonElement>(".action-menu-item");
+    if (!trigger || !measureAction) throw new Error("Expected coordinate menu controls.");
+
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(importer).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(window.URL.revokeObjectURL).toHaveBeenCalledOnce());
+    expect(root.querySelector(".coordinate-picker")).toBeNull();
+
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+    expect(importer).toHaveBeenCalledTimes(2);
+    expect(window.URL.createObjectURL).toHaveBeenCalledTimes(2);
+    controller.dispose();
+  });
+
+  it("rejects a late module result after Escape cancels a pending measurement", async () => {
+    let resolveImport: ((value: unknown) => void) | undefined;
+    const pendingImport = new Promise<unknown>((resolve) => {
+      resolveImport = resolve;
+    });
+    const importer = vi.fn(() => pendingImport);
+    Object.defineProperty(window, "__rionTestCoordinateMeasurementModuleImporter", {
+      configurable: true,
+      value: importer
+    });
+    const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+    const root = getOverlayRoot(document);
+    const trigger = root.querySelector<HTMLButtonElement>(".trigger");
+    const measureAction = root.querySelector<HTMLButtonElement>(".action-menu-item");
+    if (!trigger || !measureAction) throw new Error("Expected coordinate menu controls.");
+
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(importer).toHaveBeenCalledOnce());
+    const escape = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Escape",
+      key: "Escape"
+    });
+    expect(document.dispatchEvent(escape)).toBe(false);
+    resolveImport?.(await import(coordinateMeasurementModuleUrl));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(root.querySelector(".coordinate-picker")).toBeNull();
+
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+    expect(importer).toHaveBeenCalledOnce();
+    expect(window.URL.createObjectURL).toHaveBeenCalledOnce();
+    controller.dispose();
   });
 
   it("positions active badges from the shared overlay state", async () => {
@@ -1542,7 +1669,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v59")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v60")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1609,7 +1736,7 @@ function runningStatus(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v59")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v60")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

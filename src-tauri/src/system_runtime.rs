@@ -3052,6 +3052,10 @@ impl SystemRuntimeExecutor {
         platform_surface_lifecycle_tracker(webview)
     }
 
+    fn setup_role_surface(&self, webview: &Webview) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+        platform_role_surface_setup(webview)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn register_managed_surface(
         &self,
@@ -10471,7 +10475,19 @@ impl SystemRuntimeExecutor {
                     );
                 }
                 created_surfaces.push((role_id.clone(), webview.clone(), None, None));
-                let lifecycle = self.install_surface_lifecycle_tracker(&webview)?;
+                let setup_started = Instant::now();
+                let setup_stage = format!("native-role-setup:{role_id}");
+                self.record_runtime_stage(&setup_stage, "started", setup_started);
+                let lifecycle = match self.setup_role_surface(&webview) {
+                    Ok(lifecycle) => {
+                        self.record_runtime_stage(&setup_stage, "completed", setup_started);
+                        lifecycle
+                    }
+                    Err(error) => {
+                        self.record_runtime_stage(&setup_stage, "failed", setup_started);
+                        return Err(error);
+                    }
+                };
                 created_surfaces
                     .last_mut()
                     .expect("role surface was just recorded")
@@ -10532,29 +10548,26 @@ impl SystemRuntimeExecutor {
                 } else {
                     webview.hide().map_err(RuntimeError::tauri)?;
                 }
-                install_platform_security_policy(&webview)
-                    .and_then(|()| {
-                        install_document_navigation_macro_release_handler(
-                            &webview,
-                            self.app.clone(),
-                            &role_id,
-                        )
-                    })
-                    .and_then(|()| {
-                        install_process_failure_monitor(
-                            &webview,
-                            self.app.clone(),
-                            SurfaceFailureTarget::Role {
-                                role_id: role_id.clone(),
-                                generation,
-                            },
-                        )
-                    })
-                    .and_then(|()| {
-                        webview
-                            .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
-                            .map_err(RuntimeError::tauri)
-                    })?;
+                install_document_navigation_macro_release_handler(
+                    &webview,
+                    self.app.clone(),
+                    &role_id,
+                )
+                .and_then(|()| {
+                    install_process_failure_monitor(
+                        &webview,
+                        self.app.clone(),
+                        SurfaceFailureTarget::Role {
+                            role_id: role_id.clone(),
+                            generation,
+                        },
+                    )
+                })
+                .and_then(|()| {
+                    webview
+                        .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
+                        .map_err(RuntimeError::tauri)
+                })?;
                 let url = checked_web_url(&role.role.launch_url)?;
                 let navigation_allowed = {
                     let state = self.state()?;
@@ -15300,6 +15313,78 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
 #[cfg(not(any(windows, target_os = "macos")))]
 fn install_role_zoom_shortcut_handler(_webview: &Webview, _app: AppHandle) -> RuntimeResult<()> {
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn platform_role_surface_setup(webview: &Webview) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    unsafe extern "C" {
+        fn rion_wk_install_security_policy(webview: *mut std::ffi::c_void) -> bool;
+        fn rion_wk_track_surface(
+            webview: *mut std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            isolated_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
+            released_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
+            context_destructor: unsafe extern "C" fn(*mut std::ffi::c_void),
+        ) -> u64;
+    }
+
+    let tracker = Arc::new(SurfaceLifecycleTracker::default());
+    let context = Arc::into_raw(Arc::clone(&tracker)) as usize;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    if let Err(error) = webview.with_webview(move |platform_webview| {
+        let native = platform_webview.inner();
+        let security_installed = unsafe { rion_wk_install_security_policy(native) };
+        let token = if security_installed {
+            unsafe {
+                rion_wk_track_surface(
+                    native,
+                    context as *mut std::ffi::c_void,
+                    macos_surface_isolated,
+                    macos_surface_released,
+                    drop_macos_surface_context,
+                )
+            }
+        } else {
+            0
+        };
+        let _ = sender.send((security_installed, token));
+    }) {
+        drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
+        return Err(RuntimeError::tauri(error));
+    }
+    let (security_installed, token) =
+        receiver
+            .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+            .map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_ROLE_SETUP_TIMEOUT",
+                    "WKWebView security and lifecycle setup timed out.",
+                )
+            })?;
+    if !security_installed || token == 0 {
+        drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
+        return Err(RuntimeError::new(
+            if security_installed {
+                "SYSTEM_SURFACE_LIFECYCLE_FAILED"
+            } else {
+                "SYSTEM_SECURITY_POLICY_FAILED"
+            },
+            if security_installed {
+                "WKWebView surface lifecycle registration failed."
+            } else {
+                "WKWebView could not install the JavaScript dialog and deny-by-default permission policy."
+            },
+        ));
+    }
+    tracker.native_token.store(token, Ordering::Release);
+    Ok(tracker)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_role_surface_setup(webview: &Webview) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    let tracker = platform_surface_lifecycle_tracker(webview)?;
+    install_platform_security_policy(webview)?;
+    Ok(tracker)
 }
 
 #[cfg(windows)]

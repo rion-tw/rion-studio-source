@@ -258,6 +258,15 @@ describe("Tauri System WebView runtime source", () => {
     expect(createTab).toContain("take_tab_launch_preview(");
     expect(createTab).toContain("selection.tab_order[index] = created_tab_id.clone()");
     expect(createTab).toContain("replace_native_tab_reservation(");
+    expect(createTab).toContain("self.setup_role_surface(&webview)");
+    expect(createTab).not.toContain("install_platform_security_policy(&webview)");
+    const macRoleSetup = runtime.slice(
+      runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup('),
+      runtime.indexOf('#[cfg(not(target_os = "macos"))]\nfn platform_role_surface_setup(')
+    );
+    expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
+    expect(macRoleSetup).toContain("rion_wk_install_security_policy(native)");
+    expect(macRoleSetup).toContain("rion_wk_track_surface(");
     const loadRoles = runtime.slice(
       runtime.indexOf("fn start_role_loads("),
       runtime.indexOf("fn install_overlays(")
@@ -282,6 +291,22 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain('"launch-preview"');
     expect(quickMenu).toContain('name("rion-quick-menu-model".to_owned())');
     expect(quickMenu).toContain("Core and SQLite snapshots are collected on one bounded worker");
+    expect(menu).toContain('name("rion-runtime-launcher-model".to_owned())');
+    expect(menu).toContain("native plus button never");
+    const openLauncher = menu.slice(
+      menu.indexOf("pub fn open_launcher("),
+      menu.indexOf("fn launcher_menu(")
+    );
+    expect(openLauncher).toContain("runtime_launcher_refresh");
+    expect(openLauncher).not.toContain("core.invoke(");
+    expect(openLauncher).not.toContain("CoreCommand::RolesList");
+    expect(openLauncher).not.toContain("CoreCommand::WorkspacesList");
+    const macLauncherCallback = macBridge.slice(
+      macBridge.indexOf('if action_type == "openLauncher"'),
+      macBridge.indexOf("dispatch_action(", macBridge.indexOf('if action_type == "openLauncher"'))
+    );
+    expect(macLauncherCallback).toContain("open_launcher(&context.app, &window_id)");
+    expect(macLauncherCallback).toContain("return;");
     const quickMenuNativeBuild = quickMenu.slice(
       quickMenu.indexOf("fn menu(app: &AppHandle, model: &MenuModel)"),
       quickMenu.indexOf("fn handle_menu_event(")

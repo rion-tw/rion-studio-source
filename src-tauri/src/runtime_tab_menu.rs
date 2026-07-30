@@ -1,7 +1,13 @@
-use rion_core::{BrowserRuntimeSnapshot, CoreCommand};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+    thread,
+};
+
+use rion_core::{AppCore, BrowserRuntimeSnapshot, CoreCommand};
 use tauri::{
-    AppHandle, Manager,
-    menu::{CheckMenuItemBuilder, ContextMenu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    AppHandle, Manager, Window,
+    menu::{CheckMenuItemBuilder, ContextMenu, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
 };
 
 const ACTIVATE_PREFIX: &str = "runtime-tab-activate:";
@@ -13,6 +19,186 @@ const MOVE_NEW_PREFIX: &str = "runtime-tab-move-new:";
 const MUTE_PREFIX: &str = "runtime-tab-mute:";
 const RELOAD_PREFIX: &str = "runtime-tab-reload:";
 const STOP_PREFIX: &str = "runtime-tab-stop:";
+
+#[derive(Clone, Default)]
+pub(crate) struct RefreshCoordinator {
+    state: Arc<Mutex<RefreshState>>,
+}
+
+#[derive(Default)]
+struct RefreshState {
+    language: String,
+    menus: HashMap<String, Menu<tauri::Wry>>,
+    model: Option<Arc<LauncherMenuModel>>,
+    revision: u64,
+    worker_running: bool,
+}
+
+#[derive(Clone)]
+struct LauncherMenuModel {
+    language: String,
+    roles: serde_json::Value,
+    runtime: BrowserRuntimeSnapshot,
+    window_ids: Vec<String>,
+    workspaces: serde_json::Value,
+}
+
+impl RefreshCoordinator {
+    /// Coalesces Core and SQLite reads on a dedicated worker so the native plus button never
+    /// performs database work or waits for an in-flight game launch.
+    pub(crate) fn request(
+        &self,
+        app: AppHandle,
+        core: Arc<AppCore>,
+        language: String,
+    ) -> Result<(), String> {
+        let should_spawn = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+            state.revision = state.revision.wrapping_add(1).max(1);
+            state.language = language;
+            if state.worker_running {
+                false
+            } else {
+                state.worker_running = true;
+                true
+            }
+        };
+        if !should_spawn {
+            return Ok(());
+        }
+        let coordinator = self.clone();
+        let spawn = thread::Builder::new()
+            .name("rion-runtime-launcher-model".to_owned())
+            .spawn(move || coordinator.run(app, core));
+        if let Err(error) = spawn {
+            if let Ok(mut state) = self.state.lock() {
+                state.worker_running = false;
+            }
+            return Err(error.to_string());
+        }
+        Ok(())
+    }
+
+    fn run(&self, app: AppHandle, core: Arc<AppCore>) {
+        loop {
+            let (revision, language) = match self.state.lock() {
+                Ok(state) => (state.revision, state.language.clone()),
+                Err(_) => return,
+            };
+            match LauncherMenuModel::load(&core, language) {
+                Ok(model) => {
+                    let coordinator = self.clone();
+                    let menu_app = app.clone();
+                    if let Err(error) = app.run_on_main_thread(move || {
+                        coordinator.apply(&menu_app, revision, model);
+                    }) {
+                        eprintln!("Runtime launcher native refresh could not be queued: {error}");
+                    }
+                }
+                Err(error) => eprintln!("Runtime launcher model refresh failed: {error}"),
+            }
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            if state.revision != revision {
+                continue;
+            }
+            state.worker_running = false;
+            return;
+        }
+    }
+
+    fn apply(&self, app: &AppHandle, revision: u64, model: LauncherMenuModel) {
+        if self
+            .state
+            .lock()
+            .ok()
+            .is_none_or(|state| state.revision != revision)
+        {
+            return;
+        }
+        let mut menus = HashMap::new();
+        for window_id in &model.window_ids {
+            match launcher_menu(app, &model, window_id) {
+                Ok(menu) => {
+                    menus.insert(window_id.clone(), menu);
+                }
+                Err(error) => {
+                    eprintln!("Runtime launcher menu refresh failed for {window_id}: {error}");
+                }
+            }
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.revision != revision {
+            return;
+        }
+        state.menus = menus;
+        state.model = Some(Arc::new(model));
+    }
+
+    fn popup(
+        &self,
+        app: &AppHandle,
+        core: Arc<AppCore>,
+        language: String,
+        window_id: &str,
+        window: Window,
+    ) -> Result<(), String> {
+        let (cached_menu, cached_model) = self
+            .state
+            .lock()
+            .map(|state| (state.menus.get(window_id).cloned(), state.model.clone()))
+            .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+        let menu = if let Some(menu) = cached_menu {
+            menu
+        } else if let Some(model) = cached_model {
+            let menu = launcher_menu(app, &model, window_id)?;
+            if let Ok(mut state) = self.state.lock() {
+                state.menus.insert(window_id.to_owned(), menu.clone());
+            }
+            menu
+        } else {
+            // The first click can race startup projection collection. Show a native menu in the
+            // same event turn and refresh the real model in the background for the next click.
+            let _ = self.request(app.clone(), core, language.clone());
+            launcher_loading_menu(app, &language)?
+        };
+        menu.popup(window).map_err(|error| error.to_string())
+    }
+}
+
+impl LauncherMenuModel {
+    fn load(core: &AppCore, language: String) -> Result<Self, String> {
+        let runtime = snapshot(core)?;
+        let roles = core
+            .invoke(CoreCommand::RolesList)
+            .map_err(|error| error.to_string())?;
+        let workspaces = core
+            .invoke(CoreCommand::WorkspacesList)
+            .map_err(|error| error.to_string())?;
+        let mut window_ids = runtime
+            .windows
+            .iter()
+            .map(|window| window.window_id.clone())
+            .chain(runtime.tabs.iter().map(|tab| tab.window_id.clone()))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        window_ids.sort();
+        Ok(Self {
+            language,
+            roles,
+            runtime,
+            window_ids,
+            workspaces,
+        })
+    }
+}
 
 pub fn open_tab(app: &AppHandle, tab_id: &str) -> Result<(), String> {
     let state = app
@@ -90,23 +276,28 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
     let state = app
         .try_state::<crate::CoreState>()
         .ok_or_else(|| "runtime state is unavailable".to_owned())?;
-    let snapshot = snapshot(&state.core)?;
     let language = state
         .menu_language
         .lock()
         .map(|value| value.clone())
         .unwrap_or_else(|_| "en".to_owned());
-    let text = labels(&language);
-    let roles = state
-        .core
-        .invoke(CoreCommand::RolesList)
-        .map_err(|error| error.to_string())?;
-    let workspaces = state
-        .core
-        .invoke(CoreCommand::WorkspacesList)
-        .map_err(|error| error.to_string())?;
+    let window = state
+        .runtime
+        .window_for_id(window_id)
+        .ok_or_else(|| "runtime window was not found".to_owned())?;
+    state
+        .runtime_launcher_refresh
+        .popup(app, Arc::clone(&state.core), language, window_id, window)
+}
+
+fn launcher_menu(
+    app: &AppHandle,
+    model: &LauncherMenuModel,
+    window_id: &str,
+) -> Result<Menu<tauri::Wry>, String> {
+    let text = labels(&model.language);
     let mut roles_menu = SubmenuBuilder::new(app, text.roles);
-    let role_values = roles.as_array().cloned().unwrap_or_default();
+    let role_values = model.roles.as_array().cloned().unwrap_or_default();
     if role_values.is_empty() {
         let item = MenuItemBuilder::new(text.no_roles)
             .enabled(false)
@@ -118,7 +309,8 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
             let (Some(id), Some(name)) = (role["id"].as_str(), role["name"].as_str()) else {
                 continue;
             };
-            if let Some(tab) = snapshot
+            if let Some(tab) = model
+                .runtime
                 .tabs
                 .iter()
                 .find(|tab| tab.role_ids.iter().any(|value| value == id))
@@ -131,7 +323,7 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
         }
     }
     let mut workspaces_menu = SubmenuBuilder::new(app, text.workspaces);
-    let workspace_values = workspaces.as_array().cloned().unwrap_or_default();
+    let workspace_values = model.workspaces.as_array().cloned().unwrap_or_default();
     if workspace_values.is_empty() {
         let item = MenuItemBuilder::new(text.no_workspaces)
             .enabled(false)
@@ -144,7 +336,8 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
             else {
                 continue;
             };
-            if let Some(tab) = snapshot
+            if let Some(tab) = model
+                .runtime
                 .tabs
                 .iter()
                 .find(|tab| tab.tab_type == "workspace" && tab.source_id == id)
@@ -157,16 +350,22 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
             }
         }
     }
-    let menu = MenuBuilder::new(app)
+    MenuBuilder::new(app)
         .item(&roles_menu.build().map_err(|error| error.to_string())?)
         .item(&workspaces_menu.build().map_err(|error| error.to_string())?)
         .build()
+        .map_err(|error| error.to_string())
+}
+
+fn launcher_loading_menu(app: &AppHandle, language: &str) -> Result<Menu<tauri::Wry>, String> {
+    let item = MenuItemBuilder::new(labels(language).loading)
+        .enabled(false)
+        .build(app)
         .map_err(|error| error.to_string())?;
-    let window = state
-        .runtime
-        .window_for_id(window_id)
-        .ok_or_else(|| "runtime window was not found".to_owned())?;
-    menu.popup(window).map_err(|error| error.to_string())
+    MenuBuilder::new(app)
+        .item(&item)
+        .build()
+        .map_err(|error| error.to_string())
 }
 
 pub fn handle_event(app: &AppHandle, id: &str) -> bool {
@@ -538,6 +737,7 @@ fn stop_command(core: &rion_core::AppCore, tab_id: &str) -> Result<CoreCommand, 
 
 struct Labels {
     hide: &'static str,
+    loading: &'static str,
     move_to_window: &'static str,
     move_to_new_window: &'static str,
     mute: &'static str,
@@ -554,6 +754,7 @@ fn labels(language: &str) -> Labels {
     match language {
         "zh-TW" => Labels {
             hide: "隱藏分頁（保持運行）",
+            loading: "正在準備角色與工作區…",
             move_to_window: "移至遊戲視窗",
             move_to_new_window: "移至新遊戲視窗",
             mute: "將分頁靜音",
@@ -567,6 +768,7 @@ fn labels(language: &str) -> Labels {
         },
         "zh-CN" => Labels {
             hide: "隐藏标签页（保持运行）",
+            loading: "正在准备角色与工作区…",
             move_to_window: "移至游戏窗口",
             move_to_new_window: "移至新游戏窗口",
             mute: "将标签页静音",
@@ -580,6 +782,7 @@ fn labels(language: &str) -> Labels {
         },
         "ja" => Labels {
             hide: "タブを非表示（実行を継続）",
+            loading: "ロールとワークスペースを準備中…",
             move_to_window: "ゲームウィンドウへ移動",
             move_to_new_window: "新しいゲームウィンドウへ移動",
             mute: "タブをミュート",
@@ -593,6 +796,7 @@ fn labels(language: &str) -> Labels {
         },
         _ => Labels {
             hide: "Hide tab (keeps running)",
+            loading: "Preparing roles and workspaces…",
             move_to_window: "Move to Game Window",
             move_to_new_window: "Move to New Game Window",
             mute: "Mute Tab",
@@ -620,6 +824,13 @@ mod tests {
             ("ja", "再読み込み"),
         ] {
             assert_eq!(labels(language).reload, expected, "{language}");
+        }
+    }
+
+    #[test]
+    fn launcher_loading_label_is_localized_for_every_supported_language() {
+        for language in ["en", "zh-TW", "zh-CN", "ja"] {
+            assert!(!labels(language).loading.is_empty(), "{language}");
         }
     }
 

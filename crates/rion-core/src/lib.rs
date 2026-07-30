@@ -44,7 +44,7 @@ macro_rules! v1_case {
 #[cfg(test)]
 pub(crate) use v1_case;
 
-pub use app::AppCore;
+pub use app::{AppCore, BrowserLaunchCompletionRecord};
 pub use bootstrap_settings::additional_browser_arguments;
 pub use data_root_migration::{DataRootMigrationOutcome, migrate_legacy_data_root};
 pub use error::{CoreError, CoreErrorPayload, CoreResult};

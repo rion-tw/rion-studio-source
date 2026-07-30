@@ -1,13 +1,15 @@
 use std::{
     fs::{self, File, OpenOptions},
+    future::Future,
     io::ErrorKind,
     path::PathBuf,
+    pin::Pin,
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
@@ -51,6 +53,8 @@ use crate::{
 };
 
 const EVENT_QUEUE_CAPACITY: usize = 64;
+const LAUNCH_COMPLETION_QUEUE_CAPACITY: usize = 64;
+const LAUNCH_COMPLETION_CONCURRENCY: usize = 4;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
@@ -110,6 +114,112 @@ struct Runtime {
     telemetry: crate::telemetry::TelemetryWorker,
 }
 
+#[derive(Clone)]
+pub struct BrowserLaunchCompletionRecord {
+    pub accepted_at: Instant,
+    pub error: Option<crate::error::CoreErrorPayload>,
+    pub source_id: String,
+    pub tab_id: String,
+    pub tab_type: String,
+    pub target: EmbeddedLaunchTargetRecord,
+    pub title: String,
+    pub window_id: String,
+}
+
+type BrowserLaunchCompletionSink = Arc<dyn Fn(BrowserLaunchCompletionRecord) + Send + Sync>;
+
+type LaunchCompletionFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+
+struct LaunchCompletionCoordinator {
+    sender: tokio::sync::mpsc::Sender<LaunchCompletionFuture>,
+    shutdown_sender: tokio::sync::watch::Sender<bool>,
+    worker: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+impl LaunchCompletionCoordinator {
+    fn start() -> CoreResult<Self> {
+        let (sender, mut receiver) =
+            tokio::sync::mpsc::channel::<LaunchCompletionFuture>(LAUNCH_COMPLETION_QUEUE_CAPACITY);
+        let (shutdown_sender, mut shutdown_receiver) = tokio::sync::watch::channel(false);
+        let worker = thread::Builder::new()
+            .name("rion-launch-completion".to_owned())
+            .spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        eprintln!("Could not start launch completion runtime: {error}");
+                        return;
+                    }
+                };
+                runtime.block_on(async move {
+                    let mut active = tokio::task::JoinSet::new();
+                    loop {
+                        tokio::select! {
+                            changed = shutdown_receiver.changed() => {
+                                if changed.is_err() || *shutdown_receiver.borrow() {
+                                    active.abort_all();
+                                    while active.join_next().await.is_some() {}
+                                    break;
+                                }
+                            }
+                            task = receiver.recv(), if active.len() < LAUNCH_COMPLETION_CONCURRENCY => {
+                                match task {
+                                    Some(task) => {
+                                        active.spawn(task);
+                                    }
+                                    None => {
+                                        while active.join_next().await.is_some() {}
+                                        break;
+                                    }
+                                }
+                            }
+                            result = active.join_next(), if !active.is_empty() => {
+                                if let Some(Err(error)) = result {
+                                    eprintln!("Background launch completion task failed: {error}");
+                                }
+                            }
+                        }
+                    }
+                });
+            })
+            .map_err(|error| CoreError::Internal(error.to_string()))?;
+        Ok(Self {
+            sender,
+            shutdown_sender,
+            worker: Mutex::new(Some(worker)),
+        })
+    }
+
+    fn try_reserve(&self) -> CoreResult<tokio::sync::mpsc::OwnedPermit<LaunchCompletionFuture>> {
+        self.sender.clone().try_reserve_owned().map_err(|error| {
+            let message = match error {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                    "The background launch completion queue is full."
+                }
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                    "The background launch completion coordinator is unavailable."
+                }
+            };
+            CoreError::Domain {
+                code: "LAUNCH_COMPLETION_UNAVAILABLE",
+                message: message.to_owned(),
+            }
+        })
+    }
+
+    fn shutdown(&self) {
+        let _ = self.shutdown_sender.send(true);
+        if let Ok(mut worker) = self.worker.lock()
+            && let Some(worker) = worker.take()
+        {
+            let _ = worker.join();
+        }
+    }
+}
+
 struct BrowserOperationGuard<'a> {
     coordinator: &'a crate::browser_operations::BrowserOperationCoordinator,
     lease_id: String,
@@ -124,6 +234,37 @@ struct ChromeImportRollbackContext {
     webview2_user_data_dir: String,
     webkit_data_store_identifier: String,
     staging: PathBuf,
+}
+
+struct PendingEmbeddedRoleLaunch {
+    handle: crate::operation_actor::OperationHandle,
+    lease_id: String,
+    role: StateRoleRecord,
+    tab_id: String,
+    target: EmbeddedLaunchTargetRecord,
+    window_id: String,
+}
+
+struct PendingEmbeddedWorkspaceLaunch {
+    handle: crate::operation_actor::OperationHandle,
+    lease_id: String,
+    role_ids: Vec<String>,
+    roles: Vec<StateRoleRecord>,
+    tab_id: String,
+    target: EmbeddedLaunchTargetRecord,
+    title: String,
+    window_id: String,
+    workspace_id: String,
+}
+
+enum EmbeddedRoleLaunchStart {
+    Completed(Vec<EmbeddedLaunchResultRecord>),
+    Pending(Box<PendingEmbeddedRoleLaunch>),
+}
+
+enum EmbeddedWorkspaceLaunchStart {
+    Completed(Vec<EmbeddedLaunchResultRecord>),
+    Pending(Box<PendingEmbeddedWorkspaceLaunch>),
 }
 
 #[derive(Clone, Copy)]
@@ -169,6 +310,7 @@ impl Drop for BrowserOperationGuard<'_> {
 pub struct AppCore {
     app_version: String,
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
+    browser_launch_completion_sink: RwLock<Option<BrowserLaunchCompletionSink>>,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
     browser_status_emit_guard: Mutex<()>,
@@ -182,13 +324,14 @@ pub struct AppCore {
     instance_lock: Mutex<Option<File>>,
     macro_runtime: Arc<MacroRuntime>,
     log_capture: Mutex<crate::log_capture::LogCaptureRuntime>,
+    launch_completion: LaunchCompletionCoordinator,
     operation_actor: Arc<crate::operation_actor::OperationActor>,
     overlay_language: Mutex<Option<String>>,
     overlay_refresh: crate::overlay::OverlayRefreshRuntime,
     resolved_theme: Mutex<String>,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
-    runtime: Mutex<Option<Runtime>>,
+    runtime: RwLock<Option<Runtime>>,
     shutdown_started: AtomicBool,
     embedded_runtime_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     embedded_window_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
@@ -266,6 +409,7 @@ impl AppCore {
             })
             .transpose()?;
         let telemetry = crate::telemetry::TelemetryWorker::start(telemetry_path)?;
+        let launch_completion = LaunchCompletionCoordinator::start()?;
         let (browser_action_sender, browser_action_receiver) =
             crate::browser_action_effects::action_queue();
         let macro_event_sender = event_sender.clone();
@@ -294,6 +438,7 @@ impl AppCore {
         let core = Self {
             app_version: options.app_version,
             browser_action_effects,
+            browser_launch_completion_sink: RwLock::new(None),
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
             browser_runtime,
             browser_status_emit_guard: Mutex::new(()),
@@ -310,6 +455,7 @@ impl AppCore {
                 user_data_dir.clone(),
                 log_level,
             )),
+            launch_completion,
             macro_runtime,
             operation_actor,
             overlay_language: Mutex::new(None),
@@ -317,7 +463,7 @@ impl AppCore {
             resolved_theme: Mutex::new("light".to_owned()),
             platform,
             portable: Mutex::new(crate::portable::PortableRuntime::default()),
-            runtime: Mutex::new(Some(Runtime {
+            runtime: RwLock::new(Some(Runtime {
                 state,
                 logs,
                 scheduler,
@@ -345,6 +491,27 @@ impl AppCore {
 
     pub fn user_data_dir(&self) -> &std::path::Path {
         &self.user_data_dir
+    }
+
+    pub fn set_browser_launch_completion_sink(
+        &self,
+        sink: Arc<dyn Fn(BrowserLaunchCompletionRecord) + Send + Sync>,
+    ) -> CoreResult<()> {
+        *self.browser_launch_completion_sink.write().map_err(|_| {
+            CoreError::Internal("browser launch completion sink lock poisoned".to_owned())
+        })? = Some(sink);
+        Ok(())
+    }
+
+    fn notify_browser_launch_completion(&self, record: BrowserLaunchCompletionRecord) {
+        let sink = self
+            .browser_launch_completion_sink
+            .read()
+            .ok()
+            .and_then(|sink| sink.clone());
+        if let Some(sink) = sink {
+            sink(record);
+        }
     }
 
     pub fn invoke(&self, command: CoreCommand) -> CoreResult<Value> {
@@ -1470,16 +1637,10 @@ impl AppCore {
                     "Core launch phase: role-session-preflight completed elapsedMs={}",
                     launch_started.elapsed().as_millis()
                 );
-                let core = Arc::clone(self);
-                let statuses = tokio::task::spawn_blocking(move || {
-                    core.launch_embedded_role(&role_id, target, zoom_factor.unwrap_or(1.0))
-                })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??
-                .into_iter()
-                .map(embedded_status)
-                .collect();
-                serde_json::to_value(self.decorate_browser_statuses(statuses)?)
+                let statuses = self
+                    .accept_browser_role_launch(role_id, target, zoom_factor.unwrap_or(1.0))
+                    .await?;
+                serde_json::to_value(statuses)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserWorkspaceLaunch {
@@ -1487,12 +1648,9 @@ impl AppCore {
                 target,
             } => {
                 let statuses = self
-                    .launch_workspace_runtime_aware(workspace_id, target)
-                    .await?
-                    .into_iter()
-                    .map(embedded_status)
-                    .collect();
-                serde_json::to_value(self.decorate_browser_statuses(statuses)?)
+                    .accept_browser_workspace_launch(workspace_id, target)
+                    .await?;
+                serde_json::to_value(statuses)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRoleStop { role_id } => {
@@ -2042,11 +2200,12 @@ impl AppCore {
         Ok(())
     }
 
-    async fn launch_workspace_runtime_aware(
+    async fn accept_browser_workspace_launch(
         self: &Arc<Self>,
         workspace_id: String,
         target: EmbeddedLaunchTargetRecord,
-    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
             let workspace = self.state_workspace(&workspace_id)?;
             let expected_role_ids = workspace
@@ -2061,7 +2220,7 @@ impl AppCore {
             let workspace_id = workspace_id.clone();
             let target = target.clone();
             let result = tokio::task::spawn_blocking(move || {
-                core.launch_embedded_workspace_for_roles(&workspace_id, &expected_role_ids, target)
+                core.start_embedded_workspace_for_roles(&workspace_id, &expected_role_ids, target)
             })
             .await
             .map_err(|error| CoreError::Internal(error.to_string()))?;
@@ -2070,7 +2229,73 @@ impl AppCore {
                     code: "WORKSPACE_DATA_CHANGED",
                     ..
                 }) => continue,
-                result => return result,
+                Ok(EmbeddedWorkspaceLaunchStart::Completed(results)) => {
+                    return self.decorate_browser_statuses(
+                        results.into_iter().map(embedded_status).collect(),
+                    );
+                }
+                Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
+                    let accepted_at = Instant::now();
+                    let accepted = pending
+                        .role_ids
+                        .iter()
+                        .cloned()
+                        .map(launching_browser_status)
+                        .collect();
+                    let core = Arc::clone(self);
+                    completion_permit.send(Box::pin(async move {
+                        let PendingEmbeddedWorkspaceLaunch {
+                            handle,
+                            lease_id,
+                            role_ids,
+                            roles,
+                            tab_id,
+                            target,
+                            title,
+                            window_id,
+                            workspace_id,
+                        } = *pending;
+                        let completion_tab_id = tab_id.clone();
+                        let completion_source_id = workspace_id.clone();
+                        let launch = core.finish_system_launch_async(handle, &roles).await;
+                        let completion_core = Arc::clone(&core);
+                        let completion = tokio::task::spawn_blocking(move || {
+                            let result = completion_core.commit_embedded_workspace_launch_outcome(
+                                role_ids,
+                                tab_id,
+                                workspace_id,
+                                launch,
+                            );
+                            let lease_completion =
+                                completion_core.browser_operations.complete(&lease_id);
+                            match (result, lease_completion) {
+                                (Ok(value), Ok(())) => Ok(value),
+                                (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+                            }
+                        })
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))
+                        .and_then(|result| result);
+                        if let Err(error) = &completion {
+                            eprintln!(
+                                "Background workspace launch failed after acceptance: {error}"
+                            );
+                        }
+                        core.notify_browser_launch_completion(BrowserLaunchCompletionRecord {
+                            accepted_at,
+                            error: completion.as_ref().err().map(|error| error.payload()),
+                            source_id: completion_source_id,
+                            tab_id: completion_tab_id,
+                            tab_type: "workspace".to_owned(),
+                            target,
+                            title,
+                            window_id,
+                        });
+                        core.emit_browser_statuses();
+                    }));
+                    return Ok(accepted);
+                }
+                Err(error) => return Err(error),
             }
         }
         Err(CoreError::Domain {
@@ -3810,6 +4035,100 @@ impl AppCore {
             .invoke(command)
     }
 
+    async fn accept_browser_role_launch(
+        self: &Arc<Self>,
+        role_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        zoom_factor: f64,
+    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let completion_permit = self.launch_completion.try_reserve()?;
+        let core = Arc::clone(self);
+        let start = tokio::task::spawn_blocking(move || {
+            core.ensure_role_session_recovery_complete(&role_id)?;
+            let lease = core.browser_operations.acquire(BrowserOperationRequest {
+                role_ids: vec![role_id.clone()],
+                kind: "normal".to_owned(),
+            })?;
+            match core.start_embedded_role_with_lease(
+                &role_id,
+                target,
+                zoom_factor,
+                lease.id.clone(),
+            ) {
+                Ok(EmbeddedRoleLaunchStart::Completed(value)) => {
+                    core.browser_operations.complete(&lease.id)?;
+                    Ok(EmbeddedRoleLaunchStart::Completed(value))
+                }
+                Ok(EmbeddedRoleLaunchStart::Pending(pending)) => {
+                    Ok(EmbeddedRoleLaunchStart::Pending(pending))
+                }
+                Err(error) => {
+                    let _ = core.browser_operations.complete(&lease.id);
+                    Err(error)
+                }
+            }
+        })
+        .await
+        .map_err(|error| CoreError::Internal(error.to_string()))??;
+
+        match start {
+            EmbeddedRoleLaunchStart::Completed(results) => Ok(
+                self.decorate_browser_statuses(results.into_iter().map(embedded_status).collect())?
+            ),
+            EmbeddedRoleLaunchStart::Pending(pending) => {
+                let accepted_at = Instant::now();
+                let accepted_role_id = pending.role.id.clone();
+                let accepted = vec![launching_browser_status(accepted_role_id)];
+                let core = Arc::clone(self);
+                completion_permit.send(Box::pin(async move {
+                    let PendingEmbeddedRoleLaunch {
+                        handle,
+                        lease_id,
+                        role,
+                        tab_id,
+                        target,
+                        window_id,
+                    } = *pending;
+                    let completion_tab_id = tab_id.clone();
+                    let completion_source_id = role.id.clone();
+                    let completion_title = role.name.clone();
+                    let launch = core
+                        .finish_system_launch_async(handle, std::slice::from_ref(&role))
+                        .await;
+                    let completion_core = Arc::clone(&core);
+                    let completion = tokio::task::spawn_blocking(move || {
+                        let result = completion_core
+                            .commit_embedded_role_launch_outcome(role, tab_id, launch);
+                        let lease_completion =
+                            completion_core.browser_operations.complete(&lease_id);
+                        match (result, lease_completion) {
+                            (Ok(value), Ok(())) => Ok(value),
+                            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+                        }
+                    })
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+                    .and_then(|result| result);
+                    if let Err(error) = &completion {
+                        eprintln!("Background role launch failed after acceptance: {error}");
+                    }
+                    core.notify_browser_launch_completion(BrowserLaunchCompletionRecord {
+                        accepted_at,
+                        error: completion.as_ref().err().map(|error| error.payload()),
+                        source_id: completion_source_id,
+                        tab_id: completion_tab_id,
+                        tab_type: "role".to_owned(),
+                        target,
+                        title: completion_title,
+                        window_id,
+                    });
+                    core.emit_browser_statuses();
+                }));
+                Ok(accepted)
+            }
+        }
+    }
+
     fn launch_embedded_role(
         &self,
         role_id: &str,
@@ -3821,7 +4140,14 @@ impl AppCore {
             role_ids: vec![role_id.to_owned()],
             kind: "normal".to_owned(),
         })?;
-        let result = self.launch_embedded_role_with_lease(role_id, target, zoom_factor);
+        let result = self
+            .start_embedded_role_with_lease(role_id, target, zoom_factor, lease.id.clone())
+            .and_then(|start| match start {
+                EmbeddedRoleLaunchStart::Completed(value) => Ok(value),
+                EmbeddedRoleLaunchStart::Pending(pending) => {
+                    self.settle_embedded_role_launch_blocking(*pending)
+                }
+            });
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
             (Ok(value), Ok(())) => Ok(value),
@@ -3829,12 +4155,13 @@ impl AppCore {
         }
     }
 
-    fn launch_embedded_role_with_lease(
+    fn start_embedded_role_with_lease(
         &self,
         role_id: &str,
         target: EmbeddedLaunchTargetRecord,
         zoom_factor: f64,
-    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        lease_id: String,
+    ) -> CoreResult<EmbeddedRoleLaunchStart> {
         let role = serde_json::from_value::<StateRoleRecord>(self.read_state_record(
             "roles",
             "id",
@@ -3874,13 +4201,15 @@ impl AppCore {
                 Duration::from_secs(10),
                 None,
             )])?;
-            return Ok(vec![embedded_launch_result(
-                role_id,
-                runtime_role
-                    .launched_at
-                    .clone()
-                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-            )]);
+            return Ok(EmbeddedRoleLaunchStart::Completed(vec![
+                embedded_launch_result(
+                    role_id,
+                    runtime_role
+                        .launched_at
+                        .clone()
+                        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                ),
+            ]));
         }
         if snapshot
             .roles
@@ -3949,48 +4278,17 @@ impl AppCore {
                 zoom_mode: "fixed".to_owned(),
             }],
         };
+        let target = tab.target.clone();
+        let window_id = target.window_id.clone();
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let launch_started = std::time::Instant::now();
-        let (launch, persistence) = match self.start_system_launch(
-            &tab_id,
-            tab,
-            std::slice::from_ref(&role),
-            runtime_snapshot,
+        let handle =
+            self.start_system_launch(&tab_id, tab, std::slice::from_ref(&role), runtime_snapshot)?;
+        if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
+            &std::collections::HashSet::new(),
         ) {
-            Ok(handle) => {
-                let persistence = self
-                    .commit_embedded_runtime_snapshot_without_native_effect(
-                        &std::collections::HashSet::new(),
-                    )
-                    .map(|_| ());
-                if persistence.is_err() {
-                    let _ = self.operation_actor.cancel(&handle.operation_id);
-                }
-                let launch = self.finish_system_launch(handle, std::slice::from_ref(&role));
-                (launch, persistence)
-            }
-            Err(error) => (Err(error), Ok(())),
-        };
-        eprintln!(
-            "Core launch phase: native-and-persistence completed elapsedMs={} nativeOk={} persistenceOk={}",
-            launch_started.elapsed().as_millis(),
-            launch.is_ok(),
-            persistence.is_ok()
-        );
-        if launch.is_err() || persistence.is_err() {
-            if launch.is_ok() {
-                let _ = self.run_effect_plan(vec![effect_step(
-                    &tab_id,
-                    CoreEffectAction::EmbeddedDestroyTab {
-                        tab_id: tab_id.clone(),
-                        next_active_tab_id: None,
-                    },
-                    Duration::from_secs(15),
-                    None,
-                )]);
-            }
+            let _ = self.operation_actor.cancel(&handle.operation_id);
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                 role_id: role.id.clone(),
             });
@@ -3998,12 +4296,52 @@ impl AppCore {
                 tab_id: tab_id.clone(),
             });
             self.publish_embedded_runtime_snapshot_best_effort();
-            return Err(persistence
-                .err()
-                .or_else(|| launch.err())
-                .expect("launch failed"));
+            return Err(error);
         }
+        Ok(EmbeddedRoleLaunchStart::Pending(Box::new(
+            PendingEmbeddedRoleLaunch {
+                handle,
+                lease_id,
+                role,
+                tab_id,
+                target,
+                window_id,
+            },
+        )))
+    }
 
+    fn settle_embedded_role_launch_blocking(
+        &self,
+        pending: PendingEmbeddedRoleLaunch,
+    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        let PendingEmbeddedRoleLaunch {
+            handle,
+            lease_id: _,
+            role,
+            tab_id,
+            target: _,
+            window_id: _,
+        } = pending;
+        let launch = self.finish_system_launch(handle, std::slice::from_ref(&role));
+        self.commit_embedded_role_launch_outcome(role, tab_id, launch)
+    }
+
+    fn commit_embedded_role_launch_outcome(
+        &self,
+        role: StateRoleRecord,
+        tab_id: String,
+        launch: CoreResult<crate::operation_actor::OperationOutcome>,
+    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        if let Err(error) = launch {
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+                role_id: role.id.clone(),
+            });
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                tab_id: tab_id.clone(),
+            });
+            self.publish_embedded_runtime_snapshot_best_effort();
+            return Err(error);
+        }
         let launched_at = chrono::Utc::now().to_rfc3339();
         let completion = self
             .invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
@@ -4068,6 +4406,26 @@ impl AppCore {
         expected_role_ids: &[String],
         target: EmbeddedLaunchTargetRecord,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        match self.start_embedded_workspace_for_roles(workspace_id, expected_role_ids, target)? {
+            EmbeddedWorkspaceLaunchStart::Completed(value) => Ok(value),
+            EmbeddedWorkspaceLaunchStart::Pending(pending) => {
+                let lease_id = pending.lease_id.clone();
+                let result = self.settle_embedded_workspace_launch_blocking(*pending);
+                let completion = self.browser_operations.complete(&lease_id);
+                match (result, completion) {
+                    (Ok(value), Ok(())) => Ok(value),
+                    (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+                }
+            }
+        }
+    }
+
+    fn start_embedded_workspace_for_roles(
+        &self,
+        workspace_id: &str,
+        expected_role_ids: &[String],
+        target: EmbeddedLaunchTargetRecord,
+    ) -> CoreResult<EmbeddedWorkspaceLaunchStart> {
         if expected_role_ids.is_empty() {
             return Err(CoreError::Domain {
                 code: "WORKSPACE_ROLES_REQUIRED",
@@ -4135,35 +4493,46 @@ impl AppCore {
                         tab_id: tab_id.clone(),
                     },
                 )?;
-                return Ok(runtime_workspace
-                    .role_ids
-                    .iter()
-                    .map(|role_id| {
-                        let launched_at = snapshot
-                            .roles
-                            .iter()
-                            .find(|role| &role.role_id == role_id)
-                            .and_then(|role| role.launched_at.clone())
-                            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-                        embedded_launch_result(role_id, launched_at)
-                    })
-                    .collect());
+                return Ok(EmbeddedWorkspaceLaunchStart::Completed(
+                    runtime_workspace
+                        .role_ids
+                        .iter()
+                        .map(|role_id| {
+                            let launched_at = snapshot
+                                .roles
+                                .iter()
+                                .find(|role| &role.role_id == role_id)
+                                .and_then(|role| role.launched_at.clone())
+                                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                            embedded_launch_result(role_id, launched_at)
+                        })
+                        .collect(),
+                ));
             }
-            self.launch_embedded_workspace_with_lease(workspace, role_ids, target)
+            self.start_embedded_workspace_with_lease(workspace, role_ids, target, lease.id.clone())
         })();
-        let completion = self.browser_operations.complete(&lease.id);
-        match (result, completion) {
-            (Ok(value), Ok(())) => Ok(value),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        match result {
+            Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
+                Ok(EmbeddedWorkspaceLaunchStart::Pending(pending))
+            }
+            Ok(EmbeddedWorkspaceLaunchStart::Completed(value)) => {
+                self.browser_operations.complete(&lease.id)?;
+                Ok(EmbeddedWorkspaceLaunchStart::Completed(value))
+            }
+            Err(error) => {
+                let _ = self.browser_operations.complete(&lease.id);
+                Err(error)
+            }
         }
     }
 
-    fn launch_embedded_workspace_with_lease(
+    fn start_embedded_workspace_with_lease(
         &self,
         workspace: StateLaunchWorkspaceRecord,
         role_ids: Vec<String>,
         target: EmbeddedLaunchTargetRecord,
-    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        lease_id: String,
+    ) -> CoreResult<EmbeddedWorkspaceLaunchStart> {
         let available_roles = self
             .read_typed_state_collection::<StateRoleRecord>("roles")?
             .into_iter()
@@ -4268,44 +4637,17 @@ impl AppCore {
             target,
             roles: effect_roles,
         };
+        let target = tab.target.clone();
+        let window_id = target.window_id.clone();
+        let title = tab.name.clone();
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let launch_started = std::time::Instant::now();
-        let (launch, persistence) =
-            match self.start_system_launch(&tab_id, tab, &roles, runtime_snapshot) {
-                Ok(handle) => {
-                    let persistence = self
-                        .commit_embedded_runtime_snapshot_without_native_effect(
-                            &std::collections::HashSet::new(),
-                        )
-                        .map(|_| ());
-                    if persistence.is_err() {
-                        let _ = self.operation_actor.cancel(&handle.operation_id);
-                    }
-                    let launch = self.finish_system_launch(handle, &roles);
-                    (launch, persistence)
-                }
-                Err(error) => (Err(error), Ok(())),
-            };
-        eprintln!(
-            "Core launch phase: workspace-native-and-persistence completed elapsedMs={} nativeOk={} persistenceOk={}",
-            launch_started.elapsed().as_millis(),
-            launch.is_ok(),
-            persistence.is_ok()
-        );
-        if launch.is_err() || persistence.is_err() {
-            if launch.is_ok() {
-                let _ = self.run_effect_plan(vec![effect_step(
-                    &tab_id,
-                    CoreEffectAction::EmbeddedDestroyTab {
-                        tab_id: tab_id.clone(),
-                        next_active_tab_id: None,
-                    },
-                    Duration::from_secs(15),
-                    None,
-                )]);
-            }
+        let handle = self.start_system_launch(&tab_id, tab, &roles, runtime_snapshot)?;
+        if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
+            &std::collections::HashSet::new(),
+        ) {
+            let _ = self.operation_actor.cancel(&handle.operation_id);
             for role_id in &role_ids {
                 let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                     role_id: role_id.clone(),
@@ -4318,26 +4660,78 @@ impl AppCore {
                 workspace_id: workspace.id.clone(),
             });
             self.publish_embedded_runtime_snapshot_best_effort();
-            return Err(persistence
-                .err()
-                .or_else(|| launch.err())
-                .expect("launch failed"));
+            return Err(error);
         }
+        Ok(EmbeddedWorkspaceLaunchStart::Pending(Box::new(
+            PendingEmbeddedWorkspaceLaunch {
+                handle,
+                lease_id,
+                role_ids,
+                roles,
+                tab_id,
+                target,
+                title,
+                window_id,
+                workspace_id: workspace.id,
+            },
+        )))
+    }
 
+    fn settle_embedded_workspace_launch_blocking(
+        &self,
+        pending: PendingEmbeddedWorkspaceLaunch,
+    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        let PendingEmbeddedWorkspaceLaunch {
+            handle,
+            lease_id: _,
+            role_ids,
+            roles,
+            tab_id,
+            target: _,
+            title: _,
+            window_id: _,
+            workspace_id,
+        } = pending;
+        let launch = self.finish_system_launch(handle, &roles);
+        self.commit_embedded_workspace_launch_outcome(role_ids, tab_id, workspace_id, launch)
+    }
+
+    fn commit_embedded_workspace_launch_outcome(
+        &self,
+        role_ids: Vec<String>,
+        tab_id: String,
+        workspace_id: String,
+        launch: CoreResult<crate::operation_actor::OperationOutcome>,
+    ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        if let Err(error) = launch {
+            for role_id in &role_ids {
+                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+                    role_id: role_id.clone(),
+                });
+            }
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                tab_id: tab_id.clone(),
+            });
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
+                workspace_id: workspace_id.clone(),
+            });
+            self.publish_embedded_runtime_snapshot_best_effort();
+            return Err(error);
+        }
         let launched_at = chrono::Utc::now().to_rfc3339();
         let mut commands = Vec::with_capacity(role_ids.len() + 1);
         for role_id in &role_ids {
             commands.push(BrowserRuntimeCommand::RoleTransition {
                 role_id: role_id.clone(),
                 runtime: "embedded".to_owned(),
-                workspace_id: Some(workspace.id.clone()),
+                workspace_id: Some(workspace_id.clone()),
                 tab_id: Some(tab_id.clone()),
                 state: "running".to_owned(),
                 launched_at: Some(launched_at.clone()),
             });
         }
         commands.push(BrowserRuntimeCommand::SetWorkspaceState {
-            workspace_id: workspace.id.clone(),
+            workspace_id: workspace_id.clone(),
             state: "running".to_owned(),
         });
         let completion = commands
@@ -4364,9 +4758,8 @@ impl AppCore {
                 });
             }
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id });
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-                workspace_id: workspace.id,
-            });
+            let _ = self
+                .invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace { workspace_id });
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
@@ -4833,6 +5226,29 @@ impl AppCore {
         Err(error)
     }
 
+    async fn finish_system_launch_async(
+        &self,
+        handle: crate::operation_actor::OperationHandle,
+        roles: &[StateRoleRecord],
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
+        let launch = self
+            .finish_effect_plan_for_roles_async(handle, &role_ids)
+            .await;
+        let error = match launch {
+            Ok(outcome) => return Ok(outcome),
+            Err(error) => error,
+        };
+        if error.code() == "LAUNCH_CANCELLED" {
+            return Err(error);
+        }
+        self.record_system_webview_issue(
+            &role_ids,
+            crate::model::SystemWebViewIssueReason::RuntimeCreationFailed,
+        )?;
+        Err(error)
+    }
+
     fn report_crashed_system_surface(
         &self,
         role_id: &str,
@@ -4973,6 +5389,27 @@ impl AppCore {
         let outcome = handle.outcome.blocking_recv().map_err(|_| {
             CoreError::Internal("operation actor stopped before returning an outcome".to_owned())
         });
+        self.resolve_effect_plan_outcome(operation_id, outcome, role_ids)
+    }
+
+    async fn finish_effect_plan_for_roles_async(
+        &self,
+        handle: crate::operation_actor::OperationHandle,
+        role_ids: &[String],
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        let operation_id = handle.operation_id.clone();
+        let outcome = handle.outcome.await.map_err(|_| {
+            CoreError::Internal("operation actor stopped before returning an outcome".to_owned())
+        });
+        self.resolve_effect_plan_outcome(operation_id, outcome, role_ids)
+    }
+
+    fn resolve_effect_plan_outcome(
+        &self,
+        operation_id: String,
+        outcome: CoreResult<crate::operation_actor::OperationOutcome>,
+        role_ids: &[String],
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         if !role_ids.is_empty() {
             let mut operations = self.embedded_operations.lock().map_err(|_| {
                 CoreError::Internal("embedded operation registry poisoned".to_owned())
@@ -5919,6 +6356,7 @@ impl AppCore {
         if self.shutdown_started.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.launch_completion.shutdown();
         self.browser_operations.shutdown();
         self.macro_runtime.shutdown();
         self.browser_action_effects.shutdown();
@@ -5928,7 +6366,7 @@ impl AppCore {
         if let Ok(mut embedded_input) = self.embedded_input.lock() {
             embedded_input.shutdown();
         }
-        if let Ok(mut runtime) = self.runtime.lock()
+        if let Ok(mut runtime) = self.runtime.write()
             && let Some(mut runtime) = runtime.take()
         {
             runtime.scheduler.shutdown();
@@ -5950,7 +6388,7 @@ impl AppCore {
     fn with_runtime<T>(&self, operation: impl FnOnce(&Runtime) -> CoreResult<T>) -> CoreResult<T> {
         let runtime = self
             .runtime
-            .lock()
+            .read()
             .map_err(|_| CoreError::Internal("runtime lock poisoned".to_owned()))?;
         operation(runtime.as_ref().ok_or(CoreError::ShuttingDown)?)
     }
@@ -6125,6 +6563,23 @@ fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserR
         launched_at: Some(result.launched_at),
         notice: None,
         runtime_mode: result.runtime_mode,
+        automation_state: None,
+        overlay_state: None,
+        page_health: None,
+        resolved_engine: None,
+        host_kind: None,
+        issue_reason: None,
+        capability_snapshot: None,
+    }
+}
+
+fn launching_browser_status(role_id: String) -> crate::model::BrowserRoleStatusRecord {
+    crate::model::BrowserRoleStatusRecord {
+        role_id,
+        state: "launching".to_owned(),
+        launched_at: None,
+        notice: None,
+        runtime_mode: "embedded".to_owned(),
         automation_state: None,
         overlay_state: None,
         page_health: None,
@@ -6590,15 +7045,6 @@ fn embedded_launch_effects(
             next_active_tab_id: None,
         }),
     )];
-    let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
-    steps.push(effect_step(
-        tab_id,
-        CoreEffectAction::EmbeddedConfigureRoleSessions {
-            role_ids: role_ids.clone(),
-        },
-        Duration::from_secs(15),
-        None,
-    ));
     steps.push(effect_step(
         tab_id,
         CoreEffectAction::EmbeddedLoadRoles {
@@ -6616,14 +7062,6 @@ fn embedded_launch_effects(
                 .collect(),
         },
         Duration::from_secs(45),
-        None,
-    ));
-    steps.push(effect_step(
-        tab_id,
-        CoreEffectAction::EmbeddedInstallOverlays {
-            role_ids: role_ids.clone(),
-        },
-        Duration::from_secs(15),
         None,
     ));
     steps
@@ -8697,6 +9135,176 @@ mod tests {
             .snapshot;
         assert!(stopped_snapshot.roles.is_empty());
         assert!(stopped_snapshot.tabs.is_empty());
+        core.shutdown();
+    }
+
+    #[test]
+    fn public_role_launch_accepts_two_roles_without_waiting_for_native_readiness() {
+        let (_directory, core) = core();
+        let game_id = first_game_id(&core);
+        let first_role_id = create_role(&core, &game_id, 1);
+        let second_role_id = create_role(&core, &game_id, 2);
+        let target = EmbeddedLaunchTargetRecord {
+            window_id: uuid::Uuid::new_v4().to_string(),
+            display_id: 1,
+            scale_factor: 1.0,
+            work_area: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            bounds: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 960,
+                height: 640,
+            },
+            presentation: "normal".to_owned(),
+        };
+        // No effect subscriber acknowledges controller creation or navigation. Both public
+        // commands must still return their accepted `launching` state; the Core-owned
+        // completion coordinator retains the unfinished operations independently of this
+        // caller's short-lived runtime.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        for role_id in [&first_role_id, &second_role_id] {
+            let started = std::time::Instant::now();
+            let result = runtime
+                .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
+                    role_id: role_id.clone(),
+                    target: target.clone(),
+                    zoom_factor: None,
+                }))
+                .unwrap();
+            assert!(started.elapsed() < Duration::from_secs(2));
+            assert_eq!(result[0]["roleId"], *role_id);
+            assert_eq!(result[0]["state"], "launching");
+        }
+        let snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(
+            snapshot
+                .roles
+                .iter()
+                .any(|role| { role.role_id == first_role_id && role.state == "launching" })
+        );
+        assert!(
+            snapshot
+                .roles
+                .iter()
+                .any(|role| { role.role_id == second_role_id && role.state == "launching" })
+        );
+        core.shutdown();
+    }
+
+    #[test]
+    fn accepted_role_launch_failure_settles_and_cleans_runtime_in_background() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let target = EmbeddedLaunchTargetRecord {
+            window_id: uuid::Uuid::new_v4().to_string(),
+            display_id: 1,
+            scale_factor: 1.0,
+            work_area: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            bounds: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 960,
+                height: 640,
+            },
+            presentation: "normal".to_owned(),
+        };
+        let effects = core.subscribe().unwrap();
+        let (completion_sender, completion_receiver) = bounded(1);
+        core.set_browser_launch_completion_sink(Arc::new(move |completion| {
+            let _ = completion_sender.try_send(completion);
+        }))
+        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let accepted = runtime
+            .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
+                role_id: role_id.clone(),
+                target,
+                zoom_factor: None,
+            }))
+            .unwrap();
+        assert_eq!(accepted[0]["state"], "launching");
+
+        let create_effect = loop {
+            let events = effects.recv_timeout(Duration::from_secs(2)).unwrap();
+            if let Some(effect) = events.into_iter().find_map(|event| match event {
+                CoreEvent::CoreEffects { effects } => effects.into_iter().find(|effect| {
+                    matches!(effect.action, CoreEffectAction::EmbeddedCreateTab { .. })
+                }),
+                _ => None,
+            }) {
+                break effect;
+            }
+        };
+        core.dispatch_core_effect_results(vec![CoreEffectResult {
+            effect_id: create_effect.effect_id,
+            operation_id: create_effect.operation_id,
+            ok: false,
+            value_json: None,
+            error: Some(CoreErrorPayload {
+                code: "DESKTOP_EFFECT_FAILED".to_owned(),
+                message: "Injected native create failure.".to_owned(),
+            }),
+        }])
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let completion = loop {
+            if let Ok(completion) = completion_receiver.try_recv() {
+                break completion;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "accepted launch should publish its background failure; metrics={:?}",
+                core.operation_actor.metrics()
+            );
+            let Ok(events) = effects.recv_timeout(Duration::from_millis(50)) else {
+                continue;
+            };
+            let results = events
+                .into_iter()
+                .filter_map(|event| match event {
+                    CoreEvent::CoreEffects { effects } => Some(effects),
+                    _ => None,
+                })
+                .flatten()
+                .map(|effect| CoreEffectResult {
+                    effect_id: effect.effect_id,
+                    operation_id: effect.operation_id,
+                    ok: true,
+                    value_json: None,
+                    error: None,
+                })
+                .collect::<Vec<_>>();
+            if !results.is_empty() {
+                core.dispatch_core_effect_results(results).unwrap();
+            }
+        };
+        assert_eq!(completion.source_id, role_id);
+        assert!(completion.error.is_some());
+        let snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(snapshot.roles.is_empty());
+        assert!(snapshot.tabs.is_empty());
         core.shutdown();
     }
 

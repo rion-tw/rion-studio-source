@@ -5,7 +5,7 @@
     ...Array.from({ length: 54 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-29.1";
+  const scriptVersion = "2026-07-30.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -30,7 +30,6 @@
   const overlayTexts = {
     en: {
       holdUntilStop: "Hold",
-      noShortcut: "No shortcut",
       coordinateCopied: "Copied",
       coordinateCopyFailed: "Unable to copy coordinates. Try again.",
       coordinateCopying: "Copying…",
@@ -43,7 +42,6 @@
     },
     "zh-TW": {
       holdUntilStop: "保持",
-      noShortcut: "無快捷鍵",
       coordinateCopied: "已複製",
       coordinateCopyFailed: "無法複製座標，請再試一次。",
       coordinateCopying: "複製中…",
@@ -56,7 +54,6 @@
     },
     "zh-CN": {
       holdUntilStop: "保持",
-      noShortcut: "无快捷键",
       coordinateCopied: "已复制",
       coordinateCopyFailed: "无法复制坐标，请重试。",
       coordinateCopying: "复制中…",
@@ -69,7 +66,6 @@
     },
     ja: {
       holdUntilStop: "保持",
-      noShortcut: "ショートカットなし",
       coordinateCopied: "コピーしました",
       coordinateCopyFailed: "座標をコピーできません。もう一度お試しください。",
       coordinateCopying: "コピー中…",
@@ -867,10 +863,6 @@
   }
 
   function formatShortcut(trigger) {
-    if (!trigger) {
-      return getText().noShortcut;
-    }
-
     const parts = [];
     if (trigger.ctrl) parts.push("Ctrl");
     if (trigger.alt) parts.push("Alt");
@@ -1160,9 +1152,16 @@
         const behavior = formatMacroBehavior(macro);
         const { delay, duration, iteration } = getMacroIteration(macro.id);
         const iterationFlashClass = iteration > 0 ? " is-iteration-flash" : "";
+        const shortcutlessClass = macro.trigger ? "" : " is-shortcutless";
+        const shortcutMarkup = macro.trigger
+          ? '<span class="active-badge-shortcut">' +
+            escapeHtml(formatShortcut(macro.trigger)) +
+            "</span>"
+          : "";
         return [
           '<span class="active-badge',
           iterationFlashClass,
+          shortcutlessClass,
           '" data-iteration="',
           String(iteration),
           '" style="--active-badge-flash-duration:',
@@ -1170,9 +1169,7 @@
           'ms;--active-badge-flash-delay:',
           String(delay),
           'ms">',
-          '<span class="active-badge-shortcut">',
-          escapeHtml(formatShortcut(macro.trigger)),
-          "</span>",
+          shortcutMarkup,
           '<span class="active-badge-name">',
           escapeHtml(macro.name),
           "</span>",

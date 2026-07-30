@@ -563,6 +563,50 @@ describe("macro overlay interactions", () => {
     expect(root.querySelector(".active-badge-name")?.textContent).toBe(assignedMacro.name);
   });
 
+  it("formats short and modified shortcut chips", async () => {
+    createGameSurface(document);
+    let macro = { ...assignedMacro, trigger: { ...assignedMacro.trigger!, code: "KeyQ" } };
+    const binding = vi.fn(async () => ({
+      macros: [macro],
+      statuses: [runningStatus()]
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const root = getOverlayRoot(document);
+
+    expect(root.querySelector(".active-badge-shortcut")?.textContent).toBe("Q");
+
+    macro = { ...assignedMacro, trigger: { ...assignedMacro.trigger!, code: "F2" } };
+    await controller.refresh();
+    expect(root.querySelector(".active-badge-shortcut")?.textContent).toBe("F2");
+
+    macro = {
+      ...assignedMacro,
+      trigger: { ...assignedMacro.trigger!, code: "KeyQ", ctrl: true }
+    };
+    await controller.refresh();
+    expect(root.querySelector(".active-badge-shortcut")?.textContent).toBe("Ctrl+Q");
+  });
+
+  it("omits the shortcut chip and balances badge padding when no shortcut is assigned", async () => {
+    createGameSurface(document);
+    const shortcutlessMacro = { ...assignedMacro, name: "Manual macro" };
+    delete shortcutlessMacro.trigger;
+    const binding = vi.fn(async () => ({
+      macros: [shortcutlessMacro],
+      statuses: [runningStatus()]
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    const root = getOverlayRoot(document);
+    const badge = root.querySelector(".active-badge");
+    expect(badge?.classList.contains("is-shortcutless")).toBe(true);
+    expect(badge?.querySelector(".active-badge-shortcut")).toBeNull();
+    expect(badge?.querySelector(".active-badge-name")?.textContent).toBe(shortcutlessMacro.name);
+    expect(badge?.textContent).not.toContain("No shortcut");
+  });
+
   it("replays the badge border animation when a loop iteration advances", async () => {
     createGameSurface(document);
     let statuses: Array<Record<string, unknown>> = [runningStatus()];

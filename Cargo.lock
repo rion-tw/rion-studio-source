@@ -3124,6 +3124,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "chrono",
+ "embed-resource",
  "rion-core",
  "rion-platform",
  "rusqlite",

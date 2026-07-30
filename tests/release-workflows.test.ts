@@ -4,13 +4,21 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri-only release workflows", () => {
   it("runs common checks and platform validation on macOS and Windows", async () => {
-    const [workflow, packageJsonSource, windowsLoaderDiagnostic, cargoConfig] =
-      await Promise.all([
-        readWorkflow(".github/workflows/ci.yml"),
-        readFile("package.json", "utf8"),
-        readFile("scripts/diagnoseWindowsTestLoader.ps1", "utf8"),
-        readFile(".cargo/config.toml", "utf8")
-      ]);
+    const [
+      workflow,
+      packageJsonSource,
+      windowsLoaderDiagnostic,
+      tauriBuildScript,
+      windowsManifest,
+      windowsTestResource
+    ] = await Promise.all([
+      readWorkflow(".github/workflows/ci.yml"),
+      readFile("package.json", "utf8"),
+      readFile("scripts/diagnoseWindowsTestLoader.ps1", "utf8"),
+      readFile("src-tauri/build.rs", "utf8"),
+      readFile("src-tauri/windows-app-manifest.xml", "utf8"),
+      readFile("src-tauri/windows-test-manifest.rc", "utf8")
+    ]);
     const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
     const checks = workflow.slice(
       workflow.indexOf("  checks:"),
@@ -41,14 +49,22 @@ describe("Tauri-only release workflows", () => {
     expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
     expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("/dependents $testBinary.FullName");
+    expect(windowsLoaderDiagnostic).toContain("/headers $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("Copy-Item -LiteralPath $pdbPath");
-    expect(windowsLoaderDiagnostic).toContain("VCRUNTIME140.dll");
+    expect(windowsLoaderDiagnostic).toContain('"import-probe.txt"');
     expect(windowsLoaderDiagnostic).toContain("NativeLibrary]::TryGetExport");
-    expect(windowsLoaderDiagnostic).toContain("__current_exception_context");
-    expect(cargoConfig).toContain(
-      "[target.'cfg(all(target_os = \"windows\", target_env = \"msvc\"))']"
+    expect(windowsLoaderDiagnostic).toContain('"application-manifest.xml"');
+    expect(windowsLoaderDiagnostic).toContain("Common Controls v6 dependency");
+    expect(tauriBuildScript).toContain(
+      'embed_resource::compile_for_tests("windows-test-manifest.rc"'
     );
-    expect(cargoConfig).toContain('target-feature=+crt-static');
+    expect(tauriBuildScript).toContain(".manifest_required()");
+    expect(tauriBuildScript).toContain('include_str!("windows-app-manifest.xml")');
+    expect(windowsManifest).toContain('name="Microsoft.Windows.Common-Controls"');
+    expect(windowsManifest).toContain('version="6.0.0.0"');
+    expect(windowsTestResource).toContain(
+      'CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "windows-app-manifest.xml"'
+    );
     expect(platformChecks.indexOf("pnpm run build:renderer"))
       .toBeLessThan(platformChecks.indexOf("pnpm run lint:rust"));
     expect(packageJson.scripts["lint:rust:portable"]).toBe(

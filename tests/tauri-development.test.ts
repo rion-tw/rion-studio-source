@@ -30,6 +30,11 @@ describe("Tauri development and release commands", () => {
     expect(tauriConfig.app.security.csp).toContain("script-src 'self';");
     expect(tauriConfig.app.security.csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(tauriConfig.app.security.csp).not.toContain("ws://127.0.0.1:5173");
+    expect(tauriConfig.app.security.csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;");
+    expect(tauriConfig.app.security.csp).toContain("font-src 'self' https://fonts.gstatic.com;");
+    expect(tauriConfig.app.security.csp).toContain("connect-src ipc: http://ipc.localhost");
+    expect(tauriConfig.app.security.devCsp).toContain("https://fonts.googleapis.com");
+    expect(tauriConfig.app.security.devCsp).toContain("https://fonts.gstatic.com");
     expect(tauriConfig.app.security.devCsp).toContain("script-src 'self' 'unsafe-inline'");
     expect(tauriConfig.app.security.devCsp).toContain("ws://127.0.0.1:5173");
     expect(viteSource).toContain('host: "127.0.0.1"');

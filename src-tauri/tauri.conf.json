@@ -12,8 +12,8 @@
   "app": {
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self' customprotocol: asset:; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost",
-      "devCsp": "default-src 'self' customprotocol: asset:; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost http://127.0.0.1:5173 ws://127.0.0.1:5173"
+      "csp": "default-src 'self' customprotocol: asset:; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self' customprotocol: asset:; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost http://127.0.0.1:5173 ws://127.0.0.1:5173"
     },
     "windows": [
       {

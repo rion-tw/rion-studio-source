@@ -1,6 +1,6 @@
 # Rion Studio Privacy Notice
 
-Version and effective date: 2026-07-26
+Version and effective date: 2026-07-31
 
 ## 1. Scope and provider
 
@@ -20,6 +20,7 @@ Local data is used to restore roles, browser sessions, browser windows, workspac
 
 - Target websites and identity providers receive normal browser requests and handle data under their own policies.
 - Packaged builds check GitHub Releases for updates. GitHub can receive an IP address, app version, platform details, and ordinary request metadata.
+- When you open browser font customization, visible Google Font samples load preview CSS and subset font files from Google Fonts. Google can receive an IP address, user agent, and ordinary request metadata. Applying a font still uses Rion Studio's verified local cache; game pages do not load these previews.
 - System WebViews use the operating system's network settings. Rion Studio does not add or persist an app-specific network route.
 
 ## 5. Portable export and import

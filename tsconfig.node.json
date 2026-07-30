@@ -77,6 +77,7 @@
     "src/renderer/src/features/settings/MacroSettingsSection.tsx",
     "src/renderer/src/features/settings/SettingsRoute.tsx",
     "src/renderer/src/features/settings/SettingsSidebar.tsx",
+    "src/renderer/src/features/settings/googleFontPreview.ts",
     "src/renderer/src/features/settings/portableSelection.ts",
     "src/renderer/src/features/settings/settingsNavigation.ts",
     "src/renderer/src/features/workspaces/LaunchWorkspacesRoute.tsx",

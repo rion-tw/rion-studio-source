@@ -1,11 +1,15 @@
 import type { LegalDocumentVersions } from "./types";
 
-export const CURRENT_LEGAL_RELEASE = "2026-07-26";
-
 export const CURRENT_LEGAL_DOCUMENT_VERSIONS = {
-  fairUse: CURRENT_LEGAL_RELEASE,
-  privacy: CURRENT_LEGAL_RELEASE,
-  terms: CURRENT_LEGAL_RELEASE
+  fairUse: "2026-07-26",
+  privacy: "2026-07-31",
+  terms: "2026-07-26"
 } as const satisfies LegalDocumentVersions;
+
+export function getLegalDocumentVersion(
+  kind: keyof LegalDocumentVersions | "thirdParty"
+): string {
+  return kind === "thirdParty" ? "2026-07-26" : CURRENT_LEGAL_DOCUMENT_VERSIONS[kind];
+}
 
 export const LEGAL_PROVIDER_NAME = "Rion Studio project";

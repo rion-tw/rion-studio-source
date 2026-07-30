@@ -2,11 +2,12 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import SettingsView from "../src/renderer/src/features/settings/SettingsRoute";
+import { resetGoogleFontPreviewRegistryForTests } from "../src/renderer/src/features/settings/googleFontPreview";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { RionStudioApi } from "../src/shared/api";
@@ -86,8 +87,27 @@ beforeAll(() => {
   });
 });
 
+beforeEach(() => {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: {
+      add: vi.fn(),
+      delete: vi.fn(),
+      load: vi.fn(async () => [])
+    }
+  });
+  const append = document.head.append.bind(document.head);
+  vi.spyOn(document.head, "append").mockImplementation((...nodes) => {
+    append(...nodes);
+    for (const node of nodes) {
+      if (node instanceof HTMLLinkElement) queueMicrotask(() => node.dispatchEvent(new Event("load")));
+    }
+  });
+});
+
 afterEach(() => {
   cleanup();
+  resetGoogleFontPreviewRegistryForTests();
   Reflect.deleteProperty(window, "rionStudio");
   vi.restoreAllMocks();
 });
@@ -185,6 +205,7 @@ describe("browser font settings", () => {
     const toggle = screen.getByRole("button", { name: "Customize fonts" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Distinctive styles")).toBeNull();
+    expect(document.head.querySelector("link[data-rion-google-font-preview]")).toBeNull();
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
@@ -192,6 +213,9 @@ describe("browser font settings", () => {
     expect(screen.getByRole("button", { name: /High-legibility reading/u })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Compact dashboard/u })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Natural handwriting/u })).toBeNull();
+    await waitFor(() => {
+      expect(document.head.querySelector("link[data-rion-google-font-preview]")).toBeTruthy();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /Distinctive styles/u }));
     expect(screen.getByRole("button", { name: /Fantasy chronicle/u })).toBeTruthy();
@@ -286,6 +310,7 @@ describe("browser font settings", () => {
 
     renderSettings(onGameBrowserSettingsChange);
     await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await user.click(screen.getByText("Advanced font management"));
     const input = screen.getByRole("textbox", { name: "Google Font family name" });
     await user.type(input, "  Cormorant   Garamond  ");
     await user.click(screen.getByRole("button", { name: "Download font" }));
@@ -295,9 +320,9 @@ describe("browser font settings", () => {
       await screen.findByText("Downloaded Cormorant Garamond. You can now select it above.")
     ).toBeTruthy();
 
-    await user.click(screen.getByRole("combobox", { name: "Font category" }));
-    await user.click(screen.getByRole("option", { name: "Handwriting" }));
     await user.click(screen.getByRole("button", { name: "English & Latin" }));
+    await user.click(screen.getByRole("combobox", { name: "Font category" }));
+    await user.click(screen.getByRole("option", { name: "Sans serif" }));
     const search = await screen.findByRole("textbox", {
       name: "Search system and Google fonts for English & Latin"
     });
@@ -339,6 +364,7 @@ describe("browser font settings", () => {
 
     renderSettings(vi.fn(async (settings) => settings));
     await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await user.click(screen.getByText("Advanced font management"));
     await user.type(
       screen.getByRole("textbox", { name: "Google Font family name" }),
       "Definitely Missing Font"
@@ -407,10 +433,9 @@ describe("browser font settings", () => {
     renderSettings(onGameBrowserSettingsChange);
     await user.click(screen.getByRole("button", { name: "Customize fonts" }));
     await screen.findByText("Distinctive styles");
+    await user.click(screen.getByRole("button", { name: "Chinese & Japanese" }));
     await user.click(screen.getByRole("combobox", { name: "Font category" }));
     await user.click(screen.getByRole("option", { name: "Handwriting" }));
-
-    await user.click(screen.getByRole("button", { name: "Chinese & Japanese" }));
     const search = await screen.findByRole("textbox", {
       name: "Search system and Google fonts for Chinese & Japanese"
     });
@@ -689,6 +714,8 @@ describe("browser font settings", () => {
     expect(onGameBrowserSettingsChange.mock.calls[0][0].fonts.fontSmoothingEnabled).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Reset to system fonts" }));
+    expect(onGameBrowserSettingsChange).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledTimes(2));
     expect(onGameBrowserSettingsChange.mock.calls[1][0].fonts).toEqual({
       ...DEFAULT_GAME_BROWSER_SETTINGS.fonts,

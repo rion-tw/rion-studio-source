@@ -8,13 +8,11 @@ use crate::{
     },
 };
 
-pub const CURRENT_LEGAL_RELEASE: &str = "2026-07-26";
-
 pub fn current_versions() -> LegalDocumentVersionsRecord {
     LegalDocumentVersionsRecord {
-        fair_use: CURRENT_LEGAL_RELEASE.to_owned(),
-        privacy: CURRENT_LEGAL_RELEASE.to_owned(),
-        terms: CURRENT_LEGAL_RELEASE.to_owned(),
+        fair_use: "2026-07-26".to_owned(),
+        privacy: "2026-07-31".to_owned(),
+        terms: "2026-07-26".to_owned(),
     }
 }
 
@@ -65,6 +63,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn advances_only_the_privacy_notice_for_google_font_previews() {
+        let versions = current_versions();
+        assert_eq!(versions.fair_use, "2026-07-26");
+        assert_eq!(versions.privacy, "2026-07-31");
+        assert_eq!(versions.terms, "2026-07-26");
+    }
 
     fn versions() -> LegalDocumentVersionsRecord {
         LegalDocumentVersionsRecord {

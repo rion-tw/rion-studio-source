@@ -71,7 +71,9 @@ describe("Tauri macro overlay injector", () => {
     expect(css).toContain(':host([data-theme="dark"])');
     expect(css).toMatch(/\.active-badge\{[^}]*backdrop-filter:blur\(var\(--blur-popover\)\) saturate\(1\.65\);/);
     expect(css).toMatch(/\.active-badge\{[^}]*radial-gradient\([^}]*var\(--macro-badge-surface\)/);
-    expect(css).toMatch(/\.active-badge\{[^}]*box-shadow:inset 0 1px 0 var\(--macro-badge-highlight\)[^}]*0 5px 16px var\(--macro-badge-shadow\)/);
+    expect(css).toMatch(/\.active-badge\{[^}]*box-shadow:inset 0 1px 0 var\(--macro-badge-highlight\)[^}]*var\(--macro-badge-depth-shadow\)/);
+    expect(css).toMatch(/:host\(\[data-theme="dark"\]\)\{[^}]*--macro-badge-highlight:hsl\(var\(--media-white\)\/\.1\)/);
+    expect(css).toMatch(/:host\(\[data-theme="dark"\]\)\{[^}]*--macro-badge-depth-shadow:0 2px 8px var\(--macro-badge-shadow\)/);
     expect(css).toContain(".active-badge{background:var(--macro-badge-solid);}");
     expect(css).toContain(".active-badge-shortcut{background:var(--macro-badge-shortcut-solid);}");
   });

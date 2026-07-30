@@ -58,6 +58,19 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen;
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow;
 - (void)setRevealLocked:(BOOL)locked;
+- (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier;
+- (void)reserveTabIdentifier:(NSString *)tabIdentifier
+                        name:(NSString *)name
+                        type:(NSString *)type
+           workspaceTemplate:(nullable NSString *)workspaceTemplate;
+- (void)replaceTabIdentifier:(NSString *)provisionalIdentifier
+              withIdentifier:(NSString *)tabIdentifier
+                        name:(NSString *)name
+                        type:(NSString *)type
+           workspaceTemplate:(nullable NSString *)workspaceTemplate
+         activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
+- (void)removeTabIdentifier:(NSString *)tabIdentifier
+         activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)updateState:(RionRuntimeTabsState *)state;
 
 @end
@@ -105,10 +118,25 @@ void rion_runtime_tabs_set_fullscreen_policy(
     void * _Nullable controller, bool alwaysShow);
 void rion_runtime_tabs_set_reveal_locked(
     void * _Nullable controller, bool locked);
+void rion_runtime_tabs_set_active(
+    void * _Nullable controller, const char * _Nullable tabIdentifier);
+void rion_runtime_tabs_reserve(
+    void * _Nullable controller, const char *tabIdentifier,
+    const char *name, const char *type,
+    const char * _Nullable workspaceTemplate);
+void rion_runtime_tabs_replace(
+    void * _Nullable controller, const char *provisionalIdentifier,
+    const char *tabIdentifier, const char *name, const char *type,
+    const char * _Nullable workspaceTemplate,
+    const char * _Nullable activeTabIdentifier);
+void rion_runtime_tabs_remove(
+    void * _Nullable controller, const char *tabIdentifier,
+    const char * _Nullable activeTabIdentifier);
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(
     void * _Nullable controller);
 bool rion_runtime_tabs_action_scope_self_test(void);
 bool rion_runtime_tabs_overflow_layout_self_test(void);
+bool rion_runtime_tabs_shortcut_self_test(void);
 
 #ifdef __cplusplus
 }

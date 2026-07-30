@@ -91,7 +91,9 @@ describe("Tauri shell parity guard", () => {
     expect(menu).toContain('#[cfg(target_os = "macos")]\nfn labels(');
     expect(quickMenu).toContain("restore_saved_game_windows");
     expect(quickMenu).not.toContain("targetDisplay");
-    expect(tabs).toContain("rion-runtime-shortcut://tabs/");
+    expect(tabs).not.toContain("rion-runtime-shortcut://tabs/");
+    expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
+    expect(nativeTabs).toContain("NSEventModifierFlagControl");
     expect(tabs).toContain('unwrap_or(RION_STUDIO_APP_NAME)');
     expect(tabs).toContain("LayoutResizeDivider");
     expect(tabs).toContain("tab_strip_window_for_webview");

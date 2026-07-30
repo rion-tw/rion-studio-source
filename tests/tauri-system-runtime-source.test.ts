@@ -102,7 +102,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(destroyTab).not.toContain("read_scoped_local_storage_entries");
     expect(runtime).toContain("closing_webviews");
     expect(runtime).toContain("closing_roles");
-    expect(runtime).toContain('"surface.isolated"');
+    expect(runtime).toContain('"surface.blank-finished"');
     expect(runtime).toContain('"surface.quiesce-unverified"');
     expect(runtime).toContain('"surface.release-deferred"');
     expect(runtime).toContain('"surface.quarantine-persisted"');
@@ -114,9 +114,10 @@ describe("Tauri System WebView runtime source", () => {
     expect(nativeClose.indexOf("quiesce_platform_surface(webview, lifecycle)")).toBeLessThan(
       nativeClose.indexOf("webview.close()")
     );
-    expect(nativeClose.indexOf("webview.close()")).toBeLessThan(
-      nativeClose.indexOf("wait_for_platform_surface_quiesced(")
+    expect(nativeClose.indexOf("wait_for_isolation(SURFACE_ISOLATION_TIMEOUT)")).toBeLessThan(
+      nativeClose.indexOf("webview.close()")
     );
+    expect(nativeClose).toContain('"surface.controller-close-queued"');
     expect(nativeClose).toContain("SURFACE_ISOLATION_TIMEOUT");
     expect(nativeClose).not.toContain("wait_for_platform_release(");
     expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
@@ -136,16 +137,18 @@ describe("Tauri System WebView runtime source", () => {
       enqueue.indexOf("self.effect_sender")
     );
     expect(enqueue).toContain("is_independent_tab_launch_effect(&effect.action)");
-    expect(enqueue).toContain('"surface-close"');
-    expect(enqueue).toContain('"tab-launch"');
-    expect(enqueue).toContain('format!("rion-{worker_kind}-{effect_id}")');
+    expect(enqueue).toContain(".concurrent_effect_sender");
+    expect(enqueue).toContain(".try_send(ConcurrentRuntimeWork");
+    expect(enqueue).not.toContain("std::thread::Builder::new()");
+    expect(runtime).toContain("for index in 0..8");
+    expect(runtime).toContain("mpsc::sync_channel(64)");
 
     const stopRole = core.slice(
       core.indexOf("fn stop_embedded_role_with_operation_lease("),
       core.indexOf("fn stop_embedded_workspace(")
     );
     expect(stopRole).toContain("request_stop_role(role_id)");
-    expect(stopRole).toContain("Duration::from_secs(3)");
+    expect(stopRole).toContain("Duration::from_secs(12)");
     expect(stopRole).toContain("commit_embedded_runtime_snapshot_without_native_effect");
     expect(stopRole).not.toContain("previous_runtime");
     expect(stopRole).not.toContain("publish_embedded_runtime_snapshot_best_effort");
@@ -161,10 +164,13 @@ describe("Tauri System WebView runtime source", () => {
   });
 
   it("keeps tab interaction responsive while native launch verification is pending", async () => {
-    const [runtime, core, menu, macBridge, macController, windowsStrip] = await Promise.all([
+    const [runtime, core, menu, shell, quickMenu, macBridge, macController, windowsStrip] =
+      await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tab_menu.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/quick_menu.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8"),
       readFile(
         new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
@@ -174,7 +180,7 @@ describe("Tauri System WebView runtime source", () => {
         new URL("../src/renderer/runtime-shell/runtimeTabStrip.ts", import.meta.url),
         "utf8"
       )
-    ]);
+      ]);
 
     expect(runtime).toContain("fn preview_tab_activation(");
     expect(runtime).toContain("fn preview_adjacent_tab_activation(");
@@ -213,11 +219,45 @@ describe("Tauri System WebView runtime source", () => {
     expect(roleLaunch).not.toContain("embedded_window_sequence.acquire");
     expect(roleLaunch).not.toContain("embedded_runtime_sequence.acquire");
     expect(roleLaunch).toContain("commit_embedded_runtime_snapshot_without_native_effect");
+    const createTab = runtime.slice(
+      runtime.indexOf("fn create_tab("),
+      runtime.indexOf("fn load_roles(")
+    );
+    expect(createTab).toContain("reserve_native_tab(");
+    expect(createTab).toContain("previous_surfaces");
+    expect(createTab).toContain('"launch-reserved"');
+    expect(createTab).toContain("remove_native_tab_reservation(");
+    expect(createTab).not.toContain("publish_projection(");
+    expect(createTab.indexOf("webview.navigate(url)")).toBeLessThan(
+      createTab.indexOf("self.resolve_runtime_layout(")
+    );
+    expect(createTab).toContain("role_bounds_for_content(content_metrics, &role.rect)");
+    expect(createTab).toContain("take_tab_launch_preview(");
+    expect(createTab).toContain("selection.tab_order[index] = created_tab_id.clone()");
+    expect(createTab).toContain("replace_native_tab_reservation(");
+    const loadRoles = runtime.slice(runtime.indexOf("fn load_roles("), runtime.indexOf("fn install_overlays("));
+    expect(loadRoles).toContain("current_url.as_ref() != Some(&url)");
+    expect(shell).toContain("TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150)");
+    expect(shell).toContain("tokio::sync::watch::channel(request)");
+    expect(shell).toContain("preview_and_commit_tab_selection");
+    expect(shell).toContain("preview_tab_launch(target, role_id, \"role\")");
+    expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
+    expect(runtime).toContain('"zh-TW" => "載入中…"');
+    expect(runtime).toContain('"launch-preview"');
+    expect(quickMenu).toContain('name("rion-quick-menu-model".to_owned())');
+    expect(quickMenu).toContain("Core and SQLite snapshots are collected on one bounded worker");
+    const quickMenuNativeBuild = quickMenu.slice(
+      quickMenu.indexOf("fn menu(app: &AppHandle, model: &MenuModel)"),
+      quickMenu.indexOf("fn handle_menu_event(")
+    );
+    expect(quickMenuNativeBuild).not.toContain("core.invoke(");
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
     expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
     expect(macBridge).toContain("update_generation: AtomicU64");
     expect(macBridge).toContain("inner.update_generation.load(Ordering::Acquire) != generation");
+    expect(macBridge).toContain("pub fn replace_reservation(");
     expect(macController).toContain("item.activeTab = active;");
+    expect(macController).toContain("replaceTabIdentifier:");
     expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
     expect(macController).not.toContain("nextEventMatchingMask:");
     expect(macController).toContain("- (void)mouseDragged:(NSEvent *)event");
@@ -375,7 +415,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("surface_host_initialization_requires_visible_parent");
     expect(runtime).toContain("set_windows_surface_host_initialization_visibility");
     expect(runtime).toContain("SW_SHOWNOACTIVATE");
-    expect(runtime).toContain("surface-host-main-thread-flush");
+    expect(runtime).not.toContain("surface-host-main-thread-flush");
+    expect(runtime).toContain("WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT");
     expect(runtime).toContain("run_serial_runtime_work_loop");
     expect(runtime).toContain("SYSTEM_WEBVIEW_CREATION_STALLED");
     expect(runtime).toContain("PermissionRequestedEventHandler");
@@ -612,31 +653,40 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf(".on_navigation(move |url| {"),
       runtime.indexOf(".on_new_window(move |url, features|")
     );
-    expect(mainNavigation).toContain("gate_navigation_after_macro_release(");
+    expect(mainNavigation).toContain("allow_navigation_after_macro_release(");
     expect(runtime).toContain('matches!(url.scheme(), "http" | "https")');
-    expect(mainNavigation.indexOf('url.scheme() == "rion-runtime-shortcut"'))
-      .toBeLessThan(mainNavigation.indexOf("gate_navigation_after_macro_release("));
 
-    const navigationGate = runtime.slice(
-      runtime.indexOf("fn gate_navigation_after_macro_release("),
-      runtime.indexOf("fn finish_macro_navigation_release(")
+    const navigationPolicy = runtime.slice(
+      runtime.indexOf("fn allow_navigation_after_macro_release("),
+      runtime.indexOf("fn begin_controlled_navigation(")
     );
-    expect(navigationGate).toContain("navigation_gate_can_resume_in_original_frame(platform)");
-    expect(navigationGate).toContain("release_macros_for_unblocked_navigation(");
-    expect(navigationGate).toContain("MacroNavigationGateDecision::Release");
-    expect(navigationGate).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
-    expect(navigationGate).toContain("webview.navigate(url)");
-    expect(navigationGate.indexOf(".invoke_async(CoreCommand::MacroReleaseRole"))
-      .toBeLessThan(navigationGate.indexOf("webview.navigate(url)"));
-    expect(navigationGate).toContain("SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED");
-    expect(navigationGate).toContain("SYSTEM_NAVIGATION_RESUME_FAILED");
-    expect(runtime).toContain('platform == "windows"');
+    expect(navigationPolicy).toContain("release_macros_for_unblocked_navigation(");
+    expect(navigationPolicy).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
+    expect(navigationPolicy).not.toContain("webview.navigate(url)");
+    expect(navigationPolicy).not.toContain('"url"');
+
+    const windowsDocumentHandler = runtime.slice(
+      runtime.indexOf("fn install_document_navigation_macro_release_handler("),
+      runtime.indexOf("fn complete_windows_document_navigation_deferral(")
+    );
+    expect(windowsDocumentHandler).toContain("WebResourceRequestedEventHandler");
+    expect(windowsDocumentHandler).toContain("AddWebResourceRequestedFilter");
+    expect(windowsDocumentHandler).toContain("COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT");
+    expect(windowsDocumentHandler).toContain("args.GetDeferral()");
+    expect(windowsDocumentHandler).toContain("AgileReference::new(&deferral)");
+    expect(windowsDocumentHandler).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
+    expect(windowsDocumentHandler).toContain("run_on_main_thread");
+    expect(windowsDocumentHandler).not.toContain("navigate(");
+    expect(runtime).toContain("deferral.Complete()");
+    expect(runtime).toContain('should_defer_document_navigation("windows"');
+    expect(runtime.match(/install_document_navigation_macro_release_handler\(/g)?.length)
+      .toBeGreaterThanOrEqual(5);
 
     const popupNavigation = runtime.slice(
       runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("),
       runtime.indexOf(".on_download(move |_webview, event|", runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("))
     );
-    expect(popupNavigation).toContain("gate_navigation_after_macro_release(");
+    expect(popupNavigation).toContain("allow_navigation_after_macro_release(");
 
     const pendingRoute = app.slice(
       app.indexOf("const consumePendingPageRequest"),

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -70,11 +70,135 @@ struct CoreState {
     application_exit_guard: ApplicationExitGuard,
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
+    quick_menu_refresh: quick_menu::RefreshCoordinator,
     runtime: Arc<SystemRuntimeExecutor>,
+    tab_selection_commit: TabSelectionCommitCoordinator,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
     tab_drag_finished: Mutex<VecDeque<String>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
     updates: Arc<update_manager::UpdateManager>,
+}
+
+const TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150);
+const TAB_SELECTION_COMMIT_RETRY_DELAY: Duration = Duration::from_millis(300);
+
+#[derive(Clone, Default)]
+struct TabSelectionCommitCoordinator {
+    workers: Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<TabSelectionCommitRequest>>>>,
+}
+
+#[derive(Clone)]
+struct TabSelectionCommitRequest {
+    app: AppHandle,
+    core: Arc<AppCore>,
+    runtime: Arc<SystemRuntimeExecutor>,
+    tab_id: String,
+    window_id: String,
+}
+
+impl TabSelectionCommitCoordinator {
+    fn request(
+        &self,
+        app: AppHandle,
+        core: Arc<AppCore>,
+        runtime: Arc<SystemRuntimeExecutor>,
+        window_id: String,
+        tab_id: String,
+    ) -> Result<(), String> {
+        let request = TabSelectionCommitRequest {
+            app,
+            core,
+            runtime,
+            tab_id,
+            window_id: window_id.clone(),
+        };
+        let mut workers = self
+            .workers
+            .lock()
+            .map_err(|_| "tab selection commit coordinator lock poisoned".to_owned())?;
+        if let Some(sender) = workers.get(&window_id)
+            && sender.send(request.clone()).is_ok()
+        {
+            return Ok(());
+        }
+        let (sender, receiver) = tokio::sync::watch::channel(request);
+        workers.insert(window_id, sender);
+        tauri::async_runtime::spawn(run_tab_selection_commit_worker(receiver));
+        Ok(())
+    }
+}
+
+async fn run_tab_selection_commit_worker(
+    mut receiver: tokio::sync::watch::Receiver<TabSelectionCommitRequest>,
+) {
+    loop {
+        let request = receiver.borrow_and_update().clone();
+        tokio::time::sleep(TAB_SELECTION_COMMIT_DEBOUNCE).await;
+        match receiver.has_changed() {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(_) => return,
+        }
+        if !request
+            .runtime
+            .tab_selection_is_desired(&request.window_id, &request.tab_id)
+        {
+            if receiver.changed().await.is_err() {
+                return;
+            }
+            continue;
+        }
+        let command = || CoreCommand::EmbeddedTabActivate {
+            tab_id: request.tab_id.clone(),
+        };
+        let mut result = Arc::clone(&request.core).invoke_async(command()).await;
+        if result.is_err() && !receiver.has_changed().unwrap_or(false) {
+            tokio::time::sleep(TAB_SELECTION_COMMIT_RETRY_DELAY).await;
+            if !receiver.has_changed().unwrap_or(false)
+                && request
+                    .runtime
+                    .tab_selection_is_desired(&request.window_id, &request.tab_id)
+            {
+                result = Arc::clone(&request.core).invoke_async(command()).await;
+            }
+        }
+        if let Err(error) = result
+            && !receiver.has_changed().unwrap_or(false)
+            && request
+                .runtime
+                .tab_selection_is_desired(&request.window_id, &request.tab_id)
+        {
+            request.runtime.reconcile_tab_activation(&request.window_id);
+            reveal_shell_error(&request.app, error.payload());
+        }
+        if receiver.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+pub(crate) fn preview_and_commit_tab_selection(
+    app: &AppHandle,
+    state: &CoreState,
+    tab_id: &str,
+) -> Result<(), String> {
+    let window_id = state.runtime.preview_tab_activation(tab_id)?;
+    commit_previewed_tab_selection(app, state, &window_id, tab_id)
+}
+
+pub(crate) fn commit_previewed_tab_selection(
+    app: &AppHandle,
+    state: &CoreState,
+    window_id: &str,
+    tab_id: &str,
+) -> Result<(), String> {
+    state.tab_selection_commit.request(
+        app.clone(),
+        Arc::clone(&state.core),
+        Arc::clone(&state.runtime),
+        window_id.to_owned(),
+        tab_id.to_owned(),
+    )
 }
 
 #[derive(Default)]
@@ -536,6 +660,22 @@ async fn rion_core_invoke(
     };
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
+    let launch_preview = match &command {
+        CoreCommand::BrowserRoleLaunch {
+            role_id, target, ..
+        } => state
+            .runtime
+            .preview_tab_launch(target, role_id, "role")
+            .ok(),
+        CoreCommand::BrowserWorkspaceLaunch {
+            workspace_id,
+            target,
+        } => state
+            .runtime
+            .preview_tab_launch(target, workspace_id, "workspace")
+            .ok(),
+        _ => None,
+    };
     let result = if command.requires_async_dispatch() {
         Arc::clone(&state.core)
             .invoke_async(command)
@@ -551,6 +691,9 @@ async fn rion_core_invoke(
             })?
             .map_err(error_payload)
     };
+    if let Some(key) = launch_preview {
+        state.runtime.cancel_tab_launch_preview(&key);
+    }
     if result.is_ok()
         && let Some(language) = menu_language
     {
@@ -1015,18 +1158,20 @@ async fn rion_shell_invoke(
         }
         "currentWindowState" => Ok(json!({ "fullscreen": window.is_fullscreen()
             .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))? })),
-        "refreshQuickMenu" => quick_menu::refresh(
-            &app,
-            &state.core,
-            &state.runtime,
-            &state
-                .menu_language
-                .lock()
-                .map(|value| value.clone())
-                .unwrap_or_else(|_| "en".to_owned()),
-        )
-        .map(|()| Value::Null)
-        .map_err(|error| shell_error("SHELL_MENU_FAILED", error)),
+        "refreshQuickMenu" => state
+            .quick_menu_refresh
+            .request(
+                app.clone(),
+                Arc::clone(&state.core),
+                Arc::clone(&state.runtime),
+                state
+                    .menu_language
+                    .lock()
+                    .map(|value| value.clone())
+                    .unwrap_or_else(|_| "en".to_owned()),
+            )
+            .map(|()| Value::Null)
+            .map_err(|error| shell_error("SHELL_MENU_FAILED", error)),
         "quitApplication" => {
             app.exit(0);
             Ok(Value::Null)
@@ -1547,14 +1692,9 @@ async fn rion_shell_invoke(
         }
         "showGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            state
-                .runtime
-                .preview_tab_activation(&tab_id)
+            preview_and_commit_tab_selection(&app, &state, &tab_id)
                 .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedTabActivate { tab_id })
-                .await
-                .map_err(error_payload)
+            Ok(Value::Null)
         }
         "moveGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
@@ -1590,11 +1730,9 @@ async fn rion_shell_invoke(
             let command = if hidden {
                 CoreCommand::EmbeddedTabHide { tab_id }
             } else {
-                state
-                    .runtime
-                    .preview_tab_activation(&tab_id)
+                preview_and_commit_tab_selection(&app, &state, &tab_id)
                     .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
-                CoreCommand::EmbeddedTabActivate { tab_id }
+                return Ok(Value::Null);
             };
             Arc::clone(&state.core)
                 .invoke_async(command)
@@ -3862,11 +4000,8 @@ pub fn run() {
                 registration: runtime.registration(),
             })?;
             let receiver = core.subscribe()?;
-            let quick_menu = quick_menu::create(
-                &app.handle().clone(),
-                Arc::clone(&core),
-                Arc::clone(&runtime),
-            )?;
+            let quick_menu_refresh = quick_menu::RefreshCoordinator::default();
+            let quick_menu = quick_menu::create(&app.handle().clone(), Arc::clone(&core))?;
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),
                 app.package_info().version.to_string(),
@@ -3875,6 +4010,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let effect_core = Arc::clone(&core);
             let effect_runtime = Arc::clone(&runtime);
+            let effect_quick_menu_refresh = quick_menu_refresh.clone();
             thread::Builder::new()
                 .name("rion-tauri-core-events".to_owned())
                 .spawn(move || {
@@ -3964,27 +4100,22 @@ pub fn run() {
                                             })
                                     )
                                     {
-                                        let menu_app = app_handle.clone();
-                                        let menu_core = Arc::clone(&effect_core);
-                                        let menu_runtime = Arc::clone(&effect_runtime);
-                                        let _ = app_handle.run_on_main_thread(move || {
-                                            let language = menu_app
-                                                .try_state::<CoreState>()
-                                                .and_then(|state| {
-                                                    state
-                                                        .menu_language
-                                                        .lock()
-                                                        .ok()
-                                                        .map(|value| value.clone())
-                                                })
-                                                .unwrap_or_else(|| "en".to_owned());
-                                            let _ = quick_menu::refresh(
-                                                &menu_app,
-                                                &menu_core,
-                                                &menu_runtime,
-                                                &language,
-                                            );
-                                        });
+                                        let language = app_handle
+                                            .try_state::<CoreState>()
+                                            .and_then(|state| {
+                                                state
+                                                    .menu_language
+                                                    .lock()
+                                                    .ok()
+                                                    .map(|value| value.clone())
+                                            })
+                                            .unwrap_or_else(|| "en".to_owned());
+                                        let _ = effect_quick_menu_refresh.request(
+                                            app_handle.clone(),
+                                            Arc::clone(&effect_core),
+                                            Arc::clone(&effect_runtime),
+                                            language,
+                                        );
                                     }
                                     renderer_events.push(event);
                                 }
@@ -4006,12 +4137,22 @@ pub fn run() {
                 application_exit_guard: ApplicationExitGuard::default(),
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
+                quick_menu_refresh: quick_menu_refresh.clone(),
                 runtime,
+                tab_selection_commit: TabSelectionCommitCoordinator::default(),
                 tab_drag: Mutex::new(None),
                 tab_drag_finished: Mutex::new(VecDeque::new()),
                 tab_drag_lane: tokio::sync::Mutex::new(()),
                 updates,
             });
+            if let Some(state) = app.try_state::<CoreState>() {
+                let _ = state.quick_menu_refresh.request(
+                    app.handle().clone(),
+                    Arc::clone(&state.core),
+                    Arc::clone(&state.runtime),
+                    "en".to_owned(),
+                );
+            }
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = recovery_core.recover_pending_chrome_profile_imports().await {
                     eprintln!("Chrome profile import recovery failed: {error}");

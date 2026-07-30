@@ -4,9 +4,10 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri-only release workflows", () => {
   it("runs common checks and platform validation on macOS and Windows", async () => {
-    const [workflow, packageJsonSource] = await Promise.all([
+    const [workflow, packageJsonSource, windowsLoaderDiagnostic] = await Promise.all([
       readWorkflow(".github/workflows/ci.yml"),
-      readFile("package.json", "utf8")
+      readFile("package.json", "utf8"),
+      readFile("scripts/diagnoseWindowsTestLoader.ps1", "utf8")
     ]);
     const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
     const checks = workflow.slice(
@@ -30,6 +31,15 @@ describe("Tauri-only release workflows", () => {
     expect(checks).not.toContain("run: pnpm run build\n");
     expect(platformChecks).toContain("pnpm run lint:rust");
     expect(platformChecks).toContain("pnpm run test:rust");
+    expect(platformChecks).toContain("id: target_rust_tests");
+    expect(platformChecks).toContain("./scripts/diagnoseWindowsTestLoader.ps1");
+    expect(platformChecks).toContain("steps.target_rust_tests.outcome == 'failure'");
+    expect(platformChecks).toContain("name: windows-rust-test-loader-");
+    expect(platformChecks).toContain("path: diagnostics/windows-test-loader");
+    expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
+    expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
+    expect(windowsLoaderDiagnostic).toContain("/dependents $testBinary.FullName");
+    expect(windowsLoaderDiagnostic).toContain("Copy-Item -LiteralPath $pdbPath");
     expect(platformChecks.indexOf("pnpm run build:renderer"))
       .toBeLessThan(platformChecks.indexOf("pnpm run lint:rust"));
     expect(packageJson.scripts["lint:rust:portable"]).toBe(

@@ -4074,6 +4074,9 @@ pub fn run() {
             let receiver = core.subscribe()?;
             let quick_menu_refresh = quick_menu::RefreshCoordinator::default();
             let runtime_launcher_refresh = runtime_tab_menu::RefreshCoordinator::default();
+            runtime_launcher_refresh
+                .prime(&app.handle().clone(), "en")
+                .map_err(std::io::Error::other)?;
             let quick_menu = quick_menu::create(&app.handle().clone(), Arc::clone(&core))?;
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),

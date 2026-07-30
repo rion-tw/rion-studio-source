@@ -848,22 +848,6 @@ fn finalize_persisted_effect_result(
     result
 }
 
-fn runtime_tab_is_visible(snapshot: &BrowserRuntimeSnapshot, tab_id: &str) -> bool {
-    snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.id == tab_id)
-        .is_some_and(|tab| {
-            !tab.hidden
-                && snapshot
-                    .windows
-                    .iter()
-                    .find(|window| window.window_id == tab.window_id)
-                    .and_then(|window| window.active_tab_id.as_deref())
-                    == Some(tab_id)
-        })
-}
-
 fn successor_tab_after_close(
     ordered_tab_ids: &[String],
     closing_tab_id: &str,
@@ -878,14 +862,6 @@ fn successor_tab_after_close(
         .chain(ordered_tab_ids[..closing_index].iter().rev())
         .find(|tab_id| selectable(tab_id))
         .cloned()
-}
-
-fn core_projection_may_update_selection(
-    effect_revision: u64,
-    desired_revision: u64,
-    desired_is_missing: bool,
-) -> bool {
-    desired_revision == 0 || desired_is_missing || effect_revision >= desired_revision
 }
 
 fn accept_local_storage_sync_sequence(last_accepted: &mut u64, incoming: u64) -> bool {
@@ -983,7 +959,6 @@ struct RuntimeTab {
     workspace_id: Option<String>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
     workspace_template: Option<String>,
-    visible: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1129,14 +1104,15 @@ struct CloseCoordinator {
 struct PresentationRegistry {
     actors: Mutex<HashMap<String, Arc<NativeWindowActor>>>,
     next_revision: AtomicU64,
-    windows: Mutex<HashMap<String, Arc<Mutex<PresentationCoordinator>>>>,
+    windows: Mutex<HashMap<String, Arc<Mutex<WindowPresentationState>>>>,
 }
 
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
-    coordinator: Arc<Mutex<PresentationCoordinator>>,
+    coordinator: Arc<Mutex<WindowPresentationState>>,
     core: Arc<AppCore>,
     focus: bool,
+    next_surface_identities: HashSet<(String, u64)>,
     next_surfaces: Vec<Webview>,
     observed_previous_tab_id: Option<String>,
     observed_previous_surfaces: Vec<Webview>,
@@ -1370,16 +1346,198 @@ impl NativeWindowActor {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TabPresentationPhase {
+    Reserved,
+    Attaching,
+    Loading,
+    Ready,
+    Degraded,
+    Failed,
+}
+
+impl TabPresentationPhase {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Reserved => "reserved",
+            Self::Attaching => "attaching",
+            Self::Loading => "loading",
+            Self::Ready => "ready",
+            Self::Degraded => "degraded",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone)]
+struct TabPresentation {
+    closable: bool,
+    icon_data_url: Option<String>,
+    id: String,
+    phase: TabPresentationPhase,
+    source_id: String,
+    tab_type: String,
+    title: String,
+    workspace_template: Option<String>,
+}
+
+#[derive(Clone)]
+struct SurfacePresentationBinding {
+    generation: u64,
+    instance_id: String,
+    webview: Webview,
+}
+
 #[derive(Clone, Default)]
-struct PresentationCoordinator {
+struct WindowPresentationState {
     aliases: HashMap<String, String>,
     applied_tab_id: Option<String>,
     applied_revision: u64,
-    desired_revision: u64,
-    desired_tab_id: Option<String>,
+    host_visibility: bool,
     in_flight: bool,
+    revision: u64,
     scheduled: bool,
-    tab_order: Vec<String>,
+    selected_tab_id: Option<String>,
+    surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>,
+    tabs: Vec<TabPresentation>,
+}
+
+impl WindowPresentationState {
+    fn tab_ids(&self) -> Vec<String> {
+        self.tabs.iter().map(|tab| tab.id.clone()).collect()
+    }
+
+    fn contains_tab(&self, tab_id: &str) -> bool {
+        self.tabs.iter().any(|tab| tab.id == tab_id)
+    }
+
+    fn insert_tab(&mut self, tab: TabPresentation, revision: u64, select: bool) {
+        let id = tab.id.clone();
+        if let Some(existing) = self.tabs.iter_mut().find(|existing| existing.id == id) {
+            *existing = tab;
+        } else {
+            self.tabs.push(tab);
+        }
+        if select {
+            self.select(Some(id), revision);
+        }
+    }
+
+    fn replace_tab_id(&mut self, provisional_id: &str, mut tab: TabPresentation, revision: u64) {
+        let selected_provisional = self.selected_tab_id.as_deref() == Some(provisional_id);
+        if let Some(index) = self.tabs.iter().position(|item| item.id == provisional_id) {
+            self.aliases
+                .insert(provisional_id.to_owned(), tab.id.clone());
+            let previous_bindings = self.surface_bindings.remove(provisional_id);
+            let replacement_id = tab.id.clone();
+            self.tabs[index] = tab;
+            if let Some(bindings) = previous_bindings {
+                self.surface_bindings
+                    .insert(replacement_id.clone(), bindings);
+            }
+            if selected_provisional {
+                self.select(Some(replacement_id), revision);
+            }
+        } else {
+            tab.phase = TabPresentationPhase::Attaching;
+            self.insert_tab(tab, revision, false);
+        }
+    }
+
+    fn remove_tab(&mut self, tab_id: &str, revision: u64) -> bool {
+        let existed = self.tabs.iter().any(|tab| tab.id == tab_id);
+        self.tabs.retain(|tab| tab.id != tab_id);
+        self.surface_bindings.remove(tab_id);
+        self.aliases
+            .retain(|alias, target| alias != tab_id && target != tab_id);
+        if self.selected_tab_id.as_deref() == Some(tab_id) {
+            self.select(None, revision);
+        }
+        existed
+    }
+
+    fn select(&mut self, tab_id: Option<String>, revision: u64) {
+        self.revision = revision;
+        self.host_visibility = tab_id.is_some();
+        self.selected_tab_id = tab_id;
+    }
+
+    fn update_phase(&mut self, tab_id: &str, phase: TabPresentationPhase) {
+        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            tab.phase = phase;
+        }
+    }
+
+    fn update_metadata(&mut self, tab_id: &str, source_id: &str, tab_type: &str, title: &str) {
+        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            tab.source_id = source_id.to_owned();
+            tab.tab_type = tab_type.to_owned();
+            tab.title = title.to_owned();
+        }
+    }
+
+    fn reorder_known_tabs(&mut self, ordered_tab_ids: &[String]) {
+        let mut positions = ordered_tab_ids
+            .iter()
+            .enumerate()
+            .map(|(index, tab_id)| (tab_id.as_str(), index))
+            .collect::<HashMap<_, _>>();
+        let fallback = ordered_tab_ids.len();
+        self.tabs
+            .sort_by_key(|tab| positions.remove(tab.id.as_str()).unwrap_or(fallback));
+    }
+
+    fn bind_surface(&mut self, tab_id: &str, binding: SurfacePresentationBinding) -> bool {
+        if !self.contains_tab(tab_id) {
+            return false;
+        }
+        let bindings = self.surface_bindings.entry(tab_id.to_owned()).or_default();
+        if let Some(existing) = bindings
+            .iter_mut()
+            .find(|existing| existing.instance_id == binding.instance_id)
+        {
+            *existing = binding;
+        } else {
+            bindings.push(binding);
+        }
+        true
+    }
+
+    fn unbind_surface(&mut self, instance_id: &str) -> bool {
+        let mut removed = false;
+        self.surface_bindings.retain(|_, bindings| {
+            let previous_len = bindings.len();
+            bindings.retain(|binding| binding.instance_id != instance_id);
+            removed |= previous_len != bindings.len();
+            !bindings.is_empty()
+        });
+        removed
+    }
+
+    fn surfaces(&self, tab_id: Option<&str>) -> Vec<Webview> {
+        tab_id
+            .and_then(|tab_id| self.surface_bindings.get(tab_id))
+            .map(|bindings| {
+                bindings
+                    .iter()
+                    .filter(|binding| !binding.instance_id.is_empty())
+                    .map(|binding| binding.webview.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn surface_identities(&self, tab_id: Option<&str>) -> HashSet<(String, u64)> {
+        tab_id
+            .and_then(|tab_id| self.surface_bindings.get(tab_id))
+            .map(|bindings| {
+                bindings
+                    .iter()
+                    .map(|binding| (binding.instance_id.clone(), binding.generation))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Clone)]
@@ -1403,7 +1561,7 @@ impl PresentationRegistry {
         self.next_revision.load(Ordering::Acquire)
     }
 
-    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<PresentationCoordinator>>, String> {
+    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<WindowPresentationState>>, String> {
         let mut windows = self
             .windows
             .lock()
@@ -1411,11 +1569,11 @@ impl PresentationRegistry {
         Ok(Arc::clone(
             windows
                 .entry(window_id.to_owned())
-                .or_insert_with(|| Arc::new(Mutex::new(PresentationCoordinator::default()))),
+                .or_insert_with(|| Arc::new(Mutex::new(WindowPresentationState::default()))),
         ))
     }
 
-    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<PresentationCoordinator>>> {
+    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<WindowPresentationState>>> {
         self.windows
             .lock()
             .ok()
@@ -1433,6 +1591,40 @@ impl PresentationRegistry {
         })
     }
 
+    fn selected_tabs(&self) -> HashMap<String, String> {
+        self.windows
+            .lock()
+            .ok()
+            .map(|windows| {
+                windows
+                    .iter()
+                    .filter_map(|(window_id, state)| {
+                        state
+                            .lock()
+                            .ok()
+                            .and_then(|state| state.selected_tab_id.clone())
+                            .map(|tab_id| (window_id.clone(), tab_id))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn window_contains_tab(&self, window_id: &str, tab_id: &str) -> bool {
+        self.existing(window_id)
+            .and_then(|state| state.lock().ok().map(|state| state.contains_tab(tab_id)))
+            .unwrap_or(false)
+    }
+
+    fn tab(&self, window_id: &str, tab_id: &str) -> Option<TabPresentation> {
+        self.existing(window_id).and_then(|state| {
+            state
+                .lock()
+                .ok()
+                .and_then(|state| state.tabs.iter().find(|tab| tab.id == tab_id).cloned())
+        })
+    }
+
     fn actor(&self, window_id: &str) -> Result<Arc<NativeWindowActor>, String> {
         let mut actors = self
             .actors
@@ -1444,6 +1636,74 @@ impl PresentationRegistry {
         let actor = NativeWindowActor::start(window_id)?;
         actors.insert(window_id.to_owned(), Arc::clone(&actor));
         Ok(actor)
+    }
+
+    fn move_tab(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        target_window_id: &str,
+        revision: u64,
+    ) -> Result<(), String> {
+        if source_window_id == target_window_id {
+            return Ok(());
+        }
+        let source = self
+            .existing(source_window_id)
+            .ok_or_else(|| "The source presentation state was not found.".to_owned())?;
+        let target = self.coordinator(target_window_id)?;
+        let (tab, bindings, was_selected) = {
+            let mut source = source
+                .lock()
+                .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
+            let index = source
+                .tabs
+                .iter()
+                .position(|tab| tab.id == tab_id)
+                .ok_or_else(|| "The moving presentation tab was not found.".to_owned())?;
+            let was_selected = source.selected_tab_id.as_deref() == Some(tab_id);
+            let successor = was_selected
+                .then(|| successor_tab_after_close(&source.tab_ids(), tab_id, |_| true))
+                .flatten();
+            let tab = source.tabs.remove(index);
+            let bindings = source.surface_bindings.remove(tab_id).unwrap_or_default();
+            source
+                .aliases
+                .retain(|alias, target| alias != tab_id && target != tab_id);
+            if was_selected {
+                source.select(successor, revision);
+            }
+            (tab, bindings, was_selected)
+        };
+        let mut target = target
+            .lock()
+            .map_err(|_| "The target presentation state is unavailable.".to_owned())?;
+        if !target.contains_tab(tab_id) {
+            target.tabs.push(tab);
+        }
+        if !bindings.is_empty() {
+            target.surface_bindings.insert(tab_id.to_owned(), bindings);
+        }
+        if was_selected {
+            target.select(Some(tab_id.to_owned()), revision);
+        }
+        Ok(())
+    }
+
+    fn unbind_surface(&self, instance_id: &str) {
+        let windows = self
+            .windows
+            .lock()
+            .ok()
+            .map(|windows| windows.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for window in windows {
+            if let Ok(mut window) = window.lock()
+                && window.unbind_surface(instance_id)
+            {
+                break;
+            }
+        }
     }
 
     fn remove(&self, window_id: &str) {
@@ -1764,16 +2024,6 @@ fn native_effect_scope(effect: &CoreEffectRequest) -> String {
     }
 }
 
-fn runtime_tab_surfaces(tab: &RuntimeTab) -> Vec<Webview> {
-    let mut surfaces = tab
-        .roles
-        .values()
-        .map(|role| role.webview.clone())
-        .collect::<Vec<_>>();
-    surfaces.extend(tab.dividers.iter().map(|divider| divider.webview.clone()));
-    surfaces
-}
-
 #[allow(clippy::too_many_arguments)]
 fn capture_presentation_event(
     core: Arc<AppCore>,
@@ -1838,6 +2088,7 @@ fn apply_native_presentation_batch(
     let tab_id = request.tab_id.clone();
     let previous_tab_id = previous_tab_id.clone();
     let next_surfaces = request.next_surfaces.clone();
+    let next_surface_identities = request.next_surface_identities.clone();
     let active_webview = request.active_webview.clone();
     let window = request.window.clone();
     let window_visibility = request.window_visibility;
@@ -1846,7 +2097,9 @@ fn apply_native_presentation_batch(
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let still_desired = coordinator.lock().ok().is_some_and(|selection| {
-            selection.desired_revision == revision && selection.desired_tab_id == tab_id
+            selection.revision == revision
+                && selection.selected_tab_id == tab_id
+                && selection.surface_identities(tab_id.as_deref()) == next_surface_identities
         });
         if !still_desired {
             let _ = sender.send(NativePresentationOutcome {
@@ -2367,16 +2620,32 @@ impl SystemRuntimeExecutor {
     }
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
-        let changed =
-            self.state
-                .lock()
-                .ok()
-                .and_then(|mut state| {
-                    state.tabs.contains_key(tab_id).then(|| {
-                        state.launch_phases.insert(tab_id.to_owned(), phase) != Some(phase)
-                    })
-                })
-                .unwrap_or(false);
+        let (window_id, changed) = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|mut state| {
+                let window_id = state.tabs.get(tab_id)?.window_id.clone();
+                let changed = state.launch_phases.insert(tab_id.to_owned(), phase) != Some(phase);
+                Some((window_id, changed))
+            })
+            .unwrap_or((String::new(), false));
+        if !window_id.is_empty()
+            && let Some(presentation) = self.presentation.existing(&window_id)
+            && let Ok(mut presentation) = presentation.lock()
+        {
+            presentation.update_phase(
+                tab_id,
+                match phase {
+                    LaunchPhase::Attaching => TabPresentationPhase::Attaching,
+                    LaunchPhase::Navigating => TabPresentationPhase::Loading,
+                    LaunchPhase::EssentialReady
+                    | LaunchPhase::OptionalHydrating
+                    | LaunchPhase::Ready => TabPresentationPhase::Ready,
+                    LaunchPhase::Degraded => TabPresentationPhase::Degraded,
+                },
+            );
+        }
         if changed {
             self.record_runtime_stage(
                 format!("launch-phase:{tab_id}:{}", phase.as_str()),
@@ -2658,12 +2927,39 @@ impl SystemRuntimeExecutor {
             let selected = self
                 .presentation
                 .existing(&window_id)
-                .is_some_and(|presentation| {
-                    presentation.lock().ok().is_some_and(|selection| {
-                        selection.desired_tab_id.as_deref() == Some(tab_id)
+                .and_then(|presentation| {
+                    presentation.lock().ok().map(|mut presentation| {
+                        let bound = presentation.bind_surface(
+                            tab_id,
+                            SurfacePresentationBinding {
+                                generation: 0,
+                                instance_id: surface_instance_id.clone(),
+                                webview: webview.clone(),
+                            },
+                        );
+                        (
+                            bound,
+                            presentation.selected_tab_id.as_deref() == Some(tab_id),
+                        )
                     })
-                });
-            if !selected {
+                })
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                        "The runtime tab presentation disappeared before its divider could bind.",
+                    )
+                })?;
+            if !selected.0 {
+                let _ = self.close_managed_surface_and_wait(
+                    &surface_instance_id,
+                    &format!("{tab_id}:divider:{index}"),
+                );
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
+                    "The runtime tab was removed before its divider could bind.",
+                ));
+            }
+            if !selected.1 {
                 let _ = webview.hide();
             }
             created.push(RuntimeDivider {
@@ -2697,7 +2993,7 @@ impl SystemRuntimeExecutor {
                 presentation
                     .lock()
                     .ok()
-                    .is_some_and(|selection| selection.desired_tab_id.as_deref() == Some(tab_id))
+                    .is_some_and(|selection| selection.selected_tab_id.as_deref() == Some(tab_id))
             })
         {
             let _ = self.request_tab_presentation(tab_id, false, "optional-dividers-attached");
@@ -2839,11 +3135,16 @@ impl SystemRuntimeExecutor {
                 .map(|(role_id, _, _)| role_id.clone())
                 .collect::<Vec<_>>();
             let mut navigation_error = None;
-            for (_, _, navigation) in &pending {
+            for (role_id, _, navigation) in &pending {
                 if let Err(message) = navigation.wait_async().await {
                     navigation_error = Some(message);
                     break;
                 }
+                runtime.record_runtime_stage(
+                    format!("page-finished:{role_id}"),
+                    "completed",
+                    started,
+                );
             }
             let runtime_for_completion = Arc::clone(&runtime);
             let completion = tauri::async_runtime::spawn_blocking(move || {
@@ -3052,8 +3353,20 @@ impl SystemRuntimeExecutor {
         platform_surface_lifecycle_tracker(webview)
     }
 
-    fn setup_role_surface(&self, webview: &Webview) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
-        platform_role_surface_setup(webview)
+    fn setup_role_surface(
+        &self,
+        webview: &Webview,
+        role_id: &str,
+        generation: u64,
+    ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+        platform_role_surface_setup(
+            webview,
+            self.app.clone(),
+            SurfaceFailureTarget::Role {
+                role_id: role_id.to_owned(),
+                generation,
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3204,6 +3517,7 @@ impl SystemRuntimeExecutor {
                 .or_else(|| state.retired_surface_registry.remove(instance_id))
         };
         if let Some(surface) = removed {
+            self.presentation.unbind_surface(instance_id);
             self.record_surface_event(
                 LogLevel::Debug,
                 "surface.released",
@@ -3232,6 +3546,7 @@ impl SystemRuntimeExecutor {
                 .insert(instance_id.to_owned(), surface.clone());
             surface
         };
+        self.presentation.unbind_surface(instance_id);
         self.record_surface_event(
             LogLevel::Debug,
             "surface.lease-retired",
@@ -3402,7 +3717,7 @@ impl SystemRuntimeExecutor {
         };
         #[cfg(target_os = "macos")]
         let result = controller
-            .reserve(tab_id, name, tab_type, workspace_template)
+            .reserve(window_id, tab_id, name, tab_type, workspace_template)
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             });
@@ -3609,6 +3924,11 @@ impl SystemRuntimeExecutor {
             );
             return;
         };
+        let next_surface_identities = presentation
+            .lock()
+            .ok()
+            .map(|state| state.surface_identities(tab_id.as_deref()))
+            .unwrap_or_default();
         let actor = match self.presentation.actor(&window_id) {
             Ok(actor) => actor,
             Err(message) => {
@@ -3631,6 +3951,7 @@ impl SystemRuntimeExecutor {
             coordinator: presentation,
             core: Arc::clone(&self.core),
             focus,
+            next_surface_identities,
             next_surfaces,
             observed_previous_tab_id: previous_tab_id,
             observed_previous_surfaces: previous_surfaces,
@@ -3857,15 +4178,16 @@ impl SystemRuntimeExecutor {
         if source_window_id == target_window_id {
             return Ok(());
         }
-        let runtime_snapshot = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        let tab_was_visible = runtime_tab_is_visible(&runtime_snapshot, tab_id);
+        let tab_was_visible = self
+            .presentation
+            .existing(&source_window_id)
+            .and_then(|presentation| {
+                presentation
+                    .lock()
+                    .ok()
+                    .map(|presentation| presentation.selected_tab_id.as_deref() == Some(tab_id))
+            })
+            .unwrap_or(false);
         let source_window_was_visible = source_window
             .is_visible()
             .map_err(|error| error.to_string())?;
@@ -3998,6 +4320,26 @@ impl SystemRuntimeExecutor {
                 surface,
             );
         }
+        let move_revision = self.presentation.next_revision();
+        if let Err(message) =
+            self.presentation
+                .move_tab(tab_id, &source_window_id, target_window_id, move_revision)
+        {
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(message, rollback_errors));
+        }
         let reveal_result = (|| {
             self.layout_runtime_tab(tab_id)
                 .map_err(|error| error.message)?;
@@ -4062,6 +4404,23 @@ impl SystemRuntimeExecutor {
             }
         }
         if state_committed {
+            if self
+                .presentation
+                .window_contains_tab(target_window_id, tab_id)
+            {
+                let revision = self.presentation.next_revision();
+                if let Err(error) =
+                    self.presentation
+                        .move_tab(tab_id, target_window_id, source_window_id, revision)
+                {
+                    errors.push(format!("presentation rollback: {error}"));
+                }
+            } else if !self
+                .presentation
+                .window_contains_tab(source_window_id, tab_id)
+            {
+                errors.push("presentation tab disappeared during rollback".to_owned());
+            }
             match self.state.lock() {
                 Ok(mut state) => match state.tabs.get_mut(tab_id) {
                     Some(tab) if tab.window_id == target_window_id => {
@@ -5066,6 +5425,7 @@ impl SystemRuntimeExecutor {
             .into_iter()
             .map(|role| (role.id, role.name))
             .collect::<HashMap<_, _>>();
+        let selected_tabs = self.presentation.selected_tabs();
         let (tabs, window_inputs, saved_windows, recovery) = {
             let Ok(state) = self.state.lock() else {
                 return json!({ "windows": [], "tabs": [] });
@@ -5077,14 +5437,9 @@ impl SystemRuntimeExecutor {
                     // The native visibility transaction is the earliest committed source for
                     // the tab the user can actually see. It intentionally leads the core
                     // snapshot while a launch navigation or another effect is still pending.
-                    let active = state.tabs.get(&tab.id).map_or_else(
-                        || {
-                            snapshot.windows.iter().any(|window| {
-                                window.active_tab_id.as_deref() == Some(tab.id.as_str())
-                            })
-                        },
-                        |runtime_tab| runtime_tab.visible,
-                    );
+                    let active = selected_tabs
+                        .get(&tab.window_id)
+                        .is_some_and(|selected| selected == &tab.id);
                     let audio_muted = state
                         .tabs
                         .get(&tab.id)
@@ -5113,15 +5468,10 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .filter_map(|runtime_window| {
                     let host = state.display_hosts.get(&runtime_window.window_id)?;
-                    let presented_active_tab_id = state
-                        .tabs
-                        .iter()
-                        .find(|(tab_id, tab)| {
-                            tab.window_id == runtime_window.window_id
-                                && tab.visible
-                                && !state.optimistic_closed_tabs.contains(*tab_id)
-                        })
-                        .map(|(tab_id, _)| tab_id.clone())
+                    let presented_active_tab_id = selected_tabs
+                        .get(&runtime_window.window_id)
+                        .filter(|tab_id| !state.optimistic_closed_tabs.contains(tab_id.as_str()))
+                        .cloned()
                         .or_else(|| {
                             runtime_window
                                 .active_tab_id
@@ -5248,10 +5598,13 @@ impl SystemRuntimeExecutor {
             return;
         };
         let snapshot = self.snapshot_with_native_tab_locations(snapshot);
+        // Renderer projection and native tab metadata may lag presentation, but neither path
+        // owns topology or selection. Insert/replace/remove/select are committed directly by
+        // WindowPresentationState and therefore never wait for Core or a game page.
         #[cfg(target_os = "macos")]
-        self.sync_native_tab_strip(&snapshot);
+        self.sync_native_tab_metadata(&snapshot);
         #[cfg(windows)]
-        self.sync_windows_tab_strip(&snapshot);
+        self.sync_windows_tab_metadata(&snapshot);
         let _ = self
             .app
             .emit("rion://runtime-state", self.projection(&snapshot));
@@ -5289,8 +5642,8 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> Result<Option<String>, String> {
         let requested_at = Instant::now();
-        let requested = {
-            let mut state = self.state().map_err(|error| error.message)?;
+        let (window_id, window) = {
+            let state = self.state().map_err(|error| error.message)?;
             let provisional = state
                 .provisional_launches
                 .values()
@@ -5306,42 +5659,22 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| "Runtime display host was not found.".to_owned())?
                 .window
                 .clone();
-            let previous_tab_id = state
-                .tabs
-                .iter()
-                .find(|(_, tab)| tab.window_id == window_id && tab.visible)
-                .map(|(candidate_id, _)| candidate_id.clone());
-            let previous_surfaces = previous_tab_id
-                .as_ref()
-                .and_then(|candidate_id| state.tabs.get(candidate_id))
-                .map(runtime_tab_surfaces)
-                .unwrap_or_default();
-            for tab in state
-                .tabs
-                .values_mut()
-                .filter(|tab| tab.window_id == window_id)
-            {
-                tab.visible = false;
-            }
-            let revision = {
-                let presentation = self.presentation.coordinator(&window_id)?;
-                let revision = self.presentation.next_revision();
-                let mut window_state = presentation.lock().map_err(|_| {
-                    "The runtime tab presentation coordinator is unavailable.".to_owned()
-                })?;
-                window_state.desired_revision = revision;
-                window_state.desired_tab_id = Some(tab_id.to_owned());
-                revision
-            };
-            (
-                window_id,
-                window,
-                previous_tab_id,
-                previous_surfaces,
-                revision,
-            )
+            (window_id, window)
         };
-        let (window_id, window, previous_tab_id, previous_surfaces, revision) = requested;
+        let (previous_tab_id, previous_surfaces, revision) = {
+            let presentation = self.presentation.coordinator(&window_id)?;
+            let revision = self.presentation.next_revision();
+            let mut window_state = presentation.lock().map_err(|_| {
+                "The runtime tab presentation coordinator is unavailable.".to_owned()
+            })?;
+            if !window_state.contains_tab(tab_id) {
+                return Ok(None);
+            }
+            let previous_tab_id = window_state.selected_tab_id.clone();
+            let previous_surfaces = window_state.surfaces(previous_tab_id.as_deref());
+            window_state.select(Some(tab_id.to_owned()), revision);
+            (previous_tab_id, previous_surfaces, revision)
+        };
         if matches!(trigger, "native-pointer" | "shortcut") {
             self.remember_native_active_style(&window_id, Some(tab_id));
         } else if trigger != "surface-attached" {
@@ -5372,16 +5705,8 @@ impl SystemRuntimeExecutor {
     ) -> Result<String, String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
-        let (
-            window_id,
-            window,
-            previous_tab_id,
-            previous_surfaces,
-            next_surfaces,
-            active_webview,
-            revision,
-        ) = {
-            let mut state = self.state().map_err(|error| error.message)?;
+        let (window_id, window) = {
+            let state = self.state().map_err(|error| error.message)?;
             if state.optimistic_closed_tabs.contains(tab_id) {
                 return Err("The runtime tab is closing.".to_owned());
             }
@@ -5396,49 +5721,23 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| "Runtime display host was not found.".to_owned())?
                 .window
                 .clone();
-            let previous_tab_id = state
-                .tabs
-                .iter()
-                .find(|(_, candidate)| candidate.window_id == window_id && candidate.visible)
-                .map(|(candidate_id, _)| candidate_id.clone());
-            let previous_surfaces = previous_tab_id
-                .as_ref()
-                .and_then(|previous_id| state.tabs.get(previous_id))
-                .map(runtime_tab_surfaces)
-                .unwrap_or_default();
-            let next_surfaces = state
-                .tabs
-                .get(tab_id)
-                .map(runtime_tab_surfaces)
-                .unwrap_or_default();
-            let active_webview = state
-                .tabs
-                .get(tab_id)
-                .and_then(|tab| tab.roles.values().next())
-                .map(|surface| surface.webview.clone());
-
-            let revision = {
-                let presentation = self.presentation.coordinator(&window_id)?;
-                let revision = self.presentation.next_revision();
-                let mut window_state = presentation.lock().map_err(|_| {
-                    "The runtime tab presentation coordinator is unavailable.".to_owned()
-                })?;
-                window_state.desired_revision = revision;
-                window_state.desired_tab_id = Some(tab_id.to_owned());
-                revision
-            };
-            if let Some(previous_tab_id) = previous_tab_id.as_ref()
-                && previous_tab_id != tab_id
-                && let Some(previous_tab) = state.tabs.get_mut(previous_tab_id)
-            {
-                previous_tab.visible = false;
+            (window_id, window)
+        };
+        let (previous_tab_id, previous_surfaces, next_surfaces, active_webview, revision) = {
+            let presentation = self.presentation.coordinator(&window_id)?;
+            let revision = self.presentation.next_revision();
+            let mut window_state = presentation.lock().map_err(|_| {
+                "The runtime tab presentation coordinator is unavailable.".to_owned()
+            })?;
+            if !window_state.contains_tab(tab_id) {
+                return Err("Runtime tab was not found in the presentation state.".to_owned());
             }
-            if let Some(next_tab) = state.tabs.get_mut(tab_id) {
-                next_tab.visible = true;
-            }
+            let previous_tab_id = window_state.selected_tab_id.clone();
+            let previous_surfaces = window_state.surfaces(previous_tab_id.as_deref());
+            let next_surfaces = window_state.surfaces(Some(tab_id));
+            let active_webview = next_surfaces.first().cloned();
+            window_state.select(Some(tab_id.to_owned()), revision);
             (
-                window_id,
-                window,
                 previous_tab_id,
                 previous_surfaces,
                 next_surfaces,
@@ -5486,14 +5785,14 @@ impl SystemRuntimeExecutor {
                     "The runtime tab presentation coordinator is unavailable.",
                 )
             })?;
-            (selection.desired_tab_id.clone(), selection.desired_revision)
+            (selection.selected_tab_id.clone(), selection.revision)
         };
         if revision == 0 {
             return Ok(());
         }
-        let (window, next_surfaces, active_webview) = {
+        let window = {
             let state = self.state()?;
-            let window = state
+            state
                 .display_hosts
                 .get(window_id)
                 .ok_or_else(|| {
@@ -5503,15 +5802,18 @@ impl SystemRuntimeExecutor {
                     )
                 })?
                 .window
-                .clone();
-            let runtime_tab = tab_id.as_ref().and_then(|tab_id| state.tabs.get(tab_id));
-            (
-                window,
-                runtime_tab.map(runtime_tab_surfaces).unwrap_or_default(),
-                runtime_tab
-                    .and_then(|tab| tab.roles.values().next())
-                    .map(|surface| surface.webview.clone()),
-            )
+                .clone()
+        };
+        let (next_surfaces, active_webview) = {
+            let presentation = coordinator.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The runtime tab presentation coordinator is unavailable.",
+                )
+            })?;
+            let next_surfaces = presentation.surfaces(tab_id.as_deref());
+            let active_webview = next_surfaces.first().cloned();
+            (next_surfaces, active_webview)
         };
         self.dispatch_native_presentation(
             window_id.to_owned(),
@@ -5536,42 +5838,11 @@ impl SystemRuntimeExecutor {
         direction: &str,
     ) -> Result<(String, bool), String> {
         let (candidates, current_tab_id) = {
-            let state = self.state().map_err(|error| error.message)?;
             let presentation = self.presentation.coordinator(window_id)?;
             let window = presentation.lock().map_err(|_| {
                 "The runtime tab presentation coordinator is unavailable.".to_owned()
             })?;
-            let mut candidates = window.tab_order.clone();
-            candidates.retain(|tab_id| {
-                (state
-                    .tabs
-                    .get(tab_id)
-                    .is_some_and(|tab| tab.window_id == window_id)
-                    && !state.optimistic_closed_tabs.contains(tab_id))
-                    || state.provisional_launches.values().any(|launch| {
-                        launch.id == *tab_id && launch.window_id == window_id && !launch.cancelled
-                    })
-            });
-            if candidates.is_empty() {
-                candidates.extend(
-                    state
-                        .tabs
-                        .iter()
-                        .filter(|(tab_id, tab)| {
-                            tab.window_id == window_id
-                                && !state.optimistic_closed_tabs.contains(*tab_id)
-                        })
-                        .map(|(tab_id, _)| tab_id.clone()),
-                );
-            }
-            let current_tab_id = window.desired_tab_id.clone().or_else(|| {
-                state
-                    .tabs
-                    .iter()
-                    .find(|(_, tab)| tab.window_id == window_id && tab.visible)
-                    .map(|(tab_id, _)| tab_id.clone())
-            });
-            (candidates, current_tab_id)
+            (window.tab_ids(), window.selected_tab_id.clone())
         };
         if candidates.is_empty() {
             return Err("The runtime window has no selectable tabs.".to_owned());
@@ -5607,52 +5878,58 @@ impl SystemRuntimeExecutor {
             next_tab_id,
             revision,
         ) = {
-            let mut state = self.state().map_err(|error| error.message)?;
-            let tab = state
-                .tabs
-                .get(tab_id)
-                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-            let window_id = tab.window_id.clone();
-            let was_visible = tab.visible;
-            let original_active_tab_id = state
-                .tabs
-                .iter()
-                .find(|(_, candidate)| candidate.window_id == window_id && candidate.visible)
-                .map(|(candidate_id, _)| candidate_id.clone());
-            let (next_tab_id, revision) = {
+            let (window_id, window) = {
+                let state = self.state().map_err(|error| error.message)?;
+                let tab = state
+                    .tabs
+                    .get(tab_id)
+                    .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+                let window_id = tab.window_id.clone();
+                let window = state
+                    .display_hosts
+                    .get(&window_id)
+                    .ok_or_else(|| "Runtime display host was not found.".to_owned())?
+                    .window
+                    .clone();
+                (window_id, window)
+            };
+            let (
+                original_active_tab_id,
+                previous_surfaces,
+                next_surfaces,
+                active_webview,
+                next_tab_id,
+                revision,
+            ) = {
                 let presentation = self.presentation.coordinator(&window_id)?;
                 let revision = self.presentation.next_revision();
                 let mut window_state = presentation.lock().map_err(|_| {
                     "The runtime tab presentation coordinator is unavailable.".to_owned()
                 })?;
-                if window_state.tab_order.is_empty() {
-                    window_state.tab_order.extend(
-                        state
-                            .tabs
-                            .iter()
-                            .filter(|(_, candidate)| candidate.window_id == window_id)
-                            .map(|(candidate_id, _)| candidate_id.clone()),
-                    );
+                if !window_state.contains_tab(tab_id) {
+                    return Err("Runtime tab was not found in the presentation state.".to_owned());
                 }
-                let next_tab_id = if was_visible {
-                    successor_tab_after_close(&window_state.tab_order, tab_id, |candidate_id| {
-                        state.tabs.get(candidate_id).is_some_and(|candidate| {
-                            candidate.window_id == window_id
-                                && !state.optimistic_closed_tabs.contains(candidate_id)
-                        })
-                    })
+                let original_active_tab_id = window_state.selected_tab_id.clone();
+                let previous_surfaces = window_state.surfaces(original_active_tab_id.as_deref());
+                let next_tab_id = if original_active_tab_id.as_deref() == Some(tab_id) {
+                    successor_tab_after_close(&window_state.tab_ids(), tab_id, |_| true)
                 } else {
                     original_active_tab_id.clone()
                 };
-                window_state.desired_revision = revision;
-                window_state.desired_tab_id = next_tab_id.clone();
-                (next_tab_id, revision)
+                window_state.remove_tab(tab_id, revision);
+                window_state.select(next_tab_id.clone(), revision);
+                let next_surfaces = window_state.surfaces(next_tab_id.as_deref());
+                let active_webview = next_surfaces.first().cloned();
+                (
+                    original_active_tab_id,
+                    previous_surfaces,
+                    next_surfaces,
+                    active_webview,
+                    next_tab_id,
+                    revision,
+                )
             };
-            let host = state
-                .display_hosts
-                .get(&window_id)
-                .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
-            let window = host.window.clone();
+            let mut state = self.state().map_err(|error| error.message)?;
             state.optimistic_closed_tabs.insert(tab_id.to_owned());
             state.close_previews.insert(
                 tab_id.to_owned(),
@@ -5665,33 +5942,6 @@ impl SystemRuntimeExecutor {
                     window_id: window_id.clone(),
                 },
             );
-            if let Some(closing_tab) = state.tabs.get_mut(tab_id) {
-                closing_tab.visible = false;
-            }
-            if was_visible {
-                for (candidate_id, candidate) in state
-                    .tabs
-                    .iter_mut()
-                    .filter(|(_, candidate)| candidate.window_id == window_id)
-                {
-                    candidate.visible = next_tab_id.as_deref() == Some(candidate_id.as_str());
-                }
-            }
-            let next_surfaces = next_tab_id
-                .as_ref()
-                .and_then(|next_id| state.tabs.get(next_id))
-                .map(runtime_tab_surfaces)
-                .unwrap_or_default();
-            let active_webview = next_tab_id
-                .as_ref()
-                .and_then(|next_id| state.tabs.get(next_id))
-                .and_then(|next_tab| next_tab.roles.values().next())
-                .map(|surface| surface.webview.clone());
-            let previous_surfaces = original_active_tab_id
-                .as_ref()
-                .and_then(|active_id| state.tabs.get(active_id))
-                .map(runtime_tab_surfaces)
-                .unwrap_or_default();
             (
                 window,
                 window_id,
@@ -5760,7 +6010,7 @@ impl SystemRuntimeExecutor {
                 presentation
                     .lock()
                     .ok()
-                    .map(|window| (window.desired_tab_id.clone(), window.desired_revision))
+                    .map(|window| (window.selected_tab_id.clone(), window.revision))
             })
             .unwrap_or((None, 0));
         self.record_presentation_event(
@@ -5782,7 +6032,7 @@ impl SystemRuntimeExecutor {
                 presentation
                     .lock()
                     .ok()
-                    .map(|window| window.desired_tab_id.as_deref() == Some(tab_id))
+                    .map(|window| window.selected_tab_id.as_deref() == Some(tab_id))
             })
             .unwrap_or(false)
     }
@@ -5791,6 +6041,7 @@ impl SystemRuntimeExecutor {
         &self,
         mut snapshot: BrowserRuntimeSnapshot,
     ) -> BrowserRuntimeSnapshot {
+        let selected_tabs = self.presentation.selected_tabs();
         let Ok(state) = self.state.lock() else {
             return snapshot;
         };
@@ -5798,20 +6049,6 @@ impl SystemRuntimeExecutor {
             .tabs
             .iter()
             .map(|(tab_id, tab)| (tab_id.as_str(), tab.window_id.as_str()))
-            .collect::<HashMap<_, _>>();
-        let native_active_tabs = state
-            .tabs
-            .iter()
-            .filter(|(tab_id, tab)| tab.visible && !state.optimistic_closed_tabs.contains(*tab_id))
-            .map(|(tab_id, tab)| (tab.window_id.as_str(), tab_id.as_str()))
-            .collect::<HashMap<_, _>>();
-        let provisional_active_tabs = snapshot
-            .tabs
-            .iter()
-            .filter_map(|tab| {
-                let window_id = native_locations.get(tab.id.as_str())?;
-                (**window_id != tab.window_id).then(|| ((*window_id).to_owned(), tab.id.clone()))
-            })
             .collect::<HashMap<_, _>>();
         for tab in &mut snapshot.tabs {
             if let Some(window_id) = native_locations.get(tab.id.as_str()) {
@@ -5840,14 +6077,15 @@ impl SystemRuntimeExecutor {
                 .find(|window| window.window_id == tab.window_id)
                 .expect("native tab window was inserted");
             window.tab_ids.push(tab.id.clone());
-            if native_active_tabs.get(tab.window_id.as_str()).copied() == Some(tab.id.as_str()) {
+            if selected_tabs
+                .get(&tab.window_id)
+                .is_some_and(|selected| selected == &tab.id)
+                && !state.optimistic_closed_tabs.contains(&tab.id)
+            {
                 window.active_tab_id = Some(tab.id.clone());
             }
         }
         for window in &mut snapshot.windows {
-            if let Some(tab_id) = provisional_active_tabs.get(&window.window_id) {
-                window.active_tab_id = Some(tab_id.clone());
-            }
             if window.active_tab_id.is_none() {
                 window.active_tab_id = window
                     .tab_ids
@@ -7325,16 +7563,6 @@ impl SystemRuntimeExecutor {
                 generation,
             )
         };
-        let runtime_snapshot = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
-                    RuntimeError::new("TAURI_RUNTIME_SNAPSHOT_INVALID", error.to_string())
-                })
-            })?;
-        let tab_visible = runtime_tab_is_visible(&runtime_snapshot, &tab_id);
         let local_storage_sync = local_storage_sync.map(|mut config| {
             config.generation = config.generation.saturating_add(1);
             config.token = uuid::Uuid::new_v4().to_string();
@@ -7567,9 +7795,6 @@ impl SystemRuntimeExecutor {
             if audio_muted {
                 set_audio_muted(&webview, true)?;
             }
-            if tab_visible {
-                webview.show().map_err(RuntimeError::tauri)?;
-            }
             Ok(())
         })();
         if let Err(error) = presentation_result {
@@ -7612,6 +7837,7 @@ impl SystemRuntimeExecutor {
                 "A newer System WebView surface superseded this recovery attempt.",
             ));
         }
+        let replacement_webview = webview.clone();
         state
             .tabs
             .get_mut(&tab_id)
@@ -7642,6 +7868,43 @@ impl SystemRuntimeExecutor {
             surface.phase = ManagedSurfacePhase::Live;
         }
         drop(state);
+        let surface_bound = self
+            .presentation
+            .existing(&window_id)
+            .and_then(|presentation| {
+                presentation.lock().ok().map(|mut presentation| {
+                    let bound = presentation.bind_surface(
+                        &tab_id,
+                        SurfacePresentationBinding {
+                            generation,
+                            instance_id: replacement_instance_id.clone(),
+                            webview: replacement_webview.clone(),
+                        },
+                    );
+                    (
+                        bound,
+                        presentation.selected_tab_id.as_deref() == Some(tab_id.as_str()),
+                    )
+                })
+            })
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The runtime tab presentation disappeared before recovery could bind its replacement surface.",
+                )
+            })?;
+        if !surface_bound.0 {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
+                "The runtime tab closed before recovery could bind its replacement surface.",
+            ));
+        }
+        if surface_bound.1 {
+            let _ = self.request_tab_presentation(&tab_id, false, "surface-recovered");
+        } else {
+            let _ = replacement_webview.hide();
+        }
         if let Ok(surface) = self.managed_surface(&replacement_instance_id) {
             self.record_surface_event(
                 LogLevel::Info,
@@ -9995,21 +10258,8 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or("Loading…");
         let revision = self.presentation.next_revision();
-        let (previous_tab_id, previous_surfaces) = {
+        {
             let mut state = self.state()?;
-            let mut previous_tab_id = None;
-            let mut previous_surfaces = Vec::new();
-            for (tab_id, tab) in state
-                .tabs
-                .iter_mut()
-                .filter(|(_, tab)| tab.window_id == target.window_id)
-            {
-                if tab.visible {
-                    previous_tab_id = Some(tab_id.clone());
-                    previous_surfaces.extend(runtime_tab_surfaces(tab));
-                    tab.visible = false;
-                }
-            }
             state.provisional_launches.insert(
                 key.clone(),
                 ProvisionalLaunch {
@@ -10021,25 +10271,38 @@ impl SystemRuntimeExecutor {
                     window_id: target.window_id.clone(),
                 },
             );
-            (previous_tab_id, previous_surfaces)
-        };
-        {
-            let presentation =
-                self.presentation
-                    .coordinator(&target.window_id)
-                    .map_err(|message| {
-                        RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                    })?;
+        }
+        let presentation = self
+            .presentation
+            .coordinator(&target.window_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        let (previous_tab_id, previous_surfaces) = {
             let mut selection = presentation.lock().map_err(|_| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                     "The runtime tab presentation coordinator is unavailable.",
                 )
             })?;
-            selection.tab_order.push(provisional_id.clone());
-            selection.desired_revision = revision;
-            selection.desired_tab_id = Some(provisional_id.clone());
-        }
+            let previous_tab_id = selection.selected_tab_id.clone();
+            let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
+            selection.insert_tab(
+                TabPresentation {
+                    closable: true,
+                    icon_data_url: None,
+                    id: provisional_id.clone(),
+                    phase: TabPresentationPhase::Reserved,
+                    source_id: source_id.to_owned(),
+                    tab_type: tab_type.to_owned(),
+                    title: placeholder_name.to_owned(),
+                    workspace_template: None,
+                },
+                revision,
+                true,
+            );
+            (previous_tab_id, previous_surfaces)
+        };
         if let Err(error) = self.reserve_native_tab(
             &target.window_id,
             &provisional_id,
@@ -10087,13 +10350,13 @@ impl SystemRuntimeExecutor {
         if let Some(presentation) = self.presentation.existing(&provisional.window_id)
             && let Ok(mut selection) = presentation.lock()
         {
-            selection
-                .tab_order
-                .retain(|tab_id| tab_id != &provisional.id);
-            if selection.desired_tab_id.as_deref() == Some(provisional.id.as_str()) {
-                next_tab_id = selection.tab_order.last().cloned();
-                selection.desired_tab_id = next_tab_id.clone();
-                selection.desired_revision = self.presentation.next_revision();
+            let was_selected =
+                selection.selected_tab_id.as_deref() == Some(provisional.id.as_str());
+            let revision = self.presentation.next_revision();
+            selection.remove_tab(&provisional.id, revision);
+            if was_selected {
+                next_tab_id = selection.tabs.last().map(|tab| tab.id.clone());
+                selection.select(next_tab_id.clone(), revision);
             }
         }
         self.remove_native_tab_reservation(
@@ -10125,13 +10388,13 @@ impl SystemRuntimeExecutor {
         if let Some(presentation) = self.presentation.existing(&provisional.window_id)
             && let Ok(mut selection) = presentation.lock()
         {
-            selection
-                .tab_order
-                .retain(|candidate| candidate != &provisional.id);
-            if selection.desired_tab_id.as_deref() == Some(provisional.id.as_str()) {
-                next_tab_id = selection.tab_order.last().cloned();
-                selection.desired_tab_id = next_tab_id.clone();
-                selection.desired_revision = self.presentation.next_revision();
+            let was_selected =
+                selection.selected_tab_id.as_deref() == Some(provisional.id.as_str());
+            let revision = self.presentation.next_revision();
+            selection.remove_tab(&provisional.id, revision);
+            if was_selected {
+                next_tab_id = selection.tabs.last().map(|tab| tab.id.clone());
+                selection.select(next_tab_id.clone(), revision);
             }
         }
         self.remove_native_tab_reservation(
@@ -10245,32 +10508,15 @@ impl SystemRuntimeExecutor {
                 .existing(&target.window_id)
                 .and_then(|presentation| {
                     presentation.lock().ok().map(|selection| {
-                        selection.desired_tab_id.as_deref() == Some(preview.id.as_str())
+                        selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
                     })
                 })
                 .unwrap_or(true)
         });
         let created_tab_id = tab.tab_id.clone();
         let reservation_revision = self.presentation.next_revision();
-        let (previous_tab_id, previous_surfaces) = {
+        {
             let mut state = self.state()?;
-            let mut previous_tab_id = should_select
-                .then(|| launch_preview.as_ref().map(|preview| preview.id.clone()))
-                .flatten();
-            let mut previous_surfaces = Vec::new();
-            if should_select {
-                for (existing_id, existing) in state
-                    .tabs
-                    .iter_mut()
-                    .filter(|(_, existing)| existing.window_id == target.window_id)
-                {
-                    if existing.visible {
-                        previous_tab_id = Some(existing_id.clone());
-                        previous_surfaces.extend(runtime_tab_surfaces(existing));
-                    }
-                    existing.visible = false;
-                }
-            }
             state.tabs.insert(
                 created_tab_id.clone(),
                 RuntimeTab {
@@ -10282,47 +10528,52 @@ impl SystemRuntimeExecutor {
                     workspace_id: tab.workspace_id.clone(),
                     workspace_appearance: tab.workspace_appearance.clone(),
                     workspace_template: tab.workspace_template.clone(),
-                    visible: should_select,
                 },
             );
             state
                 .launch_phases
                 .insert(created_tab_id.clone(), LaunchPhase::Attaching);
-            (previous_tab_id, previous_surfaces)
-        };
-        {
-            let presentation =
-                self.presentation
-                    .coordinator(&target.window_id)
-                    .map_err(|message| {
-                        RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                    })?;
+        }
+        let presentation = self
+            .presentation
+            .coordinator(&target.window_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        let (previous_tab_id, previous_surfaces) = {
             let mut selection = presentation.lock().map_err(|_| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                     "The runtime tab presentation coordinator is unavailable.",
                 )
             })?;
+            let previous_tab_id = selection.selected_tab_id.clone();
+            let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
+            let presentation_tab = TabPresentation {
+                closable: true,
+                icon_data_url: None,
+                id: created_tab_id.clone(),
+                phase: TabPresentationPhase::Attaching,
+                source_id: tab.source_id.clone(),
+                tab_type: tab_type.to_owned(),
+                title: tab.name.clone(),
+                workspace_template: tab.workspace_template.clone(),
+            };
             if let Some(preview) = launch_preview.as_ref() {
-                selection
-                    .aliases
-                    .insert(preview.id.clone(), created_tab_id.clone());
-            }
-            if let Some(preview) = launch_preview.as_ref()
-                && let Some(index) = selection
-                    .tab_order
-                    .iter()
-                    .position(|tab_id| tab_id == &preview.id)
-            {
-                selection.tab_order[index] = created_tab_id.clone();
-            } else if !selection.tab_order.contains(&created_tab_id) {
-                selection.tab_order.push(created_tab_id.clone());
+                selection.replace_tab_id(&preview.id, presentation_tab, reservation_revision);
+                if !should_select
+                    && selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str())
+                {
+                    selection.select(previous_tab_id.clone(), reservation_revision);
+                }
+            } else {
+                selection.insert_tab(presentation_tab, reservation_revision, should_select);
             }
             if should_select {
-                selection.desired_revision = reservation_revision;
-                selection.desired_tab_id = Some(created_tab_id.clone());
+                selection.select(Some(created_tab_id.clone()), reservation_revision);
             }
-        }
+            (previous_tab_id, previous_surfaces)
+        };
         self.record_runtime_stage(
             format!("tab-reserved:{}:{}", target.window_id, created_tab_id),
             "completed",
@@ -10348,7 +10599,7 @@ impl SystemRuntimeExecutor {
                     presentation
                         .lock()
                         .ok()
-                        .and_then(|selection| selection.desired_tab_id.clone())
+                        .and_then(|selection| selection.selected_tab_id.clone())
                 });
         if let Some(preview) = launch_preview.as_ref() {
             let _ = self.replace_native_tab_reservation(
@@ -10469,7 +10720,7 @@ impl SystemRuntimeExecutor {
                 if !first_surface_recorded {
                     first_surface_recorded = true;
                     self.record_runtime_stage(
-                        format!("first-surface-attached:{}", tab.tab_id),
+                        format!("controller-created:{}", tab.tab_id),
                         "completed",
                         launch_started,
                     );
@@ -10478,9 +10729,14 @@ impl SystemRuntimeExecutor {
                 let setup_started = Instant::now();
                 let setup_stage = format!("native-role-setup:{role_id}");
                 self.record_runtime_stage(&setup_stage, "started", setup_started);
-                let lifecycle = match self.setup_role_surface(&webview) {
+                let lifecycle = match self.setup_role_surface(&webview, &role_id, generation) {
                     Ok(lifecycle) => {
                         self.record_runtime_stage(&setup_stage, "completed", setup_started);
+                        self.record_runtime_stage(
+                            format!("native-setup-completed:{role_id}"),
+                            "completed",
+                            launch_started,
+                        );
                         lifecycle
                     }
                     Err(error) => {
@@ -10506,14 +10762,6 @@ impl SystemRuntimeExecutor {
                     .last_mut()
                     .expect("role surface was just registered")
                     .3 = Some(surface_instance_id.clone());
-                let selected =
-                    self.presentation
-                        .existing(&target.window_id)
-                        .is_some_and(|presentation| {
-                            presentation.lock().ok().is_some_and(|selection| {
-                                selection.desired_tab_id.as_deref() == Some(tab.tab_id.as_str())
-                            })
-                        });
                 {
                     let mut state = self.state()?;
                     state.role_tabs.insert(role_id.clone(), tab.tab_id.clone());
@@ -10536,38 +10784,58 @@ impl SystemRuntimeExecutor {
                             local_storage_sync_sequence: 0,
                             navigation: Arc::clone(&navigation),
                             rect: role.rect.clone(),
-                            surface_instance_id,
+                            surface_instance_id: surface_instance_id.clone(),
                             webview: webview.clone(),
                             zoom_factor: base_zoom_factor,
                             zoom_mode: role.zoom_mode.clone(),
                         },
                     );
                 }
-                if selected {
+                let selected = self
+                    .presentation
+                    .existing(&target.window_id)
+                    .and_then(|presentation| {
+                        presentation.lock().ok().map(|mut presentation| {
+                            let bound = presentation.bind_surface(
+                                &tab.tab_id,
+                                SurfacePresentationBinding {
+                                    generation,
+                                    instance_id: surface_instance_id.clone(),
+                                    webview: webview.clone(),
+                                },
+                            );
+                            (
+                                bound,
+                                presentation.selected_tab_id.as_deref()
+                                    == Some(tab.tab_id.as_str()),
+                            )
+                        })
+                    })
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                            "The runtime tab presentation disappeared before surface binding.",
+                        )
+                    })?;
+                if !selected.0 {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
+                        "The runtime tab was removed before its native surface could bind.",
+                    ));
+                }
+                self.record_runtime_stage(
+                    format!("surface-bound:{}:{role_id}", tab.tab_id),
+                    "completed",
+                    launch_started,
+                );
+                if selected.1 {
                     let _ = self.request_tab_presentation(&tab.tab_id, false, "surface-attached");
                 } else {
                     webview.hide().map_err(RuntimeError::tauri)?;
                 }
-                install_document_navigation_macro_release_handler(
-                    &webview,
-                    self.app.clone(),
-                    &role_id,
-                )
-                .and_then(|()| {
-                    install_process_failure_monitor(
-                        &webview,
-                        self.app.clone(),
-                        SurfaceFailureTarget::Role {
-                            role_id: role_id.clone(),
-                            generation,
-                        },
-                    )
-                })
-                .and_then(|()| {
-                    webview
-                        .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
-                        .map_err(RuntimeError::tauri)
-                })?;
+                webview
+                    .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
+                    .map_err(RuntimeError::tauri)?;
                 let url = checked_web_url(&role.role.launch_url)?;
                 let navigation_allowed = {
                     let state = self.state()?;
@@ -10599,7 +10867,7 @@ impl SystemRuntimeExecutor {
                 if !first_navigation_recorded {
                     first_navigation_recorded = true;
                     self.record_runtime_stage(
-                        format!("first-navigation-started:{}", tab.tab_id),
+                        format!("navigation-requested:{}", tab.tab_id),
                         "completed",
                         launch_started,
                     );
@@ -10665,6 +10933,11 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if result.is_err() {
+            if let Some(presentation) = self.presentation.existing(&target.window_id)
+                && let Ok(mut presentation) = presentation.lock()
+            {
+                presentation.update_phase(&created_tab_id, TabPresentationPhase::Failed);
+            }
             let controlled_labels = created_surfaces
                 .iter()
                 .map(|(_, webview, _, _)| webview.label().to_owned())
@@ -10690,14 +10963,15 @@ impl SystemRuntimeExecutor {
             if let Some(presentation) = self.presentation.existing(&target.window_id)
                 && let Ok(mut selection) = presentation.lock()
             {
-                selection
-                    .tab_order
-                    .retain(|tab_id| tab_id != &created_tab_id);
-                if selection.desired_tab_id.as_deref() == Some(created_tab_id.as_str()) {
-                    selection.desired_tab_id = selection.tab_order.last().cloned();
-                    selection.desired_revision = self.presentation.next_revision();
+                let was_selected =
+                    selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str());
+                let revision = self.presentation.next_revision();
+                selection.remove_tab(&created_tab_id, revision);
+                if was_selected {
+                    let successor = selection.tabs.last().map(|tab| tab.id.clone());
+                    selection.select(successor, revision);
                 }
-                next_tab_id = selection.desired_tab_id.clone();
+                next_tab_id = selection.selected_tab_id.clone();
             }
             if let Some(next_tab_id) = next_tab_id.as_deref() {
                 let _ = self.request_tab_presentation(next_tab_id, false, "launch-failed");
@@ -10714,7 +10988,7 @@ impl SystemRuntimeExecutor {
                     .existing(&target.window_id)
                     .is_some_and(|presentation| {
                         presentation.lock().ok().is_some_and(|window| {
-                            window.desired_tab_id.as_deref() == Some(created_tab_id.as_str())
+                            window.selected_tab_id.as_deref() == Some(created_tab_id.as_str())
                         })
                     });
             if remains_selected {
@@ -10906,7 +11180,7 @@ impl SystemRuntimeExecutor {
         reveal_window_ids: &[String],
         focus_window_ids: &[String],
         focus_tab_id: Option<&str>,
-        presentation_revision: u64,
+        _presentation_revision: u64,
     ) -> RuntimeResult<()> {
         struct TabUpdate {
             window_id: String,
@@ -10938,30 +11212,6 @@ impl SystemRuntimeExecutor {
             None
         };
 
-        let active_tabs = snapshot
-            .windows
-            .iter()
-            .filter_map(|window| {
-                window
-                    .active_tab_id
-                    .as_ref()
-                    .map(|tab_id| (window.window_id.as_str(), tab_id.as_str()))
-            })
-            .collect::<HashMap<_, _>>();
-        let provisional_tab_ids = self
-            .state()?
-            .provisional_launches
-            .values()
-            .filter(|launch| !launch.cancelled)
-            .fold(
-                HashMap::<String, HashSet<String>>::new(),
-                |mut tabs, launch| {
-                    tabs.entry(launch.window_id.clone())
-                        .or_default()
-                        .insert(launch.id.clone());
-                    tabs
-                },
-            );
         let presentation_windows = {
             let mut windows = HashMap::new();
             for runtime_window in &snapshot.windows {
@@ -10977,33 +11227,25 @@ impl SystemRuntimeExecutor {
                         "The runtime tab presentation coordinator is unavailable.",
                     )
                 })?;
-                window.tab_order = runtime_window.tab_ids.clone();
-                if let Some(provisional_ids) = provisional_tab_ids.get(&runtime_window.window_id) {
-                    let missing = provisional_ids
-                        .iter()
-                        .filter(|tab_id| !window.tab_order.contains(*tab_id))
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    window.tab_order.extend(missing);
+                for snapshot_tab in snapshot
+                    .tabs
+                    .iter()
+                    .filter(|tab| tab.window_id == runtime_window.window_id)
+                {
+                    window.update_metadata(
+                        &snapshot_tab.id,
+                        &snapshot_tab.source_id,
+                        &snapshot_tab.tab_type,
+                        &snapshot_tab.name,
+                    );
                 }
-                window.aliases.retain(|_, target| {
-                    runtime_window.tab_ids.contains(target)
-                        || provisional_tab_ids
-                            .get(&runtime_window.window_id)
-                            .is_some_and(|tab_ids| tab_ids.contains(target))
-                });
-                let desired_is_missing = window
-                    .desired_tab_id
-                    .as_ref()
-                    .is_some_and(|tab_id| !window.tab_order.contains(tab_id));
-                if core_projection_may_update_selection(
-                    presentation_revision,
-                    window.desired_revision,
-                    desired_is_missing,
-                ) {
-                    window.desired_revision = presentation_revision;
-                    window.desired_tab_id = runtime_window.active_tab_id.clone();
-                }
+                // Core may persist ordering and metadata, but it must never delete a newer
+                // provisional/closing presentation entry or overwrite the local selection.
+                window.reorder_known_tabs(&runtime_window.tab_ids);
+                let local_ids = window.tab_ids();
+                window
+                    .aliases
+                    .retain(|_, target| local_ids.contains(target));
                 windows.insert(runtime_window.window_id.clone(), window.clone());
             }
             windows
@@ -11117,17 +11359,6 @@ impl SystemRuntimeExecutor {
                     }
                 }
             }
-            let optimistic_closed_tabs = state.optimistic_closed_tabs.clone();
-            for (tab_id, runtime_tab) in &mut state.tabs {
-                if !presentation_reconcile_windows.contains(&runtime_tab.window_id) {
-                    continue;
-                }
-                runtime_tab.visible = presentation_windows
-                    .get(&runtime_tab.window_id)
-                    .and_then(|window| window.desired_tab_id.as_deref())
-                    == Some(tab_id.as_str())
-                    && !optimistic_closed_tabs.contains(tab_id);
-            }
             let moved_registry_surfaces = state
                 .surface_registry
                 .values()
@@ -11211,18 +11442,12 @@ impl SystemRuntimeExecutor {
                     let window_id = &host.target.window_id;
                     let presentation_window = presentation_windows.get(window_id);
                     let active_tab = presentation_window
-                        .and_then(|selection| selection.desired_tab_id.as_deref())
+                        .and_then(|selection| selection.selected_tab_id.as_deref())
                         .filter(|tab_id| {
                             state.tabs.get(*tab_id).is_some_and(|tab| {
                                 tab.window_id == *window_id
                                     && !state.optimistic_closed_tabs.contains(*tab_id)
                             })
-                        })
-                        .or_else(|| {
-                            presentation_window
-                                .is_none()
-                                .then(|| active_tabs.get(window_id.as_str()).copied())
-                                .flatten()
                         });
                     let title = game_window_names
                         .get(window_id)
@@ -11237,16 +11462,11 @@ impl SystemRuntimeExecutor {
                             })
                         })
                         .map(|title| native_runtime_window_title(&title).to_owned());
-                    let has_visible_active = active_tab.is_some_and(|tab_id| {
-                        snapshot
-                            .tabs
-                            .iter()
-                            .any(|tab| tab.id == tab_id && !tab.hidden)
-                    });
                     HostUpdate {
                         presentation: host.target.presentation.clone(),
                         reveal: reveal_window_ids.contains(window_id),
-                        retain_visibility: has_visible_active || active_tab.is_none(),
+                        retain_visibility: presentation_window
+                            .is_some_and(|presentation| presentation.host_visibility),
                         title,
                         window: host.window.clone(),
                     }
@@ -11301,7 +11521,7 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(target_os = "macos")]
-    fn sync_native_tab_strip(&self, snapshot: &BrowserRuntimeSnapshot) {
+    fn sync_native_tab_metadata(&self, snapshot: &BrowserRuntimeSnapshot) {
         let preferences = crate::runtime_tabs_macos::runtime_window_preferences(&self.core);
         let language = self
             .language
@@ -11336,39 +11556,24 @@ impl SystemRuntimeExecutor {
             .iter()
             .map(|role| (role.id.as_str(), role.game_id.as_str()))
             .collect::<HashMap<_, _>>();
-        let Ok(state) = self.state.lock() else {
-            return;
-        };
-        let updates = state
-            .display_hosts
-            .values()
-            .map(|host| {
-                let window_id = &host.target.window_id;
-                let snapshot_active_id = snapshot
-                    .windows
-                    .iter()
-                    .find(|window| &window.window_id == window_id)
-                    .and_then(|window| window.active_tab_id.as_deref());
-                let desired_active_id =
-                    self.presentation
-                        .existing(window_id)
-                        .and_then(|presentation| {
-                            presentation
-                                .lock()
-                                .ok()
-                                .and_then(|selection| selection.desired_tab_id.clone())
-                        });
-                let active_id = desired_active_id.as_deref().or(snapshot_active_id);
-                let tabs = snapshot
+        let selected_tabs = self.presentation.selected_tabs();
+        let updates = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| {
+                snapshot
                     .tabs
                     .iter()
-                    .filter(|tab| {
-                        &tab.window_id == window_id
-                            && !tab.hidden
-                            && !state.optimistic_closed_tabs.contains(&tab.id)
-                    })
+                    .filter(|tab| !tab.hidden && !state.optimistic_closed_tabs.contains(&tab.id))
                     .filter_map(|tab| {
                         let live = state.tabs.get(&tab.id)?;
+                        let presented = self.presentation.tab(&live.window_id, &tab.id)?;
+                        let controller = state
+                            .display_hosts
+                            .get(&live.window_id)?
+                            .tabs_controller
+                            .clone();
                         let names = tab
                             .role_ids
                             .iter()
@@ -11384,61 +11589,61 @@ impl SystemRuntimeExecutor {
                         } else {
                             tab.name.clone()
                         };
-                        let icon_data_url = tab.role_ids.first().and_then(|role_id| {
-                            role_games
-                                .get(role_id.as_str())
-                                .and_then(|game_id| game_icons.get(*game_id))
-                                .map(|value| (*value).to_owned())
+                        let icon_data_url = presented.icon_data_url.clone().or_else(|| {
+                            tab.role_ids.first().and_then(|role_id| {
+                                role_games
+                                    .get(role_id.as_str())
+                                    .and_then(|game_id| game_icons.get(*game_id))
+                                    .map(|value| (*value).to_owned())
+                            })
                         });
-                        Some(crate::runtime_tabs_macos::MacRuntimeTabState {
-                            active: active_id == Some(tab.id.as_str()),
-                            audio_muted: live.audio_muted,
-                            audible: runtime_tab_is_audible(&state, live),
-                            icon_data_url,
-                            id: tab.id.clone(),
-                            name: tab.name.clone(),
-                            tooltip,
-                            tab_type: tab.tab_type.clone(),
-                            workspace_template: live.workspace_template.clone(),
-                        })
+                        let _presentation_identity =
+                            (presented.source_id.as_str(), presented.phase.as_str());
+                        Some((
+                            controller,
+                            !presented.closable,
+                            crate::runtime_tabs_macos::MacRuntimeTabState {
+                                active: selected_tabs
+                                    .get(&live.window_id)
+                                    .is_some_and(|selected| selected == &tab.id),
+                                audio_muted: live.audio_muted,
+                                audible: runtime_tab_is_audible(&state, live),
+                                icon_data_url,
+                                id: tab.id.clone(),
+                                name: presented.title,
+                                tooltip,
+                                tab_type: presented.tab_type,
+                                workspace_template: presented
+                                    .workspace_template
+                                    .or_else(|| live.workspace_template.clone()),
+                            },
+                        ))
                     })
-                    .collect::<Vec<_>>();
-                (host.tabs_controller.clone(), window_id.clone(), tabs)
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>();
-        drop(state);
-        for (controller, window_id, tabs) in updates {
-            let _ = controller.update(
-                &window_id,
-                tabs,
+            .unwrap_or_default();
+        for (controller, presentation_hides_close, tab) in updates {
+            let _ = controller.update_metadata(
+                tab,
                 preferences.always_show_toolbar_in_full_screen,
-                preferences.always_hide_tab_close_button,
+                preferences.always_hide_tab_close_button || presentation_hides_close,
                 &language,
             );
         }
     }
 
     #[cfg(windows)]
-    fn sync_windows_tab_strip(&self, snapshot: &BrowserRuntimeSnapshot) {
-        let projection = self.projection(snapshot);
+    fn sync_windows_tab_metadata(&self, snapshot: &BrowserRuntimeSnapshot) {
         let language = self
             .language
             .lock()
             .map(|value| value.clone())
             .unwrap_or_else(|_| "en".to_owned());
-        let resolved_theme = self
-            .resolved_theme
-            .lock()
-            .map(|value| value.clone())
-            .unwrap_or_else(|_| "light".to_owned());
         let preferences = self
             .core
             .invoke(CoreCommand::RuntimeWindowPreferencesGet)
             .unwrap_or(Value::Null);
         let always_hide_tab_close_button = preferences["alwaysHideTabCloseButton"]
-            .as_bool()
-            .unwrap_or(false);
-        let always_show = preferences["alwaysShowToolbarInFullScreen"]
             .as_bool()
             .unwrap_or(false);
         let roles = self
@@ -11463,80 +11668,91 @@ impl SystemRuntimeExecutor {
                     .map(|icon| (role.id.as_str(), icon))
             })
             .collect::<HashMap<_, _>>();
-        let displays = self
-            .app
-            .get_webview_window("main")
-            .and_then(|window| crate::display_inventory(&window).ok())
-            .unwrap_or_else(|| Value::Array(Vec::new()));
+        let role_names = roles
+            .iter()
+            .map(|role| (role.id.as_str(), role.name.as_str()))
+            .collect::<HashMap<_, _>>();
+        let (muted_label, playing_label, close_label) = match language.as_str() {
+            "zh-TW" => ("分頁已靜音", "正在播放聲音", "停止並關閉分頁"),
+            "zh-CN" => ("标签页已静音", "正在播放声音", "停止并关闭标签页"),
+            "ja" => ("タブはミュート中", "音声を再生中", "停止してタブを閉じる"),
+            _ => ("Tab muted", "Playing audio", "Stop and close tab"),
+        };
         let updates = self
             .state
             .lock()
             .ok()
             .map(|state| {
-                state
-                    .display_hosts
-                    .values()
-                    .map(|host| {
-                        let tab_icons = snapshot
-                            .tabs
+                snapshot
+                    .tabs
+                    .iter()
+                    .filter(|tab| {
+                        !tab.hidden && !state.optimistic_closed_tabs.contains(&tab.id)
+                    })
+                    .filter_map(|tab| {
+                        let live = state.tabs.get(&tab.id)?;
+                        let presented = self.presentation.tab(&live.window_id, &tab.id)?;
+                        let tab_strip = state.display_hosts.get(&live.window_id)?.tab_strip.clone();
+                        let names = tab
+                            .role_ids
                             .iter()
-                            .filter_map(|snapshot_tab| {
-                                snapshot_tab
-                                    .role_ids
-                                    .first()
-                                    .and_then(|role_id| icons.get(role_id.as_str()))
-                                    .map(|icon| {
-                                        (snapshot_tab.id.clone(), Value::String(icon.clone()))
-                                    })
-                            })
-                            .collect::<serde_json::Map<_, _>>();
-                        let templates = snapshot
-                            .tabs
-                            .iter()
-                            .filter_map(|snapshot_tab| {
-                                state.tabs.get(&snapshot_tab.id).and_then(|live| {
-                                    live.workspace_template.as_ref().map(|template| {
-                                        (snapshot_tab.id.clone(), Value::String(template.clone()))
-                                    })
-                                })
-                            })
-                            .collect::<serde_json::Map<_, _>>();
-                        let fullscreen = host.window.is_fullscreen().unwrap_or(false);
-                        let mut tab_strip_state = projection.clone();
-                        if let Some(object) = tab_strip_state.as_object_mut() {
-                            object.insert(
-                                "alwaysHideTabCloseButton".to_owned(),
-                                json!(always_hide_tab_close_button),
-                            );
-                            object.insert(
-                                "alwaysShowToolbarInFullScreen".to_owned(),
-                                json!(always_show),
-                            );
-                            object.insert("displayId".to_owned(), json!(host.target.display_id));
-                            object.insert("windowId".to_owned(), json!(host.target.window_id));
-                            object.insert("displays".to_owned(), displays.clone());
-                            object.insert("fullscreen".to_owned(), json!(fullscreen));
-                            object.insert("language".to_owned(), json!(language));
-                            object.insert("resolvedTheme".to_owned(), json!(resolved_theme));
-                            object.insert("tabIconDataUrls".to_owned(), Value::Object(tab_icons));
-                            object.insert(
-                                "tabWorkspaceTemplates".to_owned(),
-                                Value::Object(templates),
-                            );
-                            object.insert(
-                                "toolbarVisible".to_owned(),
-                                json!(!fullscreen || always_show || host.toolbar_revealed),
-                            );
-                            object.insert("windowFullscreen".to_owned(), json!(fullscreen));
-                        }
-                        (host.tab_strip.clone(), tab_strip_state)
+                            .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
+                            .collect::<Vec<_>>();
+                        let tooltip = if tab.tab_type == "workspace" && !names.is_empty() {
+                            let separator = if matches!(language.as_str(), "zh-TW" | "zh-CN") {
+                                "："
+                            } else {
+                                ":"
+                            };
+                            format!("{}{separator}{}", tab.name, names.join(", "))
+                        } else {
+                            tab.name.clone()
+                        };
+                        let icon_data_url = presented.icon_data_url.clone().or_else(|| {
+                            tab.role_ids
+                                .first()
+                                .and_then(|role_id| icons.get(role_id.as_str()))
+                                .cloned()
+                        });
+                        Some((
+                            tab_strip,
+                            json!({
+                                "id": tab.id,
+                                "name": presented.title,
+                                "type": presented.tab_type,
+                                "sourceId": presented.source_id,
+                                "phase": presented.phase.as_str(),
+                                "tooltip": tooltip,
+                                "iconDataUrl": icon_data_url,
+                                "audible": runtime_tab_is_audible(&state, live),
+                                "audioMuted": live.audio_muted,
+                                "hideCloseButton": always_hide_tab_close_button || !presented.closable,
+                                "mutedLabel": muted_label,
+                                "playingLabel": playing_label,
+                                "closeLabel": close_label,
+                            }),
+                        ))
                     })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        for (webview, tab_strip_state) in updates {
+        let batches = updates.into_iter().fold(
+            HashMap::<String, (Webview, Vec<Value>)>::new(),
+            |mut batches, (webview, metadata)| {
+                batches
+                    .entry(webview.label().to_owned())
+                    .or_insert_with(|| (webview.clone(), Vec::new()))
+                    .1
+                    .push(metadata);
+                batches
+            },
+        );
+        for (_, (webview, metadata)) in batches {
+            let Ok(metadata) = serde_json::to_string(&metadata) else {
+                continue;
+            };
             let _ = webview.eval(format!(
-                "window.__rionApplyRuntimeTabState?.({tab_strip_state});"
+                "window.__rionUpdateRuntimeTabMetadataBatch?.({metadata});"
             ));
         }
     }
@@ -14809,152 +15025,18 @@ fn install_document_navigation_macro_release_handler(
     app: AppHandle,
     role_id: &str,
 ) -> RuntimeResult<()> {
-    use webview2_com::{
-        Microsoft::Web::WebView2::Win32::{
-            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT, ICoreWebView2,
-        },
-        WebResourceRequestedEventHandler,
-    };
-    use windows::core::{AgileReference, HSTRING};
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 
     let webview_label = webview.label().to_owned();
     let role_id = role_id.to_owned();
-    let callback_app = app.clone();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let handler = WebResourceRequestedEventHandler::create(Box::new(move |_core, args| {
-                let Some(args) = args else {
-                    return Ok(());
-                };
-                let Some(state) = callback_app.try_state::<crate::CoreState>() else {
-                    return Ok(());
-                };
-                if !state
-                    .runtime
-                    .should_defer_windows_document_navigation(&webview_label)
-                {
-                    return Ok(());
-                }
-                let deferral = match args.GetDeferral() {
-                    Ok(deferral) => deferral,
-                    Err(error) => {
-                        emit_windows_document_navigation_error(
-                            &callback_app,
-                            "SYSTEM_NAVIGATION_DEFERRAL_FAILED",
-                            "The Windows document request could not be deferred and was allowed to continue.",
-                            &role_id,
-                            &webview_label,
-                            &error.to_string(),
-                        );
-                        return Ok(());
-                    }
-                };
-                let completed = Arc::new(AtomicBool::new(false));
-                let deferral = match AgileReference::new(&deferral) {
-                    Ok(deferral) => deferral,
-                    Err(error) => {
-                        emit_windows_document_navigation_error(
-                            &callback_app,
-                            "SYSTEM_NAVIGATION_DEFERRAL_FAILED",
-                            "The Windows document request deferral could not be marshalled and was allowed to continue.",
-                            &role_id,
-                            &webview_label,
-                            &error.to_string(),
-                        );
-                        if let Err(error) = complete_navigation_deferral_once(&completed, || {
-                            deferral.Complete()
-                        }) {
-                            emit_windows_document_navigation_error(
-                                &callback_app,
-                                "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
-                                "The Windows document request deferral could not be completed.",
-                                &role_id,
-                                &webview_label,
-                                &error.to_string(),
-                            );
-                        }
-                        return Ok(());
-                    }
-                };
-                let core = Arc::clone(&state.core);
-                let release_app = callback_app.clone();
-                let release_role_id = role_id.clone();
-                let release_webview_label = webview_label.clone();
-                tauri::async_runtime::spawn(async move {
-                    let release = core
-                        .invoke_async(CoreCommand::MacroReleaseRole {
-                            role_id: release_role_id.clone(),
-                        })
-                        .await;
-                    if let Err(error) = release {
-                        emit_windows_document_navigation_error(
-                            &release_app,
-                            "SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED",
-                            "Macro input could not be released before a Windows document request; the original request was allowed to continue.",
-                            &release_role_id,
-                            &release_webview_label,
-                            &error.to_string(),
-                        );
-                    }
-                    let scheduled_deferral = deferral.clone();
-                    let scheduled_completed = Arc::clone(&completed);
-                    let completion_app = release_app.clone();
-                    let completion_role_id = release_role_id.clone();
-                    let completion_webview_label = release_webview_label.clone();
-                    let scheduling = release_app.run_on_main_thread(move || {
-                        if let Err(error) = complete_windows_document_navigation_deferral(
-                            &scheduled_deferral,
-                            &scheduled_completed,
-                        ) {
-                            emit_windows_document_navigation_error(
-                                &completion_app,
-                                "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
-                                "The Windows document request deferral could not be completed.",
-                                &completion_role_id,
-                                &completion_webview_label,
-                                &error,
-                            );
-                        }
-                    });
-                    if let Err(error) = scheduling {
-                        emit_windows_document_navigation_error(
-                            &release_app,
-                            "SYSTEM_NAVIGATION_DEFERRAL_SCHEDULE_FAILED",
-                            "The Windows document request could not be resumed on the main thread; an immediate completion was attempted.",
-                            &release_role_id,
-                            &release_webview_label,
-                            &error.to_string(),
-                        );
-                        if let Err(error) = complete_windows_document_navigation_deferral(
-                            &deferral,
-                            &completed,
-                        ) {
-                            emit_windows_document_navigation_error(
-                                &release_app,
-                                "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
-                                "The Windows document request deferral could not be completed.",
-                                &release_role_id,
-                                &release_webview_label,
-                                &error,
-                            );
-                        }
-                    }
-                });
-                Ok(())
-            }));
             let result = platform_webview
                 .controller()
                 .CoreWebView2()
                 .and_then(|core: ICoreWebView2| {
-                    for pattern in ["http://*", "https://*"] {
-                        core.AddWebResourceRequestedFilter(
-                            &HSTRING::from(pattern),
-                            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
-                        )?;
-                    }
-                    let mut token = 0;
-                    core.add_WebResourceRequested(&handler, &mut token)
+                    register_windows_document_navigation_handler(&core, app, role_id, webview_label)
                 })
                 .map_err(|error| error.to_string());
             let _ = sender.send(result);
@@ -14969,6 +15051,148 @@ fn install_document_navigation_macro_release_handler(
             )
         })?
         .map_err(|message| RuntimeError::new("SYSTEM_NAVIGATION_HANDLER_FAILED", message))
+}
+
+#[cfg(windows)]
+unsafe fn register_windows_document_navigation_handler(
+    core_webview: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    callback_app: AppHandle,
+    role_id: String,
+    webview_label: String,
+) -> windows::core::Result<()> {
+    use webview2_com::{
+        Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
+        WebResourceRequestedEventHandler,
+    };
+    use windows::core::{AgileReference, HSTRING};
+
+    let handler = WebResourceRequestedEventHandler::create(Box::new(move |_core, args| {
+        let Some(args) = args else {
+            return Ok(());
+        };
+        let Some(state) = callback_app.try_state::<crate::CoreState>() else {
+            return Ok(());
+        };
+        if !state
+            .runtime
+            .should_defer_windows_document_navigation(&webview_label)
+        {
+            return Ok(());
+        }
+        let deferral = match args.GetDeferral() {
+            Ok(deferral) => deferral,
+            Err(error) => {
+                emit_windows_document_navigation_error(
+                    &callback_app,
+                    "SYSTEM_NAVIGATION_DEFERRAL_FAILED",
+                    "The Windows document request could not be deferred and was allowed to continue.",
+                    &role_id,
+                    &webview_label,
+                    &error.to_string(),
+                );
+                return Ok(());
+            }
+        };
+        let completed = Arc::new(AtomicBool::new(false));
+        let deferral = match AgileReference::new(&deferral) {
+            Ok(deferral) => deferral,
+            Err(error) => {
+                emit_windows_document_navigation_error(
+                    &callback_app,
+                    "SYSTEM_NAVIGATION_DEFERRAL_FAILED",
+                    "The Windows document request deferral could not be marshalled and was allowed to continue.",
+                    &role_id,
+                    &webview_label,
+                    &error.to_string(),
+                );
+                if let Err(error) =
+                    complete_navigation_deferral_once(&completed, || deferral.Complete())
+                {
+                    emit_windows_document_navigation_error(
+                        &callback_app,
+                        "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
+                        "The Windows document request deferral could not be completed.",
+                        &role_id,
+                        &webview_label,
+                        &error.to_string(),
+                    );
+                }
+                return Ok(());
+            }
+        };
+        let core = Arc::clone(&state.core);
+        let release_app = callback_app.clone();
+        let release_role_id = role_id.clone();
+        let release_webview_label = webview_label.clone();
+        tauri::async_runtime::spawn(async move {
+            let release = core
+                .invoke_async(CoreCommand::MacroReleaseRole {
+                    role_id: release_role_id.clone(),
+                })
+                .await;
+            if let Err(error) = release {
+                emit_windows_document_navigation_error(
+                    &release_app,
+                    "SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED",
+                    "Macro input could not be released before a Windows document request; the original request was allowed to continue.",
+                    &release_role_id,
+                    &release_webview_label,
+                    &error.to_string(),
+                );
+            }
+            let scheduled_deferral = deferral.clone();
+            let scheduled_completed = Arc::clone(&completed);
+            let completion_app = release_app.clone();
+            let completion_role_id = release_role_id.clone();
+            let completion_webview_label = release_webview_label.clone();
+            let scheduling = release_app.run_on_main_thread(move || {
+                if let Err(error) = complete_windows_document_navigation_deferral(
+                    &scheduled_deferral,
+                    &scheduled_completed,
+                ) {
+                    emit_windows_document_navigation_error(
+                        &completion_app,
+                        "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
+                        "The Windows document request deferral could not be completed.",
+                        &completion_role_id,
+                        &completion_webview_label,
+                        &error,
+                    );
+                }
+            });
+            if let Err(error) = scheduling {
+                emit_windows_document_navigation_error(
+                    &release_app,
+                    "SYSTEM_NAVIGATION_DEFERRAL_SCHEDULE_FAILED",
+                    "The Windows document request could not be resumed on the main thread; an immediate completion was attempted.",
+                    &release_role_id,
+                    &release_webview_label,
+                    &error.to_string(),
+                );
+                if let Err(error) =
+                    complete_windows_document_navigation_deferral(&deferral, &completed)
+                {
+                    emit_windows_document_navigation_error(
+                        &release_app,
+                        "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
+                        "The Windows document request deferral could not be completed.",
+                        &release_role_id,
+                        &release_webview_label,
+                        &error,
+                    );
+                }
+            }
+        });
+        Ok(())
+    }));
+    for pattern in ["http://*", "https://*"] {
+        core_webview.AddWebResourceRequestedFilter(
+            &HSTRING::from(pattern),
+            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
+        )?;
+    }
+    let mut token = 0;
+    core_webview.add_WebResourceRequested(&handler, &mut token)
 }
 
 #[cfg(windows)]
@@ -15316,7 +15540,11 @@ fn install_role_zoom_shortcut_handler(_webview: &Webview, _app: AppHandle) -> Ru
 }
 
 #[cfg(target_os = "macos")]
-fn platform_role_surface_setup(webview: &Webview) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+fn platform_role_surface_setup(
+    webview: &Webview,
+    _app: AppHandle,
+    _target: SurfaceFailureTarget,
+) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     unsafe extern "C" {
         fn rion_wk_install_security_policy(webview: *mut std::ffi::c_void) -> bool;
         fn rion_wk_track_surface(
@@ -15380,8 +15608,160 @@ fn platform_role_surface_setup(webview: &Webview) -> RuntimeResult<Arc<SurfaceLi
     Ok(tracker)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn platform_role_surface_setup(webview: &Webview) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+#[cfg(windows)]
+fn platform_role_surface_setup(
+    webview: &Webview,
+    app: AppHandle,
+    target: SurfaceFailureTarget,
+) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    use webview2_com::{
+        BrowserProcessExitedEventHandler,
+        Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_PERMISSION_STATE_DENY, COREWEBVIEW2_PROCESS_FAILED_KIND,
+            COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+            COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+            COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
+            COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_CANCEL, ICoreWebView2, ICoreWebView2_14,
+            ICoreWebView2Environment5,
+        },
+        PermissionRequestedEventHandler, ProcessFailedEventHandler,
+        ServerCertificateErrorDetectedEventHandler,
+    };
+    use windows::core::Interface;
+
+    let navigation_role_id = match &target {
+        SurfaceFailureTarget::Role { role_id, .. } => role_id.clone(),
+        _ => {
+            return Err(RuntimeError::new(
+                "SYSTEM_ROLE_SETUP_FAILED",
+                "WebView2 role setup requires a role surface target.",
+            ));
+        }
+    };
+    let navigation_webview_label = webview.label().to_owned();
+    let tracker = Arc::new(SurfaceLifecycleTracker::default());
+    let callback_tracker = Arc::clone(&tracker);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let result = (|| -> Result<(u32, u64), String> {
+                let controller = platform_webview.controller();
+                let core: ICoreWebView2 = controller
+                    .CoreWebView2()
+                    .map_err(|error| error.to_string())?;
+                let mut browser_process_id = 0;
+                core.BrowserProcessId(&mut browser_process_id)
+                    .map_err(|error| error.to_string())?;
+
+                let environment: ICoreWebView2Environment5 = platform_webview
+                    .environment()
+                    .cast()
+                    .map_err(|error| error.to_string())?;
+                let browser_handler = BrowserProcessExitedEventHandler::create(Box::new(
+                    move |_environment, _args| {
+                        callback_tracker.mark_browser_process_exited();
+                        Ok(())
+                    },
+                ));
+                let mut browser_token = 0;
+                environment
+                    .add_BrowserProcessExited(&browser_handler, &mut browser_token)
+                    .map_err(|error| error.to_string())?;
+
+                let permission_handler =
+                    PermissionRequestedEventHandler::create(Box::new(move |_webview, args| {
+                        if let Some(args) = args {
+                            args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY)?;
+                        }
+                        Ok(())
+                    }));
+                let mut permission_token = 0;
+                core.add_PermissionRequested(&permission_handler, &mut permission_token)
+                    .map_err(|error| error.to_string())?;
+
+                let certificate_handler = ServerCertificateErrorDetectedEventHandler::create(
+                    Box::new(move |_webview, args| {
+                        if let Some(args) = args {
+                            args.SetAction(COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_CANCEL)?;
+                        }
+                        Ok(())
+                    }),
+                );
+                let certificate_core: ICoreWebView2_14 =
+                    core.cast().map_err(|error| error.to_string())?;
+                let mut certificate_token = 0;
+                certificate_core
+                    .add_ServerCertificateErrorDetected(
+                        &certificate_handler,
+                        &mut certificate_token,
+                    )
+                    .map_err(|error| error.to_string())?;
+
+                let event_app = app.clone();
+                let event_target = target.clone();
+                let process_handler =
+                    ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
+                        let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+                        let kind_available =
+                            args.is_some_and(|args| args.ProcessFailedKind(&mut kind).is_ok());
+                        if kind_available
+                            && matches!(
+                                kind,
+                                COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
+                                    | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                                    | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
+                            )
+                            && let Some(state) = event_app.try_state::<crate::CoreState>()
+                        {
+                            state.runtime.handle_surface_process_failure(
+                                event_target.clone(),
+                                webview2_process_failure_reason(kind).to_owned(),
+                                webview2_process_failure_scope(kind),
+                            );
+                        }
+                        Ok(())
+                    }));
+                let mut process_token = 0;
+                core.add_ProcessFailed(&process_handler, &mut process_token)
+                    .map_err(|error| error.to_string())?;
+
+                register_windows_document_navigation_handler(
+                    &core,
+                    app.clone(),
+                    navigation_role_id.clone(),
+                    navigation_webview_label.clone(),
+                )
+                .map_err(|error| error.to_string())?;
+
+                Ok((browser_process_id, controller.as_raw() as usize as u64))
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(RuntimeError::tauri)?;
+    let (browser_process_id, controller_identity) = receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_ROLE_SETUP_TIMEOUT",
+                "WebView2 identity, security, lifecycle, and process setup timed out.",
+            )
+        })?
+        .map_err(|message| RuntimeError::new("SYSTEM_ROLE_SETUP_FAILED", message))?;
+    tracker
+        .browser_process_id
+        .store(u64::from(browser_process_id), Ordering::Release);
+    tracker
+        .controller_identity
+        .store(controller_identity, Ordering::Release);
+    Ok(tracker)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn platform_role_surface_setup(
+    webview: &Webview,
+    _app: AppHandle,
+    _target: SurfaceFailureTarget,
+) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     let tracker = platform_surface_lifecycle_tracker(webview)?;
     install_platform_security_policy(webview)?;
     Ok(tracker)
@@ -16179,12 +16559,89 @@ mod tests {
         assert_eq!(successor_tab_after_close(&ids[..1], "a", |_| true), None);
     }
 
+    fn presentation_tab(id: &str, phase: TabPresentationPhase) -> TabPresentation {
+        TabPresentation {
+            closable: true,
+            icon_data_url: None,
+            id: id.to_owned(),
+            phase,
+            source_id: format!("source-{id}"),
+            tab_type: "role".to_owned(),
+            title: format!("Tab {id}"),
+            workspace_template: None,
+        }
+    }
+
     #[test]
-    fn delayed_core_projection_cannot_replace_a_newer_native_selection() {
-        assert!(!core_projection_may_update_selection(49, 56, false));
-        assert!(core_projection_may_update_selection(56, 56, false));
-        assert!(core_projection_may_update_selection(49, 56, true));
-        assert!(core_projection_may_update_selection(1, 0, false));
+    fn presentation_selection_is_independent_from_launch_phase_and_core_metadata() {
+        let mut state = WindowPresentationState::default();
+        state.insert_tab(
+            presentation_tab("tab-a", TabPresentationPhase::Ready),
+            1,
+            true,
+        );
+        state.insert_tab(
+            presentation_tab("preview-b", TabPresentationPhase::Reserved),
+            2,
+            true,
+        );
+
+        state.update_metadata("tab-a", "role-a", "role", "Updated A");
+        state.update_phase("preview-b", TabPresentationPhase::Loading);
+        state.reorder_known_tabs(&["tab-a".to_owned()]);
+
+        assert_eq!(state.selected_tab_id.as_deref(), Some("preview-b"));
+        assert!(state.contains_tab("preview-b"));
+        assert_eq!(state.revision, 2);
+
+        state.replace_tab_id(
+            "preview-b",
+            presentation_tab("tab-b", TabPresentationPhase::Attaching),
+            3,
+        );
+        assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
+        assert_eq!(
+            state.aliases.get("preview-b").map(String::as_str),
+            Some("tab-b")
+        );
+
+        state.update_phase("tab-b", TabPresentationPhase::Failed);
+        state.select(Some("tab-b".to_owned()), 4);
+        assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
+        assert!(state.host_visibility);
+    }
+
+    #[test]
+    fn moving_a_selected_presentation_tab_commits_both_windows_without_core_state() {
+        let registry = PresentationRegistry::default();
+        let source = registry.coordinator("window-a").unwrap();
+        {
+            let mut source = source.lock().unwrap();
+            source.insert_tab(
+                presentation_tab("tab-a", TabPresentationPhase::Ready),
+                1,
+                false,
+            );
+            source.insert_tab(
+                presentation_tab("tab-b", TabPresentationPhase::Loading),
+                2,
+                true,
+            );
+        }
+
+        registry
+            .move_tab("tab-b", "window-a", "window-b", 3)
+            .unwrap();
+
+        let source = registry.existing("window-a").unwrap();
+        let source = source.lock().unwrap();
+        assert_eq!(source.selected_tab_id.as_deref(), Some("tab-a"));
+        assert!(!source.contains_tab("tab-b"));
+        drop(source);
+        let target = registry.existing("window-b").unwrap();
+        let target = target.lock().unwrap();
+        assert_eq!(target.selected_tab_id.as_deref(), Some("tab-b"));
+        assert!(target.contains_tab("tab-b"));
     }
 
     #[test]
@@ -16515,21 +16972,6 @@ mod tests {
             "workspaces": []
         }))
         .unwrap()
-    }
-
-    #[test]
-    fn recovery_preserves_the_authoritative_tab_visibility() {
-        let mut snapshot = runtime_tab_host_snapshot("tab-a");
-        assert!(runtime_tab_is_visible(&snapshot, "tab-a"));
-        assert!(!runtime_tab_is_visible(&snapshot, "tab-b"));
-
-        snapshot
-            .tabs
-            .iter_mut()
-            .find(|tab| tab.id == "tab-a")
-            .unwrap()
-            .hidden = true;
-        assert!(!runtime_tab_is_visible(&snapshot, "tab-a"));
     }
 
     #[test]

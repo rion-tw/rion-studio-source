@@ -198,6 +198,56 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(original?.classList.contains("active")).toBe(true);
   });
 
+  it("applies metadata batches without changing topology or presentation selection", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs(2));
+    const original = document.querySelector<HTMLElement>('[data-tab-id="tab-2"]');
+    const order = Array.from(
+      document.querySelectorAll<HTMLElement>(".tab"),
+      (tab) => tab.dataset.tabId
+    );
+
+    window.__rionUpdateRuntimeTabMetadataBatch?.([
+      {
+        audible: false,
+        audioMuted: true,
+        closeLabel: "Close updated tab",
+        hideCloseButton: false,
+        id: "tab-2",
+        mutedLabel: "Muted",
+        name: "Updated metadata",
+        phase: "loading",
+        playingLabel: "Playing",
+        sourceId: "role-updated",
+        tooltip: "Updated tooltip",
+        type: "role"
+      },
+      {
+        audible: false,
+        audioMuted: false,
+        closeLabel: "Close",
+        hideCloseButton: false,
+        id: "unknown-tab",
+        mutedLabel: "Muted",
+        name: "Unknown",
+        phase: "ready",
+        playingLabel: "Playing",
+        sourceId: "unknown",
+        tooltip: "Unknown",
+        type: "role"
+      }
+    ]);
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')).toBe(original);
+    expect(original?.dataset.phase).toBe("loading");
+    expect(original?.dataset.sourceId).toBe("role-updated");
+    expect(original?.querySelector(".name")?.textContent).toBe("Updated metadata");
+    expect(document.querySelector('[data-tab-id="tab-3"]')?.classList.contains("active"))
+      .toBe(true);
+    expect(Array.from(document.querySelectorAll<HTMLElement>(".tab"), (tab) => tab.dataset.tabId))
+      .toEqual(order);
+    expect(document.querySelector('[data-tab-id="unknown-tab"]')).toBeNull();
+  });
+
   it("keeps close intent committed when the scoped native command is rejected", async () => {
     invoke.mockRejectedValueOnce(new Error("rejected"));
     document.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();

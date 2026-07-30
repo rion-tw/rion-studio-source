@@ -610,46 +610,6 @@ void rion_runtime_tabs_destroy(void *rawController) {
   }
 }
 
-void rion_runtime_tabs_update(
-    void *rawController, const char *windowID, const RionRuntimeTabInput *tabs,
-    size_t tabCount, bool alwaysHideTabCloseButton, const char *addLabel,
-    const char *audioMutedLabel, const char *audioPlayingLabel,
-    const char *closeLabel, const char *scrollLeftLabel,
-    const char *scrollRightLabel) {
-  @autoreleasepool {
-    if (!rawController) return;
-    RionRuntimeTabsController *controller =
-        (__bridge RionRuntimeTabsController *)rawController;
-    NSMutableArray<RionRuntimeTabModel *> *models =
-        [NSMutableArray arrayWithCapacity:tabCount];
-    for (size_t index = 0; index < tabCount; index++) {
-      const RionRuntimeTabInput input = tabs[index];
-      RionRuntimeTabModel *model = [[RionRuntimeTabModel alloc] init];
-      model.active = input.active;
-      model.audible = input.audible;
-      model.audioMuted = input.audioMuted;
-      model.identifier = RionStringFromUTF8(input.identifier) ?: @"";
-      model.name = RionStringFromUTF8(input.name) ?: @"";
-      model.tooltip = RionStringFromUTF8(input.tooltip) ?: model.name;
-      model.type = RionStringFromUTF8(input.type) ?: @"role";
-      model.iconDataURL = RionStringFromUTF8(input.iconDataURL);
-      model.workspaceTemplate = RionStringFromUTF8(input.workspaceTemplate);
-      [models addObject:model];
-    }
-    RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
-    state.alwaysHideTabCloseButton = alwaysHideTabCloseButton;
-    state.windowID = RionStringFromUTF8(windowID) ?: @"";
-    state.addLabel = RionStringFromUTF8(addLabel) ?: @"Open role or workspace";
-    state.audioMutedLabel = RionStringFromUTF8(audioMutedLabel) ?: @"Tab muted";
-    state.audioPlayingLabel = RionStringFromUTF8(audioPlayingLabel) ?: @"Playing audio";
-    state.closeLabel = RionStringFromUTF8(closeLabel) ?: @"Stop and close tab";
-    state.scrollLeftLabel = RionStringFromUTF8(scrollLeftLabel) ?: @"Scroll tabs left";
-    state.scrollRightLabel = RionStringFromUTF8(scrollRightLabel) ?: @"Scroll tabs right";
-    state.tabs = models;
-    [controller updateState:state];
-  }
-}
-
 void rion_runtime_tabs_prepare_fullscreen(void *rawController, bool fullscreen) {
   if (rawController) {
     [(__bridge RionRuntimeTabsController *)rawController
@@ -682,15 +642,18 @@ void rion_runtime_tabs_set_active(void *rawController,
 
 void rion_runtime_tabs_reserve(void *rawController, const char *tabIdentifier,
                                const char *name, const char *type,
-                               const char *workspaceTemplate) {
+                               const char *workspaceTemplate,
+                               const char *windowIdentifier) {
   @autoreleasepool {
-    if (!rawController || !tabIdentifier || !name || !type) return;
+    if (!rawController || !tabIdentifier || !name || !type ||
+        !windowIdentifier) return;
     RionRuntimeTabsController *controller =
         (__bridge RionRuntimeTabsController *)rawController;
     [controller reserveTabIdentifier:RionStringFromUTF8(tabIdentifier)
                                 name:RionStringFromUTF8(name)
                                 type:RionStringFromUTF8(type)
-                   workspaceTemplate:RionStringFromUTF8(workspaceTemplate)];
+                   workspaceTemplate:RionStringFromUTF8(workspaceTemplate)
+                    windowIdentifier:RionStringFromUTF8(windowIdentifier)];
   }
 }
 
@@ -723,6 +686,43 @@ void rion_runtime_tabs_remove(void *rawController, const char *tabIdentifier,
         (__bridge RionRuntimeTabsController *)rawController;
     [controller removeTabIdentifier:RionStringFromUTF8(tabIdentifier)
                 activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
+  }
+}
+
+void rion_runtime_tabs_update_metadata(
+    void *rawController, const RionRuntimeTabInput *input,
+    bool alwaysHideTabCloseButton, const char *audioMutedLabel,
+    const char *audioPlayingLabel, const char *closeLabel,
+    const char *addLabel, const char *scrollLeftLabel,
+    const char *scrollRightLabel) {
+  @autoreleasepool {
+    if (!rawController || !input || !input->identifier) return;
+    RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
+    tab.active = input->active;
+    tab.audible = input->audible;
+    tab.audioMuted = input->audioMuted;
+    tab.identifier = RionStringFromUTF8(input->identifier) ?: @"";
+    tab.name = RionStringFromUTF8(input->name) ?: tab.identifier;
+    tab.tooltip = RionStringFromUTF8(input->tooltip) ?: tab.name;
+    tab.type = RionStringFromUTF8(input->type) ?: @"role";
+    tab.iconDataURL = RionStringFromUTF8(input->iconDataURL);
+    tab.workspaceTemplate = RionStringFromUTF8(input->workspaceTemplate);
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller
+          updateTabMetadata:tab
+         hideTabCloseButton:alwaysHideTabCloseButton
+                   addLabel:RionStringFromUTF8(addLabel) ?:
+                                @"Open role or workspace"
+                 closeLabel:RionStringFromUTF8(closeLabel) ?:
+                                @"Stop and close tab"
+          audioPlayingLabel:RionStringFromUTF8(audioPlayingLabel) ?:
+                                @"Playing audio"
+             audioMutedLabel:RionStringFromUTF8(audioMutedLabel) ?: @"Tab muted"
+            scrollLeftLabel:RionStringFromUTF8(scrollLeftLabel) ?:
+                                @"Scroll tabs left"
+           scrollRightLabel:RionStringFromUTF8(scrollRightLabel) ?:
+                                @"Scroll tabs right"];
   }
 }
 
@@ -940,9 +940,6 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @end
 
 @implementation RionRuntimeTabModel
-@end
-
-@implementation RionRuntimeTabsState
 @end
 
 @implementation RionRuntimeDraggableView
@@ -2652,90 +2649,31 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self updateTabScrollButtonState];
 }
 
-- (void)updateState:(RionRuntimeTabsState *)state {
-  if (_destroyed) return;
-  _windowID = state.windowID;
-  _scrollLeftButton.toolTip = state.scrollLeftLabel;
-  _scrollLeftButton.accessibilityLabel = state.scrollLeftLabel;
-  _scrollRightButton.toolTip = state.scrollRightLabel;
-  _scrollRightButton.accessibilityLabel = state.scrollRightLabel;
-  _addButton.toolTip = state.addLabel;
-  _addButton.accessibilityLabel = state.addLabel;
-
-  NSMutableDictionary<NSString *, RionRuntimeTabItemView *> *existingItems =
-      [NSMutableDictionary dictionary];
-  NSMutableDictionary<NSString *, RionRuntimeSurfaceView *> *existingSurfaces =
-      [NSMutableDictionary dictionary];
-  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
-    existingItems[_tabItems[index].tabIdentifier] = _tabItems[index];
-    existingSurfaces[_tabItems[index].tabIdentifier] = _tabSurfaces[index];
-  }
-
-  NSMutableArray<RionRuntimeTabItemView *> *nextItems = [NSMutableArray array];
-  NSMutableArray<RionRuntimeSurfaceView *> *nextSurfaces = [NSMutableArray array];
-  NSMutableSet<NSString *> *nextIdentifiers = [NSMutableSet set];
-  BOOL orderChanged = _tabItems.count != state.tabs.count;
-  NSUInteger nextIndex = 0;
-  for (RionRuntimeTabModel *tab in state.tabs) {
-    if (!orderChanged &&
-        ![_tabItems[nextIndex].tabIdentifier isEqualToString:tab.identifier]) {
-      orderChanged = YES;
-    }
-    nextIndex += 1;
-    [nextIdentifiers addObject:tab.identifier];
-    RionRuntimeTabItemView *item = existingItems[tab.identifier];
-    RionRuntimeSurfaceView *surface = existingSurfaces[tab.identifier];
-    if (!item || !surface) {
-      item = [[RionRuntimeTabItemView alloc] initWithFrame:NSZeroRect];
-      item.tabsController = self;
-      item.target = self;
-      item.action = @selector(tabPressed:);
-      surface = [[RionRuntimeSurfaceView alloc] initWithContentView:item
-                                                       cornerRadius:14.0];
-      item.surfaceView = surface;
-    }
-    item.sourceWindowID = state.windowID;
-    [item configureWithTab:tab
-                     image:[self imageForTab:tab]
-        hideTabCloseButton:state.alwaysHideTabCloseButton
-                closeLabel:state.closeLabel
-         audioPlayingLabel:state.audioPlayingLabel
-            audioMutedLabel:state.audioMutedLabel
-               windowActive:_window.isKeyWindow];
-    [nextItems addObject:item];
-    [nextSurfaces addObject:surface];
-  }
-
-  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
-    NSString *identifier = _tabItems[index].tabIdentifier;
-    if (![nextIdentifiers containsObject:identifier]) {
-      [_tabSurfaces[index] removeFromSuperview];
-      [_tabIconCache removeObjectForKey:identifier];
-      [_tabIconCacheKeys removeObjectForKey:identifier];
-    }
-  }
-  _tabItems = nextItems;
-  _tabSurfaces = nextSurfaces;
-  [_tabItemsByIdentifier removeAllObjects];
-  _activeTabItem = nil;
-  for (RionRuntimeTabItemView *item in _tabItems) {
-    if (item.tabIdentifier.length > 0) {
-      _tabItemsByIdentifier[item.tabIdentifier] = item;
-    }
-    if (item.activeTab) _activeTabItem = item;
-  }
-  NSView *previousSurface = nil;
-  for (NSView *surface in _tabSurfaces) {
-    if (surface.superview != _tabCanvas) {
-      [_tabCanvas addSubview:surface];
-    } else if (orderChanged && previousSurface) {
-      [_tabCanvas addSubview:surface
-                  positioned:NSWindowAbove
-                  relativeTo:previousSurface];
-    }
-    previousSurface = surface;
-  }
-  [self layoutTitlebarContent];
+- (void)updateTabMetadata:(RionRuntimeTabModel *)tab
+       hideTabCloseButton:(BOOL)hideTabCloseButton
+                 addLabel:(NSString *)addLabel
+               closeLabel:(NSString *)closeLabel
+        audioPlayingLabel:(NSString *)audioPlayingLabel
+           audioMutedLabel:(NSString *)audioMutedLabel
+          scrollLeftLabel:(NSString *)scrollLeftLabel
+         scrollRightLabel:(NSString *)scrollRightLabel {
+  if (_destroyed || tab.identifier.length == 0) return;
+  _addButton.toolTip = addLabel;
+  _addButton.accessibilityLabel = addLabel;
+  _scrollLeftButton.toolTip = scrollLeftLabel;
+  _scrollLeftButton.accessibilityLabel = scrollLeftLabel;
+  _scrollRightButton.toolTip = scrollRightLabel;
+  _scrollRightButton.accessibilityLabel = scrollRightLabel;
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tab.identifier];
+  if (!item) return;
+  tab.active = item == _activeTabItem;
+  [item configureWithTab:tab
+                   image:[self imageForTab:tab]
+      hideTabCloseButton:hideTabCloseButton
+              closeLabel:closeLabel
+       audioPlayingLabel:audioPlayingLabel
+          audioMutedLabel:audioMutedLabel
+             windowActive:_window.isKeyWindow];
 }
 
 - (NSImage *)imageForTab:(RionRuntimeTabModel *)tab {
@@ -2910,8 +2848,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)reserveTabIdentifier:(NSString *)tabIdentifier
                         name:(NSString *)name
                         type:(NSString *)type
-           workspaceTemplate:(nullable NSString *)workspaceTemplate {
+           workspaceTemplate:(nullable NSString *)workspaceTemplate
+            windowIdentifier:(NSString *)windowIdentifier {
   if (_destroyed || tabIdentifier.length == 0) return;
+  _windowID = windowIdentifier;
   NSUInteger existingIndex = [_tabItems indexOfObjectPassingTest:
       ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
     (void)index;
@@ -2972,7 +2912,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [self reserveTabIdentifier:tabIdentifier
                           name:name
                           type:type
-             workspaceTemplate:workspaceTemplate];
+             workspaceTemplate:workspaceTemplate
+              windowIdentifier:_windowID ?: @""];
     [self setActiveTabIdentifier:activeTabIdentifier];
     return;
   }

@@ -29,20 +29,6 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 
 @end
 
-@interface RionRuntimeTabsState : NSObject
-
-@property(nonatomic) BOOL alwaysHideTabCloseButton;
-@property(nonatomic, copy) NSString *windowID;
-@property(nonatomic, copy) NSString *addLabel;
-@property(nonatomic, copy) NSString *audioMutedLabel;
-@property(nonatomic, copy) NSString *audioPlayingLabel;
-@property(nonatomic, copy) NSString *closeLabel;
-@property(nonatomic, copy) NSString *scrollLeftLabel;
-@property(nonatomic, copy) NSString *scrollRightLabel;
-@property(nonatomic, copy) NSArray<RionRuntimeTabModel *> *tabs;
-
-@end
-
 @interface RionRuntimeTabsController : NSObject
 
 @property(nonatomic, readonly) BOOL alwaysShowInFullScreen;
@@ -62,7 +48,8 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)reserveTabIdentifier:(NSString *)tabIdentifier
                         name:(NSString *)name
                         type:(NSString *)type
-           workspaceTemplate:(nullable NSString *)workspaceTemplate;
+           workspaceTemplate:(nullable NSString *)workspaceTemplate
+            windowIdentifier:(NSString *)windowIdentifier;
 - (void)replaceTabIdentifier:(NSString *)provisionalIdentifier
               withIdentifier:(NSString *)tabIdentifier
                         name:(NSString *)name
@@ -71,7 +58,14 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)removeTabIdentifier:(NSString *)tabIdentifier
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
-- (void)updateState:(RionRuntimeTabsState *)state;
+- (void)updateTabMetadata:(RionRuntimeTabModel *)tab
+       hideTabCloseButton:(BOOL)hideTabCloseButton
+                 addLabel:(NSString *)addLabel
+               closeLabel:(NSString *)closeLabel
+        audioPlayingLabel:(NSString *)audioPlayingLabel
+           audioMutedLabel:(NSString *)audioMutedLabel
+          scrollLeftLabel:(NSString *)scrollLeftLabel
+         scrollRightLabel:(NSString *)scrollRightLabel;
 
 @end
 
@@ -106,13 +100,6 @@ void * _Nullable rion_runtime_tabs_create(
     RionRuntimeTabsCLayoutHandler layoutHandler);
 bool rion_runtime_tabs_install_safe_tao_event_dispatch(void);
 void rion_runtime_tabs_destroy(void * _Nullable controller);
-void rion_runtime_tabs_update(
-    void * _Nullable controller, const char *windowID,
-    const RionRuntimeTabInput *tabs, size_t tabCount,
-    bool alwaysHideTabCloseButton, const char *addLabel,
-    const char *audioMutedLabel, const char *audioPlayingLabel,
-    const char *closeLabel, const char *scrollLeftLabel,
-    const char *scrollRightLabel);
 void rion_runtime_tabs_prepare_fullscreen(
     void * _Nullable controller, bool fullscreen);
 void rion_runtime_tabs_set_fullscreen_policy(
@@ -124,7 +111,7 @@ void rion_runtime_tabs_set_active(
 void rion_runtime_tabs_reserve(
     void * _Nullable controller, const char *tabIdentifier,
     const char *name, const char *type,
-    const char * _Nullable workspaceTemplate);
+    const char * _Nullable workspaceTemplate, const char *windowIdentifier);
 void rion_runtime_tabs_replace(
     void * _Nullable controller, const char *provisionalIdentifier,
     const char *tabIdentifier, const char *name, const char *type,
@@ -133,6 +120,12 @@ void rion_runtime_tabs_replace(
 void rion_runtime_tabs_remove(
     void * _Nullable controller, const char *tabIdentifier,
     const char * _Nullable activeTabIdentifier);
+void rion_runtime_tabs_update_metadata(
+    void * _Nullable controller, const RionRuntimeTabInput *tab,
+    bool alwaysHideTabCloseButton, const char *audioMutedLabel,
+    const char *audioPlayingLabel, const char *closeLabel,
+    const char *addLabel, const char *scrollLeftLabel,
+    const char *scrollRightLabel);
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(
     void * _Nullable controller);
 bool rion_runtime_tabs_action_scope_self_test(void);

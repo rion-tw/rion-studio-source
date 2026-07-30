@@ -43,6 +43,7 @@ type ActionCallback = unsafe extern "C" fn(
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
 
 unsafe extern "C" {
+    fn rion_runtime_tabs_install_safe_tao_event_dispatch() -> bool;
     fn rion_runtime_tabs_create(
         window: *mut c_void,
         context: *mut c_void,
@@ -93,6 +94,14 @@ unsafe extern "C" {
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_shortcut_self_test() -> bool;
+}
+
+pub fn install_safe_tao_event_dispatch() -> Result<(), String> {
+    if unsafe { rion_runtime_tabs_install_safe_tao_event_dispatch() } {
+        Ok(())
+    } else {
+        Err("TaoWindow was unavailable for safe macOS event dispatch.".to_owned())
+    }
 }
 
 struct CallbackContext {
@@ -511,33 +520,35 @@ unsafe extern "C" fn action_callback(
     screen_y: f64,
     cancelled: bool,
 ) {
-    if context.is_null() || action_type.is_null() {
-        return;
-    }
-    let context = unsafe { &*(context as *const CallbackContext) };
-    let action_type = unsafe { CStr::from_ptr(action_type) }
-        .to_string_lossy()
-        .into_owned();
-    let session_id = c_string_from_pointer(session_id);
-    let tab_id = c_string_from_pointer(tab_id);
-    let before_tab_id = c_string_from_pointer(before_tab_id);
-    let source_window_id = c_string_from_pointer(source_window_id);
-    let target_window_id = c_string_from_pointer(target_window_id);
-    dispatch_action(
-        context.app.clone(),
-        context.window_label.clone(),
-        NativeTabAction {
-            action_type,
-            session_id,
-            tab_id,
-            source_window_id,
-            target_window_id,
-            before_tab_id,
-            screen_x,
-            screen_y,
-            cancelled,
-        },
-    );
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() || action_type.is_null() {
+            return;
+        }
+        let context = unsafe { &*(context as *const CallbackContext) };
+        let action_type = unsafe { CStr::from_ptr(action_type) }
+            .to_string_lossy()
+            .into_owned();
+        let session_id = c_string_from_pointer(session_id);
+        let tab_id = c_string_from_pointer(tab_id);
+        let before_tab_id = c_string_from_pointer(before_tab_id);
+        let source_window_id = c_string_from_pointer(source_window_id);
+        let target_window_id = c_string_from_pointer(target_window_id);
+        dispatch_action(
+            context.app.clone(),
+            context.window_label.clone(),
+            NativeTabAction {
+                action_type,
+                session_id,
+                tab_id,
+                source_window_id,
+                target_window_id,
+                before_tab_id,
+                screen_x,
+                screen_y,
+                cancelled,
+            },
+        );
+    }));
 }
 
 unsafe extern "C" fn layout_callback(
@@ -546,30 +557,32 @@ unsafe extern "C" fn layout_callback(
     _y_offset: f64,
     valid: bool,
 ) {
-    if context.is_null() || !valid {
-        return;
-    }
-    let context = unsafe { &*(context as *const CallbackContext) };
-    let app = context.app.clone();
-    let label = context.window_label.clone();
-    let layout_updates = Arc::clone(&context.layout_updates);
-    if !request_layout_update(&layout_updates) {
-        return;
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        loop {
-            layout_updates.requested.store(false, Ordering::Release);
-            if let Some(window) = app.get_window(&label)
-                && let Ok(size) = window.inner_size()
-                && let Some(state) = app.try_state::<crate::CoreState>()
-            {
-                state.runtime.resize_window(&label, size.width, size.height);
-            }
-            if !continue_layout_updates(&layout_updates) {
-                break;
-            }
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() || !valid {
+            return;
         }
-    });
+        let context = unsafe { &*(context as *const CallbackContext) };
+        let app = context.app.clone();
+        let label = context.window_label.clone();
+        let layout_updates = Arc::clone(&context.layout_updates);
+        if !request_layout_update(&layout_updates) {
+            return;
+        }
+        tauri::async_runtime::spawn_blocking(move || {
+            loop {
+                layout_updates.requested.store(false, Ordering::Release);
+                if let Some(window) = app.get_window(&label)
+                    && let Ok(size) = window.inner_size()
+                    && let Some(state) = app.try_state::<crate::CoreState>()
+                {
+                    state.runtime.resize_window(&label, size.width, size.height);
+                }
+                if !continue_layout_updates(&layout_updates) {
+                    break;
+                }
+            }
+        });
+    }));
 }
 
 fn request_layout_update(state: &LayoutUpdateState) -> bool {

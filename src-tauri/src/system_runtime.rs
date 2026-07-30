@@ -2386,6 +2386,17 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn schedule_webview_prewarm(self: &Arc<Self>) {
+        // A standalone hidden Tauri WebviewWindow creates and tears down another
+        // TaoWindow but cannot donate its controller to a role launch. Avoid adding
+        // that unrelated native event lifecycle on macOS; launch remains fully lazy
+        // until prewarming can be implemented as a windowless WKWebView actor.
+        self.prewarm_state.store(3, Ordering::Release);
+        self.record_runtime_stage("runtime-prewarm", "skipped", Instant::now());
+    }
+
+    #[cfg(not(target_os = "macos"))]
     pub fn schedule_webview_prewarm(self: &Arc<Self>) {
         if self
             .prewarm_state
@@ -2424,6 +2435,7 @@ impl SystemRuntimeExecutor {
         });
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn prewarm_webview_once(&self, activity_sequence: u64) -> Result<(), String> {
         if self.critical_activity_sequence.load(Ordering::Acquire) != activity_sequence {
             return Ok(());
@@ -15101,21 +15113,25 @@ unsafe extern "C" fn macos_role_zoom_shortcut(
     context: *mut std::ffi::c_void,
     action: *const std::os::raw::c_char,
 ) {
-    if context.is_null() || action.is_null() {
-        return;
-    }
-    let context = unsafe { &*(context.cast::<MacRoleZoomShortcutContext>()) };
-    let Ok(action) = unsafe { std::ffi::CStr::from_ptr(action) }.to_str() else {
-        return;
-    };
-    dispatch_role_zoom_shortcut(&context.app, &context.webview_label, action);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() || action.is_null() {
+            return;
+        }
+        let context = unsafe { &*(context.cast::<MacRoleZoomShortcutContext>()) };
+        let Ok(action) = unsafe { std::ffi::CStr::from_ptr(action) }.to_str() else {
+            return;
+        };
+        dispatch_role_zoom_shortcut(&context.app, &context.webview_label, action);
+    }));
 }
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" fn drop_macos_role_zoom_shortcut_context(context: *mut std::ffi::c_void) {
-    if !context.is_null() {
-        drop(unsafe { Box::from_raw(context.cast::<MacRoleZoomShortcutContext>()) });
-    }
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if !context.is_null() {
+            drop(unsafe { Box::from_raw(context.cast::<MacRoleZoomShortcutContext>()) });
+        }
+    }));
 }
 
 #[cfg(target_os = "macos")]
@@ -15345,27 +15361,33 @@ fn platform_surface_lifecycle_tracker(
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" fn macos_surface_isolated(context: *mut std::ffi::c_void) {
-    if context.is_null() {
-        return;
-    }
-    let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
-    tracker.mark_isolated();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() {
+            return;
+        }
+        let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
+        tracker.mark_isolated();
+    }));
 }
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" fn macos_surface_released(context: *mut std::ffi::c_void) {
-    if context.is_null() {
-        return;
-    }
-    let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
-    tracker.mark_native_surface_released();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() {
+            return;
+        }
+        let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
+        tracker.mark_native_surface_released();
+    }));
 }
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" fn drop_macos_surface_context(context: *mut std::ffi::c_void) {
-    if !context.is_null() {
-        drop(unsafe { Arc::from_raw(context.cast::<SurfaceLifecycleTracker>()) });
-    }
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if !context.is_null() {
+            drop(unsafe { Arc::from_raw(context.cast::<SurfaceLifecycleTracker>()) });
+        }
+    }));
 }
 
 #[cfg(target_os = "macos")]

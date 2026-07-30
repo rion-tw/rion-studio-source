@@ -104,6 +104,7 @@ extern "C" {
 void * _Nullable rion_runtime_tabs_create(
     void *window, void *context, RionRuntimeTabsCActionHandler actionHandler,
     RionRuntimeTabsCLayoutHandler layoutHandler);
+bool rion_runtime_tabs_install_safe_tao_event_dispatch(void);
 void rion_runtime_tabs_destroy(void * _Nullable controller);
 void rion_runtime_tabs_update(
     void * _Nullable controller, const char *windowID,

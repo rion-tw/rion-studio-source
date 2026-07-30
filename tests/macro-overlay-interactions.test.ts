@@ -289,6 +289,63 @@ describe("macro overlay interactions", () => {
     }
   });
 
+  it("keeps the coordinate readout inside the viewport near the right and bottom edges", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    let nextFrame: FrameRequestCallback | undefined;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame = callback;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+      installOverlay(window, binding);
+      await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+      const root = getOverlayRoot(document);
+      root.querySelector<HTMLButtonElement>(".trigger")?.dispatchEvent(
+        createMouseEvent(window, "pointerenter")
+      );
+      root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
+        createMouseEvent(window, "click")
+      );
+      const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+      const readout = root.querySelector<HTMLElement>(".coordinate-readout");
+      if (!picker || !readout) throw new Error("Expected coordinate readout.");
+      vi.spyOn(readout, "getBoundingClientRect").mockReturnValue({
+        bottom: 0,
+        height: 44,
+        left: 0,
+        right: 460,
+        top: 0,
+        width: 460,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      } as DOMRect);
+
+      picker.dispatchEvent(new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 980,
+        clientY: 780
+      }));
+      nextFrame?.(0);
+
+      expect(Number.parseFloat(readout.style.left)).toBe(506);
+      expect(Number.parseFloat(readout.style.top)).toBe(722);
+      expect(Number.parseFloat(readout.style.left) + 460).toBeLessThanOrEqual(992);
+      expect(Number.parseFloat(readout.style.top) + 44).toBeLessThanOrEqual(792);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+    }
+  });
+
   it("renders nine non-interactive anchor markers and repositions them after resize", async () => {
     const originalWidth = window.innerWidth;
     const originalHeight = window.innerHeight;

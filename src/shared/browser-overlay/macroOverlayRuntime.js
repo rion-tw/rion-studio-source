@@ -462,9 +462,34 @@
     coordinateMeasureElement.style.setProperty("--coordinate-width", String(viewport.width) + "px");
     coordinateMeasureElement.style.setProperty("--coordinate-height", String(viewport.height) + "px");
     if (!coordinateReadoutElement) return;
-    coordinateReadoutElement.style.left = String(Math.min(measurement.xPx + 14, Math.max(8, viewport.width - 280))) + "px";
-    coordinateReadoutElement.style.top = String(Math.min(measurement.yPx + 14, Math.max(8, viewport.height - 42))) + "px";
     setCoordinateReadoutStatus("ready");
+    const readoutBounds = coordinateReadoutElement.getBoundingClientRect?.();
+    const readoutWidth = Math.max(
+      1,
+      Number(readoutBounds?.width) || Number(coordinateReadoutElement.offsetWidth) || 280
+    );
+    const readoutHeight = Math.max(
+      1,
+      Number(readoutBounds?.height) || Number(coordinateReadoutElement.offsetHeight) || 42
+    );
+    const edgePaddingPx = 8;
+    const gapPx = 14;
+    const maxLeft = Math.max(edgePaddingPx, viewport.width - readoutWidth - edgePaddingPx);
+    const maxTop = Math.max(edgePaddingPx, viewport.height - readoutHeight - edgePaddingPx);
+    const preferredLeft = measurement.xPx + gapPx;
+    const preferredTop = measurement.yPx + gapPx;
+    const leftOfMeasurement = measurement.xPx - gapPx - readoutWidth;
+    const topOfMeasurement = measurement.yPx - gapPx - readoutHeight;
+    coordinateReadoutElement.style.left = String(
+      preferredLeft > maxLeft && leftOfMeasurement >= edgePaddingPx
+        ? leftOfMeasurement
+        : Math.min(preferredLeft, maxLeft)
+    ) + "px";
+    coordinateReadoutElement.style.top = String(
+      preferredTop > maxTop && topOfMeasurement >= edgePaddingPx
+        ? topOfMeasurement
+        : Math.min(preferredTop, maxTop)
+    ) + "px";
   }
 
   function cancelCoordinateMeasurementFrame() {

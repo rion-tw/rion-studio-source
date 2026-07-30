@@ -15128,7 +15128,7 @@ mod tests {
         assert!(source.contains("rion_overlay_request"));
         assert!(source.contains("test-capability"));
         assert!(source.contains("event.isTrusted === true"));
-        assert!(source.contains("rion-studio-macro-overlay-v56"));
+        assert!(source.contains("rion-studio-macro-overlay-v57"));
         assert!(source.contains("const overlayCss = \"/*"));
         assert!(source.contains("--font-ui: system-ui"));
         assert!(source.contains("*{box-sizing:border-box;font-family:var(--font-ui)"));

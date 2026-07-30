@@ -184,6 +184,7 @@ pub struct AppCore {
     operation_actor: Arc<crate::operation_actor::OperationActor>,
     overlay_language: Mutex<Option<String>>,
     overlay_refresh: crate::overlay::OverlayRefreshRuntime,
+    resolved_theme: Mutex<String>,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
     runtime: Mutex<Option<Runtime>>,
@@ -311,6 +312,7 @@ impl AppCore {
             operation_actor,
             overlay_language: Mutex::new(None),
             overlay_refresh,
+            resolved_theme: Mutex::new("light".to_owned()),
             platform,
             portable: Mutex::new(crate::portable::PortableRuntime::default()),
             runtime: Mutex::new(Some(Runtime {
@@ -1000,6 +1002,10 @@ impl AppCore {
             }
             CoreCommand::RuntimeThemeSet { theme } => {
                 validate_runtime_theme(&theme)?;
+                *self.resolved_theme.lock().map_err(|_| {
+                    CoreError::Internal("resolved theme lock poisoned".to_owned())
+                })? = theme.clone();
+                self.overlay_refresh.invalidate(Vec::new());
                 Ok(json!({ "theme": theme }))
             }
             CoreCommand::MacroStart { request } => {
@@ -3403,11 +3409,17 @@ impl AppCore {
                 status.role_id == role_id && macro_ids.contains(status.macro_id.as_str())
             })
             .collect();
+        let resolved_theme = self
+            .resolved_theme
+            .lock()
+            .map_err(|_| CoreError::Internal("resolved theme lock poisoned".to_owned()))?
+            .clone();
         Ok(MacroOverlayViewModelRecord {
             detached: false,
             language,
             macro_badge_position,
             macros,
+            resolved_theme,
             start_summary,
             statuses,
         })
@@ -8015,6 +8027,7 @@ mod tests {
             }))))
             .unwrap();
         assert_eq!(view["language"], "zh-TW");
+        assert_eq!(view["resolvedTheme"], "light");
         assert_eq!(view["macros"][0]["id"], macro_id);
         assert_eq!(view["statuses"], json!([]));
         crate::v1_case!("overlay-ff7db98ddb5f", {
@@ -8024,6 +8037,19 @@ mod tests {
         crate::v1_case!("overlay-368345bae2c9", {
             assert_eq!(view["statuses"], json!([]));
         });
+
+        core.invoke(CoreCommand::RuntimeThemeSet {
+            theme: "dark".to_owned(),
+        })
+        .unwrap();
+        let themed_view = runtime
+            .block_on(core.invoke_async(command(json!({
+                "type": "overlayRequest",
+                "roleId": role_id.clone(),
+                "requestJson": "{\"type\":\"list\"}"
+            }))))
+            .unwrap();
+        assert_eq!(themed_view["resolvedTheme"], "dark");
 
         let error = runtime
             .block_on(core.invoke_async(command(json!({

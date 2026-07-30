@@ -64,6 +64,18 @@ describe("Tauri macro overlay injector", () => {
     expect(css).toMatch(/\.active-badge-shortcut\{[^}]*min-height:var\(--space-4\);min-width:var\(--space-4\);padding:0 var\(--space-1\);/);
   });
 
+  it("provides light and dark liquid-glass badge materials with an opaque accessibility fallback", async () => {
+    const { css } = await overlaySources();
+
+    expect(css).toContain(':host([data-theme="light"])');
+    expect(css).toContain(':host([data-theme="dark"])');
+    expect(css).toMatch(/\.active-badge\{[^}]*backdrop-filter:blur\(var\(--blur-popover\)\) saturate\(1\.65\);/);
+    expect(css).toMatch(/\.active-badge\{[^}]*radial-gradient\([^}]*var\(--macro-badge-surface\)/);
+    expect(css).toMatch(/\.active-badge\{[^}]*box-shadow:inset 0 1px 0 var\(--macro-badge-highlight\)[^}]*0 5px 16px var\(--macro-badge-shadow\)/);
+    expect(css).toContain(".active-badge{background:var(--macro-badge-solid);}");
+    expect(css).toContain(".active-badge-shortcut{background:var(--macro-badge-shortcut-solid);}");
+  });
+
   it("installs once per System WebView document and reinstalls after navigation", async () => {
     const sources = await overlaySources();
     const invoke = vi.fn(async (_command: string, _argumentsRecord: unknown) => ({}));
@@ -214,7 +226,7 @@ describe("Tauri macro overlay injector", () => {
     controller.dispose();
     await controller.refresh();
 
-    expect(document.querySelector("#rion-studio-macro-overlay-v56")).toBeNull();
+    expect(document.querySelector("#rion-studio-macro-overlay-v57")).toBeNull();
     expect(binding).toHaveBeenCalledTimes(requestCount);
   });
 
@@ -320,7 +332,7 @@ function overlayController(): OverlayController | undefined {
 }
 
 function overlayRoot(): ShadowRoot | undefined {
-  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v56")
+  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v57")
     ?.shadowRoot ?? undefined;
 }
 

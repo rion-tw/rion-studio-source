@@ -1530,6 +1530,7 @@
     isInstalled = true;
     refreshGameInputContext();
     updatePresentation();
+    void binding.ready?.().catch(() => undefined);
     void refresh();
   }
 

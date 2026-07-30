@@ -53,6 +53,7 @@ const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);
+const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 const OPTIONAL_HYDRATION_IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
@@ -1336,6 +1337,28 @@ impl NativeWindowActor {
         Ok(())
     }
 
+    fn wait_until_applied(&self, revision: u64, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let (lock, changed) = &*self.queue;
+        let Ok(mut state) = lock.lock() else {
+            return false;
+        };
+        while state.applied_revision < revision && !state.stopped {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let Ok((next, wait)) = changed.wait_timeout(state, remaining) else {
+                return false;
+            };
+            state = next;
+            if wait.timed_out() && state.applied_revision < revision {
+                return false;
+            }
+        }
+        state.applied_revision >= revision
+    }
+
     fn stop(&self) {
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
@@ -1755,12 +1778,33 @@ struct RuntimeState {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct CloseTransaction {
+    source_id: String,
+    tab_type: String,
     #[cfg(target_os = "macos")]
     original_active_tab_id: Option<String>,
     #[cfg(target_os = "macos")]
     revision: u64,
     #[cfg(target_os = "macos")]
     window_id: String,
+}
+
+pub(crate) struct RuntimeTabCloseIntent {
+    pub(crate) source_id: String,
+    pub(crate) tab_type: String,
+}
+
+impl RuntimeTabCloseIntent {
+    pub(crate) fn into_core_command(self) -> CoreCommand {
+        if self.tab_type == "workspace" {
+            CoreCommand::BrowserWorkspaceStop {
+                workspace_id: self.source_id,
+            }
+        } else {
+            CoreCommand::BrowserRoleStop {
+                role_id: self.source_id,
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1900,6 +1944,8 @@ pub struct SystemRuntimeExecutor {
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
     presentation: Arc<PresentationRegistry>,
     prewarm_state: AtomicU8,
+    restore_persist_requested: AtomicU64,
+    restore_persist_running: AtomicBool,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
 }
@@ -2414,6 +2460,8 @@ impl SystemRuntimeExecutor {
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
             prewarm_state: AtomicU8::new(0),
+            restore_persist_requested: AtomicU64::new(0),
+            restore_persist_running: AtomicBool::new(false),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -3061,6 +3109,7 @@ impl SystemRuntimeExecutor {
             return;
         }
         let effect_id = effect.effect_id.clone();
+        let close_effect = is_surface_close_effect(&effect.action);
         let started = Instant::now();
         let scope = native_effect_scope(&effect);
         eprintln!("System WebView effect: {action_name} started (effect={effect_id}, {scope}).");
@@ -3080,6 +3129,48 @@ impl SystemRuntimeExecutor {
                 }),
             }
         };
+        if close_effect {
+            let succeeded = result.ok;
+            let error_code = result.error.as_ref().map(|error| error.code.clone());
+            eprintln!(
+                "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
+                started.elapsed().as_millis()
+            );
+            // Acknowledge native isolation before any Core/SQLite callback. The
+            // close worker is immediately reusable for the next tab in a burst;
+            // restore-session durability is coalesced on one background worker.
+            match self.core.dispatch_core_effect_results(vec![result]) {
+                Ok(report) => {
+                    let accepted = report.accepted.iter().any(|id| id == &effect_id);
+                    self.record_close_effect_completion(
+                        action_name,
+                        &effect_id,
+                        succeeded,
+                        accepted,
+                        error_code.as_deref(),
+                        started.elapsed(),
+                    );
+                    if succeeded && accepted {
+                        if persist_runtime {
+                            self.schedule_restore_session_persist();
+                        } else {
+                            self.publish_projection();
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.record_close_effect_completion(
+                        action_name,
+                        &effect_id,
+                        succeeded,
+                        false,
+                        Some(error.code()),
+                        started.elapsed(),
+                    );
+                }
+            }
+            return;
+        }
         let persistence_error = (result.ok && persist_runtime)
             .then(|| self.persist_restore_session(false).err())
             .flatten();
@@ -3095,6 +3186,108 @@ impl SystemRuntimeExecutor {
         {
             self.publish_projection();
         }
+    }
+
+    fn schedule_restore_session_persist(self: &Arc<Self>) {
+        self.restore_persist_requested
+            .fetch_add(1, Ordering::AcqRel);
+        if self
+            .restore_persist_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let runtime = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut failure_count = 0usize;
+            loop {
+                // Collapse a rapid close burst into one durable snapshot.
+                let delay = match failure_count {
+                    0 => Duration::from_millis(50),
+                    1 => Duration::from_secs(1),
+                    2 => Duration::from_secs(5),
+                    _ => Duration::from_secs(30),
+                };
+                std::thread::sleep(delay);
+                let target = runtime.restore_persist_requested.load(Ordering::Acquire);
+                match runtime.persist_restore_session(false) {
+                    Ok(()) => {
+                        failure_count = 0;
+                        runtime.publish_projection();
+                    }
+                    Err(error) => {
+                        failure_count = failure_count.saturating_add(1);
+                        eprintln!("Runtime close durability retry failed: {error}");
+                        if failure_count < 4 {
+                            continue;
+                        }
+                        let _ = runtime.app.emit(
+                            "rion://shell-error",
+                            json!({
+                                "code": "SYSTEM_RUNTIME_PERSIST_FAILED",
+                                "failureKind": "close-durability-retry-exhausted",
+                                "message": "The game pages stopped, but Rion Studio could not persist the closed tab state. Restart Rion Studio before relying on window restoration."
+                            }),
+                        );
+                    }
+                }
+                if runtime.restore_persist_requested.load(Ordering::Acquire) != target {
+                    continue;
+                }
+                runtime
+                    .restore_persist_running
+                    .store(false, Ordering::Release);
+                if runtime.restore_persist_requested.load(Ordering::Acquire) == target
+                    || runtime
+                        .restore_persist_running
+                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                        .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+
+    fn record_close_effect_completion(
+        &self,
+        action_name: &'static str,
+        effect_id: &str,
+        native_succeeded: bool,
+        acknowledgement_accepted: bool,
+        error_code: Option<&str>,
+        elapsed: Duration,
+    ) {
+        let core = Arc::clone(&self.core);
+        let context = json!({
+            "acknowledgementAccepted": acknowledgement_accepted,
+            "action": action_name,
+            "effectId": effect_id,
+            "elapsedMs": elapsed.as_millis().min(u64::MAX as u128) as u64,
+            "errorCode": error_code,
+            "nativeSucceeded": native_succeeded,
+            "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: if native_succeeded && acknowledgement_accepted {
+                            LogLevel::Debug
+                        } else {
+                            LogLevel::Error
+                        },
+                        source: LogSource::Browser,
+                        event: "surface.close-effect-completed".to_owned(),
+                        message: "Native close completion was dispatched to the Core coordinator."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
     }
 
     fn execute_role_load_effect_async(
@@ -3965,6 +4158,46 @@ impl SystemRuntimeExecutor {
         });
         if let Err(message) = dispatch_result {
             eprintln!("Native window actor enqueue failed: {message}");
+        }
+    }
+
+    fn wait_for_presentation_paint_barrier(&self, window_id: &str, revision: u64) {
+        let started = Instant::now();
+        let applied = self
+            .presentation
+            .actor(window_id)
+            .ok()
+            .is_some_and(|actor| {
+                actor.wait_until_applied(revision, PRESENTATION_PAINT_BARRIER_TIMEOUT)
+            });
+        // Queue one additional no-op after the P0 AppKit/UI-dispatcher mutation.
+        // Controller creation may proceed after this turn even if platform paint
+        // instrumentation is unavailable; launch can never wait indefinitely.
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let scheduled = self
+            .app
+            .run_on_main_thread(move || {
+                let _ = sender.send(());
+            })
+            .is_ok();
+        let yielded = scheduled
+            && receiver
+                .recv_timeout(PRESENTATION_PAINT_BARRIER_TIMEOUT)
+                .is_ok();
+        self.record_presentation_event(
+            LogLevel::Debug,
+            "native.presentation-paint-barrier",
+            "Native presentation yielded a UI turn before controller creation.",
+            window_id,
+            None,
+            revision,
+            "launch",
+            started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        );
+        if !applied || !yielded {
+            eprintln!(
+                "Native presentation paint barrier used bounded fail-open (window={window_id}, revision={revision}, applied={applied}, yielded={yielded})."
+            );
         }
     }
 
@@ -5866,19 +6099,22 @@ impl SystemRuntimeExecutor {
         Ok((target_id, provisional))
     }
 
-    pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<(), String> {
+    pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<RuntimeTabCloseIntent, String> {
         let started = Instant::now();
         let (
             window,
             window_id,
+            isolation_surfaces,
             previous_tab_id,
             previous_surfaces,
             next_surfaces,
             active_webview,
             next_tab_id,
             revision,
+            source_id,
+            tab_type,
         ) = {
-            let (window_id, window) = {
+            let (window_id, window, isolation_surfaces) = {
                 let state = self.state().map_err(|error| error.message)?;
                 let tab = state
                     .tabs
@@ -5891,7 +6127,17 @@ impl SystemRuntimeExecutor {
                     .ok_or_else(|| "Runtime display host was not found.".to_owned())?
                     .window
                     .clone();
-                (window_id, window)
+                let isolation_surfaces = state
+                    .surface_registry
+                    .values()
+                    .filter(|surface| {
+                        surface.tab_id.as_deref() == Some(tab_id)
+                            && surface.kind != ManagedSurfaceKind::Divider
+                            && surface.phase.blocks_role_relaunch()
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (window_id, window, isolation_surfaces)
             };
             let (
                 original_active_tab_id,
@@ -5900,6 +6146,8 @@ impl SystemRuntimeExecutor {
                 active_webview,
                 next_tab_id,
                 revision,
+                source_id,
+                tab_type,
             ) = {
                 let presentation = self.presentation.coordinator(&window_id)?;
                 let revision = self.presentation.next_revision();
@@ -5909,6 +6157,12 @@ impl SystemRuntimeExecutor {
                 if !window_state.contains_tab(tab_id) {
                     return Err("Runtime tab was not found in the presentation state.".to_owned());
                 }
+                let presentation_tab = window_state
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.id == tab_id)
+                    .cloned()
+                    .ok_or_else(|| "Runtime tab presentation metadata was not found.".to_owned())?;
                 let original_active_tab_id = window_state.selected_tab_id.clone();
                 let previous_surfaces = window_state.surfaces(original_active_tab_id.as_deref());
                 let next_tab_id = if original_active_tab_id.as_deref() == Some(tab_id) {
@@ -5927,6 +6181,8 @@ impl SystemRuntimeExecutor {
                     active_webview,
                     next_tab_id,
                     revision,
+                    presentation_tab.source_id,
+                    presentation_tab.tab_type,
                 )
             };
             let mut state = self.state().map_err(|error| error.message)?;
@@ -5934,6 +6190,8 @@ impl SystemRuntimeExecutor {
             state.close_previews.insert(
                 tab_id.to_owned(),
                 CloseTransaction {
+                    source_id: source_id.clone(),
+                    tab_type: tab_type.clone(),
                     #[cfg(target_os = "macos")]
                     original_active_tab_id: original_active_tab_id.clone(),
                     #[cfg(target_os = "macos")]
@@ -5945,12 +6203,15 @@ impl SystemRuntimeExecutor {
             (
                 window,
                 window_id,
+                isolation_surfaces,
                 original_active_tab_id,
                 previous_surfaces,
                 next_surfaces,
                 active_webview,
                 next_tab_id,
                 revision,
+                source_id,
+                tab_type,
             )
         };
         let elapsed = started.elapsed();
@@ -5970,7 +6231,49 @@ impl SystemRuntimeExecutor {
             next_tab_id.is_none().then_some(false),
             true,
         );
-        Ok(())
+        self.request_preview_surface_isolation(isolation_surfaces);
+        Ok(RuntimeTabCloseIntent {
+            source_id,
+            tab_type,
+        })
+    }
+
+    fn request_preview_surface_isolation(&self, surfaces: Vec<ManagedSurface>) {
+        if surfaces.is_empty() {
+            return;
+        }
+        for surface in &surfaces {
+            self.record_surface_event(
+                LogLevel::Debug,
+                "surface.isolation-requested-early",
+                "Native isolation was requested directly from the presentation close transaction.",
+                surface,
+            );
+        }
+
+        #[cfg(target_os = "macos")]
+        for surface in surfaces {
+            // The native adapter dispatches to AppKit without waiting. This must
+            // precede Core persistence so a rapid close burst takes every game
+            // page offline even while metadata commits are queued.
+            let _ = quiesce_platform_surface(&surface.webview, &surface.lifecycle);
+        }
+
+        #[cfg(windows)]
+        tauri::async_runtime::spawn_blocking(move || {
+            std::thread::scope(|scope| {
+                for surface in &surfaces {
+                    scope.spawn(move || {
+                        let _ = quiesce_platform_surface(&surface.webview, &surface.lifecycle);
+                    });
+                }
+            });
+        });
+
+        #[cfg(not(any(windows, target_os = "macos")))]
+        for surface in surfaces {
+            let _ = quiesce_platform_surface(&surface.webview, &surface.lifecycle);
+        }
     }
 
     pub(crate) fn resolve_tab_close_preview(&self, tab_id: &str, succeeded: bool) {
@@ -7966,7 +8269,39 @@ impl SystemRuntimeExecutor {
             } => {
                 self.destroy_tab(&tab_id)?;
                 if let Some(next_tab_id) = next_active_tab_id {
-                    self.show_tab(&next_tab_id, true)?;
+                    // Isolation is the close transaction's commit boundary. A
+                    // rapid X burst may already have removed or marked this
+                    // successor as closing by the time the native close effect
+                    // finishes. Focus/visibility is presentation-only and must
+                    // never turn an already successful close into a failed Core
+                    // effect that strands roles in `stopping`.
+                    if let Err(error) = self.show_tab(&next_tab_id, true) {
+                        let window_id = self
+                            .state
+                            .lock()
+                            .ok()
+                            .and_then(|state| {
+                                state
+                                    .tabs
+                                    .get(&next_tab_id)
+                                    .map(|tab| tab.window_id.clone())
+                            })
+                            .unwrap_or_default();
+                        self.record_presentation_event(
+                            LogLevel::Debug,
+                            "tab.close-successor-superseded",
+                            "The close successor was superseded by a newer presentation revision.",
+                            &window_id,
+                            Some(&next_tab_id),
+                            presentation_revision,
+                            "effect",
+                            0,
+                        );
+                        eprintln!(
+                            "Native close successor presentation was superseded (tab={next_tab_id}, error={}).",
+                            error.message
+                        );
+                    }
                 }
                 Ok(None)
             }
@@ -10636,6 +10971,7 @@ impl SystemRuntimeExecutor {
             Some(true),
             false,
         );
+        self.wait_for_presentation_paint_barrier(&target.window_id, reservation_revision);
         let window_zoom_factor = self
             .state()?
             .display_hosts
@@ -10725,6 +11061,32 @@ impl SystemRuntimeExecutor {
                         launch_started,
                     );
                 }
+                // Controller visibility belongs to presentation, not native
+                // setup or navigation readiness. Show the selected tab's blank
+                // viewport immediately; a tab that was switched away from while
+                // creation was in flight stays hidden.
+                let selected_before_setup = self
+                    .presentation
+                    .existing(&target.window_id)
+                    .and_then(|presentation| {
+                        presentation.lock().ok().map(|presentation| {
+                            presentation.selected_tab_id.as_deref() == Some(tab.tab_id.as_str())
+                        })
+                    })
+                    .unwrap_or(false);
+                let visibility_result = if selected_before_setup {
+                    webview.show()
+                } else {
+                    webview.hide()
+                };
+                if let Err(error) = visibility_result {
+                    return Err(RuntimeError::tauri(error));
+                }
+                self.record_runtime_stage(
+                    format!("controller-presented:{role_id}"),
+                    "completed",
+                    launch_started,
+                );
                 created_surfaces.push((role_id.clone(), webview.clone(), None, None));
                 let setup_started = Instant::now();
                 let setup_stage = format!("native-role-setup:{role_id}");
@@ -16557,6 +16919,50 @@ mod tests {
             Some("a")
         );
         assert_eq!(successor_tab_after_close(&ids[..1], "a", |_| true), None);
+    }
+
+    #[test]
+    fn close_intent_builds_core_command_without_a_runtime_snapshot() {
+        let role = RuntimeTabCloseIntent {
+            source_id: "role-a".to_owned(),
+            tab_type: "role".to_owned(),
+        };
+        assert!(matches!(
+            role.into_core_command(),
+            CoreCommand::BrowserRoleStop { role_id } if role_id == "role-a"
+        ));
+
+        let workspace = RuntimeTabCloseIntent {
+            source_id: "workspace-a".to_owned(),
+            tab_type: "workspace".to_owned(),
+        };
+        assert!(matches!(
+            workspace.into_core_command(),
+            CoreCommand::BrowserWorkspaceStop { workspace_id }
+                if workspace_id == "workspace-a"
+        ));
+    }
+
+    #[test]
+    fn presentation_barrier_waits_for_the_applied_revision_and_is_bounded() {
+        let actor = Arc::new(NativeWindowActor {
+            queue: Arc::new((
+                Mutex::new(NativeWindowActorState::default()),
+                Condvar::new(),
+            )),
+        });
+        let completing_actor = Arc::clone(&actor);
+        let completion = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(5));
+            let (lock, changed) = &*completing_actor.queue;
+            let mut state = lock.lock().unwrap();
+            state.applied_revision = 7;
+            changed.notify_all();
+        });
+
+        assert!(actor.wait_until_applied(7, Duration::from_millis(100)));
+        completion.join().unwrap();
+        assert!(!actor.wait_until_applied(8, Duration::from_millis(1)));
     }
 
     fn presentation_tab(id: &str, phase: TabPresentationPhase) -> TabPresentation {

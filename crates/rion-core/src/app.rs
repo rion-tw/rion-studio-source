@@ -171,6 +171,7 @@ pub struct AppCore {
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
+    browser_status_emit_guard: Mutex<()>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
@@ -295,6 +296,7 @@ impl AppCore {
             browser_action_effects,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
             browser_runtime,
+            browser_status_emit_guard: Mutex::new(()),
             chrome_profile_import: Mutex::new(
                 crate::chrome_profile_import::ChromeProfileImportRuntime::default(),
             ),
@@ -3436,6 +3438,14 @@ impl AppCore {
     }
 
     fn emit_browser_statuses(&self) {
+        // Status decoration reads persisted role metadata after taking the
+        // runtime snapshot. Without one projection lane, a slower older close
+        // can publish its `stopping` snapshot after a newer close has already
+        // published the empty/running state. Serialize only snapshot projection
+        // and emission; native lifecycle work remains fully concurrent.
+        let Ok(_emit_guard) = self.browser_status_emit_guard.lock() else {
+            return;
+        };
         if let Ok(statuses) = self.browser_statuses() {
             self.emit(vec![CoreEvent::BrowserStatuses { statuses }]);
         }
@@ -4410,19 +4420,9 @@ impl AppCore {
                 (role, tab_id, source_window_id, tab_role_count, action)
             };
 
-            // Persist the user's close intent without scheduling another native
-            // projection effect ahead of isolation. The preview already owns the
-            // visible presentation, and a busy global effect lane must not keep the
-            // exact game surface alive.
-            if let Ok(intent_snapshot) = self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
-                .map(|result| result.snapshot)
-            {
-                let _ = self.sync_game_windows_from_runtime(
-                    &intent_snapshot,
-                    &std::collections::HashSet::new(),
-                );
-            }
+            // Native isolation is the safety boundary. Persistence is committed
+            // after the exact game surface is offline; a busy SQLite writer must
+            // never leave a visually closed role running.
             self.emit_browser_statuses();
             let (role, tab_id, source_window_id, tab_role_count, action) = prepared;
             self.run_effect_plan(vec![effect_step(
@@ -4593,15 +4593,8 @@ impl AppCore {
                 (workspace, tab_id, source_window_id, next_active_tab_id)
             };
 
-            if let Ok(intent_snapshot) = self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
-                .map(|result| result.snapshot)
-            {
-                let _ = self.sync_game_windows_from_runtime(
-                    &intent_snapshot,
-                    &std::collections::HashSet::new(),
-                );
-            }
+            // Keep durability behind native isolation. The final runtime commit
+            // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
             let (workspace, tab_id, source_window_id, next_active_tab_id) = prepared;
             self.run_effect_plan(vec![effect_step(
@@ -5390,13 +5383,18 @@ impl AppCore {
             })
             .cloned()
             .collect::<std::collections::HashSet<_>>();
+        // Native isolation and the in-memory runtime transition are already
+        // committed at this point. Publish that authoritative state before the
+        // SQLite durability step so a slow or failed writer cannot leave the UI
+        // indefinitely showing roles as `stopping` after their exact surfaces
+        // are offline.
+        self.emit_browser_statuses();
         self.sync_game_windows_from_runtime(&snapshot, &removed_window_ids)?;
         for window_id in &removed_window_ids {
             self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
                 window_id: window_id.clone(),
             })?;
         }
-        self.emit_browser_statuses();
         if removed_window_ids.is_empty() {
             Ok(snapshot)
         } else {
@@ -8612,6 +8610,123 @@ mod tests {
             .snapshot;
         assert!(stopped_snapshot.roles.is_empty());
         assert!(stopped_snapshot.tabs.is_empty());
+        core.shutdown();
+    }
+
+    #[test]
+    fn stop_emits_native_isolation_before_waiting_for_state_persistence() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        seed_running_role(&core, &role_id);
+        let events = core.subscribe().unwrap();
+        let persistence_guard = core.state_mutation_guard().unwrap();
+        let stopping_core = Arc::clone(&core);
+        let stopping_role_id = role_id.clone();
+        let stop = thread::spawn(move || {
+            stopping_core.invoke(CoreCommand::EmbeddedRoleStop {
+                role_id: stopping_role_id,
+            })
+        });
+
+        let effect = loop {
+            let events = events
+                .recv_timeout(Duration::from_millis(250))
+                .expect("native isolation must be emitted before persistence is available");
+            if let Some(effect) = events.into_iter().find_map(|event| match event {
+                CoreEvent::CoreEffects { effects } => effects.into_iter().find(|effect| {
+                    matches!(effect.action, CoreEffectAction::EmbeddedDestroyTab { .. })
+                }),
+                _ => None,
+            }) {
+                break effect;
+            }
+        };
+        core.dispatch_core_effect_results(vec![effect_result(effect, None)])
+            .unwrap();
+        assert!(!stop.is_finished());
+        drop(persistence_guard);
+        assert!(stop.join().unwrap().is_ok());
+        core.shutdown();
+    }
+
+    #[test]
+    fn rapid_independent_tab_stops_both_commit_after_out_of_order_native_results() {
+        let (_directory, core) = core();
+        let game_id = first_game_id(&core);
+        let first_role_id = create_role(&core, &game_id, 1);
+        let second_role_id = create_role(&core, &game_id, 2);
+        seed_running_role(&core, &first_role_id);
+        seed_running_role(&core, &second_role_id);
+        let events = core.subscribe().unwrap();
+
+        let first_core = Arc::clone(&core);
+        let first_stop_role_id = first_role_id.clone();
+        let first_stop = thread::spawn(move || {
+            first_core.invoke(CoreCommand::EmbeddedRoleStop {
+                role_id: first_stop_role_id,
+            })
+        });
+        let second_core = Arc::clone(&core);
+        let second_stop_role_id = second_role_id.clone();
+        let second_stop = thread::spawn(move || {
+            second_core.invoke(CoreCommand::EmbeddedRoleStop {
+                role_id: second_stop_role_id,
+            })
+        });
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut last_statuses = None;
+        while (!first_stop.is_finished() || !second_stop.is_finished())
+            && std::time::Instant::now() < deadline
+        {
+            let Ok(batch) = events.recv_timeout(Duration::from_millis(50)) else {
+                continue;
+            };
+            for event in batch {
+                match event {
+                    CoreEvent::CoreEffects { effects } => {
+                        // Reverse each emitted batch to exercise completion ordering
+                        // independently from close request ordering.
+                        core.dispatch_core_effect_results(
+                            effects
+                                .into_iter()
+                                .rev()
+                                .map(|effect| effect_result(effect, None))
+                                .collect(),
+                        )
+                        .unwrap();
+                    }
+                    CoreEvent::BrowserStatuses { statuses } => last_statuses = Some(statuses),
+                    _ => {}
+                }
+            }
+        }
+
+        assert!(first_stop.is_finished(), "first close transaction stalled");
+        assert!(
+            second_stop.is_finished(),
+            "second close transaction stalled"
+        );
+        assert!(first_stop.join().unwrap().is_ok());
+        assert!(second_stop.join().unwrap().is_ok());
+        while let Ok(batch) = events.recv_timeout(Duration::from_millis(50)) {
+            for event in batch {
+                if let CoreEvent::BrowserStatuses { statuses } = event {
+                    last_statuses = Some(statuses);
+                }
+            }
+        }
+        assert!(
+            last_statuses
+                .is_some_and(|statuses| statuses.iter().all(|status| status.state == "stopped")),
+            "the final browser status projection must not regress to stopping"
+        );
+        let snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(snapshot.roles.is_empty());
+        assert!(snapshot.tabs.is_empty());
         core.shutdown();
     }
 

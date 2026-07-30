@@ -408,8 +408,20 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             reveal_menu_error(app, message);
         }
     } else if let Some(tab_id) = id.strip_prefix(STOP_PREFIX) {
-        match stop_command(&state.core, tab_id) {
-            Ok(command) => spawn_command(app, &state.core, command),
+        match state.runtime.preview_tab_close(tab_id) {
+            Ok(intent) => {
+                let app = app.clone();
+                let core = std::sync::Arc::clone(&state.core);
+                let runtime = std::sync::Arc::clone(&state.runtime);
+                let tab_id = tab_id.to_owned();
+                tauri::async_runtime::spawn(async move {
+                    let result = core.invoke_async(intent.into_core_command()).await;
+                    runtime.resolve_tab_close_preview(&tab_id, result.is_ok());
+                    if let Err(error) = result {
+                        crate::reveal_shell_error(&app, error.payload());
+                    }
+                });
+            }
             Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(tab_id) = id.strip_prefix(MUTE_PREFIX) {
@@ -583,6 +595,14 @@ pub async fn handle_scoped_action(
     if action_type == "activate" {
         return crate::preview_and_commit_native_tab_selection(app, state, tab_id);
     }
+    if action_type == "stop" {
+        let intent = state.runtime.preview_tab_close(tab_id)?;
+        let result = state.core.invoke_async(intent.into_core_command()).await;
+        state
+            .runtime
+            .resolve_tab_close_preview(tab_id, result.is_ok());
+        return result.map(|_| ()).map_err(|error| error.to_string());
+    }
     let snapshot = snapshot(&state.core)?;
     let tab = snapshot
         .tabs
@@ -599,7 +619,6 @@ pub async fn handle_scoped_action(
         "hide" => CoreCommand::EmbeddedTabHide {
             tab_id: tab_id.to_owned(),
         },
-        "stop" => stop_command(&state.core, tab_id)?,
         "move" => {
             let target_window_id = action["windowId"]
                 .as_str()
@@ -634,15 +653,7 @@ pub async fn handle_scoped_action(
         }
         _ => return Err("runtime tab action is invalid".to_owned()),
     };
-    if action_type == "stop" {
-        let _ = state.runtime.preview_tab_close(tab_id);
-    }
     let result = state.core.invoke_async(command).await;
-    if action_type == "stop" {
-        state
-            .runtime
-            .resolve_tab_close_preview(tab_id, result.is_ok());
-    }
     result.map(|_| ()).map_err(|error| error.to_string())
 }
 
@@ -660,22 +671,17 @@ fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, work
     };
     let tab_type = if workspace { "workspace" } else { "role" };
     let source_id = source_id.to_owned();
+    // The launcher menu belongs to an already-live game window. Commit its
+    // provisional presentation before returning from the native menu action so
+    // Tokio scheduling, Core work and controller creation cannot delay the tab.
+    let preview = state
+        .runtime
+        .preview_tab_launch(&target, &source_id, tab_type)
+        .ok();
     let app = app.clone();
     let core = std::sync::Arc::clone(&state.core);
     let runtime = std::sync::Arc::clone(&state.runtime);
     tauri::async_runtime::spawn(async move {
-        // Native menu callbacks originate on AppKit's main thread. Both display-host creation
-        // and the per-window native creation lane may wait for that thread, so preview work must
-        // enter the blocking executor before it can acquire either resource.
-        let preview_runtime = std::sync::Arc::clone(&runtime);
-        let preview_target = target.clone();
-        let preview_source_id = source_id.clone();
-        let preview = tauri::async_runtime::spawn_blocking(move || {
-            preview_runtime.preview_tab_launch(&preview_target, &preview_source_id, tab_type)
-        })
-        .await
-        .ok()
-        .and_then(Result::ok);
         let command = if workspace {
             CoreCommand::BrowserWorkspaceLaunch {
                 workspace_id: source_id,
@@ -731,23 +737,6 @@ fn snapshot(core: &rion_core::AppCore) -> Result<BrowserRuntimeSnapshot, String>
     core.invoke(CoreCommand::BrowserRuntimeSnapshot)
         .map_err(|error| error.to_string())
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
-}
-
-fn stop_command(core: &rion_core::AppCore, tab_id: &str) -> Result<CoreCommand, String> {
-    let tab = snapshot(core)?
-        .tabs
-        .into_iter()
-        .find(|tab| tab.id == tab_id)
-        .ok_or_else(|| "runtime tab was not found".to_owned())?;
-    Ok(if tab.tab_type == "workspace" {
-        CoreCommand::BrowserWorkspaceStop {
-            workspace_id: tab.source_id,
-        }
-    } else {
-        CoreCommand::BrowserRoleStop {
-            role_id: tab.source_id,
-        }
-    })
 }
 
 struct Labels {

@@ -1809,29 +1809,14 @@ async fn rion_shell_invoke(
             if state.runtime.cancel_provisional_tab_launch(&tab_id) {
                 return Ok(Value::Null);
             }
-            let snapshot = invoke_core_sync(&state, json!({ "type": "browserRuntimeSnapshot" }))?;
-            let tab = snapshot["tabs"]
-                .as_array()
-                .and_then(|tabs| tabs.iter().find(|tab| tab["id"].as_str() == Some(&tab_id)))
-                .ok_or_else(|| {
-                    shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-                })?;
-            let source_id = tab["sourceId"].as_str().ok_or_else(|| {
-                shell_error(
-                    "TAURI_RUNTIME_TAB_INVALID",
-                    "Runtime tab source is invalid.",
-                )
-            })?;
-            let command = if tab["tabType"].as_str() == Some("workspace") {
-                json!({ "type": "browserWorkspaceStop", "workspaceId": source_id })
-            } else {
-                json!({ "type": "browserRoleStop", "roleId": source_id })
-            };
-            state
+            let close_intent = state
                 .runtime
                 .preview_tab_close(&tab_id)
                 .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
-            let result = invoke_core_async(&state, command).await;
+            let result = Arc::clone(&state.core)
+                .invoke_async(close_intent.into_core_command())
+                .await
+                .map_err(error_payload);
             state
                 .runtime
                 .resolve_tab_close_preview(&tab_id, result.is_ok());

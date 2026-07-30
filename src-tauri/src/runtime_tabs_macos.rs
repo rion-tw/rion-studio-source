@@ -3,7 +3,7 @@
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
@@ -121,7 +121,9 @@ pub struct MacRuntimeTabsController {
 struct MacRuntimeTabsControllerInner {
     app: AppHandle,
     context: *mut CallbackContext,
+    latest_active_tab_id: Mutex<Option<Option<String>>>,
     raw: *mut c_void,
+    selection_generation: AtomicU64,
     update_generation: AtomicU64,
 }
 
@@ -196,7 +198,9 @@ impl MacRuntimeTabsController {
             inner: Arc::new(MacRuntimeTabsControllerInner {
                 app: app.clone(),
                 context,
+                latest_active_tab_id: Mutex::new(None),
                 raw,
+                selection_generation: AtomicU64::new(0),
                 update_generation: AtomicU64::new(0),
             }),
         })
@@ -226,6 +230,11 @@ impl MacRuntimeTabsController {
                 return;
             }
             let raw = inner.raw as usize;
+            let latest_active_tab_id = inner
+                .latest_active_tab_id
+                .lock()
+                .ok()
+                .and_then(|selection| selection.clone());
             let strings = tabs
                 .iter()
                 .map(|tab| NativeTabStrings {
@@ -241,7 +250,9 @@ impl MacRuntimeTabsController {
                 .iter()
                 .zip(&strings)
                 .map(|(tab, strings)| NativeTabInput {
-                    active: tab.active,
+                    active: latest_active_tab_id.as_ref().map_or(tab.active, |tab_id| {
+                        tab_id.as_deref() == Some(tab.id.as_str())
+                    }),
                     audible: tab.audible,
                     audio_muted: tab.audio_muted,
                     identifier: strings.id.as_ptr(),
@@ -297,11 +308,14 @@ impl MacRuntimeTabsController {
 
     pub fn set_active(&self, tab_id: Option<&str>) -> Result<(), String> {
         let inner = Arc::clone(&self.inner);
-        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let generation = inner.selection_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Ok(mut latest) = inner.latest_active_tab_id.lock() {
+            *latest = Some(tab_id.map(str::to_owned));
+        }
         let tab_id = tab_id.map(c_string);
         let app = inner.app.clone();
         app.run_on_main_thread(move || {
-            if inner.update_generation.load(Ordering::Acquire) != generation {
+            if inner.selection_generation.load(Ordering::Acquire) != generation {
                 return;
             }
             unsafe {
@@ -316,6 +330,12 @@ impl MacRuntimeTabsController {
         .map_err(|error| error.to_string())
     }
 
+    pub fn remember_active(&self, tab_id: Option<&str>) {
+        if let Ok(mut latest) = self.inner.latest_active_tab_id.lock() {
+            *latest = Some(tab_id.map(str::to_owned));
+        }
+    }
+
     pub fn reserve(
         &self,
         tab_id: &str,
@@ -324,50 +344,38 @@ impl MacRuntimeTabsController {
         workspace_template: Option<&str>,
     ) -> Result<(), String> {
         let inner = Arc::clone(&self.inner);
-        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let tab_id = c_string(tab_id);
         let name = c_string(name);
         let tab_type = c_string(tab_type);
         let workspace_template = workspace_template.map(c_string);
         let app = inner.app.clone();
-        app.run_on_main_thread(move || {
-            if inner.update_generation.load(Ordering::Acquire) != generation {
-                return;
-            }
-            unsafe {
-                rion_runtime_tabs_reserve(
-                    inner.raw,
-                    tab_id.as_ptr(),
-                    name.as_ptr(),
-                    tab_type.as_ptr(),
-                    workspace_template
-                        .as_ref()
-                        .map_or(std::ptr::null(), |value| value.as_ptr()),
-                );
-            }
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_reserve(
+                inner.raw,
+                tab_id.as_ptr(),
+                name.as_ptr(),
+                tab_type.as_ptr(),
+                workspace_template
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
         })
         .map_err(|error| error.to_string())
     }
 
     pub fn remove(&self, tab_id: &str, active_tab_id: Option<&str>) -> Result<(), String> {
         let inner = Arc::clone(&self.inner);
-        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let tab_id = c_string(tab_id);
         let active_tab_id = active_tab_id.map(c_string);
         let app = inner.app.clone();
-        app.run_on_main_thread(move || {
-            if inner.update_generation.load(Ordering::Acquire) != generation {
-                return;
-            }
-            unsafe {
-                rion_runtime_tabs_remove(
-                    inner.raw,
-                    tab_id.as_ptr(),
-                    active_tab_id
-                        .as_ref()
-                        .map_or(std::ptr::null(), |value| value.as_ptr()),
-                );
-            }
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_remove(
+                inner.raw,
+                tab_id.as_ptr(),
+                active_tab_id
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
         })
         .map_err(|error| error.to_string())
     }
@@ -382,7 +390,6 @@ impl MacRuntimeTabsController {
         active_tab_id: Option<&str>,
     ) -> Result<(), String> {
         let inner = Arc::clone(&self.inner);
-        let generation = inner.update_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let provisional_id = c_string(provisional_id);
         let tab_id = c_string(tab_id);
         let name = c_string(name);
@@ -390,25 +397,20 @@ impl MacRuntimeTabsController {
         let workspace_template = workspace_template.map(c_string);
         let active_tab_id = active_tab_id.map(c_string);
         let app = inner.app.clone();
-        app.run_on_main_thread(move || {
-            if inner.update_generation.load(Ordering::Acquire) != generation {
-                return;
-            }
-            unsafe {
-                rion_runtime_tabs_replace(
-                    inner.raw,
-                    provisional_id.as_ptr(),
-                    tab_id.as_ptr(),
-                    name.as_ptr(),
-                    tab_type.as_ptr(),
-                    workspace_template
-                        .as_ref()
-                        .map_or(std::ptr::null(), |value| value.as_ptr()),
-                    active_tab_id
-                        .as_ref()
-                        .map_or(std::ptr::null(), |value| value.as_ptr()),
-                );
-            }
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_replace(
+                inner.raw,
+                provisional_id.as_ptr(),
+                tab_id.as_ptr(),
+                name.as_ptr(),
+                tab_type.as_ptr(),
+                workspace_template
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+                active_tab_id
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
         })
         .map_err(|error| error.to_string())
     }
@@ -688,13 +690,20 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         }
         if action_type == "activate" {
             if let Some(tab_id) = tab_id.as_deref()
-                && let Err(message) = crate::preview_and_commit_tab_selection(&app, &state, tab_id)
+                && let Err(message) =
+                    crate::preview_and_commit_native_tab_selection(&app, &state, tab_id)
             {
                 crate::reveal_shell_error(
                     &app,
                     crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
                 );
             }
+            return;
+        }
+        if action_type == "stop"
+            && let Some(tab_id) = tab_id.as_deref()
+            && state.runtime.cancel_provisional_tab_launch(tab_id)
+        {
             return;
         }
         let command = match action_type.as_str() {

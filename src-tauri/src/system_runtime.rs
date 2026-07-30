@@ -52,6 +52,7 @@ const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
 const LOCAL_STORAGE_SYNC_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -843,12 +844,12 @@ fn successor_tab_after_close(
         .cloned()
 }
 
-fn native_presentation_owns_selection(
+fn core_projection_may_update_selection(
     effect_revision: u64,
-    presentation_revision: u64,
-    native_selection_pending: bool,
+    desired_revision: u64,
+    desired_is_missing: bool,
 ) -> bool {
-    native_selection_pending || effect_revision < presentation_revision
+    desired_revision == 0 || desired_is_missing || effect_revision >= desired_revision
 }
 
 fn accept_local_storage_sync_sequence(last_accepted: &mut u64, incoming: u64) -> bool {
@@ -1072,11 +1073,82 @@ struct PresentationRegistry {
     windows: Mutex<HashMap<String, Arc<Mutex<PresentationCoordinator>>>>,
 }
 
-type NativeWindowCommand = Box<dyn FnOnce() + Send + 'static>;
+struct NativePresentationRequest {
+    active_webview: Option<Webview>,
+    coordinator: Arc<Mutex<PresentationCoordinator>>,
+    core: Arc<AppCore>,
+    focus: bool,
+    next_surfaces: Vec<Webview>,
+    observed_previous_tab_id: Option<String>,
+    observed_previous_surfaces: Vec<Webview>,
+    requested_at: Instant,
+    revision: u64,
+    tab_id: Option<String>,
+    trigger: &'static str,
+    window: Window,
+    window_id: String,
+    window_visibility: Option<bool>,
+}
+
+struct NativePresentationBatch {
+    first_requested_at: Instant,
+    first_revision: u64,
+    request: NativePresentationRequest,
+    request_count: u32,
+}
+
+struct NativePresentationOutcome {
+    applied: bool,
+    focus_applied: bool,
+    hidden_surface_count: usize,
+    main_queue_wait_ms: u64,
+    main_thread_ms: u64,
+    shown_surface_count: usize,
+    visibility_errors: Vec<String>,
+}
+
+struct LatestOnlyPresentationQueue<T> {
+    in_flight: bool,
+    pending: Option<T>,
+}
+
+impl<T> Default for LatestOnlyPresentationQueue<T> {
+    fn default() -> Self {
+        Self {
+            in_flight: false,
+            pending: None,
+        }
+    }
+}
+
+impl<T> LatestOnlyPresentationQueue<T> {
+    fn replace(&mut self, value: T) {
+        self.pending = Some(value);
+    }
+
+    fn begin_latest(&mut self) -> Option<T> {
+        if self.in_flight {
+            return None;
+        }
+        let latest = self.pending.take()?;
+        self.in_flight = true;
+        Some(latest)
+    }
+
+    fn finish(&mut self) {
+        self.in_flight = false;
+    }
+}
 
 #[derive(Default)]
 struct NativeWindowActorState {
-    pending: Option<NativeWindowCommand>,
+    applied_revision: u64,
+    applied_surfaces: Vec<Webview>,
+    applied_tab_id: Option<String>,
+    burst_first_requested_at: Option<Instant>,
+    burst_first_revision: u64,
+    burst_request_count: u32,
+    requests: LatestOnlyPresentationQueue<NativePresentationRequest>,
     stopped: bool,
 }
 
@@ -1095,12 +1167,12 @@ impl NativeWindowActor {
             .name(format!("rion-native-window-{window_id}"))
             .spawn(move || {
                 loop {
-                    let command = {
+                    let batch = {
                         let (lock, changed) = &*worker_queue;
                         let Ok(mut state) = lock.lock() else {
                             return;
                         };
-                        while state.pending.is_none() && !state.stopped {
+                        while state.requests.pending.is_none() && !state.stopped {
                             let Ok(next) = changed.wait(state) else {
                                 return;
                             };
@@ -1109,18 +1181,93 @@ impl NativeWindowActor {
                         if state.stopped {
                             return;
                         }
-                        state.pending.take()
+                        let mut observed_revision = state
+                            .requests
+                            .pending
+                            .as_ref()
+                            .map(|request| request.revision)
+                            .unwrap_or(0);
+                        loop {
+                            let Ok((next, timeout)) =
+                                changed.wait_timeout(state, NATIVE_PRESENTATION_COALESCE_INTERVAL)
+                            else {
+                                return;
+                            };
+                            state = next;
+                            if state.stopped {
+                                return;
+                            }
+                            let latest_revision = state
+                                .requests
+                                .pending
+                                .as_ref()
+                                .map(|request| request.revision)
+                                .unwrap_or(0);
+                            if latest_revision != observed_revision {
+                                observed_revision = latest_revision;
+                                continue;
+                            }
+                            if timeout.timed_out() {
+                                break;
+                            }
+                        }
+                        let Some(request) = state.requests.begin_latest() else {
+                            continue;
+                        };
+                        if let Ok(mut coordinator) = request.coordinator.lock() {
+                            coordinator.scheduled = false;
+                            coordinator.in_flight = true;
+                        }
+                        Some(NativePresentationBatch {
+                            first_requested_at: state
+                                .burst_first_requested_at
+                                .take()
+                                .unwrap_or(request.requested_at),
+                            first_revision: std::mem::take(&mut state.burst_first_revision),
+                            request,
+                            request_count: std::mem::take(&mut state.burst_request_count),
+                        })
                     };
-                    if let Some(command) = command {
-                        command();
+                    let Some(batch) = batch else {
+                        continue;
+                    };
+                    let previous = worker_queue
+                        .0
+                        .lock()
+                        .ok()
+                        .map(|state| (state.applied_tab_id.clone(), state.applied_surfaces.clone()))
+                        .unwrap_or_default();
+                    let outcome =
+                        apply_native_presentation_batch(&batch.request, &previous.0, previous.1);
+                    let (lock, changed) = &*worker_queue;
+                    let Ok(mut state) = lock.lock() else {
+                        return;
+                    };
+                    if outcome.applied {
+                        state.applied_revision = batch.request.revision;
+                        state.applied_tab_id = batch.request.tab_id.clone();
+                        state.applied_surfaces = batch.request.next_surfaces.clone();
                     }
+                    state.requests.finish();
+                    let has_pending = state.requests.pending.is_some();
+                    if let Ok(mut coordinator) = batch.request.coordinator.lock() {
+                        coordinator.in_flight = false;
+                        coordinator.scheduled = has_pending;
+                        if outcome.applied {
+                            coordinator.applied_revision = batch.request.revision;
+                            coordinator.applied_tab_id = batch.request.tab_id.clone();
+                        }
+                    }
+                    changed.notify_one();
+                    drop(state);
+                    capture_presentation_batch_events(&batch, &outcome);
                 }
             })
             .map_err(|error| error.to_string())?;
         Ok(Arc::new(Self { queue }))
     }
 
-    fn dispatch(&self, command: NativeWindowCommand) -> Result<(), String> {
+    fn dispatch(&self, request: NativePresentationRequest) -> Result<(), String> {
         let (lock, changed) = &*self.queue;
         let mut state = lock
             .lock()
@@ -1128,9 +1275,28 @@ impl NativeWindowActor {
         if state.stopped {
             return Err("The native window actor has stopped.".to_owned());
         }
-        // Presentation is last-write-wins. Replacing the sole pending command bounds the queue
-        // and prevents a rapid A→B→C sequence from replaying stale native mutations.
-        state.pending = Some(command);
+        if state.applied_revision == 0
+            && !state.requests.in_flight
+            && state.requests.pending.is_none()
+            && state.applied_surfaces.is_empty()
+        {
+            state.applied_tab_id = request.observed_previous_tab_id.clone();
+            state.applied_surfaces = request.observed_previous_surfaces.clone();
+        }
+        if state.requests.pending.is_none() {
+            state.burst_first_requested_at = Some(request.requested_at);
+            state.burst_first_revision = request.revision;
+            state.burst_request_count = 1;
+        } else {
+            state.burst_request_count = state.burst_request_count.saturating_add(1);
+        }
+        if let Ok(mut coordinator) = request.coordinator.lock() {
+            coordinator.scheduled = true;
+        }
+        // The only pending destination is replaced in-place. The worker does not dequeue it
+        // until one short frame-coalescing interval has elapsed and the previous native batch
+        // has actually completed on the UI thread.
+        state.requests.replace(request);
         changed.notify_one();
         Ok(())
     }
@@ -1139,7 +1305,7 @@ impl NativeWindowActor {
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
             state.stopped = true;
-            state.pending = None;
+            state.requests.pending = None;
             changed.notify_all();
         }
     }
@@ -1147,14 +1313,19 @@ impl NativeWindowActor {
 
 #[derive(Clone, Default)]
 struct PresentationCoordinator {
+    aliases: HashMap<String, String>,
+    applied_tab_id: Option<String>,
     applied_revision: u64,
     desired_revision: u64,
     desired_tab_id: Option<String>,
+    in_flight: bool,
+    scheduled: bool,
     tab_order: Vec<String>,
 }
 
 #[derive(Clone)]
 struct ProvisionalLaunch {
+    cancelled: bool,
     host_created: bool,
     id: String,
     source_id: String,
@@ -1190,6 +1361,17 @@ impl PresentationRegistry {
             .lock()
             .ok()
             .and_then(|windows| windows.get(window_id).cloned())
+    }
+
+    fn resolve_tab_alias(&self, tab_id: &str) -> Option<String> {
+        self.windows.lock().ok().and_then(|windows| {
+            windows.values().find_map(|window| {
+                window
+                    .lock()
+                    .ok()
+                    .and_then(|selection| selection.aliases.get(tab_id).cloned())
+            })
+        })
     }
 
     fn actor(&self, window_id: &str) -> Result<Arc<NativeWindowActor>, String> {
@@ -1505,6 +1687,240 @@ fn capture_presentation_event(
                     error: None,
                 }],
             })
+            .await;
+    });
+}
+
+fn presentation_surface_labels(surfaces: &[Webview]) -> HashSet<String> {
+    surfaces
+        .iter()
+        .map(|surface| surface.label().to_owned())
+        .collect()
+}
+
+fn native_presentation_changed(
+    previous_tab_id: &Option<String>,
+    next_tab_id: &Option<String>,
+    previous_labels: &HashSet<String>,
+    next_labels: &HashSet<String>,
+) -> bool {
+    previous_tab_id != next_tab_id || previous_labels != next_labels
+}
+
+fn apply_native_presentation_batch(
+    request: &NativePresentationRequest,
+    previous_tab_id: &Option<String>,
+    previous_surfaces: Vec<Webview>,
+) -> NativePresentationOutcome {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let coordinator = Arc::clone(&request.coordinator);
+    let requested_at = request.requested_at;
+    let revision = request.revision;
+    let tab_id = request.tab_id.clone();
+    let previous_tab_id = previous_tab_id.clone();
+    let next_surfaces = request.next_surfaces.clone();
+    let active_webview = request.active_webview.clone();
+    let window = request.window.clone();
+    let window_visibility = request.window_visibility;
+    let focus = request.focus;
+    let scheduling = request.window.run_on_main_thread(move || {
+        let main_started_at = Instant::now();
+        let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let still_desired = coordinator.lock().ok().is_some_and(|selection| {
+            selection.desired_revision == revision && selection.desired_tab_id == tab_id
+        });
+        if !still_desired {
+            let _ = sender.send(NativePresentationOutcome {
+                applied: false,
+                focus_applied: false,
+                hidden_surface_count: 0,
+                main_queue_wait_ms,
+                main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                shown_surface_count: 0,
+                visibility_errors: Vec::new(),
+            });
+            return;
+        }
+
+        let previous_labels = presentation_surface_labels(&previous_surfaces);
+        let next_labels = presentation_surface_labels(&next_surfaces);
+        let presentation_changed =
+            native_presentation_changed(&previous_tab_id, &tab_id, &previous_labels, &next_labels);
+        let mut visibility_errors = Vec::new();
+        let mut hidden_surface_count = 0;
+        let mut shown_surface_count = 0;
+        if presentation_changed {
+            for surface in previous_surfaces {
+                if next_labels.contains(surface.label()) {
+                    continue;
+                }
+                match surface.hide() {
+                    Ok(()) => hidden_surface_count += 1,
+                    Err(error) => visibility_errors.push(error.to_string()),
+                }
+            }
+            for surface in &next_surfaces {
+                if previous_labels.contains(surface.label()) {
+                    continue;
+                }
+                match surface.show() {
+                    Ok(()) => shown_surface_count += 1,
+                    Err(error) => visibility_errors.push(error.to_string()),
+                }
+            }
+        }
+
+        if let Some(visible) = window_visibility {
+            if visible {
+                if matches!(window.is_visible(), Ok(false))
+                    && let Err(error) = window.show()
+                {
+                    visibility_errors.push(error.to_string());
+                }
+            } else if !matches!(window.is_visible(), Ok(false))
+                && let Err(error) = window.hide()
+            {
+                visibility_errors.push(error.to_string());
+            }
+        }
+
+        let mut focus_applied = false;
+        if focus && presentation_changed && window_visibility != Some(false) {
+            if matches!(window.is_focused(), Ok(false)) {
+                let _ = window.set_focus();
+            }
+            if let Some(webview) = active_webview {
+                focus_applied = webview.set_focus().is_ok();
+            }
+        }
+        let _ = sender.send(NativePresentationOutcome {
+            applied: true,
+            focus_applied,
+            hidden_surface_count,
+            main_queue_wait_ms,
+            main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            shown_surface_count,
+            visibility_errors,
+        });
+    });
+    if let Err(error) = scheduling {
+        return NativePresentationOutcome {
+            applied: false,
+            focus_applied: false,
+            hidden_surface_count: 0,
+            main_queue_wait_ms: request
+                .requested_at
+                .elapsed()
+                .as_millis()
+                .min(u64::MAX as u128) as u64,
+            main_thread_ms: 0,
+            shown_surface_count: 0,
+            visibility_errors: vec![error.to_string()],
+        };
+    }
+    receiver
+        .recv()
+        .unwrap_or_else(|_| NativePresentationOutcome {
+            applied: false,
+            focus_applied: false,
+            hidden_surface_count: 0,
+            main_queue_wait_ms: request
+                .requested_at
+                .elapsed()
+                .as_millis()
+                .min(u64::MAX as u128) as u64,
+            main_thread_ms: 0,
+            shown_surface_count: 0,
+            visibility_errors: vec![
+                "The native presentation callback was disconnected.".to_owned(),
+            ],
+        })
+}
+
+fn capture_presentation_batch_events(
+    batch: &NativePresentationBatch,
+    outcome: &NativePresentationOutcome,
+) {
+    let request = &batch.request;
+    let elapsed_ms = request
+        .requested_at
+        .elapsed()
+        .as_millis()
+        .min(u64::MAX as u128) as u64;
+    let first_revision = if batch.first_revision == 0 {
+        request.revision
+    } else {
+        batch.first_revision
+    };
+    let context = json!({
+        "coalescedCount": batch.request_count.saturating_sub(1),
+        "elapsedMs": elapsed_ms,
+        "firstRevision": first_revision,
+        "firstRequestAgeMs": batch.first_requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        "focusApplied": outcome.focus_applied,
+        "hiddenSurfaceCount": outcome.hidden_surface_count,
+        "mainQueueWaitMs": outcome.main_queue_wait_ms,
+        "mainThreadMs": outcome.main_thread_ms,
+        "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+        "requestCount": batch.request_count,
+        "revision": request.revision,
+        "shownSurfaceCount": outcome.shown_surface_count,
+        "tabId": request.tab_id,
+        "trigger": request.trigger,
+        "visibilityErrorCount": outcome.visibility_errors.len(),
+        "windowId": request.window_id,
+    });
+    let completion_event = if !outcome.visibility_errors.is_empty() {
+        "native.presentation-failed"
+    } else if outcome.applied {
+        "native.presentation-completed"
+    } else {
+        "tab.selection-superseded"
+    };
+    let completion_message = if !outcome.visibility_errors.is_empty() {
+        "Native tab presentation encountered a platform visibility error."
+    } else if outcome.applied {
+        "Native tab presentation completed on the platform UI thread."
+    } else {
+        "A stale native tab presentation was discarded before platform mutation."
+    };
+    let mut entries = vec![
+        LogCaptureRecord {
+            level: LogLevel::Debug,
+            source: LogSource::Browser,
+            event: "tab.selection-coalesced".to_owned(),
+            message: "Runtime tab selection requests were coalesced into one native batch."
+                .to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: None,
+        },
+        LogCaptureRecord {
+            level: if outcome.visibility_errors.is_empty() {
+                LogLevel::Debug
+            } else {
+                LogLevel::Warn
+            },
+            source: LogSource::Browser,
+            event: completion_event.to_owned(),
+            message: completion_message.to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: None,
+        },
+    ];
+    if outcome.main_queue_wait_ms > 100 || outcome.main_thread_ms > 100 {
+        entries.push(LogCaptureRecord {
+            level: LogLevel::Warn,
+            source: LogSource::Browser,
+            event: "native.event-loop-heartbeat-delayed".to_owned(),
+            message: "The platform UI-thread presentation exceeded its latency budget.".to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: None,
+        });
+    }
+    let core = Arc::clone(&request.core);
+    tauri::async_runtime::spawn(async move {
+        let _ = core
+            .invoke_async(CoreCommand::LogsCapture { entries })
             .await;
     });
 }
@@ -2254,24 +2670,32 @@ impl SystemRuntimeExecutor {
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: Result<(), String> = Ok(());
 
-        self.record_presentation_event(
-            if result.is_ok() {
-                LogLevel::Debug
-            } else {
-                LogLevel::Warn
-            },
-            "native.active-style-dispatched",
-            if result.is_ok() {
-                "Native active tab style was dispatched."
-            } else {
-                "Native active tab style could not be dispatched."
-            },
-            window_id,
-            tab_id,
-            revision,
-            trigger,
-            0,
-        );
+        if result.is_err() {
+            self.record_presentation_event(
+                LogLevel::Warn,
+                "native.active-style-failed",
+                "Native active tab style could not be applied optimistically.",
+                window_id,
+                tab_id,
+                revision,
+                trigger,
+                0,
+            );
+        }
+    }
+
+    fn remember_native_active_style(&self, window_id: &str, tab_id: Option<&str>) {
+        #[cfg(target_os = "macos")]
+        if let Some(controller) = self.state.lock().ok().and_then(|state| {
+            state
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.tabs_controller.clone())
+        }) {
+            controller.remember_active(tab_id);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (window_id, tab_id);
     }
 
     fn reserve_native_tab(
@@ -2483,10 +2907,11 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
         requested_at: Instant,
         window: Window,
+        previous_tab_id: Option<String>,
         previous_surfaces: Vec<Webview>,
         next_surfaces: Vec<Webview>,
         active_webview: Option<Webview>,
-        show_window: bool,
+        window_visibility: Option<bool>,
         focus: bool,
     ) {
         let Ok(presentation) = self.presentation.coordinator(&window_id) else {
@@ -2502,17 +2927,6 @@ impl SystemRuntimeExecutor {
             );
             return;
         };
-        let core = Arc::clone(&self.core);
-        self.record_presentation_event(
-            LogLevel::Debug,
-            "native.presentation-dispatched",
-            "Native tab presentation was dispatched.",
-            &window_id,
-            tab_id.as_deref(),
-            revision,
-            trigger,
-            requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        );
         let actor = match self.presentation.actor(&window_id) {
             Ok(actor) => actor,
             Err(message) => {
@@ -2530,123 +2944,22 @@ impl SystemRuntimeExecutor {
                 return;
             }
         };
-        let dispatch_result = actor.dispatch(Box::new(move || {
-            let actor_started_at = Instant::now();
-            let queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            let still_desired = presentation.lock().ok().is_some_and(|window| {
-                window.desired_revision == revision && window.desired_tab_id == tab_id
-            });
-            if !still_desired {
-                capture_presentation_event(
-                    core,
-                    LogLevel::Debug,
-                    "tab.selection-superseded",
-                    "A stale native tab presentation was discarded.",
-                    window_id,
-                    tab_id,
-                    revision,
-                    trigger,
-                    requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
-                );
-                return;
-            }
-
-            let mut visibility_errors = Vec::new();
-            for surface in previous_surfaces {
-                if let Err(error) = surface.hide() {
-                    visibility_errors.push(error.to_string());
-                }
-            }
-            for surface in &next_surfaces {
-                if let Err(error) = surface.show() {
-                    visibility_errors.push(error.to_string());
-                }
-            }
-            if show_window {
-                if let Err(error) = window.show() {
-                    visibility_errors.push(error.to_string());
-                }
-            } else if let Err(error) = window.hide() {
-                visibility_errors.push(error.to_string());
-            }
-
-            // Focus is deliberately best-effort and occurs after visibility. It never changes
-            // the desired selection or blocks the caller's UI event.
-            if focus && show_window {
-                let _ = window.set_focus();
-                if let Some(webview) = active_webview {
-                    let _ = webview.set_focus();
-                }
-            }
-
-            let applied = presentation.lock().ok().is_some_and(|mut window| {
-                if window.desired_revision != revision || window.desired_tab_id != tab_id {
-                    return false;
-                }
-                window.applied_revision = revision;
-                true
-            });
-            let (level, event, message) = if !applied {
-                (
-                    LogLevel::Debug,
-                    "tab.selection-superseded",
-                    "A native tab presentation completed after a newer selection.",
-                )
-            } else if visibility_errors.is_empty() {
-                (
-                    LogLevel::Debug,
-                    "native.presentation-completed",
-                    "Native tab presentation completed.",
-                )
-            } else {
-                (
-                    LogLevel::Warn,
-                    "native.presentation-completed",
-                    "Native tab presentation completed with best-effort visibility errors.",
-                )
-            };
-            let applied_core = Arc::clone(&core);
-            let heartbeat_core = Arc::clone(&core);
-            let elapsed_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            capture_presentation_event(
-                core,
-                level,
-                event,
-                message,
-                window_id.clone(),
-                tab_id.clone(),
-                revision,
-                trigger,
-                elapsed_ms,
-            );
-            if applied {
-                capture_presentation_event(
-                    applied_core,
-                    LogLevel::Debug,
-                    "tab.selection-applied",
-                    "Runtime tab selection was applied.",
-                    window_id.clone(),
-                    tab_id.clone(),
-                    revision,
-                    trigger,
-                    elapsed_ms,
-                );
-            }
-            let command_ms = actor_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            if queue_wait_ms > 100 || command_ms > 100 {
-                capture_presentation_event(
-                    heartbeat_core,
-                    LogLevel::Warn,
-                    "native.event-loop-heartbeat-delayed",
-                    "A native presentation command exceeded the event-loop latency budget.",
-                    window_id,
-                    tab_id,
-                    revision,
-                    trigger,
-                    elapsed_ms,
-                );
-            }
-        }));
+        let dispatch_result = actor.dispatch(NativePresentationRequest {
+            active_webview,
+            coordinator: presentation,
+            core: Arc::clone(&self.core),
+            focus,
+            next_surfaces,
+            observed_previous_tab_id: previous_tab_id,
+            observed_previous_surfaces: previous_surfaces,
+            requested_at,
+            revision,
+            tab_id,
+            trigger,
+            window,
+            window_id,
+            window_visibility,
+        });
         if let Err(message) = dispatch_result {
             eprintln!("Native window actor enqueue failed: {message}");
         }
@@ -4262,8 +4575,109 @@ impl SystemRuntimeExecutor {
 
     /// Commits selection immediately and coalesces native visibility work by window revision.
     /// Page readiness is intentionally absent from this path.
-    pub(crate) fn preview_tab_activation(&self, tab_id: &str) -> Result<String, String> {
-        self.request_tab_presentation(tab_id, true, "pointer")
+    pub(crate) fn preview_tab_activation(
+        &self,
+        tab_id: &str,
+        native_style_applied: bool,
+    ) -> Result<(String, bool, String), String> {
+        let resolved_tab_id = self
+            .presentation
+            .resolve_tab_alias(tab_id)
+            .unwrap_or_else(|| tab_id.to_owned());
+        let trigger = if native_style_applied {
+            "native-pointer"
+        } else {
+            "pointer"
+        };
+        if let Some(window_id) =
+            self.request_provisional_tab_presentation(&resolved_tab_id, true, trigger)?
+        {
+            return Ok((window_id, true, resolved_tab_id));
+        }
+        self.request_tab_presentation(&resolved_tab_id, true, trigger)
+            .map(|window_id| (window_id, false, resolved_tab_id))
+    }
+
+    fn request_provisional_tab_presentation(
+        &self,
+        tab_id: &str,
+        focus: bool,
+        trigger: &'static str,
+    ) -> Result<Option<String>, String> {
+        let requested_at = Instant::now();
+        let requested = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let provisional = state
+                .provisional_launches
+                .values()
+                .find(|launch| launch.id == tab_id && !launch.cancelled)
+                .cloned();
+            let Some(provisional) = provisional else {
+                return Ok(None);
+            };
+            let window_id = provisional.window_id;
+            let window = state
+                .display_hosts
+                .get(&window_id)
+                .ok_or_else(|| "Runtime display host was not found.".to_owned())?
+                .window
+                .clone();
+            let previous_tab_id = state
+                .tabs
+                .iter()
+                .find(|(_, tab)| tab.window_id == window_id && tab.visible)
+                .map(|(candidate_id, _)| candidate_id.clone());
+            let previous_surfaces = previous_tab_id
+                .as_ref()
+                .and_then(|candidate_id| state.tabs.get(candidate_id))
+                .map(runtime_tab_surfaces)
+                .unwrap_or_default();
+            for tab in state
+                .tabs
+                .values_mut()
+                .filter(|tab| tab.window_id == window_id)
+            {
+                tab.visible = false;
+            }
+            let revision = {
+                let presentation = self.presentation.coordinator(&window_id)?;
+                let revision = self.presentation.next_revision();
+                let mut window_state = presentation.lock().map_err(|_| {
+                    "The runtime tab presentation coordinator is unavailable.".to_owned()
+                })?;
+                window_state.desired_revision = revision;
+                window_state.desired_tab_id = Some(tab_id.to_owned());
+                revision
+            };
+            (
+                window_id,
+                window,
+                previous_tab_id,
+                previous_surfaces,
+                revision,
+            )
+        };
+        let (window_id, window, previous_tab_id, previous_surfaces, revision) = requested;
+        if matches!(trigger, "native-pointer" | "shortcut") {
+            self.remember_native_active_style(&window_id, Some(tab_id));
+        } else if trigger != "surface-attached" {
+            self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
+        }
+        self.dispatch_native_presentation(
+            window_id.clone(),
+            Some(tab_id.to_owned()),
+            revision,
+            trigger,
+            requested_at,
+            window,
+            previous_tab_id,
+            previous_surfaces,
+            Vec::new(),
+            None,
+            None,
+            focus,
+        );
+        Ok(Some(window_id))
     }
 
     fn request_tab_presentation(
@@ -4273,7 +4687,15 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> Result<String, String> {
         let requested_at = Instant::now();
-        let (window_id, window, previous_surfaces, next_surfaces, active_webview, revision) = {
+        let (
+            window_id,
+            window,
+            previous_tab_id,
+            previous_surfaces,
+            next_surfaces,
+            active_webview,
+            revision,
+        ) = {
             let mut state = self.state().map_err(|error| error.message)?;
             if state.optimistic_closed_tabs.contains(tab_id) {
                 return Err("The runtime tab is closing.".to_owned());
@@ -4292,11 +4714,7 @@ impl SystemRuntimeExecutor {
             let previous_tab_id = state
                 .tabs
                 .iter()
-                .find(|(candidate_id, candidate)| {
-                    candidate.window_id == window_id
-                        && candidate.visible
-                        && candidate_id.as_str() != tab_id
-                })
+                .find(|(_, candidate)| candidate.window_id == window_id && candidate.visible)
                 .map(|(candidate_id, _)| candidate_id.clone());
             let previous_surfaces = previous_tab_id
                 .as_ref()
@@ -4324,8 +4742,9 @@ impl SystemRuntimeExecutor {
                 window_state.desired_tab_id = Some(tab_id.to_owned());
                 revision
             };
-            if let Some(previous_tab_id) = previous_tab_id
-                && let Some(previous_tab) = state.tabs.get_mut(&previous_tab_id)
+            if let Some(previous_tab_id) = previous_tab_id.as_ref()
+                && previous_tab_id != tab_id
+                && let Some(previous_tab) = state.tabs.get_mut(previous_tab_id)
             {
                 previous_tab.visible = false;
             }
@@ -4335,23 +4754,18 @@ impl SystemRuntimeExecutor {
             (
                 window_id,
                 window,
+                previous_tab_id,
                 previous_surfaces,
                 next_surfaces,
                 active_webview,
                 revision,
             )
         };
-        self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
-        self.record_presentation_event(
-            LogLevel::Debug,
-            "tab.selection-requested",
-            "Runtime tab selection requested.",
-            &window_id,
-            Some(tab_id),
-            revision,
-            trigger,
-            0,
-        );
+        if matches!(trigger, "native-pointer" | "shortcut") {
+            self.remember_native_active_style(&window_id, Some(tab_id));
+        } else if trigger != "surface-attached" {
+            self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
+        }
         self.dispatch_native_presentation(
             window_id.clone(),
             Some(tab_id.to_owned()),
@@ -4359,20 +4773,83 @@ impl SystemRuntimeExecutor {
             trigger,
             requested_at,
             window,
+            previous_tab_id,
             previous_surfaces,
             next_surfaces,
             active_webview,
-            true,
+            None,
             focus,
         );
         Ok(window_id)
+    }
+
+    fn reconcile_window_presentation(
+        &self,
+        window_id: &str,
+        trigger: &'static str,
+    ) -> RuntimeResult<()> {
+        let coordinator = self
+            .presentation
+            .coordinator(window_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        let (tab_id, revision) = {
+            let selection = coordinator.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The runtime tab presentation coordinator is unavailable.",
+                )
+            })?;
+            (selection.desired_tab_id.clone(), selection.desired_revision)
+        };
+        if revision == 0 {
+            return Ok(());
+        }
+        let (window, next_surfaces, active_webview) = {
+            let state = self.state()?;
+            let window = state
+                .display_hosts
+                .get(window_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                        "Runtime display host was not found.",
+                    )
+                })?
+                .window
+                .clone();
+            let runtime_tab = tab_id.as_ref().and_then(|tab_id| state.tabs.get(tab_id));
+            (
+                window,
+                runtime_tab.map(runtime_tab_surfaces).unwrap_or_default(),
+                runtime_tab
+                    .and_then(|tab| tab.roles.values().next())
+                    .map(|surface| surface.webview.clone()),
+            )
+        };
+        self.dispatch_native_presentation(
+            window_id.to_owned(),
+            tab_id,
+            revision,
+            trigger,
+            Instant::now(),
+            window,
+            None,
+            Vec::new(),
+            next_surfaces,
+            active_webview,
+            None,
+            false,
+        );
+        Ok(())
     }
 
     pub(crate) fn preview_adjacent_tab_activation(
         &self,
         window_id: &str,
         direction: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(String, bool), String> {
         let (candidates, current_tab_id) = {
             let state = self.state().map_err(|error| error.message)?;
             let presentation = self.presentation.coordinator(window_id)?;
@@ -4381,11 +4858,14 @@ impl SystemRuntimeExecutor {
             })?;
             let mut candidates = window.tab_order.clone();
             candidates.retain(|tab_id| {
-                state
+                (state
                     .tabs
                     .get(tab_id)
                     .is_some_and(|tab| tab.window_id == window_id)
-                    && !state.optimistic_closed_tabs.contains(tab_id)
+                    && !state.optimistic_closed_tabs.contains(tab_id))
+                    || state.provisional_launches.values().any(|launch| {
+                        launch.id == *tab_id && launch.window_id == window_id && !launch.cancelled
+                    })
             });
             if candidates.is_empty() {
                 candidates.extend(
@@ -4421,8 +4901,13 @@ impl SystemRuntimeExecutor {
             (current + 1) % candidates.len()
         };
         let target_id = candidates[target_index].clone();
-        self.request_tab_presentation(&target_id, true, "shortcut")?;
-        Ok(target_id)
+        let provisional = self
+            .request_provisional_tab_presentation(&target_id, true, "shortcut")?
+            .is_some();
+        if !provisional {
+            self.request_tab_presentation(&target_id, true, "shortcut")?;
+        }
+        Ok((target_id, provisional))
     }
 
     pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<(), String> {
@@ -4430,7 +4915,8 @@ impl SystemRuntimeExecutor {
         let (
             window,
             window_id,
-            closing_surfaces,
+            previous_tab_id,
+            previous_surfaces,
             next_surfaces,
             active_webview,
             next_tab_id,
@@ -4443,8 +4929,6 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
             let window_id = tab.window_id.clone();
             let was_visible = tab.visible;
-            let closing_surfaces = runtime_tab_surfaces(tab);
-            #[cfg(target_os = "macos")]
             let original_active_tab_id = state
                 .tabs
                 .iter()
@@ -4465,16 +4949,16 @@ impl SystemRuntimeExecutor {
                             .map(|(candidate_id, _)| candidate_id.clone()),
                     );
                 }
-                let next_tab_id = was_visible
-                    .then(|| {
-                        successor_tab_after_close(&window_state.tab_order, tab_id, |candidate_id| {
-                            state.tabs.get(candidate_id).is_some_and(|candidate| {
-                                candidate.window_id == window_id
-                                    && !state.optimistic_closed_tabs.contains(candidate_id)
-                            })
+                let next_tab_id = if was_visible {
+                    successor_tab_after_close(&window_state.tab_order, tab_id, |candidate_id| {
+                        state.tabs.get(candidate_id).is_some_and(|candidate| {
+                            candidate.window_id == window_id
+                                && !state.optimistic_closed_tabs.contains(candidate_id)
                         })
                     })
-                    .flatten();
+                } else {
+                    original_active_tab_id.clone()
+                };
                 window_state.desired_revision = revision;
                 window_state.desired_tab_id = next_tab_id.clone();
                 (next_tab_id, revision)
@@ -4489,7 +4973,7 @@ impl SystemRuntimeExecutor {
                 tab_id.to_owned(),
                 CloseTransaction {
                     #[cfg(target_os = "macos")]
-                    original_active_tab_id,
+                    original_active_tab_id: original_active_tab_id.clone(),
                     #[cfg(target_os = "macos")]
                     revision,
                     #[cfg(target_os = "macos")]
@@ -4518,10 +5002,16 @@ impl SystemRuntimeExecutor {
                 .and_then(|next_id| state.tabs.get(next_id))
                 .and_then(|next_tab| next_tab.roles.values().next())
                 .map(|surface| surface.webview.clone());
+            let previous_surfaces = original_active_tab_id
+                .as_ref()
+                .and_then(|active_id| state.tabs.get(active_id))
+                .map(runtime_tab_surfaces)
+                .unwrap_or_default();
             (
                 window,
                 window_id,
-                closing_surfaces,
+                original_active_tab_id,
+                previous_surfaces,
                 next_surfaces,
                 active_webview,
                 next_tab_id,
@@ -4538,10 +5028,11 @@ impl SystemRuntimeExecutor {
             "close",
             started,
             window,
-            closing_surfaces,
+            previous_tab_id,
+            previous_surfaces,
             next_surfaces,
             active_webview,
-            next_tab_id.is_some(),
+            next_tab_id.is_none().then_some(false),
             true,
         );
         Ok(())
@@ -8770,9 +9261,21 @@ impl SystemRuntimeExecutor {
         if self.state()?.provisional_launches.contains_key(&key) {
             return Ok(key);
         }
-        let (window, host_created) = self.with_native_creation_lane(&target.window_id, || {
-            self.ensure_display_host(target, "Rion Studio")
-        })?;
+        // An existing game window already owns a fully initialized native tab controller.
+        // Reserving another tab must not wait behind an in-flight WKWebView/WebView2 creation:
+        // that worker may itself be waiting for the UI thread to attach its controller.
+        let existing_window = self
+            .state()?
+            .display_hosts
+            .get(&target.window_id)
+            .map(|host| host.window.clone());
+        let (window, host_created) = if let Some(window) = existing_window {
+            (window, false)
+        } else {
+            self.with_native_creation_lane(&target.window_id, || {
+                self.ensure_display_host(target, "Rion Studio")
+            })?
+        };
         let provisional_id = format!("provisional-{}", uuid::Uuid::new_v4());
         let placeholder_name = self
             .language
@@ -8786,15 +9289,17 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or("Loading…");
         let revision = self.presentation.next_revision();
-        let previous_surfaces = {
+        let (previous_tab_id, previous_surfaces) = {
             let mut state = self.state()?;
+            let mut previous_tab_id = None;
             let mut previous_surfaces = Vec::new();
-            for tab in state
+            for (tab_id, tab) in state
                 .tabs
-                .values_mut()
-                .filter(|tab| tab.window_id == target.window_id)
+                .iter_mut()
+                .filter(|(_, tab)| tab.window_id == target.window_id)
             {
                 if tab.visible {
+                    previous_tab_id = Some(tab_id.clone());
                     previous_surfaces.extend(runtime_tab_surfaces(tab));
                     tab.visible = false;
                 }
@@ -8802,6 +9307,7 @@ impl SystemRuntimeExecutor {
             state.provisional_launches.insert(
                 key.clone(),
                 ProvisionalLaunch {
+                    cancelled: false,
                     host_created,
                     id: provisional_id.clone(),
                     source_id: source_id.to_owned(),
@@ -8809,7 +9315,7 @@ impl SystemRuntimeExecutor {
                     window_id: target.window_id.clone(),
                 },
             );
-            previous_surfaces
+            (previous_tab_id, previous_surfaces)
         };
         {
             let presentation =
@@ -8852,10 +9358,11 @@ impl SystemRuntimeExecutor {
             "launch-preview",
             Instant::now(),
             window,
+            previous_tab_id,
             previous_surfaces,
             Vec::new(),
             None,
-            true,
+            Some(true),
             false,
         );
         Ok(key)
@@ -8894,23 +9401,75 @@ impl SystemRuntimeExecutor {
         self.remove_empty_display_host(&provisional.window_id, provisional.host_created);
     }
 
+    pub(crate) fn cancel_provisional_tab_launch(&self, tab_id: &str) -> bool {
+        let provisional = self.state.lock().ok().and_then(|mut state| {
+            state
+                .provisional_launches
+                .values_mut()
+                .find(|launch| launch.id == tab_id)
+                .map(|launch| {
+                    launch.cancelled = true;
+                    launch.clone()
+                })
+        });
+        let Some(provisional) = provisional else {
+            return false;
+        };
+        let mut next_tab_id = None;
+        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
+            && let Ok(mut selection) = presentation.lock()
+        {
+            selection
+                .tab_order
+                .retain(|candidate| candidate != &provisional.id);
+            if selection.desired_tab_id.as_deref() == Some(provisional.id.as_str()) {
+                next_tab_id = selection.tab_order.last().cloned();
+                selection.desired_tab_id = next_tab_id.clone();
+                selection.desired_revision = self.presentation.next_revision();
+            }
+        }
+        self.remove_native_tab_reservation(
+            &provisional.window_id,
+            &provisional.id,
+            next_tab_id.as_deref(),
+        );
+        if let Some(tab_id) = next_tab_id {
+            let _ = self.request_tab_presentation(tab_id.as_str(), false, "launch-preview-closed");
+        }
+        true
+    }
+
     fn take_tab_launch_preview(
         &self,
         window_id: &str,
         source_id: &str,
         tab_type: &str,
-    ) -> Option<ProvisionalLaunch> {
+    ) -> RuntimeResult<Option<ProvisionalLaunch>> {
         let key = format!("{tab_type}:{source_id}");
-        self.state.lock().ok().and_then(|mut state| {
-            let matches = state.provisional_launches.get(&key).is_some_and(|launch| {
-                launch.window_id == window_id
-                    && launch.source_id == source_id
-                    && launch.tab_type == tab_type
-            });
-            matches
-                .then(|| state.provisional_launches.remove(&key))
-                .flatten()
-        })
+        let mut state = self.state()?;
+        let matches = state.provisional_launches.get(&key).is_some_and(|launch| {
+            launch.window_id == window_id
+                && launch.source_id == source_id
+                && launch.tab_type == tab_type
+        });
+        if !matches {
+            return Ok(None);
+        }
+        if state
+            .provisional_launches
+            .get(&key)
+            .is_some_and(|launch| launch.cancelled)
+        {
+            return Err(RuntimeError::new(
+                "LAUNCH_CANCELLED",
+                "The provisional runtime tab was closed before native attachment began.",
+            ));
+        }
+        Ok(state.provisional_launches.remove(&key).filter(|launch| {
+            launch.window_id == window_id
+                && launch.source_id == source_id
+                && launch.tab_type == tab_type
+        }))
     }
 
     fn create_tab(&self, tab: EmbeddedTabEffectRecord) -> RuntimeResult<()> {
@@ -8956,17 +9515,20 @@ impl SystemRuntimeExecutor {
         // JavaScript refresh can take up to thirty seconds on an unresponsive source page and
         // must never delay tab reservation or native controller attachment.
         let target = tab.target.clone();
-        let (window, native_host_created) = self
-            .with_native_creation_lane(&target.window_id, || {
-                self.ensure_display_host(&target, &tab.name)
-            })?;
         let tab_type = if tab.workspace_id.is_some() {
             "workspace"
         } else {
             "role"
         };
+        // Read the cancellation fence before waiting for any native window work. Closing a
+        // provisional tab must abort the pending Core launch instead of creating a replacement
+        // tab that the user already dismissed.
         let launch_preview =
-            self.take_tab_launch_preview(&target.window_id, &tab.source_id, tab_type);
+            self.take_tab_launch_preview(&target.window_id, &tab.source_id, tab_type)?;
+        let (window, native_host_created) = self
+            .with_native_creation_lane(&target.window_id, || {
+                self.ensure_display_host(&target, &tab.name)
+            })?;
         let host_created = native_host_created
             || launch_preview
                 .as_ref()
@@ -8983,16 +9545,20 @@ impl SystemRuntimeExecutor {
         });
         let created_tab_id = tab.tab_id.clone();
         let reservation_revision = self.presentation.next_revision();
-        let previous_surfaces = {
+        let (previous_tab_id, previous_surfaces) = {
             let mut state = self.state()?;
+            let mut previous_tab_id = should_select
+                .then(|| launch_preview.as_ref().map(|preview| preview.id.clone()))
+                .flatten();
             let mut previous_surfaces = Vec::new();
             if should_select {
-                for existing in state
+                for (existing_id, existing) in state
                     .tabs
-                    .values_mut()
-                    .filter(|existing| existing.window_id == target.window_id)
+                    .iter_mut()
+                    .filter(|(_, existing)| existing.window_id == target.window_id)
                 {
                     if existing.visible {
+                        previous_tab_id = Some(existing_id.clone());
                         previous_surfaces.extend(runtime_tab_surfaces(existing));
                     }
                     existing.visible = false;
@@ -9012,7 +9578,7 @@ impl SystemRuntimeExecutor {
                     visible: should_select,
                 },
             );
-            previous_surfaces
+            (previous_tab_id, previous_surfaces)
         };
         {
             let presentation =
@@ -9027,6 +9593,11 @@ impl SystemRuntimeExecutor {
                     "The runtime tab presentation coordinator is unavailable.",
                 )
             })?;
+            if let Some(preview) = launch_preview.as_ref() {
+                selection
+                    .aliases
+                    .insert(preview.id.clone(), created_tab_id.clone());
+            }
             if let Some(preview) = launch_preview.as_ref()
                 && let Some(index) = selection
                     .tab_order
@@ -9047,7 +9618,6 @@ impl SystemRuntimeExecutor {
             "completed",
             Instant::now(),
         );
-        let _ = window.show();
         let active_tab_id =
             self.presentation
                 .existing(&target.window_id)
@@ -9085,10 +9655,11 @@ impl SystemRuntimeExecutor {
             "launch-reserved",
             Instant::now(),
             window.clone(),
+            previous_tab_id,
             previous_surfaces,
             Vec::new(),
             None,
-            true,
+            Some(true),
             false,
         );
         let window_zoom_factor = self
@@ -9228,7 +9799,7 @@ impl SystemRuntimeExecutor {
                     );
                 }
                 if selected {
-                    webview.show().map_err(RuntimeError::tauri)?;
+                    let _ = self.request_tab_presentation(&tab.tab_id, false, "surface-attached");
                 } else {
                     webview.hide().map_err(RuntimeError::tauri)?;
                 }
@@ -9387,7 +9958,17 @@ impl SystemRuntimeExecutor {
                     .last_mut()
                     .expect("divider surface was just registered")
                     .3 = Some(surface_instance_id.clone());
-                webview.hide().map_err(RuntimeError::tauri)?;
+                let selected =
+                    self.presentation
+                        .existing(&target.window_id)
+                        .is_some_and(|presentation| {
+                            presentation.lock().ok().is_some_and(|selection| {
+                                selection.desired_tab_id.as_deref() == Some(tab.tab_id.as_str())
+                            })
+                        });
+                if !selected {
+                    webview.hide().map_err(RuntimeError::tauri)?;
+                }
                 dividers.push(RuntimeDivider {
                     descriptor,
                     index,
@@ -9667,18 +10248,13 @@ impl SystemRuntimeExecutor {
         presentation_revision: u64,
     ) -> RuntimeResult<()> {
         struct TabUpdate {
-            active: bool,
             window_id: String,
-            focus: bool,
             moved: bool,
             source_window_id: String,
             surfaces: Vec<Webview>,
             tab_id: String,
-            was_visible: bool,
         }
         struct HostUpdate {
-            active_webview: Option<Webview>,
-            focus: bool,
             presentation: String,
             reveal: bool,
             retain_visibility: bool,
@@ -9711,6 +10287,20 @@ impl SystemRuntimeExecutor {
                     .map(|tab_id| (window.window_id.as_str(), tab_id.as_str()))
             })
             .collect::<HashMap<_, _>>();
+        let provisional_tab_ids = self
+            .state()?
+            .provisional_launches
+            .values()
+            .filter(|launch| !launch.cancelled)
+            .fold(
+                HashMap::<String, HashSet<String>>::new(),
+                |mut tabs, launch| {
+                    tabs.entry(launch.window_id.clone())
+                        .or_default()
+                        .insert(launch.id.clone());
+                    tabs
+                },
+            );
         let presentation_windows = {
             let mut windows = HashMap::new();
             for runtime_window in &snapshot.windows {
@@ -9727,13 +10317,29 @@ impl SystemRuntimeExecutor {
                     )
                 })?;
                 window.tab_order = runtime_window.tab_ids.clone();
+                if let Some(provisional_ids) = provisional_tab_ids.get(&runtime_window.window_id) {
+                    let missing = provisional_ids
+                        .iter()
+                        .filter(|tab_id| !window.tab_order.contains(*tab_id))
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    window.tab_order.extend(missing);
+                }
+                window.aliases.retain(|_, target| {
+                    runtime_window.tab_ids.contains(target)
+                        || provisional_tab_ids
+                            .get(&runtime_window.window_id)
+                            .is_some_and(|tab_ids| tab_ids.contains(target))
+                });
                 let desired_is_missing = window
                     .desired_tab_id
                     .as_ref()
-                    .is_some_and(|tab_id| !runtime_window.tab_ids.contains(tab_id));
-                if (window.desired_revision == 0 && window.desired_tab_id.is_none())
-                    || desired_is_missing
-                {
+                    .is_some_and(|tab_id| !window.tab_order.contains(tab_id));
+                if core_projection_may_update_selection(
+                    presentation_revision,
+                    window.desired_revision,
+                    desired_is_missing,
+                ) {
                     window.desired_revision = presentation_revision;
                     window.desired_tab_id = runtime_window.active_tab_id.clone();
                 }
@@ -9744,7 +10350,6 @@ impl SystemRuntimeExecutor {
         // apply_runtime is a native topology projection and must not synchronously call back
         // into AppCore while a core effect is awaiting it. Restore callers already omit focus
         // requests, and titles fall back to the active snapshot tab below.
-        let suppress_focus = false;
         let game_window_names = HashMap::<String, String>::new();
         let desired_windows = snapshot
             .windows
@@ -9776,44 +10381,22 @@ impl SystemRuntimeExecutor {
                             .iter()
                             .map(|divider| divider.webview.clone()),
                     );
-                    let close_preview_controls_window =
-                        state.optimistic_closed_tabs.iter().any(|closing_tab_id| {
-                            state.tabs.get(closing_tab_id).is_some_and(|closing_tab| {
-                                closing_tab.window_id == runtime_tab.window_id
-                            })
-                        });
-                    let presentation_window = presentation_windows.get(&runtime_tab.window_id);
-                    let pending_selection_disagrees =
-                        presentation_window.is_some_and(|selection| {
-                            active_tabs.get(runtime_tab.window_id.as_str()).copied()
-                                != selection.desired_tab_id.as_deref()
-                        });
-                    let presentation_owns_selection = native_presentation_owns_selection(
-                        presentation_revision,
-                        presentation_window
-                            .map(|selection| selection.desired_revision)
-                            .unwrap_or_default(),
-                        close_preview_controls_window || pending_selection_disagrees,
-                    );
                     Some(TabUpdate {
-                        active: if state.optimistic_closed_tabs.contains(&plan.tab_id) {
-                            false
-                        } else if presentation_owns_selection {
-                            runtime_tab.visible
-                        } else {
-                            plan.active
-                        },
                         window_id: plan.window_id.clone(),
-                        focus: plan.focus,
                         moved: plan.moved,
                         source_window_id: runtime_tab.window_id.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
-                        was_visible: runtime_tab.visible,
                     })
                 })
                 .collect::<Vec<_>>()
         };
+
+        let presentation_reconcile_windows = tab_updates
+            .iter()
+            .filter(|update| update.moved)
+            .flat_map(|update| [update.source_window_id.clone(), update.window_id.clone()])
+            .collect::<HashSet<_>>();
 
         let mut reparented_surfaces = Vec::<(Webview, Window)>::new();
         for update in &tab_updates {
@@ -9872,6 +10455,17 @@ impl SystemRuntimeExecutor {
                         surface.window_id = update.window_id.clone();
                     }
                 }
+            }
+            let optimistic_closed_tabs = state.optimistic_closed_tabs.clone();
+            for (tab_id, runtime_tab) in &mut state.tabs {
+                if !presentation_reconcile_windows.contains(&runtime_tab.window_id) {
+                    continue;
+                }
+                runtime_tab.visible = presentation_windows
+                    .get(&runtime_tab.window_id)
+                    .and_then(|window| window.desired_tab_id.as_deref())
+                    == Some(tab_id.as_str())
+                    && !optimistic_closed_tabs.contains(tab_id);
             }
             let moved_registry_surfaces = state
                 .surface_registry
@@ -9936,93 +10530,8 @@ impl SystemRuntimeExecutor {
             }
         }
 
-        let visibility_mutations = tab_updates
-            .iter()
-            .filter(|update| update.moved || update.was_visible != update.active)
-            .flat_map(|update| {
-                update
-                    .surfaces
-                    .iter()
-                    .cloned()
-                    .map(|surface| (surface, update.was_visible, update.active))
-            })
-            .collect::<Vec<_>>();
-        if let Err(failure) = apply_reversible_fanout(
-            &visibility_mutations,
-            |index, (surface, _, visible)| {
-                // On Windows, WRY maps this visibility boundary to WebView2 IsVisible. Chromium
-                // then applies its own native background throttling to inactive tab surfaces.
-                (if *visible {
-                    surface.show()
-                } else {
-                    surface.hide()
-                })
-                .map_err(|error| format!("surface {index}: {error}"))
-            },
-            |index, (surface, was_visible, _)| {
-                (if *was_visible {
-                    surface.show()
-                } else {
-                    surface.hide()
-                })
-                .map_err(|error| format!("surface {index}: {error}"))
-            },
-        ) {
-            if !failure.rollback_errors.is_empty() {
-                self.health.mark_unhealthy();
-            }
-            return Err(reversible_fanout_runtime_error(
-                "TAURI_RUNTIME_VISIBILITY_FAILED",
-                "Applying runtime tab visibility",
-                &failure,
-            ));
-        }
-        let visibility_commit = (|| -> RuntimeResult<()> {
-            let mut state = self.state()?;
-            if tab_updates.iter().any(|update| {
-                state
-                    .tabs
-                    .get(&update.tab_id)
-                    .is_none_or(|tab| tab.window_id != update.window_id)
-            }) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_VISIBILITY_STALE",
-                    "A runtime tab changed while applying native visibility.",
-                ));
-            }
-            for update in &tab_updates {
-                state
-                    .tabs
-                    .get_mut(&update.tab_id)
-                    .expect("the visibility transaction validated every runtime tab")
-                    .visible = update.active;
-            }
-            Ok(())
-        })();
-        if let Err(error) = visibility_commit {
-            let rollback_errors = rollback_reversible_fanout(
-                &visibility_mutations,
-                |index, (surface, was_visible, _)| {
-                    (if *was_visible {
-                        surface.show()
-                    } else {
-                        surface.hide()
-                    })
-                    .map_err(|error| format!("surface {index}: {error}"))
-                },
-            );
-            if !rollback_errors.is_empty() {
-                self.health.mark_unhealthy();
-                return Err(RuntimeError::new(
-                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
-                    format!(
-                        "{} Compensation also failed: {}. Restart Rion Studio to recover safely.",
-                        error.message,
-                        rollback_errors.join("; ")
-                    ),
-                ));
-            }
-            return Err(error);
+        for window_id in &presentation_reconcile_windows {
+            self.reconcile_window_presentation(window_id, "topology-reconciled")?;
         }
 
         if let Some((window_id, created)) = &ensured_target_host
@@ -10040,41 +10549,20 @@ impl SystemRuntimeExecutor {
                 .map(|host| {
                     let window_id = &host.target.window_id;
                     let presentation_window = presentation_windows.get(window_id);
-                    let presentation_controls_window = native_presentation_owns_selection(
-                        presentation_revision,
-                        presentation_window
-                            .map(|selection| selection.desired_revision)
-                            .unwrap_or_default(),
-                        state.optimistic_closed_tabs.iter().any(|closing_tab_id| {
-                            state
-                                .tabs
-                                .get(closing_tab_id)
-                                .is_some_and(|closing_tab| closing_tab.window_id == *window_id)
-                        }) || presentation_window.is_some_and(|selection| {
-                            active_tabs.get(window_id.as_str()).copied()
-                                != selection.desired_tab_id.as_deref()
-                        }),
-                    );
-                    let active_tab = if presentation_controls_window {
-                        state
-                            .tabs
-                            .iter()
-                            .find(|(tab_id, tab)| {
+                    let active_tab = presentation_window
+                        .and_then(|selection| selection.desired_tab_id.as_deref())
+                        .filter(|tab_id| {
+                            state.tabs.get(*tab_id).is_some_and(|tab| {
                                 tab.window_id == *window_id
-                                    && tab.visible
                                     && !state.optimistic_closed_tabs.contains(*tab_id)
                             })
-                            .map(|(tab_id, _)| tab_id.as_str())
-                    } else {
-                        active_tabs.get(window_id.as_str()).copied()
-                    };
-                    let active_webview = active_tab.and_then(|tab_id| {
-                        state
-                            .tabs
-                            .get(tab_id)
-                            .and_then(|tab| tab.roles.values().next())
-                            .map(|surface| surface.webview.clone())
-                    });
+                        })
+                        .or_else(|| {
+                            presentation_window
+                                .is_none()
+                                .then(|| active_tabs.get(window_id.as_str()).copied())
+                                .flatten()
+                        });
                     let title = game_window_names
                         .get(window_id)
                         .cloned()
@@ -10095,13 +10583,6 @@ impl SystemRuntimeExecutor {
                             .any(|tab| tab.id == tab_id && !tab.hidden)
                     });
                     HostUpdate {
-                        active_webview,
-                        focus: !presentation_controls_window
-                            && !suppress_focus
-                            && (focus_window_ids.contains(window_id)
-                                || tab_updates
-                                    .iter()
-                                    .any(|update| &update.window_id == window_id && update.focus)),
                         presentation: host.target.presentation.clone(),
                         reveal: reveal_window_ids.contains(window_id),
                         retain_visibility: has_visible_active || active_tab.is_none(),
@@ -10137,12 +10618,6 @@ impl SystemRuntimeExecutor {
                     update.window.maximize().map_err(RuntimeError::tauri)?;
                 }
                 _ => {}
-            }
-            if update.focus {
-                update.window.set_focus().map_err(RuntimeError::tauri)?;
-                if let Some(webview) = update.active_webview {
-                    webview.set_focus().map_err(RuntimeError::tauri)?;
-                }
             }
         }
         let obsolete_hosts = {
@@ -13907,11 +14382,11 @@ fn dispatch_runtime_tab_shortcut(app: &AppHandle, webview_label: &str, direction
     let Some(window_id) = state.runtime.window_id_for_webview(webview_label) else {
         return;
     };
-    let target_tab_id = state
+    let target = state
         .runtime
         .preview_adjacent_tab_activation(&window_id, direction)
         .ok();
-    if let Some(tab_id) = target_tab_id {
+    if let Some((tab_id, false)) = target {
         let _ = crate::commit_previewed_tab_selection(app, &state, &window_id, &tab_id);
     }
 }
@@ -14961,10 +15436,11 @@ mod tests {
     }
 
     #[test]
-    fn newer_native_selection_rejects_stale_core_projection() {
-        assert!(native_presentation_owns_selection(4, 5, false));
-        assert!(!native_presentation_owns_selection(5, 5, false));
-        assert!(native_presentation_owns_selection(5, 5, true));
+    fn delayed_core_projection_cannot_replace_a_newer_native_selection() {
+        assert!(!core_projection_may_update_selection(49, 56, false));
+        assert!(core_projection_may_update_selection(56, 56, false));
+        assert!(core_projection_may_update_selection(49, 56, true));
+        assert!(core_projection_may_update_selection(1, 0, false));
     }
 
     #[test]
@@ -14990,41 +15466,61 @@ mod tests {
 
     #[test]
     fn native_window_actor_bounds_and_coalesces_pending_presentation_work() {
-        let actor = NativeWindowActor::start("coalescing-test").unwrap();
-        let applied = Arc::new(Mutex::new(Vec::new()));
-        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let mut queue = LatestOnlyPresentationQueue::default();
+        for revision in 1..=20 {
+            queue.replace(revision);
+        }
+        assert_eq!(queue.begin_latest(), Some(20));
+        assert!(queue.in_flight);
+        assert!(queue.pending.is_none());
 
-        let first_applied = Arc::clone(&applied);
-        actor
-            .dispatch(Box::new(move || {
-                first_applied.lock().unwrap().push("a");
-                started_tx.send(()).unwrap();
-                release_rx.recv().unwrap();
-            }))
-            .unwrap();
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        for revision in 21..=40 {
+            queue.replace(revision);
+        }
+        assert_eq!(queue.begin_latest(), None);
+        assert_eq!(queue.pending, Some(40));
+        queue.finish();
+        assert_eq!(queue.begin_latest(), Some(40));
+        queue.finish();
+        assert!(!queue.in_flight);
+        assert!(queue.pending.is_none());
+    }
 
-        let stale_applied = Arc::clone(&applied);
-        actor
-            .dispatch(Box::new(move || {
-                stale_applied.lock().unwrap().push("b");
-            }))
-            .unwrap();
-        let latest_applied = Arc::clone(&applied);
-        actor
-            .dispatch(Box::new(move || {
-                latest_applied.lock().unwrap().push("c");
-                completed_tx.send(()).unwrap();
-            }))
-            .unwrap();
+    #[test]
+    fn returning_to_the_applied_tab_skips_native_visibility_and_focus_work() {
+        let tab = Some("tab-a".to_owned());
+        let labels = HashSet::from(["surface-a:7".to_owned(), "divider-a:8".to_owned()]);
+        assert!(!native_presentation_changed(&tab, &tab, &labels, &labels));
 
-        release_tx.send(()).unwrap();
-        completed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        actor.stop();
+        let replacement = HashSet::from(["surface-a:9".to_owned(), "divider-a:8".to_owned()]);
+        assert!(native_presentation_changed(
+            &tab,
+            &tab,
+            &labels,
+            &replacement
+        ));
+        assert!(native_presentation_changed(
+            &tab,
+            &Some("tab-b".to_owned()),
+            &labels,
+            &labels
+        ));
+    }
 
-        assert_eq!(*applied.lock().unwrap(), ["a", "c"]);
+    #[test]
+    fn provisional_aliases_resolve_to_the_attached_runtime_tab() {
+        let registry = PresentationRegistry::default();
+        let coordinator = registry.coordinator("window-a").unwrap();
+        coordinator
+            .lock()
+            .unwrap()
+            .aliases
+            .insert("provisional-a".to_owned(), "runtime-a".to_owned());
+        assert_eq!(
+            registry.resolve_tab_alias("provisional-a").as_deref(),
+            Some("runtime-a")
+        );
+        assert_eq!(registry.resolve_tab_alias("unknown"), None);
     }
 
     #[test]

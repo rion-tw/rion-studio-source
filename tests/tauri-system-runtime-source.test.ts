@@ -192,6 +192,7 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("pub(crate) fn preview_tab_close(")
     );
     expect(activationPreview).toContain("request_tab_presentation");
+    expect(activationPreview).toContain("request_provisional_tab_presentation");
     expect(activationPreview).toContain("desired_revision");
     expect(activationPreview).toContain("dispatch_native_presentation");
     expect(activationPreview).not.toContain("BrowserRuntimeSnapshot");
@@ -204,7 +205,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(closePreview).toContain("successor_tab_after_close(");
     expect(closePreview).toContain("dispatch_native_presentation(");
     expect(runtime).toContain("struct PresentationCoordinator {");
-    expect(runtime).toContain("native.presentation-dispatched");
+    expect(runtime).toContain("struct LatestOnlyPresentationQueue<T>");
+    expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
+    expect(runtime).toContain("tab.selection-coalesced");
+    expect(runtime).toContain("apply_native_presentation_batch(");
+    expect(runtime).toContain("request.window.run_on_main_thread");
+    expect(runtime).toContain("mainQueueWaitMs");
+    expect(runtime).toContain("mainThreadMs");
     expect(runtime).toContain("tab.selection-superseded");
     const activateCommand = core.slice(
       core.indexOf("CoreCommand::EmbeddedTabActivate { tab_id }"),
@@ -240,7 +247,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(shell).toContain("TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150)");
     expect(shell).toContain("tokio::sync::watch::channel(request)");
     expect(shell).toContain("preview_and_commit_tab_selection");
-    expect(shell).toContain("preview_tab_launch(target, role_id, \"role\")");
+    expect(shell).toContain("runtime.preview_tab_launch(&target, &role_id, \"role\")");
+    expect(shell).toContain("tauri::async_runtime::spawn_blocking(move ||");
     expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
     expect(runtime).toContain('"zh-TW" => "載入中…"');
     expect(runtime).toContain('"launch-preview"');
@@ -254,9 +262,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
     expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
     expect(macBridge).toContain("update_generation: AtomicU64");
+    expect(macBridge).toContain("selection_generation: AtomicU64");
     expect(macBridge).toContain("inner.update_generation.load(Ordering::Acquire) != generation");
+    expect(macBridge).toContain("inner.selection_generation.load(Ordering::Acquire) != generation");
     expect(macBridge).toContain("pub fn replace_reservation(");
-    expect(macController).toContain("item.activeTab = active;");
+    expect(macController).toContain("_tabItemsByIdentifier[tabIdentifier]");
+    expect(macController).toContain("[previousItem updateVisualStateAnimated:NO]");
+    expect(macController).toContain("[nextItem updateVisualStateAnimated:NO]");
     expect(macController).toContain("replaceTabIdentifier:");
     expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
     expect(macController).not.toContain("nextEventMatchingMask:");
@@ -267,6 +279,55 @@ describe("Tauri System WebView runtime source", () => {
     expect(windowsStrip).toContain("optimisticallyCloseTab");
     expect(windowsStrip).toContain("reconcileTabButtons(nextButtons)");
     expect(windowsStrip).not.toContain("root.replaceChildren(");
+  });
+
+  it("never blocks the native UI thread on a tab launch lane and cancels provisional tabs locally", async () => {
+    const [runtime, shell, menu, quickMenu, macBridge] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/runtime_tab_menu.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/quick_menu.rs", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8")
+    ]);
+
+    const launchPreview = runtime.slice(
+      runtime.indexOf("pub(crate) fn preview_tab_launch("),
+      runtime.indexOf("pub(crate) fn cancel_tab_launch_preview(")
+    );
+    expect(launchPreview).toContain("let existing_window = self");
+    expect(launchPreview).toContain(".display_hosts");
+    expect(launchPreview.indexOf("if let Some(window) = existing_window")).toBeLessThan(
+      launchPreview.indexOf("with_native_creation_lane")
+    );
+    expect(launchPreview).toContain("reserve_native_tab(");
+
+    for (const source of [shell, menu, quickMenu]) {
+      const previewCall = source.indexOf("preview_tab_launch(");
+      expect(previewCall).toBeGreaterThan(-1);
+      expect(source.lastIndexOf("spawn_blocking(move ||", previewCall)).toBeGreaterThan(-1);
+    }
+
+    const createTab = runtime.slice(
+      runtime.indexOf("fn create_tab("),
+      runtime.indexOf("fn load_roles(")
+    );
+    expect(createTab.indexOf("take_tab_launch_preview(")).toBeLessThan(
+      createTab.indexOf("with_native_creation_lane")
+    );
+    expect(runtime).toContain("pub(crate) fn cancel_provisional_tab_launch(");
+    expect(runtime).toContain("launch.id == *tab_id && launch.window_id == window_id && !launch.cancelled");
+    expect(shell).toContain("state.runtime.cancel_provisional_tab_launch(&tab_id)");
+    expect(shell).toContain("preview_tab_activation(tab_id, native_style_applied)?");
+    expect(shell).toContain("preview_and_commit_native_tab_selection");
+    expect(menu).toContain("state.runtime.cancel_provisional_tab_launch(tab_id)");
+    const scopedTabAction = menu.slice(
+      menu.indexOf("pub async fn handle_scoped_action("),
+      menu.indexOf("fn launch_from_menu(")
+    );
+    expect(scopedTabAction.indexOf('if action_type == "activate"')).toBeLessThan(
+      scopedTabAction.indexOf("let snapshot = snapshot(&state.core)?")
+    );
+    expect(macBridge).toContain("state.runtime.cancel_provisional_tab_launch(tab_id)");
   });
 
   it("keeps native macOS close rollback state out of Windows builds", async () => {
@@ -455,7 +516,10 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(nativeMacTabs).not.toContain("resolved_theme");
     expect(applyRuntime).toContain("surface.reparent(&window)");
-    expect(applyRuntime).toContain("surface.show()");
+    expect(applyRuntime).toContain('reconcile_window_presentation(window_id, "topology-reconciled")');
+    expect(applyRuntime).not.toContain("visibility_mutations");
+    expect(applyRuntime).not.toContain("webview.set_focus()");
+    expect(applyRuntime).not.toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");
 
     const closeRuntimeWindow = runtime.slice(

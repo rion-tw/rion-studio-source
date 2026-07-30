@@ -178,7 +178,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
         return true;
     };
     if let Some(tab_id) = id.strip_prefix(ACTIVATE_PREFIX) {
-        if let Err(message) = crate::preview_and_commit_tab_selection(app, &state, tab_id) {
+        if let Err(message) = crate::preview_and_commit_native_tab_selection(app, &state, tab_id) {
             reveal_menu_error(app, message);
         }
     } else if let Some(tab_id) = id.strip_prefix(HIDE_PREFIX) {
@@ -323,9 +323,12 @@ pub async fn handle_scoped_action(
             .as_str()
             .filter(|value| matches!(*value, "next" | "previous"))
             .ok_or_else(|| "runtime tab direction is invalid".to_owned())?;
-        let target_tab_id = state
+        let (target_tab_id, provisional) = state
             .runtime
             .preview_adjacent_tab_activation(&window_id, direction)?;
+        if provisional {
+            return Ok(());
+        }
         return crate::commit_previewed_tab_selection(app, state, &window_id, &target_tab_id);
     }
     if action_type == "windowControl" {
@@ -360,6 +363,12 @@ pub async fn handle_scoped_action(
         .as_str()
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "runtime tab ID is required".to_owned())?;
+    if action_type == "stop" && state.runtime.cancel_provisional_tab_launch(tab_id) {
+        return Ok(());
+    }
+    if action_type == "activate" {
+        return crate::preview_and_commit_native_tab_selection(app, state, tab_id);
+    }
     let snapshot = snapshot(&state.core)?;
     let tab = snapshot
         .tabs
@@ -371,9 +380,6 @@ pub async fn handle_scoped_action(
     }
     if action_type == "openTabMenu" {
         return open_tab(app, tab_id);
-    }
-    if action_type == "activate" {
-        return crate::preview_and_commit_tab_selection(app, state, tab_id);
     }
     let command = match action_type {
         "hide" => CoreCommand::EmbeddedTabHide {
@@ -439,26 +445,35 @@ fn launch_from_menu(app: &AppHandle, state: &crate::CoreState, value: &str, work
         }
     };
     let tab_type = if workspace { "workspace" } else { "role" };
-    let preview = state
-        .runtime
-        .preview_tab_launch(&target, source_id, tab_type)
-        .ok();
-    let command = if workspace {
-        CoreCommand::BrowserWorkspaceLaunch {
-            workspace_id: source_id.to_owned(),
-            target,
-        }
-    } else {
-        CoreCommand::BrowserRoleLaunch {
-            role_id: source_id.to_owned(),
-            target,
-            zoom_factor: None,
-        }
-    };
+    let source_id = source_id.to_owned();
     let app = app.clone();
     let core = std::sync::Arc::clone(&state.core);
     let runtime = std::sync::Arc::clone(&state.runtime);
     tauri::async_runtime::spawn(async move {
+        // Native menu callbacks originate on AppKit's main thread. Both display-host creation
+        // and the per-window native creation lane may wait for that thread, so preview work must
+        // enter the blocking executor before it can acquire either resource.
+        let preview_runtime = std::sync::Arc::clone(&runtime);
+        let preview_target = target.clone();
+        let preview_source_id = source_id.clone();
+        let preview = tauri::async_runtime::spawn_blocking(move || {
+            preview_runtime.preview_tab_launch(&preview_target, &preview_source_id, tab_type)
+        })
+        .await
+        .ok()
+        .and_then(Result::ok);
+        let command = if workspace {
+            CoreCommand::BrowserWorkspaceLaunch {
+                workspace_id: source_id,
+                target,
+            }
+        } else {
+            CoreCommand::BrowserRoleLaunch {
+                role_id: source_id,
+                target,
+                zoom_factor: None,
+            }
+        };
         let result = core.invoke_async(command).await;
         if let Some(key) = preview {
             runtime.cancel_tab_launch_preview(&key);

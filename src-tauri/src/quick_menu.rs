@@ -518,18 +518,25 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     return;
                 }
             };
-            let preview = state
-                .runtime
-                .preview_tab_launch(
-                    &target,
-                    &source_id,
-                    if workspace { "workspace" } else { "role" },
-                )
-                .ok();
             let runtime = Arc::clone(&state.runtime);
             let core = Arc::clone(core);
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
+                // Tray menu events run on the native main thread. Never wait there for the
+                // native creation lane or a host-window callback.
+                let preview_runtime = Arc::clone(&runtime);
+                let preview_target = target.clone();
+                let preview_source_id = source_id.clone();
+                let preview = tauri::async_runtime::spawn_blocking(move || {
+                    preview_runtime.preview_tab_launch(
+                        &preview_target,
+                        &preview_source_id,
+                        if workspace { "workspace" } else { "role" },
+                    )
+                })
+                .await
+                .ok()
+                .and_then(Result::ok);
                 let command = if workspace {
                     CoreCommand::BrowserWorkspaceLaunch {
                         workspace_id: source_id,

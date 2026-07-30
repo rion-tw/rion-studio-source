@@ -183,6 +183,8 @@ const browserFontPresetLabelKeys: Record<BrowserFontPresetId, TranslationKey> = 
   "natural-handwriting": "settings.browserFonts.preset.naturalHandwriting",
   "playful-handwriting": "settings.browserFonts.preset.playfulHandwriting",
   "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwriting",
+  "neat-notebook": "settings.browserFonts.preset.neatNotebook",
+  "storybook-handwriting": "settings.browserFonts.preset.storybookHandwriting",
   "friendly-rounded": "settings.browserFonts.preset.friendlyRounded",
   "marker-notes": "settings.browserFonts.preset.markerNotes",
   "editorial-serif": "settings.browserFonts.preset.editorialSerif",
@@ -204,6 +206,8 @@ const browserFontPresetDescriptionKeys: Record<BrowserFontPresetId, TranslationK
   "natural-handwriting": "settings.browserFonts.preset.naturalHandwritingDescription",
   "playful-handwriting": "settings.browserFonts.preset.playfulHandwritingDescription",
   "calligraphic-handwriting": "settings.browserFonts.preset.calligraphicHandwritingDescription",
+  "neat-notebook": "settings.browserFonts.preset.neatNotebookDescription",
+  "storybook-handwriting": "settings.browserFonts.preset.storybookHandwritingDescription",
   "friendly-rounded": "settings.browserFonts.preset.friendlyRoundedDescription",
   "marker-notes": "settings.browserFonts.preset.markerNotesDescription",
   "editorial-serif": "settings.browserFonts.preset.editorialSerifDescription",
@@ -1707,6 +1711,9 @@ function BrowserFontsPreview({
         <span style={{ fontFamily: cjkFamily }}>繁體中文 · 简体中文 · 日本語 </span>
         <span style={{ fontFamily: latinFamily }}>Rion Studio </span>
         <span style={{ fontFamily: numericFamily }}>0123456789</span>
+      </p>
+      <p className="text-base leading-6 tracking-wide" style={{ fontFamily: numericFamily }}>
+        1,234.56 · -20% · 08:45 · 100/75
       </p>
       <p style={{ fontFamily: latinFamily }}>{t("settings.browserFontsPreviewText")}</p>
       <p style={{ fontFamily: monospaceFamily }}>const hp = 100; // 0123456789</p>

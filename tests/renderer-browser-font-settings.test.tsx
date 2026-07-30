@@ -23,6 +23,8 @@ const catalog: BrowserFontCatalogEntry[] = [
   ["iansui", "Iansui", "handwriting", ["tc", "latin"], "body"],
   ["patrick-hand", "Patrick Hand", "handwriting", ["latin"], "body"],
   ["caveat", "Caveat", "handwriting", ["latin"], "accent"],
+  ["handlee", "Handlee", "handwriting", ["latin"], "body"],
+  ["short-stack", "Short Stack", "handwriting", ["latin"], "body"],
   ["chiron-go-round-tc", "Chiron GoRound TC", "sans", ["tc", "latin"], "body"],
   ["fredoka", "Fredoka", "display", ["latin"], "body"],
   ["wdxl-lubrifont-tc", "WDXL Lubrifont TC", "display", ["tc", "latin"], "body"],
@@ -198,6 +200,9 @@ describe("browser font settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
     expect(screen.getByRole("button", { name: /Natural handwriting/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Neat notebook/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Storybook scribble/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Marker notes/u })).toBeTruthy();
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -492,9 +497,9 @@ describe("browser font settings", () => {
     fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
     expect(screen.getByText("Chinese & Japanese")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Natural handwriting/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Download 5 and apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
 
-    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(4));
     await waitFor(() => {
       expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -505,7 +510,7 @@ describe("browser font settings", () => {
             slots: expect.objectContaining({
               cjk: { source: "google", catalogId: "iansui" },
               latin: { source: "google", catalogId: "patrick-hand" },
-              numeric: { source: "google", catalogId: "caveat" }
+              numeric: { source: "google", catalogId: "patrick-hand" }
             })
           })
         })
@@ -678,7 +683,7 @@ describe("browser font settings", () => {
     expect(await screen.findByText("Handwriting styles")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Handwriting styles/u }));
     fireEvent.click(screen.getByRole("button", { name: /Natural handwriting/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Download 5 and apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
 
     await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledTimes(1));
     expect(onGameBrowserSettingsChange.mock.calls[0][0].fonts.fontSmoothingEnabled).toBe(false);

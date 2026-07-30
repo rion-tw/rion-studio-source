@@ -30,6 +30,8 @@ export type BrowserFontPresetId =
   | "natural-handwriting"
   | "playful-handwriting"
   | "calligraphic-handwriting"
+  | "neat-notebook"
+  | "storybook-handwriting"
   | "friendly-rounded"
   | "marker-notes"
   | "editorial-serif"
@@ -107,19 +109,31 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     id: "natural-handwriting",
     category: "handwriting",
     cjkCatalog: { tc: "iansui", sc: "ma-shan-zheng", jp: "klee-one" },
-    slots: { latin: google("patrick-hand"), numeric: google("caveat"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+    slots: { latin: google("patrick-hand"), numeric: google("patrick-hand"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   },
   {
     id: "playful-handwriting",
     category: "handwriting",
     cjkCatalog: { tc: "lxgw-wenkai-tc", sc: "long-cang", jp: "yomogi" },
-    slots: { latin: google("caveat"), numeric: google("caveat"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+    slots: { latin: google("caveat"), numeric: google("patrick-hand"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   },
   {
     id: "calligraphic-handwriting",
     category: "handwriting",
     cjkCatalog: { tc: "lxgw-wenkai-tc", sc: "zhi-mang-xing", jp: "klee-one" },
-    slots: { latin: google("kalam"), numeric: google("kalam"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+    slots: { latin: google("kalam"), numeric: google("patrick-hand"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "neat-notebook",
+    category: "handwriting",
+    cjkCatalog: { tc: "lxgw-wenkai-tc", sc: "ma-shan-zheng", jp: "klee-one" },
+    slots: { latin: google("handlee"), numeric: google("patrick-hand"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "storybook-handwriting",
+    category: "handwriting",
+    cjkCatalog: { tc: "iansui", sc: "long-cang", jp: "yomogi" },
+    slots: { latin: google("short-stack"), numeric: google("patrick-hand"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   },
   {
     id: "friendly-rounded",
@@ -129,9 +143,9 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
   },
   {
     id: "marker-notes",
-    category: "personality",
+    category: "handwriting",
     cjkCatalog: { tc: "lxgw-marker-gothic", sc: "zcool-qingke-huangyou", jp: "yusei-magic" },
-    slots: { latin: google("permanent-marker"), numeric: google("permanent-marker"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
+    slots: { latin: google("permanent-marker"), numeric: google("patrick-hand"), monospace: google("jetbrains-mono"), math: google("noto-sans-math") }
   },
   {
     id: "editorial-serif",
@@ -164,6 +178,13 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     slots: { latin: google("nunito"), numeric: google("nunito"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
   }
 ];
+
+const legacyHandwritingNumericCatalogs = {
+  "natural-handwriting": "caveat",
+  "playful-handwriting": "caveat",
+  "calligraphic-handwriting": "kalam",
+  "marker-notes": "permanent-marker"
+} as const satisfies Partial<Record<BrowserFontPresetId, string>>;
 
 export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   cjkVariant: "auto",
@@ -263,6 +284,7 @@ export function normalizeBrowserFontSettings(
   migrateLegacyBrowserFontFamilies(input.families, slots);
   const presetId =
     normalizePresetId(input.presetId) ?? (!hasInput ? normalizePresetId(fallback.presetId) : undefined);
+  migrateLegacyHandwritingPresetNumeric(presetId, slots);
 
   return mode === "default"
     ? { ...cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS), fontSmoothingEnabled }
@@ -271,6 +293,22 @@ export function normalizeBrowserFontSettings(
 
 function cloneBrowserFontSettings(settings: BrowserFontSettings): BrowserFontSettings {
   return { ...settings, slots: { ...settings.slots } };
+}
+
+function migrateLegacyHandwritingPresetNumeric(
+  presetId: string | undefined,
+  slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>
+): void {
+  const legacyCatalogId =
+    presetId && Object.hasOwn(legacyHandwritingNumericCatalogs, presetId)
+      ? legacyHandwritingNumericCatalogs[
+          presetId as keyof typeof legacyHandwritingNumericCatalogs
+        ]
+      : undefined;
+  const numeric = slots.numeric;
+  if (legacyCatalogId && numeric?.source === "google" && numeric.catalogId === legacyCatalogId) {
+    slots.numeric = google("patrick-hand");
+  }
 }
 
 export function normalizeBrowserFontSlots(

@@ -122,6 +122,34 @@ describe("browser font settings normalization", () => {
     });
   });
 
+  it("upgrades legacy handwriting-preset digits without changing custom digits", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          mode: "custom",
+          presetId: "natural-handwriting",
+          slots: {
+            latin: { source: "google", catalogId: "patrick-hand" },
+            numeric: { source: "google", catalogId: "caveat" }
+          }
+        }
+      }).fonts.slots.numeric
+    ).toEqual({ source: "google", catalogId: "patrick-hand" });
+
+    expect(
+      normalizeGameBrowserSettings({
+        fonts: {
+          cjkVariant: "auto",
+          mode: "custom",
+          slots: {
+            numeric: { source: "google", catalogId: "caveat" }
+          }
+        }
+      }).fonts.slots.numeric
+    ).toEqual({ source: "google", catalogId: "caveat" });
+  });
+
   it("persists an explicit font-smoothing opt-out independently of font mode", () => {
     expect(
       normalizeGameBrowserSettings({
@@ -157,10 +185,10 @@ describe("browser font settings normalization", () => {
   });
 
   it("provides language-specific general, handwriting, and personality presets", () => {
-    expect(browserFontPresets).toHaveLength(18);
+    expect(browserFontPresets).toHaveLength(20);
     expect(browserFontPresets.filter((preset) => preset.category === "general")).toHaveLength(8);
-    expect(browserFontPresets.filter((preset) => preset.category === "handwriting")).toHaveLength(3);
-    expect(browserFontPresets.filter((preset) => preset.category === "personality")).toHaveLength(7);
+    expect(browserFontPresets.filter((preset) => preset.category === "handwriting")).toHaveLength(6);
+    expect(browserFontPresets.filter((preset) => preset.category === "personality")).toHaveLength(6);
     expect(resolveBrowserFontPreset("natural-handwriting", "tc").slots.cjk).toEqual({
       source: "google",
       catalogId: "iansui"
@@ -176,6 +204,27 @@ describe("browser font settings normalization", () => {
     expect(resolveBrowserFontPreset("clear-numbers", "tc").slots.numeric).toEqual({
       source: "google",
       catalogId: "roboto-mono"
+    });
+    for (const presetId of [
+      "natural-handwriting",
+      "playful-handwriting",
+      "calligraphic-handwriting",
+      "neat-notebook",
+      "storybook-handwriting",
+      "marker-notes"
+    ] as const) {
+      expect(resolveBrowserFontPreset(presetId, "tc").slots.numeric).toEqual({
+        source: "google",
+        catalogId: "patrick-hand"
+      });
+    }
+    expect(resolveBrowserFontPreset("neat-notebook", "tc").slots.latin).toEqual({
+      source: "google",
+      catalogId: "handlee"
+    });
+    expect(resolveBrowserFontPreset("storybook-handwriting", "tc").slots.latin).toEqual({
+      source: "google",
+      catalogId: "short-stack"
     });
 
     const personalityCjkCases = [

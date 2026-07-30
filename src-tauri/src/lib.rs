@@ -72,6 +72,7 @@ struct CoreState {
     menu_language: Mutex<String>,
     quick_menu_refresh: quick_menu::RefreshCoordinator,
     runtime_launcher_refresh: runtime_tab_menu::RefreshCoordinator,
+    launch_intents: runtime_tab_menu::LaunchIntentDispatcher,
     runtime: Arc<SystemRuntimeExecutor>,
     tab_selection_commit: TabSelectionCommitCoordinator,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
@@ -740,8 +741,10 @@ async fn rion_core_invoke(
             })?
             .map_err(error_payload)
     };
-    if let Some(key) = launch_preview {
-        state.runtime.cancel_tab_launch_preview(&key);
+    if let Some(key) = launch_preview
+        && result.is_err()
+    {
+        state.runtime.fail_tab_launch_preview(&key);
     }
     if result.is_ok()
         && let Some(language) = menu_language
@@ -4051,6 +4054,17 @@ pub fn run() {
                 user_data_dir.clone(),
                 Arc::clone(&core),
             )?);
+            let completion_runtime = Arc::downgrade(&runtime);
+            let completion_app = app.handle().clone();
+            core.set_browser_launch_completion_sink(Arc::new(move |completion| {
+                let error = completion.error.clone();
+                if let Some(runtime) = completion_runtime.upgrade() {
+                    runtime.resolve_browser_launch_completion(completion);
+                }
+                if let Some(error) = error {
+                    reveal_shell_error(&completion_app, error);
+                }
+            }))?;
             runtime.start_effect_executor()?;
             runtime.schedule_webview_prewarm();
             core.invoke(CoreCommand::SystemWebViewRuntimeRegister {
@@ -4068,6 +4082,11 @@ pub fn run() {
                 app.package_info().version.to_string(),
                 &user_data_dir,
             ));
+            let launch_intents = runtime_tab_menu::LaunchIntentDispatcher::start(
+                app.handle().clone(),
+                Arc::clone(&core),
+                Arc::clone(&runtime),
+            );
             let app_handle = app.handle().clone();
             let effect_core = Arc::clone(&core);
             let effect_runtime = Arc::clone(&runtime);
@@ -4224,6 +4243,7 @@ pub fn run() {
                 menu_language: Mutex::new("en".to_owned()),
                 quick_menu_refresh: quick_menu_refresh.clone(),
                 runtime_launcher_refresh: runtime_launcher_refresh.clone(),
+                launch_intents,
                 runtime,
                 tab_selection_commit: TabSelectionCommitCoordinator::default(),
                 tab_drag: Mutex::new(None),

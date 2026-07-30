@@ -1,9 +1,13 @@
 use std::{
     sync::{Arc, Mutex},
     thread,
+    time::Instant,
 };
 
-use rion_core::{AppCore, BrowserRuntimeSnapshot, CoreCommand};
+use rion_core::{
+    AppCore, BrowserRuntimeSnapshot, CoreCommand, EmbeddedLaunchTargetRecord, LogCaptureRecord,
+    LogLevel, LogSource,
+};
 use tauri::{
     AppHandle, Manager, Window,
     menu::{CheckMenuItemBuilder, ContextMenu, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
@@ -18,6 +22,222 @@ const MOVE_NEW_PREFIX: &str = "runtime-tab-move-new:";
 const MUTE_PREFIX: &str = "runtime-tab-mute:";
 const RELOAD_PREFIX: &str = "runtime-tab-reload:";
 const STOP_PREFIX: &str = "runtime-tab-stop:";
+const LAUNCH_INTENT_CAPACITY: usize = 64;
+const MAX_CONCURRENT_LAUNCH_INTENTS: usize = 4;
+const TAB_MENU_INTENT_CAPACITY: usize = 16;
+const MAX_CONCURRENT_TAB_MENU_MODELS: usize = 2;
+
+struct LaunchIntent {
+    action_started: Instant,
+    native_action_at: String,
+    preview_committed_at: String,
+    preview_committed_ms: u64,
+    preview_key: String,
+    source_id: String,
+    target: EmbeddedLaunchTargetRecord,
+    workspace: bool,
+}
+
+struct TabMenuIntent {
+    language: String,
+    muted: bool,
+    tab_id: String,
+    window: Window,
+}
+
+#[derive(Clone)]
+pub(crate) struct LaunchIntentDispatcher {
+    sender: tokio::sync::mpsc::Sender<LaunchIntent>,
+    tab_menu_sender: tokio::sync::mpsc::Sender<TabMenuIntent>,
+}
+
+impl LaunchIntentDispatcher {
+    pub(crate) fn start(
+        app: AppHandle,
+        core: Arc<AppCore>,
+        runtime: Arc<crate::system_runtime::SystemRuntimeExecutor>,
+    ) -> Self {
+        let (sender, mut receiver) =
+            tokio::sync::mpsc::channel::<LaunchIntent>(LAUNCH_INTENT_CAPACITY);
+        let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_LAUNCH_INTENTS));
+        let launch_app = app.clone();
+        let launch_core = Arc::clone(&core);
+        tauri::async_runtime::spawn(async move {
+            while let Some(intent) = receiver.recv().await {
+                let Ok(permit) = Arc::clone(&permits).acquire_owned().await else {
+                    break;
+                };
+                let app = launch_app.clone();
+                let core = Arc::clone(&launch_core);
+                let runtime = Arc::clone(&runtime);
+                tauri::async_runtime::spawn(async move {
+                    let _permit = permit;
+                    let core_queue_ms = intent
+                        .action_started
+                        .elapsed()
+                        .as_millis()
+                        .min(u64::MAX as u128) as u64;
+                    let core_started = Instant::now();
+                    let command = if intent.workspace {
+                        CoreCommand::BrowserWorkspaceLaunch {
+                            workspace_id: intent.source_id.clone(),
+                            target: intent.target.clone(),
+                        }
+                    } else {
+                        CoreCommand::BrowserRoleLaunch {
+                            role_id: intent.source_id.clone(),
+                            target: intent.target.clone(),
+                            zoom_factor: None,
+                        }
+                    };
+                    let result = core.invoke_async(command).await;
+                    capture_launch_intent_event(
+                        Arc::clone(&core),
+                        &intent,
+                        result.is_ok(),
+                        core_queue_ms,
+                        core_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    );
+                    if let Err(error) = result {
+                        runtime.fail_tab_launch_preview(&intent.preview_key);
+                        crate::reveal_shell_error(&app, error.payload());
+                    }
+                });
+            }
+        });
+
+        let (tab_menu_sender, mut tab_menu_receiver) =
+            tokio::sync::mpsc::channel::<TabMenuIntent>(TAB_MENU_INTENT_CAPACITY);
+        let tab_menu_permits =
+            Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_TAB_MENU_MODELS));
+        tauri::async_runtime::spawn(async move {
+            while let Some(intent) = tab_menu_receiver.recv().await {
+                let Ok(permit) = Arc::clone(&tab_menu_permits).acquire_owned().await else {
+                    break;
+                };
+                let app = app.clone();
+                let core = Arc::clone(&core);
+                tauri::async_runtime::spawn(async move {
+                    let _permit = permit;
+                    let model = tauri::async_runtime::spawn_blocking(move || {
+                        let snapshot = snapshot(&core)?;
+                        let game_windows = core
+                            .invoke(CoreCommand::GameWindowsList)
+                            .map_err(|error| error.to_string())?;
+                        Ok::<_, String>((snapshot, game_windows))
+                    })
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result);
+                    match model {
+                        Ok((snapshot, game_windows)) => {
+                            let menu_app = app.clone();
+                            let error_app = app.clone();
+                            if let Err(error) = app.run_on_main_thread(move || {
+                                if let Err(message) = open_tab_from_model(
+                                    &menu_app,
+                                    &intent.tab_id,
+                                    &intent.language,
+                                    intent.muted,
+                                    &snapshot,
+                                    &game_windows,
+                                    intent.window,
+                                ) {
+                                    reveal_menu_error(&menu_app, message);
+                                }
+                            }) {
+                                reveal_menu_error(
+                                    &error_app,
+                                    format!("runtime tab menu could not be queued: {error}"),
+                                );
+                            }
+                        }
+                        Err(message) => reveal_menu_error(&app, message),
+                    }
+                });
+            }
+        });
+        Self {
+            sender,
+            tab_menu_sender,
+        }
+    }
+
+    fn try_launch(&self, intent: LaunchIntent) -> Result<(), String> {
+        self.sender.try_send(intent).map_err(|error| match error {
+            tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                "The background launch queue is full. Close or wait for an existing launch before retrying."
+                    .to_owned()
+            }
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                "The background launch queue is unavailable.".to_owned()
+            }
+        })
+    }
+
+    fn try_open_tab_menu(&self, intent: TabMenuIntent) -> Result<(), String> {
+        self.tab_menu_sender
+            .try_send(intent)
+            .map_err(|error| match error {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                    "The background tab menu queue is full.".to_owned()
+                }
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                    "The background tab menu queue is unavailable.".to_owned()
+                }
+            })
+    }
+}
+
+fn capture_launch_intent_event(
+    core: Arc<AppCore>,
+    intent: &LaunchIntent,
+    accepted: bool,
+    core_queue_ms: u64,
+    core_invoke_ms: u64,
+) {
+    let context = serde_json::json!({
+        "coreInvokeMs": core_invoke_ms,
+        "coreQueueMs": core_queue_ms,
+        "launchAcceptedMs": intent.action_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        "nativeActionAt": intent.native_action_at,
+        "nativeActionMs": intent.preview_committed_ms,
+        "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+        "previewCommittedAt": intent.preview_committed_at,
+        "previewCommittedMs": intent.preview_committed_ms,
+        "sourceId": intent.source_id,
+        "sourceType": if intent.workspace { "workspace" } else { "role" },
+        "windowId": intent.target.window_id,
+    });
+    tauri::async_runtime::spawn(async move {
+        let _ = core
+            .invoke_async(CoreCommand::LogsCapture {
+                entries: vec![LogCaptureRecord {
+                    level: if accepted {
+                        LogLevel::Info
+                    } else {
+                        LogLevel::Error
+                    },
+                    source: LogSource::Browser,
+                    event: if accepted {
+                        "tab.launch-accepted"
+                    } else {
+                        "tab.launch-rejected"
+                    }
+                    .to_owned(),
+                    message: if accepted {
+                        "The provisional tab launch was accepted for background settlement."
+                    } else {
+                        "The provisional tab launch was rejected before background settlement."
+                    }
+                    .to_owned(),
+                    context_raw_json: serde_json::to_string(&context).ok(),
+                    error: None,
+                }],
+            })
+            .await;
+    });
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct RefreshCoordinator {
@@ -29,7 +249,7 @@ struct RefreshState {
     language: String,
     loading_menu: Option<Menu<tauri::Wry>>,
     menu: Option<Menu<tauri::Wry>>,
-    popup_window_id: Option<String>,
+    popup_target: Option<EmbeddedLaunchTargetRecord>,
     revision: u64,
     worker_running: bool,
 }
@@ -153,7 +373,7 @@ impl RefreshCoordinator {
         app: &AppHandle,
         core: Arc<AppCore>,
         language: String,
-        window_id: &str,
+        target: EmbeddedLaunchTargetRecord,
         window: Window,
     ) -> Result<(), String> {
         let (cached_menu, loading_menu) = {
@@ -161,7 +381,7 @@ impl RefreshCoordinator {
                 .state
                 .lock()
                 .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
-            state.popup_window_id = Some(window_id.to_owned());
+            state.popup_target = Some(target);
             (state.menu.clone(), state.loading_menu.clone())
         };
         let menu = if let Some(menu) = cached_menu {
@@ -178,13 +398,13 @@ impl RefreshCoordinator {
         menu.popup(window).map_err(|error| error.to_string())
     }
 
-    fn popup_window_id(&self) -> Result<String, String> {
+    fn popup_target(&self) -> Result<EmbeddedLaunchTargetRecord, String> {
         self.state
-            .lock()
-            .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?
-            .popup_window_id
+            .try_lock()
+            .map_err(|_| "runtime launcher action context is temporarily busy".to_owned())?
+            .popup_target
             .clone()
-            .ok_or_else(|| "runtime launcher menu has no target window".to_owned())
+            .ok_or_else(|| "runtime launcher menu has no launch target".to_owned())
     }
 }
 
@@ -208,37 +428,38 @@ pub fn open_tab(app: &AppHandle, tab_id: &str) -> Result<(), String> {
     let state = app
         .try_state::<crate::CoreState>()
         .ok_or_else(|| "runtime state is unavailable".to_owned())?;
-    let snapshot = snapshot(&state.core)?;
-    let tab = snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.id == tab_id)
-        .ok_or_else(|| "runtime tab was not found".to_owned())?;
-    let window = state
-        .runtime
-        .window_for_tab(tab_id)
-        .ok_or_else(|| "runtime tab window was not found".to_owned())?;
+    let (window, muted) = state.runtime.native_menu_context_for_tab(tab_id)?;
     let language = state
         .menu_language
         .lock()
         .map(|value| value.clone())
         .unwrap_or_else(|_| "en".to_owned());
-    let text = labels(&language);
-    let projection = state.runtime.projection(&snapshot);
-    let muted = projection["tabs"]
-        .as_array()
-        .and_then(|tabs| tabs.iter().find(|candidate| candidate["id"] == tab_id))
-        .and_then(|tab| tab["audioMuted"].as_bool())
-        .unwrap_or(false);
+    state.launch_intents.try_open_tab_menu(TabMenuIntent {
+        language,
+        muted,
+        tab_id: tab_id.to_owned(),
+        window,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_tab_from_model(
+    app: &AppHandle,
+    tab_id: &str,
+    language: &str,
+    muted: bool,
+    snapshot: &BrowserRuntimeSnapshot,
+    game_windows: &serde_json::Value,
+    window: Window,
+) -> Result<(), String> {
+    let tab = snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.id == tab_id)
+        .ok_or_else(|| "runtime tab was not found".to_owned())?;
+    let text = labels(language);
     let mut displays = SubmenuBuilder::new(app, text.move_to_window);
-    for game_window in state
-        .core
-        .invoke(CoreCommand::GameWindowsList)
-        .map_err(|error| error.to_string())?
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-    {
+    for game_window in game_windows.as_array().cloned().unwrap_or_default() {
         let (Some(window_id), Some(label)) =
             (game_window["id"].as_str(), game_window["name"].as_str())
         else {
@@ -285,13 +506,10 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
         .lock()
         .map(|value| value.clone())
         .unwrap_or_else(|_| "en".to_owned());
-    let window = state
-        .runtime
-        .window_for_id(window_id)
-        .ok_or_else(|| "runtime window was not found".to_owned())?;
+    let (window, target) = state.runtime.launcher_context_for_window_id(window_id)?;
     state
         .runtime_launcher_refresh
-        .popup(app, Arc::clone(&state.core), language, window_id, window)
+        .popup(app, Arc::clone(&state.core), language, target, window)
 }
 
 fn launcher_menu(app: &AppHandle, model: &LauncherMenuModel) -> Result<Menu<tauri::Wry>, String> {
@@ -389,10 +607,24 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(tab_id) = id.strip_prefix(MUTE_PREFIX) {
-        let result = current_tab_muted(&state, tab_id)
-            .and_then(|muted| state.runtime.set_tab_audio_muted(tab_id, !muted));
-        if let Err(message) = result {
-            reveal_menu_error(app, message);
+        match current_tab_muted(&state, tab_id) {
+            Ok(muted) => {
+                let app = app.clone();
+                let runtime = Arc::clone(&state.runtime);
+                let tab_id = tab_id.to_owned();
+                tauri::async_runtime::spawn(async move {
+                    let result = tauri::async_runtime::spawn_blocking(move || {
+                        runtime.set_tab_audio_muted(&tab_id, !muted)
+                    })
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result);
+                    if let Err(message) = result {
+                        reveal_menu_error(&app, message);
+                    }
+                });
+            }
+            Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(tab_id) = id.strip_prefix(MOVE_NEW_PREFIX) {
         let app = app.clone();
@@ -413,8 +645,8 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             reveal_menu_error(app, "runtime move menu target is invalid");
             return true;
         };
-        match crate::launch_target_for_game_window(app, window_id) {
-            Ok(target) => spawn_command(
+        match state.runtime.launcher_context_for_window_id(window_id) {
+            Ok((_, target)) => spawn_command(
                 app,
                 &state.core,
                 CoreCommand::EmbeddedTabMove {
@@ -422,16 +654,16 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
                     target,
                 },
             ),
-            Err(error) => crate::reveal_shell_error(app, error),
+            Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(value) = id.strip_prefix(LAUNCH_ROLE_PREFIX) {
-        match state.runtime_launcher_refresh.popup_window_id() {
-            Ok(window_id) => launch_from_menu(app, &state, &window_id, value, false),
+        match state.runtime_launcher_refresh.popup_target() {
+            Ok(target) => launch_from_menu(app, &state, target, value, false),
             Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(value) = id.strip_prefix(LAUNCH_WORKSPACE_PREFIX) {
-        match state.runtime_launcher_refresh.popup_window_id() {
-            Ok(window_id) => launch_from_menu(app, &state, &window_id, value, true),
+        match state.runtime_launcher_refresh.popup_target() {
+            Ok(target) => launch_from_menu(app, &state, target, value, true),
             Err(message) => reveal_menu_error(app, message),
         }
     }
@@ -596,8 +828,10 @@ pub async fn handle_scoped_action(
             if target_window_id != window_id {
                 return Err("target window is outside this tab-strip WebView".to_owned());
             }
-            let target = crate::launch_target_for_game_window(app, target_window_id)
-                .map_err(|error| error.message)?;
+            let target = state
+                .runtime
+                .launcher_context_for_window_id(target_window_id)?
+                .1;
             CoreCommand::EmbeddedTabMove {
                 tab_id: tab_id.to_owned(),
                 target,
@@ -630,56 +864,55 @@ pub async fn handle_scoped_action(
 fn launch_from_menu(
     app: &AppHandle,
     state: &crate::CoreState,
-    window_id: &str,
+    target: EmbeddedLaunchTargetRecord,
     source_id: &str,
     workspace: bool,
 ) {
+    let action_started = Instant::now();
+    let native_action_at = chrono::Utc::now().to_rfc3339();
     let tab_type = if workspace { "workspace" } else { "role" };
-    if let Some(tab_id) = state.runtime.presented_tab_for_source(source_id, tab_type) {
+    let preview = if let Some(tab_id) = state.runtime.presented_tab_for_source(source_id, tab_type)
+    {
         if let Err(message) = crate::preview_and_commit_native_tab_selection(app, state, &tab_id) {
             reveal_menu_error(app, message);
-        }
-        return;
-    }
-    let target = match crate::launch_target_for_game_window(app, window_id) {
-        Ok(target) => target,
-        Err(error) => {
-            crate::reveal_shell_error(app, error);
             return;
         }
+        state.runtime.retry_failed_tab_launch(source_id, tab_type)
+    } else {
+        // The launcher menu belongs to an already-live game window. Commit its
+        // provisional presentation before returning from the native menu action so
+        // Tokio scheduling, Core work and controller creation cannot delay the tab.
+        state
+            .runtime
+            .preview_tab_launch(&target, source_id, tab_type)
+            .ok()
     };
-    let source_id = source_id.to_owned();
-    // The launcher menu belongs to an already-live game window. Commit its
-    // provisional presentation before returning from the native menu action so
-    // Tokio scheduling, Core work and controller creation cannot delay the tab.
-    let preview = state
-        .runtime
-        .preview_tab_launch(&target, &source_id, tab_type)
-        .ok();
-    let app = app.clone();
-    let core = std::sync::Arc::clone(&state.core);
-    let runtime = std::sync::Arc::clone(&state.runtime);
-    tauri::async_runtime::spawn(async move {
-        let command = if workspace {
-            CoreCommand::BrowserWorkspaceLaunch {
-                workspace_id: source_id,
-                target,
-            }
-        } else {
-            CoreCommand::BrowserRoleLaunch {
-                role_id: source_id,
-                target,
-                zoom_factor: None,
-            }
-        };
-        let result = core.invoke_async(command).await;
-        if let Some(key) = preview {
-            runtime.cancel_tab_launch_preview(&key);
+    let Some(preview_key) = preview else {
+        if state
+            .runtime
+            .presented_tab_for_source(source_id, tab_type)
+            .is_some()
+        {
+            return;
         }
-        if let Err(error) = result {
-            crate::reveal_shell_error(&app, error.payload());
-        }
-    });
+        reveal_menu_error(app, "The provisional runtime tab could not be reserved.");
+        return;
+    };
+    let preview_committed_ms = action_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    let preview_committed_at = chrono::Utc::now().to_rfc3339();
+    if let Err(message) = state.launch_intents.try_launch(LaunchIntent {
+        action_started,
+        native_action_at,
+        preview_committed_at,
+        preview_committed_ms,
+        preview_key: preview_key.clone(),
+        source_id: source_id.to_owned(),
+        target,
+        workspace,
+    }) {
+        state.runtime.fail_tab_launch_preview(&preview_key);
+        reveal_menu_error(app, message);
+    }
 }
 
 fn spawn_command(app: &AppHandle, core: &std::sync::Arc<rion_core::AppCore>, command: CoreCommand) {
@@ -703,12 +936,7 @@ fn reveal_menu_error(app: &AppHandle, message: impl Into<String>) {
 }
 
 fn current_tab_muted(state: &crate::CoreState, tab_id: &str) -> Result<bool, String> {
-    let projection = state.runtime.projection(&snapshot(&state.core)?);
-    projection["tabs"]
-        .as_array()
-        .and_then(|tabs| tabs.iter().find(|tab| tab["id"] == tab_id))
-        .and_then(|tab| tab["audioMuted"].as_bool())
-        .ok_or_else(|| "runtime tab audio state was not found".to_owned())
+    state.runtime.tab_audio_muted(tab_id)
 }
 
 fn snapshot(core: &rion_core::AppCore) -> Result<BrowserRuntimeSnapshot, String> {

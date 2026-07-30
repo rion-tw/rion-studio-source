@@ -15,21 +15,21 @@ use std::{
 use tokio::sync::watch;
 
 use rion_core::{
-    AppCore, BrowserAction, BrowserActionRequest, BrowserPerformanceDiagnosticStatus,
-    BrowserPerformanceDiagnosticsRecord, BrowserPerformanceSurfaceDiagnosticRecord,
-    BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord, CoreCommand, CoreEffectAction,
-    CoreEffectRequest, CoreEffectResult, DisplayTargetRecord, EmbeddedKeyEffectRecord,
-    EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-    EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsRecord, GameWindowPlacementRecord, GameWindowRoleViewRecord,
-    GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
-    LayoutRect, LayoutRoleInput, LogCaptureRecord, LogLevel, LogSource, ResolvedBrowserEngine,
-    RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
-    SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
-    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
-    SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
-    WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
-    WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    AppCore, BrowserAction, BrowserActionRequest, BrowserLaunchCompletionRecord,
+    BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
+    BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
+    CoreCommand, CoreEffectAction, CoreEffectRequest, CoreEffectResult, DisplayTargetRecord,
+    EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
+    EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
+    EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
+    GameWindowRoleViewRecord, GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus,
+    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, LogCaptureRecord, LogLevel,
+    LogSource, ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
+    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    StateWebGraphicsRecord, SystemWebViewRuntimeRegistrationRecord,
+    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
+    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1587,6 +1587,7 @@ impl WindowPresentationState {
 #[derive(Clone)]
 struct ProvisionalLaunch {
     cancelled: bool,
+    failed: bool,
     host_created: bool,
     id: String,
     source_id: String,
@@ -3538,6 +3539,21 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "The conflicting runtime window has no live native host.".to_owned())
     }
 
+    pub(crate) fn launcher_context_for_window_id(
+        &self,
+        window_id: &str,
+    ) -> Result<(Window, EmbeddedLaunchTargetRecord), String> {
+        let state = self
+            .state
+            .try_lock()
+            .map_err(|_| "The live game-window launch context is temporarily busy.".to_owned())?;
+        let host = state
+            .display_hosts
+            .get(window_id)
+            .ok_or_else(|| "The runtime window has no live native host.".to_owned())?;
+        Ok((host.window.clone(), host.target.clone()))
+    }
+
     pub(crate) fn role_zoom_factor_for_tab(
         &self,
         tab_id: &str,
@@ -4320,14 +4336,34 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn window_for_tab(&self, tab_id: &str) -> Option<Window> {
-        self.state.lock().ok().and_then(|state| {
-            let window_id = &state.tabs.get(tab_id)?.window_id;
-            state
-                .display_hosts
-                .get(window_id)
-                .map(|host| host.window.clone())
-        })
+    pub(crate) fn native_menu_context_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> Result<(Window, bool), String> {
+        let state = self
+            .state
+            .try_lock()
+            .map_err(|_| "The runtime tab menu context is temporarily busy.".to_owned())?;
+        let tab = state
+            .tabs
+            .get(tab_id)
+            .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+        let window = state
+            .display_hosts
+            .get(&tab.window_id)
+            .map(|host| host.window.clone())
+            .ok_or_else(|| "Runtime tab window was not found.".to_owned())?;
+        Ok((window, tab.audio_muted))
+    }
+
+    pub(crate) fn tab_audio_muted(&self, tab_id: &str) -> Result<bool, String> {
+        self.state
+            .try_lock()
+            .map_err(|_| "The runtime tab audio state is temporarily busy.".to_owned())?
+            .tabs
+            .get(tab_id)
+            .map(|tab| tab.audio_muted)
+            .ok_or_else(|| "Runtime tab was not found.".to_owned())
     }
 
     pub fn window_for_id(&self, window_id: &str) -> Option<Window> {
@@ -10658,6 +10694,7 @@ impl SystemRuntimeExecutor {
                 key.clone(),
                 ProvisionalLaunch {
                     cancelled: false,
+                    failed: false,
                     host_created,
                     id: provisional_id.clone(),
                     source_id: source_id.to_owned(),
@@ -10779,6 +10816,174 @@ impl SystemRuntimeExecutor {
             let _ = self.request_tab_presentation(&tab_id, false, "launch-preview-cancelled");
         }
         self.remove_empty_display_host(&provisional.window_id, provisional.host_created);
+    }
+
+    pub(crate) fn fail_tab_launch_preview(&self, key: &str) {
+        let provisional = self.state.lock().ok().and_then(|mut state| {
+            let provisional = state.provisional_launches.get_mut(key)?;
+            provisional.failed = true;
+            Some(provisional.clone())
+        });
+        let Some(provisional) = provisional else {
+            return;
+        };
+        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
+            && let Ok(mut presentation) = presentation.lock()
+        {
+            presentation.update_phase(&provisional.id, TabPresentationPhase::Failed);
+        }
+    }
+
+    pub(crate) fn retry_failed_tab_launch(
+        &self,
+        source_id: &str,
+        tab_type: &str,
+    ) -> Option<String> {
+        let key = format!("{tab_type}:{source_id}");
+        let provisional = self.state.lock().ok().and_then(|mut state| {
+            let provisional = state.provisional_launches.get_mut(&key)?;
+            if !provisional.failed || provisional.cancelled {
+                return None;
+            }
+            provisional.failed = false;
+            Some(provisional.clone())
+        })?;
+        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
+            && let Ok(mut presentation) = presentation.lock()
+        {
+            presentation.update_phase(&provisional.id, TabPresentationPhase::Reserved);
+        }
+        Some(key)
+    }
+
+    pub(crate) fn resolve_browser_launch_completion(
+        &self,
+        completion: BrowserLaunchCompletionRecord,
+    ) {
+        self.record_presentation_event(
+            if completion.error.is_some() {
+                LogLevel::Error
+            } else {
+                LogLevel::Info
+            },
+            "tab.launch-settled",
+            if completion.error.is_some() {
+                "The accepted background launch settled with an error."
+            } else {
+                "The accepted background launch settled successfully."
+            },
+            &completion.window_id,
+            Some(&completion.tab_id),
+            self.presentation.current_revision(),
+            "launch-completion",
+            completion
+                .accepted_at
+                .elapsed()
+                .as_millis()
+                .min(u64::MAX as u128) as u64,
+        );
+        let Some(error) = completion.error.as_ref() else {
+            return;
+        };
+        let key = format!("{}:{}", completion.tab_type, completion.source_id);
+        if self
+            .state
+            .lock()
+            .ok()
+            .is_some_and(|state| state.provisional_launches.contains_key(&key))
+        {
+            self.fail_tab_launch_preview(&key);
+            return;
+        }
+
+        let host_created = match self.ensure_display_host(&completion.target, &completion.title) {
+            Ok((_, created)) => created,
+            Err(host_error) => {
+                eprintln!(
+                    "Failed launch tab could not retain its native host after {}: {}",
+                    error.code, host_error.message
+                );
+                return;
+            }
+        };
+        let revision = self.presentation.next_revision();
+        let presentation = match self.presentation.coordinator(&completion.window_id) {
+            Ok(presentation) => presentation,
+            Err(message) => {
+                eprintln!("Failed launch tab presentation could not be retained: {message}");
+                return;
+            }
+        };
+        let active_tab_id = match presentation.lock() {
+            Ok(mut presentation) => {
+                if presentation
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.id == completion.tab_id)
+                {
+                    presentation.update_phase(&completion.tab_id, TabPresentationPhase::Failed);
+                } else {
+                    let should_select = presentation.selected_tab_id.is_none();
+                    presentation.insert_tab(
+                        TabPresentation {
+                            closable: true,
+                            icon_data_url: None,
+                            id: completion.tab_id.clone(),
+                            phase: TabPresentationPhase::Failed,
+                            source_id: completion.source_id.clone(),
+                            tab_type: completion.tab_type.clone(),
+                            title: completion.title.clone(),
+                            #[cfg(target_os = "macos")]
+                            workspace_template: None,
+                        },
+                        revision,
+                        should_select,
+                    );
+                }
+                presentation.selected_tab_id.clone()
+            }
+            Err(_) => return,
+        };
+        if let Ok(mut state) = self.state.lock() {
+            state.provisional_launches.insert(
+                key,
+                ProvisionalLaunch {
+                    cancelled: false,
+                    failed: true,
+                    host_created,
+                    id: completion.tab_id.clone(),
+                    source_id: completion.source_id.clone(),
+                    tab_type: completion.tab_type.clone(),
+                    window_id: completion.window_id.clone(),
+                },
+            );
+        }
+        let native_reservation = self.reserve_native_tab(
+            &completion.window_id,
+            &completion.tab_id,
+            &completion.title,
+            &completion.tab_type,
+            None,
+            revision,
+        );
+        if native_reservation.is_ok() {
+            self.apply_native_active_style(
+                &completion.window_id,
+                active_tab_id.as_deref(),
+                revision,
+                "launch-completion-failed",
+            );
+        }
+        self.record_presentation_event(
+            LogLevel::Error,
+            "tab.launch-failed-retained",
+            "The background launch failed and its presentation tab was retained.",
+            &completion.window_id,
+            Some(&completion.tab_id),
+            revision,
+            "launch-completion",
+            0,
+        );
     }
 
     pub(crate) fn cancel_provisional_tab_launch(&self, tab_id: &str) -> bool {
@@ -11398,30 +11603,46 @@ impl SystemRuntimeExecutor {
                 state
                     .role_tabs
                     .retain(|_, tab_id| tab_id != &created_tab_id);
-            }
-            let mut next_tab_id = None;
-            if let Some(presentation) = self.presentation.existing(&target.window_id)
-                && let Ok(mut selection) = presentation.lock()
-            {
-                let was_selected =
-                    selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str());
-                let revision = self.presentation.next_revision();
-                selection.remove_tab(&created_tab_id, revision);
-                if was_selected {
-                    let successor = selection.tabs.last().map(|tab| tab.id.clone());
-                    selection.select(successor, revision);
+                if let Some(preview) = launch_preview.as_ref() {
+                    state.provisional_launches.insert(
+                        format!("{tab_type}:{}", tab.source_id),
+                        ProvisionalLaunch {
+                            cancelled: false,
+                            failed: true,
+                            host_created: preview.host_created,
+                            id: created_tab_id.clone(),
+                            source_id: tab.source_id.clone(),
+                            tab_type: tab_type.to_owned(),
+                            window_id: target.window_id.clone(),
+                        },
+                    );
                 }
-                next_tab_id = selection.selected_tab_id.clone();
             }
-            if let Some(next_tab_id) = next_tab_id.as_deref() {
-                let _ = self.request_tab_presentation(next_tab_id, false, "launch-failed");
+            if launch_preview.is_none() {
+                let mut next_tab_id = None;
+                if let Some(presentation) = self.presentation.existing(&target.window_id)
+                    && let Ok(mut selection) = presentation.lock()
+                {
+                    let was_selected =
+                        selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str());
+                    let revision = self.presentation.next_revision();
+                    selection.remove_tab(&created_tab_id, revision);
+                    if was_selected {
+                        let successor = selection.tabs.last().map(|tab| tab.id.clone());
+                        selection.select(successor, revision);
+                    }
+                    next_tab_id = selection.selected_tab_id.clone();
+                }
+                if let Some(next_tab_id) = next_tab_id.as_deref() {
+                    let _ = self.request_tab_presentation(next_tab_id, false, "launch-failed");
+                }
+                self.remove_native_tab_reservation(
+                    &target.window_id,
+                    &created_tab_id,
+                    next_tab_id.as_deref(),
+                );
+                self.remove_empty_display_host(&target.window_id, host_created);
             }
-            self.remove_native_tab_reservation(
-                &target.window_id,
-                &created_tab_id,
-                next_tab_id.as_deref(),
-            );
-            self.remove_empty_display_host(&target.window_id, host_created);
         } else {
             let remains_selected =
                 self.presentation

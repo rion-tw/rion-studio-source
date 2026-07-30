@@ -310,7 +310,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(quickMenu).toContain("Core and SQLite snapshots are collected on one bounded worker");
     expect(menu).toContain('name("rion-runtime-launcher-model".to_owned())');
     expect(menu).toContain("native plus button never");
-    expect(menu).toContain("popup_window_id");
+    expect(menu).toContain("popup_target");
+    expect(menu).toContain("launcher_context_for_window_id(window_id)");
     expect(menu).toContain("presented_tab_for_source(source_id, tab_type)");
     expect(menu).not.toContain("model.runtime");
     expect(menu).not.toContain("window_ids");
@@ -395,11 +396,13 @@ describe("Tauri System WebView runtime source", () => {
       menu.indexOf("fn launch_from_menu("),
       menu.indexOf("fn spawn_command(")
     );
-    expect(menuLaunch).toContain("preview_tab_launch(&target, &source_id, tab_type)");
-    expect(menuLaunch.indexOf("preview_tab_launch(&target, &source_id, tab_type)")).toBeLessThan(
-      menuLaunch.indexOf("tauri::async_runtime::spawn(async move")
+    expect(menuLaunch).toContain("preview_tab_launch(&target, source_id, tab_type)");
+    expect(menuLaunch.indexOf("preview_tab_launch(&target, source_id, tab_type)")).toBeLessThan(
+      menuLaunch.indexOf("launch_intents.try_launch(")
     );
     expect(menuLaunch).not.toContain("spawn_blocking");
+    expect(menuLaunch).not.toContain("launch_target_for_game_window");
+    expect(menuLaunch).not.toContain("core.invoke");
 
     const createTab = runtime.slice(
       runtime.indexOf("fn create_tab("),

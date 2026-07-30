@@ -1167,32 +1167,19 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedTabActivate { tab_id } => {
-                let window_id = self.embedded_tab_window_id(&tab_id)?;
-                serde_json::to_value(self.apply_embedded_runtime_command(
-                    vec![BrowserRuntimeCommand::ActivateTab {
-                        tab_id: tab_id.clone(),
-                    }],
-                    None,
-                    vec![window_id.clone()],
-                    vec![window_id],
-                    Some(tab_id),
-                    None,
+                serde_json::to_value(self.apply_embedded_tab_selection_without_native_effect(
+                    BrowserRuntimeCommand::ActivateTab { tab_id },
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedTabActivateAdjacent {
                 window_id,
                 direction,
-            } => serde_json::to_value(self.apply_embedded_runtime_command(
-                vec![BrowserRuntimeCommand::ActivateAdjacentTab {
+            } => serde_json::to_value(self.apply_embedded_tab_selection_without_native_effect(
+                BrowserRuntimeCommand::ActivateAdjacentTab {
                     window_id: window_id.clone(),
                     direction,
-                }],
-                None,
-                vec![window_id.clone()],
-                Vec::new(),
-                None,
-                Some(window_id),
+                },
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::EmbeddedTabHide { tab_id } => {
@@ -3802,16 +3789,12 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         zoom_factor: f64,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
         self.ensure_role_session_recovery_complete(role_id)?;
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
             role_ids: vec![role_id.to_owned()],
             kind: "normal".to_owned(),
         })?;
-        let result = (|| {
-            let _sequence = self.embedded_runtime_sequence.acquire()?;
-            self.launch_embedded_role_with_lease(role_id, target, zoom_factor)
-        })();
+        let result = self.launch_embedded_role_with_lease(role_id, target, zoom_factor);
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
             (Ok(value), Ok(())) => Ok(value),
@@ -3850,15 +3833,10 @@ impl AppCore {
             let tab_id = runtime_role.tab_id.clone().ok_or_else(|| {
                 CoreError::Internal("embedded role runtime is missing its tab".to_owned())
             })?;
-            self.apply_embedded_runtime_command_inner(
-                vec![BrowserRuntimeCommand::ActivateTab {
+            self.apply_embedded_tab_selection_without_native_effect(
+                BrowserRuntimeCommand::ActivateTab {
                     tab_id: tab_id.clone(),
-                }],
-                None,
-                vec![self.embedded_tab_window_id(&tab_id)?],
-                vec![self.embedded_tab_window_id(&tab_id)?],
-                None,
-                None,
+                },
             )?;
             self.run_effect_plan(vec![effect_step(
                 role_id,
@@ -3922,6 +3900,17 @@ impl AppCore {
         self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
             tab_id: tab_id.clone(),
         })?;
+        if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
+            &std::collections::HashSet::new(),
+        ) {
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+                role_id: role.id.clone(),
+            });
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                tab_id: tab_id.clone(),
+            });
+            return Err(error);
+        }
 
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
@@ -3961,21 +3950,21 @@ impl AppCore {
         }
 
         let launched_at = chrono::Utc::now().to_rfc3339();
-        if let Err(error) = self.apply_embedded_runtime_command_inner(
-            vec![BrowserRuntimeCommand::RoleTransition {
+        let completion = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                 role_id: role.id.clone(),
                 runtime: "embedded".to_owned(),
                 workspace_id: None,
                 tab_id: Some(tab_id.clone()),
                 state: "running".to_owned(),
                 launched_at: Some(launched_at.clone()),
-            }],
-            None,
-            Vec::new(),
-            Vec::new(),
-            None,
-            None,
-        ) {
+            })
+            .and_then(|_| {
+                self.commit_embedded_runtime_snapshot_without_native_effect(
+                    &std::collections::HashSet::new(),
+                )
+            });
+        if let Err(error) = completion {
             let _ = self.run_effect_plan(vec![effect_step(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
@@ -4024,7 +4013,6 @@ impl AppCore {
         expected_role_ids: &[String],
         target: EmbeddedLaunchTargetRecord,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
         if expected_role_ids.is_empty() {
             return Err(CoreError::Domain {
                 code: "WORKSPACE_ROLES_REQUIRED",
@@ -4070,7 +4058,6 @@ impl AppCore {
             for role_id in &role_ids {
                 self.ensure_role_session_recovery_complete(role_id)?;
             }
-            let _sequence = self.embedded_runtime_sequence.acquire()?;
             let snapshot = self
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                 .snapshot;
@@ -4088,15 +4075,10 @@ impl AppCore {
                 let tab_id = runtime_workspace.tab_id.clone().ok_or_else(|| {
                     CoreError::Internal("embedded workspace runtime is missing its tab".to_owned())
                 })?;
-                self.apply_embedded_runtime_command_inner(
-                    vec![BrowserRuntimeCommand::ActivateTab {
+                self.apply_embedded_tab_selection_without_native_effect(
+                    BrowserRuntimeCommand::ActivateTab {
                         tab_id: tab_id.clone(),
-                    }],
-                    None,
-                    vec![self.embedded_tab_window_id(&tab_id)?],
-                    vec![self.embedded_tab_window_id(&tab_id)?],
-                    None,
-                    None,
+                    },
                 )?;
                 return Ok(runtime_workspace
                     .role_ids
@@ -4196,6 +4178,22 @@ impl AppCore {
         self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
             tab_id: tab_id.clone(),
         })?;
+        if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
+            &std::collections::HashSet::new(),
+        ) {
+            for role_id in &role_ids {
+                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+                    role_id: role_id.clone(),
+                });
+            }
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                tab_id: tab_id.clone(),
+            });
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
+                workspace_id: workspace.id.clone(),
+            });
+            return Err(error);
+        }
         let effect_roles = workspace
             .slots
             .iter()
@@ -4267,14 +4265,15 @@ impl AppCore {
             workspace_id: workspace.id.clone(),
             state: "running".to_owned(),
         });
-        if let Err(error) = self.apply_embedded_runtime_command_inner(
-            commands,
-            None,
-            Vec::new(),
-            Vec::new(),
-            None,
-            None,
-        ) {
+        let completion = commands
+            .into_iter()
+            .try_for_each(|command| self.invoke_browser_runtime(command).map(|_| ()))
+            .and_then(|()| {
+                self.commit_embedded_runtime_snapshot_without_native_effect(
+                    &std::collections::HashSet::new(),
+                )
+            });
+        if let Err(error) = completion {
             let _ = self.run_effect_plan(vec![effect_step(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
@@ -4970,19 +4969,6 @@ impl AppCore {
         Ok(())
     }
 
-    fn embedded_tab_window_id(&self, tab_id: &str) -> CoreResult<String> {
-        self.invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
-            .tabs
-            .into_iter()
-            .find(|tab| tab.id == tab_id)
-            .map(|tab| tab.window_id)
-            .ok_or_else(|| CoreError::Domain {
-                code: "RUNTIME_TAB_NOT_FOUND",
-                message: "Runtime tab was not found.".to_owned(),
-            })
-    }
-
     fn create_game_window_and_move_tab(
         &self,
         input: GameWindowCreateInputRecord,
@@ -5406,6 +5392,23 @@ impl AppCore {
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                 .snapshot)
         }
+    }
+
+    /// Commits presentation metadata without entering the native runtime effect lane.
+    ///
+    /// A tab selection is independent from navigation, overlay installation, and launch
+    /// verification. Keeping this path free of the launch sequences prevents a slow or
+    /// unresponsive page from delaying keyboard and pointer selection. If persistence fails,
+    /// the in-memory selection deliberately remains authoritative and can be retried by a
+    /// later snapshot sync instead of visually rolling the user back.
+    fn apply_embedded_tab_selection_without_native_effect(
+        &self,
+        command: BrowserRuntimeCommand,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        self.invoke_browser_runtime(command)?;
+        self.commit_embedded_runtime_snapshot_without_native_effect(
+            &std::collections::HashSet::new(),
+        )
     }
 
     fn publish_embedded_runtime_snapshot_with_removed(
@@ -6483,15 +6486,6 @@ fn embedded_launch_effects(
     let mut steps = vec![
         effect_step(
             tab_id,
-            CoreEffectAction::EmbeddedCreateTab { tab: Box::new(tab) },
-            Duration::from_secs(15),
-            Some(CoreEffectAction::EmbeddedDestroyTab {
-                tab_id: tab_id.to_owned(),
-                next_active_tab_id: None,
-            }),
-        ),
-        effect_step(
-            tab_id,
             CoreEffectAction::EmbeddedApplyRuntime {
                 snapshot: runtime_snapshot,
                 target: Some(target.clone()),
@@ -6501,6 +6495,15 @@ fn embedded_launch_effects(
             },
             Duration::from_secs(10),
             None,
+        ),
+        effect_step(
+            tab_id,
+            CoreEffectAction::EmbeddedCreateTab { tab: Box::new(tab) },
+            Duration::from_secs(15),
+            Some(CoreEffectAction::EmbeddedDestroyTab {
+                tab_id: tab_id.to_owned(),
+                next_active_tab_id: None,
+            }),
         ),
     ];
     let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
@@ -6539,17 +6542,6 @@ fn embedded_launch_effects(
         Duration::from_secs(15),
         None,
     ));
-    if let Some(role_id) = role_ids.first() {
-        steps.push(effect_step(
-            tab_id,
-            CoreEffectAction::EmbeddedFocusRole {
-                role_id: role_id.clone(),
-                zoom_factor: None,
-            },
-            Duration::from_secs(15),
-            None,
-        ));
-    }
     steps
 }
 
@@ -8512,11 +8504,16 @@ mod tests {
         );
         assert!(launch.is_ok());
         assert!(matches!(
-            launch_actions.first(),
+            launch_actions.get(1),
             Some(CoreEffectAction::EmbeddedCreateTab { tab })
                 if tab.roles.iter().all(|role| {
                     role.resolved_engine == crate::model::ResolvedBrowserEngine::Wkwebview
                 })
+        ));
+        assert!(matches!(
+            launch_actions.first(),
+            Some(CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. })
+                if snapshot.tabs.iter().any(|tab| tab.role_ids == vec![role_id.clone()])
         ));
         assert!(launch_actions.iter().any(|action| matches!(
             action,
@@ -8525,13 +8522,21 @@ mod tests {
                     && roles[0].resolved_engine
                         == crate::model::ResolvedBrowserEngine::Wkwebview
         )));
-        assert!(launch_actions.iter().any(|action| matches!(
+        assert!(launch_actions.iter().all(|action| !matches!(
             action,
             CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                if snapshot.roles.iter().any(|role| {
-                    role.role_id == role_id && role.state == "running"
-                })
+                if snapshot.roles.iter().any(|role| role.state == "running")
         )));
+        let running_snapshot = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        assert!(
+            running_snapshot
+                .roles
+                .iter()
+                .any(|role| role.role_id == role_id && role.state == "running")
+        );
         let (statuses, _) = drive_command(Arc::clone(&core), CoreCommand::BrowserStatuses, None);
         assert!(
             statuses
@@ -8553,12 +8558,13 @@ mod tests {
             None,
         );
         assert!(hide.is_ok());
-        let (activate, _, _) = drive_async_command(
+        let (activate, activate_actions, _) = drive_async_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedTabActivate { tab_id },
             None,
         );
         assert!(activate.is_ok());
+        assert!(activate_actions.is_empty());
 
         let (stop, stop_actions) = drive_command(
             Arc::clone(&core),
@@ -9196,15 +9202,25 @@ mod tests {
                 action,
                 CoreEffectAction::EmbeddedLoadRoles { roles } if roles.len() == count
             )));
-            assert!(actions.iter().any(|action| matches!(
+            assert!(actions.iter().all(|action| !matches!(
                 action,
                 CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                    if snapshot.roles.len() == count
-                        && snapshot.roles.iter().all(|role| role.state == "running")
-                        && snapshot.workspaces.iter().any(|runtime| {
-                            runtime.workspace_id == workspace_id && runtime.state == "running"
-                        })
+                    if snapshot.roles.iter().any(|role| role.state == "running")
             )));
+            let running_snapshot = core
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+                .unwrap()
+                .snapshot;
+            assert_eq!(running_snapshot.roles.len(), count);
+            assert!(
+                running_snapshot
+                    .roles
+                    .iter()
+                    .all(|role| role.state == "running")
+            );
+            assert!(running_snapshot.workspaces.iter().any(|runtime| {
+                runtime.workspace_id == workspace_id && runtime.state == "running"
+            }));
             let (stop, stop_actions) = drive_command(
                 Arc::clone(&core),
                 CoreCommand::EmbeddedWorkspaceStop { workspace_id },

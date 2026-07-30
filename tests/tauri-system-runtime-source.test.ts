@@ -135,7 +135,10 @@ describe("Tauri System WebView runtime source", () => {
     expect(enqueue.indexOf("if is_surface_close_effect(&effect.action)")).toBeLessThan(
       enqueue.indexOf("self.effect_sender")
     );
-    expect(enqueue).toContain("rion-surface-close-");
+    expect(enqueue).toContain("is_independent_tab_launch_effect(&effect.action)");
+    expect(enqueue).toContain('"surface-close"');
+    expect(enqueue).toContain('"tab-launch"');
+    expect(enqueue).toContain('format!("rion-{worker_kind}-{effect_id}")');
 
     const stopRole = core.slice(
       core.indexOf("fn stop_embedded_role_with_operation_lease("),
@@ -158,8 +161,9 @@ describe("Tauri System WebView runtime source", () => {
   });
 
   it("keeps tab interaction responsive while native launch verification is pending", async () => {
-    const [runtime, menu, macBridge, macController, windowsStrip] = await Promise.all([
+    const [runtime, core, menu, macBridge, macController, windowsStrip] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tab_menu.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8"),
       readFile(
@@ -181,27 +185,48 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("pub(crate) fn preview_tab_activation("),
       runtime.indexOf("pub(crate) fn preview_tab_close(")
     );
-    expect(activationPreview).toContain("presentation_lane");
-    expect(activationPreview).toContain("preview_tab_activation_under_presentation_lane");
-    expect(activationPreview).toContain("show_tab_under_presentation_lane");
-    expect(activationPreview.indexOf("presentation_lane")).toBeLessThan(
-      activationPreview.indexOf("presentation_revision")
-    );
+    expect(activationPreview).toContain("request_tab_presentation");
+    expect(activationPreview).toContain("desired_revision");
+    expect(activationPreview).toContain("dispatch_native_presentation");
+    expect(activationPreview).not.toContain("BrowserRuntimeSnapshot");
+    expect(activationPreview).not.toContain("presentation_lane");
     const closePreview = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_close("),
       runtime.indexOf("pub(crate) fn reconcile_tab_activation(")
     );
-    expect(closePreview).toContain("surface.hide()");
+    expect(closePreview).toContain("closing_tab.visible = false");
     expect(closePreview).toContain("successor_tab_after_close(");
-    expect(closePreview).toContain("window.hide()");
+    expect(closePreview).toContain("dispatch_native_presentation(");
+    expect(runtime).toContain("struct PresentationCoordinator {");
+    expect(runtime).toContain("native.presentation-dispatched");
+    expect(runtime).toContain("tab.selection-superseded");
+    const activateCommand = core.slice(
+      core.indexOf("CoreCommand::EmbeddedTabActivate { tab_id }"),
+      core.indexOf("CoreCommand::EmbeddedTabHide { tab_id }")
+    );
+    expect(activateCommand).toContain("apply_embedded_tab_selection_without_native_effect");
+    expect(activateCommand).not.toContain("apply_embedded_runtime_command(");
+    const roleLaunch = core.slice(
+      core.indexOf("fn launch_embedded_role("),
+      core.indexOf("fn launch_embedded_workspace(")
+    );
+    expect(roleLaunch).not.toContain("embedded_window_sequence.acquire");
+    expect(roleLaunch).not.toContain("embedded_runtime_sequence.acquire");
+    expect(roleLaunch).toContain("commit_embedded_runtime_snapshot_without_native_effect");
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
     expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
     expect(macBridge).toContain("update_generation: AtomicU64");
     expect(macBridge).toContain("inner.update_generation.load(Ordering::Acquire) != generation");
     expect(macController).toContain("item.activeTab = active;");
     expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
+    expect(macController).not.toContain("nextEventMatchingMask:");
+    expect(macController).toContain("- (void)mouseDragged:(NSEvent *)event");
+    expect(macController).toContain("_tabIconCacheKeys");
+    expect(macController).toContain("nextIdentifiers");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");
+    expect(windowsStrip).toContain("reconcileTabButtons(nextButtons)");
+    expect(windowsStrip).not.toContain("root.replaceChildren(");
   });
 
   it("keeps native macOS close rollback state out of Windows builds", async () => {
@@ -211,7 +236,7 @@ describe("Tauri System WebView runtime source", () => {
     );
     const closeTransaction = runtime.slice(
       runtime.indexOf("struct CloseTransaction {"),
-      runtime.indexOf("struct PresentationSelection {")
+      runtime.indexOf("struct NativeSessionBackup {")
     );
     for (const field of ["original_active_tab_id", "revision", "window_id"]) {
       expect(closeTransaction).toContain(`#[cfg(target_os = "macos")]\n    ${field}`);

@@ -184,14 +184,40 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
   });
 
-  it("restores an optimistic close when the scoped native command is rejected", async () => {
+  it("keeps keyed tab elements mounted across projection and reorder updates", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    const original = document.querySelector<HTMLElement>('[data-tab-id="tab-2"]');
+    const reordered = stateWithTabs(1);
+    reordered.tabs = [reordered.tabs[2], reordered.tabs[1], reordered.tabs[0], reordered.tabs[3]];
+
+    window.__rionApplyRuntimeTabState?.(reordered);
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')).toBe(original);
+    expect(Array.from(document.querySelectorAll<HTMLElement>(".tab"), (tab) => tab.dataset.tabId))
+      .toEqual(["tab-3", "tab-2", "tab-1", "tab-4"]);
+    expect(original?.classList.contains("active")).toBe(true);
+  });
+
+  it("keeps close intent committed when the scoped native command is rejected", async () => {
     invoke.mockRejectedValueOnce(new Error("rejected"));
     document.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();
     expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
 
     await Promise.resolve();
 
-    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeTruthy();
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
+  });
+
+  it("selects the right tab immediately when closing the active tab", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs(1));
+
+    document.querySelector<HTMLElement>(
+      '[data-tab-id="tab-2"] [aria-label="停止並關閉分頁"]'
+    )?.click();
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')).toBeNull();
+    expect(document.querySelector('[data-tab-id="tab-3"]')?.classList.contains("active"))
+      .toBe(true);
   });
 
   it("routes Windows application shortcuts through the scoped tab-strip bridge", () => {

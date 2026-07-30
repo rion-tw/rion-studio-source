@@ -42,9 +42,9 @@ const dispatch = (action: RuntimeTabAction): void => {
     return;
   }
   void invoke("rion_runtime_tab_action", { action }).catch(() => {
-    // IPC rejection means the optimistic interaction never reached the native
-    // transaction. Repaint the latest authoritative state immediately.
-    if (current) render(current);
+    // Selection and close intent remain visually committed. The shell reports the
+    // persistent error, while a later revision/snapshot may reconcile metadata without
+    // making an old tab or viewport reappear.
   });
 };
 
@@ -70,7 +70,17 @@ function optimisticallyActivateAdjacentTab(direction: "next" | "previous"): void
 }
 
 function optimisticallyCloseTab(tabId: string): void {
-  tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
+  const tabs = tabElements();
+  const closingIndex = tabs.findIndex((tab) => tab.dataset.tabId === tabId);
+  if (closingIndex < 0) return;
+  const wasActive = tabs[closingIndex].classList.contains("active");
+  tabs[closingIndex].remove();
+  if (wasActive) {
+    const remaining = tabElements();
+    const successor = remaining[Math.min(closingIndex, remaining.length - 1)];
+    if (successor?.dataset.tabId) optimisticallyActivateTab(successor.dataset.tabId);
+    else activeTabId = undefined;
+  }
   requestAnimationFrame(updateScrollControls);
 }
 
@@ -99,7 +109,7 @@ function render(state: RuntimeTabStripState): void {
   document.documentElement.dataset.theme = state.resolvedTheme;
   document.documentElement.style.colorScheme = state.resolvedTheme;
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);
-  root.replaceChildren(...state.tabs
+  const nextButtons = state.tabs
     .filter((tab) => tab.windowId === state.windowId && !tab.hidden)
     .map((tab) => {
       const button = document.createElement("button");
@@ -108,6 +118,7 @@ function render(state: RuntimeTabStripState): void {
       button.dataset.tabId = tab.id;
       button.draggable = true;
       button.role = "tab";
+      button.setAttribute("aria-selected", String(tab.active));
       button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
         ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
         : tab.name;
@@ -231,7 +242,8 @@ function render(state: RuntimeTabStripState): void {
         });
       });
       return button;
-    }));
+    });
+  reconcileTabButtons(nextButtons);
   const nextActiveTabId = state.tabs.find((tab) =>
     tab.windowId === state.windowId && !tab.hidden && tab.active
   )?.id;
@@ -253,6 +265,31 @@ function render(state: RuntimeTabStripState): void {
     ? "向右滚动标签页" : state.language === "ja" ? "タブを右へスクロール" : "Scroll tabs right";
   scrollLeftButton.title = scrollLeftButton.ariaLabel;
   scrollRightButton.title = scrollRightButton.ariaLabel;
+}
+
+function reconcileTabButtons(nextButtons: HTMLButtonElement[]): void {
+  const existingById = new Map(tabElements().map((button) => [button.dataset.tabId, button]));
+  const retained = new Set<string>();
+  let insertionPoint: Element | null = root.firstElementChild;
+  for (const desired of nextButtons) {
+    const tabId = desired.dataset.tabId;
+    if (!tabId) continue;
+    retained.add(tabId);
+    const existing = existingById.get(tabId) as HTMLButtonElement | undefined;
+    const resolved = existing ?? desired;
+    if (existing) {
+      existing.className = desired.className;
+      existing.title = desired.title;
+      existing.draggable = desired.draggable;
+      existing.setAttribute("aria-selected", desired.getAttribute("aria-selected") ?? "false");
+      existing.replaceChildren(...desired.childNodes);
+    }
+    if (resolved !== insertionPoint) root.insertBefore(resolved, insertionPoint);
+    insertionPoint = resolved.nextElementSibling;
+  }
+  for (const [tabId, existing] of existingById) {
+    if (tabId && !retained.has(tabId)) existing.remove();
+  }
 }
 
 window.__rionApplyRuntimeTabState = render;

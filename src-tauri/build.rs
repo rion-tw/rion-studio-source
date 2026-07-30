@@ -1,6 +1,13 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_ENDPOINT");
+    println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+    println!("cargo:rerun-if-changed=windows-test-manifest.rc");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_resource::compile_for_tests("windows-test-manifest.rc", embed_resource::NONE)
+            .manifest_required()
+            .expect("failed to embed the Windows test application manifest");
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         let runtime_output = std::process::Command::new("xcrun")
             .args(["clang", "--print-runtime-dir"])
@@ -48,6 +55,12 @@ fn main() {
         "rion_shared_user_data_dir",
         "rion_shell_invoke",
     ]);
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
-        .expect("failed to run the Rion Studio Tauri build script");
+    let windows = tauri_build::WindowsAttributes::new()
+        .app_manifest(include_str!("windows-app-manifest.xml"));
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(manifest)
+            .windows_attributes(windows),
+    )
+    .expect("failed to run the Rion Studio Tauri build script");
 }

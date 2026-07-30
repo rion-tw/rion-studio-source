@@ -12,6 +12,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
 cc = "=1.3.0"
+embed-resource = "=3.0.11"
 tauri-build.workspace = true
 
 [dependencies]

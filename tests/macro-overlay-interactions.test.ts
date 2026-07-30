@@ -214,7 +214,79 @@ describe("macro overlay interactions", () => {
       xPx: 256,
       yPx: 192
     })));
+    const copyRequest = binding.mock.calls
+      .map(([request]) => request)
+      .find((request) => isRecord(request) && request.type === "copy-coordinate");
+    expect(copyRequest).not.toHaveProperty("anchor");
     await vi.waitFor(() => expect(picker.hidden).toBe(true));
+  });
+
+  it("calculates the nearest measurement anchor and draws its connector in real time", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    let nextFrame: FrameRequestCallback | undefined;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame = callback;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+      installOverlay(window, binding);
+      await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+      const root = getOverlayRoot(document);
+      root.querySelector<HTMLButtonElement>(".trigger")?.dispatchEvent(
+        createMouseEvent(window, "pointerenter")
+      );
+      root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
+        createMouseEvent(window, "click")
+      );
+
+      const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+      const readout = root.querySelector<HTMLElement>(".coordinate-readout");
+      const connectorSvg = root.querySelector<SVGSVGElement>(".coordinate-anchor-connector-svg");
+      const connector = root.querySelector<SVGLineElement>(".coordinate-anchor-connector");
+      if (!picker || !readout || !connectorSvg || !connector) {
+        throw new Error("Expected coordinate measurement connector elements.");
+      }
+      expect(connectorSvg.hasAttribute("hidden")).toBe(true);
+
+      picker.dispatchEvent(new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 600,
+        clientY: 300
+      }));
+      nextFrame?.(0);
+
+      expect(readout.textContent).toContain("Anchor: center");
+      expect(connectorSvg.hasAttribute("hidden")).toBe(false);
+      expect(connector.getAttribute("x1")).toBe("500");
+      expect(connector.getAttribute("y1")).toBe("400");
+      expect(connector.getAttribute("x2")).toBe("600");
+      expect(connector.getAttribute("y2")).toBe("300");
+
+      picker.dispatchEvent(new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100
+      }));
+      nextFrame?.(0);
+
+      expect(readout.textContent).toContain("Anchor: top-left");
+      expect(connector.getAttribute("x1")).toBe("0");
+      expect(connector.getAttribute("y1")).toBe("0");
+      expect(connector.getAttribute("x2")).toBe("100");
+      expect(connector.getAttribute("y2")).toBe("100");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+    }
   });
 
   it("renders nine non-interactive anchor markers and repositions them after resize", async () => {
@@ -492,7 +564,7 @@ describe("macro overlay interactions", () => {
       await controller.refresh();
       const duplicateMarker = root.querySelector<HTMLElement>('[data-marker-key="300:300"]');
       expect(duplicateMarker?.classList.contains("is-click-flash")).toBe(true);
-      const duplicateConnector = root.querySelector<SVGLineElement>(".click-connector");
+      const duplicateConnector = layer.querySelector<SVGLineElement>(".click-connector");
       expect(root.querySelector<SVGSVGElement>(".click-connector-svg")?.getAttribute("viewBox"))
         .toBe("0 0 1200 600");
       expect(duplicateConnector?.getAttribute("x1")).toBe("0");
@@ -514,7 +586,7 @@ describe("macro overlay interactions", () => {
       await controller.refresh();
       expect(root.querySelector<HTMLElement>('[data-marker-key="1176:568"]')?.classList.contains("is-click-flash"))
         .toBe(true);
-      const bottomRightConnector = root.querySelector<SVGLineElement>(".click-connector");
+      const bottomRightConnector = layer.querySelector<SVGLineElement>(".click-connector");
       expect(bottomRightConnector?.getAttribute("x1")).toBe("1199");
       expect(bottomRightConnector?.getAttribute("y1")).toBe("599");
       expect(bottomRightConnector?.getAttribute("x2")).toBe("1176");
@@ -598,7 +670,9 @@ describe("macro overlay interactions", () => {
       ];
       await controller.refresh();
 
-      const lines = [...getOverlayRoot(document).querySelectorAll<SVGLineElement>(".click-connector")];
+      const lines = [...getOverlayRoot(document)
+        .querySelector<HTMLElement>(".click-marker-layer")
+        ?.querySelectorAll<SVGLineElement>(".click-connector") ?? []];
       expect(lines).toHaveLength(2);
       expect(lines.map((line) => [
         line.getAttribute("x1"),
@@ -1411,7 +1485,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v58")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v59")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1478,7 +1552,7 @@ function runningStatus(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v58")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v59")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

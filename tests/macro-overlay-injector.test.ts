@@ -232,7 +232,7 @@ describe("Tauri macro overlay injector", () => {
     controller.dispose();
     await controller.refresh();
 
-    expect(document.querySelector("#rion-studio-macro-overlay-v58")).toBeNull();
+    expect(document.querySelector("#rion-studio-macro-overlay-v59")).toBeNull();
     expect(binding).toHaveBeenCalledTimes(requestCount);
   });
 
@@ -338,7 +338,7 @@ function overlayController(): OverlayController | undefined {
 }
 
 function overlayRoot(): ShadowRoot | undefined {
-  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v58")
+  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v59")
     ?.shadowRoot ?? undefined;
 }
 

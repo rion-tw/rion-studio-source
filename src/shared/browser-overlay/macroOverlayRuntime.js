@@ -1,14 +1,16 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v59";
+  const hostId = "rion-studio-macro-overlay-v60";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 57 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 58 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-31.2";
+  const scriptVersion = "2026-07-31.3";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
+  const coordinateMeasurementModuleSource = "__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__";
+  const importCoordinateMeasurementModule = "__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__";
   const hostStyleEntries = [
     ["bottom", "auto"],
     ["display", "grid"],
@@ -107,17 +109,6 @@
     '<circle class="click-marker-dot" cx="12" cy="12" r="1.5"/>',
     "</svg>"
   ].join("");
-  const coordinateAnchorDefinitions = [
-    { anchor: "top-left", xPercent: 0, yPercent: 0 },
-    { anchor: "top-center", xPercent: 50, yPercent: 0 },
-    { anchor: "top-right", xPercent: 100, yPercent: 0 },
-    { anchor: "center-left", xPercent: 0, yPercent: 50 },
-    { anchor: "center", xPercent: 50, yPercent: 50 },
-    { anchor: "center-right", xPercent: 100, yPercent: 50 },
-    { anchor: "bottom-left", xPercent: 0, yPercent: 100 },
-    { anchor: "bottom-center", xPercent: 50, yPercent: 100 },
-    { anchor: "bottom-right", xPercent: 100, yPercent: 100 }
-  ];
   const gameBrowserDefaultCodes = new Set([
     "Tab",
     "Space",
@@ -151,18 +142,13 @@
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
   let renderedClickOverlayMarkup = null;
-  let coordinateCopyInFlight = false;
-  let coordinateMeasureActive = false;
-  let coordinateAnchorLayerElement = null;
-  let coordinateAnchorConnectorElement = null;
-  let coordinateAnchorConnectorSvgElement = null;
-  let coordinateMeasureElement = null;
-  let coordinateReadoutElement = null;
+  let coordinateMeasurementController = null;
+  let coordinateMeasurementLoadGeneration = 0;
+  let coordinateMeasurementModulePromise = null;
+  let coordinateMeasurementModuleUrl = null;
+  let coordinateMeasurementPending = false;
   let clickMarkerLayerElement = null;
   let coordinateMeasureHideTimer = undefined;
-  let coordinateMeasureFrameId = undefined;
-  let coordinateMeasurement = null;
-  let pendingCoordinateMeasurement = null;
   let gameInputContextActive = false;
   let host = null;
   let isDisposed = false;
@@ -338,218 +324,6 @@
     return Math.max(0, Math.min(maximum - 1, Math.round(Number(value) || 0)));
   }
 
-  function roundCoordinatePercent(value) {
-    return Math.round(value * 100) / 100;
-  }
-
-  function resolveCoordinateAnchor(measurement, viewport) {
-    let nearestAnchor = coordinateAnchorDefinitions[0].anchor;
-    let nearestDistanceSquared = Number.POSITIVE_INFINITY;
-    coordinateAnchorDefinitions.forEach((definition) => {
-      const anchorX = (viewport.width * definition.xPercent) / 100;
-      const anchorY = (viewport.height * definition.yPercent) / 100;
-      const deltaX = measurement.xPx - anchorX;
-      const deltaY = measurement.yPx - anchorY;
-      const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-      if (distanceSquared < nearestDistanceSquared) {
-        nearestDistanceSquared = distanceSquared;
-        nearestAnchor = definition.anchor;
-      }
-    });
-    return nearestAnchor;
-  }
-
-  function resolveCoordinateAnchorPosition(anchorValue, viewport) {
-    const definition = coordinateAnchorDefinitions.find((candidate) => candidate.anchor === anchorValue)
-      ?? coordinateAnchorDefinitions[0];
-    return {
-      xPx: clampCoordinate((viewport.width * definition.xPercent) / 100, viewport.width),
-      yPx: clampCoordinate((viewport.height * definition.yPercent) / 100, viewport.height)
-    };
-  }
-
-  function coordinateMeasurementFromPoint(xPx, yPx, viewport = getVisualViewportSize()) {
-    const measurement = {
-      xPercent: roundCoordinatePercent((xPx / viewport.width) * 100),
-      xPx,
-      viewportHeightPx: viewport.height,
-      viewportWidthPx: viewport.width,
-      yPercent: roundCoordinatePercent((yPx / viewport.height) * 100),
-      yPx
-    };
-    return {
-      ...measurement,
-      anchor: resolveCoordinateAnchor(measurement, viewport)
-    };
-  }
-
-  function coordinateMeasurementFromEvent(event) {
-    const viewport = getVisualViewportSize();
-    return coordinateMeasurementFromPoint(
-      clampCoordinate(event.clientX, viewport.width),
-      clampCoordinate(event.clientY, viewport.height),
-      viewport
-    );
-  }
-
-  function formatCoordinatePercent(value) {
-    return String(roundCoordinatePercent(value));
-  }
-
-  function formatCoordinateMeasurement(measurement) {
-    return [
-      "X: ",
-      String(measurement.xPx),
-      "px (",
-      formatCoordinatePercent(measurement.xPercent),
-      "%), Y: ",
-      String(measurement.yPx),
-      "px (",
-      formatCoordinatePercent(measurement.yPercent),
-      "%), ",
-      getText().coordinateAnchor,
-      ": ",
-      String(measurement.anchor || coordinateAnchorDefinitions[0].anchor)
-    ].join("");
-  }
-
-  function updateCoordinateAnchorConnector(measurement, viewport) {
-    if (!coordinateAnchorConnectorElement || !coordinateAnchorConnectorSvgElement) return;
-    const anchor = resolveCoordinateAnchorPosition(measurement.anchor, viewport);
-    coordinateAnchorConnectorSvgElement.setAttribute(
-      "viewBox",
-      ["0", "0", String(viewport.width), String(viewport.height)].join(" ")
-    );
-    coordinateAnchorConnectorElement.setAttribute("x1", String(anchor.xPx));
-    coordinateAnchorConnectorElement.setAttribute("y1", String(anchor.yPx));
-    coordinateAnchorConnectorElement.setAttribute("x2", String(measurement.xPx));
-    coordinateAnchorConnectorElement.setAttribute("y2", String(measurement.yPx));
-    if (anchor.xPx === measurement.xPx && anchor.yPx === measurement.yPx) {
-      coordinateAnchorConnectorSvgElement.setAttribute("hidden", "");
-    } else {
-      coordinateAnchorConnectorSvgElement.removeAttribute("hidden");
-    }
-  }
-
-  function setCoordinateReadoutStatus(status) {
-    if (!coordinateReadoutElement) return;
-    coordinateReadoutElement.dataset.status = status || "ready";
-    if (status === "copying") {
-      coordinateReadoutElement.textContent = getText().coordinateCopying;
-      return;
-    }
-    if (status === "failed") {
-      coordinateReadoutElement.textContent = getText().coordinateCopyFailed;
-      return;
-    }
-    if (status === "copied") {
-      coordinateReadoutElement.textContent = getText().coordinateCopied;
-      return;
-    }
-    if (coordinateMeasurement) {
-      coordinateReadoutElement.textContent = formatCoordinateMeasurement(coordinateMeasurement);
-    }
-  }
-
-  function updateCoordinateMeasurement(measurement) {
-    coordinateMeasurement = measurement;
-    if (!coordinateMeasureElement) return;
-    const viewport = getVisualViewportSize();
-    updateCoordinateAnchorGuides(viewport);
-    updateCoordinateAnchorConnector(measurement, viewport);
-    coordinateMeasureElement.style.setProperty("--coordinate-x", String(measurement.xPx) + "px");
-    coordinateMeasureElement.style.setProperty("--coordinate-y", String(measurement.yPx) + "px");
-    coordinateMeasureElement.style.setProperty("--coordinate-width", String(viewport.width) + "px");
-    coordinateMeasureElement.style.setProperty("--coordinate-height", String(viewport.height) + "px");
-    if (!coordinateReadoutElement) return;
-    setCoordinateReadoutStatus("ready");
-    const readoutBounds = coordinateReadoutElement.getBoundingClientRect?.();
-    const readoutWidth = Math.max(
-      1,
-      Number(readoutBounds?.width) || Number(coordinateReadoutElement.offsetWidth) || 280
-    );
-    const readoutHeight = Math.max(
-      1,
-      Number(readoutBounds?.height) || Number(coordinateReadoutElement.offsetHeight) || 42
-    );
-    const edgePaddingPx = 8;
-    const gapPx = 14;
-    const maxLeft = Math.max(edgePaddingPx, viewport.width - readoutWidth - edgePaddingPx);
-    const maxTop = Math.max(edgePaddingPx, viewport.height - readoutHeight - edgePaddingPx);
-    const preferredLeft = measurement.xPx + gapPx;
-    const preferredTop = measurement.yPx + gapPx;
-    const leftOfMeasurement = measurement.xPx - gapPx - readoutWidth;
-    const topOfMeasurement = measurement.yPx - gapPx - readoutHeight;
-    coordinateReadoutElement.style.left = String(
-      preferredLeft > maxLeft && leftOfMeasurement >= edgePaddingPx
-        ? leftOfMeasurement
-        : Math.min(preferredLeft, maxLeft)
-    ) + "px";
-    coordinateReadoutElement.style.top = String(
-      preferredTop > maxTop && topOfMeasurement >= edgePaddingPx
-        ? topOfMeasurement
-        : Math.min(preferredTop, maxTop)
-    ) + "px";
-  }
-
-  function cancelCoordinateMeasurementFrame() {
-    if (coordinateMeasureFrameId !== undefined) {
-      cancelAnimationFrame(coordinateMeasureFrameId);
-      coordinateMeasureFrameId = undefined;
-    }
-    pendingCoordinateMeasurement = null;
-  }
-
-  function flushCoordinateMeasurement() {
-    if (coordinateMeasureFrameId !== undefined) {
-      cancelAnimationFrame(coordinateMeasureFrameId);
-      coordinateMeasureFrameId = undefined;
-    }
-    const measurement = pendingCoordinateMeasurement;
-    pendingCoordinateMeasurement = null;
-    if (measurement && coordinateMeasureActive) {
-      updateCoordinateMeasurement(measurement);
-    }
-  }
-
-  function scheduleCoordinateMeasurement(measurement) {
-    pendingCoordinateMeasurement = measurement;
-    if (coordinateMeasureFrameId !== undefined) return;
-    coordinateMeasureFrameId = requestAnimationFrame(() => {
-      coordinateMeasureFrameId = undefined;
-      const nextMeasurement = pendingCoordinateMeasurement;
-      pendingCoordinateMeasurement = null;
-      if (nextMeasurement && coordinateMeasureActive) {
-        updateCoordinateMeasurement(nextMeasurement);
-      }
-    });
-  }
-
-  function updateCoordinateAnchorGuides(viewport = getVisualViewportSize()) {
-    if (!coordinateAnchorLayerElement) return;
-    const markers = coordinateAnchorLayerElement.querySelectorAll(".coordinate-anchor-marker");
-    coordinateAnchorDefinitions.forEach((definition, index) => {
-      const marker = markers[index];
-      if (!marker) return;
-      marker.style.left = String(clampCoordinate((viewport.width * definition.xPercent) / 100, viewport.width)) + "px";
-      marker.style.top = String(clampCoordinate((viewport.height * definition.yPercent) / 100, viewport.height)) + "px";
-    });
-  }
-
-  function handleCoordinateViewportResize() {
-    if (coordinateMeasureActive && coordinateMeasurement) {
-      const viewport = getVisualViewportSize();
-      updateCoordinateMeasurement(coordinateMeasurementFromPoint(
-        clampCoordinate((coordinateMeasurement.xPercent * viewport.width) / 100, viewport.width),
-        clampCoordinate((coordinateMeasurement.yPercent * viewport.height) / 100, viewport.height),
-        viewport
-      ));
-    } else if (coordinateMeasureActive) {
-      updateCoordinateAnchorGuides();
-    }
-    renderClickMarkers();
-  }
-
   function cancelCoordinateMeasureHide() {
     if (coordinateMeasureHideTimer !== undefined) {
       clearTimeout(coordinateMeasureHideTimer);
@@ -558,7 +332,7 @@
   }
 
   function setActionMenuVisible(visible) {
-    if (!actionMenuElement || coordinateMeasureActive) return;
+    if (!actionMenuElement || coordinateMeasurementController || coordinateMeasurementPending) return;
     actionMenuElement.hidden = !visible;
   }
 
@@ -570,94 +344,129 @@
     }, 140);
   }
 
-  function startCoordinateMeasurement() {
+  function revokeCoordinateMeasurementModuleUrl() {
+    if (!coordinateMeasurementModuleUrl) return;
+    window.URL.revokeObjectURL(coordinateMeasurementModuleUrl);
+    coordinateMeasurementModuleUrl = null;
+  }
+
+  function resetCoordinateMeasurementModuleLoader() {
+    coordinateMeasurementModulePromise = null;
+    revokeCoordinateMeasurementModuleUrl();
+  }
+
+  function loadCoordinateMeasurementModule() {
+    if (coordinateMeasurementModulePromise) return coordinateMeasurementModulePromise;
+    coordinateMeasurementModuleUrl = window.URL.createObjectURL(new window.Blob(
+      [coordinateMeasurementModuleSource],
+      { type: "text/javascript" }
+    ));
+    const moduleUrl = coordinateMeasurementModuleUrl;
+    const modulePromise = importCoordinateMeasurementModule(moduleUrl).catch((error) => {
+      if (coordinateMeasurementModulePromise === modulePromise) {
+        resetCoordinateMeasurementModuleLoader();
+      }
+      throw error;
+    });
+    coordinateMeasurementModulePromise = modulePromise;
+    return modulePromise;
+  }
+
+  function destroyCoordinateMeasurement() {
+    coordinateMeasurementLoadGeneration += 1;
+    coordinateMeasurementPending = false;
+    const controller = coordinateMeasurementController;
+    coordinateMeasurementController = null;
+    controller?.destroy();
+  }
+
+  async function copyCoordinateMeasurement(coordinate) {
+    const nextState = await binding({ type: "copy-coordinate", ...coordinate });
+    if (disposeIfDetached(nextState)) return;
+    applyState(nextState);
+    updatePresentation();
+  }
+
+  async function startCoordinateMeasurement() {
+    if (
+      isDisposed ||
+      coordinateMeasurementController ||
+      coordinateMeasurementPending ||
+      !root ||
+      !host?.isConnected
+    ) {
+      return;
+    }
     cancelCoordinateMeasureHide();
-    cancelCoordinateMeasurementFrame();
     setActionMenuVisible(false);
-    if (!coordinateMeasureElement) return;
-    coordinateMeasureActive = true;
-    coordinateCopyInFlight = false;
-    coordinateMeasureElement.hidden = false;
-    if (coordinateAnchorLayerElement) {
-      coordinateAnchorLayerElement.hidden = false;
-    }
-    const viewport = getVisualViewportSize();
-    const xPx = Math.floor(viewport.width / 2);
-    const yPx = Math.floor(viewport.height / 2);
-    updateCoordinateMeasurement(coordinateMeasurementFromPoint(xPx, yPx, viewport));
-  }
-
-  function stopCoordinateMeasurement() {
-    cancelCoordinateMeasurementFrame();
-    coordinateMeasureActive = false;
-    coordinateCopyInFlight = false;
-    coordinateMeasurement = null;
-    if (coordinateMeasureElement) {
-      coordinateMeasureElement.hidden = true;
-    }
-    if (coordinateAnchorLayerElement) {
-      coordinateAnchorLayerElement.hidden = true;
-    }
-    if (coordinateAnchorConnectorSvgElement) {
-      coordinateAnchorConnectorSvgElement.setAttribute("hidden", "");
-    }
-  }
-
-  async function copyCoordinateMeasurement() {
-    if (!coordinateMeasureActive || coordinateCopyInFlight || !coordinateMeasurement) return;
-    coordinateCopyInFlight = true;
-    setCoordinateReadoutStatus("copying");
+    coordinateMeasurementPending = true;
+    const generation = ++coordinateMeasurementLoadGeneration;
+    let loadFailed = false;
     try {
-      const coordinate = { ...coordinateMeasurement };
-      delete coordinate.anchor;
-      const nextState = await binding({ type: "copy-coordinate", ...coordinate });
-      if (disposeIfDetached(nextState)) return;
-      applyState(nextState);
-      updatePresentation();
-      stopCoordinateMeasurement();
+      const measurementModule = await loadCoordinateMeasurementModule();
+      if (
+        isDisposed ||
+        !coordinateMeasurementPending ||
+        generation !== coordinateMeasurementLoadGeneration ||
+        !root ||
+        !host?.isConnected
+      ) {
+        return;
+      }
+      if (typeof measurementModule?.createMacroCoordinateMeasurement !== "function") {
+        throw new Error("Rion Studio coordinate measurement module is invalid.");
+      }
+      let controller = null;
+      controller = measurementModule.createMacroCoordinateMeasurement({
+        copyCoordinate: copyCoordinateMeasurement,
+        getText,
+        isTrustedUserEvent,
+        onCancel: () => {
+          if (coordinateMeasurementController === controller) destroyCoordinateMeasurement();
+        },
+        onComplete: () => {
+          if (coordinateMeasurementController === controller) destroyCoordinateMeasurement();
+        },
+        root
+      });
+      coordinateMeasurementController = controller;
     } catch (error) {
-      coordinateCopyInFlight = false;
-      setCoordinateReadoutStatus("failed");
-      console.warn("Unable to copy Rion Studio game coordinates.", error);
+      if (generation === coordinateMeasurementLoadGeneration && !isDisposed) {
+        loadFailed = true;
+        resetCoordinateMeasurementModuleLoader();
+        console.warn("Unable to load Rion Studio coordinate measurement.", error);
+      }
+    } finally {
+      if (generation === coordinateMeasurementLoadGeneration) {
+        coordinateMeasurementPending = false;
+        if (loadFailed) setActionMenuVisible(true);
+      }
     }
-  }
-
-  function handleCoordinatePointerMove(event) {
-    if (!coordinateMeasureActive) return;
-    event.preventDefault();
-    event.stopPropagation();
-    scheduleCoordinateMeasurement(coordinateMeasurementFromEvent(event));
-  }
-
-  function handleCoordinatePointerDown(event) {
-    if (!coordinateMeasureActive) return;
-    event.preventDefault();
-    event.stopPropagation();
-  }
-
-  function handleCoordinateClick(event) {
-    if (!coordinateMeasureActive || !isTrustedUserEvent(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    pendingCoordinateMeasurement = coordinateMeasurementFromEvent(event);
-    flushCoordinateMeasurement();
-    void copyCoordinateMeasurement();
   }
 
   function handleCoordinateKeyDown(event) {
-    if (!coordinateMeasureActive) return false;
+    if (coordinateMeasurementController) {
+      return coordinateMeasurementController.handleKeyDown(event);
+    }
+    if (!coordinateMeasurementPending) return false;
     event.preventDefault();
     event.stopPropagation();
-    if (event.code === "Escape") {
-      stopCoordinateMeasurement();
-    }
+    if (event.code === "Escape") destroyCoordinateMeasurement();
     return true;
   }
 
   function handleCoordinateKeyPress(event) {
-    if (!coordinateMeasureActive) return;
+    if (coordinateMeasurementController) {
+      coordinateMeasurementController.handleKeyPress(event);
+      return;
+    }
+    if (!coordinateMeasurementPending) return;
     event.preventDefault();
     event.stopPropagation();
+  }
+
+  function handleOverlayViewportResize() {
+    renderClickMarkers();
   }
 
   function normalizeOverlayLanguage(language) {
@@ -1102,23 +911,15 @@
     document.getElementById(id)?.remove();
     if (host?.id === id) {
       cancelCoordinateMeasureHide();
-      cancelCoordinateMeasurementFrame();
+      destroyCoordinateMeasurement();
       activeBadgesElement = null;
       actionMenuElement = null;
       clickMarkerLayerElement = null;
-      coordinateAnchorConnectorElement = null;
-      coordinateAnchorConnectorSvgElement = null;
       host = null;
       renderedActiveBadgesMarkup = null;
       renderedClickOverlayMarkup = null;
       root = null;
       triggerElement = null;
-      coordinateMeasureElement = null;
-      coordinateAnchorLayerElement = null;
-      coordinateReadoutElement = null;
-      coordinateMeasureActive = false;
-      coordinateCopyInFlight = false;
-      coordinateMeasurement = null;
     }
   }
 
@@ -1154,7 +955,7 @@
       return null;
     }
 
-    if (host?.isConnected && root && triggerElement && actionMenuElement && clickMarkerLayerElement && coordinateAnchorLayerElement && coordinateMeasureElement) {
+    if (host?.isConnected && root && triggerElement && actionMenuElement && clickMarkerLayerElement) {
       return root;
     }
 
@@ -1179,29 +980,12 @@
       '<span class="action-menu-label"></span>',
       "</button>",
       "</div>",
-      "</div>",
-      '<div class="coordinate-picker" hidden>',
-      '<div class="coordinate-anchor-layer" hidden aria-hidden="true">',
-      coordinateAnchorDefinitions.map((definition) => '<div class="coordinate-anchor-marker" data-anchor="' + definition.anchor + '"></div>').join(""),
-      "</div>",
-      '<svg class="click-connector-svg coordinate-anchor-connector-svg" hidden aria-hidden="true" focusable="false" viewBox="0 0 1 1" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">',
-      '<line class="click-connector coordinate-anchor-connector" />',
-      "</svg>",
-      '<div class="coordinate-line coordinate-line-horizontal"></div>',
-      '<div class="coordinate-line coordinate-line-vertical"></div>',
-      '<div class="coordinate-readout"></div>',
-      '<div class="coordinate-hint"></div>',
       "</div>"
     ].join("");
     activeBadgesElement = root.querySelector(".active-badges");
     clickMarkerLayerElement = root.querySelector(".click-marker-layer");
     triggerElement = root.querySelector(".trigger");
     actionMenuElement = root.querySelector(".action-menu");
-    coordinateAnchorLayerElement = root.querySelector(".coordinate-anchor-layer");
-    coordinateAnchorConnectorElement = root.querySelector(".coordinate-anchor-connector");
-    coordinateAnchorConnectorSvgElement = root.querySelector(".coordinate-anchor-connector-svg");
-    coordinateMeasureElement = root.querySelector(".coordinate-picker");
-    coordinateReadoutElement = root.querySelector(".coordinate-readout");
     clickMarkerLayerElement?.addEventListener("animationend", handleClickMarkerAnimationEnd);
     triggerElement?.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
@@ -1245,14 +1029,8 @@
       event.preventDefault();
       event.stopPropagation();
       if (!isTrustedUserEvent(event)) return;
-      startCoordinateMeasurement();
+      void startCoordinateMeasurement();
     });
-    coordinateMeasureElement?.addEventListener("pointermove", handleCoordinatePointerMove);
-    coordinateMeasureElement?.addEventListener("mousemove", handleCoordinatePointerMove);
-    ["pointerdown", "mousedown", "pointerup", "mouseup", "wheel", "contextmenu"].forEach((eventName) => {
-      coordinateMeasureElement?.addEventListener(eventName, handleCoordinatePointerDown, { passive: false });
-    });
-    coordinateMeasureElement?.addEventListener("click", handleCoordinateClick);
     document.body.appendChild(host);
     return root;
   }
@@ -1302,11 +1080,7 @@
       const label = coordinateAction.querySelector(".action-menu-label");
       if (label) label.textContent = text.coordinateMeasure;
     }
-    const coordinateHint = coordinateMeasureElement?.querySelector(".coordinate-hint");
-    if (coordinateHint) coordinateHint.textContent = text.coordinateMeasureHint;
-    if (coordinateMeasureActive && coordinateMeasurement && coordinateReadoutElement?.dataset.status === "ready") {
-      setCoordinateReadoutStatus("ready");
-    }
+    coordinateMeasurementController?.updatePresentation();
 
     const nextMarkup = getRunningBadgeMacros()
       .map((macro) => {
@@ -1548,7 +1322,10 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
-    if (coordinateMeasureActive) {
+    if (coordinateMeasurementController?.handleKeyUp(event)) {
+      return;
+    }
+    if (coordinateMeasurementPending) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -1588,14 +1365,14 @@
   function handleBlur() {
     reportGameInputContext(false);
     releaseActiveHeldShortcuts();
-    stopCoordinateMeasurement();
+    destroyCoordinateMeasurement();
   }
 
   function handleVisibilityChange() {
     if (document.visibilityState === "hidden") {
       reportGameInputContext(false);
       releaseActiveHeldShortcuts();
-      stopCoordinateMeasurement();
+      destroyCoordinateMeasurement();
       return;
     }
     scheduleGameInputContextRefresh();
@@ -1606,7 +1383,8 @@
     isDisposed = true;
     refreshQueued = false;
     cancelCoordinateMeasureHide();
-    stopCoordinateMeasurement();
+    destroyCoordinateMeasurement();
+    resetCoordinateMeasurementModuleLoader();
     reportGameInputContext(false);
     releaseActiveHeldShortcuts();
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -1616,8 +1394,8 @@
     window.removeEventListener("focus", handleFocus, true);
     window.removeEventListener("blur", handleBlur, true);
     window.removeEventListener("pagehide", handleBlur, true);
-    window.removeEventListener("resize", handleCoordinateViewportResize, true);
-    window.visualViewport?.removeEventListener("resize", handleCoordinateViewportResize);
+    window.removeEventListener("resize", handleOverlayViewportResize, true);
+    window.visualViewport?.removeEventListener("resize", handleOverlayViewportResize);
     window.removeEventListener("pointerdown", handleGameSurfacePointerDown, true);
     document.removeEventListener("focusin", handleGameSurfaceFocusIn, true);
     document.removeEventListener("focusout", handleGameSurfaceFocusOut, true);
@@ -1661,8 +1439,8 @@
     window.addEventListener("focus", handleFocus, true);
     window.addEventListener("blur", handleBlur, true);
     window.addEventListener("pagehide", handleBlur, true);
-    window.addEventListener("resize", handleCoordinateViewportResize, true);
-    window.visualViewport?.addEventListener("resize", handleCoordinateViewportResize);
+    window.addEventListener("resize", handleOverlayViewportResize, true);
+    window.visualViewport?.addEventListener("resize", handleOverlayViewportResize);
     window.addEventListener("pointerdown", handleGameSurfacePointerDown, true);
     document.addEventListener("focusin", handleGameSurfaceFocusIn, true);
     document.addEventListener("focusout", handleGameSurfaceFocusOut, true);

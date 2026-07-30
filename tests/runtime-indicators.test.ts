@@ -104,11 +104,11 @@ describe("System WebView runtime indicators", () => {
   });
 
   it("keeps all injected overlay dimensions in the WebView-scaled CSS-pixel system", async () => {
-    const [tokens, macroCss, indicatorCss, macroRuntime] = await Promise.all([
+    const [tokens, macroCss, indicatorCss, coordinateMeasurementModule] = await Promise.all([
       readFile("src/shared/designTokens.css", "utf8"),
       readFile("src/shared/browser-overlay/macroOverlay.css", "utf8"),
       readFile("src/shared/browser-overlay/runtimeIndicators.css", "utf8"),
-      readFile("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8")
+      readFile("src/shared/browser-overlay/macroCoordinateMeasurement.js", "utf8")
     ]);
     const rootRelativeLength = /(?:^|[^a-z])(?:\d+(?:\.\d+)?|\.\d+)(?:rem|em)\b/i;
 
@@ -118,8 +118,8 @@ describe("System WebView runtime indicators", () => {
     expect(tokens).toContain("--type-body-size: 13px");
     expect(macroCss).toContain("font-size:var(--type-micro-size)");
     expect(indicatorCss).toContain("font-size:var(--type-body-size)");
-    expect(macroRuntime).toContain('String(measurement.xPx) + "px"');
-    expect(macroRuntime).toContain('String(measurement.yPx) + "px"');
+    expect(coordinateMeasurementModule).toContain('String(value.xPx) + "px"');
+    expect(coordinateMeasurementModule).toContain('String(value.yPx) + "px"');
   });
 });
 

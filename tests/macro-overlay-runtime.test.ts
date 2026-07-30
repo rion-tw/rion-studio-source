@@ -17,9 +17,10 @@ type OverlayStatus = {
 };
 
 async function overlayRuntimeSource() {
-  const [runtimeSource, guardSource] = await Promise.all([
+  const [runtimeSource, guardSource, coordinateMeasurementModuleSource] = await Promise.all([
     readFile("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8"),
-    readFile("src/shared/browser-overlay/macroOverlayShortcutGuard.js", "utf8")
+    readFile("src/shared/browser-overlay/macroOverlayShortcutGuard.js", "utf8"),
+    readFile("src/shared/browser-overlay/macroCoordinateMeasurement.js", "utf8")
   ]);
   return runtimeSource
     .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), guardSource.trim())
@@ -31,7 +32,15 @@ async function overlayRuntimeSource() {
       JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_BINDING__"),
       "window.rionStudioMacroOverlay"
     )
-    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(""));
+    .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(""))
+    .replace(
+      JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__"),
+      JSON.stringify(coordinateMeasurementModuleSource)
+    )
+    .replace(
+      JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__"),
+      "window.__rionTestCoordinateMeasurementModuleImporter"
+    );
 }
 
 function overlayController() {
@@ -42,10 +51,27 @@ function overlayController() {
 afterEach(() => {
   (window as unknown as { __rionStudioMacroOverlay?: { dispose(): void } })
     .__rionStudioMacroOverlay?.dispose();
+  delete (window as unknown as Record<string, unknown>).__rionTestCoordinateMeasurementModuleImporter;
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+async function installCoordinateModuleUrl() {
+  const source = await readFile("src/shared/browser-overlay/macroCoordinateMeasurement.js", "utf8");
+  Object.defineProperty(window.URL, "createObjectURL", {
+    configurable: true,
+    value: vi.fn(() => `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`)
+  });
+  Object.defineProperty(window.URL, "revokeObjectURL", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window, "__rionTestCoordinateMeasurementModuleImporter", {
+    configurable: true,
+    value: (url: string) => import(url)
+  });
+}
 
 describe("shell-neutral macro overlay runtime", () => {
   it("applies resolved themes to the isolated host and preserves the current theme on invalid input", async () => {
@@ -61,7 +87,7 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v59");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v60");
     expect(host?.dataset.theme).toBe("dark");
     expect(host?.style.getPropertyValue("color-scheme")).toBe("dark");
     expect(host?.style.getPropertyPriority("color-scheme")).toBe("important");
@@ -78,6 +104,7 @@ describe("shell-neutral macro overlay runtime", () => {
   });
 
   it("preserves coordinate, shortcut, held-release, canvas, editable, and dense queue behavior", async () => {
+    await installCoordinateModuleUrl();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -124,13 +151,14 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v59");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v60");
     const root = host?.shadowRoot;
     expect(root).toBeTruthy();
 
     root?.querySelector<HTMLElement>(".trigger")
       ?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
     root?.querySelector<HTMLElement>(".action-menu-item")?.click();
+    await vi.waitFor(() => expect(root?.querySelector(".coordinate-picker")).not.toBeNull());
     const picker = root?.querySelector<HTMLElement>(".coordinate-picker");
     expect(picker?.hidden).toBe(false);
     picker?.dispatchEvent(new MouseEvent("click", {
@@ -259,7 +287,7 @@ describe("shell-neutral macro overlay runtime", () => {
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
     const root = document
-      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v59")
+      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v60")
       ?.shadowRoot;
     expect(root).toBeTruthy();
     const activeBadges = root?.querySelector<HTMLElement>(".active-badges");

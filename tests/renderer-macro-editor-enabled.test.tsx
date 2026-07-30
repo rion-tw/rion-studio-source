@@ -853,6 +853,54 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("adds new click steps in pixel mode at the center anchor", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "key", type: "key", code: "F2" }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Click" }));
+
+    expect(screen.getByRole("combobox", { name: "Coordinate unit" }).textContent).toContain("px");
+    expect(screen.getByRole("combobox", { name: "Coordinate anchor" }).textContent).toContain("Center");
+    expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("0");
+    expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("0");
+
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [
+        { id: "key", type: "key", code: "F2" },
+        expect.objectContaining({
+          type: "click",
+          unit: "px",
+          anchor: "center",
+          xPx: 0,
+          yPx: 0
+        })
+      ]
+    })));
+  });
+
   it("pastes a measured coordinate pair into both percent click fields", async () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", xPercent: 10, yPercent: 20 }]
@@ -964,6 +1012,43 @@ describe("macro editor controls", () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       steps: [{ id: "click", type: "click", unit: "px", xPx: 123, yPx: 456 }]
+    })));
+  });
+
+  it("selects the nearest anchor when pasting a measured pixel coordinate with a viewport", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", unit: "px", xPx: 10, yPx: 20 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "Y offset" }), {
+      clipboardData: {
+        getData: () => "X: 731px (35.69%), Y: 414px (38.05%), Viewport: 2048x1088px"
+      }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", unit: "px", anchor: "center", xPx: -293, yPx: -130 }]
     })));
   });
 
@@ -1079,7 +1164,7 @@ describe("macro editor controls", () => {
     })));
   });
 
-  it("converts measured coordinates into bottom-right pixel offsets using viewport metadata", async () => {
+  it("selects the nearest anchor for measured pixel offsets using viewport metadata", async () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", unit: "px", anchor: "bottom-right", xPx: -10, yPx: -20 }]
     });
@@ -1112,7 +1197,7 @@ describe("macro editor controls", () => {
     fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      steps: [{ id: "click", type: "click", unit: "px", anchor: "bottom-right", xPx: -924, yPx: -68 }]
+      steps: [{ id: "click", type: "click", unit: "px", anchor: "bottom-left", xPx: 100, yPx: -68 }]
     })));
   });
 

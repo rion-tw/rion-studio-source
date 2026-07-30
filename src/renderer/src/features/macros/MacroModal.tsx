@@ -59,6 +59,7 @@ import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
 import {
   convertMacroCoordinateToOffset,
   DEFAULT_MACRO_CLICK_ANCHOR,
+  findNearestMacroClickAnchor,
   MACRO_CLICK_ANCHORS,
   parseMacroCoordinateClipboard
 } from "../../../../shared/macroCoordinates";
@@ -1597,7 +1598,9 @@ function MacroStepFields({
     const y = step.unit === "px" ? step.yPx : step.yPercent;
     const handleCoordinatePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
       const measurement = parseMacroCoordinateClipboard(event.clipboardData.getData("text"));
-      const nextAnchor = measurement?.anchor ?? anchor;
+      const nextAnchor = measurement?.anchor
+        ?? (measurement ? findNearestMacroClickAnchor(measurement) : undefined)
+        ?? anchor;
       const offset = measurement
         ? convertMacroCoordinateToOffset(measurement, nextAnchor, unit)
         : undefined;
@@ -1826,8 +1829,10 @@ function createStep(
       return {
         id,
         type: "click",
-        xPercent: 50,
-        yPercent: 50
+        unit: "px",
+        anchor: "center",
+        xPx: 0,
+        yPx: 0
       };
     case "delay":
       return {

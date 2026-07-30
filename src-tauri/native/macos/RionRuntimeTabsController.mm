@@ -1067,11 +1067,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 @end
 
 @implementation RionRuntimeTabItemView {
+  BOOL _dragStarted;
   BOOL _hideTabCloseButton;
   BOOL _hovered;
   NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
+  NSPoint _pointerDownLocation;
+  BOOL _pointerTracking;
   NSTrackingArea *_trackingArea;
   NSTextField *_titleField;
   BOOL _windowActive;
@@ -1275,20 +1278,27 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 }
 
 - (void)mouseDown:(NSEvent *)event {
-  NSPoint start = event.locationInWindow;
-  while (true) {
-    NSEvent *next = [self.window
-        nextEventMatchingMask:NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged];
-    if (!next || next.type == NSEventTypeLeftMouseUp) {
-      [NSApp sendAction:self.action to:self.target from:self];
-      return;
-    }
-    NSPoint current = next.locationInWindow;
-    if (std::hypot(current.x - start.x, current.y - start.y) >= 3.0) {
-      [self.tabsController beginTabDrag:self event:next];
-      return;
-    }
+  _pointerDownLocation = event.locationInWindow;
+  _pointerTracking = YES;
+  _dragStarted = NO;
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  if (!_pointerTracking || _dragStarted) return;
+  NSPoint current = event.locationInWindow;
+  if (std::hypot(current.x - _pointerDownLocation.x,
+                 current.y - _pointerDownLocation.y) >= 3.0) {
+    _dragStarted = YES;
+    [self.tabsController beginTabDrag:self event:event];
   }
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  (void)event;
+  BOOL shouldActivate = _pointerTracking && !_dragStarted;
+  _pointerTracking = NO;
+  _dragStarted = NO;
+  if (shouldActivate) [NSApp sendAction:self.action to:self.target from:self];
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
@@ -1462,6 +1472,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   dispatch_block_t _pendingFullscreenHostRefresh;
   RionRuntimeDraggableView *_tabCanvas;
   NSMutableArray<RionRuntimeTabItemView *> *_tabItems;
+  NSMutableDictionary<NSString *, NSImage *> *_tabIconCache;
+  NSMutableDictionary<NSString *, NSString *> *_tabIconCacheKeys;
   NSScrollView *_tabScrollView;
   NSMutableArray<RionRuntimeSurfaceView *> *_tabSurfaces;
   RionRuntimeBackdropView *_titlebarBackdrop;
@@ -1512,6 +1524,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _originalTrafficLightStates = [NSMutableDictionary dictionary];
   _windowedTrafficLightFrames = [NSMutableDictionary dictionary];
   _tabItems = [NSMutableArray array];
+  _tabIconCache = [NSMutableDictionary dictionary];
+  _tabIconCacheKeys = [NSMutableDictionary dictionary];
   _tabSurfaces = [NSMutableArray array];
   _titlebarWidgetInsetFrameViews = [NSHashTable weakObjectsHashTable];
   _windowObservers = [NSMutableArray array];
@@ -2504,7 +2518,16 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   NSMutableArray<RionRuntimeTabItemView *> *nextItems = [NSMutableArray array];
   NSMutableArray<RionRuntimeSurfaceView *> *nextSurfaces = [NSMutableArray array];
+  NSMutableSet<NSString *> *nextIdentifiers = [NSMutableSet set];
+  BOOL orderChanged = _tabItems.count != state.tabs.count;
+  NSUInteger nextIndex = 0;
   for (RionRuntimeTabModel *tab in state.tabs) {
+    if (!orderChanged &&
+        ![_tabItems[nextIndex].tabIdentifier isEqualToString:tab.identifier]) {
+      orderChanged = YES;
+    }
+    nextIndex += 1;
+    [nextIdentifiers addObject:tab.identifier];
     RionRuntimeTabItemView *item = existingItems[tab.identifier];
     RionRuntimeSurfaceView *surface = existingSurfaces[tab.identifier];
     if (!item || !surface) {
@@ -2528,14 +2551,42 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [nextSurfaces addObject:surface];
   }
 
-  for (NSView *surface in _tabSurfaces) [surface removeFromSuperview];
+  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
+    NSString *identifier = _tabItems[index].tabIdentifier;
+    if (![nextIdentifiers containsObject:identifier]) {
+      [_tabSurfaces[index] removeFromSuperview];
+      [_tabIconCache removeObjectForKey:identifier];
+      [_tabIconCacheKeys removeObjectForKey:identifier];
+    }
+  }
   _tabItems = nextItems;
   _tabSurfaces = nextSurfaces;
-  for (NSView *surface in _tabSurfaces) [_tabCanvas addSubview:surface];
+  NSView *previousSurface = nil;
+  for (NSView *surface in _tabSurfaces) {
+    if (surface.superview != _tabCanvas) {
+      [_tabCanvas addSubview:surface];
+    } else if (orderChanged && previousSurface) {
+      [_tabCanvas addSubview:surface
+                  positioned:NSWindowAbove
+                  relativeTo:previousSurface];
+    }
+    previousSurface = surface;
+  }
   [self layoutTitlebarContent];
 }
 
 - (NSImage *)imageForTab:(RionRuntimeTabModel *)tab {
+  NSString *symbol = [tab.type isEqualToString:@"workspace"]
+                         ? [self symbolForWorkspaceTemplate:tab.workspaceTemplate]
+                         : @"gamecontroller";
+  NSString *cacheKey = tab.iconDataURL.length > 0
+                           ? tab.iconDataURL
+                           : [@"symbol:" stringByAppendingString:symbol];
+  if ([_tabIconCacheKeys[tab.identifier] isEqualToString:cacheKey]) {
+    NSImage *cached = _tabIconCache[tab.identifier];
+    if (cached) return cached;
+  }
+  NSImage *resolvedImage = nil;
   if (tab.iconDataURL.length > 0) {
     NSRange comma = [tab.iconDataURL rangeOfString:@","];
     if (comma.location != NSNotFound) {
@@ -2544,20 +2595,23 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       NSImage *image = data ? [[NSImage alloc] initWithData:data] : nil;
       if (image) {
         image.size = NSMakeSize(16.0, 16.0);
-        return image;
+        resolvedImage = image;
       }
     }
   }
-  NSString *symbol = [tab.type isEqualToString:@"workspace"]
-                         ? [self symbolForWorkspaceTemplate:tab.workspaceTemplate]
-                         : @"gamecontroller";
-  NSImage *image = [NSImage imageWithSystemSymbolName:symbol
-                            accessibilityDescription:nil];
-  image = [image imageWithSymbolConfiguration:
+  if (!resolvedImage) {
+    NSImage *image = [NSImage imageWithSystemSymbolName:symbol
+                              accessibilityDescription:nil];
+    resolvedImage = [image imageWithSymbolConfiguration:
                      [NSImageSymbolConfiguration configurationWithPointSize:12.0
                                                                     weight:NSFontWeightMedium]];
-  image.size = NSMakeSize(16.0, 16.0);
-  return image;
+    resolvedImage.size = NSMakeSize(16.0, 16.0);
+  }
+  if (resolvedImage) {
+    _tabIconCache[tab.identifier] = resolvedImage;
+    _tabIconCacheKeys[tab.identifier] = cacheKey;
+  }
+  return resolvedImage;
 }
 
 - (NSString *)symbolForWorkspaceTemplate:(NSString *)workspaceTemplate {
@@ -2688,9 +2742,22 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       return [item.tabIdentifier isEqualToString:tabIdentifier];
     }];
     if (index != NSNotFound) {
+      BOOL wasActive = _tabItems[index].activeTab;
       [_tabSurfaces[index] removeFromSuperview];
       [_tabItems removeObjectAtIndex:index];
       [_tabSurfaces removeObjectAtIndex:index];
+      if (wasActive && _tabItems.count > 0) {
+        NSUInteger successorIndex = MIN(index, _tabItems.count - 1);
+        for (NSUInteger candidateIndex = 0;
+             candidateIndex < _tabItems.count; ++candidateIndex) {
+          RionRuntimeTabItemView *item = _tabItems[candidateIndex];
+          BOOL active = candidateIndex == successorIndex;
+          if (item.activeTab == active) continue;
+          item.activeTab = active;
+          item.accessibilityValue = @(active);
+          [item updateVisualStateAnimated:YES];
+        }
+      }
       [self layoutTitlebarContent];
     }
     _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier,

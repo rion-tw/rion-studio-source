@@ -840,10 +840,20 @@ describe("Tauri System WebView runtime source", () => {
     expect(windowsDocumentHandler).toContain("AddWebResourceRequestedFilter");
     expect(windowsDocumentHandler).toContain("COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT");
     expect(windowsDocumentHandler).toContain("args.GetDeferral()");
-    expect(windowsDocumentHandler).toContain("AgileReference::new(&deferral)");
+    expect(windowsDocumentHandler).toContain("unsafe { args.GetDeferral() }");
+    expect(windowsDocumentHandler).toMatch(
+      /unsafe\s*\{\s*core_webview\.AddWebResourceRequestedFilter/
+    );
+    expect(windowsDocumentHandler).toContain(
+      "unsafe { core_webview.add_WebResourceRequested(&handler, &mut token) }"
+    );
+    expect(windowsDocumentHandler).toContain("retain_windows_document_navigation_deferral(deferral)");
     expect(windowsDocumentHandler).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
     expect(windowsDocumentHandler).toContain("run_on_main_thread");
     expect(windowsDocumentHandler).not.toContain("navigate(");
+    expect(runtime).toContain("WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS");
+    expect(runtime).not.toContain("AgileReference");
+    expect(runtime).not.toContain("RoGetAgileReference");
     expect(runtime).toContain("deferral.Complete()");
     expect(runtime).toContain('should_defer_document_navigation("windows"');
     expect(runtime).toContain("register_windows_document_navigation_handler(");

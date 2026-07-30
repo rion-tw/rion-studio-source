@@ -49,6 +49,8 @@ describe("Tauri macro overlay injector", () => {
     const { css } = await overlaySources();
 
     expect(css).toMatch(/\.click-marker\.is-click-flash\{[^}]*will-change:transform,opacity,filter;/);
+    expect(css).toMatch(/\.click-connector-svg\{[^}]*pointer-events:none;/);
+    expect(css).toMatch(/\.click-connector\{[^}]*stroke-dasharray:5 5;/);
     expect(css).toMatch(/\.active-badge::after\{[^}]*opacity:0/);
     expect(css).toMatch(/\.active-badge\.is-iteration-flash::after\{[^}]*transform:translateZ\(0\);will-change:opacity;/);
     expect(css).toContain("var(--active-badge-flash-duration,120ms) ease-out var(--active-badge-flash-delay,0ms) 1 both");
@@ -228,7 +230,7 @@ describe("Tauri macro overlay injector", () => {
     controller.dispose();
     await controller.refresh();
 
-    expect(document.querySelector("#rion-studio-macro-overlay-v57")).toBeNull();
+    expect(document.querySelector("#rion-studio-macro-overlay-v58")).toBeNull();
     expect(binding).toHaveBeenCalledTimes(requestCount);
   });
 
@@ -334,7 +336,7 @@ function overlayController(): OverlayController | undefined {
 }
 
 function overlayRoot(): ShadowRoot | undefined {
-  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v57")
+  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v58")
     ?.shadowRoot ?? undefined;
 }
 

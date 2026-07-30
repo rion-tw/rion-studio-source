@@ -471,6 +471,8 @@ describe("macro overlay interactions", () => {
       expect(layer.hidden).toBe(false);
       expect(layer.style.pointerEvents).toBe("");
       expect(layer.querySelectorAll(".click-marker")).toHaveLength(2);
+      expect(layer.querySelector(".click-connector-svg")).toBeNull();
+      expect(layer.querySelectorAll(".click-connector")).toHaveLength(0);
       expect(root.querySelector<HTMLElement>('[data-marker-key="250:400"]')?.style.getPropertyValue("--click-marker-x"))
         .toBe("250px");
       expect(root.querySelector<HTMLElement>('[data-marker-key="976:768"]')?.style.getPropertyValue("--click-marker-y"))
@@ -490,6 +492,13 @@ describe("macro overlay interactions", () => {
       await controller.refresh();
       const duplicateMarker = root.querySelector<HTMLElement>('[data-marker-key="300:300"]');
       expect(duplicateMarker?.classList.contains("is-click-flash")).toBe(true);
+      const duplicateConnector = root.querySelector<SVGLineElement>(".click-connector");
+      expect(root.querySelector<SVGSVGElement>(".click-connector-svg")?.getAttribute("viewBox"))
+        .toBe("0 0 1200 600");
+      expect(duplicateConnector?.getAttribute("x1")).toBe("0");
+      expect(duplicateConnector?.getAttribute("y1")).toBe("0");
+      expect(duplicateConnector?.getAttribute("x2")).toBe("300");
+      expect(duplicateConnector?.getAttribute("y2")).toBe("300");
       await controller.refresh();
       const refreshedDuplicateMarker = root.querySelector<HTMLElement>('[data-marker-key="300:300"]');
       expect(refreshedDuplicateMarker?.classList.contains("is-click-flash"))
@@ -505,14 +514,101 @@ describe("macro overlay interactions", () => {
       await controller.refresh();
       expect(root.querySelector<HTMLElement>('[data-marker-key="1176:568"]')?.classList.contains("is-click-flash"))
         .toBe(true);
+      const bottomRightConnector = root.querySelector<SVGLineElement>(".click-connector");
+      expect(bottomRightConnector?.getAttribute("x1")).toBe("1199");
+      expect(bottomRightConnector?.getAttribute("y1")).toBe("599");
+      expect(bottomRightConnector?.getAttribute("x2")).toBe("1176");
+      expect(bottomRightConnector?.getAttribute("y2")).toBe("568");
 
       statuses = [];
       await controller.refresh();
       expect(layer.hidden).toBe(false);
       expect(layer.querySelectorAll(".click-marker")).toHaveLength(2);
+      expect(layer.querySelectorAll(".click-connector")).toHaveLength(1);
       await new Promise((resolve) => setTimeout(resolve, 190));
       expect(layer.hidden).toBe(true);
       expect(layer.querySelectorAll(".click-marker")).toHaveLength(0);
+      expect(layer.querySelector(".click-connector-svg")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+    }
+  });
+
+  it("renders one connector per flashing click step and skips zero-length connectors", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    const lineMacros: Macro[] = [
+      {
+        ...assignedMacro,
+        id: "center-line",
+        steps: [{
+          anchor: "center",
+          id: "center-offset",
+          type: "click",
+          xPercent: 10,
+          yPercent: -10
+        }]
+      },
+      {
+        ...assignedMacro,
+        id: "top-line",
+        steps: [{
+          anchor: "top-left",
+          id: "top-offset",
+          type: "click",
+          xPercent: 20,
+          yPercent: 20
+        }]
+      },
+      {
+        ...assignedMacro,
+        id: "zero-line",
+        steps: [{
+          anchor: "center",
+          id: "center-zero",
+          type: "click",
+          xPercent: 0,
+          yPercent: 0
+        }]
+      }
+    ];
+    let statuses: Array<Record<string, unknown>> = [];
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async () => ({ macros: lineMacros, statuses }));
+      const controller = installOverlay(window, binding);
+      await controller.refresh();
+
+      statuses = [
+        runningStatus({
+          macroId: "center-line",
+          lastClick: { sequence: 1, stepId: "center-offset" }
+        }),
+        runningStatus({
+          macroId: "top-line",
+          lastClick: { sequence: 1, stepId: "top-offset" }
+        }),
+        runningStatus({
+          macroId: "zero-line",
+          lastClick: { sequence: 1, stepId: "center-zero" }
+        })
+      ];
+      await controller.refresh();
+
+      const lines = [...getOverlayRoot(document).querySelectorAll<SVGLineElement>(".click-connector")];
+      expect(lines).toHaveLength(2);
+      expect(lines.map((line) => [
+        line.getAttribute("x1"),
+        line.getAttribute("y1"),
+        line.getAttribute("x2"),
+        line.getAttribute("y2")
+      ])).toEqual([
+        ["500", "400", "600", "320"],
+        ["0", "0", "200", "160"]
+      ]);
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
@@ -1315,7 +1411,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v57")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v58")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1370,18 +1466,19 @@ function dispatchShortcut(targetWindow: Window, code: string, key: string): void
   }));
 }
 
-function runningStatus(): Record<string, unknown> {
+function runningStatus(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     roleId: "role-1",
     macroId: assignedMacro.id,
     state: "running",
     startedAt: "2026-07-10T00:00:00.000Z",
-    updatedAt: "2026-07-10T00:00:00.000Z"
+    updatedAt: "2026-07-10T00:00:00.000Z",
+    ...overrides
   };
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v57")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v58")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

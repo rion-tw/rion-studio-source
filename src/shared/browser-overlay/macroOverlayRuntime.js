@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v57";
+  const hostId = "rion-studio-macro-overlay-v58";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 55 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 56 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-30.2";
+  const scriptVersion = "2026-07-31.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -146,7 +146,7 @@
   let latestCoreStatuses = [];
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
-  let renderedClickMarkersMarkup = null;
+  let renderedClickOverlayMarkup = null;
   let coordinateCopyInFlight = false;
   let coordinateMeasureActive = false;
   let coordinateAnchorLayerElement = null;
@@ -760,6 +760,14 @@
     };
   }
 
+  function resolveMacroClickAnchorPosition(step, viewport) {
+    const anchor = getMacroClickAnchorBase(step.anchor);
+    return {
+      xPx: clampCoordinate((viewport.width * anchor.xPercent) / 100, viewport.width),
+      yPx: clampCoordinate((viewport.height * anchor.yPercent) / 100, viewport.height)
+    };
+  }
+
   function getRunningMacroStatuses(macroId) {
     return state.statuses.filter(
       (status) => status.macroId === macroId && status.state === "running"
@@ -770,6 +778,7 @@
     if (!clickMarkerLayerElement) return;
     const viewport = getVisualViewportSize();
     const markersByPosition = new Map();
+    const connectorsByEvent = new Map();
     state.macros
       .filter((macro) => macro.enabled !== false)
       .forEach((macro) => {
@@ -785,14 +794,26 @@
             markersByPosition.set(key, marker);
           }
           statuses.forEach((status) => {
+            const eventKey = status.lastClick?.stepId === step.id && status.lastClick.sequence > 0
+              ? [status.startedAt, status.lastClick.stepId, status.lastClick.sequence].join(":")
+              : undefined;
+            const shouldFlash = status.clickFlash === true;
             marker.sources.push({
-              eventKey: status.lastClick?.stepId === step.id && status.lastClick.sequence > 0
-                ? [status.startedAt, status.lastClick.stepId, status.lastClick.sequence].join(":")
-                : undefined,
-              shouldFlash: status.clickFlash === true,
+              eventKey,
+              shouldFlash,
               macroId: macro.id,
               stepId: step.id
             });
+            if (eventKey && shouldFlash) {
+              const anchor = resolveMacroClickAnchorPosition(step, viewport);
+              if (anchor.xPx !== position.xPx || anchor.yPx !== position.yPx) {
+                connectorsByEvent.set([macro.id, eventKey].join(":"), {
+                  anchor,
+                  eventKey,
+                  position
+                });
+              }
+            }
           });
         });
       });
@@ -805,7 +826,32 @@
     clickMarkerFlashStates.forEach((_value, key) => {
       if (!activeMarkerKeys.has(key)) clickMarkerFlashStates.delete(key);
     });
-    const nextMarkup = markers.map((marker) => {
+    const connectorMarkup = [...connectorsByEvent.values()].map((connector) => [
+      '<line class="click-connector" data-connector-key="',
+      escapeHtml(connector.eventKey),
+      '" x1="',
+      String(connector.anchor.xPx),
+      '" y1="',
+      String(connector.anchor.yPx),
+      '" x2="',
+      String(connector.position.xPx),
+      '" y2="',
+      String(connector.position.yPx),
+      '" />'
+    ].join("")).join("");
+    const connectorLayerMarkup = connectorMarkup.length === 0
+      ? ""
+      : [
+        '<svg class="click-connector-svg" aria-hidden="true" focusable="false"',
+        ' viewBox="0 0 ',
+        String(viewport.width),
+        " ",
+        String(viewport.height),
+        '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">',
+        connectorMarkup,
+        "</svg>"
+      ].join("");
+    const markerMarkup = markers.map((marker) => {
       const eventKey = marker.sources
         .map((source) => source.eventKey)
         .filter(Boolean)
@@ -844,10 +890,11 @@
         "</span>"
       ].join("");
     }).join("");
+    const nextMarkup = connectorLayerMarkup + markerMarkup;
 
-    if (nextMarkup !== renderedClickMarkersMarkup) {
+    if (nextMarkup !== renderedClickOverlayMarkup) {
       clickMarkerLayerElement.innerHTML = nextMarkup;
-      renderedClickMarkersMarkup = nextMarkup;
+      renderedClickOverlayMarkup = nextMarkup;
     }
     clickMarkerLayerElement.hidden = markers.length === 0;
   }
@@ -967,7 +1014,7 @@
       clickMarkerLayerElement = null;
       host = null;
       renderedActiveBadgesMarkup = null;
-      renderedClickMarkersMarkup = null;
+      renderedClickOverlayMarkup = null;
       root = null;
       triggerElement = null;
       coordinateMeasureElement = null;

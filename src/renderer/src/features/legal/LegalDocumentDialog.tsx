@@ -4,7 +4,7 @@ import { type JSX, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { DialogLayer, Surface } from "../../components/ui/patterns";
 import type { Language, Translator } from "../../i18n";
-import { CURRENT_LEGAL_RELEASE } from "../../../../shared/legal";
+import { getLegalDocumentVersion } from "../../../../shared/legal";
 import { getLegalDocument, type LegalDocumentKind } from "./legalDocuments";
 import { LegalMarkdown } from "./legalMarkdown";
 
@@ -46,7 +46,7 @@ export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumen
         <header className="glass-divider flex items-center justify-between gap-4 border-b px-5 py-4">
           <div>
             <h2 id="legal-document-title" className="text-heading font-semibold">{t(titleKeys[kind])}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{t("legal.version").replace("{version}", CURRENT_LEGAL_RELEASE)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("legal.version").replace("{version}", getLegalDocumentVersion(kind))}</p>
           </div>
           <Button type="button" variant="ghost" size="icon" title={t("legal.close")} onClick={onClose}>
             <X size={17} />

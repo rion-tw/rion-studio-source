@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use rion_core::{BrowserRuntimeSnapshot, CoreCommand, RuntimeWindowPreferencesRecord};
+use rion_core::{CoreCommand, RuntimeWindowPreferencesRecord};
 use tauri::{AppHandle, Manager, Window};
 
 const CONTROLLER_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -772,6 +772,23 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         {
             return;
         }
+        let previewed_stop_command = if action_type == "stop" {
+            let Some(tab_id) = tab_id.as_deref() else {
+                return;
+            };
+            match state.runtime.preview_tab_close(tab_id) {
+                Ok(intent) => Some(intent.into_core_command()),
+                Err(message) => {
+                    crate::reveal_shell_error(
+                        &app,
+                        crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
+                    );
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let command = match action_type.as_str() {
             "hide" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabHide { tab_id }),
             "reorder" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabReorder {
@@ -797,19 +814,7 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                     }
                 }
             }),
-            "stop" => tab_id.and_then(|tab_id| {
-                let command = stop_command_for_tab(&state.core, &tab_id);
-                if command.is_none() {
-                    crate::reveal_shell_error(
-                        &app,
-                        crate::shell_error(
-                            "TAURI_RUNTIME_TAB_MENU_FAILED",
-                            "Runtime tab was not found.",
-                        ),
-                    );
-                }
-                command
-            }),
+            "stop" => previewed_stop_command,
             "openLauncher" => {
                 if let Some(window_id) = target_window_id.as_deref()
                     && let Err(message) = crate::runtime_tab_menu::open_launcher(&app, window_id)
@@ -836,11 +841,6 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         };
         let _ = source_window_id;
         if let Some(command) = command {
-            if action_type == "stop"
-                && let Some(tab_id) = preview_tab_id.as_deref()
-            {
-                let _ = state.runtime.preview_tab_close(tab_id);
-            }
             let result = state.core.invoke_async(command).await;
             if action_type == "stop"
                 && let Some(tab_id) = preview_tab_id.as_deref()
@@ -860,23 +860,6 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             state.runtime.cancel_tab_close_preview(tab_id);
         }
     });
-}
-
-fn stop_command_for_tab(core: &rion_core::AppCore, tab_id: &str) -> Option<CoreCommand> {
-    let snapshot = core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .ok()
-        .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())?;
-    let tab = snapshot.tabs.into_iter().find(|tab| tab.id == tab_id)?;
-    Some(if tab.tab_type == "workspace" {
-        CoreCommand::BrowserWorkspaceStop {
-            workspace_id: tab.source_id,
-        }
-    } else {
-        CoreCommand::BrowserRoleStop {
-            role_id: tab.source_id,
-        }
-    })
 }
 
 pub fn runtime_window_preferences(core: &rion_core::AppCore) -> RuntimeWindowPreferencesRecord {

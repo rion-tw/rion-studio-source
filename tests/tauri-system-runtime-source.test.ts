@@ -211,6 +211,19 @@ describe("Tauri System WebView runtime source", () => {
     expect(closePreview).toContain("window_state.remove_tab(");
     expect(closePreview).toContain("successor_tab_after_close(");
     expect(closePreview).toContain("dispatch_native_presentation(");
+    expect(closePreview).toContain("request_preview_surface_isolation(isolation_surfaces)");
+    expect(closePreview.indexOf("dispatch_native_presentation(")).toBeLessThan(
+      closePreview.indexOf("request_preview_surface_isolation(isolation_surfaces)")
+    );
+    expect(closePreview).toContain("surface.phase.blocks_role_relaunch()");
+    expect(closePreview).not.toContain("BrowserRuntimeSnapshot");
+    const destroyEffect = runtime.slice(
+      runtime.indexOf("CoreEffectAction::EmbeddedDestroyTab {", runtime.indexOf("fn execute(")),
+      runtime.indexOf("CoreEffectAction::EmbeddedApplyRuntime", runtime.indexOf("fn execute("))
+    );
+    expect(destroyEffect).toContain("if let Err(error) = self.show_tab(&next_tab_id, true)");
+    expect(destroyEffect).toContain('"tab.close-successor-superseded"');
+    expect(destroyEffect).not.toContain("self.show_tab(&next_tab_id, true)?");
     expect(runtime).toContain("struct WindowPresentationState {");
     expect(runtime).toContain("struct LatestOnlyPresentationQueue<T>");
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
@@ -318,6 +331,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(quickMenuNativeBuild).not.toContain("core.invoke(");
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
     expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
+    expect(menu).not.toContain("fn stop_command(");
+    expect(macBridge).not.toContain("fn stop_command_for_tab(");
     expect(macBridge).toContain("metadata_pending: Mutex<HashMap<String, PendingMacTabMetadata>>");
     expect(macBridge).toContain("metadata_scheduled: AtomicBool");
     expect(macBridge).toContain("fn schedule_metadata_batch(");
@@ -360,11 +375,20 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(launchPreview).toContain("reserve_native_tab(");
 
-    for (const source of [shell, menu, quickMenu]) {
+    for (const source of [shell, quickMenu]) {
       const previewCall = source.indexOf("preview_tab_launch(");
       expect(previewCall).toBeGreaterThan(-1);
       expect(source.lastIndexOf("spawn_blocking(move ||", previewCall)).toBeGreaterThan(-1);
     }
+    const menuLaunch = menu.slice(
+      menu.indexOf("fn launch_from_menu("),
+      menu.indexOf("fn spawn_command(")
+    );
+    expect(menuLaunch).toContain("preview_tab_launch(&target, &source_id, tab_type)");
+    expect(menuLaunch.indexOf("preview_tab_launch(&target, &source_id, tab_type)")).toBeLessThan(
+      menuLaunch.indexOf("tauri::async_runtime::spawn(async move")
+    );
+    expect(menuLaunch).not.toContain("spawn_blocking");
 
     const createTab = runtime.slice(
       runtime.indexOf("fn create_tab("),
@@ -465,7 +489,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
   });
 
-  it("persists restore state before acknowledging a successful native effect", async () => {
+  it("acknowledges close isolation before coalesced restore persistence", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
@@ -474,12 +498,26 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("fn execute_effect_work("),
       runtime.indexOf("pub fn registration(")
     );
-    const persist = executor.indexOf("self.persist_restore_session(false)");
-    const finalize = executor.indexOf("finalize_persisted_effect_result(");
-    const dispatch = executor.indexOf("dispatch_core_effect_results");
-    expect(persist).toBeGreaterThan(-1);
-    expect(finalize).toBeGreaterThan(persist);
-    expect(dispatch).toBeGreaterThan(finalize);
+    const closeBranch = executor.slice(
+      executor.indexOf("if close_effect {"),
+      executor.indexOf("let persistence_error")
+    );
+    const closeDispatch = closeBranch.indexOf("dispatch_core_effect_results");
+    const closePersist = closeBranch.indexOf("schedule_restore_session_persist");
+    expect(closeDispatch).toBeGreaterThan(-1);
+    expect(closePersist).toBeGreaterThan(closeDispatch);
+    expect(closeBranch).not.toContain("persist_restore_session(false)");
+
+    const regularBranch = executor.slice(executor.indexOf("let persistence_error"));
+    const regularPersist = regularBranch.indexOf("self.persist_restore_session(false)");
+    const finalize = regularBranch.indexOf("finalize_persisted_effect_result(");
+    const regularDispatch = regularBranch.indexOf("dispatch_core_effect_results");
+    expect(regularPersist).toBeGreaterThan(-1);
+    expect(finalize).toBeGreaterThan(regularPersist);
+    expect(regularDispatch).toBeGreaterThan(finalize);
+    expect(runtime).toContain("fn schedule_restore_session_persist(");
+    expect(runtime).toContain("restore_persist_requested");
+    expect(runtime).toContain("Collapse a rapid close burst into one durable snapshot.");
     expect(executor).toContain("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
     expect(runtime).toContain("SYSTEM_RUNTIME_PERSIST_FAILED");
   });

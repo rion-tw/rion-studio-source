@@ -412,6 +412,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).toContain("positionDragSurfaceForTabIdentifier:");
     expect(macController).toContain("previewDragTabIdentifier:");
     expect(macController).toContain("RionRuntimeTabInsertionProbeX(");
+    expect(macController).toContain("RionRuntimeDirectionalInsertionProbeX(");
+    expect(macController).toContain("draggedMinimumX, draggedMaximumX, draggedCenterX");
     expect(macController).toContain("RionRuntimeTabDragPayload(");
     expect(macController).toContain("RionRuntimeTabDragPayloadParts(");
     expect(macController).toContain("canvasPoint.x - grabRatioX * item.preferredWidth");

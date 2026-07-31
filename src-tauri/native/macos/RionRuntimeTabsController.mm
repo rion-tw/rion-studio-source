@@ -41,24 +41,29 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 static NSString *RionRuntimeTabDragPayload(NSString *sourceWindowID,
                                            NSString *tabIdentifier,
                                            NSString *sessionIdentifier,
-                                           NSPoint grabRatio) {
+                                           NSPoint grabRatio,
+                                           NSSize tabSize) {
   return [@[ sourceWindowID, tabIdentifier, sessionIdentifier,
-             @(grabRatio.x).stringValue, @(grabRatio.y).stringValue ]
+             @(grabRatio.x).stringValue, @(grabRatio.y).stringValue,
+             @(tabSize.width).stringValue, @(tabSize.height).stringValue ]
       componentsJoinedByString:@"\n"];
 }
 
 static NSArray<NSString *> *RionRuntimeTabDragPayloadParts(NSString *payload) {
   if (payload.length == 0) return nil;
   NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\n"];
-  if (parts.count != 5 || parts[0].length == 0 || parts[1].length == 0 ||
+  if (parts.count != 7 || parts[0].length == 0 || parts[1].length == 0 ||
       parts[2].length == 0) {
     return nil;
   }
   CGFloat grabRatioX = parts[3].doubleValue;
   CGFloat grabRatioY = parts[4].doubleValue;
+  CGFloat tabWidth = parts[5].doubleValue;
+  CGFloat tabHeight = parts[6].doubleValue;
   if (!std::isfinite(grabRatioX) || !std::isfinite(grabRatioY) ||
+      !std::isfinite(tabWidth) || !std::isfinite(tabHeight) ||
       grabRatioX < 0.0 || grabRatioX > 1.0 || grabRatioY < 0.0 ||
-      grabRatioY > 1.0) {
+      grabRatioY > 1.0 || tabWidth <= 0.0 || tabHeight <= 0.0) {
     return nil;
   }
   return parts;
@@ -182,6 +187,21 @@ static CGFloat RionRuntimeTabInsertionProbeX(CGFloat pointerX,
                                              CGFloat tabWidth,
                                              CGFloat grabRatioX) {
   return pointerX + (0.5 - grabRatioX) * tabWidth;
+}
+
+static CGFloat RionRuntimeDirectionalInsertionProbeX(
+    CGFloat minimumX, CGFloat maximumX, CGFloat centerX, CGFloat deltaX,
+    BOOL *shouldResolveInsertion) {
+  if (deltaX > 0.1) {
+    *shouldResolveInsertion = YES;
+    return maximumX;
+  }
+  if (deltaX < -0.1) {
+    *shouldResolveInsertion = YES;
+    return minimumX;
+  }
+  *shouldResolveInsertion = NO;
+  return centerX;
 }
 
 static NSUInteger RionRuntimeStableInsertionIndex(
@@ -1071,15 +1091,30 @@ bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
     NSColor *dragPixel = [dragRepresentation colorAtX:0 y:0];
     NSArray<NSString *> *payloadParts = RionRuntimeTabDragPayloadParts(
         RionRuntimeTabDragPayload(@"window-a", @"tab-a", @"session-a",
-                                  NSMakePoint(0.5, 0.5)));
+                                  NSMakePoint(0.5, 0.5),
+                                  NSMakeSize(180.0, 28.0)));
+    BOOL resolvesRight = NO;
+    BOOL resolvesLeft = NO;
+    BOOL resolvesStationary = YES;
+    CGFloat rightProbe = RionRuntimeDirectionalInsertionProbeX(
+        10.0, 110.0, 60.0, 1.0, &resolvesRight);
+    CGFloat leftProbe = RionRuntimeDirectionalInsertionProbeX(
+        10.0, 110.0, 60.0, -1.0, &resolvesLeft);
+    CGFloat stationaryProbe = RionRuntimeDirectionalInsertionProbeX(
+        10.0, 110.0, 60.0, 0.0, &resolvesStationary);
     return RionRuntimeTabReorderHysteresis(100.0) == 3.0 &&
            RionRuntimeTabReorderHysteresis(280.0) == 5.0 &&
            RionRuntimeTabInsertionProbeX(80.0, 100.0, 0.2) == 110.0 &&
            RionRuntimeTabInsertionProbeX(110.0, 100.0, 0.5) == 110.0 &&
            RionRuntimeTabInsertionProbeX(140.0, 100.0, 0.8) == 110.0 &&
-           payloadParts.count == 5 &&
+           resolvesRight && rightProbe == 110.0 &&
+           resolvesLeft && leftProbe == 10.0 &&
+           !resolvesStationary && stationaryProbe == 60.0 &&
+           payloadParts.count == 7 &&
            [payloadParts[3] isEqualToString:@"0.5"] &&
            [payloadParts[4] isEqualToString:@"0.5"] &&
+           [payloadParts[5] isEqualToString:@"180"] &&
+           [payloadParts[6] isEqualToString:@"28"] &&
            RionRuntimeStableInsertionIndex(52.0, midpoints, widths, 0) == 0 &&
            RionRuntimeStableInsertionIndex(54.0, midpoints, widths, 0) == 1 &&
            RionRuntimeStableInsertionIndex(48.0, midpoints, widths, 1) == 1 &&
@@ -1320,7 +1355,8 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
                                                inView:(NSView *)view
                                  draggedTabIdentifier:(NSString *)tabIdentifier
                                             sessionID:(NSString *)sessionID
-                                           grabRatioX:(CGFloat)grabRatioX;
+                                           grabRatioX:(CGFloat)grabRatioX
+                                       sourceTabWidth:(CGFloat)sourceTabWidth;
 - (void)previewDragTabIdentifier:(NSString *)tabIdentifier
                 beforeIdentifier:(nullable NSString *)beforeIdentifier;
 - (void)positionDragSurfaceForTabIdentifier:(NSString *)tabIdentifier
@@ -2035,6 +2071,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSArray<NSString *> *parts = RionRuntimeTabDragPayloadParts(payload);
   if (parts) {
     CGFloat grabRatioX = parts[3].doubleValue;
+    CGFloat sourceTabWidth = parts[5].doubleValue;
     id source = sender.draggingSource;
     if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
       [(RionRuntimeTabItemView *)source
@@ -2050,7 +2087,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                      inView:self
                                        draggedTabIdentifier:parts[1]
                                                   sessionID:parts[2]
-                                                 grabRatioX:grabRatioX];
+                                                 grabRatioX:grabRatioX
+                                             sourceTabWidth:sourceTabWidth];
     [self.tabsController previewDragTabIdentifier:parts[1]
                                   beforeIdentifier:identifier];
     [self.tabsController hideInsertionIndicator];
@@ -2101,7 +2139,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                    inView:self
                                      draggedTabIdentifier:tabIdentifier
                                                 sessionID:sessionID
-                                               grabRatioX:parts[3].doubleValue];
+                                               grabRatioX:parts[3].doubleValue
+                                           sourceTabWidth:parts[5].doubleValue];
   [self.tabsController previewDragTabIdentifier:tabIdentifier
                                 beforeIdentifier:beforeIdentifier];
   NSPoint screenPoint =
@@ -2150,6 +2189,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSString *_dragPlaceholderTabIdentifier;
   NSString *_dragInsertionSessionIdentifier;
   NSString *_dragInsertionBeforeIdentifier;
+  CGFloat _dragInsertionVisualCenterX;
   CGFloat _dragSurfaceCanvasX;
   BOOL _dragSurfaceOverlayActive;
   BOOL _dragSurfaceVisible;
@@ -3868,7 +3908,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [pasteboardItem
       setString:RionRuntimeTabDragPayload(item.sourceWindowID,
                                           item.tabIdentifier, sessionID,
-                                          grabRatio)
+                                          grabRatio, item.bounds.size)
         forType:RionRuntimeTabPasteboardType];
   NSDraggingItem *draggingItem =
       [[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem];
@@ -3905,16 +3945,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                inView:(NSView *)view
                                  draggedTabIdentifier:(NSString *)tabIdentifier
                                             sessionID:(NSString *)sessionID
-                                           grabRatioX:(CGFloat)grabRatioX {
+                                           grabRatioX:(CGFloat)grabRatioX
+                                       sourceTabWidth:(CGFloat)sourceTabWidth {
   NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
   RionRuntimeTabItemView *draggedItem = _tabItemsByIdentifier[tabIdentifier];
   CGFloat draggedWidth = draggedItem
       ? draggedItem.preferredWidth
-      : kRionTabMinimumWidth;
+      : sourceTabWidth;
   // Always use the source session's grab ratio. A tab item materialized in a
   // different window has never received mouseDown: and therefore cannot
   // reconstruct the original pointer-to-tab anchor.
-  CGFloat insertionProbeX = RionRuntimeTabInsertionProbeX(
+  CGFloat draggedMinimumX = canvasPoint.x - grabRatioX * draggedWidth;
+  CGFloat draggedMaximumX = draggedMinimumX + draggedWidth;
+  CGFloat draggedCenterX = RionRuntimeTabInsertionProbeX(
       canvasPoint.x, draggedWidth, grabRatioX);
   NSMutableArray<RionRuntimeTabItemView *> *candidates = [NSMutableArray array];
   NSMutableArray<NSNumber *> *midpoints = [NSMutableArray array];
@@ -3935,12 +3978,13 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (candidates.count == 0) {
     _dragInsertionSessionIdentifier = [sessionID copy];
     _dragInsertionBeforeIdentifier = nil;
+    _dragInsertionVisualCenterX = draggedCenterX;
     return nil;
   }
 
   NSUInteger rawIndex = candidates.count;
   for (NSUInteger index = 0; index < midpoints.count; ++index) {
-    if (insertionProbeX < midpoints[index].doubleValue) {
+    if (draggedCenterX < midpoints[index].doubleValue) {
       rawIndex = index;
       break;
     }
@@ -3967,13 +4011,27 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     currentIndex = inferredIndex;
   }
 
-  NSUInteger stableIndex = RionRuntimeStableInsertionIndex(
-      insertionProbeX, midpoints, widths, currentIndex);
+  CGFloat insertionProbeX = draggedCenterX;
+  BOOL shouldResolveInsertion = YES;
+  if (sameSession) {
+    CGFloat delta = draggedCenterX - _dragInsertionVisualCenterX;
+    // Moving right uses the trailing edge; moving left uses the leading edge.
+    // The slot therefore changes when the tab frame crosses an adjacent tab's
+    // midpoint, independent of where inside the tab the cursor was grabbed.
+    insertionProbeX = RionRuntimeDirectionalInsertionProbeX(
+        draggedMinimumX, draggedMaximumX, draggedCenterX, delta,
+        &shouldResolveInsertion);
+  }
+  NSUInteger stableIndex = shouldResolveInsertion
+      ? RionRuntimeStableInsertionIndex(insertionProbeX, midpoints, widths,
+                                        currentIndex)
+      : currentIndex;
   NSString *beforeIdentifier = stableIndex < candidates.count
       ? candidates[stableIndex].tabIdentifier
       : nil;
   _dragInsertionSessionIdentifier = [sessionID copy];
   _dragInsertionBeforeIdentifier = [beforeIdentifier copy];
+  _dragInsertionVisualCenterX = draggedCenterX;
   return beforeIdentifier;
 }
 
@@ -4028,6 +4086,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)resetTabDragInsertionState {
   _dragInsertionSessionIdentifier = nil;
   _dragInsertionBeforeIdentifier = nil;
+  _dragInsertionVisualCenterX = 0;
 }
 
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view {

@@ -153,6 +153,10 @@ describe("renderer status indicators", () => {
     expect(layout?.className).toContain("place-items-center");
     expect(layout?.parentElement?.className).toContain("absolute");
     expect(layout?.parentElement?.className).toContain("inset-0");
+    const row = toggle.closest("tr")!;
+    expect(row.getAttribute("data-macro-disabled")).toBe("true");
+    expect(row.className).toContain("opacity-[0.55]");
+    expect(screen.getByText("Auto heal").closest("button")?.className).toContain("text-muted-foreground");
     fireEvent.click(toggle);
     expect(onSetMacroEnabled).toHaveBeenCalledWith(disabledMacro, true);
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
@@ -234,7 +238,60 @@ describe("renderer status indicators", () => {
     const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     expect(start.title).toBe("Assign a role before running this macro.");
+    const row = start.closest("tr")!;
+    expect(row.getAttribute("data-macro-unassigned")).toBe("true");
+    expect(row.className).toContain("bg-warning/35");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Auto heal" }));
+    expect(row.className).toContain("bg-warning/35");
+    expect(row.className).toContain("[&>td]:border-t-activity/80");
+    expect(row.className).toContain("[&>td]:border-b-activity/80");
   });
+
+  it.each(["running", "stopping"] as const)(
+    "keeps an active macro row on the activity tone while %s",
+    (state) => {
+    const running = {
+      roleId: "role-1",
+      macroId: "macro-1",
+      state,
+      startedAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:01.000Z"
+    };
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[macro()]}
+        macroStatuses={[running]}
+        macroStatusByRun={new Map([["role-1:macro-1", running]])}
+        query=""
+        roleFilterId=""
+        roles={[role()]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    const stop = screen.getByRole("button", { name: "Stop" });
+    const row = stop.closest("tr")!;
+    expect(row.getAttribute("data-macro-active")).toBe("true");
+    expect(row.className).toContain("bg-activity/[0.08]");
+    expect((screen.getByText("Auto heal").closest("button") as HTMLButtonElement).disabled).toBe(true);
+    expect((stop as HTMLButtonElement).disabled).toBe(state === "stopping");
+    }
+  );
 });
 
 const t: Translator = (key) => en[key];

@@ -64,8 +64,12 @@ describe("bulk selection UI", () => {
     expect(screen.queryByRole("button", { name: "Select One" })).toBeNull();
     await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();
-    expect(screen.getByRole("toolbar").className).toContain("fixed");
-    expect(screen.getByRole("toolbar").className).toContain("bottom-5");
+    const toolbar = screen.getByRole("toolbar");
+    expect(toolbar.className).toContain("fixed");
+    expect(toolbar.className).toContain("bottom-5");
+    expect(toolbar.className).toContain("flex-nowrap");
+    expect(toolbar.className).toContain("max-w-[calc(100%-1rem)]");
+    expect(toolbar.className).toContain("overflow-x-auto");
     await user.click(screen.getByRole("button", { name: "Delete 1" }));
 
     expect(onDeleteMany).toHaveBeenCalledWith([items[0]]);
@@ -250,15 +254,172 @@ describe("bulk selection UI", () => {
     expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("align-middle");
     expect(screen.getByText("None")).toBeTruthy();
 
-    const actionLayout = screen.getByRole("button", { name: "Start" }).closest("[data-macro-actions-control]");
+    const startButton = screen.getByRole("button", { name: "Start" });
+    const nameLayout = startButton.closest("[data-macro-name-control]");
+    const nameButton = screen.getByText("Auto heal").closest("button")!;
+    expect(nameLayout).not.toBeNull();
+    expect(startButton.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    const actionLayout = screen.getByRole("button", { name: "Macro actions" }).closest("[data-macro-actions-control]");
     expect(actionLayout?.className).toContain("absolute");
     expect(actionLayout?.className).toContain("inset-0");
     expect(actionLayout?.className).toContain("items-center");
-    expect(screen.getByRole("button", { name: "Macro actions" }).closest("[data-macro-actions-control]"))
-      .toBe(actionLayout);
+    expect(actionLayout?.contains(startButton)).toBe(false);
     await user.click(checkbox);
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(document.querySelector("[data-selection-overlay]")).toBeNull();
+  });
+
+  it("runs each bulk macro action only for applicable selected rows", async () => {
+    const user = userEvent.setup();
+    const runnable = { ...macro("macro-run", "Runnable"), roleIds: ["role-1"] };
+    const running = { ...macro("macro-stop", "Running"), roleIds: ["role-1"] };
+    const disabled = { ...macro("macro-enable", "Disabled"), enabled: false, roleIds: ["role-1"] };
+    const unassigned = macro("macro-unassigned", "Unassigned");
+    const runningStatus = {
+      macroId: running.id,
+      roleId: "role-1",
+      state: "running" as const,
+      startedAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:01.000Z"
+    };
+    const onStartMacros = vi.fn().mockResolvedValue(undefined);
+    const onStopMacros = vi.fn().mockResolvedValue(undefined);
+    const onSetMacrosEnabled = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[runnable, running, disabled, unassigned]}
+        macroStatuses={[runningStatus]}
+        macroStatusByRun={new Map([[`role-1:${running.id}`, runningStatus]])}
+        query=""
+        roleFilterId=""
+        roles={[role("role-1", "Main role")]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSetMacrosEnabled={onSetMacrosEnabled}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStartMacros={onStartMacros}
+        onStopMacro={vi.fn()}
+        onStopMacros={onStopMacros}
+      />
+    );
+
+    for (const name of ["Runnable", "Running", "Disabled", "Unassigned"]) {
+      await user.click(screen.getByRole("checkbox", { name: `Select ${name}` }));
+    }
+
+    await user.click(screen.getByRole("button", { name: "Run 1" }));
+    await user.click(screen.getByRole("button", { name: "Stop 1" }));
+    await user.click(screen.getByRole("button", { name: "Enable 1" }));
+    await user.click(screen.getByRole("button", { name: "Disable 3" }));
+
+    expect(onStartMacros).toHaveBeenCalledWith([runnable]);
+    expect(onStopMacros).toHaveBeenCalledWith([running]);
+    expect(onSetMacrosEnabled).toHaveBeenNthCalledWith(1, [disabled], true);
+    expect(onSetMacrosEnabled).toHaveBeenNthCalledWith(2, [runnable, running, unassigned], false);
+    expect(screen.getByText("4 selected")).toBeTruthy();
+  });
+
+  it("disables every bulk macro action while a selected macro is busy", async () => {
+    const user = userEvent.setup();
+    const item = { ...macro("macro-busy", "Busy macro"), roleIds: ["role-1"] };
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set([item.id])}
+        busyRunKeys={new Set([item.id])}
+        macros={[item]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[role("role-1", "Main role")]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Busy macro" }));
+
+    for (const label of ["Run 0", "Stop 0", "Enable 0", "Disable 0"]) {
+      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("draws one activity outline around adjacent selected macro rows", async () => {
+    const user = userEvent.setup();
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[
+          macro("macro-alpha", "Alpha"),
+          macro("macro-beta", "Beta"),
+          macro("macro-gamma", "Gamma")
+        ]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[]}
+        scrollPositionRef={{ current: 0 }}
+        sort={{ direction: "asc", key: "name" }}
+        statusByRole={new Map()}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Alpha" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Beta" }));
+
+    const alpha = getSelectionItem("macro-alpha");
+    const beta = getSelectionItem("macro-beta");
+    const gamma = getSelectionItem("macro-gamma");
+    expect(alpha.getAttribute("data-selection-group-start")).toBe("true");
+    expect(alpha.hasAttribute("data-selection-group-end")).toBe(false);
+    expect(beta.hasAttribute("data-selection-group-start")).toBe(false);
+    expect(beta.getAttribute("data-selection-group-end")).toBe("true");
+    expect(alpha.className).toContain("[&>td]:border-t-activity/80");
+    expect(alpha.className).not.toContain("[&>td]:border-b-activity/80");
+    expect(beta.className).not.toContain("[&>td]:border-t-activity/80");
+    expect(beta.className).toContain("[&>td]:border-b-activity/80");
+    expect(alpha.className).toContain("[&>td:first-child]:border-l-activity/80");
+    expect(beta.className).toContain("[&>td:last-child]:border-r-activity/80");
+    expect(gamma.className).not.toContain("border-activity/80");
+    expect(alpha.closest("tbody")?.className).toContain("divide-y");
   });
 });
 

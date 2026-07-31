@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmationContext } from "../src/renderer/src/components/confirmation";
 import { useMacroWorkflow } from "../src/renderer/src/hooks/useMacroWorkflow";
 import type { Translator } from "../src/renderer/src/i18n";
+import en from "../src/renderer/src/i18n/en.json";
 import type { Macro } from "../src/shared/types";
 
 afterEach(() => {
@@ -113,7 +114,159 @@ describe("useMacroWorkflow", () => {
     }));
     expect(setMacros).toHaveBeenCalledWith(expect.any(Function));
   });
+
+  it("groups batch starts under one busy lease and blocks overlapping starts", async () => {
+    const first = macro("macro-1");
+    const second = macro("macro-2");
+    const firstStatus = macroStatus(first.id);
+    const secondStatus = macroStatus(second.id);
+    const resolvers = new Map<string, (statuses: ReturnType<typeof macroStatus>[]) => void>();
+    const startMacro = vi.fn((macroId: string) => new Promise<ReturnType<typeof macroStatus>[]>((resolve) => {
+      resolvers.set(macroId, resolve);
+    }));
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        listMacroStatuses: vi.fn().mockResolvedValue([firstStatus, secondStatus]),
+        startMacro
+      }
+    });
+    const { result } = renderHook(() => useMacroWorkflow({
+      beginErrorOperation: () => vi.fn(),
+      macros: [first, second],
+      setMacros: vi.fn(),
+      setMacroStatuses: vi.fn(),
+      setNotice: vi.fn(),
+      t
+    }), { wrapper: ConfirmationWrapper });
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.handleStartMacros([first, first, second]);
+    });
+    expect(result.current.busyMacroIds).toEqual(new Set([first.id, second.id]));
+
+    await act(async () => result.current.handleStartMacros([first]));
+    expect(startMacro).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolvers.get(first.id)?.([firstStatus]);
+      resolvers.get(second.id)?.([secondStatus]);
+      await pending;
+    });
+    expect(result.current.busyMacroIds).toEqual(new Set());
+  });
+
+  it("keeps successful batch enabled-state changes and reports partial failures", async () => {
+    const first = macro("macro-1");
+    const second = macro("macro-2");
+    const alreadyDisabled = { ...macro("macro-3"), enabled: false };
+    const updatedFirst = { ...first, enabled: false };
+    const updateMacro = vi.fn((id: string) =>
+      id === first.id ? Promise.resolve(updatedFirst) : Promise.reject(new Error("update failed"))
+    );
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        listMacros: vi.fn().mockResolvedValue([updatedFirst, second, alreadyDisabled]),
+        listMacroStatuses: vi.fn().mockResolvedValue([]),
+        updateMacro
+      }
+    });
+    const reportError = vi.fn();
+    const setMacros = vi.fn();
+    const setMacroStatuses = vi.fn();
+    const setNotice = vi.fn();
+    const { result } = renderHook(() => useMacroWorkflow({
+      beginErrorOperation: () => reportError,
+      macros: [first, second, alreadyDisabled],
+      setMacros,
+      setMacroStatuses,
+      setNotice,
+      t
+    }), { wrapper: ConfirmationWrapper });
+
+    await act(async () => result.current.handleSetMacrosEnabled(
+      [first, second, alreadyDisabled],
+      false
+    ));
+
+    expect(updateMacro).toHaveBeenCalledTimes(2);
+    expect(updateMacro).toHaveBeenNthCalledWith(1, first.id, { enabled: false });
+    expect(updateMacro).toHaveBeenNthCalledWith(2, second.id, { enabled: false });
+    expect(setMacros).toHaveBeenLastCalledWith([updatedFirst, second, alreadyDisabled]);
+    expect(setMacroStatuses).toHaveBeenLastCalledWith([]);
+    expect(setNotice).toHaveBeenLastCalledWith(
+      "Batch operation completed: 1 succeeded and 1 failed."
+    );
+    expect(reportError).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Batch operation completed: 1 succeeded and 1 failed."
+    }));
+  });
+
+  it("reconciles statuses after partially successful batch stops", async () => {
+    const first = macro("macro-1");
+    const second = macro("macro-2");
+    const remainingStatus = macroStatus(second.id);
+    const stopMacro = vi.fn((id: string) =>
+      id === first.id ? Promise.resolve() : Promise.reject(new Error("stop failed"))
+    );
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        listMacroStatuses: vi.fn().mockResolvedValue([remainingStatus]),
+        stopMacro
+      }
+    });
+    const reportError = vi.fn();
+    const setMacroStatuses = vi.fn();
+    const setNotice = vi.fn();
+    const { result } = renderHook(() => useMacroWorkflow({
+      beginErrorOperation: () => reportError,
+      macros: [first, second],
+      setMacros: vi.fn(),
+      setMacroStatuses,
+      setNotice,
+      t
+    }), { wrapper: ConfirmationWrapper });
+
+    await act(async () => result.current.handleStopMacros([first, second]));
+
+    expect(stopMacro).toHaveBeenCalledTimes(2);
+    expect(setMacroStatuses).toHaveBeenLastCalledWith([remainingStatus]);
+    expect(setNotice).toHaveBeenLastCalledWith(
+      "Batch operation completed: 1 succeeded and 1 failed."
+    );
+    expect(reportError).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Batch operation completed: 1 succeeded and 1 failed."
+    }));
+  });
 });
+
+const t: Translator = (key) => en[key];
+
+function macro(id: string): Macro {
+  return {
+    id,
+    enabled: true,
+    name: id,
+    roleIds: ["role-1"],
+    repeat: { type: "once" },
+    steps: [{ id: `${id}-step`, type: "key", code: "F2" }],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+function macroStatus(macroId: string) {
+  return {
+    macroId,
+    roleId: "role-1",
+    state: "running" as const,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z"
+  };
+}
 
 function ConfirmationWrapper({ children }: { children: ReactNode }) {
   return (

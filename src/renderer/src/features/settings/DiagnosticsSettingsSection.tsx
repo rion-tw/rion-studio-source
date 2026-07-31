@@ -221,6 +221,18 @@ function PerformanceDiagnosticsResult({
         <span>{t("settings.performanceDiagnosticsWindowFocus")}: {t(performance.windowFocused
           ? "settings.performanceDiagnosticsFocused"
           : "settings.performanceDiagnosticsUnfocused")}</span>
+        {performance.systemLowPowerModeEnabled !== undefined ? (
+          <span>
+            {t("settings.performanceDiagnosticsLowPower")}: {t(performance.systemLowPowerModeEnabled
+              ? "settings.performanceDiagnosticsEnabled"
+              : "settings.performanceDiagnosticsDisabled")}
+          </span>
+        ) : null}
+        {performance.systemThermalState ? (
+          <span>
+            {t("settings.performanceDiagnosticsThermal")}: {t(`settings.performanceDiagnosticsThermal.${performance.systemThermalState}`)}
+          </span>
+        ) : null}
         <span>{new Date(performance.capturedAt).toLocaleString()}</span>
       </div>
       {performance.surfaces.map((surface) => {
@@ -278,14 +290,40 @@ function performanceFinding(
   if (surface.error) return t("settings.performanceDiagnosticsFindingFailed");
   if (surface.documentVisibilityState !== "visible") return t("settings.performanceDiagnosticsFindingHidden");
   if (!surface.documentHasFocus) return t("settings.performanceDiagnosticsFindingUnfocused");
+  if (performance.systemLowPowerModeEnabled) {
+    return t(performance.platform === "macos"
+      ? "settings.performanceDiagnosticsFindingMacLowPower"
+      : "settings.performanceDiagnosticsFindingWindowsBatterySaver");
+  }
+  if (performance.systemThermalState === "serious" || performance.systemThermalState === "critical") {
+    return t("settings.performanceDiagnosticsFindingThermal")
+      .replace(
+        "{state}",
+        t(`settings.performanceDiagnosticsThermal.${performance.systemThermalState}`)
+      );
+  }
+  if (
+    performance.platform === "macos"
+    && performance.highRefreshRateRequested
+    && surface.highRefreshRateStatus !== "applied"
+  ) {
+    return t("settings.performanceDiagnosticsFindingHighRefreshFailed")
+      .replace(
+        "{status}",
+        t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)
+      );
+  }
+  if (
+    performance.platform === "macos"
+    && !performance.highRefreshRateRequested
+    && (performance.displayRefreshRateHz ?? 0) > 60
+  ) {
+    return t("settings.performanceDiagnosticsFindingHighRefreshDisabled");
+  }
   if ((surface.longTaskCount ?? 0) > 0 && (surface.longestTaskMs ?? 0) >= 50) {
     return t("settings.performanceDiagnosticsFindingLongTasks")
       .replace("{count}", String(surface.longTaskCount))
       .replace("{longest}", (surface.longestTaskMs ?? 0).toFixed(1));
-  }
-  if ((surface.missedVsyncCount ?? 0) > 0) {
-    return t("settings.performanceDiagnosticsFindingFramePacing")
-      .replace("{count}", String(surface.missedVsyncCount));
   }
   if (surface.averageFps === undefined || performance.displayRefreshRateHz === undefined) {
     return t("settings.performanceDiagnosticsFindingIncomplete");
@@ -294,6 +332,10 @@ function performanceFinding(
     return t("settings.performanceDiagnosticsFindingBelowRefresh")
       .replace("{fps}", surface.averageFps.toFixed(1))
       .replace("{hz}", performance.displayRefreshRateHz.toFixed(0));
+  }
+  if ((surface.missedVsyncCount ?? 0) > 0) {
+    return t("settings.performanceDiagnosticsFindingFramePacing")
+      .replace("{count}", String(surface.missedVsyncCount));
   }
   return t("settings.performanceDiagnosticsFindingNearRefresh");
 }

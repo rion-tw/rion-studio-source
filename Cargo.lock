@@ -3125,6 +3125,8 @@ dependencies = [
  "cc",
  "chrono",
  "embed-resource",
+ "objc2",
+ "objc2-web-kit",
  "rion-core",
  "rion-platform",
  "rusqlite",

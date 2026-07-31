@@ -28,7 +28,7 @@ static const CGFloat kRionTabScrollButtonWidth = 22.0;
 static const CGFloat kRionTabScrollButtonSpacing = 3.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
-static const CGFloat kRionWindowNameMaximumWidth = 160.0;
+static const CGFloat kRionWindowNameMaximumWidth = 188.0;
 static const CGFloat kRionWindowNameTrailingSpacing = 10.0;
 static const CGFloat kRionRootTrailingDraggableWidth = 12.0;
 static const CGFloat kRionTrafficLightFallbackWidth = 76.0;
@@ -1804,17 +1804,22 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _tabScrollView.documentView = _tabCanvas;
   _tabScrollView.contentView.postsBoundsChangedNotifications = YES;
 
+  RionRuntimeVerticallyCenteredTextFieldCell *windowNameCell =
+      [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
+  windowNameCell.alignment = NSTextAlignmentLeft;
+  windowNameCell.bezeled = NO;
+  windowNameCell.bordered = NO;
+  windowNameCell.drawsBackground = NO;
+  windowNameCell.editable = NO;
+  windowNameCell.selectable = NO;
+  windowNameCell.usesSingleLineMode = YES;
+  windowNameCell.lineBreakMode = NSLineBreakByTruncatingTail;
   _windowNameField = [[RionRuntimeWindowNameField alloc] initWithFrame:NSZeroRect];
-  _windowNameField.bezeled = NO;
-  _windowNameField.bordered = NO;
-  _windowNameField.drawsBackground = NO;
-  _windowNameField.editable = NO;
-  _windowNameField.selectable = NO;
+  _windowNameField.cell = windowNameCell;
+  _windowNameField.focusRingType = NSFocusRingTypeNone;
   _windowNameField.enabled = YES;
   _windowNameField.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
   _windowNameField.textColor = NSColor.labelColor;
-  _windowNameField.lineBreakMode = NSLineBreakByTruncatingTail;
-  _windowNameField.maximumNumberOfLines = 1;
   _windowNameField.hidden = YES;
 
   NSImage *scrollLeft = [NSImage imageWithSystemSymbolName:@"chevron.left"

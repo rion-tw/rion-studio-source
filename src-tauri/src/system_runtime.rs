@@ -1492,11 +1492,34 @@ struct TabPresentation {
     icon_data_url: Option<String>,
     id: String,
     phase: TabPresentationPhase,
+    role_ids: Vec<String>,
     source_id: String,
     tab_type: String,
     title: String,
     #[cfg(target_os = "macos")]
     workspace_template: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeLauncherPresenceTab {
+    pub(crate) role_ids: Vec<String>,
+    pub(crate) source_id: String,
+    pub(crate) tab_id: String,
+    pub(crate) tab_type: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeLauncherPresence {
+    pub(crate) tabs: Vec<RuntimeLauncherPresenceTab>,
+}
+
+fn retain_live_runtime_launcher_tabs(
+    presence: &mut RuntimeLauncherPresence,
+    live_tab_ids: &HashSet<String>,
+) {
+    presence
+        .tabs
+        .retain(|tab| live_tab_ids.contains(&tab.tab_id));
 }
 
 #[derive(Clone)]
@@ -1586,8 +1609,16 @@ impl WindowPresentationState {
         }
     }
 
-    fn update_metadata(&mut self, tab_id: &str, source_id: &str, tab_type: &str, title: &str) {
+    fn update_metadata(
+        &mut self,
+        tab_id: &str,
+        source_id: &str,
+        tab_type: &str,
+        role_ids: &[String],
+        title: &str,
+    ) {
         if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            tab.role_ids = role_ids.to_vec();
             tab.source_id = source_id.to_owned();
             tab.tab_type = tab_type.to_owned();
             tab.title = title.to_owned();
@@ -1834,6 +1865,7 @@ impl PresentationRegistry {
             .collect()
     }
 
+    #[cfg(test)]
     fn tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
         self.windows.lock().ok().and_then(|windows| {
             windows.values().find_map(|window| {
@@ -1846,6 +1878,43 @@ impl PresentationRegistry {
                 })
             })
         })
+    }
+
+    fn tab_for_launcher_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
+        let mut windows = self.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
+        windows.sort_by(|left, right| left.0.cmp(&right.0));
+        windows.into_iter().find_map(|(_, window)| {
+            window.tabs.into_iter().find_map(|tab| {
+                let matches = if tab_type == "workspace" {
+                    tab.tab_type == "workspace" && tab.source_id == source_id
+                } else {
+                    tab.role_ids.iter().any(|role_id| role_id == source_id)
+                        || (tab.tab_type == "role" && tab.source_id == source_id)
+                };
+                matches.then_some(tab.id)
+            })
+        })
+    }
+
+    fn launcher_presence(&self) -> Result<RuntimeLauncherPresence, String> {
+        let mut windows = self.snapshot_states()?.into_iter().collect::<Vec<_>>();
+        windows.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut tabs = windows
+            .into_iter()
+            .flat_map(|(_, window)| {
+                window
+                    .tabs
+                    .into_iter()
+                    .map(|tab| RuntimeLauncherPresenceTab {
+                        role_ids: tab.role_ids,
+                        source_id: tab.source_id,
+                        tab_id: tab.id,
+                        tab_type: tab.tab_type,
+                    })
+            })
+            .collect::<Vec<_>>();
+        tabs.sort_by(|left, right| left.tab_id.cmp(&right.tab_id));
+        Ok(RuntimeLauncherPresence { tabs })
     }
 
     fn actor(&self, window_id: &str) -> Result<Arc<NativeWindowActor>, String> {
@@ -4936,12 +5005,60 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    pub(crate) fn presented_tab_for_source(
+    pub(crate) fn presented_tab_for_launcher_source(
         &self,
         source_id: &str,
         tab_type: &str,
     ) -> Option<String> {
-        self.presentation.tab_for_source(source_id, tab_type)
+        let tab_id = self
+            .presentation
+            .tab_for_launcher_source(source_id, tab_type)?;
+        self.state.lock().ok().and_then(|state| {
+            (state.tabs.contains_key(&tab_id)
+                || state
+                    .provisional_launches
+                    .values()
+                    .any(|launch| launch.id == tab_id))
+            .then_some(tab_id)
+        })
+    }
+
+    pub(crate) fn launcher_presence_snapshot(&self) -> Result<RuntimeLauncherPresence, String> {
+        let mut presence = self.presentation.launcher_presence()?;
+        let live_tab_ids = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            state
+                .tabs
+                .keys()
+                .cloned()
+                .chain(
+                    state
+                        .provisional_launches
+                        .values()
+                        .map(|launch| launch.id.clone()),
+                )
+                .collect::<HashSet<_>>()
+        };
+        retain_live_runtime_launcher_tabs(&mut presence, &live_tab_ids);
+        Ok(presence)
+    }
+
+    fn publish_launcher_presence(&self) {
+        let Ok(presence) = self.launcher_presence_snapshot() else {
+            return;
+        };
+        let Some(state) = self.app.try_state::<crate::CoreState>() else {
+            return;
+        };
+        if let Err(error) = state
+            .runtime_launcher_refresh
+            .update_presence(&self.app, presence)
+        {
+            eprintln!("Runtime launcher presence refresh failed: {error}");
+        }
     }
 
     pub fn window_id_for_webview(&self, webview_label: &str) -> Option<String> {
@@ -5409,6 +5526,7 @@ impl SystemRuntimeExecutor {
             Some(host)
         });
         self.presentation.remove(window_id);
+        self.publish_launcher_presence();
         if let Some(host) = host {
             self.unregister_runtime_launcher_window(window_id);
             let _ = host.window.close();
@@ -6505,6 +6623,7 @@ impl SystemRuntimeExecutor {
         self.sync_native_tab_metadata(&snapshot);
         #[cfg(windows)]
         self.sync_windows_tab_metadata(&snapshot);
+        self.publish_launcher_presence();
         let _ = self
             .app
             .emit("rion://runtime-state", self.projection(&snapshot));
@@ -6912,6 +7031,7 @@ impl SystemRuntimeExecutor {
             )
         };
         let elapsed = started.elapsed();
+        self.publish_launcher_presence();
         self.apply_native_active_style(&window_id, next_tab_id.as_deref(), revision, "close");
         self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
         self.dispatch_native_presentation(
@@ -11373,6 +11493,11 @@ impl SystemRuntimeExecutor {
                     icon_data_url: None,
                     id: provisional_id.clone(),
                     phase: TabPresentationPhase::Reserved,
+                    role_ids: if tab_type == "role" {
+                        vec![source_id.to_owned()]
+                    } else {
+                        Vec::new()
+                    },
                     source_id: source_id.to_owned(),
                     tab_type: tab_type.to_owned(),
                     title: placeholder_name.to_owned(),
@@ -11384,6 +11509,7 @@ impl SystemRuntimeExecutor {
             );
             (previous_tab_id, previous_surfaces)
         };
+        self.publish_launcher_presence();
         if let Err(error) = self.reserve_native_tab(
             &target.window_id,
             &provisional_id,
@@ -11456,6 +11582,7 @@ impl SystemRuntimeExecutor {
                 selection.select(next_tab_id.clone(), revision);
             }
         }
+        self.publish_launcher_presence();
         self.remove_native_tab_reservation(
             &provisional.window_id,
             &provisional.id,
@@ -11580,6 +11707,11 @@ impl SystemRuntimeExecutor {
                             icon_data_url: None,
                             id: completion.tab_id.clone(),
                             phase: TabPresentationPhase::Failed,
+                            role_ids: if completion.tab_type == "role" {
+                                vec![completion.source_id.clone()]
+                            } else {
+                                Vec::new()
+                            },
                             source_id: completion.source_id.clone(),
                             tab_type: completion.tab_type.clone(),
                             title: completion.title.clone(),
@@ -11608,6 +11740,7 @@ impl SystemRuntimeExecutor {
                 },
             );
         }
+        self.publish_launcher_presence();
         let native_reservation = self.reserve_native_tab(
             &completion.window_id,
             &completion.tab_id,
@@ -11663,6 +11796,7 @@ impl SystemRuntimeExecutor {
                 selection.select(next_tab_id.clone(), revision);
             }
         }
+        self.publish_launcher_presence();
         self.remove_native_tab_reservation(
             &provisional.window_id,
             &provisional.id,
@@ -11821,6 +11955,7 @@ impl SystemRuntimeExecutor {
                 icon_data_url: None,
                 id: created_tab_id.clone(),
                 phase: TabPresentationPhase::Attaching,
+                role_ids: tab.roles.iter().map(|role| role.role.id.clone()).collect(),
                 source_id: tab.source_id.clone(),
                 tab_type: tab_type.to_owned(),
                 title: tab.name.clone(),
@@ -11842,6 +11977,7 @@ impl SystemRuntimeExecutor {
             }
             (previous_tab_id, previous_surfaces)
         };
+        self.publish_launcher_presence();
         self.record_runtime_stage(
             format!("tab-reserved:{}:{}", target.window_id, created_tab_id),
             "completed",
@@ -12296,6 +12432,7 @@ impl SystemRuntimeExecutor {
                 );
                 self.remove_empty_display_host(&target.window_id, host_created);
             }
+            self.publish_launcher_presence();
         } else {
             let remains_selected =
                 self.presentation
@@ -12773,6 +12910,7 @@ impl SystemRuntimeExecutor {
                     &snapshot_tab.id,
                     &snapshot_tab.source_id,
                     &snapshot_tab.tab_type,
+                    &snapshot_tab.role_ids,
                     &snapshot_tab.name,
                 );
             }
@@ -14385,6 +14523,7 @@ impl SystemRuntimeExecutor {
             });
         }
         if result.is_ok() {
+            self.publish_launcher_presence();
             self.remove_empty_display_host(&window_id, true);
         }
         result
@@ -18418,6 +18557,7 @@ mod tests {
             icon_data_url: None,
             id: id.to_owned(),
             phase,
+            role_ids: vec![format!("role-{id}")],
             source_id: format!("source-{id}"),
             tab_type: "role".to_owned(),
             title: format!("Tab {id}"),
@@ -18440,7 +18580,13 @@ mod tests {
             true,
         );
 
-        state.update_metadata("tab-a", "role-a", "role", "Updated A");
+        state.update_metadata(
+            "tab-a",
+            "role-a",
+            "role",
+            &["role-a".to_owned()],
+            "Updated A",
+        );
         state.update_phase("preview-b", TabPresentationPhase::Loading);
         state.reorder_known_tabs(&["tab-a".to_owned()]);
 
@@ -18753,6 +18899,7 @@ mod tests {
                     icon_data_url: None,
                     id: "provisional-a".to_owned(),
                     phase: TabPresentationPhase::Reserved,
+                    role_ids: vec!["role-a".to_owned()],
                     source_id: "role-a".to_owned(),
                     tab_type: "role".to_owned(),
                     title: "Loading".to_owned(),
@@ -18776,6 +18923,7 @@ mod tests {
                 icon_data_url: None,
                 id: "runtime-a".to_owned(),
                 phase: TabPresentationPhase::Attaching,
+                role_ids: vec!["role-a".to_owned()],
                 source_id: "role-a".to_owned(),
                 tab_type: "role".to_owned(),
                 title: "Role A".to_owned(),
@@ -18788,6 +18936,93 @@ mod tests {
             registry.tab_for_source("role-a", "role").as_deref(),
             Some("runtime-a")
         );
+    }
+
+    #[test]
+    fn launcher_presence_uses_presented_workspace_role_membership_until_removal() {
+        let registry = PresentationRegistry::default();
+        let coordinator = registry.coordinator("window-b").unwrap();
+        let mut workspace = presentation_tab("workspace-tab", TabPresentationPhase::Failed);
+        workspace.source_id = "workspace-a".to_owned();
+        workspace.tab_type = "workspace".to_owned();
+        workspace.role_ids = vec!["role-a".to_owned(), "role-b".to_owned()];
+        coordinator.lock().unwrap().insert_tab(workspace, 4, true);
+
+        let presence = registry.launcher_presence().unwrap();
+        assert_eq!(presence.tabs.len(), 1);
+        assert_eq!(presence.tabs[0].source_id, "workspace-a");
+        assert_eq!(presence.tabs[0].role_ids, ["role-a", "role-b"]);
+        assert_eq!(
+            registry
+                .tab_for_launcher_source("workspace-a", "workspace")
+                .as_deref(),
+            Some("workspace-tab")
+        );
+        assert_eq!(
+            registry
+                .tab_for_launcher_source("role-b", "role")
+                .as_deref(),
+            Some("workspace-tab")
+        );
+
+        coordinator.lock().unwrap().remove_tab("workspace-tab", 5);
+        assert!(registry.launcher_presence().unwrap().tabs.is_empty());
+        assert!(registry.tab_for_launcher_source("role-b", "role").is_none());
+    }
+
+    #[test]
+    fn launcher_presence_includes_reserved_role_tabs_across_windows() {
+        let registry = PresentationRegistry::default();
+        registry
+            .coordinator("window-z")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .insert_tab(
+                presentation_tab("reserved-role", TabPresentationPhase::Reserved),
+                1,
+                true,
+            );
+        registry
+            .coordinator("window-a")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .insert_tab(
+                presentation_tab("ready-role", TabPresentationPhase::Ready),
+                2,
+                true,
+            );
+
+        let presence = registry.launcher_presence().unwrap();
+        assert_eq!(
+            presence
+                .tabs
+                .iter()
+                .map(|tab| tab.tab_id.as_str())
+                .collect::<Vec<_>>(),
+            ["ready-role", "reserved-role"]
+        );
+    }
+
+    #[test]
+    fn launcher_presence_drops_tabs_without_live_or_provisional_runtime_ownership() {
+        let mut presence = RuntimeLauncherPresence {
+            tabs: ["live-tab", "stale-tab"]
+                .into_iter()
+                .map(|tab_id| RuntimeLauncherPresenceTab {
+                    role_ids: vec![format!("role-{tab_id}")],
+                    source_id: format!("source-{tab_id}"),
+                    tab_id: tab_id.to_owned(),
+                    tab_type: "role".to_owned(),
+                })
+                .collect(),
+        };
+
+        retain_live_runtime_launcher_tabs(&mut presence, &HashSet::from(["live-tab".to_owned()]));
+
+        assert_eq!(presence.tabs.len(), 1);
+        assert_eq!(presence.tabs[0].tab_id, "live-tab");
     }
 
     #[test]

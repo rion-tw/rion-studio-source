@@ -92,24 +92,16 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])],
   ["electron", new Set([
-    "crates/rion-core/src/data_root_migration.rs",
     "crates/rion-core/src/database/state.rs",
     "crates/rion-core/src/model.rs",
     "crates/rion-core/src/portable.rs",
-    "scripts/generateRefactorParityLedger.mjs",
-    "scripts/verifyTauriParityLedger.mjs",
     "src-tauri/windows/installer-hooks.nsh"
   ])],
   ["custom proxy", new Set([
-    "crates/rion-core/src/database/legacy.rs",
-    "crates/rion-core/src/database/state.rs",
-    "scripts/generateRefactorParityLedger.mjs",
-    "scripts/verifyTauriParityLedger.mjs"
+    "crates/rion-core/src/database/state.rs"
   ])],
   ['"proxy"', new Set([
-    "crates/rion-core/src/database/legacy.rs",
-    "crates/rion-core/src/database/state.rs",
-    "scripts/generateRefactorParityLedger.mjs"
+    "crates/rion-core/src/database/state.rs"
   ])]
 ]);
 
@@ -140,11 +132,8 @@ for (const root of sourceRoots) {
 }
 
 const packageJson = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8"));
-if (
-  packageJson.scripts?.["verify:system-only"] !==
-  "node scripts/verifySystemOnlyProduct.mjs && node scripts/verifyTauriParityLedger.mjs"
-) {
-  failures.push("verify:system-only must include verifyTauriParityLedger.mjs");
+if (packageJson.scripts?.["verify:system-only"] !== "node scripts/verifySystemOnlyProduct.mjs") {
+  failures.push("verify:system-only must run the architecture verifier");
 }
 const directPackages = {
   ...packageJson.dependencies,
@@ -200,7 +189,6 @@ const coreEffects = await readFile(
   "utf8"
 );
 for (const transferEffect of [
-  "LegacySessionRestore",
   "ChromeProfileImportSnapshot",
   "ChromeProfileImportApply",
   "ChromeProfileImportVerify",

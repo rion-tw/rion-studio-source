@@ -230,7 +230,7 @@ jobs:
           path: candidate
           merge-multiple: true
 
-      - name: Create updater-signed and legacy manifests
+      - name: Create updater-signed manifest
         shell: bash
         env:
           UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
@@ -243,11 +243,6 @@ jobs:
             --mac-archive candidate/Rion.Studio-mac.app.tar.gz \
             --windows-installer candidate/Rion.Studio-win.exe \
             --output candidate/latest.json
-          node scripts/createLegacyUpdateManifests.mjs \
-            --version "${VERSION}" \
-            --mac-dmg candidate/Rion.Studio-mac.dmg \
-            --windows-installer candidate/Rion.Studio-win.exe \
-            --output-directory candidate
           node scripts/releaseArtifacts.mjs candidate "${VERSION}" --write-checksums
 
       - name: Record verified release artifact
@@ -291,8 +286,22 @@ jobs:
           name: ${{ needs.manifest.outputs.release_artifact_name }}
           path: candidate
 
-      - name: Verify dual updater manifests and immutable checksums
+      - name: Verify updater manifest and immutable checksums
         run: node scripts/releaseArtifacts.mjs candidate ${{ needs.validate.outputs.version }} --verify-checksums
+
+      - name: Download previous macOS Tauri release
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --repo "${GITHUB_REPOSITORY}" --pattern Rion.Studio-mac.dmg --dir previous
+
+      - name: Download previous Windows Tauri release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --repo $env:GITHUB_REPOSITORY --pattern Rion.Studio-win.exe --dir previous
 
       - name: Verify macOS manual replacement preserves shared data
         if: runner.os == 'macOS'
@@ -300,21 +309,23 @@ jobs:
         run: |
           set -euo pipefail
           mount_path="${RUNNER_TEMP}/rion-dmg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          previous_mount_path="${RUNNER_TEMP}/rion-previous-dmg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           applications_path="${RUNNER_TEMP}/rion-applications-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           user_data_path="${RUNNER_TEMP}/rion-user-data-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "${mount_path}" "${applications_path}/Rion Studio.app/Contents" "${user_data_path}/roles/legacy/browser"
-          printf 'legacy-app' > "${applications_path}/Rion Studio.app/Contents/legacy-marker"
-          printf 'preserve-browser-data' > "${user_data_path}/roles/legacy/browser/data.marker"
+          mkdir -p "${mount_path}" "${previous_mount_path}" "${applications_path}" "${user_data_path}/roles/upgrade/browser"
+          hdiutil attach previous/Rion.Studio-mac.dmg -nobrowse -readonly -mountpoint "${previous_mount_path}"
+          ditto "${previous_mount_path}/Rion Studio.app" "${applications_path}/Rion Studio.app"
+          hdiutil detach "${previous_mount_path}"
+          printf 'preserve-browser-data' > "${user_data_path}/roles/upgrade/browser/data.marker"
           hdiutil attach candidate/Rion.Studio-mac.dmg -nobrowse -readonly -mountpoint "${mount_path}"
           trap 'hdiutil detach "${mount_path}" >/dev/null' EXIT
           test -d "${mount_path}/Rion Studio.app"
           mv "${applications_path}/Rion Studio.app" "${applications_path}/Rion Studio.previous.app"
           ditto "${mount_path}/Rion Studio.app" "${applications_path}/Rion Studio.app"
-          test ! -e "${applications_path}/Rion Studio.app/Contents/legacy-marker"
-          test -f "${user_data_path}/roles/legacy/browser/data.marker"
+          test -f "${user_data_path}/roles/upgrade/browser/data.marker"
           codesign --verify --deep --strict "${applications_path}/Rion Studio.app"
 
-      - name: Verify Windows clean install and legacy in-place upgrade
+      - name: Verify Windows clean install and previous Tauri in-place upgrade
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -345,6 +356,7 @@ jobs:
           $installPath = Join-Path $root "custom-install"
           $userData = Join-Path ([Environment]::GetFolderPath("ApplicationData")) "Rion Studio"
           $installer = (Resolve-Path candidate/Rion.Studio-win.exe).Path
+          $previousInstaller = (Resolve-Path previous/Rion.Studio-win.exe).Path
           if (Test-Path $userData) { throw "The fresh Windows runner already contains Rion Studio user data." }
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
@@ -354,23 +366,21 @@ jobs:
           if ($null -eq $cleanUninstaller) { throw "Clean installation did not create an uninstaller." }
           Invoke-BoundedProcess -FilePath $cleanUninstaller.FullName -ArgumentList "/S" -Stage "Clean NSIS uninstallation"
 
-          New-Item -ItemType Directory -Force -Path (Join-Path $installPath "resources/native"), (Join-Path $userData "roles/legacy/browser") | Out-Null
-          Set-Content -NoNewline -Path (Join-Path $installPath "resources/app.asar") -Value "legacy-runtime"
-          Set-Content -NoNewline -Path (Join-Path $installPath "resources/native/rion-webview2.node") -Value "legacy-helper"
-          Set-Content -NoNewline -Path (Join-Path $installPath "Uninstall Rion Studio.exe") -Value "legacy-uninstaller"
-          Set-Content -NoNewline -Path (Join-Path $userData "roles/legacy/browser/data.marker") -Value "preserve-browser-data"
-          Set-Content -NoNewline -Path (Join-Path $userData "games.json") -Value '{"games":[]}'
-          Set-Content -NoNewline -Path (Join-Path $userData "roles.json") -Value '{"roles":[]}'
-          Set-Content -NoNewline -Path (Join-Path $userData "macros.json") -Value '{"macros":[]}'
-          Set-Content -NoNewline -Path (Join-Path $userData "launch-workspaces.json") -Value '{"schemaVersion":7,"workspaces":[]}'
+          Invoke-BoundedProcess -FilePath $previousInstaller -ArgumentList @("/S", "/D=$installPath") -Stage "Previous Tauri NSIS installation"
+          $previousExecutable = Join-Path $installPath "rion-tauri.exe"
+          if (-not (Test-Path $previousExecutable -PathType Leaf)) { throw "Previous Tauri installation did not create the executable." }
+          $previousApp = Start-Process -FilePath $previousExecutable -PassThru
+          for ($attempt = 0; $attempt -lt 30 -and -not (Test-Path (Join-Path $userData "rion-studio.sqlite3")); $attempt += 1) { Start-Sleep -Seconds 1 }
+          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Previous Tauri release did not create the SQLite store." }
+          if (-not $previousApp.HasExited) { Stop-Process -Id $previousApp.Id -Force }
+          New-Item -ItemType Directory -Force -Path (Join-Path $userData "roles/upgrade/browser") | Out-Null
+          Set-Content -NoNewline -Path (Join-Path $userData "roles/upgrade/browser/data.marker") -Value "preserve-browser-data"
 
           # Start-Process -Wait waits for the whole descendant tree. --force-run launches
           # the app as an installer descendant, so wait only for the installer process.
-          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "--updated", "--force-run", "/D=$installPath") -Stage "Legacy-compatible NSIS installation"
+          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "--updated", "--force-run", "/D=$installPath") -Stage "Tauri in-place NSIS upgrade"
           $installedExecutable = Join-Path $installPath "rion-tauri.exe"
           if (-not (Test-Path $installedExecutable -PathType Leaf)) { throw "The Tauri executable was not installed to the custom path." }
-          if (Test-Path (Join-Path $installPath "resources/app.asar")) { throw "Legacy app.asar residue was not removed." }
-          if (Test-Path (Join-Path $installPath "Uninstall Rion Studio.exe")) { throw "The legacy uninstaller was not removed." }
 
           $launched = $null
           for ($attempt = 0; $attempt -lt 30 -and $null -eq $launched; $attempt += 1) {
@@ -379,13 +389,13 @@ jobs:
           }
           if ($null -eq $launched) { throw "--force-run did not launch the installed Tauri executable." }
           for ($attempt = 0; $attempt -lt 30 -and -not (Test-Path (Join-Path $userData "rion-studio.sqlite3")); $attempt += 1) { Start-Sleep -Seconds 1 }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "The shared data migration did not create the SQLite store." }
+          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "The upgraded app did not preserve the SQLite store." }
           Stop-Process -Id $launched.ProcessId -Force
 
           $uninstaller = Get-ChildItem $installPath -Filter "*uninstall*.exe" | Select-Object -First 1
           if ($null -eq $uninstaller) { throw "The upgraded installation did not create an uninstaller." }
           Invoke-BoundedProcess -FilePath $uninstaller.FullName -ArgumentList "/S" -Stage "Upgraded NSIS uninstallation"
-          if (-not (Test-Path (Join-Path $userData "roles/legacy/browser/data.marker") -PathType Leaf)) { throw "Uninstallation removed role browser data." }
+          if (-not (Test-Path (Join-Path $userData "roles/upgrade/browser/data.marker") -PathType Leaf)) { throw "Uninstallation removed role browser data." }
           if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Uninstallation removed the SQLite store." }
 
   release-ready:

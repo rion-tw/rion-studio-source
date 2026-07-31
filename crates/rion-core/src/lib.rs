@@ -4,7 +4,6 @@ mod browser_action_effects;
 mod browser_operations;
 mod browser_runtime;
 mod chrome_profile_import;
-mod data_root_migration;
 mod database;
 mod diagnostics;
 mod domain;
@@ -46,7 +45,6 @@ pub(crate) use v1_case;
 
 pub use app::{AppCore, BrowserLaunchCompletionRecord};
 pub use bootstrap_settings::additional_browser_arguments;
-pub use data_root_migration::{DataRootMigrationOutcome, migrate_legacy_data_root};
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
 pub use model::{
@@ -76,10 +74,10 @@ pub use model::{
     GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LatencySummaryRecord,
     LayoutBounds, LayoutDividerBounds, LayoutDividerInput, LayoutRect, LayoutRoleBounds,
-    LayoutRoleInput, LegacySessionRestoreRecord, LegalAcceptDocumentsInputRecord,
-    LegalAcceptanceRecord, LegalAcceptanceStatusRecord, LegalDocumentVersionsRecord,
-    LocalStorageEntryRecord, LocalStorageSyncRoleEffectRecord, LocalStorageSyncSourceEffectRecord,
-    LogCaptureRecord, LogEntry, LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogSource,
+    LayoutRoleInput, LegalAcceptDocumentsInputRecord, LegalAcceptanceRecord,
+    LegalAcceptanceStatusRecord, LegalDocumentVersionsRecord, LocalStorageEntryRecord,
+    LocalStorageSyncRoleEffectRecord, LocalStorageSyncSourceEffectRecord, LogCaptureRecord,
+    LogEntry, LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogSource,
     LogStorageStatusRecord, MacroBadgePositionRecord, MacroCoordinateRecord,
     MacroCreateInputRecord, MacroCreateRequest, MacroDefinition, MacroInvocationRequest,
     MacroLastClick, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
@@ -212,7 +210,6 @@ mod generated_contract_tests {
                 "export type { LegalAcceptDocumentsInputRecord } from \"./LegalAcceptDocumentsInputRecord\";\n",
                 "export type { LegalAcceptanceStatusRecord } from \"./LegalAcceptanceStatusRecord\";\n",
                 "export type { LegalDocumentVersionsRecord } from \"./LegalDocumentVersionsRecord\";\n",
-                "export type { LegacySessionRestoreRecord } from \"./LegacySessionRestoreRecord\";\n",
                 "export type { LocalStorageSyncRoleEffectRecord } from \"./LocalStorageSyncRoleEffectRecord\";\n",
                 "export type { LocalStorageSyncSourceEffectRecord } from \"./LocalStorageSyncSourceEffectRecord\";\n",
                 "export type { LogEntry } from \"./LogEntry\";\n",

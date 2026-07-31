@@ -179,13 +179,6 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
   }
 ];
 
-const legacyHandwritingNumericCatalogs = {
-  "natural-handwriting": "caveat",
-  "playful-handwriting": "caveat",
-  "calligraphic-handwriting": "kalam",
-  "marker-notes": "permanent-marker"
-} as const satisfies Partial<Record<BrowserFontPresetId, string>>;
-
 export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   cjkVariant: "auto",
   fontSmoothingEnabled: true,
@@ -281,10 +274,8 @@ export function normalizeBrowserFontSettings(
   const mode = normalizeBrowserFontSettingsMode(input.mode, fallback.mode);
   const cjkVariant = normalizeBrowserFontCjkVariant(input.cjkVariant, fallback.cjkVariant);
   const slots = normalizeBrowserFontSlots(input.slots, hasInput ? {} : fallback.slots);
-  migrateLegacyBrowserFontFamilies(input.families, slots);
   const presetId =
     normalizePresetId(input.presetId) ?? (!hasInput ? normalizePresetId(fallback.presetId) : undefined);
-  migrateLegacyHandwritingPresetNumeric(presetId, slots);
 
   return mode === "default"
     ? { ...cloneBrowserFontSettings(DEFAULT_BROWSER_FONT_SETTINGS), fontSmoothingEnabled }
@@ -293,22 +284,6 @@ export function normalizeBrowserFontSettings(
 
 function cloneBrowserFontSettings(settings: BrowserFontSettings): BrowserFontSettings {
   return { ...settings, slots: { ...settings.slots } };
-}
-
-function migrateLegacyHandwritingPresetNumeric(
-  presetId: string | undefined,
-  slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>
-): void {
-  const legacyCatalogId =
-    presetId && Object.hasOwn(legacyHandwritingNumericCatalogs, presetId)
-      ? legacyHandwritingNumericCatalogs[
-          presetId as keyof typeof legacyHandwritingNumericCatalogs
-        ]
-      : undefined;
-  const numeric = slots.numeric;
-  if (legacyCatalogId && numeric?.source === "google" && numeric.catalogId === legacyCatalogId) {
-    slots.numeric = google("patrick-hand");
-  }
 }
 
 export function normalizeBrowserFontSlots(
@@ -388,23 +363,6 @@ function normalizeBrowserFontSelection(
     return { source: "google", catalogId };
   }
   return fallback;
-}
-
-function migrateLegacyBrowserFontFamilies(
-  value: unknown,
-  slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>
-): void {
-  if (!isRecord(value) || Object.keys(slots).length > 0) return;
-  const proportional = [value.standard, value.sansserif, value.serif]
-    .map((family) => normalizeBrowserFontFamily(family))
-    .find(Boolean);
-  if (proportional) {
-    for (const slot of ["cjk", "latin", "numeric"] as const) slots[slot] = system(proportional);
-  }
-  const fixed = normalizeBrowserFontFamily(value.fixed);
-  if (fixed) slots.monospace = system(fixed);
-  const math = normalizeBrowserFontFamily(value.math);
-  if (math) slots.math = system(math);
 }
 
 function normalizePresetId(value: unknown): string | undefined {

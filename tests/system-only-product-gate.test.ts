@@ -23,7 +23,7 @@ describe("system-only product gate", () => {
     );
 
     expect(packageJson).toContain(
-      '"verify:system-only": "node scripts/verifySystemOnlyProduct.mjs && node scripts/verifyTauriParityLedger.mjs"'
+      '"verify:system-only": "node scripts/verifySystemOnlyProduct.mjs"'
     );
     expect(ci).toContain("pnpm run verify:system-only");
     expect(release).toContain("verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}");
@@ -34,7 +34,6 @@ describe("system-only product gate", () => {
     expect(gate).toContain("ExternalChrome");
     expect(gate).toContain("ChromeProfileImport");
     expect(gate).toContain("proxy_url");
-    expect(gate).toContain("verifyTauriParityLedger.mjs");
     expect(gate).toContain("CoreEffectAction still exposes");
   });
 

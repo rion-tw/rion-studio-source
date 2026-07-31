@@ -14,6 +14,8 @@ pub enum CoreError {
     LogDatabase(String),
     #[error("data migration failed: {0}")]
     Migration(String),
+    #[error("unsupported data version: {0}")]
+    UnsupportedDataVersion(String),
     #[error("core is shutting down")]
     ShuttingDown,
     #[error("scheduled wait was cancelled")]
@@ -34,6 +36,7 @@ impl CoreError {
             Self::StateDatabase(_) => "CORE_STATE_DATABASE_FAILED",
             Self::LogDatabase(_) => "CORE_LOG_DATABASE_FAILED",
             Self::Migration(_) => "CORE_MIGRATION_FAILED",
+            Self::UnsupportedDataVersion(_) => "CORE_DATA_VERSION_UNSUPPORTED",
             Self::ShuttingDown => "CORE_SHUTTING_DOWN",
             Self::WaitCancelled => "CORE_WAIT_CANCELLED",
             Self::Platform(_) => "CORE_PLATFORM_FAILED",

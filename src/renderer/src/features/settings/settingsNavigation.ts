@@ -4,14 +4,6 @@ export const settingsSectionIds = ["interface", "macros", "data", "updates", "di
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
-const legacySectionAliases: Partial<Record<string, SettingsSectionId>> = {
-  appearance: "interface",
-  game: "interface",
-  portability: "data",
-  preferences: "interface",
-  "role-defaults": "interface"
-};
-
 export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
   aboutLegal: "about-legal",
   data: "data",
@@ -30,7 +22,7 @@ export function readSettingsSection(value: string | null): SettingsSectionId {
     return value as SettingsSectionId;
   }
 
-  return value ? legacySectionAliases[value] ?? "interface" : "interface";
+  return "interface";
 }
 
 export function readSettingsReturnTo(state: unknown): string {

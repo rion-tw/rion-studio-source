@@ -112,19 +112,6 @@ pub struct SystemWebViewRuntimeRegistrationRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct LegacySessionRestoreRecord {
-    pub role_id: String,
-    pub status: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_fingerprint: Option<String>,
-    pub cookie_count: u32,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ChromeProfileEntryRecord {
     pub id: String,
     pub directory_name: String,
@@ -1936,9 +1923,6 @@ pub enum CoreEvent {
     ChromeProfileImportProgress {
         progress: ChromeProfileImportProgressRecord,
     },
-    LegacySessionsRestored {
-        records: Vec<LegacySessionRestoreRecord>,
-    },
     Shutdown,
 }
 
@@ -2329,9 +2313,6 @@ pub struct BrowserFontSettingsRecord {
         type = "Partial<Record<\"cjk\" | \"latin\" | \"numeric\" | \"monospace\" | \"math\", { source: \"system\", family: string } | { source: \"google\", catalogId: string, family?: string }>>"
     )]
     pub slots: std::collections::HashMap<String, BrowserFontSelectionRecord>,
-    #[serde(default, skip_serializing)]
-    #[ts(skip)]
-    pub families: std::collections::HashMap<String, String>,
 }
 
 fn default_browser_font_cjk_variant() -> String {
@@ -3080,13 +3061,6 @@ pub enum CoreEffectAction {
         role_id: String,
         origin: String,
         local_storage_sync_keys: Vec<String>,
-        webview2_user_data_dir: String,
-        webkit_data_store_identifier: String,
-    },
-    LegacySessionRestore {
-        transaction_id: String,
-        role_id: String,
-        launch_url: String,
         webview2_user_data_dir: String,
         webkit_data_store_identifier: String,
     },

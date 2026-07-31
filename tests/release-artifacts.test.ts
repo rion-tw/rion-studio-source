@@ -37,10 +37,10 @@ describe("release artifact verification", () => {
 
   it("rejects missing assets, unexpected files, and mismatched updater versions", async () => {
     const missingDirectory = await createReleaseFixture("1.20.0", {
-      omit: "latest.yml"
+      omit: "latest.json"
     });
     await expect(verifyReleaseAssets(missingDirectory, "1.20.0")).rejects.toThrow(
-      "Missing required release assets: latest.yml"
+      "Missing required release assets: latest.json"
     );
 
     const unexpectedDirectory = await createReleaseFixture("1.20.0");
@@ -110,14 +110,6 @@ async function createReleaseFixture(version: string, options: { omit?: string } 
     "--windows-installer", windowsInstaller,
     "--published-at", "2026-07-26T00:00:00Z",
     "--output", join(directory, "latest.json")
-  ]);
-  runScript([
-    "scripts/createLegacyUpdateManifests.mjs",
-    "--version", version,
-    "--mac-dmg", macDmg,
-    "--windows-installer", windowsInstaller,
-    "--published-at", "2026-07-26T00:00:00Z",
-    "--output-directory", directory
   ]);
   if (options.omit) await rm(join(directory, options.omit));
   return directory;

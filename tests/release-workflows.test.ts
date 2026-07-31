@@ -192,13 +192,13 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain('$signature.Status -ne "NotSigned"');
     expect(workflow).not.toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
     expect(workflow).toContain("createTauriUpdaterManifest.mjs");
-    expect(workflow).toContain("createLegacyUpdateManifests.mjs");
+    expect(workflow).not.toContain("createLegacyUpdateManifests.mjs");
     expect(workflow).toContain("releaseArtifacts.mjs");
     expect(workflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
     expect(workflow).toContain("Rion.Studio-win.exe.sig");
     expect(workflow).toContain("upgrade-compatibility:");
     expect(workflow).toContain("Verify macOS manual replacement preserves shared data");
-    expect(workflow).toContain("Verify Windows clean install and legacy in-place upgrade");
+    expect(workflow).toContain("Verify Windows clean install and previous Tauri in-place upgrade");
     expect(workflow).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
     expect(upgrade).toContain("timeout-minutes: 10");
     expect(upgrade).toContain("function Invoke-BoundedProcess");
@@ -208,7 +208,7 @@ describe("Tauri-only release workflows", () => {
     expect(upgrade).not.toContain("Start-Process -FilePath $installer -ArgumentList");
     expect(upgrade).not.toContain("RION_STUDIO_USER_DATA_DIR");
     expect(workflow).toContain("rion-studio.sqlite3");
-    expect(workflow).toContain("roles/legacy/browser/data.marker");
+    expect(workflow).toContain("roles/upgrade/browser/data.marker");
     expect(workflow.toLowerCase()).not.toContain("electron");
   });
 
@@ -278,14 +278,13 @@ describe("Tauri-only release workflows", () => {
       readWorkflow(".agents/context.md")
     ]);
 
-    for (const source of [agentInstructions, agentContext]) {
-      expect(source).toContain("Owner-Locked Release Distribution Decision");
-      expect(source).toContain("ad-hoc identity (`-`)");
-      expect(source).toContain("Windows installers remain Authenticode-unsigned");
-      expect(source).toContain("updater signing");
-      expect(source).toContain("must not add Apple Developer ID");
-      expect(source).toContain("explicitly changes this decision");
-    }
+    expect(agentInstructions).toContain("Release Distribution (Owner-Locked)");
+    expect(agentInstructions).toContain("ad-hoc identity (`-`)");
+    expect(agentInstructions).toContain("Windows installers remain Authenticode-unsigned");
+    expect(agentInstructions).toContain("updater signing");
+    expect(agentInstructions).toContain("owner explicitly changes this decision");
+    expect(agentContext).toContain("owner-locked release decision live in `AGENTS.md`");
+    expect(agentContext).toContain("`.agents/context/release.md`");
   });
 
   it("publishes source-free assets only after draft verification", async () => {

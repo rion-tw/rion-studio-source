@@ -85,23 +85,23 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     let schema = object
         .get("schemaVersion")
         .and_then(Value::as_u64)
-        .filter(|schema| (1..=PORTABLE_SCHEMA_VERSION).contains(schema))
-        .ok_or_else(|| invalid("portable schema version is unsupported"))?;
+        .ok_or_else(|| {
+            CoreError::UnsupportedDataVersion(format!(
+                "portable schema must be exactly {PORTABLE_SCHEMA_VERSION}"
+            ))
+        })?;
+    if schema != PORTABLE_SCHEMA_VERSION {
+        return Err(CoreError::UnsupportedDataVersion(format!(
+            "portable schema {schema} is unsupported; expected {PORTABLE_SCHEMA_VERSION}"
+        )));
+    }
     let mut roles = normalize_array(object, "roles", normalize_role)?;
-    let input_games = if schema >= 2 {
-        normalize_array(object, "games", normalize_game)?
-    } else {
-        Vec::new()
-    };
+    let input_games = normalize_array(object, "games", normalize_game)?;
     let workspaces = normalize_workspaces(object)?;
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
-    let macros = normalize_macros(object, schema >= 5)?;
-    let game_windows = if schema >= 8 {
-        normalize_array(object, "gameWindows", normalize_game_window)?
-    } else {
-        Vec::new()
-    };
+    let macros = normalize_macros(object, true)?;
+    let game_windows = normalize_array(object, "gameWindows", normalize_game_window)?;
     ensure_unique_ids(&games, "id", "game")?;
     ensure_unique_ids(&roles, "id", "role")?;
     ensure_unique_ids(&workspaces, "id", "workspace")?;
@@ -2736,53 +2736,8 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_every_supported_portable_schema_to_v11() {
-        for schema in 1..=11 {
-            let value = normalize(&fixture(schema)).unwrap();
-            assert_eq!(value["schemaVersion"], 11);
-            assert!(!value["roles"][0]["gameId"].as_str().unwrap().is_empty());
-            assert_eq!(value["macros"][0]["enabled"], true);
-            assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
-            assert!(
-                value["launchWorkspaces"][0]
-                    .get("browserZoomMode")
-                    .is_none()
-            );
-            assert!(
-                value["launchWorkspaces"][0]
-                    .get("browserZoomPercent")
-                    .is_none()
-            );
-        }
-    }
-
-    // Historical parity evidence retained after the portable schema advanced to v10.
-    #[test]
-    fn normalizes_every_supported_portable_schema_to_v7() {
-        normalizes_every_supported_portable_schema_to_v11();
-    }
-
-    #[test]
-    fn removes_legacy_browser_engine_fields_before_import() {
-        let mut source = fixture_value(7);
-        source["games"][0]["browserEngine"] = json!("electron");
-        source["roles"][0]["browserEnginePin"] = json!("electron");
-        source["launchWorkspaces"][0]["browserEngine"] = json!("electron");
-
-        let normalized = normalize(&source.to_string()).unwrap();
-
-        assert!(normalized["games"][0].get("browserEngine").is_none());
-        assert!(normalized["roles"][0].get("browserEnginePin").is_none());
-        assert!(
-            normalized["launchWorkspaces"][0]
-                .get("browserEngine")
-                .is_none()
-        );
-    }
-
-    #[test]
     fn portable_game_windows_remap_dependencies_and_preserve_cross_window_role_claims() {
-        let mut source = fixture_value(8);
+        let mut source = fixture_value(11);
         let first_window_id = uuid::Uuid::new_v4().to_string();
         let second_window_id = uuid::Uuid::new_v4().to_string();
         source["gameWindows"] = json!([
@@ -2873,24 +2828,8 @@ mod tests {
     }
 
     #[test]
-    fn ignores_legacy_workspace_resource_policies_in_every_supported_schema() {
-        for schema in 1..=7 {
-            for mode in ["adaptive", "unrestricted"] {
-                let mut source = fixture_value(schema);
-                source["launchWorkspaces"][0]["resourcePolicy"] = json!({ "mode": mode });
-                let normalized = normalize(&source.to_string()).unwrap();
-                assert!(
-                    normalized["launchWorkspaces"][0]
-                        .get("resourcePolicy")
-                        .is_none()
-                );
-            }
-        }
-    }
-
-    #[test]
     fn rejects_cycles_and_unsupported_versions() {
-        let mut cycle: Value = serde_json::from_str(&fixture(6)).unwrap();
+        let mut cycle: Value = serde_json::from_str(&fixture(11)).unwrap();
         cycle["macros"] = json!([
             {
                 "id":"a","name":"A","roleIds":["r1"],"repeat":{"type":"once"},
@@ -2917,7 +2856,11 @@ mod tests {
     fn rust_runtime_owns_preview_selection_and_single_apply_snapshot() {
         let mut runtime = PortableRuntime::default();
         let preview = runtime
-            .preview(&fixture(6), "/tmp/import.json".to_owned(), empty_snapshot())
+            .preview(
+                &fixture(11),
+                "/tmp/import.json".to_owned(),
+                empty_snapshot(),
+            )
             .unwrap();
         assert_eq!(preview.operations.games.create, 1);
         assert_eq!(preview.operations.roles.create, 1);
@@ -2950,85 +2893,9 @@ mod tests {
     }
 
     #[test]
-    fn portable_v10_remaps_role_local_storage_bindings_and_warns_when_missing() {
-        let mut source = fixture_value(10);
-        source["games"][0]["localStorageSyncKeys"] = json!(["game_client_settings"]);
-        source["roles"] = json!([
-            {"id":"master","gameId":"g1","name":"Master","launchUrl":"https://example.test/play","notes":""},
-            {"id":"follower","gameId":"g1","name":"Follower","launchUrl":"https://example.test/play","notes":"","localStorageSourceRoleId":"master"}
-        ]);
-        source["launchWorkspaces"] = json!([]);
-        source["macros"] = json!([]);
-
-        let mut runtime = PortableRuntime::default();
-        let preview = runtime
-            .preview(
-                &source.to_string(),
-                "/tmp/binding.json".to_owned(),
-                empty_snapshot(),
-            )
-            .unwrap();
-        let prepared = runtime
-            .prepare_apply(
-                &preview.import_id,
-                all_selection(),
-                Vec::new(),
-                empty_snapshot(),
-            )
-            .unwrap();
-        let master = prepared
-            .snapshot
-            .roles
-            .iter()
-            .find(|role| role.name == "Master")
-            .unwrap();
-        let follower = prepared
-            .snapshot
-            .roles
-            .iter()
-            .find(|role| role.name == "Follower")
-            .unwrap();
-        assert_eq!(
-            follower.local_storage_source_role_id.as_deref(),
-            Some(master.id.as_str())
-        );
-
-        source["roles"][1]["localStorageSourceRoleId"] = json!("missing");
-        let preview = runtime
-            .preview(
-                &source.to_string(),
-                "/tmp/missing.json".to_owned(),
-                empty_snapshot(),
-            )
-            .unwrap();
-        let prepared = runtime
-            .prepare_apply(
-                &preview.import_id,
-                all_selection(),
-                Vec::new(),
-                empty_snapshot(),
-            )
-            .unwrap();
-        assert!(
-            prepared
-                .snapshot
-                .roles
-                .iter()
-                .all(|role| role.local_storage_source_role_id.is_none())
-        );
-        assert!(
-            prepared
-                .result
-                .warnings
-                .iter()
-                .any(|warning| warning.code == "ROLE_LOCAL_STORAGE_SOURCE_MISSING")
-        );
-    }
-
-    #[test]
     fn portable_macro_schema_and_dependency_contracts_match_v1() {
         crate::v1_case!("portable-profile-8e28536dd709", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             source["roles"] = json!([]);
             source["launchWorkspaces"] = json!([]);
             source["macros"] = json!([
@@ -3079,7 +2946,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-e6af9396e983", {
-            let mut current = fixture_value(5);
+            let mut current = fixture_value(11);
             current["macros"][0]["steps"] = json!([{
                 "id":"key","type":"key","code":"KeyK","modifiers":["primary","shift"]
             }]);
@@ -3088,13 +2955,10 @@ mod tests {
                 normalized["macros"][0]["steps"][0]["modifiers"],
                 json!(["primary", "shift"])
             );
-            current["schemaVersion"] = json!(4);
-            let legacy = normalize(&current.to_string()).unwrap();
-            assert!(legacy["macros"][0]["steps"][0].get("modifiers").is_none());
         });
 
         crate::v1_case!("portable-profile-ad31d6182c00", {
-            let mut source = fixture_value(4);
+            let mut source = fixture_value(11);
             source["macros"][0]["activationMode"] = json!("while_held");
             source["macros"][0]["trigger"] =
                 json!({"code":"F6","ctrl":false,"alt":false,"shift":false,"meta":false});
@@ -3110,7 +2974,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-1e98f72121bd", {
-            let mut source = fixture_value(3);
+            let mut source = fixture_value(11);
             source["macros"] = json!([
                 {
                     "id":"parent","name":"Parent","roleIds":["r1"],"repeat":{"type":"once"},
@@ -3161,7 +3025,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-80399681ac04", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             source["macros"] = json!([
                 {
                     "id":"target","name":"Unavailable target","roleIds":["missing"],
@@ -3300,7 +3164,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-aeb1cbd39bbb", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             source["preferences"] = json!({"language":"ja","themeMode":"light"});
             let mut runtime = PortableRuntime::default();
             let preview = runtime
@@ -3340,7 +3204,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-3f9907060aae", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             source["preferences"] = json!({"language":"en"});
             let mut runtime = PortableRuntime::default();
             let preview = runtime
@@ -3497,7 +3361,7 @@ mod tests {
     #[test]
     fn portable_validation_boundaries_match_v1() {
         crate::v1_case!("portable-profile-2d3cefe26629", {
-            let mut source = fixture_value(2);
+            let mut source = fixture_value(11);
             source["games"][0]["coverImageDataUrl"] = json!("https://example.test/cover.png");
             assert_eq!(
                 normalize(&source.to_string()).unwrap_err().code(),
@@ -3510,13 +3374,13 @@ mod tests {
                 normalize(r#"{"app":"Rion Studio","schemaVersion":999}"#)
                     .unwrap_err()
                     .code(),
-                "CORE_INPUT_INVALID"
+                "CORE_DATA_VERSION_UNSUPPORTED"
             );
             assert_eq!(normalize("{").unwrap_err().code(), "CORE_INPUT_INVALID");
         });
 
         crate::v1_case!("portable-profile-920e788a3d07", {
-            let mut source = fixture_value(4);
+            let mut source = fixture_value(11);
             for macro_value in [
                 json!({
                     "id":"bad","enabled":true,"activationMode":"invalid","name":"Bad",
@@ -3543,12 +3407,12 @@ mod tests {
             source["schemaVersion"] = json!("4");
             assert_eq!(
                 normalize(&source.to_string()).unwrap_err().code(),
-                "CORE_INPUT_INVALID"
+                "CORE_DATA_VERSION_UNSUPPORTED"
             );
         });
 
         crate::v1_case!("portable-profile-4a3164c3671d", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             source["macros"][0]["repeat"] = json!({"type":"loop","intervalMs":86_400_000_u64});
             source["macros"][0]["steps"] =
                 json!([{"id":"delay","type":"delay","ms":86_400_000_u64}]);
@@ -3562,228 +3426,9 @@ mod tests {
     }
 
     #[test]
-    fn portable_workspace_and_legacy_field_migrations_match_v1() {
-        crate::v1_case!("portable-profile-f6192f7c5af5", {
-            let mut source = fixture_value(6);
-            source["preferences"] = json!({"language":"ja"});
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/workspace-only.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    PortableDataSelectionRecord {
-                        games: false,
-                        roles: false,
-                        launch_workspaces: true,
-                        game_windows: false,
-                        macros: false,
-                        preferences: false,
-                    },
-                    Vec::new(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            assert_eq!(prepared.result.game_count, 1);
-            assert_eq!(prepared.result.role_count, 1);
-            assert_eq!(prepared.result.workspace_count, 1);
-            assert_eq!(prepared.result.macro_count, 0);
-            assert!(!prepared.result.preferences_included);
-            assert!(prepared.result.selection.games);
-            assert!(prepared.result.selection.roles);
-            assert!(prepared.result.selection.launch_workspaces);
-            assert!(!prepared.result.selection.macros);
-        });
-
-        crate::v1_case!("portable-profile-8d9b6b46ac4a", {
-            let mut source = fixture_value(6);
-            source["launchWorkspaces"][0]["template"] = json!("nine_grid");
-            source["launchWorkspaces"][0]["browserZoomPercent"] = json!(80);
-            source["launchWorkspaces"][0]["slots"] = Value::Array(
-                default_rects("nine_grid")
-                    .unwrap()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, rect)| {
-                        json!({
-                            "id":format!("slot-{}", index + 1),
-                            "roleId": (index == 0).then_some("r1"),
-                            "rect":rect
-                        })
-                    })
-                    .collect(),
-            );
-            assert!(normalize(&source.to_string()).is_ok());
-            source["launchWorkspaces"][0]["slots"]
-                .as_array_mut()
-                .unwrap()
-                .push(json!({
-                    "id":"slot-10",
-                    "rect":{"x":0,"y":0,"width":0.3333,"height":0.3333}
-                }));
-            assert!(normalize(&source.to_string()).is_err());
-        });
-
-        crate::v1_case!("portable-profile-d77ce362da9b", {
-            let mut source = fixture_value(6);
-            source["launchWorkspaces"][0] = json!({
-                "id":"w1","name":"Workspace","template":"three_columns",
-                "browserZoomMode":"fixed","browserZoomPercent":90,
-                "resourcePolicy":{"mode":"unrestricted"},
-                "slots":[
-                    {
-                        "id":"slot-1","roleId":"r1","browserZoomPercent":120,
-                        "rect":{"x":0,"y":0,"width":0.3333,"height":1}
-                    },
-                    {"id":"slot-2","rect":{"x":0.3333,"y":0,"width":0.3333,"height":1}},
-                    {"id":"slot-3","rect":{"x":0.6667,"y":0,"width":0.3333,"height":1}}
-                ]
-            });
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/legacy-thirds.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    all_selection(),
-                    Vec::new(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let workspace = &prepared.snapshot.launch_workspaces[0];
-            assert_eq!(
-                workspace
-                    .slots
-                    .iter()
-                    .map(|slot| [slot.rect.x, slot.rect.y, slot.rect.width, slot.rect.height])
-                    .collect::<Vec<_>>(),
-                vec![
-                    [0.0, 0.0, 0.3333, 1.0],
-                    [0.3333, 0.0, 0.3334, 1.0],
-                    [0.6667, 0.0, 0.3333, 1.0]
-                ]
-            );
-            assert!(
-                serde_json::to_value(workspace)
-                    .unwrap()
-                    .get("resourcePolicy")
-                    .is_none()
-            );
-            let workspace_value = serde_json::to_value(workspace).unwrap();
-            assert!(workspace_value.get("browserZoomMode").is_none());
-            assert!(workspace_value.get("browserZoomPercent").is_none());
-            assert_eq!(workspace.slots[0].browser_zoom_percent, Some(120.0));
-            source["launchWorkspaces"][0]["slots"][0]["browserZoomPercent"] = json!(301);
-            assert!(normalize(&source.to_string()).is_err());
-        });
-
-        crate::v1_case!("portable-profile-010d0aa468df", {
-            let mut source = fixture_value(6);
-            source["launchWorkspaces"][0]["resourcePolicy"] =
-                json!({"mode":"primary_priority","backgroundCpuThrottleRate":2});
-            for slot in source["launchWorkspaces"][0]["slots"]
-                .as_array_mut()
-                .unwrap()
-            {
-                slot.as_object_mut().unwrap().remove("roleId");
-            }
-            source["macros"] = json!([]);
-            let normalized = normalize(&source.to_string()).unwrap();
-            assert!(
-                normalized["launchWorkspaces"][0]
-                    .get("resourcePolicy")
-                    .is_none()
-            );
-        });
-
-        crate::v1_case!("portable-profile-84356a8bf16d", {
-            let mut source = fixture_value(6);
-            source["launchWorkspaces"][0]["template"] = json!("single");
-            source["launchWorkspaces"][0]["slots"] = json!([
-                {"id":"slot-1","rect":{"x":0,"y":0,"width":1,"height":1}},
-                {
-                    "id":"slot-2","roleId":"r1",
-                    "rect":{"x":0.5,"y":0,"width":0.5,"height":1}
-                }
-            ]);
-            let mut runtime = PortableRuntime::default();
-            assert_eq!(
-                runtime
-                    .preview(
-                        &source.to_string(),
-                        "/tmp/outside-layout.json".to_owned(),
-                        empty_snapshot()
-                    )
-                    .unwrap_err()
-                    .code(),
-                "CORE_INPUT_INVALID"
-            );
-        });
-
-        crate::v1_case!("portable-profile-107e66b960d2", {
-            let mut source = fixture_value(6);
-            source["preferences"] = json!({
-                "language":"zh-TW",
-                "roleDefaults":{"windowWidth":100,"windowHeight":1080}
-            });
-            let normalized = normalize(&source.to_string()).unwrap();
-            assert_eq!(normalized["preferences"]["language"], "zh-TW");
-            assert!(normalized["preferences"].get("roleDefaults").is_none());
-        });
-
-        for (case_id, schema, role_patch, preference_patch) in [
-            (
-                "portable-profile-56bd19ed6e5a",
-                6,
-                json!({"launchPreset":"turbo"}),
-                json!({"roleDefaults":{"launchPreset":"turbo"}}),
-            ),
-            (
-                "portable-profile-f87b1dc6ef63",
-                5,
-                json!({"windowWidth":1280,"windowHeight":720}),
-                json!({}),
-            ),
-            (
-                "portable-profile-69f001ded109",
-                6,
-                json!({"launchPreset":"performance"}),
-                json!({"roleDefaults":{"launchPreset":"performance"}}),
-            ),
-        ] {
-            crate::v1_case!(case_id, {
-                let mut source = fixture_value(schema);
-                for (key, value) in role_patch.as_object().unwrap() {
-                    source["roles"][0][key] = value.clone();
-                }
-                source["preferences"] = preference_patch;
-                let normalized = normalize(&source.to_string()).unwrap();
-                assert!(normalized["roles"][0].get("launchPreset").is_none());
-                assert!(normalized["roles"][0].get("windowWidth").is_none());
-                assert!(normalized["roles"][0].get("windowHeight").is_none());
-                assert!(
-                    normalized
-                        .get("preferences")
-                        .is_none_or(|preferences| preferences.get("roleDefaults").is_none())
-                );
-            });
-        }
-    }
-
-    #[test]
     fn portable_browser_preferences_are_normalized_before_preview() {
         crate::v1_case!("portable-profile-fa211529b3fe", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             let mut settings =
                 serde_json::to_value(crate::domain::default_game_browser_settings()).unwrap();
             settings["graphics"] = json!({
@@ -3792,7 +3437,12 @@ mod tests {
                 "windowsEcoQosEnabled":false
             });
             settings["fonts"]["mode"] = json!("custom");
-            settings["fonts"]["slots"] = json!({});
+            settings["fonts"]["slots"] = json!({
+                "cjk":{"source":"system","family":"  Missing   But   Valid  Font  "},
+                "latin":{"source":"system","family":"  Missing   But   Valid  Font  "},
+                "math":{"source":"system","family":"Noto Sans Math"},
+                "monospace":{"source":"system","family":"Bad\u{0000}Font"}
+            });
             settings["fonts"]
                 .as_object_mut()
                 .unwrap()
@@ -3801,11 +3451,6 @@ mod tests {
                 .as_object_mut()
                 .unwrap()
                 .remove("presetId");
-            settings["fonts"]["families"] = json!({
-                "fixed":"Bad\u{0000}Font",
-                "math":"Noto Sans Math",
-                "standard":"  Missing   But   Valid  Font  "
-            });
             settings["performance"]["macosHighRefreshRate"] = json!(true);
             source["preferences"] = json!({"gameBrowserSettings":settings});
             let mut runtime = PortableRuntime::default();
@@ -3837,7 +3482,7 @@ mod tests {
                 serialized_fonts["slots"]["math"],
                 json!({"source":"system","family":"Noto Sans Math"})
             );
-            assert!(fonts.families.is_empty());
+            assert!(serialized_fonts["slots"].get("monospace").is_none());
             assert!(fonts.font_smoothing_enabled);
             assert!(browser_settings.performance.macos_high_refresh_rate);
         });
@@ -3898,7 +3543,7 @@ mod tests {
             let mut runtime = PortableRuntime::default();
             let preview = runtime
                 .preview(
-                    &fixture(6),
+                    &fixture(11),
                     "/tmp/remapped-role.json".to_owned(),
                     state_fixture(),
                 )
@@ -3924,7 +3569,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-18b7bc217566", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             let duplicate = json!({
                 "id":"r2","gameId":"g1","name":"Role",
                 "launchUrl":"https://example.test/play","notes":""
@@ -3956,7 +3601,7 @@ mod tests {
             assert_eq!(
                 runtime
                     .preview(
-                        &fixture(6),
+                        &fixture(11),
                         "/tmp/duplicate-existing-role.json".to_owned(),
                         snapshot,
                     )
@@ -3971,7 +3616,7 @@ mod tests {
         });
 
         crate::v1_case!("portable-profile-8e828c607960", {
-            let mut source = fixture_value(6);
+            let mut source = fixture_value(11);
             source["macros"] = json!([
                 {
                     "id":"first","name":"First","roleIds":["r1"],
@@ -4035,188 +3680,13 @@ mod tests {
     }
 
     #[test]
-    fn portable_game_identity_and_recovery_match_v1() {
-        crate::v1_case!("portable-profile-c5a398f580e3", {
-            let mut snapshot = state_fixture();
-            snapshot.games = serde_json::from_value(json!([
-                {
-                    "id":"builtin-flyff-universe","source":"builtin",
-                    "builtinKey":"flyff-universe","name":"Flyff Universe",
-                    "defaultLaunchUrl":"https://local.test/play","browserLaunchMode":"inherit",
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                },
-                {
-                    "id":"local-shared","source":"custom","name":"Shared",
-                    "defaultLaunchUrl":"https://local-shared.test/play",
-                    "browserLaunchMode":"inherit",
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                }
-            ]))
-            .unwrap();
-            snapshot.roles.clear();
-            snapshot.macros.clear();
-            let mut source = fixture_value(2);
-            source["games"] = json!([
-                {
-                    "id":"remote-builtin","source":"builtin","builtinKey":"flyff-universe",
-                    "name":"Ignored imported name",
-                    "defaultLaunchUrl":"https://override.test/play","browserLaunchMode":"external"
-                },
-                {
-                    "id":"remote-custom","source":"custom","name":"Shared",
-                    "defaultLaunchUrl":"https://remote-shared.test/play","browserLaunchMode":"inherit"
-                }
-            ]);
-            source["roles"] = json!([
-                {
-                    "id":"remote-role","gameId":"remote-custom","name":"Remote",
-                    "launchUrl":"https://remote-shared.test/play","notes":""
-                },
-                {
-                    "id":"recovered-role","gameId":"missing-game","name":"Recovered",
-                    "launchUrl":"https://recovery.test/custom/path","notes":""
-                }
-            ]);
-            source["launchWorkspaces"] = json!([]);
-            source["macros"] = json!([]);
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/v2-games.json".to_owned(),
-                    snapshot.clone(),
-                )
-                .unwrap();
-            assert!(
-                preview
-                    .warnings
-                    .iter()
-                    .any(|warning| { warning.code == "BUILTIN_GAME_DEFAULTS_REPLACED" })
-            );
-            assert!(preview.warnings.iter().any(|warning| {
-                warning.code == "ROLE_GAME_RECOVERED"
-                    && warning.item_name.as_deref() == Some("Recovered")
-            }));
-            let prepared = runtime
-                .prepare_apply(&preview.import_id, all_selection(), Vec::new(), snapshot)
-                .unwrap();
-            let builtin = prepared
-                .snapshot
-                .games
-                .iter()
-                .find(|game| game.builtin_key.as_deref() == Some("flyff-universe"))
-                .unwrap();
-            assert_eq!(builtin.default_launch_url, "https://override.test/play");
-            assert!(prepared.snapshot.roles.iter().all(|role| {
-                prepared
-                    .snapshot
-                    .games
-                    .iter()
-                    .any(|game| game.id == role.game_id)
-            }));
-        });
-
-        crate::v1_case!("portable-profile-945173b78a01", {
-            let mut source = fixture_value(2);
-            source["games"] = json!([
-                {
-                    "id":"builtin-one","source":"builtin","builtinKey":"flyff-universe",
-                    "name":"Flyff Universe","defaultLaunchUrl":"https://universe.flyff.com/play",
-                    "browserLaunchMode":"inherit"
-                },
-                {
-                    "id":"builtin-two","source":"builtin","builtinKey":"flyff-universe",
-                    "name":"Flyff Universe","defaultLaunchUrl":"https://duplicate.example/play",
-                    "browserLaunchMode":"inherit"
-                }
-            ]);
-            source["roles"] = json!([{
-                "id":"duplicate-role","gameId":"builtin-two","name":"Duplicate role",
-                "launchUrl":"https://duplicate.example/play","notes":""
-            }]);
-            source["launchWorkspaces"] = json!([]);
-            source["macros"] = json!([]);
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/duplicate-builtin.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            assert!(preview.warnings.iter().any(|warning| {
-                warning.code == "GAME_NAME_RENAMED"
-                    && warning.replacement_name.as_deref() == Some("Flyff Universe (Imported)")
-            }));
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    all_selection(),
-                    Vec::new(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let imported = prepared
-                .snapshot
-                .games
-                .iter()
-                .find(|game| game.name == "Flyff Universe (Imported)")
-                .unwrap();
-            assert_eq!(imported.source, "custom");
-            assert_eq!(
-                imported.default_launch_url,
-                "https://duplicate.example/play"
-            );
-            assert!(
-                prepared
-                    .snapshot
-                    .roles
-                    .iter()
-                    .any(|role| { role.name == "Duplicate role" && role.game_id == imported.id })
-            );
-        });
-
-        crate::v1_case!("portable-profile-5a22ac74c78d", {
-            let mut snapshot = empty_snapshot();
-            snapshot.games = serde_json::from_value(json!([{
-                "id":"builtin-flyff-universe","source":"builtin",
-                "builtinKey":"flyff-universe","name":"Flyff Universe",
-                "defaultLaunchUrl":"https://local-override.test/play",
-                "browserLaunchMode":"external",
-                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-            }]))
-            .unwrap();
-            let mut source = fixture_value(1);
-            source["roles"][0]["launchUrl"] = json!("https://universe.flyff.com/play");
-            source["launchWorkspaces"] = json!([]);
-            source["macros"] = json!([]);
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/legacy-builtin.json".to_owned(),
-                    snapshot.clone(),
-                )
-                .unwrap();
-            let prepared = runtime
-                .prepare_apply(&preview.import_id, all_selection(), Vec::new(), snapshot)
-                .unwrap();
-            let builtin = &prepared.snapshot.games[0];
-            assert_eq!(
-                builtin.default_launch_url,
-                "https://local-override.test/play"
-            );
-        });
-    }
-
-    #[test]
     fn pending_imports_are_bounded_and_discarded_by_id() {
         let mut runtime = PortableRuntime::default();
         let mut ids = Vec::new();
         for index in 0..=MAX_PENDING_IMPORTS {
             let preview = runtime
                 .preview(
-                    &fixture(6),
+                    &fixture(11),
                     format!("/tmp/import-{index}.json"),
                     empty_snapshot(),
                 )
@@ -4258,7 +3728,11 @@ mod tests {
         .unwrap();
         let mut runtime = PortableRuntime::default();
         let preview = runtime
-            .preview(&fixture(6), "/tmp/import.json".to_owned(), snapshot.clone())
+            .preview(
+                &fixture(11),
+                "/tmp/import.json".to_owned(),
+                snapshot.clone(),
+            )
             .unwrap();
         assert_eq!(preview.conflicts.len(), 1);
         let unresolved = runtime.prepare_apply(
@@ -4463,7 +3937,7 @@ mod tests {
         let path = directory.path().join("rion.json");
         fs::write(&path, b"old").unwrap();
         let data =
-            serde_json::from_value::<PortableDataRecord>(normalize(&fixture(6)).unwrap()).unwrap();
+            serde_json::from_value::<PortableDataRecord>(normalize(&fixture(11)).unwrap()).unwrap();
         let selection = all_selection();
 
         let result = write_export(path.to_str().unwrap(), &data, &selection).unwrap();

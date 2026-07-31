@@ -28,12 +28,10 @@ The Rust core stores metadata in `rion-studio.sqlite3` below the canonical
 `Rion Studio` application-data directory (`~/Library/Application Support/Rion Studio`
 on macOS and `%APPDATA%\\Rion Studio` on Windows).
 
-Before AppCore starts, the first Tauri launch checks for the legacy sibling
-directory named `rion-studio`. When it contains persistent data and no completed
-migration marker exists, Rion Studio makes a verified staging copy, retains any
-unpublished Tauri test directory as a timestamped backup, and atomically installs
-the staged copy. The legacy source is never deleted automatically. Do not move,
-rename, or clean either data directory while this migration is in progress.
+Before AppCore starts, Rion Studio rejects a retired sibling directory named
+`rion-studio` with `CORE_DATA_VERSION_UNSUPPORTED`. It does not move, delete, or
+replace that data. Use a supported earlier release to upgrade it before starting
+the current application.
 
 Each role owns an isolated browser directory at:
 
@@ -83,25 +81,18 @@ both `macos-latest` and `windows-latest` with platform-aware Rust lint, tests, a
 release candidate workflow is the only production Tauri bundle build and verifies
 the resulting installers on both platforms. macOS releases target 14+, use the
 explicit ad-hoc signing identity (`-`), and must not import a Developer ID certificate
-or submit for notarization. Windows releases remain unsigned, matching the legacy
-release, and require a WebView2 runtime presence check. The updater archives on both
+or submit for notarization. Windows releases remain unsigned and require a WebView2
+runtime presence check. The updater archives on both
 platforms still require Tauri's independent cryptographic signature.
 
-Releases use Tauri's updater-signed `latest.json`; the two-version/90-day upgrade
-window additionally publishes `latest.yml` and `latest-mac.yml` for legacy
-installations. Keep `Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`, and
+Releases use only Tauri's updater-signed `latest.json`. Keep
+`Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`, and
 `Rion.Studio-win.exe` stable because updater manifests and README links depend on
 them. Manifests are uploaded only after the immutable assets and updater signatures verify.
 
-The Tauri parity ledger at `docs/tauri-parity-ledger.json` classifies every test
-removed with the legacy shell. `pnpm run verify:system-only` validates both the
-negative architecture boundary and this ledger; a deleted behavior test may not
-remain unclassified or point to missing replacement evidence.
-
-The cross-baseline behavior ledger is
-`tests/parity/refactor-behavior-ledger-v2.json`; its human-readable audit status is
-summarized in `docs/refactor-regression-audit.md`. Do not replace executable
-evidence with source strings or documentation-only claims.
+`pnpm run verify:system-only` validates the negative architecture boundary. Keep
+current product behavior covered by focused Rust and Vitest tests; historical
+parity ledgers are not part of the release contract.
 
 ### Windows Multi-Display Release Check
 

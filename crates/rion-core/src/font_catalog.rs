@@ -1339,7 +1339,6 @@ mod tests {
                     family: Some(family.to_owned()),
                 },
             )]),
-            families: HashMap::new(),
         };
         let payload = runtime_payload(directory.path(), settings).unwrap();
         assert_eq!(payload.faces.len(), 1);

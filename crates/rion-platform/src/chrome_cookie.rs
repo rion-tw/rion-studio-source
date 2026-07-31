@@ -2,12 +2,6 @@ use std::path::Path;
 
 use crate::{Platform, PlatformError};
 
-#[derive(Debug, Clone, Copy)]
-enum CookieKeySource {
-    Chrome,
-    LegacyRion,
-}
-
 pub struct CookieDecryptor {
     platform: Platform,
     #[cfg(target_os = "macos")]
@@ -35,56 +29,24 @@ impl CookieDecryptor {
         local_state: Option<&[u8]>,
         encrypted_sample: &[u8],
     ) -> Result<Self, PlatformError> {
-        Self::new(
-            platform,
-            local_state,
-            encrypted_sample,
-            CookieKeySource::Chrome,
-        )
-    }
-
-    pub fn legacy_rion(
-        platform: Platform,
-        local_state_path: Option<&Path>,
-        encrypted_sample: &[u8],
-    ) -> Result<Self, PlatformError> {
-        let local_state = local_state_path
-            .filter(|path| path.is_file())
-            .map(std::fs::read)
-            .transpose()
-            .map_err(|error| PlatformError::Operation(error.to_string()))?;
-        Self::legacy_rion_from_local_state(platform, local_state.as_deref(), encrypted_sample)
-    }
-
-    pub fn legacy_rion_from_local_state(
-        platform: Platform,
-        local_state: Option<&[u8]>,
-        encrypted_sample: &[u8],
-    ) -> Result<Self, PlatformError> {
-        Self::new(
-            platform,
-            local_state,
-            encrypted_sample,
-            CookieKeySource::LegacyRion,
-        )
+        Self::new(platform, local_state, encrypted_sample)
     }
 
     fn new(
         platform: Platform,
         local_state: Option<&[u8]>,
         encrypted_sample: &[u8],
-        source: CookieKeySource,
     ) -> Result<Self, PlatformError> {
         match platform {
             Platform::Macos => {
                 #[cfg(target_os = "macos")]
                 {
-                    let mac_keys = cached_mac_cookie_keys(source, encrypted_sample)?;
+                    let mac_keys = cached_mac_cookie_keys(encrypted_sample)?;
                     Ok(Self { platform, mac_keys })
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    let _ = (local_state, encrypted_sample, source);
+                    let _ = (local_state, encrypted_sample);
                     Err(PlatformError::Operation(
                         "macOS cookie decryption requires macOS".to_owned(),
                     ))
@@ -93,7 +55,7 @@ impl CookieDecryptor {
             Platform::Windows => {
                 #[cfg(windows)]
                 {
-                    let _ = (encrypted_sample, source);
+                    let _ = encrypted_sample;
                     let windows_key = local_state.map(load_windows_master_key).transpose()?;
                     Ok(Self {
                         platform,
@@ -102,7 +64,7 @@ impl CookieDecryptor {
                 }
                 #[cfg(not(windows))]
                 {
-                    let _ = (local_state, encrypted_sample, source);
+                    let _ = (local_state, encrypted_sample);
                     Err(PlatformError::Operation(
                         "Windows cookie decryption requires Windows".to_owned(),
                     ))
@@ -159,15 +121,6 @@ pub fn decrypt_chrome_cookie(
     CookieDecryptor::chrome(platform, local_state_path, encrypted_value)?.decrypt(encrypted_value)
 }
 
-pub fn decrypt_legacy_rion_cookie(
-    platform: Platform,
-    encrypted_value: &[u8],
-    local_state_path: Option<&Path>,
-) -> Result<Vec<u8>, PlatformError> {
-    CookieDecryptor::legacy_rion(platform, local_state_path, encrypted_value)?
-        .decrypt(encrypted_value)
-}
-
 fn reject_app_bound_cookie(encrypted_value: &[u8]) -> Result<(), PlatformError> {
     if encrypted_value.starts_with(b"v20") {
         Err(PlatformError::Operation(
@@ -179,10 +132,7 @@ fn reject_app_bound_cookie(encrypted_value: &[u8]) -> Result<(), PlatformError> 
 }
 
 #[cfg(target_os = "macos")]
-fn cached_mac_cookie_keys(
-    source: CookieKeySource,
-    encrypted_sample: &[u8],
-) -> Result<Vec<[u8; 16]>, PlatformError> {
+fn cached_mac_cookie_keys(encrypted_sample: &[u8]) -> Result<Vec<[u8; 16]>, PlatformError> {
     use pbkdf2::pbkdf2_hmac;
     use sha1::Sha1;
     use std::{
@@ -192,19 +142,7 @@ fn cached_mac_cookie_keys(
 
     type MacCookieKeyCache = OnceLock<Mutex<Vec<[u8; 16]>>>;
     static CHROME_KEYS: MacCookieKeyCache = OnceLock::new();
-    static LEGACY_RION_KEYS: MacCookieKeyCache = OnceLock::new();
-    let (cache, services): (&MacCookieKeyCache, &[&str]) = match source {
-        CookieKeySource::Chrome => (&CHROME_KEYS, &["Chrome Safe Storage"]),
-        CookieKeySource::LegacyRion => (
-            &LEGACY_RION_KEYS,
-            &[
-                "Rion Studio Safe Storage",
-                "Rion Studio Dev Safe Storage",
-                "rion-studio Safe Storage",
-                "Chrome Safe Storage",
-            ],
-        ),
-    };
+    let cache = &CHROME_KEYS;
     let cache = cache.get_or_init(|| Mutex::new(Vec::new()));
     let known = cache
         .lock()
@@ -216,7 +154,7 @@ fn cached_mac_cookie_keys(
         }
     }
 
-    for service in services {
+    for service in ["Chrome Safe Storage"] {
         let result = Command::new("/usr/bin/security")
             .args(["find-generic-password", "-w", "-s", service])
             .output()

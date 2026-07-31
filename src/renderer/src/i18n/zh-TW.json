@@ -1062,7 +1062,6 @@
   "settings.logsViewerDescription": "使用上方篩選與控制項來搜尋與監看最近日誌。",
   "settings.logsAllLevels": "所有等級",
   "settings.logsAllSources": "所有來源",
-  "settings.logsLegacySource": "舊版",
   "settings.logsLiveOn": "即時",
   "settings.logsLiveOff": "已暫停",
   "settings.logsEmpty": "沒有符合條件的日誌。",

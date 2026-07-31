@@ -30,7 +30,6 @@ import type {
   DisplayInfo,
   GameWindow,
   LaunchWorkspace,
-  LegacySessionRestore,
   LogEntry,
   LogLevel,
   LogPage,
@@ -188,5 +187,4 @@ export interface RionStudioApi {
   onChromeProfileImportProgress: (
     callback: (progress: ChromeProfileImportProgress) => void
   ) => () => void;
-  onLegacySessionsRestored: (callback: (records: LegacySessionRestore[]) => void) => () => void;
 }

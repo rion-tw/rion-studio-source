@@ -1,7 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
 #include <stdbool.h>
-#include <stdint.h>
 
 static __strong NSMenu *RionDockMenu = nil;
 
@@ -43,27 +42,6 @@ bool rion_dock_menu_set_menu(void *rawMenu) {
 
     RionDockMenu = (__bridge NSMenu *)rawMenu;
     return true;
-}
-
-static bool RionPromoteSectionHeader(void *rawMenu, uintptr_t index) {
-    if (rawMenu == NULL) {
-        return false;
-    }
-
-    NSMenu *menu = (__bridge NSMenu *)rawMenu;
-    if ((NSUInteger)index >= (NSUInteger)menu.numberOfItems) {
-        return false;
-    }
-
-    NSMenuItem *existing = [menu itemAtIndex:index];
-    NSMenuItem *header = [NSMenuItem sectionHeaderWithTitle:existing.title ?: @""];
-    [menu removeItemAtIndex:index];
-    [menu insertItem:header atIndex:index];
-    return header.isSectionHeader;
-}
-
-bool rion_dock_menu_promote_section_header(void *rawMenu, uintptr_t index) {
-    return [NSThread isMainThread] && RionPromoteSectionHeader(rawMenu, index);
 }
 
 static NSMenu *RionForeignDockMenu(id self, SEL command, NSApplication *application) {
@@ -139,14 +117,5 @@ bool rion_dock_menu_adapter_self_test(void) {
         return false;
     }
 
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Dock Menu Test"];
-    NSMenuItem *placeholder = [[NSMenuItem alloc] initWithTitle:@"Game Windows"
-                                                         action:nil
-                                                  keyEquivalent:@""];
-    placeholder.enabled = NO;
-    [menu addItem:placeholder];
-    if (!RionPromoteSectionHeader((__bridge void *)menu, 0)) {
-        return false;
-    }
-    return menu.itemArray.firstObject.isSectionHeader;
+    return true;
 }

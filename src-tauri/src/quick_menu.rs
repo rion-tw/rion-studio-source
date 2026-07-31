@@ -78,11 +78,12 @@ struct RefreshState {
 }
 
 struct MenuModel {
+    game_windows: serde_json::Value,
     language: String,
     legal_accepted: bool,
     role_statuses: serde_json::Value,
     roles: serde_json::Value,
-    runtime_projection: serde_json::Value,
+    running_window_ids: Vec<String>,
     workspace_statuses: serde_json::Value,
     workspaces: serde_json::Value,
 }
@@ -140,7 +141,7 @@ impl RefreshCoordinator {
         runtime: Arc<crate::SystemRuntimeExecutor>,
     ) {
         loop {
-            // Quick-menu projection is never launch-critical. Wait until presentation,
+            // Quick-menu refresh is never launch-critical. Wait until presentation,
             // attach and close traffic has yielded before reading snapshots or
             // rebuilding an AppKit/Win32 native menu.
             runtime.wait_for_shell_idle();
@@ -148,7 +149,7 @@ impl RefreshCoordinator {
                 Ok(state) => (state.revision, state.language.clone()),
                 Err(_) => return,
             };
-            let result = MenuModel::load(&core, &runtime, language);
+            let result = MenuModel::load(&core, language);
             let Ok(model) = result else {
                 eprintln!(
                     "Rion Studio Quick Menu model refresh failed: {}",
@@ -198,11 +199,10 @@ impl RefreshCoordinator {
 }
 
 impl MenuModel {
-    fn load(
-        core: &AppCore,
-        runtime: &crate::SystemRuntimeExecutor,
-        language: String,
-    ) -> Result<Self, String> {
+    fn load(core: &AppCore, language: String) -> Result<Self, String> {
+        let game_windows = core
+            .invoke(CoreCommand::GameWindowsList)
+            .map_err(|error| error.to_string())?;
         let roles = core
             .invoke(CoreCommand::RolesList)
             .map_err(|error| error.to_string())?;
@@ -216,56 +216,39 @@ impl MenuModel {
             .invoke(CoreCommand::BrowserWorkspaceStatuses)
             .map_err(|error| error.to_string())?;
         let legal_accepted = legal_is_accepted(core);
-        let runtime_projection = core
+        let mut running_window_ids = core
             .invoke(CoreCommand::BrowserRuntimeSnapshot)
             .ok()
             .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())
-            .map(|snapshot| runtime.projection(&snapshot))
-            .unwrap_or_else(|| serde_json::json!({ "windows": [], "savedWindows": [] }));
+            .map(|snapshot| {
+                snapshot
+                    .windows
+                    .into_iter()
+                    .map(|window| window.window_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        running_window_ids.sort();
         Ok(Self {
+            game_windows,
             language,
             legal_accepted,
             role_statuses,
             roles,
-            runtime_projection,
+            running_window_ids,
             workspace_statuses,
             workspaces,
         })
     }
 
     fn fingerprint(&self) -> String {
-        let windows = self.runtime_projection["windows"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|window| {
-                serde_json::json!({
-                    "windowId": window["windowId"],
-                    "displayId": window["displayId"],
-                    "tabCount": window["tabCount"],
-                    "visible": window["visible"],
-                })
-            })
-            .collect::<Vec<_>>();
-        let saved_windows = self.runtime_projection["savedWindows"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|window| {
-                serde_json::json!({
-                    "id": window["id"],
-                    "displayLabel": window["displayLabel"],
-                    "tabCount": window["tabCount"],
-                    "state": window["state"],
-                })
-            })
-            .collect::<Vec<_>>();
         serde_json::to_string(&serde_json::json!({
+            "gameWindows": self.game_windows,
             "language": self.language,
             "legalAccepted": self.legal_accepted,
             "roleStatuses": self.role_statuses,
             "roles": self.roles,
-            "runtimeProjection": { "windows": windows, "savedWindows": saved_windows },
+            "runningWindowIds": self.running_window_ids,
             "workspaceStatuses": self.workspace_statuses,
             "workspaces": self.workspaces,
         }))
@@ -291,9 +274,6 @@ pub(crate) enum MenuEntry {
         items: Vec<MenuEntry>,
     },
     Separator,
-    Header {
-        text: String,
-    },
 }
 
 #[cfg(target_os = "windows")]
@@ -306,18 +286,13 @@ fn starter_spec(language: &str) -> Vec<MenuEntry> {
     ]
 }
 
-fn menu_spec(
-    model: &MenuModel,
-    platform: QuickMenuPlatform,
-    display_label_for_id: impl Fn(i64) -> String,
-) -> Vec<MenuEntry> {
+fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
     let labels = labels(&model.language);
     let roles = &model.roles;
     let workspaces = &model.workspaces;
     let role_statuses = &model.role_statuses;
     let workspace_statuses = &model.workspace_statuses;
     let legal_accepted = model.legal_accepted;
-    let runtime_projection = &model.runtime_projection;
     let role_state = |id: &str| status_state(role_statuses, "roleId", id);
     let workspace_state = |id: &str| status_state(workspace_statuses, "workspaceId", id);
     let mut role_items = Vec::new();
@@ -383,6 +358,33 @@ fn menu_spec(
             }
         }
     }
+    let running_window_ids = model
+        .running_window_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut window_items = Vec::new();
+    for window in model.game_windows.as_array().cloned().unwrap_or_default() {
+        let (Some(id), Some(name)) = (window["id"].as_str(), window["name"].as_str()) else {
+            continue;
+        };
+        let running = running_window_ids.contains(id);
+        window_items.push(item(
+            format!(
+                "{}{id}",
+                if running {
+                    SHOW_DISPLAY_PREFIX
+                } else {
+                    RESTORE_WINDOW_PREFIX
+                }
+            ),
+            format!("{}{name}", if running { "✓ " } else { "" }),
+            running || legal_accepted,
+        ));
+    }
+    if window_items.is_empty() {
+        window_items.push(item("no-windows", labels.no_windows, false));
+    }
 
     let mut entries = Vec::new();
     if platform == QuickMenuPlatform::Windows {
@@ -390,59 +392,6 @@ fn menu_spec(
     }
     if !legal_accepted {
         entries.push(item("review-terms", labels.review_terms, true));
-    }
-    let windows = runtime_projection["windows"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let saved_windows = runtime_projection["savedWindows"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let has_game_windows = !windows.is_empty() || !saved_windows.is_empty();
-    if has_game_windows {
-        entries.push(MenuEntry::Header {
-            text: labels.game_windows.to_owned(),
-        });
-        for window in windows {
-            let (Some(window_id), Some(display_id)) =
-                (window["windowId"].as_str(), window["displayId"].as_i64())
-            else {
-                continue;
-            };
-            let count = window["tabCount"].as_u64().unwrap_or(0);
-            let visibility = if window["visible"].as_bool().unwrap_or(false) {
-                labels.visible
-            } else {
-                labels.hidden
-            };
-            entries.push(item(
-                format!("{SHOW_DISPLAY_PREFIX}{window_id}"),
-                format!(
-                    "{} · {count} {} · {visibility}",
-                    display_label_for_id(display_id),
-                    labels.tabs
-                ),
-                true,
-            ));
-        }
-        for window in saved_windows {
-            let (Some(id), Some(display_label)) =
-                (window["id"].as_str(), window["displayLabel"].as_str())
-            else {
-                continue;
-            };
-            let count = window["tabCount"].as_u64().unwrap_or(0);
-            entries.push(item(
-                format!("{RESTORE_WINDOW_PREFIX}{id}"),
-                format!(
-                    "{display_label} · {count} {} · {}",
-                    labels.tabs, labels.saved
-                ),
-                legal_accepted && window["state"].as_str() != Some("restoring"),
-            ));
-        }
-        entries.push(MenuEntry::Separator);
     }
     entries.push(MenuEntry::Submenu {
         text: labels.roles.to_owned(),
@@ -452,10 +401,10 @@ fn menu_spec(
         text: labels.workspaces.to_owned(),
         items: workspace_items,
     });
-    if has_game_windows {
-        entries.push(MenuEntry::Separator);
-        entries.push(item("show-games", labels.show_all, true));
-    }
+    entries.push(MenuEntry::Submenu {
+        text: labels.windows.to_owned(),
+        items: window_items,
+    });
     if role_statuses
         .as_array()
         .is_some_and(|items| !items.is_empty())
@@ -510,13 +459,6 @@ fn append_windows_root_entry(
                 PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
             menu.append(&separator).map_err(|error| error.to_string())
         }
-        MenuEntry::Header { text } => {
-            let header = MenuItemBuilder::new(text)
-                .enabled(false)
-                .build(app)
-                .map_err(|error| error.to_string())?;
-            menu.append(&header).map_err(|error| error.to_string())
-        }
     }
 }
 
@@ -545,13 +487,6 @@ fn windows_submenu(
                     PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
                 menu.append(&separator).map_err(|error| error.to_string())?;
             }
-            MenuEntry::Header { text } => {
-                let header = MenuItemBuilder::new(text)
-                    .enabled(false)
-                    .build(app)
-                    .map_err(|error| error.to_string())?;
-                menu.append(&header).map_err(|error| error.to_string())?;
-            }
         }
     }
     Ok(menu)
@@ -560,9 +495,7 @@ fn windows_submenu(
 fn apply_menu(app: &AppHandle, model: &MenuModel) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let entries = menu_spec(model, QuickMenuPlatform::Windows, |display_id| {
-            display_label(app, display_id)
-        });
+        let entries = menu_spec(model, QuickMenuPlatform::Windows);
         let menu = windows_menu(app, &entries)?;
         let tray = app
             .tray_by_id(TRAY_ID)
@@ -571,9 +504,8 @@ fn apply_menu(app: &AppHandle, model: &MenuModel) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let entries = menu_spec(model, QuickMenuPlatform::Macos, |display_id| {
-            display_label(app, display_id)
-        });
+        let _ = app;
+        let entries = menu_spec(model, QuickMenuPlatform::Macos);
         crate::quick_menu_macos::install(&entries)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -607,7 +539,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
 fn is_quick_menu_action(id: &str) -> bool {
     matches!(
         id,
-        "open-app" | "review-terms" | "restore-windows" | "show-games" | "quit-app" | "stop-all"
+        "open-app" | "review-terms" | "restore-windows" | "quit-app" | "stop-all"
     ) || [
         SHOW_DISPLAY_PREFIX,
         RESTORE_WINDOW_PREFIX,
@@ -653,14 +585,6 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     &[serde_json::json!({ "scope": "window", "windowId": window_id })],
                 )
                 .await;
-            });
-        }
-        "show-games" => {
-            let core = Arc::clone(core);
-            tauri::async_runtime::spawn(async move {
-                let _ = core
-                    .invoke_async(CoreCommand::EmbeddedWindowsShow { window_id: None })
-                    .await;
             });
         }
         "quit-app" => app.exit(0),
@@ -792,101 +716,68 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn display_label(app: &AppHandle, display_id: i64) -> String {
-    app.available_monitors()
-        .ok()
-        .and_then(|monitors| {
-            monitors.into_iter().find_map(|monitor| {
-                (super::monitor_id(&monitor) == display_id)
-                    .then(|| monitor.name().cloned())
-                    .flatten()
-            })
-        })
-        .unwrap_or_else(|| format!("Display {display_id}"))
-}
-
 #[derive(Clone, Copy)]
 struct Labels {
-    game_windows: &'static str,
-    hidden: &'static str,
     no_roles: &'static str,
+    no_windows: &'static str,
     no_workspaces: &'static str,
     open: &'static str,
     quit: &'static str,
     review_terms: &'static str,
     roles: &'static str,
-    saved: &'static str,
-    show_all: &'static str,
     stop_all: &'static str,
-    tabs: &'static str,
-    visible: &'static str,
+    windows: &'static str,
     workspaces: &'static str,
 }
 
 fn labels(language: &str) -> Labels {
     match language {
         "zh-TW" => Labels {
-            game_windows: "遊戲視窗",
-            hidden: "已隱藏",
             no_roles: "沒有角色",
+            no_windows: "沒有視窗",
             no_workspaces: "沒有工作區",
             open: "開啟 Rion Studio",
             quit: "結束 Rion Studio",
             review_terms: "啟動前請先檢閱條款",
             roles: "角色",
-            saved: "已儲存",
-            show_all: "顯示所有遊戲視窗",
             stop_all: "停止所有執行中的角色",
-            tabs: "個分頁",
-            visible: "顯示中",
+            windows: "視窗",
             workspaces: "工作區",
         },
         "zh-CN" => Labels {
-            game_windows: "游戏窗口",
-            hidden: "已隐藏",
             no_roles: "没有角色",
+            no_windows: "没有窗口",
             no_workspaces: "没有工作区",
             open: "打开 Rion Studio",
             quit: "退出 Rion Studio",
             review_terms: "启动前请先查看条款",
             roles: "角色",
-            saved: "已保存",
-            show_all: "显示所有游戏窗口",
             stop_all: "停止所有运行中的角色",
-            tabs: "个标签页",
-            visible: "显示中",
+            windows: "窗口",
             workspaces: "工作区",
         },
         "ja" => Labels {
-            game_windows: "ゲームウインドウ",
-            hidden: "非表示",
             no_roles: "ロールなし",
+            no_windows: "ウインドウなし",
             no_workspaces: "ワークスペースなし",
             open: "Rion Studio を開く",
             quit: "Rion Studio を終了",
             review_terms: "起動前に利用規約を確認",
             roles: "ロール",
-            saved: "保存済み",
-            show_all: "すべてのゲームウインドウを表示",
             stop_all: "実行中のロールをすべて停止",
-            tabs: "タブ",
-            visible: "表示中",
+            windows: "ウインドウ",
             workspaces: "ワークスペース",
         },
         _ => Labels {
-            game_windows: "Game Windows",
-            hidden: "Hidden",
             no_roles: "No Roles",
+            no_windows: "No Windows",
             no_workspaces: "No Workspaces",
             open: "Open Rion Studio",
             quit: "Quit Rion Studio",
             review_terms: "Review terms before launching",
             roles: "Roles",
-            saved: "Saved",
-            show_all: "Show All Game Windows",
             stop_all: "Stop All Running Roles",
-            tabs: "tabs",
-            visible: "Visible",
+            windows: "Windows",
             workspaces: "Workspaces",
         },
     }
@@ -898,6 +789,13 @@ mod tests {
 
     fn populated_model(language: &str, legal_accepted: bool) -> MenuModel {
         MenuModel {
+            game_windows: serde_json::json!([{
+                "id": "active-window",
+                "name": "Running Saved Window",
+            }, {
+                "id": "saved-window",
+                "name": "Dormant Saved Window",
+            }]),
             language: language.to_owned(),
             legal_accepted,
             role_statuses: serde_json::json!([
@@ -908,25 +806,7 @@ mod tests {
                 {"id":"role-running","name":"Running Role"},
                 {"id":"role-busy","name":"Busy Role"}
             ]),
-            runtime_projection: serde_json::json!({
-                "windows": [{
-                    "windowId": "active-window",
-                    "displayId": 41,
-                    "tabCount": 3,
-                    "visible": false,
-                }],
-                "savedWindows": [{
-                    "id": "saved-window",
-                    "displayLabel": "Saved Display",
-                    "tabCount": 2,
-                    "state": "saved",
-                }, {
-                    "id": "restoring-window",
-                    "displayLabel": "Restoring Display",
-                    "tabCount": 1,
-                    "state": "restoring",
-                }],
-            }),
+            running_window_ids: vec!["active-window".to_owned(), "unsaved-window".to_owned()],
             workspace_statuses: serde_json::json!([
                 {"workspaceId":"workspace-running","state":"running"},
                 {"workspaceId":"workspace-busy","state":"launching"}
@@ -1006,72 +886,59 @@ mod tests {
     }
 
     #[test]
-    fn quick_menu_fingerprint_ignores_runtime_active_tab_metadata() {
-        let model = |active_tab_id: &str| MenuModel {
-            language: "en".to_owned(),
-            legal_accepted: true,
-            role_statuses: serde_json::json!([]),
-            roles: serde_json::json!([]),
-            runtime_projection: serde_json::json!({
-                "windows": [{
-                    "windowId": "window-1",
-                    "displayId": 1,
-                    "tabCount": 3,
-                    "visible": true,
-                    "activeTabId": active_tab_id,
-                }],
-                "savedWindows": [],
-            }),
-            workspace_statuses: serde_json::json!([]),
-            workspaces: serde_json::json!([]),
-        };
+    fn quick_menu_fingerprint_tracks_menu_inputs() {
+        let ready = populated_model("en", true);
+        let mut busy = populated_model("en", true);
+        busy.role_statuses = serde_json::json!([{"roleId":"role-running","state":"launching"}]);
 
-        assert_eq!(model("tab-a").fingerprint(), model("tab-c").fingerprint());
+        assert_ne!(ready.fingerprint(), busy.fingerprint());
     }
 
     #[test]
     fn platform_specs_keep_open_and_quit_windows_only() {
         let model = populated_model("en", true);
-        let windows = menu_spec(&model, QuickMenuPlatform::Windows, |_| "Monitor".to_owned());
-        let macos = menu_spec(&model, QuickMenuPlatform::Macos, |_| "Monitor".to_owned());
+        let windows = menu_spec(&model, QuickMenuPlatform::Windows);
+        let macos = menu_spec(&model, QuickMenuPlatform::Macos);
 
         assert!(root_item(&windows, "open-app").is_some());
         assert!(root_item(&windows, "quit-app").is_some());
         assert!(root_item(&macos, "open-app").is_none());
         assert!(root_item(&macos, "quit-app").is_none());
-        assert!(matches!(
-            macos.iter().find(|entry| matches!(entry, MenuEntry::Header { .. })),
-            Some(MenuEntry::Header { text }) if text == "Game Windows"
-        ));
     }
 
     #[test]
-    fn game_windows_are_a_direct_group_with_active_and_saved_items() {
-        let entries = menu_spec(
-            &populated_model("en", true),
-            QuickMenuPlatform::Macos,
-            |display_id| format!("Monitor {display_id}"),
-        );
-
-        assert!(root_item(&entries, "show-display:active-window").is_some());
-        assert!(root_item(&entries, "restore-window:saved-window").is_some());
-        assert_item(
-            root_item(&entries, "restore-window:restoring-window").unwrap(),
-            "Restoring Display · 1 tabs · Saved",
-            false,
-        );
-        assert!(!entries.iter().any(|entry| {
-            matches!(entry, MenuEntry::Submenu { text, .. } if text == "Game Windows")
-        }));
+    fn platform_specs_list_only_saved_windows_and_check_running_ones() {
+        let model = populated_model("en", true);
+        for platform in [QuickMenuPlatform::Macos, QuickMenuPlatform::Windows] {
+            let entries = menu_spec(&model, platform);
+            let windows = submenu(&entries, "Windows");
+            for id in ["show-display:active-window", "restore-window:saved-window"] {
+                assert!(
+                    root_item(&entries, id).is_none(),
+                    "window action must not remain at the menu root: {id}"
+                );
+            }
+            assert_item(
+                root_item(windows, "show-display:active-window").unwrap(),
+                "✓ Running Saved Window",
+                true,
+            );
+            assert_item(
+                root_item(windows, "restore-window:saved-window").unwrap(),
+                "Dormant Saved Window",
+                true,
+            );
+            assert!(root_item(windows, "show-display:unsaved-window").is_none());
+            assert!(root_item(windows, "show-games").is_none());
+            assert_eq!(windows.len(), 2);
+            assert_eq!(submenu(&entries, "Roles").len(), 2);
+            assert_eq!(submenu(&entries, "Workspaces").len(), 4);
+        }
     }
 
     #[test]
     fn role_and_workspace_submenus_preserve_busy_missing_and_stop_rules() {
-        let entries = menu_spec(
-            &populated_model("en", true),
-            QuickMenuPlatform::Windows,
-            |_| "Monitor".to_owned(),
-        );
+        let entries = menu_spec(&populated_model("en", true), QuickMenuPlatform::Windows);
         let roles = submenu(&entries, "Roles");
         let workspaces = submenu(&entries, "Workspaces");
 
@@ -1108,12 +975,8 @@ mod tests {
     }
 
     #[test]
-    fn legal_gate_disables_launch_and_restore_actions_but_keeps_existing_windows_visible() {
-        let entries = menu_spec(
-            &populated_model("en", false),
-            QuickMenuPlatform::Macos,
-            |_| "Monitor".to_owned(),
-        );
+    fn legal_gate_disables_launch_and_restore_actions_but_keeps_running_saved_windows_visible() {
+        let entries = menu_spec(&populated_model("en", false), QuickMenuPlatform::Macos);
 
         assert!(root_item(&entries, "review-terms").is_some());
         assert_item(
@@ -1131,27 +994,28 @@ mod tests {
             false,
         );
         assert!(matches!(
-            root_item(&entries, "show-display:active-window"),
+            root_item(submenu(&entries, "Windows"), "show-display:active-window"),
             Some(MenuEntry::Item { enabled: true, .. })
         ));
         assert!(matches!(
-            root_item(&entries, "restore-window:saved-window"),
+            root_item(submenu(&entries, "Windows"), "restore-window:saved-window"),
             Some(MenuEntry::Item { enabled: false, .. })
         ));
     }
 
     #[test]
-    fn empty_role_and_workspace_states_are_disabled() {
+    fn empty_role_workspace_and_window_states_are_disabled() {
         let model = MenuModel {
+            game_windows: serde_json::json!([]),
             language: "en".to_owned(),
             legal_accepted: true,
             role_statuses: serde_json::json!([]),
             roles: serde_json::json!([]),
-            runtime_projection: serde_json::json!({"windows":[], "savedWindows":[]}),
+            running_window_ids: vec![],
             workspace_statuses: serde_json::json!([]),
             workspaces: serde_json::json!([]),
         };
-        let entries = menu_spec(&model, QuickMenuPlatform::Windows, |_| String::new());
+        let entries = menu_spec(&model, QuickMenuPlatform::Windows);
 
         assert!(matches!(
             root_item(submenu(&entries, "Roles"), "no-roles"),
@@ -1161,22 +1025,26 @@ mod tests {
             root_item(submenu(&entries, "Workspaces"), "no-workspaces"),
             Some(MenuEntry::Item { enabled: false, .. })
         ));
+        assert!(matches!(
+            root_item(submenu(&entries, "Windows"), "no-windows"),
+            Some(MenuEntry::Item { enabled: false, .. })
+        ));
     }
 
     #[test]
-    fn four_supported_languages_keep_quick_menu_group_labels() {
+    fn four_supported_languages_keep_submenu_labels() {
         let cases = [
-            ("en", "Game Windows", "Roles", "Workspaces"),
-            ("zh-TW", "遊戲視窗", "角色", "工作區"),
-            ("zh-CN", "游戏窗口", "角色", "工作区"),
-            ("ja", "ゲームウインドウ", "ロール", "ワークスペース"),
+            ("en", "Roles", "Workspaces", "Windows"),
+            ("zh-TW", "角色", "工作區", "視窗"),
+            ("zh-CN", "角色", "工作区", "窗口"),
+            ("ja", "ロール", "ワークスペース", "ウインドウ"),
         ];
 
-        for (language, game_windows, roles, workspaces) in cases {
+        for (language, roles, workspaces, windows) in cases {
             let labels = labels(language);
-            assert_eq!(labels.game_windows, game_windows);
             assert_eq!(labels.roles, roles);
             assert_eq!(labels.workspaces, workspaces);
+            assert_eq!(labels.windows, windows);
         }
     }
 
@@ -1185,7 +1053,6 @@ mod tests {
         for id in [
             "open-app",
             "quit-app",
-            "show-games",
             "launch-role:role:with:colons",
             "launch-workspace:workspace/opaque",
             "stop-workspace:workspace/opaque",
@@ -1195,6 +1062,7 @@ mod tests {
             assert!(is_quick_menu_action(id), "quick-menu event {id}");
         }
         for id in [
+            "show-games",
             "rion-new-game-window",
             "rion-browser-zoom-in",
             "rion-show-game-window:window/opaque",
@@ -1206,7 +1074,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_native_dock_adapter_passes_its_selector_and_header_self_test() {
+    fn macos_native_dock_adapter_passes_its_selector_self_test() {
         assert!(crate::quick_menu_macos::native_adapter_self_test());
     }
 }

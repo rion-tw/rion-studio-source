@@ -859,7 +859,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).not.toContain('b"_setMuted:\\0"');
     const surfaceLogging = runtime.slice(
       runtime.indexOf("fn record_surface_event("),
-      runtime.indexOf("pub fn window_contains_screen_point(")
+      runtime.indexOf("pub(crate) fn tab_drag_window_snapshot(")
     );
     expect(surfaceLogging).toContain('"instanceId"');
     expect(surfaceLogging).toContain('"generation"');

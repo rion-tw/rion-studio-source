@@ -75,6 +75,17 @@ static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+fn point_in_runtime_tab_control_row(
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+    screen_x: f64,
+    screen_y: f64,
+) -> bool {
+    screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
+}
 #[cfg(windows)]
 static WINDOWS_DOCUMENT_NAVIGATION_DEFERRAL_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
@@ -1543,6 +1554,13 @@ struct ProvisionalNativeTabMove {
     target_active_before_move: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct RuntimeTabDragWindowSnapshot {
+    pub(crate) active_tab_id: Option<String>,
+    pub(crate) tab_ids: Vec<String>,
+    pub(crate) window_id: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeLauncherPresenceTab {
     pub(crate) role_ids: Vec<String>,
@@ -2171,6 +2189,7 @@ struct RuntimeState {
     saved_window_names: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
     surface_registry: HashMap<String, ManagedSurface>,
+    tab_drag_placement_suppressed_windows: HashSet<String>,
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
@@ -5580,6 +5599,305 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    pub(crate) fn tab_drag_window_snapshot(
+        &self,
+        window_id: &str,
+    ) -> Result<RuntimeTabDragWindowSnapshot, String> {
+        let state = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+        let state = state
+            .lock()
+            .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+        Ok(RuntimeTabDragWindowSnapshot {
+            active_tab_id: state.selected_tab_id.clone(),
+            tab_ids: state.tab_ids(),
+            window_id: window_id.to_owned(),
+        })
+    }
+
+    pub(crate) fn tab_window_id(&self, tab_id: &str) -> Option<String> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()))
+    }
+
+    pub(crate) fn window_tab_count(&self, window_id: &str) -> usize {
+        self.state
+            .lock()
+            .ok()
+            .map(|state| {
+                state
+                    .tabs
+                    .values()
+                    .filter(|tab| tab.window_id == window_id)
+                    .count()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn begin_tab_drag_window_motion(&self, window_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .tab_drag_placement_suppressed_windows
+                .insert(window_id.to_owned());
+            if let Some(label) = state
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.window.label().to_owned())
+            {
+                state.pending_window_placement_writes.remove(&label);
+            }
+        }
+    }
+
+    pub(crate) fn finish_tab_drag_window_motion(
+        &self,
+        window_id: &str,
+        persist_final_placement: bool,
+    ) -> Result<(), String> {
+        let label = self.state.lock().ok().and_then(|mut state| {
+            state
+                .tab_drag_placement_suppressed_windows
+                .remove(window_id);
+            state
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.window.label().to_owned())
+        });
+        if persist_final_placement && let Some(label) = label {
+            self.persist_game_window_placement(&label)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn preview_tab_drag_activation(&self, tab_id: &str) -> Result<(), String> {
+        self.request_tab_presentation(tab_id, false, "tab-drag-preview")
+            .map(|_| ())
+    }
+
+    pub(crate) fn preview_tab_drag_order(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        before_tab_id: Option<&str>,
+    ) -> Result<(), String> {
+        let coordinator = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+        let ordered = {
+            let mut state = coordinator
+                .lock()
+                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+            let mut ordered = state.tab_ids();
+            let Some(index) = ordered.iter().position(|id| id == tab_id) else {
+                return Err("Dragged tab is outside the preview window.".to_owned());
+            };
+            ordered.remove(index);
+            let insertion = before_tab_id
+                .and_then(|before| ordered.iter().position(|id| id == before))
+                .unwrap_or(ordered.len());
+            ordered.insert(insertion, tab_id.to_owned());
+            state.reorder_known_tabs(&ordered);
+            ordered
+        };
+        self.reorder_native_tabs(window_id, &ordered)
+            .map_err(|error| error.message)
+    }
+
+    pub(crate) fn restore_tab_drag_window_snapshot(
+        &self,
+        snapshot: &RuntimeTabDragWindowSnapshot,
+    ) -> Result<(), String> {
+        let Some(coordinator) = self.presentation.existing(&snapshot.window_id) else {
+            return Ok(());
+        };
+        let revision = self.presentation.next_revision();
+        let active_tab_id = {
+            let mut state = coordinator
+                .lock()
+                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+            state.reorder_known_tabs(&snapshot.tab_ids);
+            let active = snapshot
+                .active_tab_id
+                .as_ref()
+                .filter(|tab_id| state.contains_tab(tab_id))
+                .cloned()
+                .or_else(|| state.tab_ids().first().cloned());
+            state.select(active.clone(), revision);
+            active
+        };
+        let present_order = self
+            .presentation
+            .existing(&snapshot.window_id)
+            .and_then(|state| state.lock().ok().map(|state| state.tab_ids()))
+            .unwrap_or_default();
+        self.reorder_native_tabs(&snapshot.window_id, &present_order)
+            .map_err(|error| error.message)?;
+        if let Some(active_tab_id) = active_tab_id {
+            let _ = self.request_tab_presentation(&active_tab_id, false, "tab-drag-rollback")?;
+        } else {
+            self.apply_native_active_style(
+                &snapshot.window_id,
+                None,
+                revision,
+                "tab-drag-rollback",
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn tab_control_row_contains_screen_point(
+        &self,
+        window_id: &str,
+        screen_x: f64,
+        screen_y: f64,
+    ) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.state
+                .lock()
+                .ok()
+                .and_then(|state| {
+                    state
+                        .display_hosts
+                        .get(window_id)
+                        .map(|host| host.tabs_controller.clone())
+                })
+                .is_some_and(|controller| controller.control_row_contains(screen_x, screen_y))
+        }
+        #[cfg(windows)]
+        {
+            let snapshot = self.state.lock().ok().and_then(|state| {
+                let host = state.display_hosts.get(window_id)?;
+                Some((
+                    host.window.clone(),
+                    self.windows_tab_strip_height(&host.window, host.toolbar_revealed),
+                ))
+            });
+            let Some((window, height)) = snapshot else {
+                return false;
+            };
+            let Ok(position) = window.inner_position() else {
+                return false;
+            };
+            let Ok(size) = window.inner_size() else {
+                return false;
+            };
+            let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+            let height = height * scale;
+            point_in_runtime_tab_control_row(
+                position.x as f64,
+                position.y as f64,
+                size.width as f64,
+                height,
+                screen_x,
+                screen_y,
+            )
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            let _ = (window_id, screen_x, screen_y);
+            false
+        }
+    }
+
+    pub(crate) fn tab_drag_target_at_screen_point(
+        &self,
+        screen_x: f64,
+        screen_y: f64,
+        excluded_window_id: Option<&str>,
+    ) -> Option<String> {
+        let windows = self
+            .state
+            .lock()
+            .ok()?
+            .display_hosts
+            .iter()
+            .filter(|(window_id, _)| excluded_window_id != Some(window_id.as_str()))
+            .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
+            .collect::<Vec<_>>();
+        windows
+            .into_iter()
+            .filter(|(_, window)| window.is_visible().unwrap_or(false))
+            .filter(|(_, window)| {
+                let Ok(position) = window.outer_position() else {
+                    return false;
+                };
+                let Ok(size) = window.outer_size() else {
+                    return false;
+                };
+                let window_scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+                let coordinate_scale = if cfg!(windows) { 1.0 } else { window_scale };
+                point_in_runtime_tab_control_row(
+                    position.x as f64 / coordinate_scale,
+                    position.y as f64 / coordinate_scale,
+                    size.width as f64 / coordinate_scale,
+                    48.0 * if cfg!(windows) { window_scale } else { 1.0 },
+                    screen_x,
+                    screen_y,
+                )
+            })
+            .map(|(window_id, _)| window_id)
+            .find(|window_id| {
+                self.tab_control_row_contains_screen_point(window_id, screen_x, screen_y)
+            })
+    }
+
+    pub(crate) fn tab_drag_window_anchor(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        grab_ratio_x: f64,
+        grab_ratio_y: f64,
+        _fallback_tab_width: f64,
+        _fallback_tab_height: f64,
+    ) -> Option<(f64, f64)> {
+        #[cfg(target_os = "macos")]
+        {
+            let controller = self.state.lock().ok().and_then(|state| {
+                state
+                    .display_hosts
+                    .get(window_id)
+                    .map(|host| host.tabs_controller.clone())
+            })?;
+            controller
+                .drag_anchor(tab_id, grab_ratio_x, grab_ratio_y)
+                .map(|anchor| (anchor.window_offset_x, anchor.window_offset_y))
+        }
+        #[cfg(windows)]
+        {
+            let _ = tab_id;
+            let window = self.window_for_id(window_id)?;
+            let outer = window.outer_position().ok()?;
+            let inner = window.inner_position().ok()?;
+            let scale = window.scale_factor().ok()?.max(f64::EPSILON);
+            let frame_x = (inner.x - outer.x) as f64 / scale;
+            let frame_y = (inner.y - outer.y) as f64 / scale;
+            Some((
+                frame_x + 9.0 + _fallback_tab_width.max(1.0) * grab_ratio_x.clamp(0.0, 1.0),
+                frame_y
+                    + (WINDOWS_TAB_STRIP_HEIGHT - _fallback_tab_height.max(1.0)) / 2.0
+                    + _fallback_tab_height.max(1.0) * grab_ratio_y.clamp(0.0, 1.0),
+            ))
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            let _ = (
+                window_id,
+                tab_id,
+                grab_ratio_x,
+                grab_ratio_y,
+                _fallback_tab_width,
+                _fallback_tab_height,
+            );
+            None
+        }
+    }
+
     pub fn prepare_provisional_game_window(
         &self,
         target: &EmbeddedLaunchTargetRecord,
@@ -5616,45 +5934,33 @@ impl SystemRuntimeExecutor {
         {
             host.target = target.clone();
         }
-        window
-            .set_position(LogicalPosition::new(
-                target.bounds.x as f64,
-                target.bounds.y as f64,
-            ))
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn window_contains_screen_point(
-        &self,
-        window_id: &str,
-        screen_x: f64,
-        screen_y: f64,
-    ) -> bool {
-        let Some(window) = self.window_for_id(window_id) else {
-            return false;
+        #[cfg(windows)]
+        let position = {
+            let (x, y) =
+                physical_window_position(target.bounds.x, target.bounds.y, target.scale_factor);
+            window.set_position(PhysicalPosition::new(x, y))
         };
-        let Ok(position) = window.outer_position() else {
-            return false;
-        };
-        let Ok(size) = window.outer_size() else {
-            return false;
-        };
-        let scale = if cfg!(windows) {
-            1.0
-        } else {
-            window.scale_factor().unwrap_or(1.0).max(f64::EPSILON)
-        };
-        let left = position.x as f64 / scale;
-        let top = position.y as f64 / scale;
-        let width = size.width as f64 / scale;
-        let height = size.height as f64 / scale;
-        screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
+        #[cfg(not(windows))]
+        let position = window.set_position(LogicalPosition::new(
+            target.bounds.x as f64,
+            target.bounds.y as f64,
+        ));
+        position.map_err(|error| error.to_string())
     }
 
     pub fn provisionally_move_tab(
         &self,
         tab_id: &str,
         target_window_id: &str,
+    ) -> Result<(), String> {
+        self.provisionally_move_tab_with_visibility(tab_id, target_window_id, false)
+    }
+
+    fn provisionally_move_tab_with_visibility(
+        &self,
+        tab_id: &str,
+        target_window_id: &str,
+        reveal_hidden_target: bool,
     ) -> Result<(), String> {
         let (source_window_id, source_window, target_window, surfaces) = {
             let state = self
@@ -5943,7 +6249,9 @@ impl SystemRuntimeExecutor {
                 for surface in &surfaces {
                     surface.show().map_err(|error| error.to_string())?;
                 }
-                target_window.show().map_err(|error| error.to_string())?;
+                if reveal_hidden_target || target_window_was_visible {
+                    target_window.show().map_err(|error| error.to_string())?;
+                }
             }
             if source_is_empty {
                 source_window.hide().map_err(|error| error.to_string())?;
@@ -5969,6 +6277,24 @@ impl SystemRuntimeExecutor {
         }
         self.publish_projection();
         Ok(())
+    }
+
+    pub(crate) fn show_tab_drag_window(&self, window_id: &str) -> Result<(), String> {
+        self.window_for_id(window_id)
+            .ok_or_else(|| "Tab drag window was not found.".to_owned())?
+            .show()
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn set_tab_drag_window_ignores_cursor(
+        &self,
+        window_id: &str,
+        ignores_cursor: bool,
+    ) -> Result<(), String> {
+        self.window_for_id(window_id)
+            .ok_or_else(|| "Tab drag window was not found.".to_owned())?
+            .set_ignore_cursor_events(ignores_cursor)
+            .map_err(|error| error.to_string())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -6120,7 +6446,10 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()));
-        let rollback = if current_window_id.as_deref() == Some(provisional_window_id) {
+        let rollback = if current_window_id
+            .as_deref()
+            .is_some_and(|window_id| window_id != source_window_id)
+        {
             self.provisionally_move_tab(tab_id, source_window_id)
         } else {
             Ok(())
@@ -8217,6 +8546,15 @@ impl SystemRuntimeExecutor {
     fn schedule_window_placement_persistence(self: &Arc<Self>, label: String) {
         let sequence = WINDOW_PLACEMENT_PERSIST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let should_spawn = self.state.lock().ok().is_some_and(|mut state| {
+            let suppressed = state.display_hosts.iter().any(|(window_id, host)| {
+                host.window.label() == label
+                    && state
+                        .tab_drag_placement_suppressed_windows
+                        .contains(window_id)
+            });
+            if suppressed {
+                return false;
+            }
             state
                 .pending_window_placement_writes
                 .insert(label.clone(), sequence);
@@ -8248,6 +8586,17 @@ impl SystemRuntimeExecutor {
                     });
                     if !settled {
                         continue;
+                    }
+                    let suppressed = runtime.state.lock().ok().is_some_and(|state| {
+                        state.display_hosts.iter().any(|(window_id, host)| {
+                            host.window.label() == worker_label
+                                && state
+                                    .tab_drag_placement_suppressed_windows
+                                    .contains(window_id)
+                        })
+                    });
+                    if suppressed {
+                        break;
                     }
                     if let Err(error) = runtime.persist_game_window_placement(&worker_label) {
                         runtime.emit_runtime_shell_error(
@@ -19272,6 +19621,25 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
+    fn runtime_tab_control_row_uses_exact_half_open_boundaries() {
+        let row = (100.0, -44.0, 900.0, 44.0);
+        for (point, expected) in [
+            ((100.0, -44.0), true),
+            ((999.999, -0.001), true),
+            ((99.999, -20.0), false),
+            ((1000.0, -20.0), false),
+            ((500.0, -44.001), false),
+            ((500.0, 0.0), false),
+        ] {
+            assert_eq!(
+                point_in_runtime_tab_control_row(row.0, row.1, row.2, row.3, point.0, point.1,),
+                expected,
+                "point {point:?}"
+            );
+        }
+    }
+
+    #[test]
     fn reversible_fanout_rolls_back_every_attempted_native_mutation() {
         let values = Mutex::new(vec![false, false, false]);
         let rollback_order = Mutex::new(Vec::new());
@@ -19663,6 +20031,62 @@ mod tests {
         assert_eq!(
             source.lock().unwrap().selected_tab_id.as_deref(),
             Some("tab-c")
+        );
+    }
+
+    #[test]
+    fn tab_drag_presentation_can_detach_attach_and_return_repeatedly() {
+        let registry = PresentationRegistry::default();
+        let source = registry.coordinator("window-a").unwrap();
+        {
+            let mut source = source.lock().unwrap();
+            for (revision, tab_id, selected) in
+                [(1, "tab-a", false), (2, "tab-b", true), (3, "tab-c", false)]
+            {
+                source.insert_tab(
+                    presentation_tab(tab_id, TabPresentationPhase::Ready),
+                    revision,
+                    selected,
+                );
+            }
+        }
+        registry
+            .coordinator("window-b")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .insert_tab(
+                presentation_tab("tab-d", TabPresentationPhase::Ready),
+                4,
+                true,
+            );
+
+        for (revision, from, to) in [
+            (5, "window-a", "provisional"),
+            (6, "provisional", "window-b"),
+            (7, "window-b", "provisional"),
+            (8, "provisional", "window-a"),
+        ] {
+            registry.move_tab("tab-b", from, to, revision).unwrap();
+            assert_eq!(registry.tab_window("tab-b").unwrap().as_deref(), Some(to));
+        }
+
+        let source = registry.existing("window-a").unwrap();
+        let mut source = source.lock().unwrap();
+        source.reorder_known_tabs(&["tab-a".to_owned(), "tab-b".to_owned(), "tab-c".to_owned()]);
+        source.select(Some("tab-b".to_owned()), 9);
+        assert_eq!(source.tab_ids(), ["tab-a", "tab-b", "tab-c"]);
+        assert_eq!(source.selected_tab_id.as_deref(), Some("tab-b"));
+        drop(source);
+        assert_eq!(
+            registry
+                .existing("window-b")
+                .unwrap()
+                .lock()
+                .unwrap()
+                .selected_tab_id
+                .as_deref(),
+            Some("tab-d")
         );
     }
 

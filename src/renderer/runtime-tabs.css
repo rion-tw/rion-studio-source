@@ -129,6 +129,7 @@ button {
   font-size: var(--type-control-size);
   font-weight: var(--weight-regular);
   line-height: var(--type-control-line);
+  transition: transform 120ms ease-out, opacity 90ms ease-out;
 }
 
 .tab + .tab::after {
@@ -156,7 +157,23 @@ button {
 }
 
 .tab.dragging {
-  opacity: 0.5;
+  opacity: 0.12;
+}
+
+.tab.drag-placeholder {
+  opacity: 1;
+  background: hsl(var(--glass-control-selected) / 0.42);
+  box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.5);
+  color: transparent;
+}
+
+.tab.drag-placeholder > * {
+  visibility: hidden;
+}
+
+.tab.drag-placeholder.external {
+  flex: none;
+  pointer-events: none;
 }
 
 .tab.drop-before::before,
@@ -271,5 +288,11 @@ button {
 @media (prefers-reduced-transparency: reduce) {
   .tab.active {
     background: hsl(var(--card));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none !important;
   }
 }

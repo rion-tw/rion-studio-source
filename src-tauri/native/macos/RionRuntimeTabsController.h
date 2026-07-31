@@ -95,7 +95,8 @@ typedef void (*RionRuntimeTabsCActionHandler)(
     const char * _Nullable sourceWindowID,
     const char * _Nullable targetWindowID,
     const char * _Nullable beforeTabIdentifier, double screenX,
-    double screenY, bool cancelled);
+    double screenY, double grabRatioX, double grabRatioY,
+    double tabWidth, double tabHeight, bool cancelled);
 typedef void (*RionRuntimeTabsCLayoutHandler)(
     void *context, double heightInset, double yOffset, bool valid);
 
@@ -146,6 +147,12 @@ void rion_runtime_tabs_update_metadata(
     const char *scrollRightLabel);
 RionRuntimeContentLayout rion_runtime_tabs_content_layout(
     void * _Nullable controller);
+bool rion_runtime_tabs_control_row_contains(
+    void * _Nullable controller, double screenX, double screenY);
+bool rion_runtime_tabs_drag_anchor(
+    void * _Nullable controller, const char *tabIdentifier,
+    double grabRatioX, double grabRatioY, double *windowOffsetX,
+    double *windowOffsetY);
 bool rion_runtime_tabs_action_scope_self_test(void);
 bool rion_runtime_tabs_overflow_layout_self_test(void);
 bool rion_runtime_tabs_shortcut_self_test(void);

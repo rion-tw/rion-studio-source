@@ -184,6 +184,17 @@ function setTabGeometry(width = 140, spacing = 10): void {
   });
 }
 
+function dragTransfer(payload?: Record<string, unknown>) {
+  const values = new Map<string, string>();
+  if (payload) values.set("text/rion-runtime-tab", JSON.stringify(payload));
+  return {
+    dropEffect: "move",
+    effectAllowed: "none",
+    getData: (type: string) => values.get(type) ?? "",
+    setData: (type: string, value: string) => values.set(type, value)
+  };
+}
+
 describe("Tauri-owned Windows runtime tab strip", () => {
   it("projects the resolved app theme onto an already-open tab document", () => {
     window.__rionApplyRuntimeTabState?.({ ...state, resolvedTheme: "dark" });
@@ -743,31 +754,181 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     const drag = new Event("dragover", { bubbles: true, cancelable: true });
     Object.defineProperty(drag, "clientX", { value: 195 });
     root.dispatchEvent(drag);
-    expect(geometry.scrollLeft).toBe(56);
+    expect(geometry.scrollLeft).toBe(54);
   });
 
-  it("shows the current native-style insertion target while dragging", () => {
+  it("continues distance-sensitive edge scrolling until the drag leaves the strip", async () => {
+    const geometry = installScrollGeometry(200, 590);
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    setTabGeometry();
+    await nextAnimationFrame();
+    const root = document.querySelector<HTMLDivElement>("#tabs")!;
+    const drag = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(drag, {
+      clientX: { value: 199 },
+      dataTransfer: { value: dragTransfer({
+        sessionId: "edge-scroll",
+        tabId: "external-tab",
+        tabWidth: 160,
+        tabHeight: 28
+      }) }
+    });
+    root.dispatchEvent(drag);
+    const first = geometry.scrollLeft;
+    await nextAnimationFrame();
+    await nextAnimationFrame();
+    expect(geometry.scrollLeft).toBeGreaterThan(first);
+
+    root.dispatchEvent(new Event("dragleave", { bubbles: true }));
+    const stopped = geometry.scrollLeft;
+    await nextAnimationFrame();
+    expect(geometry.scrollLeft).toBe(stopped);
+  });
+
+  it("uses an equal-width placeholder and live DOM order while dragging", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
     const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+    const dragged = document.querySelector<HTMLElement>('[data-tab-id="tab-3"]')!;
+    Object.defineProperty(tab, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 28, height: 28, left: 0, right: 200,
+        toJSON: () => ({}), top: 0, width: 200, x: 0, y: 0
+      })
+    });
+    const dataTransfer = dragTransfer({
+      sessionId: "drag-placeholder",
+      tabId: "tab-3",
+      tabWidth: 168,
+      tabHeight: 28
+    });
     const overTab = new Event("dragover", { bubbles: true, cancelable: true });
     Object.defineProperties(overTab, {
-      clientX: { value: 80 },
-      dataTransfer: { value: { dropEffect: "none" } }
+      clientX: { value: 40 },
+      dataTransfer: { value: dataTransfer }
     });
     tab.dispatchEvent(overTab);
 
-    expect(tab.classList.contains("drop-before")).toBe(true);
-    expect(document.querySelector("#tabs")?.classList.contains("drop-at-end")).toBe(false);
+    expect(dragged.classList.contains("drag-placeholder")).toBe(true);
+    expect(Array.from(document.querySelectorAll<HTMLElement>("#tabs .tab"))
+      .map((candidate) => candidate.dataset.tabId)).toEqual([
+      "tab-3", "tab-1", "tab-2", "tab-4"
+    ]);
 
     const overEnd = new Event("dragover", { bubbles: true, cancelable: true });
     Object.defineProperties(overEnd, {
       clientX: { value: 500 },
-      dataTransfer: { value: { dropEffect: "none" } }
+      dataTransfer: { value: dataTransfer }
     });
     document.querySelector("#tabs")?.dispatchEvent(overEnd);
 
-    expect(tab.classList.contains("drop-before")).toBe(false);
-    expect(document.querySelector("#tabs")?.classList.contains("drop-at-end")).toBe(true);
-    document.querySelector("#tabs")?.dispatchEvent(new Event("drop", { cancelable: true }));
+    expect(Array.from(document.querySelectorAll<HTMLElement>("#tabs .tab"))
+      .map((candidate) => candidate.dataset.tabId)).toEqual([
+      "tab-1", "tab-2", "tab-4", "tab-3"
+    ]);
+    const drop = new Event("drop", { cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
+    document.querySelector("#tabs")?.dispatchEvent(drop);
+    expect(dragged.classList.contains("drag-placeholder")).toBe(false);
+  });
+
+  it("preserves the pointer grab ratios and measured tab geometry", async () => {
+    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+    Object.defineProperty(tab, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 58, height: 28, left: 100, right: 300,
+        toJSON: () => ({}), top: 30, width: 200, x: 100, y: 30
+      })
+    });
+    tab.dispatchEvent(new MouseEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      clientX: 150,
+      clientY: 37
+    }));
+    const dataTransfer = dragTransfer();
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 350 },
+      screenY: { value: 240 }
+    });
+    tab.dispatchEvent(dragStart);
+    await Promise.resolve();
+
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: expect.objectContaining({
+        type: "tabDragStart",
+        grabRatioX: 0.25,
+        grabRatioY: 0.25,
+        tabWidth: 200,
+        tabHeight: 28
+      })
+    });
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperties(dragEnd, {
+      dataTransfer: { value: { ...dataTransfer, dropEffect: "move" } },
+      screenX: { value: 350 },
+      screenY: { value: 240 }
+    });
+    tab.dispatchEvent(dragEnd);
+  });
+
+  it("selects an inactive tab as soon as its drag starts", async () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs(0));
+    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-2"]')!;
+    const dataTransfer = dragTransfer();
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 260 },
+      screenY: { value: 100 }
+    });
+    tab.dispatchEvent(dragStart);
+
+    expect(tab.classList.contains("active")).toBe(true);
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector('[data-tab-id="tab-1"]')?.classList.contains("active"))
+      .toBe(false);
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperties(dragEnd, {
+      dataTransfer: { value: { ...dataTransfer, dropEffect: "move" } },
+      screenX: { value: 260 },
+      screenY: { value: 100 }
+    });
+    tab.dispatchEvent(dragEnd);
+    await Promise.resolve();
+  });
+
+  it("cancels an active drag with Escape and removes its placeholder", async () => {
+    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+    const dataTransfer = dragTransfer();
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 120 },
+      screenY: { value: 80 }
+    });
+    tab.dispatchEvent(dragStart);
+    window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: expect.objectContaining({ type: "tabDragCancel" })
+    });
+    expect(document.querySelector(".drag-placeholder")).toBeNull();
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperties(dragEnd, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 120 },
+      screenY: { value: 80 }
+    });
+    tab.dispatchEvent(dragEnd);
   });
 
   it("serializes drag lifecycle actions until the previous native action settles", async () => {

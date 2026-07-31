@@ -129,6 +129,25 @@ static CGFloat RionRuntimeRevealScrollOrigin(
   return RionRuntimeClampScrollOrigin(origin, contentWidth, viewportWidth);
 }
 
+static CGFloat RionRuntimeDragScrollDelta(CGFloat pointX,
+                                          CGFloat minimumX,
+                                          CGFloat maximumX,
+                                          CGFloat edgeWidth) {
+  if (pointX < minimumX + edgeWidth) {
+    CGFloat strength = MIN(
+        1.0, MAX(0.0, (minimumX + edgeWidth - pointX) /
+                           MAX(1.0, edgeWidth)));
+    return -(2.0 + round(strength * 14.0));
+  }
+  if (pointX > maximumX - edgeWidth) {
+    CGFloat strength = MIN(
+        1.0, MAX(0.0, (pointX - (maximumX - edgeWidth)) /
+                           MAX(1.0, edgeWidth)));
+    return 2.0 + round(strength * 14.0);
+  }
+  return 0;
+}
+
 static void RionDisableToolbarBaselineSeparator(NSToolbar *toolbar) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -575,11 +594,19 @@ static void RionForwardRuntimeTabsAction(
   NSString *targetWindowID = action[@"windowId"];
   NSNumber *screenX = action[@"screenX"];
   NSNumber *screenY = action[@"screenY"];
+  NSNumber *grabRatioX = action[@"grabRatioX"];
+  NSNumber *grabRatioY = action[@"grabRatioY"];
+  NSNumber *tabWidth = action[@"tabWidth"];
+  NSNumber *tabHeight = action[@"tabHeight"];
   NSNumber *cancelled = action[@"cancelled"];
   actionHandler(context, type.UTF8String, sessionID.UTF8String, tabID.UTF8String,
                 sourceWindowID.UTF8String, targetWindowID.UTF8String,
                 beforeTabID.UTF8String, screenX ? screenX.doubleValue : NAN,
                 screenY ? screenY.doubleValue : NAN,
+                grabRatioX ? grabRatioX.doubleValue : NAN,
+                grabRatioY ? grabRatioY.doubleValue : NAN,
+                tabWidth ? tabWidth.doubleValue : NAN,
+                tabHeight ? tabHeight.doubleValue : NAN,
                 cancelled ? cancelled.boolValue : false);
 }
 
@@ -792,6 +819,46 @@ RionRuntimeContentLayout rion_runtime_tabs_content_layout(void *rawController) {
   return [(__bridge RionRuntimeTabsController *)rawController contentLayout];
 }
 
+@interface RionRuntimeTabsController (RionDragGeometry)
+- (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point;
+- (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
+                        grabRatioX:(double)grabRatioX
+                        grabRatioY:(double)grabRatioY
+                      windowOffset:(NSPoint *)windowOffset;
+@end
+
+bool rion_runtime_tabs_control_row_contains(void *rawController,
+                                            double screenX,
+                                            double screenY) {
+  if (!rawController || !std::isfinite(screenX) || !std::isfinite(screenY)) {
+    return false;
+  }
+  return [(__bridge RionRuntimeTabsController *)rawController
+      controlRowContainsTopLeftScreenPoint:NSMakePoint(screenX, screenY)];
+}
+
+bool rion_runtime_tabs_drag_anchor(void *rawController,
+                                   const char *tabIdentifier,
+                                   double grabRatioX,
+                                   double grabRatioY,
+                                   double *windowOffsetX,
+                                   double *windowOffsetY) {
+  if (!rawController || !tabIdentifier || !windowOffsetX || !windowOffsetY ||
+      !std::isfinite(grabRatioX) || !std::isfinite(grabRatioY)) {
+    return false;
+  }
+  NSPoint offset = NSZeroPoint;
+  BOOL available = [(__bridge RionRuntimeTabsController *)rawController
+      dragAnchorForTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                     grabRatioX:grabRatioX
+                     grabRatioY:grabRatioY
+                   windowOffset:&offset];
+  if (!available) return false;
+  *windowOffsetX = offset.x;
+  *windowOffsetY = offset.y;
+  return true;
+}
+
 struct RionRuntimeTabsActionScopeProbe {
   std::string sourceWindowID;
   std::string targetWindowID;
@@ -803,12 +870,17 @@ static void RionRuntimeTabsActionScopeProbeCallback(
     const char *tabIdentifier,
     const char *sourceWindowID, const char *targetWindowID,
     const char *beforeTabIdentifier, double screenX, double screenY,
+    double grabRatioX, double grabRatioY, double tabWidth, double tabHeight,
     bool cancelled) {
   (void)sessionIdentifier;
   (void)tabIdentifier;
   (void)beforeTabIdentifier;
   (void)screenX;
   (void)screenY;
+  (void)grabRatioX;
+  (void)grabRatioY;
+  (void)tabWidth;
+  (void)tabHeight;
   (void)cancelled;
   RionRuntimeTabsActionScopeProbe *probe =
       static_cast<RionRuntimeTabsActionScopeProbe *>(context);
@@ -855,7 +927,11 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
                                          900.0) == 360.0 &&
            hiddenWidth < visibleWidth &&
            longWindowNameWidth == kRionWindowNameMaximumWidth &&
-           minimumWindowTabsWidth > kRionTabMinimumWidth;
+           minimumWindowTabsWidth > kRionTabMinimumWidth &&
+           kRionTitlebarHeight == 40.0 &&
+           RionRuntimeDragScrollDelta(50.0, 0.0, 200.0, 36.0) == 0.0 &&
+           RionRuntimeDragScrollDelta(1.0, 0.0, 200.0, 36.0) == -16.0 &&
+           RionRuntimeDragScrollDelta(199.0, 0.0, 200.0, 36.0) == 16.0;
   }
 }
 
@@ -909,6 +985,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @property(nonatomic, weak) RionRuntimeTabsController *tabsController;
 @property(nonatomic, copy) NSString *tabIdentifier;
 @property(nonatomic, readonly) CGFloat preferredWidth;
+@property(nonatomic, readonly) NSPoint grabRatio;
 
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
@@ -966,15 +1043,32 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                      sourceWindowID:(NSString *)sourceWindowID
                        sessionID:(NSString *)sessionID
-                   beforeIdentifier:(nullable NSString *)beforeIdentifier;
+                   beforeIdentifier:(nullable NSString *)beforeIdentifier
+                        screenPoint:(NSPoint)screenPoint;
+- (void)handleHoverWithTabIdentifier:(NSString *)tabIdentifier
+                      sourceWindowID:(NSString *)sourceWindowID
+                           sessionID:(NSString *)sessionID
+                    beforeIdentifier:(nullable NSString *)beforeIdentifier
+                         screenPoint:(NSPoint)screenPoint;
 - (void)moveTabDrag:(RionRuntimeTabItemView *)item atScreenPoint:(NSPoint)screenPoint;
-- (void)endTabDrag:(RionRuntimeTabItemView *)item cancelled:(BOOL)cancelled;
+- (void)endTabDrag:(RionRuntimeTabItemView *)item
+       screenPoint:(NSPoint)screenPoint
+         cancelled:(BOOL)cancelled;
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view;
 - (void)hideInsertionIndicator;
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view;
+- (void)stopTabDragEdgeScroll;
+- (void)applyTabDragEdgeScroll;
+- (void)setDragPlaceholderIdentifier:(nullable NSString *)identifier;
+- (void)updateDragPlaceholderAppearance;
 - (void)scrollTabsLeft:(id)sender;
 - (void)scrollTabsRight:(id)sender;
 - (void)updateTabScrollButtonState;
+- (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point;
+- (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
+                       grabRatioX:(CGFloat)grabRatioX
+                       grabRatioY:(CGFloat)grabRatioY
+                     windowOffset:(NSPoint *)windowOffset;
 - (void)hideResidualFullScreenTrafficLightOverlay;
 - (void)installPreparedToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
@@ -1270,6 +1364,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
+  NSPoint _pointerDownInTab;
   NSPoint _pointerDownLocation;
   BOOL _pointerTracking;
   NSTrackingArea *_trackingArea;
@@ -1476,6 +1571,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)mouseDown:(NSEvent *)event {
   _pointerDownLocation = event.locationInWindow;
+  _pointerDownInTab = [self convertPoint:event.locationInWindow fromView:nil];
   _pointerTracking = YES;
   _dragStarted = NO;
 }
@@ -1537,12 +1633,22 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSEvent *event = NSApp.currentEvent;
   BOOL cancelledWithEscape =
       event.type == NSEventTypeKeyDown && event.keyCode == 53;
-  (void)screenPoint;
+  BOOL captureWasCancelled =
+      event && event.type != NSEventTypeLeftMouseUp && !cancelledWithEscape;
   if (operation != NSDragOperationNone) {
     self.dragSessionID = @"";
     return;
   }
-  [self.tabsController endTabDrag:self cancelled:cancelledWithEscape];
+  [self.tabsController endTabDrag:self
+                      screenPoint:screenPoint
+                        cancelled:cancelledWithEscape || captureWasCancelled];
+}
+
+- (NSPoint)grabRatio {
+  CGFloat width = MAX(1.0, self.bounds.size.width);
+  CGFloat height = MAX(1.0, self.bounds.size.height);
+  return NSMakePoint(MIN(1.0, MAX(0.0, _pointerDownInTab.x / width)),
+                     MIN(1.0, MAX(0.0, _pointerDownInTab.y / height)));
 }
 
 @end
@@ -1606,13 +1712,30 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self.tabsController scrollTabStripForDragPoint:point inView:self];
   NSString *identifier =
       [self.tabsController tabIdentifierBeforePoint:point inView:self];
-  [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
+  NSString *payload = [[sender draggingPasteboard]
+      stringForType:RionRuntimeTabPasteboardType];
+  NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\n"];
+  if (parts.count == 3) {
+    [self.tabsController hideInsertionIndicator];
+    [self.tabsController setDragPlaceholderIdentifier:parts[1]];
+    NSPoint screenPoint =
+        [self.window convertPointToScreen:sender.draggingLocation];
+    [self.tabsController handleHoverWithTabIdentifier:parts[1]
+                                        sourceWindowID:parts[0]
+                                             sessionID:parts[2]
+                                      beforeIdentifier:identifier
+                                           screenPoint:screenPoint];
+  } else {
+    [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
+  }
   return NSDragOperationMove;
 }
 
 - (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
   (void)sender;
   [self.tabsController hideInsertionIndicator];
+  [self.tabsController setDragPlaceholderIdentifier:nil];
+  [self.tabsController stopTabDragEdgeScroll];
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
@@ -1626,11 +1749,16 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
   NSString *beforeIdentifier =
       [self.tabsController tabIdentifierBeforePoint:point inView:self];
+  NSPoint screenPoint =
+      [self.window convertPointToScreen:sender.draggingLocation];
   [self.tabsController hideInsertionIndicator];
+  [self.tabsController setDragPlaceholderIdentifier:nil];
+  [self.tabsController stopTabDragEdgeScroll];
   [self.tabsController handleDropWithTabIdentifier:tabIdentifier
                                     sourceWindowID:sourceWindowID
                                          sessionID:sessionID
-                                  beforeIdentifier:beforeIdentifier];
+                                  beforeIdentifier:beforeIdentifier
+                                       screenPoint:screenPoint];
   return YES;
 }
 
@@ -1659,6 +1787,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   RionRuntimeDraggableView *_clusterContent;
   NSString *_windowID;
   NSView *_insertionIndicator;
+  NSString *_dragPlaceholderTabIdentifier;
+  CGFloat _dragScrollRootX;
+  NSTimer *_dragScrollTimer;
   NSMutableArray<NSButton *> *_observedTrafficLightButtons;
   NSMutableDictionary<NSValue *, NSDictionary<NSString *, NSNumber *> *> *
       _originalTrafficLightStates;
@@ -3022,6 +3153,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   item.sourceWindowID = _windowID;
   [self layoutTitlebarContent];
+  [self updateDragPlaceholderAppearance];
 }
 
 - (void)reserveTabIdentifier:(NSString *)tabIdentifier
@@ -3108,10 +3240,17 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }
   [self setActiveTabIdentifier:activeTabIdentifier];
   [self layoutTitlebarContent];
+  [self updateDragPlaceholderAppearance];
 }
 
 - (void)reorderTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers {
   if (_destroyed || _tabItems.count < 2 || tabIdentifiers.count == 0) return;
+  NSMutableDictionary<NSString *, NSValue *> *previousFrames =
+      [NSMutableDictionary dictionaryWithCapacity:_tabItems.count];
+  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
+    previousFrames[_tabItems[index].tabIdentifier] =
+        [NSValue valueWithRect:_tabSurfaces[index].frame];
+  }
   NSMutableArray<RionRuntimeTabItemView *> *orderedItems =
       [NSMutableArray arrayWithCapacity:_tabItems.count];
   NSMutableArray<RionRuntimeSurfaceView *> *orderedSurfaces =
@@ -3136,6 +3275,27 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [_tabItems setArray:orderedItems];
   [_tabSurfaces setArray:orderedSurfaces];
   [self layoutTitlebarContent];
+  [self updateDragPlaceholderAppearance];
+  if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) return;
+  NSMutableArray<NSValue *> *targetFrames =
+      [NSMutableArray arrayWithCapacity:_tabSurfaces.count];
+  BOOL hasMovement = NO;
+  for (NSUInteger index = 0; index < _tabSurfaces.count; ++index) {
+    NSRect targetFrame = _tabSurfaces[index].frame;
+    [targetFrames addObject:[NSValue valueWithRect:targetFrame]];
+    NSValue *previous = previousFrames[_tabItems[index].tabIdentifier];
+    if (previous && fabs(previous.rectValue.origin.x - targetFrame.origin.x) >= 0.5) {
+      _tabSurfaces[index].frame = previous.rectValue;
+      hasMovement = YES;
+    }
+  }
+  if (!hasMovement) return;
+  [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+    context.duration = 0.12;
+    for (NSUInteger index = 0; index < self->_tabSurfaces.count; ++index) {
+      self->_tabSurfaces[index].animator.frame = targetFrames[index].rectValue;
+    }
+  } completionHandler:nil];
 }
 
 - (void)closeTab:(NSString *)tabIdentifier {
@@ -3183,8 +3343,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event {
   NSString *sessionID = NSUUID.UUID.UUIDString;
   item.dragSessionID = sessionID;
+  [self setActiveTabIdentifier:item.tabIdentifier];
   NSPoint screenPoint =
       RionTopLeftScreenPoint([item.window convertPointToScreen:event.locationInWindow]);
+  NSPoint grabRatio = item.grabRatio;
   if (_actionHandler) {
     _actionHandler(@{
       @"type" : @"tabDragStart",
@@ -3192,7 +3354,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       @"tabId" : item.tabIdentifier,
       @"sourceWindowId" : item.sourceWindowID,
       @"screenX" : @(screenPoint.x),
-      @"screenY" : @(screenPoint.y)
+      @"screenY" : @(screenPoint.y),
+      @"grabRatioX" : @(grabRatio.x),
+      @"grabRatioY" : @(grabRatio.y),
+      @"tabWidth" : @(item.bounds.size.width),
+      @"tabHeight" : @(item.bounds.size.height)
     });
   }
   NSPasteboardItem *pasteboardItem = [[NSPasteboardItem alloc] init];
@@ -3203,7 +3369,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSDraggingItem *draggingItem =
       [[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem];
   [draggingItem setDraggingFrame:item.bounds contents:item.surfaceView];
-  [item beginDraggingSessionWithItems:@[ draggingItem ] event:event source:item];
+  NSDraggingSession *draggingSession =
+      [item beginDraggingSessionWithItems:@[ draggingItem ] event:event source:item];
+  draggingSession.animatesToStartingPositionsOnCancelOrFail = YES;
+  [self setDragPlaceholderIdentifier:item.tabIdentifier];
 }
 
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view {
@@ -3219,24 +3388,69 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view {
   if (_tabScrollView.bounds.size.width <= 0) return;
   NSPoint rootPoint = [_accessoryController.view convertPoint:point fromView:view];
+  _dragScrollRootX = rootPoint.x;
+  [self applyTabDragEdgeScroll];
+}
+
+- (void)applyTabDragEdgeScroll {
+  if (_destroyed || _tabScrollView.bounds.size.width <= 0) {
+    [self stopTabDragEdgeScroll];
+    return;
+  }
   NSRect frame = _tabScrollView.frame;
   CGFloat edgeWidth = MIN(36.0, frame.size.width / 4.0);
-  CGFloat delta = 0;
-  if (rootPoint.x < NSMinX(frame) + edgeWidth) {
-    delta = -16.0;
-  } else if (rootPoint.x > NSMaxX(frame) - edgeWidth) {
-    delta = 16.0;
+  CGFloat delta = RionRuntimeDragScrollDelta(
+      _dragScrollRootX, NSMinX(frame), NSMaxX(frame), edgeWidth);
+  if (delta == 0) {
+    [self stopTabDragEdgeScroll];
+    return;
   }
-  if (delta == 0) return;
   NSClipView *clipView = _tabScrollView.contentView;
   CGFloat maximumOrigin =
       MAX(0, _tabCanvas.frame.size.width - clipView.bounds.size.width);
+  CGFloat previousOriginX = clipView.bounds.origin.x;
   CGFloat originX = MIN(
       maximumOrigin,
       MAX(0, clipView.bounds.origin.x + delta));
+  if (fabs(originX - previousOriginX) < 0.5) {
+    [self stopTabDragEdgeScroll];
+    return;
+  }
   [clipView scrollToPoint:NSMakePoint(originX, 0)];
   [_tabScrollView reflectScrolledClipView:clipView];
   [self updateTabScrollButtonState];
+  if (_dragScrollTimer) return;
+  __weak RionRuntimeTabsController *weakSelf = self;
+  _dragScrollTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
+                                            repeats:YES
+                                              block:^(__unused NSTimer *timer) {
+    [weakSelf applyTabDragEdgeScroll];
+  }];
+  [NSRunLoop.mainRunLoop addTimer:_dragScrollTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopTabDragEdgeScroll {
+  [_dragScrollTimer invalidate];
+  _dragScrollTimer = nil;
+}
+
+- (void)setDragPlaceholderIdentifier:(nullable NSString *)identifier {
+  if ((_dragPlaceholderTabIdentifier == identifier) ||
+      [_dragPlaceholderTabIdentifier isEqualToString:identifier]) {
+    [self updateDragPlaceholderAppearance];
+    return;
+  }
+  _dragPlaceholderTabIdentifier = [identifier copy];
+  [self updateDragPlaceholderAppearance];
+}
+
+- (void)updateDragPlaceholderAppearance {
+  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
+    BOOL placeholder = _dragPlaceholderTabIdentifier.length > 0 &&
+        [_tabItems[index].tabIdentifier
+            isEqualToString:_dragPlaceholderTabIdentifier];
+    _tabSurfaces[index].alphaValue = placeholder ? 0.22 : 1.0;
+  }
 }
 
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier {
@@ -3274,14 +3488,40 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                      sourceWindowID:(NSString *)sourceWindowID
                           sessionID:(NSString *)sessionID
-                   beforeIdentifier:(nullable NSString *)beforeIdentifier {
+                   beforeIdentifier:(nullable NSString *)beforeIdentifier
+                        screenPoint:(NSPoint)screenPoint {
   if (!_actionHandler || tabIdentifier.length == 0 || sessionID.length == 0) return;
   NSMutableDictionary<NSString *, id> *action = [@{
     @"type" : @"tabDragDrop",
     @"sessionId" : sessionID,
     @"tabId" : tabIdentifier,
     @"sourceWindowId" : sourceWindowID,
-    @"windowId" : _windowID
+    @"windowId" : _windowID,
+    @"screenX" : @(RionTopLeftScreenPoint(screenPoint).x),
+    @"screenY" : @(RionTopLeftScreenPoint(screenPoint).y)
+  } mutableCopy];
+  if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
+  _actionHandler(action);
+}
+
+- (void)handleHoverWithTabIdentifier:(NSString *)tabIdentifier
+                      sourceWindowID:(NSString *)sourceWindowID
+                           sessionID:(NSString *)sessionID
+                    beforeIdentifier:(nullable NSString *)beforeIdentifier
+                         screenPoint:(NSPoint)screenPoint {
+  if (!_actionHandler || tabIdentifier.length == 0 || sessionID.length == 0) return;
+  NSPoint point = RionTopLeftScreenPoint(screenPoint);
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  NSMutableDictionary<NSString *, id> *action = [@{
+    @"type" : @"tabDragHover",
+    @"sessionId" : sessionID,
+    @"tabId" : tabIdentifier,
+    @"sourceWindowId" : sourceWindowID,
+    @"windowId" : _windowID,
+    @"screenX" : @(point.x),
+    @"screenY" : @(point.y),
+    @"tabWidth" : @(item ? item.preferredWidth : kRionTabMinimumWidth),
+    @"tabHeight" : @(kRionTabHeight)
   } mutableCopy];
   if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
   _actionHandler(action);
@@ -3300,15 +3540,60 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   });
 }
 
-- (void)endTabDrag:(RionRuntimeTabItemView *)item cancelled:(BOOL)cancelled {
+- (void)endTabDrag:(RionRuntimeTabItemView *)item
+       screenPoint:(NSPoint)screenPoint
+         cancelled:(BOOL)cancelled {
   if (!_actionHandler || item.dragSessionID.length == 0) return;
+  NSPoint point = RionTopLeftScreenPoint(screenPoint);
   _actionHandler(@{
     @"type" : @"tabDragEnd",
     @"sessionId" : item.dragSessionID,
     @"sourceWindowId" : item.sourceWindowID,
+    @"screenX" : @(point.x),
+    @"screenY" : @(point.y),
     @"cancelled" : @(cancelled)
   });
   item.dragSessionID = @"";
+  [self setDragPlaceholderIdentifier:nil];
+  [self stopTabDragEdgeScroll];
+}
+
+- (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point {
+  if (_destroyed || !_window || !_accessoryController.view.window) return NO;
+  NSView *root = _accessoryController.view;
+  NSRect windowRect = [root convertRect:root.bounds toView:nil];
+  NSRect screenRect = [root.window convertRectToScreen:windowRect];
+  NSPoint topLeft =
+      RionTopLeftScreenPoint(NSMakePoint(NSMinX(screenRect), NSMaxY(screenRect)));
+  NSRect topLeftRect = NSMakeRect(topLeft.x, topLeft.y,
+                                 screenRect.size.width, screenRect.size.height);
+  return point.x >= NSMinX(topLeftRect) && point.x < NSMaxX(topLeftRect) &&
+      point.y >= NSMinY(topLeftRect) && point.y < NSMaxY(topLeftRect);
+}
+
+- (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
+                       grabRatioX:(CGFloat)grabRatioX
+                       grabRatioY:(CGFloat)grabRatioY
+                     windowOffset:(NSPoint *)windowOffset {
+  if (_destroyed || !_window || !windowOffset || tabIdentifier.length == 0) return NO;
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  if (!item || !item.window) return NO;
+  NSUInteger index = [_tabItems indexOfObjectIdenticalTo:item];
+  if (index == NSNotFound || index >= _tabSurfaces.count) return NO;
+  RionRuntimeSurfaceView *surface = _tabSurfaces[index];
+  NSRect tabWindowRect = [surface convertRect:surface.bounds toView:nil];
+  NSRect tabScreenRect = [surface.window convertRectToScreen:tabWindowRect];
+  NSRect windowScreenRect = _window.frame;
+  NSPoint tabTopLeft = RionTopLeftScreenPoint(
+      NSMakePoint(NSMinX(tabScreenRect), NSMaxY(tabScreenRect)));
+  NSPoint windowTopLeft = RionTopLeftScreenPoint(
+      NSMakePoint(NSMinX(windowScreenRect), NSMaxY(windowScreenRect)));
+  CGFloat ratioX = MIN(1.0, MAX(0.0, grabRatioX));
+  CGFloat ratioY = MIN(1.0, MAX(0.0, grabRatioY));
+  *windowOffset = NSMakePoint(
+      tabTopLeft.x - windowTopLeft.x + tabScreenRect.size.width * ratioX,
+      tabTopLeft.y - windowTopLeft.y + tabScreenRect.size.height * ratioY);
+  return YES;
 }
 
 - (void)ensureFullscreenPresentationOptionsHook {
@@ -3731,6 +4016,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (_destroyed) return;
   RionSetFullscreenPresentationPolicyMarker(_window, NO, NO);
   _destroyed = YES;
+  [self stopTabDragEdgeScroll];
   if (_tabShortcutMonitor) {
     [NSEvent removeMonitor:_tabShortcutMonitor];
     _tabShortcutMonitor = nil;

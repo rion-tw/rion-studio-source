@@ -106,6 +106,7 @@ describe("macro overlay interactions", () => {
   it("leaves game pointer events and focus untouched", () => {
     const { button, canvas } = createGameSurface(document);
     const binding = vi.fn(async (_request: unknown) => ({ macros: [], statuses: [] }));
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     installOverlay(window, binding);
     const pagePointerDown = vi.fn();
     document.addEventListener("pointerdown", pagePointerDown);
@@ -119,7 +120,7 @@ describe("macro overlay interactions", () => {
     expect(pagePointerDown).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(button);
     expect(document.activeElement).not.toBe(canvas);
-    expect(binding).toHaveBeenCalledWith({ type: "activate" });
+    expect(binding).not.toHaveBeenCalledWith({ type: "activate" });
 
     const canvasPointerDown = createMouseEvent(window, "pointerdown");
     expect(canvas.dispatchEvent(canvasPointerDown)).toBe(true);
@@ -127,16 +128,62 @@ describe("macro overlay interactions", () => {
     expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
     expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "activate"
-    )).toHaveLength(2);
+    )).toHaveLength(0);
 
     expect(canvas.dispatchEvent(createMouseEvent(window, "pointerdown"))).toBe(true);
     expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "activate"
-    )).toHaveLength(3);
+    )).toHaveLength(0);
     expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "game-input-context" && request.active === true
     )).toHaveLength(1);
     expect(document.activeElement).toBe(button);
+  });
+
+  it("does not refocus the WebView when right mouse is pressed while a movement key is held", () => {
+    const { canvas } = createGameSurface(document);
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [], statuses: [] }));
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    installOverlay(window, binding);
+    const gameKeyDown = vi.fn();
+    const gameKeyUp = vi.fn();
+    const gameBlur = vi.fn();
+    document.addEventListener("keydown", gameKeyDown);
+    document.addEventListener("keyup", gameKeyUp);
+    window.addEventListener("blur", gameBlur);
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyW",
+      key: "w"
+    }));
+    const rightPointerDown = createMouseEvent(window, "pointerdown", { button: 2 });
+    expect(canvas.dispatchEvent(rightPointerDown)).toBe(true);
+
+    expect(gameKeyDown).toHaveBeenCalledOnce();
+    expect(gameKeyUp).not.toHaveBeenCalled();
+    expect(gameBlur).not.toHaveBeenCalled();
+    expect(rightPointerDown.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "activate" });
+
+    document.removeEventListener("keydown", gameKeyDown);
+    document.removeEventListener("keyup", gameKeyUp);
+    window.removeEventListener("blur", gameBlur);
+  });
+
+  it("requests WebView focus once when a pointer event reaches an unfocused document", () => {
+    const { canvas } = createGameSurface(document);
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [], statuses: [] }));
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    installOverlay(window, binding);
+
+    expect(canvas.dispatchEvent(createMouseEvent(window, "pointerdown", { button: 0 }))).toBe(true);
+
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "activate"
+    )).toHaveLength(1);
+    expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
   });
 
   it("opens the app once from a physical trigger click while keeping the action menu hidden", async () => {
@@ -1705,12 +1752,17 @@ function createGameSurface(ownerDocument: Document): { button: HTMLButtonElement
   return { button, canvas };
 }
 
-function createMouseEvent(targetWindow: Window, type: string): MouseEvent {
+function createMouseEvent(
+  targetWindow: Window,
+  type: string,
+  init: MouseEventInit = {}
+): MouseEvent {
   const MouseEventConstructor = (targetWindow as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent;
   return new MouseEventConstructor(type, {
     bubbles: true,
     cancelable: true,
-    composed: true
+    composed: true,
+    ...init
   });
 }
 

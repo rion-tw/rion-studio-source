@@ -1,4 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
+import { readSourceTree } from "./helpers/readSourceTree";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -30,11 +31,11 @@ function relative(file: string): string {
 describe("design token governance", () => {
   it("provides one canonical token source to every product-owned document", async () => {
     const [tokens, renderer, boot, runtimeTabs, shell] = await Promise.all([
-      readFile(sharedTokensPath, "utf8"),
-      readFile(path.join(root, "src", "renderer", "src", "styles.css"), "utf8"),
-      readFile(path.join(root, "src", "renderer", "src", "boot.css"), "utf8"),
-      readFile(path.join(root, "src", "renderer", "runtime-tabs.css"), "utf8"),
-      readFile(path.join(root, "src-tauri", "src", "system_runtime.rs"), "utf8")
+      readSourceTree(sharedTokensPath, "utf8"),
+      readSourceTree(path.join(root, "src", "renderer", "src", "styles.css"), "utf8"),
+      readSourceTree(path.join(root, "src", "renderer", "src", "boot.css"), "utf8"),
+      readSourceTree(path.join(root, "src", "renderer", "runtime-tabs.css"), "utf8"),
+      readSourceTree(path.join(root, "src-tauri", "src", "system_runtime.rs"), "utf8")
     ]);
 
     for (const token of [
@@ -47,7 +48,7 @@ describe("design token governance", () => {
     expect(renderer).toContain('@import "../../shared/designTokens.css"');
     expect(boot).toContain('@import "../../shared/designTokens.css"');
     expect(runtimeTabs).toContain('@import "../shared/designTokens.css"');
-    expect(shell).toContain('const DESIGN_TOKENS_CSS: &str = include_str!("../../src/shared/designTokens.css")');
+    expect(shell).toContain('const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css")');
   });
 
   it("rejects direct palette colors and arbitrary type, radius, or numeric layers in renderer markup", async () => {

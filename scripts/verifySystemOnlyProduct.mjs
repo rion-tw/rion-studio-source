@@ -1,5 +1,5 @@
 import { access, readFile, readdir } from "node:fs/promises";
-import { extname, join, relative } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -222,9 +222,8 @@ for (const forbiddenRuntimeEffect of [
   }
 }
 
-const transferSource = await readFile(
+const transferSource = await readRustSourceTree(
   join(repositoryRoot, "crates/rion-core/src/chrome_profile_import.rs"),
-  "utf8"
 );
 if (!transferSource.includes(".session-transfers") || !transferSource.includes("session-transfer.enc")) {
   failures.push("ChromeProfileImport must remain a bounded encrypted one-time transfer.");
@@ -235,9 +234,8 @@ if (
 ) {
   failures.push("ChromeProfileImport still exposes raw profile staging.");
 }
-const sessionImportSource = await readFile(
+const sessionImportSource = await readRustSourceTree(
   join(repositoryRoot, "crates/rion-core/src/session_import.rs"),
-  "utf8"
 );
 for (const required of ["Connection::open_in_memory", "MemEnv", "read_chrome_session_transfer"]) {
   if (!sessionImportSource.includes(required)) {
@@ -283,9 +281,8 @@ for (const retiredGraphicsArgument of [
     failures.push(`System WebView bootstrap still applies retired graphics argument ${retiredGraphicsArgument}.`);
   }
 }
-const productionSystemRuntime = await readFile(
+const productionSystemRuntime = await readRustSourceTree(
   join(repositoryRoot, "src-tauri/src/system_runtime.rs"),
-  "utf8"
 ).then((source) => source.split("#[cfg(test)]", 1)[0]);
 for (const customBackgroundMechanism of [
   "MemoryUsageTargetLevel",
@@ -320,6 +317,20 @@ async function exists(path) {
   } catch {
     return false;
   }
+}
+
+async function readRustSourceTree(path, visited = new Set()) {
+  const absolute = resolve(path);
+  if (visited.has(absolute)) return "";
+  visited.add(absolute);
+  const source = await readFile(absolute, "utf8");
+  const references = [...source.matchAll(/include!\(\s*"([^"]+)"\s*\)/g)]
+    .map((match) => resolve(dirname(absolute), match[1]));
+  const children = [];
+  for (const reference of references) {
+    if (await exists(reference)) children.push(await readRustSourceTree(reference, visited));
+  }
+  return [source, ...children].join("\n");
 }
 
 async function sourceFiles(root) {

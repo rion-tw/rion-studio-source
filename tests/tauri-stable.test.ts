@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { readSourceTree } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 
@@ -59,8 +60,8 @@ describe("Tauri Stable shell", () => {
 
   it("reuses the stable shared data directory and application lock", async () => {
     const [shell, core] = await Promise.all([
-      readFile("src-tauri/src/lib.rs", "utf8"),
-      readFile("crates/rion-core/src/app.rs", "utf8")
+      readSourceTree("src-tauri/src/lib.rs", "utf8"),
+      readSourceTree("crates/rion-core/src/app.rs", "utf8")
     ]);
     expect(shell).toContain('const SHARED_DATA_DIRECTORY_NAME: &str = "Rion Studio"');
     expect(core).toContain('const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock"');

@@ -1,64 +1,55 @@
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import {
-  lazy,
-  Suspense,
-  type JSX,
-  useCallback,
-  useEffect,
-  useRef,
-  useState
-} from "react";
+import { AlertCircle } from "lucide-react";
+
+import { Suspense, type JSX, useCallback, useEffect, useRef, useState } from "react";
+
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
-import appIconUrl from "./assets/app-icon.png";
 import { AppSidebar } from "./components/AppSidebar";
-import { Button } from "./components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { Surface } from "./components/ui/patterns";
-import { LegalOnboarding } from "./features/legal/LegalOnboarding";
-import { SettingsSidebar } from "./features/settings/SettingsSidebar";
-import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
-import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
-import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
-import { shouldShowUpdateBadge } from "./app/statusUtils";
-import { useAppData } from "./hooks/useAppData";
-import { useAppUpdates } from "./hooks/useAppUpdates";
-import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
-import { useGameWorkflow } from "./hooks/useGameWorkflow";
-import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
-import { usePreferences } from "./hooks/usePreferences";
-import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
-import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
-import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
-import { localizeErrorMessage, type Language, type Translator } from "./i18n";
-import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
-import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
-import type {
-  GameBrowserSettings,
-  GameBrowserSettingsPatch,
-  MacroSettings,
-  PortableExportInput,
-  PortableExportResult,
-  PortableImportInput,
-  PortableImportPreview,
-  PortableImportResult,
-  GameWindow,
-  RuntimeWindowPreferences,
-  SystemFontFamily
-} from "../../shared/types";
 
-const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
-const GamesRoute = lazy(() => import("./features/games/GamesRoute"));
-const GameEditorRoute = lazy(() => import("./features/games/GameModal"));
-const RoleEditorRoute = lazy(() => import("./features/roles/RoleModal"));
-const DashboardRoute = lazy(() => import("./features/dashboard/DashboardRoute"));
-const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
-const WorkspaceEditorRoute = lazy(() => import("./features/workspaces/WorkspaceModal"));
-const GameWindowsRoute = lazy(() => import("./features/game-windows/GameWindowsRoute"));
-const GameWindowEditorRoute = lazy(() => import("./features/game-windows/GameWindowModal"));
-const MacrosRoute = lazy(() => import("./features/macros/MacrosRoute"));
-const MacroEditorRoute = lazy(() => import("./features/macros/MacroModal"));
-const SettingsRoute = lazy(() => import("./features/settings/SettingsRoute"));
+import { Surface } from "./components/ui/patterns";
+
+import { LegalOnboarding } from "./features/legal/LegalOnboarding";
+
+import { SettingsSidebar } from "./features/settings/SettingsSidebar";
+
+import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
+
+import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
+
+import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
+
+import { shouldShowUpdateBadge } from "./app/statusUtils";
+
+import { useAppData } from "./hooks/useAppData";
+
+import { useAppUpdates } from "./hooks/useAppUpdates";
+
+import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
+
+import { useGameWorkflow } from "./hooks/useGameWorkflow";
+
+import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
+
+import { usePreferences } from "./hooks/usePreferences";
+
+import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
+
+import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
+
+import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
+
+import { localizeErrorMessage } from "./i18n";
+
+import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
+
+import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
+
+import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, GameWindow, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
+
+import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppScreens";
+
+import { DashboardRoute, GameEditorRoute, GameWindowEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
+
 const TOAST_DISMISS_MS = 4000;
 
 export function App(): JSX.Element {
@@ -800,91 +791,6 @@ export function App(): JSX.Element {
           </Routes>
         </Suspense>
       </main>
-    </div>
-  );
-}
-
-function BootLoadingScreen({
-  error,
-  language,
-  onRetry,
-  state,
-  t
-}: {
-  error: unknown | null;
-  language: Language;
-  onRetry: () => void;
-  state: "failed" | "loading";
-  t: Translator;
-}): JSX.Element {
-  const isFailed = state === "failed";
-
-  return (
-    <div className="liquid-app-shell app-drag grid h-screen place-items-center overflow-hidden p-6 text-foreground">
-      <section
-        aria-busy={!isFailed}
-        aria-label={!isFailed ? "Loading Rion Studio" : undefined}
-        aria-live="polite"
-        className="app-no-drag grid w-full max-w-[420px] justify-items-center gap-5 text-center"
-      >
-        <img
-          className="size-16 rounded-md shadow-lg"
-          src={appIconUrl}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-        />
-        {isFailed ? (
-          <>
-            <div className="grid gap-1">
-              <h1 className="text-lg font-semibold leading-7">Rion Studio</h1>
-              <p className="text-sm font-medium text-muted-foreground">{t("app.tagline")}</p>
-            </div>
-            <Surface className="boot-card w-full p-5" variant="strong">
-              <div className="grid gap-4 text-left">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="mt-0.5 shrink-0 text-destructive" size={18} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold leading-5">{t("loading.failedTitle")}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      {error ? toMessage(error, language, t) : t("loading.failedDescription")}
-                    </p>
-                  </div>
-                </div>
-                <Button className="justify-self-start" type="button" onClick={onRetry}>
-                  <RefreshCw size={15} />
-                  {t("loading.retry")}
-                </Button>
-              </div>
-            </Surface>
-          </>
-        ) : (
-          <Loader2 className="spin text-muted-foreground" size={22} aria-hidden="true" />
-        )}
-      </section>
-    </div>
-  );
-}
-
-function RouteFallback({ t }: { t: Translator }): JSX.Element {
-  return (
-    <div className="grid h-full place-items-center p-6" aria-label={t("loading.route")} data-renderer-pending>
-      <Surface className="grid size-12 place-items-center boot-card" padding="sm" variant="strong">
-        <Loader2 className="spin text-muted-foreground" size={20} />
-      </Surface>
-    </div>
-  );
-}
-
-function BridgeUnavailable({ t }: { t: (key: "bridge.title" | "bridge.description") => string }): JSX.Element {
-  return (
-    <div className="grid h-full place-items-center p-6">
-      <Card className="max-w-lg glass-panel-strong">
-        <CardHeader>
-          <CardTitle>{t("bridge.title")}</CardTitle>
-          <CardDescription>{t("bridge.description")}</CardDescription>
-        </CardHeader>
-      </Card>
     </div>
   );
 }

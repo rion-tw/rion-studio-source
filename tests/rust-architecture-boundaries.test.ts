@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import { readSourceTree } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,8 +19,8 @@ describe("Tauri and Rust production architecture boundaries", () => {
   it("links the authoritative Rust core directly into the Tauri shell", async () => {
     const [manifest, shell, runtime] = await Promise.all([
       readFile("src-tauri/Cargo.toml", "utf8"),
-      readFile("src-tauri/src/lib.rs", "utf8"),
-      readFile("src-tauri/src/system_runtime.rs", "utf8")
+      readSourceTree("src-tauri/src/lib.rs", "utf8"),
+      readSourceTree("src-tauri/src/system_runtime.rs", "utf8")
     ]);
 
     expect(manifest).toContain('rion-core = { path = "../crates/rion-core" }');

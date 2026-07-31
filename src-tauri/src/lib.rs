@@ -24,6 +24,8 @@ mod activation;
 mod application_menu;
 mod native_shell;
 mod quick_menu;
+#[cfg(target_os = "macos")]
+mod quick_menu_macos;
 mod runtime_tab_menu;
 #[cfg(target_os = "macos")]
 mod runtime_tabs_macos;
@@ -65,7 +67,7 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
 
 struct CoreState {
     _activation: ActivationServer,
-    _quick_menu: tauri::tray::TrayIcon,
+    _quick_menu: quick_menu::QuickMenu,
     core: Arc<AppCore>,
     application_exit_guard: ApplicationExitGuard,
     main_window_zoom: Mutex<f64>,
@@ -754,6 +756,12 @@ async fn rion_core_invoke(
         }
         state.runtime.set_language(&language);
         let _ = application_menu::install(&app, &state.core, &language);
+        let _ = state.quick_menu_refresh.request(
+            app.clone(),
+            Arc::clone(&state.core),
+            Arc::clone(&state.runtime),
+            language.clone(),
+        );
         let _ =
             state
                 .runtime_launcher_refresh
@@ -3961,7 +3969,9 @@ pub fn run() {
         }
     });
     let builder = builder.on_menu_event(|app, event| {
-        application_menu::handle_event(app, event.id().as_ref());
+        if !quick_menu::handle_event(app, event.id().as_ref()) {
+            application_menu::handle_event(app, event.id().as_ref());
+        }
     });
     builder
         .setup(|app| {
@@ -4045,7 +4055,7 @@ pub fn run() {
             runtime_launcher_refresh
                 .prime(&app.handle().clone(), "en")
                 .map_err(std::io::Error::other)?;
-            let quick_menu = quick_menu::create(&app.handle().clone(), Arc::clone(&core))?;
+            let quick_menu = quick_menu::create(&app.handle().clone())?;
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),
                 app.package_info().version.to_string(),

@@ -32,6 +32,10 @@ fn main() {
             .flag("-fobjc-arc")
             .compile("rion_wkwebview_input");
         cc::Build::new()
+            .file("native/macos/RionDockMenu.m")
+            .flag("-fobjc-arc")
+            .compile("rion_dock_menu");
+        cc::Build::new()
             .cpp(true)
             .file("native/macos/RionRuntimeTabsController.mm")
             .flag("-fobjc-arc")
@@ -40,6 +44,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=WebKit");
         println!("cargo:rerun-if-changed=native/macos/RionWKWebViewInput.m");
+        println!("cargo:rerun-if-changed=native/macos/RionDockMenu.m");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.h");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.mm");
     }

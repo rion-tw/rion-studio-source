@@ -5,12 +5,14 @@ use std::{
 };
 
 use rion_core::{AppCore, BrowserRuntimeSnapshot, CoreCommand};
+use tauri::{AppHandle, Emitter, Manager};
+#[cfg(target_os = "windows")]
 use tauri::{
-    AppHandle, Emitter, Manager,
-    menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
 };
 
+#[cfg(target_os = "windows")]
 const TRAY_ID: &str = "rion-quick-menu";
 const ROLE_PREFIX: &str = "launch-role:";
 const WORKSPACE_PREFIX: &str = "launch-workspace:";
@@ -18,16 +20,18 @@ const STOP_WORKSPACE_PREFIX: &str = "stop-workspace:";
 const SHOW_DISPLAY_PREFIX: &str = "show-display:";
 const RESTORE_WINDOW_PREFIX: &str = "restore-window:";
 
-pub fn create(app: &AppHandle, core: Arc<AppCore>) -> Result<TrayIcon, String> {
-    let menu = starter_menu(app, "en")?;
-    let event_core = Arc::clone(&core);
+pub struct QuickMenu {
+    #[cfg(target_os = "windows")]
+    _tray: TrayIcon,
+}
+
+#[cfg(target_os = "windows")]
+pub fn create(app: &AppHandle) -> Result<QuickMenu, String> {
+    let menu = windows_menu(app, &starter_spec("en"))?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("Rion Studio")
-        .on_menu_event(move |app, event| {
-            handle_menu_event(app, &event_core, event.id().as_ref());
-        })
         .on_tray_icon_event(|tray, event| {
             if matches!(
                 event,
@@ -43,7 +47,21 @@ pub fn create(app: &AppHandle, core: Arc<AppCore>) -> Result<TrayIcon, String> {
     if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder.icon(icon);
     }
-    builder.build(app).map_err(|error| error.to_string())
+    builder
+        .build(app)
+        .map(|tray| QuickMenu { _tray: tray })
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub fn create(_app: &AppHandle) -> Result<QuickMenu, String> {
+    crate::quick_menu_macos::install(&[])?;
+    Ok(QuickMenu {})
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub fn create(_app: &AppHandle) -> Result<QuickMenu, String> {
+    Ok(QuickMenu {})
 }
 
 #[derive(Clone, Default)]
@@ -73,7 +91,7 @@ impl RefreshCoordinator {
     /// Requests a coalesced refresh without ever reading Core state on AppKit's main thread.
     ///
     /// Core and SQLite snapshots are collected on one bounded worker. Only the already-built
-    /// model is handed to the native event loop, so a busy runtime can delay the tray menu but
+    /// model is handed to the native event loop, so a busy runtime can delay the quick menu but
     /// can never stall a game-window tab selection.
     pub fn request(
         &self,
@@ -122,7 +140,7 @@ impl RefreshCoordinator {
         runtime: Arc<crate::SystemRuntimeExecutor>,
     ) {
         loop {
-            // Tray projection is never launch-critical. Wait until presentation,
+            // Quick-menu projection is never launch-critical. Wait until presentation,
             // attach and close traffic has yielded before reading snapshots or
             // rebuilding an AppKit/Win32 native menu.
             runtime.wait_for_shell_idle();
@@ -152,12 +170,7 @@ impl RefreshCoordinator {
             if should_apply {
                 let menu_app = app.clone();
                 let _ = app.run_on_main_thread(move || {
-                    let result = menu(&menu_app, &model).and_then(|menu| {
-                        let tray = menu_app
-                            .tray_by_id(TRAY_ID)
-                            .ok_or_else(|| "Rion Studio Quick Menu is unavailable.".to_owned())?;
-                        tray.set_menu(Some(menu)).map_err(|error| error.to_string())
-                    });
+                    let result = apply_menu(&menu_app, &model);
                     if let Err(error) = result {
                         eprintln!("Rion Studio Quick Menu native refresh failed: {error}");
                     }
@@ -260,17 +273,44 @@ impl MenuModel {
     }
 }
 
-fn starter_menu(app: &AppHandle, language: &str) -> Result<Menu<tauri::Wry>, String> {
-    let labels = labels(language);
-    MenuBuilder::new(app)
-        .text("open-app", labels.open)
-        .separator()
-        .text("quit-app", labels.quit)
-        .build()
-        .map_err(|error| error.to_string())
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuickMenuPlatform {
+    Macos,
+    Windows,
 }
 
-fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MenuEntry {
+    Item {
+        id: String,
+        text: String,
+        enabled: bool,
+    },
+    Submenu {
+        text: String,
+        items: Vec<MenuEntry>,
+    },
+    Separator,
+    Header {
+        text: String,
+    },
+}
+
+#[cfg(target_os = "windows")]
+fn starter_spec(language: &str) -> Vec<MenuEntry> {
+    let labels = labels(language);
+    vec![
+        item("open-app", labels.open, true),
+        MenuEntry::Separator,
+        item("quit-app", labels.quit, true),
+    ]
+}
+
+fn menu_spec(
+    model: &MenuModel,
+    platform: QuickMenuPlatform,
+    display_label_for_id: impl Fn(i64) -> String,
+) -> Vec<MenuEntry> {
     let labels = labels(&model.language);
     let roles = &model.roles;
     let workspaces = &model.workspaces;
@@ -280,14 +320,14 @@ fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> 
     let runtime_projection = &model.runtime_projection;
     let role_state = |id: &str| status_state(role_statuses, "roleId", id);
     let workspace_state = |id: &str| status_state(workspace_statuses, "workspaceId", id);
-    let mut role_menu = SubmenuBuilder::new(app, labels.roles);
+    let mut role_items = Vec::new();
     let role_values = roles.as_array().cloned().unwrap_or_default();
     let role_ids = role_values
         .iter()
         .filter_map(|role| role["id"].as_str().map(str::to_owned))
         .collect::<HashSet<_>>();
     if role_values.is_empty() {
-        role_menu = role_menu.text("no-roles", labels.no_roles);
+        role_items.push(item("no-roles", labels.no_roles, false));
     } else {
         for role in role_values {
             if let (Some(id), Some(name)) = (role["id"].as_str(), role["name"].as_str()) {
@@ -300,21 +340,18 @@ fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> 
                 } else {
                     ""
                 };
-                let item = MenuItemBuilder::with_id(
+                role_items.push(item(
                     format!("{ROLE_PREFIX}{id}"),
                     format!("{marker}{name}"),
-                )
-                .enabled(legal_accepted && !busy)
-                .build(app)
-                .map_err(|error| error.to_string())?;
-                role_menu = role_menu.item(&item);
+                    legal_accepted && !busy,
+                ));
             }
         }
     }
-    let mut workspace_menu = SubmenuBuilder::new(app, labels.workspaces);
+    let mut workspace_items = Vec::new();
     let workspace_values = workspaces.as_array().cloned().unwrap_or_default();
     if workspace_values.is_empty() {
-        workspace_menu = workspace_menu.text("no-workspaces", labels.no_workspaces);
+        workspace_items.push(item("no-workspaces", labels.no_workspaces, false));
     } else {
         for workspace in workspace_values {
             if let (Some(id), Some(name)) = (workspace["id"].as_str(), workspace["name"].as_str()) {
@@ -337,24 +374,22 @@ fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> 
                 } else {
                     (WORKSPACE_PREFIX, "")
                 };
-                let item =
-                    MenuItemBuilder::with_id(format!("{prefix}{id}"), format!("{marker}{name}"))
-                        .enabled(
-                            legal_accepted
-                                && (running
-                                    || (!busy && !assigned_role_ids.is_empty() && !missing_role)),
-                        )
-                        .build(app)
-                        .map_err(|error| error.to_string())?;
-                workspace_menu = workspace_menu.item(&item);
+                workspace_items.push(item(
+                    format!("{prefix}{id}"),
+                    format!("{marker}{name}"),
+                    legal_accepted
+                        && (running || (!busy && !assigned_role_ids.is_empty() && !missing_role)),
+                ));
             }
         }
     }
-    let role_menu = role_menu.build().map_err(|error| error.to_string())?;
-    let workspace_menu = workspace_menu.build().map_err(|error| error.to_string())?;
-    let mut menu = MenuBuilder::new(app).text("open-app", labels.open);
+
+    let mut entries = Vec::new();
+    if platform == QuickMenuPlatform::Windows {
+        entries.push(item("open-app", labels.open, true));
+    }
     if !legal_accepted {
-        menu = menu.text("review-terms", labels.review_terms);
+        entries.push(item("review-terms", labels.review_terms, true));
     }
     let windows = runtime_projection["windows"]
         .as_array()
@@ -366,11 +401,9 @@ fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> 
         .unwrap_or_default();
     let has_game_windows = !windows.is_empty() || !saved_windows.is_empty();
     if has_game_windows {
-        let header = MenuItemBuilder::new(labels.game_windows)
-            .enabled(false)
-            .build(app)
-            .map_err(|error| error.to_string())?;
-        menu = menu.item(&header);
+        entries.push(MenuEntry::Header {
+            text: labels.game_windows.to_owned(),
+        });
         for window in windows {
             let (Some(window_id), Some(display_id)) =
                 (window["windowId"].as_str(), window["displayId"].as_i64())
@@ -383,14 +416,15 @@ fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> 
             } else {
                 labels.hidden
             };
-            menu = menu.text(
+            entries.push(item(
                 format!("{SHOW_DISPLAY_PREFIX}{window_id}"),
                 format!(
                     "{} · {count} {} · {visibility}",
-                    display_label(app, display_id),
+                    display_label_for_id(display_id),
                     labels.tabs
                 ),
-            );
+                true,
+            ));
         }
         for window in saved_windows {
             let (Some(id), Some(display_label)) =
@@ -399,34 +433,190 @@ fn menu(app: &AppHandle, model: &MenuModel) -> Result<Menu<tauri::Wry>, String> 
                 continue;
             };
             let count = window["tabCount"].as_u64().unwrap_or(0);
-            let item = MenuItemBuilder::with_id(
+            entries.push(item(
                 format!("{RESTORE_WINDOW_PREFIX}{id}"),
                 format!(
                     "{display_label} · {count} {} · {}",
                     labels.tabs, labels.saved
                 ),
-            )
-            .enabled(legal_accepted && window["state"].as_str() != Some("restoring"))
-            .build(app)
-            .map_err(|error| error.to_string())?;
-            menu = menu.item(&item);
+                legal_accepted && window["state"].as_str() != Some("restoring"),
+            ));
         }
-        menu = menu.separator();
+        entries.push(MenuEntry::Separator);
     }
-    menu = menu.item(&role_menu).item(&workspace_menu);
+    entries.push(MenuEntry::Submenu {
+        text: labels.roles.to_owned(),
+        items: role_items,
+    });
+    entries.push(MenuEntry::Submenu {
+        text: labels.workspaces.to_owned(),
+        items: workspace_items,
+    });
     if has_game_windows {
-        menu = menu.separator().text("show-games", labels.show_all);
+        entries.push(MenuEntry::Separator);
+        entries.push(item("show-games", labels.show_all, true));
     }
     if role_statuses
         .as_array()
         .is_some_and(|items| !items.is_empty())
     {
-        menu = menu.separator().text("stop-all", labels.stop_all);
+        entries.push(MenuEntry::Separator);
+        entries.push(item("stop-all", labels.stop_all, true));
     }
-    menu.separator()
-        .text("quit-app", labels.quit)
-        .build()
-        .map_err(|error| error.to_string())
+    if platform == QuickMenuPlatform::Windows {
+        entries.push(MenuEntry::Separator);
+        entries.push(item("quit-app", labels.quit, true));
+    }
+    entries
+}
+
+fn item(id: impl Into<String>, text: impl Into<String>, enabled: bool) -> MenuEntry {
+    MenuEntry::Item {
+        id: id.into(),
+        text: text.into(),
+        enabled,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_menu(app: &AppHandle, entries: &[MenuEntry]) -> Result<Menu<tauri::Wry>, String> {
+    let menu = Menu::new(app).map_err(|error| error.to_string())?;
+    for entry in entries {
+        append_windows_root_entry(app, &menu, entry)?;
+    }
+    Ok(menu)
+}
+
+#[cfg(target_os = "windows")]
+fn append_windows_root_entry(
+    app: &AppHandle,
+    menu: &Menu<tauri::Wry>,
+    entry: &MenuEntry,
+) -> Result<(), String> {
+    match entry {
+        MenuEntry::Item { id, text, enabled } => {
+            let item = MenuItemBuilder::with_id(id, text)
+                .enabled(*enabled)
+                .build(app)
+                .map_err(|error| error.to_string())?;
+            menu.append(&item).map_err(|error| error.to_string())
+        }
+        MenuEntry::Submenu { text, items } => {
+            let submenu = windows_submenu(app, text, items)?;
+            menu.append(&submenu).map_err(|error| error.to_string())
+        }
+        MenuEntry::Separator => {
+            let separator =
+                PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
+            menu.append(&separator).map_err(|error| error.to_string())
+        }
+        MenuEntry::Header { text } => {
+            let header = MenuItemBuilder::new(text)
+                .enabled(false)
+                .build(app)
+                .map_err(|error| error.to_string())?;
+            menu.append(&header).map_err(|error| error.to_string())
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_submenu(
+    app: &AppHandle,
+    text: &str,
+    entries: &[MenuEntry],
+) -> Result<Submenu<tauri::Wry>, String> {
+    let menu = Submenu::new(app, text, true).map_err(|error| error.to_string())?;
+    for entry in entries {
+        match entry {
+            MenuEntry::Item { id, text, enabled } => {
+                let item = MenuItemBuilder::with_id(id, text)
+                    .enabled(*enabled)
+                    .build(app)
+                    .map_err(|error| error.to_string())?;
+                menu.append(&item).map_err(|error| error.to_string())?;
+            }
+            MenuEntry::Submenu { text, items } => {
+                let submenu = windows_submenu(app, text, items)?;
+                menu.append(&submenu).map_err(|error| error.to_string())?;
+            }
+            MenuEntry::Separator => {
+                let separator =
+                    PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?;
+                menu.append(&separator).map_err(|error| error.to_string())?;
+            }
+            MenuEntry::Header { text } => {
+                let header = MenuItemBuilder::new(text)
+                    .enabled(false)
+                    .build(app)
+                    .map_err(|error| error.to_string())?;
+                menu.append(&header).map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    Ok(menu)
+}
+
+fn apply_menu(app: &AppHandle, model: &MenuModel) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let entries = menu_spec(model, QuickMenuPlatform::Windows, |display_id| {
+            display_label(app, display_id)
+        });
+        let menu = windows_menu(app, &entries)?;
+        let tray = app
+            .tray_by_id(TRAY_ID)
+            .ok_or_else(|| "Rion Studio Quick Menu is unavailable.".to_owned())?;
+        return tray.set_menu(Some(menu)).map_err(|error| error.to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let entries = menu_spec(model, QuickMenuPlatform::Macos, |display_id| {
+            display_label(app, display_id)
+        });
+        crate::quick_menu_macos::install(&entries)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (app, model);
+        Ok(())
+    }
+}
+
+pub fn handle_event(app: &AppHandle, id: &str) -> bool {
+    if !is_quick_menu_action(id) {
+        return false;
+    }
+    match id {
+        "open-app" | "review-terms" => {
+            show_main_window(app);
+            return true;
+        }
+        "quit-app" => {
+            app.exit(0);
+            return true;
+        }
+        _ => {}
+    }
+    if let Some(state) = app.try_state::<crate::CoreState>() {
+        handle_menu_event(app, &state.core, id);
+    }
+    true
+}
+
+fn is_quick_menu_action(id: &str) -> bool {
+    matches!(
+        id,
+        "open-app" | "review-terms" | "restore-windows" | "show-games" | "quit-app" | "stop-all"
+    ) || [
+        SHOW_DISPLAY_PREFIX,
+        RESTORE_WINDOW_PREFIX,
+        STOP_WORKSPACE_PREFIX,
+        ROLE_PREFIX,
+        WORKSPACE_PREFIX,
+    ]
+    .iter()
+    .any(|prefix| id.starts_with(prefix))
 }
 
 fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
@@ -526,7 +716,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let core = Arc::clone(core);
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                // Tray menu events run on the native main thread. Never wait there for the
+                // Native menu events run on the main thread. Never wait there for the
                 // native creation lane or a host-window callback.
                 let preview_runtime = Arc::clone(&runtime);
                 let preview_target = target.clone();
@@ -706,6 +896,90 @@ fn labels(language: &str) -> Labels {
 mod tests {
     use super::*;
 
+    fn populated_model(language: &str, legal_accepted: bool) -> MenuModel {
+        MenuModel {
+            language: language.to_owned(),
+            legal_accepted,
+            role_statuses: serde_json::json!([
+                {"roleId":"role-running","state":"running"},
+                {"roleId":"role-busy","state":"launching"}
+            ]),
+            roles: serde_json::json!([
+                {"id":"role-running","name":"Running Role"},
+                {"id":"role-busy","name":"Busy Role"}
+            ]),
+            runtime_projection: serde_json::json!({
+                "windows": [{
+                    "windowId": "active-window",
+                    "displayId": 41,
+                    "tabCount": 3,
+                    "visible": false,
+                }],
+                "savedWindows": [{
+                    "id": "saved-window",
+                    "displayLabel": "Saved Display",
+                    "tabCount": 2,
+                    "state": "saved",
+                }, {
+                    "id": "restoring-window",
+                    "displayLabel": "Restoring Display",
+                    "tabCount": 1,
+                    "state": "restoring",
+                }],
+            }),
+            workspace_statuses: serde_json::json!([
+                {"workspaceId":"workspace-running","state":"running"},
+                {"workspaceId":"workspace-busy","state":"launching"}
+            ]),
+            workspaces: serde_json::json!([
+                {
+                    "id":"workspace-running",
+                    "name":"Running Workspace",
+                    "slots":[{"roleId":"role-running"}]
+                }, {
+                    "id":"workspace-ready",
+                    "name":"Ready Workspace",
+                    "slots":[{"roleId":"role-running"}]
+                }, {
+                    "id":"workspace-busy",
+                    "name":"Busy Workspace",
+                    "slots":[{"roleId":"role-running"}]
+                }, {
+                    "id":"workspace-missing",
+                    "name":"Missing Workspace",
+                    "slots":[{"roleId":"missing-role"}]
+                }
+            ]),
+        }
+    }
+
+    fn root_item<'a>(entries: &'a [MenuEntry], id: &str) -> Option<&'a MenuEntry> {
+        entries
+            .iter()
+            .find(|entry| matches!(entry, MenuEntry::Item { id: entry_id, .. } if entry_id == id))
+    }
+
+    fn submenu<'a>(entries: &'a [MenuEntry], text: &str) -> &'a [MenuEntry] {
+        entries
+            .iter()
+            .find_map(|entry| match entry {
+                MenuEntry::Submenu {
+                    text: entry_text,
+                    items,
+                } if entry_text == text => Some(items.as_slice()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing submenu {text}"))
+    }
+
+    fn assert_item(entry: &MenuEntry, expected_text: &str, expected_enabled: bool) {
+        let MenuEntry::Item { text, enabled, .. } = entry else {
+            panic!("expected menu item, got {entry:?}");
+        };
+        assert_eq!(text, expected_text);
+        assert_eq!(*enabled, expected_enabled);
+    }
+
     #[test]
     fn quick_menu_ids_keep_domain_ids_as_opaque_suffixes() {
         let role_id = "0f15d171-2380-4bd8-aa0c-b17fe07746ad";
@@ -753,5 +1027,186 @@ mod tests {
         };
 
         assert_eq!(model("tab-a").fingerprint(), model("tab-c").fingerprint());
+    }
+
+    #[test]
+    fn platform_specs_keep_open_and_quit_windows_only() {
+        let model = populated_model("en", true);
+        let windows = menu_spec(&model, QuickMenuPlatform::Windows, |_| "Monitor".to_owned());
+        let macos = menu_spec(&model, QuickMenuPlatform::Macos, |_| "Monitor".to_owned());
+
+        assert!(root_item(&windows, "open-app").is_some());
+        assert!(root_item(&windows, "quit-app").is_some());
+        assert!(root_item(&macos, "open-app").is_none());
+        assert!(root_item(&macos, "quit-app").is_none());
+        assert!(matches!(
+            macos.iter().find(|entry| matches!(entry, MenuEntry::Header { .. })),
+            Some(MenuEntry::Header { text }) if text == "Game Windows"
+        ));
+    }
+
+    #[test]
+    fn game_windows_are_a_direct_group_with_active_and_saved_items() {
+        let entries = menu_spec(
+            &populated_model("en", true),
+            QuickMenuPlatform::Macos,
+            |display_id| format!("Monitor {display_id}"),
+        );
+
+        assert!(root_item(&entries, "show-display:active-window").is_some());
+        assert!(root_item(&entries, "restore-window:saved-window").is_some());
+        assert_item(
+            root_item(&entries, "restore-window:restoring-window").unwrap(),
+            "Restoring Display · 1 tabs · Saved",
+            false,
+        );
+        assert!(!entries.iter().any(|entry| {
+            matches!(entry, MenuEntry::Submenu { text, .. } if text == "Game Windows")
+        }));
+    }
+
+    #[test]
+    fn role_and_workspace_submenus_preserve_busy_missing_and_stop_rules() {
+        let entries = menu_spec(
+            &populated_model("en", true),
+            QuickMenuPlatform::Windows,
+            |_| "Monitor".to_owned(),
+        );
+        let roles = submenu(&entries, "Roles");
+        let workspaces = submenu(&entries, "Workspaces");
+
+        assert_item(
+            root_item(roles, "launch-role:role-running").unwrap(),
+            "✓ Running Role",
+            true,
+        );
+        assert_item(
+            root_item(roles, "launch-role:role-busy").unwrap(),
+            "… Busy Role",
+            false,
+        );
+        assert_item(
+            root_item(workspaces, "stop-workspace:workspace-running").unwrap(),
+            "✓ Running Workspace",
+            true,
+        );
+        assert_item(
+            root_item(workspaces, "launch-workspace:workspace-ready").unwrap(),
+            "Ready Workspace",
+            true,
+        );
+        assert_item(
+            root_item(workspaces, "launch-workspace:workspace-busy").unwrap(),
+            "… Busy Workspace",
+            false,
+        );
+        assert_item(
+            root_item(workspaces, "launch-workspace:workspace-missing").unwrap(),
+            "Missing Workspace",
+            false,
+        );
+    }
+
+    #[test]
+    fn legal_gate_disables_launch_and_restore_actions_but_keeps_existing_windows_visible() {
+        let entries = menu_spec(
+            &populated_model("en", false),
+            QuickMenuPlatform::Macos,
+            |_| "Monitor".to_owned(),
+        );
+
+        assert!(root_item(&entries, "review-terms").is_some());
+        assert_item(
+            root_item(submenu(&entries, "Roles"), "launch-role:role-running").unwrap(),
+            "✓ Running Role",
+            false,
+        );
+        assert_item(
+            root_item(
+                submenu(&entries, "Workspaces"),
+                "stop-workspace:workspace-running",
+            )
+            .unwrap(),
+            "✓ Running Workspace",
+            false,
+        );
+        assert!(matches!(
+            root_item(&entries, "show-display:active-window"),
+            Some(MenuEntry::Item { enabled: true, .. })
+        ));
+        assert!(matches!(
+            root_item(&entries, "restore-window:saved-window"),
+            Some(MenuEntry::Item { enabled: false, .. })
+        ));
+    }
+
+    #[test]
+    fn empty_role_and_workspace_states_are_disabled() {
+        let model = MenuModel {
+            language: "en".to_owned(),
+            legal_accepted: true,
+            role_statuses: serde_json::json!([]),
+            roles: serde_json::json!([]),
+            runtime_projection: serde_json::json!({"windows":[], "savedWindows":[]}),
+            workspace_statuses: serde_json::json!([]),
+            workspaces: serde_json::json!([]),
+        };
+        let entries = menu_spec(&model, QuickMenuPlatform::Windows, |_| String::new());
+
+        assert!(matches!(
+            root_item(submenu(&entries, "Roles"), "no-roles"),
+            Some(MenuEntry::Item { enabled: false, .. })
+        ));
+        assert!(matches!(
+            root_item(submenu(&entries, "Workspaces"), "no-workspaces"),
+            Some(MenuEntry::Item { enabled: false, .. })
+        ));
+    }
+
+    #[test]
+    fn four_supported_languages_keep_quick_menu_group_labels() {
+        let cases = [
+            ("en", "Game Windows", "Roles", "Workspaces"),
+            ("zh-TW", "遊戲視窗", "角色", "工作區"),
+            ("zh-CN", "游戏窗口", "角色", "工作区"),
+            ("ja", "ゲームウインドウ", "ロール", "ワークスペース"),
+        ];
+
+        for (language, game_windows, roles, workspaces) in cases {
+            let labels = labels(language);
+            assert_eq!(labels.game_windows, game_windows);
+            assert_eq!(labels.roles, roles);
+            assert_eq!(labels.workspaces, workspaces);
+        }
+    }
+
+    #[test]
+    fn quick_menu_routing_claims_only_its_own_global_menu_events() {
+        for id in [
+            "open-app",
+            "quit-app",
+            "show-games",
+            "launch-role:role:with:colons",
+            "launch-workspace:workspace/opaque",
+            "stop-workspace:workspace/opaque",
+            "show-display:window/opaque",
+            "restore-window:window/opaque",
+        ] {
+            assert!(is_quick_menu_action(id), "quick-menu event {id}");
+        }
+        for id in [
+            "rion-new-game-window",
+            "rion-browser-zoom-in",
+            "rion-show-game-window:window/opaque",
+            "unknown-menu-item",
+        ] {
+            assert!(!is_quick_menu_action(id), "application menu event {id}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_native_dock_adapter_passes_its_selector_and_header_self_test() {
+        assert!(crate::quick_menu_macos::native_adapter_self_test());
     }
 }

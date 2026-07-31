@@ -59,9 +59,11 @@ describe("Tauri shell parity guard", () => {
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {
-    const [menu, quickMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, roleCapability] = await Promise.all([
+    const [menu, quickMenu, quickMenuMac, nativeDockMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, roleCapability] = await Promise.all([
       readFile("src-tauri/src/application_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu.rs", "utf8"),
+      readFile("src-tauri/src/quick_menu_macos.rs", "utf8"),
+      readFile("src-tauri/native/macos/RionDockMenu.m", "utf8"),
       readFile("src-tauri/src/runtime_tab_menu.rs", "utf8"),
       readFile("src-tauri/src/system_runtime.rs", "utf8"),
       readFile("src-tauri/native/macos/RionRuntimeTabsController.mm", "utf8"),
@@ -91,6 +93,16 @@ describe("Tauri shell parity guard", () => {
     expect(menu).toContain('#[cfg(target_os = "macos")]\nfn labels(');
     expect(quickMenu).toContain("restore_saved_game_windows");
     expect(quickMenu).not.toContain("targetDisplay");
+    expect(quickMenu).toContain("QuickMenuPlatform::Macos");
+    expect(quickMenu).toContain("MenuEntry::Header");
+    expect(quickMenu).not.toContain(".on_menu_event(");
+    expect(quickMenuMac).toContain("muda::{ContextMenu");
+    expect(quickMenuMac).toContain("DOCK_MENU: RefCell<Option<Submenu>>");
+    expect(nativeDockMenu).toContain("applicationDockMenu:");
+    expect(nativeDockMenu).toContain("class_addMethod(");
+    expect(nativeDockMenu).toContain("RionForeignDockMenu");
+    expect(nativeDockMenu).toContain("sectionHeaderWithTitle:");
+    expect(shell).toContain("if !quick_menu::handle_event(");
     expect(tabs).not.toContain("rion-runtime-shortcut://tabs/");
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
     expect(nativeTabs).toContain("NSEventModifierFlagControl");

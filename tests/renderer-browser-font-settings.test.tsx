@@ -213,10 +213,15 @@ describe("browser font settings", () => {
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.closest(".settings-row")?.classList.contains("border-b")).toBe(false);
     expect(await screen.findByText("Distinctive styles")).toBeTruthy();
+    expect(
+      screen.getByText("Distinctive styles").closest(".rounded-lg")?.parentElement?.classList.contains("border-b")
+    ).toBe(true);
     expect(screen.getByRole("button", { name: /High-legibility reading/u })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Compact dashboard/u })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Natural handwriting/u })).toBeNull();
+    expect(screen.getByText("English & Latin").closest(".settings-row")?.classList.contains("border-b")).toBe(true);
     await waitFor(() => {
       expect(document.head.querySelector("link[data-rion-google-font-preview]")).toBeTruthy();
     });
@@ -235,6 +240,17 @@ describe("browser font settings", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Distinctive styles")).toBeNull();
+
+    fireEvent.click(advancedToggle);
+    expect(advancedToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(advancedToggle.closest(".settings-row")?.classList.contains("border-b")).toBe(false);
+    const advancedPanel = screen
+      .getByRole("textbox", { name: "Google Font family name" })
+      .closest(".rounded-lg");
+    expect(advancedPanel?.classList.contains("border")).toBe(true);
+    expect(advancedPanel?.parentElement?.classList.contains("border-b")).toBe(true);
+    expect(advancedPanel?.firstElementChild?.classList.contains("w-full")).toBe(true);
+    expect(advancedPanel?.firstElementChild?.classList.contains("settings-row")).toBe(false);
   });
 
   it("searches and applies a system font within an individual font slot", async () => {

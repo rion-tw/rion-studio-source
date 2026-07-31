@@ -53,6 +53,7 @@ let renderRevision = 0;
 let activeTabId: string | undefined;
 let optimisticActiveTabId: string | undefined;
 let dragActionPending = false;
+let scrollControlsFrame: number | undefined;
 const dragActionQueue: RuntimeTabAction[] = [];
 
 const OVERFLOW_EPSILON = 1;
@@ -242,7 +243,7 @@ function optimisticallyCloseTab(tabId: string): void {
       optimisticActiveTabId = undefined;
     }
   }
-  requestAnimationFrame(updateScrollControls);
+  scheduleScrollControlsUpdate();
 }
 
 const dispatchNextDragAction = (): void => {
@@ -322,9 +323,9 @@ function render(state: RuntimeTabStripState): void {
   reconcileTabButtons(nextButtons);
   const nextActiveTabId = presentationActiveTabId;
   root.scrollLeft = previousScrollLeft;
+  scheduleScrollControlsUpdate();
   requestAnimationFrame(() => {
     if (revision !== renderRevision) return;
-    updateScrollControls();
     if (nextActiveTabId !== activeTabId) {
       ensureTabVisible(nextActiveTabId);
     }
@@ -386,11 +387,12 @@ window.__rionEnsureRuntimeTab = (tab) => {
     installTabButtonInteractions(button, tab.id);
     root.append(button);
   }
+  scheduleScrollControlsUpdate();
 };
 window.__rionReserveRuntimeTab = (tab) => {
   window.__rionEnsureRuntimeTab?.(tab);
   optimisticallyActivateTab(tab.id);
-  requestAnimationFrame(updateScrollControls);
+  scheduleScrollControlsUpdate();
 };
 window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
   tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
@@ -399,7 +401,7 @@ window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
     activeTabId = undefined;
     optimisticActiveTabId = undefined;
   }
-  requestAnimationFrame(updateScrollControls);
+  scheduleScrollControlsUpdate();
 };
 window.__rionReorderRuntimeTabs = (tabIds) => {
   const byId = new Map(tabElements().map((tab) => [tab.dataset.tabId, tab]));
@@ -410,7 +412,7 @@ window.__rionReorderRuntimeTabs = (tabIds) => {
     if (tab !== insertionPoint) root.insertBefore(tab, insertionPoint);
     insertionPoint = tab.nextElementSibling;
   }
-  requestAnimationFrame(updateScrollControls);
+  scheduleScrollControlsUpdate();
 };
 window.__rionSetActiveRuntimeTab = (tabId) => {
   if (tabId) optimisticallyActivateTab(tabId);
@@ -463,6 +465,7 @@ window.__rionUpdateRuntimeTabMetadata = (tab) => {
     button.append(close);
   }
   if (close) close.ariaLabel = tab.closeLabel;
+  scheduleScrollControlsUpdate();
 };
 window.__rionUpdateRuntimeTabMetadataBatch = (tabs) => {
   for (const tab of tabs) window.__rionUpdateRuntimeTabMetadata?.(tab);
@@ -528,18 +531,25 @@ root.addEventListener("drop", (event) => {
 });
 add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
 add.addEventListener("contextmenu", (event) => event.preventDefault());
-root.addEventListener("scroll", updateScrollControls);
+root.addEventListener("scroll", scheduleScrollControlsUpdate);
 root.addEventListener("wheel", (event) => {
   if (!hasTabOverflow() || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
   event.preventDefault();
   root.scrollLeft += event.deltaY;
-  updateScrollControls();
+  scheduleScrollControlsUpdate();
 }, { passive: false });
 scrollLeftButton.addEventListener("click", () => scrollToAdjacentHiddenTab("left"));
 scrollRightButton.addEventListener("click", () => scrollToAdjacentHiddenTab("right"));
-addEventListener("resize", updateScrollControls);
+addEventListener("resize", scheduleScrollControlsUpdate);
 if (typeof ResizeObserver !== "undefined") {
-  new ResizeObserver(updateScrollControls).observe(root);
+  new ResizeObserver(scheduleScrollControlsUpdate).observe(root);
+}
+if (typeof MutationObserver !== "undefined") {
+  new MutationObserver(scheduleScrollControlsUpdate).observe(root, {
+    characterData: true,
+    childList: true,
+    subtree: true
+  });
 }
 
 void current;
@@ -572,6 +582,14 @@ function hasTabOverflow(): boolean {
   return root.scrollWidth - visibleWidthWithoutScrollControls() > OVERFLOW_EPSILON;
 }
 
+function scheduleScrollControlsUpdate(): void {
+  if (scrollControlsFrame !== undefined) return;
+  scrollControlsFrame = requestAnimationFrame(() => {
+    scrollControlsFrame = undefined;
+    updateScrollControls();
+  });
+}
+
 function updateScrollControls(): void {
   const overflowing = hasTabOverflow();
   scrollLeftButton.hidden = !overflowing;
@@ -594,7 +612,7 @@ function scrollTo(left: number, behavior: ScrollBehavior): void {
   } else {
     root.scrollLeft = clamped;
   }
-  requestAnimationFrame(updateScrollControls);
+  scheduleScrollControlsUpdate();
 }
 
 function ensureTabVisible(tabId: string | undefined): void {
@@ -641,5 +659,5 @@ function scrollForDragPoint(clientX: number): void {
   } else {
     return;
   }
-  updateScrollControls();
+  scheduleScrollControlsUpdate();
 }

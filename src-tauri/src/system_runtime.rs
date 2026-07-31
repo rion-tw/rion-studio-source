@@ -2350,6 +2350,18 @@ struct PlatformPerformanceEnvironment {
     system_thermal_state: Option<String>,
 }
 
+#[derive(Clone)]
+struct RuntimeShortcutModifierHandoff {
+    modifier_codes: Vec<String>,
+    #[cfg(windows)]
+    source_role_id: Option<String>,
+    source_tab_id: String,
+    #[cfg(windows)]
+    source_webview_label: Option<String>,
+    started_at: Instant,
+    window_id: String,
+}
+
 pub struct SystemRuntimeExecutor {
     app: AppHandle,
     close_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
@@ -2363,6 +2375,7 @@ pub struct SystemRuntimeExecutor {
     last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
     launch_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
     last_critical_activity: Mutex<Instant>,
+    input_dispatch_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     local_storage_sync_lane: Mutex<()>,
     native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     native_creation_slots: NativeCreationGate,
@@ -2371,6 +2384,7 @@ pub struct SystemRuntimeExecutor {
     prewarm_state: AtomicU8,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,
+    shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
 }
@@ -3125,6 +3139,7 @@ impl SystemRuntimeExecutor {
             last_performance_diagnostics: Mutex::new(None),
             launch_effect_sender: OnceLock::new(),
             last_critical_activity: Mutex::new(Instant::now()),
+            input_dispatch_lanes: Mutex::new(HashMap::new()),
             local_storage_sync_lane: Mutex::new(()),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(2),
@@ -3133,6 +3148,7 @@ impl SystemRuntimeExecutor {
             prewarm_state: AtomicU8::new(0),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),
+            shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -4711,6 +4727,47 @@ impl SystemRuntimeExecutor {
         });
     }
 
+    fn record_shortcut_modifier_handoff(
+        &self,
+        handoff: &RuntimeShortcutModifierHandoff,
+        phase: &'static str,
+        level: LogLevel,
+        error: Option<LogErrorDetails>,
+    ) {
+        let core = Arc::clone(&self.core);
+        let event = format!("input.modifier-handoff-{phase}");
+        let message = match phase {
+            "started" => "Runtime tab shortcut modifier handoff started.",
+            "completed" => "Runtime tab shortcut modifiers were released from the source WebView.",
+            "abandoned" => {
+                "Runtime tab shortcut modifier handoff ended after the source became unavailable."
+            }
+            _ => "Runtime tab shortcut modifier handoff did not complete cleanly.",
+        };
+        let context = json!({
+            "elapsedMs": handoff.started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            "modifierCount": handoff.modifier_codes.len(),
+            "phase": phase,
+            "platform": current_runtime_platform(),
+            "sourceTabId": handoff.source_tab_id,
+            "windowId": handoff.window_id,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level,
+                        source: LogSource::Browser,
+                        event,
+                        message: message.to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error,
+                    }],
+                })
+                .await;
+        });
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn record_presentation_event(
         &self,
@@ -5596,6 +5653,187 @@ impl SystemRuntimeExecutor {
                         .any(|surface| surface.webview.label() == webview_label);
                 owns_webview.then(|| tab.window_id.clone())
             })
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn begin_macos_shortcut_modifier_handoff(&self, window_id: &str, tab_id: &str) {
+        self.begin_shortcut_modifier_handoff(RuntimeShortcutModifierHandoff {
+            modifier_codes: Vec::new(),
+            source_tab_id: tab_id.to_owned(),
+            started_at: Instant::now(),
+            window_id: window_id.to_owned(),
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn finish_macos_shortcut_modifier_handoff(
+        &self,
+        window_id: &str,
+        fallback_tab_id: Option<&str>,
+        abandoned: bool,
+    ) {
+        let handoff = self.take_shortcut_modifier_handoff(window_id, fallback_tab_id);
+        let reassertion = self.reassert_tab_shortcut_modifiers(&handoff.source_tab_id);
+        let (phase, level, error) = match reassertion {
+            Ok(()) if abandoned => ("abandoned", LogLevel::Debug, None),
+            Ok(()) => ("completed", LogLevel::Debug, None),
+            Err(error) => (
+                "failed",
+                LogLevel::Warn,
+                Some(log_error_details(error.code, &error.message)),
+            ),
+        };
+        self.record_shortcut_modifier_handoff(&handoff, phase, level, error);
+    }
+
+    #[cfg(windows)]
+    fn begin_windows_shortcut_modifier_handoff(
+        &self,
+        webview_label: &str,
+        modifier_codes: Vec<String>,
+        target_tab_id: &str,
+    ) -> Result<Option<String>, String> {
+        let (window_id, tab_id, role_id) = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            state
+                .tabs
+                .iter()
+                .find_map(|(tab_id, tab)| {
+                    tab.roles.iter().find_map(|(role_id, surface)| {
+                        (surface.webview.label() == webview_label)
+                            .then(|| (tab.window_id.clone(), tab_id.clone(), role_id.clone()))
+                    })
+                })
+                .ok_or_else(|| "The shortcut source WebView was not found.".to_owned())?
+        };
+        if tab_id == target_tab_id {
+            return Ok(None);
+        }
+        self.begin_shortcut_modifier_handoff(RuntimeShortcutModifierHandoff {
+            modifier_codes,
+            source_role_id: Some(role_id),
+            source_tab_id: tab_id,
+            source_webview_label: Some(webview_label.to_owned()),
+            started_at: Instant::now(),
+            window_id: window_id.clone(),
+        });
+        Ok(Some(window_id))
+    }
+
+    #[cfg(windows)]
+    fn finish_windows_shortcut_modifier_handoff(&self, window_id: &str) {
+        let handoff = self.take_shortcut_modifier_handoff(window_id, None);
+        let result = self.release_windows_shortcut_modifiers(&handoff);
+        let (phase, level, error) = match result {
+            Ok(true) => ("completed", LogLevel::Debug, None),
+            Ok(false) => ("abandoned", LogLevel::Debug, None),
+            Err(error) => (
+                "failed",
+                LogLevel::Warn,
+                Some(log_error_details(error.code, &error.message)),
+            ),
+        };
+        self.record_shortcut_modifier_handoff(&handoff, phase, level, error);
+    }
+
+    fn begin_shortcut_modifier_handoff(&self, handoff: RuntimeShortcutModifierHandoff) {
+        let inserted = self
+            .shortcut_modifier_handoffs
+            .lock()
+            .ok()
+            .and_then(|mut handoffs| {
+                if handoffs.contains_key(&handoff.window_id) {
+                    None
+                } else {
+                    handoffs.insert(handoff.window_id.clone(), handoff.clone());
+                    Some(())
+                }
+            })
+            .is_some();
+        if inserted {
+            self.record_shortcut_modifier_handoff(&handoff, "started", LogLevel::Debug, None);
+        }
+    }
+
+    fn take_shortcut_modifier_handoff(
+        &self,
+        window_id: &str,
+        fallback_tab_id: Option<&str>,
+    ) -> RuntimeShortcutModifierHandoff {
+        self.shortcut_modifier_handoffs
+            .lock()
+            .ok()
+            .and_then(|mut handoffs| handoffs.remove(window_id))
+            .unwrap_or_else(|| RuntimeShortcutModifierHandoff {
+                modifier_codes: Vec::new(),
+                #[cfg(windows)]
+                source_role_id: None,
+                source_tab_id: fallback_tab_id.unwrap_or_default().to_owned(),
+                #[cfg(windows)]
+                source_webview_label: None,
+                started_at: Instant::now(),
+                window_id: window_id.to_owned(),
+            })
+    }
+
+    fn reassert_tab_shortcut_modifiers(&self, tab_id: &str) -> RuntimeResult<()> {
+        if tab_id.is_empty() {
+            return Ok(());
+        }
+        let roles = {
+            let state = self.state()?;
+            let Some(tab) = state.tabs.get(tab_id) else {
+                return Ok(());
+            };
+            tab.roles
+                .iter()
+                .map(|(role_id, surface)| (role_id.clone(), surface.webview.clone()))
+                .collect::<Vec<_>>()
+        };
+        roles.iter().try_for_each(|(role_id, webview)| {
+            self.with_role_input_lane(role_id, || {
+                self.reassert_role_shortcut_modifiers_in_lane(role_id, webview)
+            })
+        })
+    }
+
+    #[cfg(windows)]
+    fn release_windows_shortcut_modifiers(
+        &self,
+        handoff: &RuntimeShortcutModifierHandoff,
+    ) -> RuntimeResult<bool> {
+        let (Some(role_id), Some(webview_label)) = (
+            handoff.source_role_id.as_deref(),
+            handoff.source_webview_label.as_deref(),
+        ) else {
+            return Ok(false);
+        };
+        let Some(webview) = self.app.get_webview(webview_label) else {
+            return Ok(false);
+        };
+        self.with_role_input_lane(role_id, || {
+            let mut first_error = None;
+            for effect in shortcut_modifier_release_effects(&handoff.modifier_codes) {
+                if let Err(error) = dispatch_key_effect(&webview, &effect)
+                    && first_error.is_none()
+                {
+                    first_error = Some(error);
+                }
+            }
+            if let Err(error) = self.reassert_role_shortcut_modifiers_in_lane(role_id, &webview)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+            if let Some(error) = first_error {
+                Err(error)
+            } else {
+                Ok(true)
+            }
         })
     }
 
@@ -10332,6 +10570,19 @@ impl SystemRuntimeExecutor {
         modifiers: &[String],
         owner_id: &str,
     ) -> RuntimeResult<()> {
+        self.with_role_input_lane(role_id, || {
+            self.dispatch_key_action_in_lane(role_id, phase, code, modifiers, owner_id)
+        })
+    }
+
+    fn dispatch_key_action_in_lane(
+        &self,
+        role_id: &str,
+        phase: &str,
+        code: &str,
+        modifiers: &[String],
+        owner_id: &str,
+    ) -> RuntimeResult<()> {
         let webview = self.role_webview(role_id)?;
         let modifier_codes = resolve_modifier_codes(modifiers, cfg!(target_os = "macos"))?;
         let transition =
@@ -10362,6 +10613,33 @@ impl SystemRuntimeExecutor {
                 Err(error)
             }
         }
+    }
+
+    fn with_role_input_lane<T>(
+        &self,
+        role_id: &str,
+        operation: impl FnOnce() -> RuntimeResult<T>,
+    ) -> RuntimeResult<T> {
+        let lane = {
+            let mut lanes = self.input_dispatch_lanes.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_TRUSTED_INPUT_FAILED",
+                    "The role input coordinator is unavailable.",
+                )
+            })?;
+            Arc::clone(
+                lanes
+                    .entry(role_id.to_owned())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        let _guard = lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_FAILED",
+                "The role input lane is unavailable.",
+            )
+        })?;
+        operation()
     }
 
     fn dispatch_click_action(
@@ -10449,6 +10727,29 @@ impl SystemRuntimeExecutor {
         if !cfg!(windows) {
             return Ok(());
         }
+        self.with_role_input_lane(role_id, || {
+            self.reassert_role_keys_in_lane(role_id, webview)
+        })
+    }
+
+    fn reassert_role_keys_in_lane(&self, role_id: &str, webview: &Webview) -> RuntimeResult<()> {
+        self.reassert_role_keys_matching_in_lane(role_id, webview, |_| true)
+    }
+
+    fn reassert_role_shortcut_modifiers_in_lane(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+    ) -> RuntimeResult<()> {
+        self.reassert_role_keys_matching_in_lane(role_id, webview, is_tab_shortcut_modifier_code)
+    }
+
+    fn reassert_role_keys_matching_in_lane(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+        should_dispatch: impl Fn(&str) -> bool,
+    ) -> RuntimeResult<()> {
         let transition = self
             .core
             .invoke(CoreCommand::EmbeddedKeysReassert {
@@ -10463,6 +10764,7 @@ impl SystemRuntimeExecutor {
         transition
             .effects
             .iter()
+            .filter(|effect| should_dispatch(&effect.code))
             .try_for_each(|effect| dispatch_key_effect(webview, effect))
     }
 
@@ -18526,7 +18828,12 @@ fn dispatch_role_zoom_shortcut(app: &AppHandle, webview_label: &str, action: &st
 }
 
 #[cfg(windows)]
-fn dispatch_runtime_tab_shortcut(app: &AppHandle, webview_label: &str, direction: &str) {
+fn dispatch_runtime_tab_shortcut(
+    app: &AppHandle,
+    webview_label: &str,
+    direction: &str,
+    modifier_codes: Vec<String>,
+) {
     let Some(state) = app.try_state::<crate::CoreState>() else {
         return;
     };
@@ -18537,9 +18844,92 @@ fn dispatch_runtime_tab_shortcut(app: &AppHandle, webview_label: &str, direction
         .runtime
         .preview_adjacent_tab_activation(&window_id, direction)
         .ok();
-    if let Some((tab_id, false)) = target {
+    let Some((tab_id, provisional)) = target else {
+        return;
+    };
+    let Ok(Some(handoff_window_id)) = state.runtime.begin_windows_shortcut_modifier_handoff(
+        webview_label,
+        modifier_codes,
+        &tab_id,
+    ) else {
+        return;
+    };
+    if !provisional {
         let _ = crate::commit_previewed_tab_selection(app, &state, &window_id, &tab_id);
     }
+    let runtime = Arc::clone(&state.runtime);
+    let scheduled_runtime = Arc::clone(&runtime);
+    let scheduled_window_id = handoff_window_id.clone();
+    let scheduling = app.run_on_main_thread(move || {
+        tauri::async_runtime::spawn_blocking(move || {
+            scheduled_runtime.finish_windows_shortcut_modifier_handoff(&scheduled_window_id);
+        });
+    });
+    if scheduling.is_err() {
+        tauri::async_runtime::spawn_blocking(move || {
+            runtime.finish_windows_shortcut_modifier_handoff(&handoff_window_id);
+        });
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_shortcut_modifier_codes(
+    left_control: bool,
+    right_control: bool,
+    shift: bool,
+    left_shift: bool,
+    right_shift: bool,
+) -> Vec<String> {
+    let mut codes = Vec::new();
+    if left_control {
+        codes.push("ControlLeft".to_owned());
+    }
+    if right_control {
+        codes.push("ControlRight".to_owned());
+    }
+    if !left_control && !right_control {
+        codes.push("ControlLeft".to_owned());
+    }
+    if shift {
+        if left_shift {
+            codes.push("ShiftLeft".to_owned());
+        }
+        if right_shift {
+            codes.push("ShiftRight".to_owned());
+        }
+        if !left_shift && !right_shift {
+            codes.push("ShiftLeft".to_owned());
+        }
+    }
+    codes
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn shortcut_modifier_release_effects(modifier_codes: &[String]) -> Vec<EmbeddedKeyEffectRecord> {
+    let mut active_codes = modifier_codes.to_vec();
+    modifier_codes
+        .iter()
+        .rev()
+        .map(|code| {
+            let before = active_codes.clone();
+            active_codes.retain(|active| active != code);
+            EmbeddedKeyEffectRecord {
+                phase: "keyUp".to_owned(),
+                code: code.clone(),
+                active_codes_before: before,
+                active_codes: active_codes.clone(),
+                auto_repeat: false,
+                suppress_shortcut: false,
+            }
+        })
+        .collect()
+}
+
+fn is_tab_shortcut_modifier_code(code: &str) -> bool {
+    matches!(
+        code,
+        "ControlLeft" | "ControlRight" | "ShiftLeft" | "ShiftRight"
+    )
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -18703,7 +19093,8 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
         },
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+        GetKeyState, VK_CONTROL, VK_LCONTROL, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RSHIFT,
+        VK_RWIN, VK_SHIFT,
     };
 
     let webview_label = webview.label().to_owned();
@@ -18737,10 +19128,18 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
                     let shift = pressed(VK_SHIFT.0);
                     if virtual_key == 0x09 && control && !alt && !meta {
                         args.SetHandled(true)?;
+                        let modifier_codes = windows_shortcut_modifier_codes(
+                            pressed(VK_LCONTROL.0),
+                            pressed(VK_RCONTROL.0),
+                            shift,
+                            pressed(VK_LSHIFT.0),
+                            pressed(VK_RSHIFT.0),
+                        );
                         dispatch_runtime_tab_shortcut(
                             &shortcut_app,
                             &shortcut_label,
                             if shift { "previous" } else { "next" },
+                            modifier_codes,
                         );
                         return Ok(());
                     }
@@ -21760,6 +22159,45 @@ mod tests {
             .unwrap(),
             vec!["ControlLeft", "AltLeft"]
         );
+    }
+
+    #[test]
+    fn windows_tab_shortcut_handoff_preserves_physical_modifier_sides() {
+        assert_eq!(
+            windows_shortcut_modifier_codes(true, false, false, false, false),
+            ["ControlLeft"]
+        );
+        assert_eq!(
+            windows_shortcut_modifier_codes(false, true, true, false, true),
+            ["ControlRight", "ShiftRight"]
+        );
+        assert_eq!(
+            windows_shortcut_modifier_codes(false, false, true, false, false),
+            ["ControlLeft", "ShiftLeft"]
+        );
+        assert_eq!(
+            windows_shortcut_modifier_codes(true, true, true, true, true),
+            ["ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"]
+        );
+    }
+
+    #[test]
+    fn tab_shortcut_handoff_releases_shift_before_control() {
+        let effects = shortcut_modifier_release_effects(&[
+            "ControlRight".to_owned(),
+            "ShiftRight".to_owned(),
+        ]);
+        assert_eq!(effects.len(), 2);
+        assert_eq!(effects[0].phase, "keyUp");
+        assert_eq!(effects[0].code, "ShiftRight");
+        assert_eq!(effects[0].active_codes, ["ControlRight"]);
+        assert_eq!(effects[1].code, "ControlRight");
+        assert!(effects[1].active_codes.is_empty());
+        assert!(effects.iter().all(|effect| !effect.suppress_shortcut));
+        assert!(is_tab_shortcut_modifier_code("ControlLeft"));
+        assert!(is_tab_shortcut_modifier_code("ShiftRight"));
+        assert!(!is_tab_shortcut_modifier_code("Digit8"));
+        assert!(!is_tab_shortcut_modifier_code("AltLeft"));
     }
 
     #[cfg(target_os = "macos")]

@@ -23,13 +23,14 @@ use rion_core::{
     EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
     EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
     GameWindowRoleViewRecord, GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus,
-    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, LogCaptureRecord, LogLevel,
-    LogSource, ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
-    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
-    StateWebGraphicsRecord, SystemWebViewRuntimeRegistrationRecord,
-    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
-    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, LogCaptureRecord,
+    LogErrorDetails, LogLevel, LogSource, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
+    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, SessionCookieRecord,
+    SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
+    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
+    SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
+    WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
+    WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -2125,6 +2126,7 @@ fn capture_presentation_event(
     revision: u64,
     trigger: &'static str,
     elapsed_ms: u64,
+    error: Option<LogErrorDetails>,
 ) {
     let context = json!({
         "elapsedMs": elapsed_ms,
@@ -2143,7 +2145,7 @@ fn capture_presentation_event(
                     event: event.to_owned(),
                     message: message.to_owned(),
                     context_raw_json: serde_json::to_string(&context).ok(),
-                    error: None,
+                    error,
                 }],
             })
             .await;
@@ -3578,6 +3580,30 @@ impl SystemRuntimeExecutor {
     }
 
     fn record_runtime_stage(&self, stage: impl Into<String>, status: &str, started: Instant) {
+        self.record_runtime_stage_with_error(stage, status, started, None);
+    }
+
+    fn record_runtime_stage_failure(
+        &self,
+        stage: impl Into<String>,
+        started: Instant,
+        error: &RuntimeError,
+    ) {
+        self.record_runtime_stage_with_error(
+            stage,
+            "failed",
+            started,
+            Some(log_error_details(error.code, &error.message)),
+        );
+    }
+
+    fn record_runtime_stage_with_error(
+        &self,
+        stage: impl Into<String>,
+        status: &str,
+        started: Instant,
+        error: Option<LogErrorDetails>,
+    ) {
         let stage = stage.into();
         let elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         eprintln!(
@@ -3605,7 +3631,7 @@ impl SystemRuntimeExecutor {
                         event: "tab.launch-phase".to_owned(),
                         message: "Runtime tab launch phase changed.".to_owned(),
                         context_raw_json: serde_json::to_string(&context).ok(),
-                        error: None,
+                        error,
                     }],
                 })
                 .await;
@@ -3885,6 +3911,34 @@ impl SystemRuntimeExecutor {
             revision,
             trigger,
             elapsed_ms,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_presentation_event_with_error(
+        &self,
+        level: LogLevel,
+        event: &'static str,
+        message: &'static str,
+        window_id: &str,
+        tab_id: Option<&str>,
+        revision: u64,
+        trigger: &'static str,
+        elapsed_ms: u64,
+        error: Option<&rion_core::CoreErrorPayload>,
+    ) {
+        capture_presentation_event(
+            Arc::clone(&self.core),
+            level,
+            event,
+            message,
+            window_id.to_owned(),
+            tab_id.map(str::to_owned),
+            revision,
+            trigger,
+            elapsed_ms,
+            error.map(|error| log_error_details(&error.code, &error.message)),
         );
     }
 
@@ -8369,8 +8423,14 @@ impl SystemRuntimeExecutor {
                 tab_id,
                 next_active_tab_id,
             } => {
-                self.destroy_tab(&tab_id)?;
-                if let Some(next_tab_id) = next_active_tab_id {
+                let retained_failed_provisional = {
+                    let state = self.state()?;
+                    failed_provisional_tab_has_completed_native_cleanup(&state, &tab_id)
+                };
+                if !retained_failed_provisional {
+                    self.destroy_tab(&tab_id)?;
+                }
+                if !retained_failed_provisional && let Some(next_tab_id) = next_active_tab_id {
                     // Isolation is the close transaction's commit boundary. A
                     // rapid X burst may already have removed or marked this
                     // successor as closing by the time the native close effect
@@ -10868,7 +10928,7 @@ impl SystemRuntimeExecutor {
         &self,
         completion: BrowserLaunchCompletionRecord,
     ) {
-        self.record_presentation_event(
+        self.record_presentation_event_with_error(
             if completion.error.is_some() {
                 LogLevel::Error
             } else {
@@ -10889,6 +10949,7 @@ impl SystemRuntimeExecutor {
                 .elapsed()
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
+            completion.error.as_ref(),
         );
         let Some(error) = completion.error.as_ref() else {
             return;
@@ -11393,7 +11454,7 @@ impl SystemRuntimeExecutor {
                         lifecycle
                     }
                     Err(error) => {
-                        self.record_runtime_stage(&setup_stage, "failed", setup_started);
+                        self.record_runtime_stage_failure(&setup_stage, setup_started, &error);
                         return Err(error);
                     }
                 };
@@ -11859,6 +11920,7 @@ impl SystemRuntimeExecutor {
             tab_id: String,
         }
         struct HostUpdate {
+            focus_window: bool,
             presentation: String,
             reveal: bool,
             retain_visibility: bool,
@@ -12132,6 +12194,10 @@ impl SystemRuntimeExecutor {
                         })
                         .map(|title| native_runtime_window_title(&title).to_owned());
                     HostUpdate {
+                        focus_window: runtime_host_should_receive_window_focus(
+                            focus_window_ids.contains(window_id),
+                            active_tab.is_some(),
+                        ),
                         presentation: host.target.presentation.clone(),
                         reveal: reveal_window_ids.contains(window_id),
                         retain_visibility: presentation_window
@@ -12157,6 +12223,9 @@ impl SystemRuntimeExecutor {
             } else if !visible && currently_visible {
                 update.window.hide().map_err(RuntimeError::tauri)?;
             }
+            if update.focus_window && update.window.is_minimized().unwrap_or(false) {
+                update.window.unminimize().map_err(RuntimeError::tauri)?;
+            }
             match update.presentation.as_str() {
                 "fullscreen" if !update.window.is_fullscreen().unwrap_or(false) => {
                     update
@@ -12168,6 +12237,9 @@ impl SystemRuntimeExecutor {
                     update.window.maximize().map_err(RuntimeError::tauri)?;
                 }
                 _ => {}
+            }
+            if update.focus_window {
+                update.window.set_focus().map_err(RuntimeError::tauri)?;
             }
         }
         let obsolete_hosts = {
@@ -14818,6 +14890,27 @@ fn runtime_host_should_be_visible(
     currently_visible: bool,
 ) -> bool {
     reveal || (currently_visible && retain_visibility)
+}
+
+fn runtime_host_should_receive_window_focus(focus_requested: bool, has_active_tab: bool) -> bool {
+    focus_requested && !has_active_tab
+}
+
+fn failed_provisional_tab_has_completed_native_cleanup(state: &RuntimeState, tab_id: &str) -> bool {
+    !state.tabs.contains_key(tab_id)
+        && state
+            .provisional_launches
+            .values()
+            .any(|launch| launch.id == tab_id && launch.failed && !launch.cancelled)
+}
+
+fn log_error_details(code: &str, message: &str) -> LogErrorDetails {
+    LogErrorDetails {
+        name: code.to_owned(),
+        message: message.to_owned(),
+        stack: None,
+        cause: None,
+    }
 }
 
 fn runtime_target_requires_placement_reapply(presentation: &str, fullscreen: bool) -> bool {
@@ -18459,6 +18552,80 @@ mod tests {
                 "unexpected runtime host visibility on {platform}"
             );
         }
+    }
+
+    #[test]
+    fn empty_runtime_hosts_honor_explicit_focus_requests_on_macos_and_windows() {
+        for (platform, focus_requested, has_active_tab, expected) in [
+            ("macos", true, false, true),
+            ("windows", true, false, true),
+            ("macos", true, true, false),
+            ("windows", true, true, false),
+            ("macos", false, false, false),
+            ("windows", false, false, false),
+        ] {
+            assert_eq!(
+                runtime_host_should_receive_window_focus(focus_requested, has_active_tab),
+                expected,
+                "{platform}: focus={focus_requested}, activeTab={has_active_tab}"
+            );
+        }
+    }
+
+    #[test]
+    fn failed_provisional_tabs_make_native_destroy_compensation_idempotent() {
+        let provisional = |failed, cancelled| ProvisionalLaunch {
+            cancelled,
+            failed,
+            host_created: false,
+            id: "tab-failed".to_owned(),
+            source_id: "role-1".to_owned(),
+            tab_type: "role".to_owned(),
+            window_id: "window-1".to_owned(),
+        };
+
+        let mut state = RuntimeState::default();
+        assert!(!failed_provisional_tab_has_completed_native_cleanup(
+            &state,
+            "tab-failed"
+        ));
+
+        state
+            .provisional_launches
+            .insert("role:role-1".to_owned(), provisional(false, false));
+        assert!(!failed_provisional_tab_has_completed_native_cleanup(
+            &state,
+            "tab-failed"
+        ));
+
+        state
+            .provisional_launches
+            .insert("role:role-1".to_owned(), provisional(true, true));
+        assert!(!failed_provisional_tab_has_completed_native_cleanup(
+            &state,
+            "tab-failed"
+        ));
+
+        state
+            .provisional_launches
+            .insert("role:role-1".to_owned(), provisional(true, false));
+        assert!(failed_provisional_tab_has_completed_native_cleanup(
+            &state,
+            "tab-failed"
+        ));
+        assert!(!failed_provisional_tab_has_completed_native_cleanup(
+            &state,
+            "tab-unknown"
+        ));
+    }
+
+    #[test]
+    fn native_launch_errors_keep_their_code_and_message_in_diagnostics() {
+        let error = log_error_details("SYSTEM_ROLE_SETUP_FAILED", "WebView2 setup failed");
+        assert_eq!(error.name, "SYSTEM_ROLE_SETUP_FAILED");
+        assert_eq!(error.message, "WebView2 setup failed");
+        assert!(error.stack.is_none());
+        assert!(error.cause.is_none());
     }
 
     #[test]

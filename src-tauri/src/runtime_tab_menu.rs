@@ -256,21 +256,35 @@ pub(crate) struct RefreshCoordinator {
 
 #[derive(Default)]
 struct RefreshState {
+    catalog: Option<LauncherCatalog>,
+    catalog_applied_revision: u64,
+    catalog_requested_revision: u64,
+    catalog_worker_running: bool,
     language: String,
     loading_menu: Option<Menu<tauri::Wry>>,
-    menu_model: Option<LauncherMenuModel>,
-    menu_model_revision: u64,
     menus: HashMap<String, Menu<tauri::Wry>>,
+    presence: crate::system_runtime::RuntimeLauncherPresence,
+    presence_revision: u64,
     registered_window_ids: HashSet<String>,
-    revision: u64,
-    worker_running: bool,
+}
+
+#[derive(Clone)]
+struct LauncherCatalog {
+    language: String,
+    roles: serde_json::Value,
+    workspaces: serde_json::Value,
 }
 
 #[derive(Clone)]
 struct LauncherMenuModel {
-    language: String,
-    roles: serde_json::Value,
-    workspaces: serde_json::Value,
+    catalog: LauncherCatalog,
+    presence: crate::system_runtime::RuntimeLauncherPresence,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LauncherMenuRevision {
+    catalog: u64,
+    presence: u64,
 }
 
 impl RefreshCoordinator {
@@ -298,12 +312,13 @@ impl RefreshCoordinator {
                 .state
                 .lock()
                 .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
-            state.revision = state.revision.wrapping_add(1).max(1);
+            state.catalog_requested_revision =
+                state.catalog_requested_revision.wrapping_add(1).max(1);
             state.language = language;
-            if state.worker_running {
+            if state.catalog_worker_running {
                 false
             } else {
-                state.worker_running = true;
+                state.catalog_worker_running = true;
                 true
             }
         };
@@ -316,7 +331,7 @@ impl RefreshCoordinator {
             .spawn(move || coordinator.run(app, core));
         if let Err(error) = spawn {
             if let Ok(mut state) = self.state.lock() {
-                state.worker_running = false;
+                state.catalog_worker_running = false;
             }
             return Err(error.to_string());
         }
@@ -326,15 +341,15 @@ impl RefreshCoordinator {
     fn run(&self, app: AppHandle, core: Arc<AppCore>) {
         loop {
             let (revision, language) = match self.state.lock() {
-                Ok(state) => (state.revision, state.language.clone()),
+                Ok(state) => (state.catalog_requested_revision, state.language.clone()),
                 Err(_) => return,
             };
-            match LauncherMenuModel::load(&core, language) {
-                Ok(model) => {
+            match LauncherCatalog::load(&core, language) {
+                Ok(catalog) => {
                     let coordinator = self.clone();
                     let menu_app = app.clone();
                     if let Err(error) = app.run_on_main_thread(move || {
-                        coordinator.apply(&menu_app, revision, model);
+                        coordinator.apply_catalog(&menu_app, revision, catalog);
                     }) {
                         eprintln!("Runtime launcher native refresh could not be queued: {error}");
                     }
@@ -344,17 +359,86 @@ impl RefreshCoordinator {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
-            if state.revision != revision {
+            if state.catalog_requested_revision != revision {
                 continue;
             }
-            state.worker_running = false;
+            state.catalog_worker_running = false;
             return;
         }
     }
 
-    fn apply(&self, app: &AppHandle, revision: u64, model: LauncherMenuModel) {
+    fn apply_catalog(&self, app: &AppHandle, revision: u64, catalog: LauncherCatalog) {
+        let desired = {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            if state.catalog_requested_revision != revision {
+                return;
+            }
+            state.loading_menu = launcher_loading_menu(app, &catalog.language).ok();
+            state.catalog_applied_revision = revision;
+            state.catalog = Some(catalog);
+            desired_launcher_model(&state)
+        };
+        if let Some((revision, model)) = desired {
+            self.rebuild(app, revision, model);
+        }
+    }
+
+    pub(crate) fn update_presence(
+        &self,
+        app: &AppHandle,
+        presence: crate::system_runtime::RuntimeLauncherPresence,
+    ) -> Result<(), String> {
+        let desired = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+            if state.presence == presence {
+                return Ok(());
+            }
+            state.presence = presence;
+            state.presence_revision = state.presence_revision.wrapping_add(1).max(1);
+            desired_launcher_model(&state)
+        };
+        let Some((revision, model)) = desired else {
+            return Ok(());
+        };
+        let coordinator = self.clone();
+        let menu_app = app.clone();
+        app.run_on_main_thread(move || coordinator.rebuild(&menu_app, revision, model))
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn request_presence(
+        &self,
+        app: AppHandle,
+        runtime: Arc<crate::system_runtime::SystemRuntimeExecutor>,
+    ) {
+        let coordinator = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let presence =
+                tauri::async_runtime::spawn_blocking(move || runtime.launcher_presence_snapshot())
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result);
+            match presence {
+                Ok(presence) => {
+                    if let Err(error) = coordinator.update_presence(&app, presence) {
+                        eprintln!("Runtime launcher presence repair could not be queued: {error}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Runtime launcher presence repair failed: {error}");
+                }
+            }
+        });
+    }
+
+    fn rebuild(&self, app: &AppHandle, revision: LauncherMenuRevision, model: LauncherMenuModel) {
         let window_ids = match self.state.lock() {
-            Ok(state) if state.revision == revision => state
+            Ok(state) if desired_launcher_revision(&state) == Some(revision) => state
                 .registered_window_ids
                 .iter()
                 .cloned()
@@ -374,18 +458,16 @@ impl RefreshCoordinator {
             })
             .collect::<HashMap<_, _>>();
         let prepared_window_ids = window_ids.iter().cloned().collect::<HashSet<_>>();
-        let loading_menu = launcher_loading_menu(app, &model.language).ok();
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.revision != revision {
+        if desired_launcher_revision(&state) != Some(revision) {
             return;
         }
-        state.loading_menu = loading_menu;
-        state.menu_model = Some(model.clone());
-        state.menu_model_revision = revision;
         for window_id in &window_ids {
-            if let Some(menu) = menus.get(window_id) {
+            if !state.registered_window_ids.contains(window_id) {
+                state.menus.remove(window_id);
+            } else if let Some(menu) = menus.get(window_id) {
                 state.menus.insert(window_id.clone(), menu.clone());
             } else {
                 state.menus.remove(window_id);
@@ -403,7 +485,7 @@ impl RefreshCoordinator {
     }
 
     pub(crate) fn register_window(&self, app: &AppHandle, window_id: &str) -> Result<(), String> {
-        let (revision, model) = {
+        let desired = {
             let mut state = self
                 .state
                 .lock()
@@ -411,14 +493,9 @@ impl RefreshCoordinator {
             if !state.registered_window_ids.insert(window_id.to_owned()) {
                 return Ok(());
             }
-            let model = if state.menu_model_revision == state.revision {
-                state.menu_model.clone()
-            } else {
-                None
-            };
-            (state.revision, model)
+            desired_launcher_model(&state)
         };
-        let Some(model) = model else {
+        let Some((revision, model)) = desired else {
             return Ok(());
         };
         let coordinator = self.clone();
@@ -440,7 +517,7 @@ impl RefreshCoordinator {
     fn install_window_menu(
         &self,
         app: &AppHandle,
-        revision: u64,
+        revision: LauncherMenuRevision,
         model: LauncherMenuModel,
         window_id: String,
     ) {
@@ -456,19 +533,14 @@ impl RefreshCoordinator {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.revision == revision && state.registered_window_ids.contains(&window_id) {
+        if desired_launcher_revision(&state) == Some(revision)
+            && state.registered_window_ids.contains(&window_id)
+        {
             state.menus.insert(window_id, menu);
         }
     }
 
-    fn popup(
-        &self,
-        app: &AppHandle,
-        core: Arc<AppCore>,
-        language: String,
-        window_id: &str,
-        window: Window,
-    ) -> Result<(), String> {
+    fn popup(&self, window_id: &str, window: Window) -> Result<(), String> {
         let (cached_menu, loading_menu) = {
             let state = self
                 .state
@@ -483,9 +555,8 @@ impl RefreshCoordinator {
             menu
         } else {
             // The first click can race startup projection collection. The loading menu was
-            // prebuilt during app setup, so this event still performs no Core/SQLite read and
-            // no native menu construction.
-            let _ = self.request(app.clone(), core, language.clone());
+            // prebuilt during app setup, so this event still performs no Core/SQLite read,
+            // runtime-state wait, or native menu construction.
             loading_menu.ok_or_else(|| {
                 "The runtime launcher projection has not been initialized yet.".to_owned()
             })?
@@ -494,7 +565,28 @@ impl RefreshCoordinator {
     }
 }
 
-impl LauncherMenuModel {
+fn desired_launcher_revision(state: &RefreshState) -> Option<LauncherMenuRevision> {
+    state.catalog.as_ref()?;
+    Some(LauncherMenuRevision {
+        catalog: state.catalog_applied_revision,
+        presence: state.presence_revision,
+    })
+}
+
+fn desired_launcher_model(
+    state: &RefreshState,
+) -> Option<(LauncherMenuRevision, LauncherMenuModel)> {
+    let revision = desired_launcher_revision(state)?;
+    Some((
+        revision,
+        LauncherMenuModel {
+            catalog: state.catalog.clone()?,
+            presence: state.presence.clone(),
+        },
+    ))
+}
+
+impl LauncherCatalog {
     fn load(core: &AppCore, language: String) -> Result<Self, String> {
         let roles = core
             .invoke(CoreCommand::RolesList)
@@ -587,15 +679,11 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
     let state = app
         .try_state::<crate::CoreState>()
         .ok_or_else(|| "runtime state is unavailable".to_owned())?;
-    let language = state
-        .menu_language
-        .lock()
-        .map(|value| value.clone())
-        .unwrap_or_else(|_| "en".to_owned());
     let (window, _) = state.runtime.launcher_context_for_window_id(window_id)?;
     state
         .runtime_launcher_refresh
-        .popup(app, Arc::clone(&state.core), language, window_id, window)
+        .request_presence(app.clone(), Arc::clone(&state.runtime));
+    state.runtime_launcher_refresh.popup(window_id, window)
 }
 
 fn launcher_menu(
@@ -603,9 +691,9 @@ fn launcher_menu(
     model: &LauncherMenuModel,
     window_id: &str,
 ) -> Result<Menu<tauri::Wry>, String> {
-    let text = labels(&model.language);
+    let text = labels(&model.catalog.language);
     let mut roles_menu = SubmenuBuilder::new(app, text.roles);
-    let role_values = model.roles.as_array().cloned().unwrap_or_default();
+    let role_values = model.catalog.roles.as_array().cloned().unwrap_or_default();
     if role_values.is_empty() {
         let item = MenuItemBuilder::new(text.no_roles)
             .enabled(false)
@@ -619,12 +707,20 @@ fn launcher_menu(
             };
             roles_menu = roles_menu.text(
                 launcher_menu_item_id(LAUNCH_ROLE_PREFIX, window_id, id),
-                name,
+                launcher_item_label(
+                    name,
+                    launcher_presence_tab(&model.presence, id, false).is_some(),
+                ),
             );
         }
     }
     let mut workspaces_menu = SubmenuBuilder::new(app, text.workspaces);
-    let workspace_values = model.workspaces.as_array().cloned().unwrap_or_default();
+    let workspace_values = model
+        .catalog
+        .workspaces
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     if workspace_values.is_empty() {
         let item = MenuItemBuilder::new(text.no_workspaces)
             .enabled(false)
@@ -639,7 +735,10 @@ fn launcher_menu(
             };
             workspaces_menu = workspaces_menu.text(
                 launcher_menu_item_id(LAUNCH_WORKSPACE_PREFIX, window_id, id),
-                name,
+                launcher_item_label(
+                    name,
+                    launcher_presence_tab(&model.presence, id, true).is_some(),
+                ),
             );
         }
     }
@@ -648,6 +747,29 @@ fn launcher_menu(
         .item(&workspaces_menu.build().map_err(|error| error.to_string())?)
         .build()
         .map_err(|error| error.to_string())
+}
+
+fn launcher_presence_tab<'a>(
+    presence: &'a crate::system_runtime::RuntimeLauncherPresence,
+    source_id: &str,
+    workspace: bool,
+) -> Option<&'a crate::system_runtime::RuntimeLauncherPresenceTab> {
+    presence.tabs.iter().find(|tab| {
+        if workspace {
+            tab.tab_type == "workspace" && tab.source_id == source_id
+        } else {
+            tab.role_ids.iter().any(|role_id| role_id == source_id)
+                || (tab.tab_type == "role" && tab.source_id == source_id)
+        }
+    })
+}
+
+fn launcher_item_label(name: &str, launched: bool) -> String {
+    if launched {
+        format!("✓ {name}")
+    } else {
+        name.to_owned()
+    }
 }
 
 fn launcher_menu_item_id(prefix: &str, window_id: &str, source_id: &str) -> String {
@@ -1003,7 +1125,9 @@ fn launch_from_menu(
         workspace,
         None,
     );
-    let preview = if let Some(tab_id) = state.runtime.presented_tab_for_source(source_id, tab_type)
+    let preview = if let Some(tab_id) = state
+        .runtime
+        .presented_tab_for_launcher_source(source_id, tab_type)
     {
         if let Err(message) = crate::preview_and_commit_native_tab_selection(app, state, &tab_id) {
             reveal_menu_error(app, message);
@@ -1042,7 +1166,7 @@ fn launch_from_menu(
     let Some(preview_key) = preview else {
         if state
             .runtime
-            .presented_tab_for_source(source_id, tab_type)
+            .presented_tab_for_launcher_source(source_id, tab_type)
             .is_some()
         {
             return;
@@ -1295,5 +1419,67 @@ mod tests {
                 "{value}"
             );
         }
+    }
+
+    #[test]
+    fn launcher_presence_marks_workspaces_and_their_actual_roles() {
+        let presence = crate::system_runtime::RuntimeLauncherPresence {
+            tabs: vec![crate::system_runtime::RuntimeLauncherPresenceTab {
+                role_ids: vec!["role-a".to_owned(), "role-b".to_owned()],
+                source_id: "workspace-a".to_owned(),
+                tab_id: "tab-a".to_owned(),
+                tab_type: "workspace".to_owned(),
+            }],
+        };
+
+        assert_eq!(
+            launcher_presence_tab(&presence, "workspace-a", true).map(|tab| tab.tab_id.as_str()),
+            Some("tab-a")
+        );
+        assert_eq!(
+            launcher_presence_tab(&presence, "role-b", false).map(|tab| tab.tab_id.as_str()),
+            Some("tab-a")
+        );
+        assert!(launcher_presence_tab(&presence, "role-c", false).is_none());
+        assert_eq!(launcher_item_label("Role B", true), "✓ Role B");
+        assert_eq!(launcher_item_label("Role C", false), "Role C");
+    }
+
+    #[test]
+    fn launcher_catalog_and_presence_revisions_advance_independently() {
+        let mut state = RefreshState {
+            catalog: Some(LauncherCatalog {
+                language: "en".to_owned(),
+                roles: serde_json::json!([]),
+                workspaces: serde_json::json!([]),
+            }),
+            catalog_applied_revision: 7,
+            presence_revision: 2,
+            ..RefreshState::default()
+        };
+
+        assert_eq!(
+            desired_launcher_revision(&state),
+            Some(LauncherMenuRevision {
+                catalog: 7,
+                presence: 2,
+            })
+        );
+        state.presence_revision = 3;
+        assert_eq!(
+            desired_launcher_revision(&state),
+            Some(LauncherMenuRevision {
+                catalog: 7,
+                presence: 3,
+            })
+        );
+        state.catalog_applied_revision = 8;
+        assert_eq!(
+            desired_launcher_revision(&state),
+            Some(LauncherMenuRevision {
+                catalog: 8,
+                presence: 3,
+            })
+        );
     }
 }

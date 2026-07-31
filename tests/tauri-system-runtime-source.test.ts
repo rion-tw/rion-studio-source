@@ -315,7 +315,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(menu).toContain("launcher_menu_item_id(");
     expect(menu).toContain("parse_launcher_menu_target(");
     expect(menu).toContain("launcher_context_for_window_id(window_id)");
-    expect(menu).toContain("presented_tab_for_source(source_id, tab_type)");
+    expect(menu).toContain("presented_tab_for_launcher_source(source_id, tab_type)");
+    expect(menu).toContain("request_presence(app.clone(), Arc::clone(&state.runtime))");
+    expect(menu).toContain('format!("✓ {name}")');
+    expect(runtime).toContain("fn launcher_presence(&self)");
+    expect(runtime).toContain("role_ids: Vec<String>");
+    expect(runtime).toContain("retain_live_runtime_launcher_tabs(&mut presence, &live_tab_ids)");
     expect(menu).not.toContain("model.runtime");
     expect(quickMenu).toContain("runtime.wait_for_shell_idle()");
     const coreEffects = shell.slice(
@@ -331,12 +336,21 @@ describe("Tauri System WebView runtime source", () => {
     expect(openLauncher).not.toContain("core.invoke(");
     expect(openLauncher).not.toContain("CoreCommand::RolesList");
     expect(openLauncher).not.toContain("CoreCommand::WorkspacesList");
+    const launcherPopup = menu.slice(
+      menu.indexOf("fn popup(&self"),
+      menu.indexOf("fn desired_launcher_revision")
+    );
+    expect(launcherPopup).not.toContain("CoreCommand::");
+    expect(launcherPopup).not.toContain("launcher_presence_snapshot");
+    expect(launcherPopup).not.toContain("launcher_menu(");
+    expect(launcherPopup).not.toContain(".request(");
     const macLauncherCallback = macBridge.slice(
       macBridge.indexOf('if action_type == "openLauncher"'),
       macBridge.indexOf("dispatch_action(", macBridge.indexOf('if action_type == "openLauncher"'))
     );
     expect(macLauncherCallback).toContain("open_launcher(&context.app, &window_id)");
     expect(macLauncherCallback).toContain("return;");
+    expect(windowsStrip).toContain('dispatch({ type: "openLauncher" })');
     expect(runtime).toContain(
       "MacRuntimeTabsController::create(\n            &self.app,\n            &window,\n            &target.window_id,"
     );

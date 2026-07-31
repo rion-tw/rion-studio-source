@@ -3,21 +3,6 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[cfg(test)]
-macro_rules! v1_case {
-    ($id:expr, $assertions:block) => {{
-        let v1_case_id: &str = $id;
-        assert!(
-            !v1_case_id.is_empty(),
-            "v1 parity case identifiers must not be empty"
-        );
-        $assertions
-    }};
-}
-
-#[cfg(test)]
-pub(crate) use v1_case;
-
 mod filesystem;
 pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
 mod chrome_profile;
@@ -99,11 +84,11 @@ mod tests {
     fn parses_explicit_macos_and_windows_names_and_rejects_other_platforms() {
         assert_eq!(Platform::parse("darwin").unwrap(), Platform::Macos);
         assert_eq!(Platform::parse("windows").unwrap(), Platform::Windows);
-        v1_case!("resource-platform-cde9bcfa139b", {
+        {
             assert!(matches!(
                 Platform::parse("linux"),
                 Err(PlatformError::Unsupported(platform)) if platform == "linux"
             ));
-        });
+        };
     }
 }

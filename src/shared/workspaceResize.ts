@@ -1,19 +1,19 @@
 import type { NormalizedRect } from "./types";
 
-export const WORKSPACE_RESIZE_SNAP_STEP = 0.05;
+const WORKSPACE_RESIZE_SNAP_STEP = 0.05;
 
 const WORKSPACE_RESIZE_COMMON_POSITIONS = [1 / 3, 1 / 2, 2 / 3] as const;
 const WORKSPACE_RESIZE_EPSILON = 0.000_001;
 const WORKSPACE_RESIZE_SWITCH_TOLERANCE = 0.001;
 
-export interface WorkspaceResizeSnapOptions {
+interface WorkspaceResizeSnapOptions {
   initialPosition: number;
   max: number;
   min: number;
   previousPosition?: number;
 }
 
-export type WorkspaceResizeIndicatorPayload =
+type WorkspaceResizeIndicatorPayload =
   | { type: "hide" }
   | { label: string; type: "show" | "update" };
 

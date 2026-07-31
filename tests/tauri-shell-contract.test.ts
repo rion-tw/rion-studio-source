@@ -2,7 +2,7 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 
-describe("Tauri shell parity guard", () => {
+describe("Tauri shell contract guard", () => {
   it("keeps the hidden-inset-equivalent main window and bundled startup failure UI", async () => {
     const [baseSource, macSource, shell, startup, bootStyles, startupFallback, rendererMain] = await Promise.all([
       readFile("src-tauri/tauri.conf.json", "utf8"),

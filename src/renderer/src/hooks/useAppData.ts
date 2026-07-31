@@ -23,7 +23,7 @@ import { LatestRequestGate } from "../app/operationState";
 import { createRoleStats } from "../app/statusUtils";
 import { withTimeout } from "../app/withTimeout";
 
-export type InitialLoadState = "loading" | "ready" | "failed";
+type InitialLoadState = "loading" | "ready" | "failed";
 export const INITIAL_APP_DATA_TIMEOUT_MS = 15_000;
 
 interface VersionedState<T> {

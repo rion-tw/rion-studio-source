@@ -7,7 +7,7 @@ import type {
 } from "../../../../shared/types";
 import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
 
-export interface DashboardSummary {
+interface DashboardSummary {
   runningMacros: number;
   runningRoles: number;
   totalMacros: number;
@@ -15,7 +15,7 @@ export interface DashboardSummary {
   workspaceCount: number;
 }
 
-export interface DashboardSummaryInput {
+interface DashboardSummaryInput {
   macroStatuses: MacroRunStatus[];
   macros: Macro[];
   roleStatuses: RoleStatus[];
@@ -29,7 +29,7 @@ export interface DashboardRoleItem {
   status?: RoleStatus;
 }
 
-export type DashboardRoleActionKind = "launch" | "stop";
+type DashboardRoleActionKind = "launch" | "stop";
 
 export interface DashboardRoleActionState {
   disabled: boolean;
@@ -44,7 +44,7 @@ export interface DashboardWorkspaceItem {
   workspace: LaunchWorkspace;
 }
 
-export type DashboardWorkspaceActionKind = "launch" | "stop";
+type DashboardWorkspaceActionKind = "launch" | "stop";
 
 export interface DashboardWorkspaceActionState {
   disabled: boolean;
@@ -59,7 +59,7 @@ export interface DashboardMacroItem {
   runningCount: number;
 }
 
-export type DashboardMacroActionKind = "start" | "stop";
+type DashboardMacroActionKind = "start" | "stop";
 
 export interface DashboardMacroActionState {
   disabled: boolean;
@@ -124,7 +124,7 @@ export function getDashboardRoleItems({
     .sort(compareRoleItems);
 }
 
-export function createWorkspaceActionState({
+function createWorkspaceActionState({
   assignedCount,
   busyWorkspaceIds,
   runningCount,
@@ -174,7 +174,7 @@ export function getDashboardWorkspaceItems({
     .sort((left, right) => compareIsoDesc(left.workspace.updatedAt, right.workspace.updatedAt));
 }
 
-export function createMacroActionState({
+function createMacroActionState({
   busyMacroIds,
   busyRunKeys,
   macro,

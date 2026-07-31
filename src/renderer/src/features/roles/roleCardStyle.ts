@@ -1,7 +1,5 @@
 import type { CSSProperties } from "react";
 
-import { getDominantColorHoverBackground } from "../../../../shared/roleCoverColor";
-
 interface RoleCardStyleOptions {
   color: string | undefined;
   hasCoverImage: boolean;
@@ -34,20 +32,4 @@ export function createRoleCardStyle({
   }
 
   return style;
-}
-
-type DominantLaunchButtonStyle = CSSProperties & {
-  "--role-launch-bg": string;
-  "--role-launch-hover-bg": string;
-};
-
-export function createDominantLaunchButtonStyle(color: string | undefined): DominantLaunchButtonStyle | undefined {
-  if (!color) {
-    return undefined;
-  }
-
-  return {
-    "--role-launch-bg": color,
-    "--role-launch-hover-bg": getDominantColorHoverBackground(color)
-  };
 }

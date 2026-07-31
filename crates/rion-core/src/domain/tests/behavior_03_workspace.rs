@@ -1,14 +1,14 @@
     #[test]
-    fn workspace_store_domain_contracts_match_v1() {
-        crate::v1_case!("state-migration-1d14f6cf4383", {
+    fn workspace_store_domain_contracts() {
+        {
             let mut workspaces = Vec::new();
             create_workspace(&mut workspaces, workspace_input(json!({"name":"Copy"}))).unwrap();
             let mut copy = workspaces.clone();
             copy[0].slots[0].role_id = Some("changed".to_owned());
             assert!(workspaces[0].slots[0].role_id.is_none());
-        });
+        };
 
-        crate::v1_case!("state-migration-16b79eaa516a", {
+        {
             let mut workspaces = Vec::new();
             let created =
                 create_workspace(&mut workspaces, workspace_input(json!({"name":"Default"})))
@@ -17,9 +17,9 @@
             assert_eq!(created.slots.len(), 2);
             assert_eq!(created.slots[0].id, "slot-1");
             assert_eq!(created.slots[1].id, "slot-2");
-        });
+        };
 
-        crate::v1_case!("state-migration-75ebe8c3c038", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -53,9 +53,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-40b550e6e02f", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -86,9 +86,9 @@
                     .browser_zoom_percent,
                 Some(125.0)
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-4ac7d2da52d7", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -102,9 +102,9 @@
             set_workspace_role_browser_zoom(&mut workspaces, &created.id, "r2", 125.0).unwrap();
             assert_eq!(workspaces[0].slots[0].browser_zoom_percent, Some(110.0));
             assert_eq!(workspaces[0].slots[1].browser_zoom_percent, Some(125.0));
-        });
+        };
 
-        crate::v1_case!("state-migration-b94ebf809cc1", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -120,9 +120,9 @@
                     .get("resourcePolicy")
                     .is_none()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-a26b7bfb3502", {
+        {
             let mut workspaces = Vec::new();
             create_workspace(
                 &mut workspaces,
@@ -140,9 +140,9 @@
                     .iter()
                     .all(|slot| slot.role_id.is_none())
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-456c08bd8759", {
+        {
             let mut workspaces = Vec::new();
             let first = create_workspace(&mut workspaces, workspace_input(json!({"name":"First"})))
                 .unwrap();
@@ -163,9 +163,9 @@
             let third = create_workspace(&mut workspaces, workspace_input(json!({"name":"Third"})))
                 .unwrap();
             assert_eq!(workspaces.last().unwrap().id, third.id);
-        });
+        };
 
-        crate::v1_case!("state-migration-4b4f49acea6a", {
+        {
             let mut workspaces = Vec::new();
             let created =
                 create_workspace(&mut workspaces, workspace_input(json!({"name":"Layout"})))
@@ -193,9 +193,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-42919f758e6e", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -210,9 +210,9 @@
             )
             .unwrap();
             assert_eq!(created.slots[1].rect.width, 0.5);
-        });
+        };
 
-        crate::v1_case!("state-migration-b57b56106912", {
+        {
             assert_workspace_template(
                 "three_columns",
                 &[
@@ -221,9 +221,9 @@
                     [0.6667, 0.0, 0.3333, 1.0],
                 ],
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-0350a4c0ff11", {
+        {
             let rects = normalize_workspace_rect_edges(vec![
                 StateNormalizedRectRecord {
                     x: 0.0,
@@ -247,9 +247,9 @@
             assert_eq!(rects[1].width, 0.3334);
             assert_eq!(rects[0].width, 0.3333);
             assert_eq!(rects[2].width, 0.3333);
-        });
+        };
 
-        crate::v1_case!("state-migration-323cefb9afae", {
+        {
             assert_workspace_template(
                 "main_right_stack_left",
                 &[
@@ -258,9 +258,9 @@
                     [0.0, 0.5, 0.5, 0.5],
                 ],
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-1588b59a839e", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -276,9 +276,9 @@
             .unwrap();
             assert_eq!(created.slots[0].rect.x, 0.6);
             assert_eq!(created.slots[2].rect.height, 0.6);
-        });
+        };
 
-        crate::v1_case!("state-migration-37306492d6a9", {
+        {
             assert_workspace_template(
                 "main_center_side_stacks",
                 &[
@@ -289,9 +289,9 @@
                     [0.7, 0.5, 0.3, 0.5],
                 ],
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-abb686727e4e", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -308,9 +308,9 @@
             .unwrap();
             assert_eq!(created.slots[1].rect.width, 0.3);
             assert_eq!(created.slots[3].rect.x, 0.8);
-        });
+        };
 
-        crate::v1_case!("state-migration-8e8c9045207a", {
+        {
             assert_workspace_template(
                 "three_columns",
                 &[
@@ -319,8 +319,8 @@
                     [0.6667, 0.0, 0.3333, 1.0],
                 ],
             );
-        });
-        crate::v1_case!("state-migration-7e275803fcea", {
+        };
+        {
             let mut workspaces = Vec::new();
             let workspace = create_workspace(
                 &mut workspaces,
@@ -328,8 +328,8 @@
             )
             .unwrap();
             assert_eq!(workspace.slots.len(), 4);
-        });
-        crate::v1_case!("state-migration-426c9c61f12c", {
+        };
+        {
             let mut workspaces = Vec::new();
             let workspace = create_workspace(
                 &mut workspaces,
@@ -337,9 +337,9 @@
             )
             .unwrap();
             assert_eq!(workspace.slots.len(), 4);
-        });
+        };
 
-        crate::v1_case!("state-migration-781fa7614848", {
+        {
             let mut workspaces = Vec::new();
             let created = create_workspace(
                 &mut workspaces,
@@ -366,9 +366,9 @@
                     .get("browserZoomPercent")
                     .is_none()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-ebaa1c20914a", {
+        {
             assert_workspace_template(
                 "four_columns",
                 &[
@@ -378,9 +378,9 @@
                     [0.75, 0.0, 0.25, 1.0],
                 ],
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-764ee3055e09", {
+        {
             assert_workspace_template(
                 "three_top_two_bottom",
                 &[
@@ -391,8 +391,8 @@
                     [0.5, 0.5, 0.5, 0.5],
                 ],
             );
-        });
-        crate::v1_case!("state-migration-fbdf387e5729", {
+        };
+        {
             assert_workspace_template(
                 "two_top_three_bottom",
                 &[
@@ -403,8 +403,8 @@
                     [0.6667, 0.5, 0.3333, 0.5],
                 ],
             );
-        });
-        crate::v1_case!("state-migration-e0ba5057971f", {
+        };
+        {
             let mut workspaces = Vec::new();
             let workspace = create_workspace(
                 &mut workspaces,
@@ -413,8 +413,8 @@
             .unwrap();
             assert_eq!(workspace.slots.len(), 6);
             assert_eq!(workspace.slots[3].rect.y, 0.5);
-        });
-        crate::v1_case!("state-migration-12fbf3f5504d", {
+        };
+        {
             let mut workspaces = Vec::new();
             let workspace = create_workspace(
                 &mut workspaces,
@@ -423,9 +423,9 @@
             .unwrap();
             assert_eq!(workspace.slots.len(), 8);
             assert_eq!(workspace.slots[4].rect.y, 0.5);
-        });
+        };
 
-        crate::v1_case!("state-migration-219a4ed72571", {
+        {
             let mut workspaces = Vec::new();
             create_workspace(&mut workspaces, workspace_input(json!({"name":"Party"}))).unwrap();
             assert!(
@@ -442,9 +442,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-997864952f1b", {
+        {
             let mut workspaces = Vec::new();
             let workspace =
                 create_workspace(&mut workspaces, workspace_input(json!({"name":"Order"})))
@@ -458,9 +458,9 @@
                 assert!(reorder_workspaces(&mut attempt, &order).is_err());
                 assert_eq!(attempt[0].id, workspace.id);
             }
-        });
+        };
 
-        crate::v1_case!("state-migration-6bb1641c8896", {
+        {
             let mut workspaces = Vec::new();
             create_workspace(
                 &mut workspaces,
@@ -473,9 +473,9 @@
             assert_eq!(workspaces.len(), 1);
             assert!(workspaces[0].slots[0].role_id.is_none());
             assert_eq!(workspaces[0].slots[1].role_id.as_deref(), Some("r2"));
-        });
+        };
 
-        crate::v1_case!("state-migration-002e4a037a07", {
+        {
             let mut workspaces = Vec::new();
             create_workspace(
                 &mut workspaces,
@@ -494,5 +494,5 @@
                     .get("resourcePolicy")
                     .is_none()
             );
-        });
+        };
     }

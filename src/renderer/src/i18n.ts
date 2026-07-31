@@ -9,7 +9,7 @@ export type TranslationDictionary = Record<TranslationKey, string>;
 
 export const languages: Language[] = ["en", "zh-TW", "zh-CN", "ja"];
 
-export type RuntimeTabStripLabels = {
+type RuntimeTabStripLabels = {
   closeTab: string;
   openLauncher: string;
   openTabMenu: string;
@@ -227,7 +227,7 @@ export async function loadTranslations(language: Language): Promise<TranslationD
   return translations;
 }
 
-export function detectSystemLanguage(): Language {
+function detectSystemLanguage(): Language {
   if (typeof navigator === "undefined") {
     return "en";
   }
@@ -259,7 +259,7 @@ export function readStoredLanguage(storageKey: string): Language {
   return isLanguage(storedLanguage) ? storedLanguage : detectSystemLanguage();
 }
 
-export function isLanguage(value: string | null): value is Language {
+function isLanguage(value: string | null): value is Language {
   return value !== null && languages.includes(value as Language);
 }
 

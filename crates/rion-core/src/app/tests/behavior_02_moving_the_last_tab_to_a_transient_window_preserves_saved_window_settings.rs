@@ -622,7 +622,7 @@
             .await
             .unwrap();
 
-        crate::v1_case!("state-migration-9848b46489e1", {
+        {
             assert!(!directory.path().join("roles").join(&role_id).exists());
             assert!(
                 core.invoke(CoreCommand::RolesList)
@@ -636,6 +636,6 @@
                     .unwrap()
                     .is_empty()
             );
-        });
+        };
         core.shutdown();
     }

@@ -16,13 +16,13 @@ export interface WorkspaceSplits {
   vertical: number[];
 }
 
-export interface WorkspaceHorizontalResizeHandle {
+interface WorkspaceHorizontalResizeHandle {
   splitIndex: number;
   x: number;
   y: number;
 }
 
-export interface WorkspaceVerticalResizeHandle {
+interface WorkspaceVerticalResizeHandle {
   splitIndex: number;
   x: number;
   y: number;
@@ -89,7 +89,7 @@ function getSplitRowVerticalIndexGroups(template: WorkspaceLayoutTemplate): numb
   return undefined;
 }
 
-export function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator): string {
+function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator): string {
   const baseName = t("workspaces.defaultName");
   const names = new Set(workspaces.map((workspace) => workspace.name.toLocaleLowerCase()));
   let index = workspaces.length + 1;
@@ -369,7 +369,7 @@ export function applyWorkspaceSplits(
   }));
 }
 
-export function createWorkspaceRectsFromSplits(
+function createWorkspaceRectsFromSplits(
   template: WorkspaceLayoutTemplate,
   splits: WorkspaceSplits
 ): NormalizedRect[] {
@@ -549,8 +549,4 @@ export function getWorkspaceResizeAffectedSlotIndexes(
       Math.abs(slot.rect[sizeKey] - comparisonRect[sizeKey]) >= 0.000_001;
     return changed ? [index] : [];
   });
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

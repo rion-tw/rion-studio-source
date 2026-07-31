@@ -1,4 +1,4 @@
-export type EditorSection = "games" | "roles" | "workspaces" | "game-windows" | "macros";
+type EditorSection = "games" | "roles" | "workspaces" | "game-windows" | "macros";
 
 const editorPathPatterns: Array<{ pattern: RegExp; section: EditorSection }> = [
   { section: "games", pattern: /^\/games\/(?:new|[^/]+\/edit)$/ },

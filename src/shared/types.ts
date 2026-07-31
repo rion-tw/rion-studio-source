@@ -12,7 +12,6 @@ import type {
   ChromeProfileImportResolutionRecord,
   ChromeProfileImportResultRecord,
   DiagnosticExportResultRecord,
-  DisplayFingerprintRecord,
   DisplayInfoRecord,
   DisplayTargetRecord,
   EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
@@ -29,7 +28,6 @@ import type {
   LegalAcceptanceStatusRecord,
   LegalDocumentVersionsRecord,
   LogEntry as RustLogEntry,
-  LogErrorDetails as RustLogErrorDetails,
   LogLevel as RustLogLevel,
   LogPageRecord,
   LogQuery as RustLogQuery,
@@ -42,22 +40,14 @@ import type {
   MacroStepDefinition,
   MacroTrigger as RustMacroTrigger,
   MacroUpdateRequest,
-  PortableDataRecord,
   PortableDataSelectionRecord,
   PortableExportResultRecord,
-  PortableGameRecord,
   PortableImportOperationsRecord,
-  PortableImportOperationSummaryRecord,
   PortableImportPreviewRecord,
   PortableImportResultRecord,
   PortableImportWarningRecord,
-  PortableLaunchWorkspaceRecord,
-  PortableMacroConflictCandidateRecord,
-  PortableMacroConflictRecord,
   PortableMacroConflictResolutionRecord,
-  PortableMacroRecord,
   PortablePreferencesRecord,
-  PortableRoleRecord,
   StateGameRecord,
   StateGameWindowRecord,
   StateLaunchWorkspaceRecord,
@@ -109,7 +99,6 @@ export type ApplicationShortcutCommand =
   | "zoomOut";
 
 export type GameSource = "builtin" | "custom";
-export type BuiltinGameKey = "flyff-universe" | "feifei-infinite-universe";
 
 export type Game = StateGameRecord;
 
@@ -194,7 +183,7 @@ export interface EmbeddedRuntimeWindowSummary {
   presentation?: GameWindowPresentation;
 }
 
-export type SavedGameWindowState = "saved" | "restoring" | "failed";
+type SavedGameWindowState = "saved" | "restoring" | "failed";
 
 export interface SavedEmbeddedRuntimeWindowSummary {
   id: string;
@@ -293,11 +282,9 @@ export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
 
 export type PixelBounds = StatePixelBoundsRecord;
 
-export type DisplayFingerprint = DisplayFingerprintRecord;
-
 export type DisplayTarget = DisplayTargetRecord;
 
-export type GameWindowPresentation = GameWindowPlacementRecord["presentation"];
+type GameWindowPresentation = GameWindowPlacementRecord["presentation"];
 
 export type GameWindowPlacement = GameWindowPlacementRecord;
 
@@ -364,17 +351,11 @@ export type WorkspaceLaunchResult = {
   conflicts: WorkspaceLaunchConflict[];
 };
 
-export interface AppErrorPayload {
-  code: string;
-  message: string;
-}
-
 export type BrowserFontSlot = "cjk" | "latin" | "numeric" | "monospace" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserFontCjkVariant = "auto" | "tc" | "sc" | "jp";
 export type BrowserFontSelection = BrowserFontSelectionRecord;
 export type BrowserFontCategory = "sans" | "serif" | "handwriting" | "display" | "monospace" | "math";
-export type BrowserFontUsage = "body" | "accent" | "technical";
 
 export type BrowserFontCatalogEntry = BrowserFontCatalogEntryRecord;
 export type BrowserFontInstallResult = BrowserFontInstallResultRecord;
@@ -400,8 +381,6 @@ export type MacroBadgePositionSettings = MacroBadgePositionRecord;
 export type GameBrowserSettings = GameBrowserSettingsRecord;
 export type GameBrowserSettingsPatch = GameBrowserSettingsPatchRecord;
 
-export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
-
 export type SystemFontFamily = SystemFontFamilyRecord;
 
 export type LegalDocumentVersions = LegalDocumentVersionsRecord;
@@ -425,26 +404,9 @@ export interface PortableImportInput {
   resolutions?: PortableMacroConflictResolution[];
 }
 
-export type PortableImportOperationSummary = PortableImportOperationSummaryRecord;
-
 export type PortableImportOperations = PortableImportOperationsRecord;
 
-export type PortableMacroConflictCandidate = PortableMacroConflictCandidateRecord;
-
-export type PortableMacroConflict = PortableMacroConflictRecord;
-
 export type PortableMacroConflictResolution = PortableMacroConflictResolutionRecord;
-
-export type PortableRole = PortableRoleRecord;
-
-export type PortableLaunchWorkspace = PortableLaunchWorkspaceRecord;
-
-export type PortableGame = PortableGameRecord;
-
-export type PortableMacro = PortableMacroRecord;
-
-export type RionPortableDataV8 = PortableDataRecord;
-export type RionPortableData = PortableDataRecord;
 
 export type PortableExportResult = PortableExportResultRecord;
 
@@ -497,23 +459,8 @@ export interface AppUpdateStatus {
   error?: string;
   checkedAt?: string;
 }
-
-export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = RustLogLevel;
-
-export const LOG_SOURCES = [
-  "main",
-  "preload",
-  "renderer",
-  "ipc",
-  "browser",
-  "macro",
-  "persistence",
-  "update"
-] as const;
 export type LogSource = RustLogSource;
-
-export type LogErrorDetails = RustLogErrorDetails;
 
 export type LogEntry = RustLogEntry;
 

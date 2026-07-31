@@ -66,81 +66,81 @@ use super::*;
 
     #[test]
     fn resolves_adaptive_zoom_with_hysteresis() {
-        crate::v1_case!("browser-workspace-1123d2ecdfda", {
+        {
             assert_eq!(adaptive_zoom_percent(1.0, None), 25);
-        });
-        crate::v1_case!("browser-workspace-eb52e01afc63", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(371.0, None), 25);
-        });
-        crate::v1_case!("browser-workspace-ea042a9959b1", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(372.0, None), 33);
-        });
-        crate::v1_case!("browser-workspace-8becfde663cb", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(531.0, None), 33);
-        });
-        crate::v1_case!("browser-workspace-3ee311675951", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(532.0, None), 50);
-        });
-        crate::v1_case!("browser-workspace-6253d3b7bd01", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(748.0, None), 50);
-        });
-        crate::v1_case!("browser-workspace-1b428ba7ff51", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(749.0, None), 67);
-        });
-        crate::v1_case!("browser-workspace-c45aa11e5117", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(908.0, None), 67);
-        });
-        crate::v1_case!("browser-workspace-8554abf0a66a", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(909.0, None), 75);
-        });
-        crate::v1_case!("browser-workspace-ab6e9af491e5", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(991.0, None), 75);
-        });
-        crate::v1_case!("browser-workspace-d95327781f0d", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(992.0, None), 80);
-        });
-        crate::v1_case!("browser-workspace-c5fd948d8da0", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_087.0, None), 80);
-        });
-        crate::v1_case!("browser-workspace-fb71184c9053", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_088.0, None), 90);
-        });
-        crate::v1_case!("browser-workspace-110e30ab5cb6", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_215.0, None), 90);
-        });
-        crate::v1_case!("browser-workspace-b40350994824", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_216.0, None), 100);
-        });
-        crate::v1_case!("browser-workspace-b28f8f5c69ee", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_278.0, None), 100);
-        });
-        crate::v1_case!("browser-workspace-3f10abf46fe2", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_343.0, None), 100);
-        });
-        crate::v1_case!("browser-workspace-117a545e853d", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_344.0, None), 110);
-        });
-        crate::v1_case!("browser-workspace-23eb51b6873e", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_503.0, None), 110);
-        });
-        crate::v1_case!("browser-workspace-144aa4d30ef3", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(1_504.0, None), 125);
-        });
-        crate::v1_case!("browser-workspace-86b633230184", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(2_560.0, None), 125);
-        });
-        crate::v1_case!("browser-workspace-df118bf48954", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(372.0, Some(25)), 25);
             assert_eq!(adaptive_zoom_percent(383.0, Some(25)), 25);
             assert_eq!(adaptive_zoom_percent(384.0, Some(25)), 33);
             assert_eq!(adaptive_zoom_percent(371.0, Some(33)), 33);
             assert_eq!(adaptive_zoom_percent(360.0, Some(33)), 33);
             assert_eq!(adaptive_zoom_percent(359.0, Some(33)), 25);
-        });
-        crate::v1_case!("browser-workspace-0873cbdc898e", {
+        };
+        {
             assert_eq!(adaptive_zoom_percent(f64::NAN, None), 100);
             assert_eq!(adaptive_zoom_percent(0.0, Some(67)), 67);
-        });
+        };
     }
 
     #[test]
@@ -184,7 +184,7 @@ use super::*;
             },
         ];
         let normalized = normalize_rect_edges(&persisted);
-        crate::v1_case!("browser-workspace-725f43d25113", {
+        {
             assert_rects(
                 &normalized,
                 &[
@@ -194,9 +194,9 @@ use super::*;
                 ],
             );
             assert_eq!(persisted[1].width, 0.3333);
-        });
+        };
 
-        crate::v1_case!("browser-workspace-a4bda3b1af37", {
+        {
             let normalized = normalize_rect_edges(&[
                 LayoutRect {
                     x: 0.0,
@@ -225,9 +225,9 @@ use super::*;
                     [0.0, 0.5, 1.0, 0.5],
                 ],
             );
-        });
+        };
 
-        crate::v1_case!("browser-workspace-9b815e24c436", {
+        {
             let gapped = vec![
                 LayoutRect {
                     x: 0.0,
@@ -246,7 +246,7 @@ use super::*;
                 &normalize_rect_edges(&gapped),
                 &[[0.0, 0.0, 0.6665, 1.0], [0.6667, 0.0, 0.3333, 1.0]],
             );
-        });
+        };
     }
 
     #[test]

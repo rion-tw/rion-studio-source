@@ -37,7 +37,7 @@ use std::{sync::mpsc, time::Duration};
         assert!(unsafe { super::rion_runtime_tabs_action_scope_self_test() });
     }
 
-    // Keep the historical parity evidence name while the native scope key is now a window ID.
+    // The native scope key is a window ID.
     #[test]
     fn native_action_scope_preserves_nonzero_and_safe_negative_display_ids() {
         native_action_scope_preserves_window_identifiers();

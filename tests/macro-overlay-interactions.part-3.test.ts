@@ -4,7 +4,6 @@ import { readSourceTreeSync as readFileSync } from "./helpers/readSourceTree";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Macro, MacroRunStatus as _MacroRunStatus } from "../src/shared/types";
-import { v1Case as _v1Case } from "./helpers/v1Parity";
 
 const runtimeSource = readFileSync("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8");
 const shortcutGuardSource = readFileSync(

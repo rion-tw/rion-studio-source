@@ -1,6 +1,6 @@
 export type GoogleFontPreviewStatus = "idle" | "loading" | "loaded" | "error";
 
-export interface GoogleFontPreviewRequest {
+interface GoogleFontPreviewRequest {
   families: string[];
   text: string;
   url: string;

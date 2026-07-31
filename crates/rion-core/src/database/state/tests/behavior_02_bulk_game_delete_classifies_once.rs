@@ -225,7 +225,7 @@
         .unwrap();
         let worker = StateDatabaseWorker::start(database_path).unwrap();
 
-        crate::v1_case!("portable-profile-08b90063a73f", {
+        {
             assert!(
                 worker
                     .recover_portable_import(directory.path().to_path_buf())
@@ -244,5 +244,5 @@
                     .join("portable-import-transaction.stage")
                     .exists()
             );
-        });
+        };
     }

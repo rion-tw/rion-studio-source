@@ -159,14 +159,14 @@ use std::fs;
         let valid = json!({"games":[{"id":"g1","name":"Game"}]});
         let revision = replace_snapshot(&mut connection, &valid).unwrap();
         let invalid = json!({"games":[{"name":"Missing id"}]});
-        crate::v1_case!("portable-profile-6ce7f4b873a7", {
+        {
             assert!(replace_snapshot(&mut connection, &invalid).is_err());
             assert_eq!(read_revision(&connection).unwrap(), revision);
             assert_eq!(read_snapshot(&connection).unwrap()["games"][0]["id"], "g1");
             let retry = json!({"games":[{"id":"g2","name":"Retry"}]});
             replace_snapshot(&mut connection, &retry).unwrap();
             assert_eq!(read_snapshot(&connection).unwrap()["games"][0]["id"], "g2");
-        });
+        };
     }
 
     #[test]
@@ -261,7 +261,7 @@ use std::fs;
         );
         assert!(replace_scalar(&mut connection, "games", json!([])).is_err());
 
-        crate::v1_case!("state-migration-d7ddbd1f976f", {
+        {
             let settings: GameBrowserSettingsRecord = serde_json::from_value(json!({
                 "fonts":{
                     "mode":"custom",
@@ -305,9 +305,9 @@ use std::fs;
             )
             .unwrap();
             assert!(!reloaded.fonts.slots.contains_key("latin"));
-        });
+        };
 
-        crate::v1_case!("state-migration-b46be2776736", {
+        {
             let settings = normalize_macro_settings(MacroSettingsRecord {
                 startup_delay_ms: 10_001,
                 key_hold_ms: 1,
@@ -330,9 +330,9 @@ use std::fs;
                 serde_json::from_value(read_scalar(&connection, "macroSettings").unwrap().unwrap())
                     .unwrap();
             assert_eq!(second.key_hold_ms, 30);
-        });
+        };
 
-        crate::v1_case!("state-migration-961da508a5ff", {
+        {
             replace_scalar(
                 &mut connection,
                 "runtimeWindowPreferences",
@@ -351,7 +351,7 @@ use std::fs;
             assert!(reloaded.always_hide_tab_close_button);
             assert!(reloaded.always_show_toolbar_in_full_screen);
             assert!(reloaded.restore_game_windows_on_startup);
-        });
+        };
 
         let restore_session = json!({
             "schemaVersion": 1,
@@ -416,7 +416,7 @@ use std::fs;
         )
         .unwrap();
         let game_id = created_game["value"]["id"].as_str().unwrap().to_owned();
-        crate::v1_case!("state-migration-edad5901a646", {
+        {
             assert_eq!(created_game["value"]["name"], "Custom");
             assert!(created_game["value"].get("browserEngine").is_none());
             assert!(created_game["value"].get("browserLaunchMode").is_none());
@@ -436,7 +436,7 @@ use std::fs;
                     .unwrap(),
                 1
             );
-        });
+        };
 
         let created_role = apply_domain_mutation(
             &mut connection,

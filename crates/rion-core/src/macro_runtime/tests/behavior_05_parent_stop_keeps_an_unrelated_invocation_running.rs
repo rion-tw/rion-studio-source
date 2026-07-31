@@ -1,5 +1,5 @@
 #[test]
-    fn v1_parent_stop_keeps_an_unrelated_invocation_running() {
+    fn parent_stop_keeps_an_unrelated_invocation_running() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -71,7 +71,7 @@
             .dispatch_results(success_results(child_focus))
             .unwrap();
         runtime.stop_macro("parent").unwrap();
-        crate::v1_case!("macro-001e95906647", {
+        {
             assert_eq!(
                 runtime
                     .statuses()
@@ -81,12 +81,12 @@
                     .collect::<Vec<_>>(),
                 [("unrelated", "running")]
             );
-        });
+        };
         runtime.stop_macro("unrelated").unwrap();
     }
 
     #[test]
-    fn v1_calls_a_run_once_child_on_every_parent_loop_iteration() {
+    fn calls_a_run_once_child_on_every_parent_loop_iteration() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -136,9 +136,9 @@
             if iteration == 0 {
                 loop_wait.release.send(()).unwrap();
             } else {
-                crate::v1_case!("macro-0fa4ce544d0c", {
+                {
                     assert_eq!(child_holds, 2);
-                });
+                };
                 runtime.stop_macro("m1").unwrap();
                 drop(loop_wait);
             }
@@ -190,7 +190,7 @@
             let batch = next_browser_actions(&receiver);
             runtime.dispatch_results(success_results(batch)).unwrap();
         }
-        crate::v1_case!("macro-8c8fc482c2e2", {
+        {
             let wait_started = std::time::Instant::now();
             loop {
                 let statuses = runtime.statuses().unwrap();
@@ -202,8 +202,8 @@
                 assert!(wait_started.elapsed() < Duration::from_secs(2));
                 thread::yield_now();
             }
-        });
-        crate::v1_case!("macro-ec61e5be8676", {
+        };
+        {
             assert!(
                 runtime
                     .statuses()
@@ -211,8 +211,8 @@
                     .iter()
                     .any(|status| status.macro_id == "child" && status.state == "running")
             );
-        });
-        crate::v1_case!("macro-eec4f34f9c73", {
+        };
+        {
             assert_eq!(
                 runtime
                     .statuses()
@@ -222,7 +222,7 @@
                     .count(),
                 1
             );
-        });
+        };
         runtime.stop_macro("child").unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
     }
@@ -274,7 +274,7 @@
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         let release = next_browser_actions(&receiver);
-        crate::v1_case!("macro-2560b69ef571", {
+        {
             assert_eq!(release.len(), 1);
             assert!(matches!(
                 release[0].action,
@@ -283,8 +283,8 @@
                     ..
                 } if phase == "release"
             ));
-        });
-        crate::v1_case!("macro-76ed0b007727", {
+        };
+        {
             assert_eq!(release[0].role_id, "r2");
             assert!(matches!(
                 release[0].action,
@@ -294,14 +294,14 @@
                     ..
                 } if code.as_deref() == Some("KeyW") && phase == "release"
             ));
-        });
+        };
         runtime.dispatch_results(success_results(release)).unwrap();
         stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
     }
 
     #[test]
-    fn v1_stops_a_triggered_child_when_the_parent_role_closes() {
+    fn stops_a_triggered_child_when_the_parent_role_closes() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -322,13 +322,13 @@
             thread::yield_now();
         }
         runtime.stop_role("r1").unwrap();
-        crate::v1_case!("macro-a0b20c487fd2", {
+        {
             assert!(runtime.statuses().unwrap().is_empty());
-        });
+        };
     }
 
     #[test]
-    fn v1_parent_stop_waits_for_a_pending_triggered_child_focus_result() {
+    fn parent_stop_waits_for_a_pending_triggered_child_focus_result() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -339,9 +339,9 @@
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         thread::sleep(Duration::from_millis(25));
-        crate::v1_case!("macro-ae0a2bf9063f", {
+        {
             assert!(!stop.is_finished());
-        });
+        };
         runtime
             .dispatch_results(success_results(child_focus))
             .unwrap();
@@ -350,7 +350,7 @@
     }
 
     #[test]
-    fn v1_keeps_the_parent_running_when_a_triggered_child_fails() {
+    fn keeps_the_parent_running_when_a_triggered_child_fails() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -391,13 +391,13 @@
                     && status.state == "failed"
                     && status.error.as_deref() == Some("child failed")
             }) {
-                crate::v1_case!("macro-adc24e3c31d8", {
+                {
                     assert!(
                         statuses
                             .iter()
                             .any(|status| { status.macro_id == "m1" && status.state == "running" })
                     );
-                });
+                };
                 break;
             }
             assert!(std::time::Instant::now() < deadline);
@@ -414,7 +414,7 @@
     }
 
     #[test]
-    fn v1_stops_an_active_triggered_child_when_the_parent_fails() {
+    fn stops_an_active_triggered_child_when_the_parent_fails() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -527,10 +527,10 @@
             let statuses = runtime.statuses().unwrap();
             if statuses.len() == 1 && statuses[0].macro_id == "m1" && statuses[0].state == "failed"
             {
-                crate::v1_case!("macro-abdc8a9f5ddf", {
+                {
                     assert_eq!(statuses[0].error.as_deref(), Some("parent failed"));
                     assert!(statuses.iter().all(|status| status.macro_id != "child"));
-                });
+                };
                 break;
             }
             assert!(
@@ -543,7 +543,7 @@
     }
 
     #[test]
-    fn v1_continues_the_parent_when_a_triggered_child_cannot_start() {
+    fn continues_the_parent_when_a_triggered_child_cannot_start() {
         for (child_enabled, child_active, case_id) in [
             (false, true, "macro-4f6ff4a65685"),
             (true, false, "macro-16bfa0b6fc25"),
@@ -608,14 +608,14 @@
             }
             match case_id {
                 "macro-4f6ff4a65685" => {
-                    crate::v1_case!("macro-4f6ff4a65685", {
+                    {
                         assert!(runtime.statuses().unwrap().is_empty());
-                    });
+                    };
                 }
                 "macro-16bfa0b6fc25" => {
-                    crate::v1_case!("macro-16bfa0b6fc25", {
+                    {
                         assert!(runtime.statuses().unwrap().is_empty());
-                    });
+                    };
                 }
                 _ => unreachable!(),
             }

@@ -28,21 +28,6 @@ mod system_fonts;
 mod telemetry;
 mod windows_graphics_events;
 
-#[cfg(test)]
-macro_rules! v1_case {
-    ($id:expr, $assertions:block) => {{
-        let v1_case_id: &str = $id;
-        assert!(
-            !v1_case_id.is_empty(),
-            "v1 parity case identifiers must not be empty"
-        );
-        $assertions
-    }};
-}
-
-#[cfg(test)]
-pub(crate) use v1_case;
-
 pub use app::{AppCore, BrowserLaunchCompletionRecord};
 pub use bootstrap_settings::additional_browser_arguments;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};

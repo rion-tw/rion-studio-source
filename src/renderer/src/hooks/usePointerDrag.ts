@@ -42,7 +42,7 @@ interface UsePointerDragOptions<TPayload> {
   onDrop: (payload: TPayload, targetId: string) => void;
 }
 
-export interface PointerDragController<TPayload> {
+interface PointerDragController<TPayload> {
   activePayload: TPayload | null;
   cancel: () => void;
   isDragging: boolean;

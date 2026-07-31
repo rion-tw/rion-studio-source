@@ -427,38 +427,38 @@ mod tests {
             .is_err()
         );
         assert!(parse_request(r#"{"type":"copy-coordinate","xPercent":1,"xPx":10,"viewportHeightPx":10,"viewportWidthPx":10,"yPercent":1,"yPx":1}"#).is_err());
-        crate::v1_case!("overlay-a7ce35e7128c", {
+        {
             assert!(
                 parse_request(
                     r#"{"type":"copy-coordinate","xPercent":12,"xPx":123,"yPercent":45,"yPx":-1}"#
                 )
                 .is_err()
             );
-        });
-        crate::v1_case!("overlay-3a84b61de0af", {
+        };
+        {
             assert!(parse_request(
                 r#"{"type":"copy-coordinate","viewportWidthPx":500,"viewportHeightPx":500,"xPercent":101,"xPx":123,"yPercent":45,"yPx":456}"#
             )
             .is_err());
-        });
-        crate::v1_case!("overlay-b04ef43fac61", {
+        };
+        {
             assert!(parse_request(
                 r#"{"type":"copy-coordinate","viewportWidthPx":500,"viewportHeightPx":500,"xPercent":12,"xPx":123.5,"yPercent":45,"yPx":456}"#
             )
             .is_err());
-        });
-        crate::v1_case!("overlay-f8625e34b90e", {
+        };
+        {
             assert!(parse_request(
                 r#"{"type":"copy-coordinate","viewportWidthPx":100,"viewportHeightPx":100,"xPercent":12,"xPx":100,"yPercent":45,"yPx":45}"#
             )
             .is_err());
-        });
-        crate::v1_case!("overlay-9d0896d3a85e", {
+        };
+        {
             assert!(parse_request(
                 r#"{"type":"copy-coordinate","viewportWidthPx":0,"viewportHeightPx":100,"xPercent":12,"xPx":0,"yPercent":45,"yPx":45}"#
             )
             .is_err());
-        });
+        };
 
         let macros = vec![
             definition(
@@ -472,17 +472,17 @@ mod tests {
             ),
             definition("dependency", &[], Vec::new()),
         ];
-        crate::v1_case!("overlay-078d30234927", {
+        {
             assert!(available_macros(&macros, "role-1").is_empty());
-        });
-        crate::v1_case!("overlay-54baaea7a3bb", {
+        };
+        {
             assert_eq!(
                 ensure_macro_available(&macros, "role-1", "root")
                     .unwrap_err()
                     .code(),
                 "MACRO_ROLE_INVALID"
             );
-        });
+        };
     }
 
     #[test]
@@ -502,9 +502,9 @@ mod tests {
             reliable: true,
             statuses: vec![status.clone()],
         }]);
-        crate::v1_case!("overlay-51deeca46423", {
+        {
             assert_eq!(first.role_ids, HashSet::from(["role-1".to_owned()]));
-        });
+        };
         assert!(
             projection
                 .observe(&[CoreEvent::MacroStatuses {
@@ -519,7 +519,7 @@ mod tests {
             sequence: 1,
             step_id: "click-1".to_owned(),
         });
-        crate::v1_case!("overlay-7f93c2e432e3", {
+        {
             assert_eq!(
                 projection
                     .observe(&[CoreEvent::MacroStatuses {
@@ -529,7 +529,7 @@ mod tests {
                     .role_ids,
                 HashSet::from(["role-1".to_owned()])
             );
-        });
+        };
     }
 
     #[test]
@@ -560,11 +560,11 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
         thread::sleep(Duration::from_millis(300));
-        crate::v1_case!("overlay-d253bf812639", {
+        {
             let starts = starts.lock().unwrap();
             assert_eq!(REFRESH_MIN_INTERVAL, Duration::from_millis(250));
             assert!(starts[1].duration_since(starts[0]) >= Duration::from_millis(240));
-        });
+        };
         drop(core_sender);
         runtime.shutdown();
     }

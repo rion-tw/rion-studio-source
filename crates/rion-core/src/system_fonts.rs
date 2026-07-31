@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn normalizes_sorts_and_deduplicates_names() {
-        crate::v1_case!("resource-platform-fd00e9748bbd", {
+        {
             assert_eq!(
                 normalize(vec![
                     " Helvetica ".to_owned(),
@@ -92,15 +92,15 @@ mod tests {
                     },
                 ]
             );
-        });
+        };
     }
 
     #[test]
     fn supplies_a_bounded_cross_platform_fallback() {
-        crate::v1_case!("resource-platform-edc69e2cbf43", {
+        {
             let fonts = normalize_or_fallback(Vec::new());
             assert!(fonts.iter().any(|font| font.family == "Arial"));
             assert!(fonts.iter().any(|font| font.family == "Noto Sans Math"));
-        });
+        };
     }
 }

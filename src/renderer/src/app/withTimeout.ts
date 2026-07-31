@@ -1,4 +1,4 @@
-export class OperationTimeoutError extends Error {
+class OperationTimeoutError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OperationTimeoutError";

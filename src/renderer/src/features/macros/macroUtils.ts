@@ -202,7 +202,7 @@ const macroStepLabelKeys: Record<MacroStep["type"], TranslationKey> = {
   macro: "macro.step.macro"
 };
 
-export function createEmptyMacroFormName(macros: Macro[], t: Translator): string {
+function createEmptyMacroFormName(macros: Macro[], t: Translator): string {
   const baseName = t("macros.defaultName");
   const existingNames = new Set(macros.map((macro) => macro.name.toLocaleLowerCase()));
 

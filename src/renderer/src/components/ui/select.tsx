@@ -8,7 +8,7 @@ export function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>)
   return <SelectPrimitive.Root {...props} />;
 }
 
-export const SelectGroup = forwardRef<
+const SelectGroup = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Group>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Group>
 >((props, ref) => <SelectPrimitive.Group ref={ref} {...props} />);
@@ -43,7 +43,7 @@ export const SelectTrigger = forwardRef<
 
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
 
-export const SelectScrollUpButton = forwardRef<
+const SelectScrollUpButton = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.ScrollUpButton>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>
 >(({ className, ...props }, ref) => (
@@ -58,7 +58,7 @@ export const SelectScrollUpButton = forwardRef<
 
 SelectScrollUpButton.displayName = SelectPrimitive.ScrollUpButton.displayName;
 
-export const SelectScrollDownButton = forwardRef<
+const SelectScrollDownButton = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.ScrollDownButton>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>
 >(({ className, ...props }, ref) => (
@@ -107,7 +107,7 @@ export const SelectContent = forwardRef<
 
 SelectContent.displayName = SelectPrimitive.Content.displayName;
 
-export const SelectLabel = forwardRef<
+const SelectLabel = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
 >(({ className, ...props }, ref) => (
@@ -163,7 +163,7 @@ function SelectItemContent({ children }: { children: ReactNode }): React.ReactEl
   );
 }
 
-export const SelectSeparator = forwardRef<
+const SelectSeparator = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
 >(({ className, ...props }, ref) => (

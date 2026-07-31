@@ -26,7 +26,7 @@ export interface MacroCommandIssue {
   token: string;
 }
 
-export interface MacroCommandParseOptions {
+interface MacroCommandParseOptions {
   currentMacroId?: string;
   idFactory?: () => string;
   maxSteps?: number;

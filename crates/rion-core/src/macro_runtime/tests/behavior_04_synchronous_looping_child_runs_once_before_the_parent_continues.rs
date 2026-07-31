@@ -70,7 +70,7 @@
             thread::yield_now();
         }
         assert!(control.barriers.lock().unwrap().is_empty());
-        crate::v1_case!("macro-a51f31bc94a0", {
+        {
             assert_eq!(
                 actions,
                 [
@@ -81,8 +81,8 @@
                     ("r1".to_owned(), "KeyC:release".to_owned()),
                 ]
             );
-        });
-        crate::v1_case!("macro-04f2c3221ed9", {
+        };
+        {
             assert_eq!(
                 actions
                     .iter()
@@ -90,8 +90,8 @@
                     .count(),
                 2
             );
-        });
-        crate::v1_case!("macro-ce3652f5d1c7", {
+        };
+        {
             let child_release = actions
                 .iter()
                 .position(|(_, phase)| phase == "KeyB:release")
@@ -101,7 +101,7 @@
                 .position(|(_, phase)| phase == "KeyC:hold")
                 .unwrap();
             assert!(child_release < parent_after);
-        });
+        };
     }
 
     #[test]
@@ -205,7 +205,7 @@
     }
 
     #[test]
-    fn v1_propagates_disabled_and_unavailable_synchronous_child_start_errors() {
+    fn propagates_disabled_and_unavailable_synchronous_child_start_errors() {
         for (child_enabled, child_active, expected_error, case_id) in [
             (false, true, DISABLED_MACRO_MESSAGE, "macro-1b1528b03ec8"),
             (true, false, UNAVAILABLE_ROLE_MESSAGE, "macro-242ee2cae449"),
@@ -248,14 +248,14 @@
             };
             match case_id {
                 "macro-1b1528b03ec8" => {
-                    crate::v1_case!("macro-1b1528b03ec8", {
+                    {
                         assert_eq!(failed.error.as_deref(), Some(expected_error));
-                    });
+                    };
                 }
                 "macro-242ee2cae449" => {
-                    crate::v1_case!("macro-242ee2cae449", {
+                    {
                         assert_eq!(failed.error.as_deref(), Some(expected_error));
-                    });
+                    };
                 }
                 _ => unreachable!(),
             }
@@ -264,7 +264,7 @@
     }
 
     #[test]
-    fn v1_fails_a_parent_when_its_synchronous_child_is_already_active() {
+    fn fails_a_parent_when_its_synchronous_child_is_already_active() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -331,7 +331,7 @@
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         };
-        crate::v1_case!("macro-dade3184393d", {
+        {
             assert_eq!(
                 parent_status.error.as_deref(),
                 Some("Called macro \"Child\" is already running.")
@@ -343,7 +343,7 @@
                     .iter()
                     .any(|status| { status.macro_id == "child" && status.state == "running" })
             );
-        });
+        };
         runtime.stop_macro("child").unwrap();
         runtime.stop_macro("parent").unwrap();
     }
@@ -391,10 +391,10 @@
         let _ = start_and_ack_focus(&runtime, &receiver, start);
 
         let child_focus = next_browser_actions(&receiver);
-        crate::v1_case!("macro-eb326b83fb4c", {
+        {
             assert_eq!(child_focus.len(), 1);
             assert_eq!(child_focus[0].role_id, "r3");
-        });
+        };
         runtime
             .dispatch_results(success_results(child_focus))
             .unwrap();
@@ -420,9 +420,9 @@
             .map(|action| action.role_id.as_str())
             .collect::<Vec<_>>();
         parent_roles.sort_unstable();
-        crate::v1_case!("macro-38b2cd5ed223", {
+        {
             assert_eq!(parent_roles, ["r1", "r2"]);
-        });
+        };
         runtime
             .dispatch_results(success_results(parent_holds))
             .unwrap();
@@ -433,7 +433,7 @@
     }
 
     #[test]
-    fn v1_supports_nested_synchronous_macro_calls_in_child_first_order() {
+    fn supports_nested_synchronous_macro_calls_in_child_first_order() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -512,9 +512,9 @@
             }
             runtime.dispatch_results(success_results(actions)).unwrap();
         }
-        crate::v1_case!("macro-f82be3dab72b", {
+        {
             assert_eq!(held_codes, ["KeyC", "KeyB", "KeyA"]);
-        });
+        };
         let final_release = next_browser_actions(&receiver);
         runtime
             .dispatch_results(success_results(final_release))
@@ -522,7 +522,7 @@
     }
 
     #[test]
-    fn v1_propagates_a_synchronous_child_action_failure_to_parent_and_child() {
+    fn propagates_a_synchronous_child_action_failure_to_parent_and_child() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -587,7 +587,7 @@
             );
             thread::yield_now();
         };
-        crate::v1_case!("macro-d2ba69fd3f80", {
+        {
             let mut failed = statuses
                 .iter()
                 .filter(|status| status.state == "failed")
@@ -601,7 +601,7 @@
                     ("m1", Some("child target detached")),
                 ]
             );
-        });
+        };
         runtime.stop_macro("m1").unwrap();
         runtime.stop_macro("child").unwrap();
     }

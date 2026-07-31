@@ -7,7 +7,7 @@ import {
 } from "../features/workspaces/workspaceLayoutUtils";
 import type { Translator } from "../i18n";
 
-export type EditorFormState = GameFormState | RoleFormState | WorkspaceFormState | MacroFormState;
+type EditorFormState = GameFormState | RoleFormState | WorkspaceFormState | MacroFormState;
 
 export function createNewRoleForm(game?: Game): RoleFormState {
   return {

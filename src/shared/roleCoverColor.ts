@@ -115,12 +115,6 @@ export function getReadableTextColor(backgroundHex: string): "#111111" | "#FFFFF
   return blackContrast >= whiteContrast ? "#111111" : "#FFFFFF";
 }
 
-export function getDominantColorHoverBackground(backgroundHex: string): string {
-  const foreground = getReadableTextColor(backgroundHex);
-
-  return mixHexColors(backgroundHex, foreground === "#111111" ? "#000000" : "#FFFFFF", 0.14) ?? backgroundHex;
-}
-
 function calculateRgbSaturation(r: number, g: number, b: number): number {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -139,21 +133,6 @@ function calculateRelativeLuminance(r: number, g: number, b: number): number {
   });
 
   return linearR * 0.2126 + linearG * 0.7152 + linearB * 0.0722;
-}
-
-function mixHexColors(fromHex: string, toHex: string, amount: number): string | undefined {
-  const from = parseHexColor(fromHex);
-  const to = parseHexColor(toHex);
-
-  if (!from || !to) {
-    return undefined;
-  }
-
-  return rgbToHex(
-    Math.round(from.r + (to.r - from.r) * amount),
-    Math.round(from.g + (to.g - from.g) * amount),
-    Math.round(from.b + (to.b - from.b) * amount)
-  );
 }
 
 function parseHexColor(value: string): { r: number; g: number; b: number } | undefined {

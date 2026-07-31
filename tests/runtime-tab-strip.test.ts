@@ -191,6 +191,7 @@ function dragTransfer(payload?: Record<string, unknown>) {
     dropEffect: "move",
     effectAllowed: "none",
     getData: (type: string) => values.get(type) ?? "",
+    setDragImage: vi.fn(),
     setData: (type: string, value: string) => values.set(type, value)
   };
 }
@@ -913,6 +914,15 @@ describe("Tauri-owned Windows runtime tab strip", () => {
         tabHeight: 28
       })
     });
+    expect(dataTransfer.setDragImage).toHaveBeenCalledWith(
+      expect.objectContaining({ className: expect.stringContaining("drag-preview") }),
+      50,
+      7
+    );
+    const preview = dataTransfer.setDragImage.mock.calls[0]?.[0] as HTMLElement;
+    expect(preview.classList.contains("active")).toBe(true);
+    expect(preview.querySelector(".name")?.textContent).toBe("四人隊伍");
+    expect(document.body.contains(preview)).toBe(true);
 
     const dragEnd = new Event("dragend", { bubbles: true });
     Object.defineProperties(dragEnd, {
@@ -921,6 +931,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       screenY: { value: 240 }
     });
     tab.dispatchEvent(dragEnd);
+    expect(document.body.contains(preview)).toBe(false);
   });
 
   it("selects an inactive tab as soon as its drag starts", async () => {

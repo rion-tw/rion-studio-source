@@ -126,7 +126,7 @@ export default function GameWindowsRoute({
                   ? t("gameWindows.state.empty")
                   : liveWindow?.visible
                     ? t("gameWindows.state.open")
-                    : t("gameWindows.state.closed");
+                    : t("gameWindows.state.hidden");
             return (
               <Card key={gameWindow.id} className="overflow-hidden">
                 <CardHeader className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
@@ -170,9 +170,9 @@ export default function GameWindowsRoute({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={windowIsBusy || !liveWindow}
-                          onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.closeGameWindow(gameWindow.id))}
+                          onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
                         >
-                          {t("gameWindows.close")}
+                          {t("gameWindows.hide")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={windowIsBusy || gameWindow.tabs.length === 0}

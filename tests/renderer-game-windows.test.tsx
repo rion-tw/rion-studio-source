@@ -19,6 +19,7 @@ describe("Game Window management", () => {
     const user = userEvent.setup();
     const showGameWindow = vi.fn(() => Promise.resolve());
     const showGameWindowTab = vi.fn(() => Promise.resolve());
+    const hideGameWindow = vi.fn(() => Promise.resolve());
     const moveGameWindowTabToNewWindow = vi.fn(() => Promise.resolve(gameWindow));
     Object.defineProperty(window, "rionStudio", {
       configurable: true,
@@ -30,7 +31,7 @@ describe("Game Window management", () => {
         setGameWindowTabMuted: vi.fn(() => Promise.resolve()),
         setGameWindowTabHidden: vi.fn(() => Promise.resolve()),
         stopGameWindowTab: vi.fn(() => Promise.resolve()),
-        closeGameWindow: vi.fn(() => Promise.resolve()),
+        hideGameWindow,
         stopGameWindow: vi.fn(() => Promise.resolve()),
         deleteGameWindow: vi.fn(() => Promise.resolve())
       }
@@ -52,17 +53,20 @@ describe("Game Window management", () => {
 
     expect(screen.getByText("Raid window")).toBeTruthy();
     expect(screen.getByText("Studio Display")).toBeTruthy();
-    expect(screen.getByText("Closed")).toBeTruthy();
+    expect(screen.getByText("Hidden")).toBeTruthy();
     expect(screen.getByText("1 tabs")).toBeTruthy();
     expect(screen.getByText("Active: Mina")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Show" }));
     await user.click(screen.getByRole("button", { name: /Mina/ }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Move to…" }), "new");
+    await user.click(screen.getByRole("button", { name: "Game window actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Hide window" }));
 
     expect(showGameWindow).toHaveBeenCalledWith("window-1");
     expect(showGameWindowTab).toHaveBeenCalledWith("tab-1");
     expect(moveGameWindowTabToNewWindow).toHaveBeenCalledWith("tab-1");
+    expect(hideGameWindow).toHaveBeenCalledWith("window-1");
   });
 
   it("rejects synchronous duplicate actions for the same window", async () => {
@@ -80,7 +84,7 @@ describe("Game Window management", () => {
         setGameWindowTabMuted: vi.fn(() => Promise.resolve()),
         setGameWindowTabHidden: vi.fn(() => Promise.resolve()),
         stopGameWindowTab: vi.fn(() => Promise.resolve()),
-        closeGameWindow: vi.fn(() => Promise.resolve()),
+        hideGameWindow: vi.fn(() => Promise.resolve()),
         stopGameWindow: vi.fn(() => Promise.resolve()),
         deleteGameWindow: vi.fn(() => Promise.resolve())
       }

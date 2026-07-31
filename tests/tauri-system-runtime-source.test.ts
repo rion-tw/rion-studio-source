@@ -700,22 +700,23 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("completion.error.as_ref()");
 
     const closeRuntimeWindow = runtime.slice(
-      runtime.indexOf("pub(crate) fn handle_window_close_requested("),
+      runtime.indexOf("pub(crate) fn begin_window_close_requested("),
       runtime.indexOf("pub fn resize_window(")
     );
-    expect(closeRuntimeWindow).toContain(".hide()");
-    expect(closeRuntimeWindow).toContain("-> RuntimeResult<bool>");
-    expect(closeRuntimeWindow).toContain("apply_window_close_to_hide_transaction(");
-    expect(closeRuntimeWindow).toContain("persist_game_window_placement(label)");
-    expect(closeRuntimeWindow).toContain("persist_restore_session(false)");
-    expect(closeRuntimeWindow).toContain(".show()");
-    expect(closeRuntimeWindow).not.toContain("let _ = window.hide()");
-    expect(closeRuntimeWindow).not.toContain("BrowserRoleStop");
-    expect(closeRuntimeWindow).not.toContain("BrowserWorkspaceStop");
-    expect(shell).toContain("match state.runtime.handle_window_close_requested(&label)");
+    expect(closeRuntimeWindow).toContain("allow_window_close_labels.remove(label)");
+    expect(closeRuntimeWindow).toContain("pending_window_close_labels.insert(label.to_owned())");
+    expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Pending");
+    expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Start");
+    expect(closeRuntimeWindow).toContain("finish_window_close_requested");
+    expect(closeRuntimeWindow).not.toContain(".hide()");
+    expect(shell).toContain("match state.runtime.begin_window_close_requested(&label)");
+    expect(shell).toContain("process_game_window_close_requested(");
+    expect(shell).toContain("CoreCommand::BrowserWindowStop");
+    expect(shell).toContain("confirm_game_window_close(&app, &window, copy)");
+    expect(shell).toContain("runtime.persist_game_window_placement(&label)");
     expect(shell).toContain('"windowLabel": label');
-    expect(shell).not.toContain("schedule_empty_game_window_prune");
-    expect(shell).toContain("delete_empty_game_window(&state, &window_id).await");
+    expect(shell).not.toContain("prune_empty_game_window_records");
+    expect(shell).not.toContain("delete_empty_game_window");
     const resizeRuntimeWindow = runtime.slice(
       runtime.indexOf("pub fn resize_window("),
       runtime.indexOf("pub fn move_window(")

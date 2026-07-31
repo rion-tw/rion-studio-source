@@ -414,6 +414,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).toContain("RionRuntimeTabInsertionProbeX(");
     expect(macController).toContain("RionRuntimeDirectionalInsertionProbeX(");
     expect(macController).toContain("draggedMinimumX, draggedMaximumX, draggedCenterX");
+    expect(macController).not.toContain("captureWasCancelled");
+    expect(macController).toContain("cancelled:cancelledWithEscape");
     expect(macController).toContain("RionRuntimeTabDragPayload(");
     expect(macController).toContain("RionRuntimeTabDragPayloadParts(");
     expect(macController).toContain("canvasPoint.x - grabRatioX * item.preferredWidth");

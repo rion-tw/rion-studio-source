@@ -69,7 +69,11 @@ let pendingDragPoint: { screenX: number; screenY: number } | undefined;
 let lastDragPoint: { screenX: number; screenY: number } | undefined;
 let edgeScrollFrame: number | undefined;
 let edgeScrollClientX: number | undefined;
-let dragInsertionState: { sessionId: string; beforeTabId?: string } | undefined;
+let dragInsertionState: {
+  sessionId: string;
+  beforeTabId?: string;
+  visualCenterX: number;
+} | undefined;
 let dragProxyElement: HTMLElement | undefined;
 let dragVisualState: RuntimeTabDragVisualState | undefined;
 let pendingRuntimeTabOrder: string[] | undefined;
@@ -89,9 +93,9 @@ const audioSignatureByButton = new WeakMap<HTMLButtonElement, string>();
 const reorderAnimationFrameByElement = new Map<HTMLElement, number>();
 
 const OVERFLOW_EPSILON = 1;
-const TAB_REORDER_HYSTERESIS_RATIO = 0.12;
-const TAB_REORDER_HYSTERESIS_MIN = 8;
-const TAB_REORDER_HYSTERESIS_MAX = 20;
+const TAB_REORDER_HYSTERESIS_RATIO = 0.025;
+const TAB_REORDER_HYSTERESIS_MIN = 2;
+const TAB_REORDER_HYSTERESIS_MAX = 5;
 const FINISHED_DRAG_SESSION_LIMIT = 128;
 
 type RuntimeTabModel = RuntimeTabStripState["tabs"][number];
@@ -465,29 +469,48 @@ function adoptDragSurface(button: HTMLButtonElement): void {
   visual.surface = button;
   visual.slot.after(button);
   button.classList.add("drag-surface");
-  button.classList.remove("drag-placeholder", "dragging");
+  button.classList.remove("drag-placeholder", "drag-surface-suspended", "dragging");
   button.setAttribute("aria-grabbed", "true");
   button.setAttribute("aria-hidden", "true");
   button.style.width = `${visual.tabWidth}px`;
   button.style.minWidth = `${visual.tabWidth}px`;
   button.style.maxWidth = `${visual.tabWidth}px`;
   button.style.height = `${visual.tabHeight}px`;
+  if (visual.latestClientX !== undefined) positionDragSurface(visual.latestClientX);
 }
 
 function clearDragSurfaceStyles(button: HTMLButtonElement): void {
-  button.classList.remove("drag-surface", "dragging", "drag-placeholder");
+  button.classList.remove(
+    "drag-surface",
+    "drag-surface-suspended",
+    "dragging",
+    "drag-placeholder"
+  );
   button.removeAttribute("aria-grabbed");
   button.removeAttribute("aria-hidden");
   button.style.removeProperty("width");
   button.style.removeProperty("min-width");
   button.style.removeProperty("max-width");
   button.style.removeProperty("height");
+  button.style.removeProperty("left");
+  button.style.removeProperty("top");
+}
+
+function positionDragSurface(clientX: number): void {
+  const visual = dragVisualState;
+  if (!visual?.surface || !Number.isFinite(clientX)) return;
+  const rootBounds = root.getBoundingClientRect();
+  const left = clientX - rootBounds.left + root.scrollLeft
+    - visual.grabRatioX * visual.tabWidth;
+  visual.surface.style.left = `${left}px`;
+  visual.surface.style.top = "0px";
 }
 
 function suspendDragVisual(): void {
   const visual = dragVisualState;
   if (!visual) return;
   visual.suspended = true;
+  visual.surface?.classList.add("drag-surface-suspended");
   visual.slot.remove();
 }
 
@@ -546,35 +569,74 @@ function resolveStableDragInsertion(
 ): HTMLButtonElement | undefined {
   if (!payload) return undefined;
   const candidates = tabElements().filter((tab) => tab.dataset.tabId !== payload.tabId);
+  const draggedFrame = dragTabFrame(payload, clientX);
+  const visualCenterX = draggedFrame.center - root.getBoundingClientRect().left + root.scrollLeft;
   if (candidates.length === 0) {
-    dragInsertionState = { sessionId: payload.sessionId };
+    dragInsertionState = { sessionId: payload.sessionId, visualCenterX };
     return undefined;
   }
   const geometries = candidates.map((tab) => transformFreeTabGeometry(tab));
-  const rawIndex = geometries.findIndex(({ center }) => clientX < center);
+  const rawIndex = geometries.findIndex(({ center }) => draggedFrame.center < center);
   const desiredIndex = rawIndex < 0 ? candidates.length : rawIndex;
   let insertionIndex = currentDragInsertionIndex(payload, candidates, desiredIndex);
 
-  if (desiredIndex > insertionIndex) {
-    while (insertionIndex < desiredIndex) {
-      const boundary = geometries[insertionIndex];
-      if (!boundary || clientX < boundary.center + tabReorderHysteresis(boundary.width)) break;
-      insertionIndex += 1;
-    }
-  } else if (desiredIndex < insertionIndex) {
-    while (insertionIndex > desiredIndex) {
-      const boundary = geometries[insertionIndex - 1];
-      if (!boundary || clientX > boundary.center - tabReorderHysteresis(boundary.width)) break;
-      insertionIndex -= 1;
-    }
+  const previousInsertionState = dragInsertionState?.sessionId === payload.sessionId
+    ? dragInsertionState
+    : undefined;
+  let insertionProbeX = draggedFrame.center;
+  let shouldResolveInsertion = true;
+  if (previousInsertionState) {
+    const deltaX = visualCenterX - previousInsertionState.visualCenterX;
+    if (deltaX > 0.1) insertionProbeX = draggedFrame.maximum;
+    else if (deltaX < -0.1) insertionProbeX = draggedFrame.minimum;
+    else shouldResolveInsertion = false;
+  }
+  if (shouldResolveInsertion) {
+    insertionIndex = stableDragInsertionIndex(insertionProbeX, geometries, insertionIndex);
   }
 
   const beforeTab = candidates[insertionIndex];
   dragInsertionState = {
     sessionId: payload.sessionId,
+    visualCenterX,
     ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
   };
   return beforeTab;
+}
+
+function dragTabFrame(
+  payload: RuntimeTabDragPayload,
+  clientX: number
+): { center: number; maximum: number; minimum: number } {
+  const minimum = clientX - payload.grabRatioX * payload.tabWidth;
+  const maximum = minimum + payload.tabWidth;
+  return { center: (minimum + maximum) / 2, maximum, minimum };
+}
+
+function stableDragInsertionIndex(
+  pointX: number,
+  geometries: { center: number; width: number }[],
+  currentIndex: number
+): number {
+  const rawIndex = geometries.findIndex(({ center }) => pointX < center);
+  const desiredIndex = rawIndex < 0 ? geometries.length : rawIndex;
+  let insertionIndex = Math.min(currentIndex, geometries.length);
+  if (desiredIndex > insertionIndex) {
+    while (insertionIndex < desiredIndex) {
+      const boundary = geometries[insertionIndex];
+      if (!boundary
+        || pointX < boundary.center + tabReorderHysteresis(boundary.width)) break;
+      insertionIndex += 1;
+    }
+  } else if (desiredIndex < insertionIndex) {
+    while (insertionIndex > desiredIndex) {
+      const boundary = geometries[insertionIndex - 1];
+      if (!boundary
+        || pointX > boundary.center - tabReorderHysteresis(boundary.width)) break;
+      insertionIndex -= 1;
+    }
+  }
+  return insertionIndex;
 }
 
 function currentDragInsertionIndex(
@@ -616,16 +678,27 @@ function transformFreeTabGeometry(tab: HTMLButtonElement): { center: number; wid
 function tabReorderHysteresis(width: number): number {
   return Math.min(
     TAB_REORDER_HYSTERESIS_MAX,
-    Math.max(TAB_REORDER_HYSTERESIS_MIN, width * TAB_REORDER_HYSTERESIS_RATIO)
+    Math.max(TAB_REORDER_HYSTERESIS_MIN, Math.round(width * TAB_REORDER_HYSTERESIS_RATIO))
   );
 }
 
 function rememberDragInsertion(
   payload: RuntimeTabDragPayload,
-  beforeTab?: HTMLButtonElement
+  beforeTab?: HTMLButtonElement,
+  clientX?: number
 ): void {
+  const previousCenter = dragInsertionState?.sessionId === payload.sessionId
+    ? dragInsertionState.visualCenterX
+    : undefined;
+  const frame = clientX !== undefined && Number.isFinite(clientX)
+    ? dragTabFrame(payload, clientX)
+    : undefined;
+  const visualCenterX = frame
+    ? frame.center - root.getBoundingClientRect().left + root.scrollLeft
+    : previousCenter ?? 0;
   dragInsertionState = {
     sessionId: payload.sessionId,
+    visualCenterX,
     ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
   };
 }
@@ -662,6 +735,7 @@ function previewDragPosition(
   const insertionChanged = visual.suspended || !visual.slot.isConnected
     || visual.beforeTabId !== nextBeforeTabId;
   visual.suspended = false;
+  visual.surface?.classList.remove("drag-surface-suspended");
   if (insertionChanged) {
     if (beforeTab) root.insertBefore(visual.slot, beforeTab);
     else root.append(visual.slot);
@@ -670,7 +744,10 @@ function previewDragPosition(
     animateReorderedTabs(previousRects);
   }
   if (local && visual.surface !== local) adoptDragSurface(local);
-  if (clientX !== undefined && Number.isFinite(clientX)) visual.latestClientX = clientX;
+  if (clientX !== undefined && Number.isFinite(clientX)) {
+    visual.latestClientX = clientX;
+    positionDragSurface(clientX);
+  }
 }
 
 function animateReorderedTabs(previousRects: Map<Element, DOMRect>): void {
@@ -1118,8 +1195,6 @@ addEventListener("keydown", (event) => {
   event.preventDefault();
   dispatch({ type: "activateAdjacent", direction: event.shiftKey ? "previous" : "next" });
 }, true);
-addEventListener("pointercancel", cancelActiveTabDrag, true);
-addEventListener("lostpointercapture", cancelActiveTabDrag, true);
 root.addEventListener("dragover", (event) => {
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -1163,7 +1238,7 @@ document.body.addEventListener("dragover", (event) => {
   const beforeTab = event.clientX <= root.getBoundingClientRect().left
     ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
     : undefined;
-  rememberDragInsertion(payload, beforeTab);
+  rememberDragInsertion(payload, beforeTab, event.clientX);
   previewDragPosition(payload, beforeTab, event.clientX);
   scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
   stopEdgeScroll();
@@ -1183,7 +1258,7 @@ document.body.addEventListener("drop", (event) => {
   const beforeTab = event.clientX <= root.getBoundingClientRect().left
     ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
     : undefined;
-  rememberDragInsertion(payload, beforeTab);
+  rememberDragInsertion(payload, beforeTab, event.clientX);
   dispatch({
     type: "tabDragDrop",
     sessionId: payload.sessionId,

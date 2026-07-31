@@ -825,6 +825,8 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(dragged.getAttribute("aria-hidden")).toBe("true");
     expect(slot.textContent).toBe("");
     expect(slot.style.width).toBe("168px");
+    expect(dragged.style.left).toBe("-44px");
+    expect(dragged.style.top).toBe("0px");
     expect(document.querySelector(".drag-preview")).toBeNull();
     expect(dragLayoutOrder()).toEqual(["tab-3", "tab-1", "tab-2", "tab-4"]);
 
@@ -903,18 +905,15 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     ]);
   });
 
-  it("uses spatial hysteresis so a reordered tab does not oscillate at the midpoint", () => {
+  it("uses the moving tab edge with tight hysteresis and does not oscillate", () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs());
-    const positions: Record<string, number> = {
-      "tab-1": 0,
-      "tab-2": 106,
-      "tab-3": 212,
-      "tab-4": 318
-    };
     for (const tab of document.querySelectorAll<HTMLElement>("#tabs .tab")) {
       const tabId = tab.dataset.tabId!;
       Object.defineProperties(tab, {
-        offsetLeft: { configurable: true, get: () => positions[tabId] },
+        offsetLeft: {
+          configurable: true,
+          get: () => dragLayoutOrder().indexOf(tabId) * 106
+        },
         offsetWidth: { configurable: true, get: () => 100 }
       });
     }
@@ -935,23 +934,24 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     };
     const order = dragLayoutOrder;
 
-    dragOverAt(273);
+    dragOverAt(156);
+    dragOverAt(214);
     expect(order()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
 
-    dragOverAt(275);
+    dragOverAt(216);
     expect(order()).toEqual(["tab-1", "tab-3", "tab-2", "tab-4"]);
 
-    dragOverAt(251);
+    dragOverAt(204);
     expect(order()).toEqual(["tab-1", "tab-3", "tab-2", "tab-4"]);
 
-    dragOverAt(249);
+    dragOverAt(203);
     expect(order()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
     document.querySelector("#tabs")?.dispatchEvent(drop);
   });
 
-  it("preserves native grab geometry without rendering a floating HTML tab", async () => {
+  it("preserves native grab geometry on the one real HTML drag surface", async () => {
     const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
     Object.defineProperty(tab, "getBoundingClientRect", {
       configurable: true,
@@ -1004,8 +1004,8 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(document.querySelector(".drag-preview")).toBeNull();
     expect(document.querySelector(".drag-slot")?.textContent).toBe("");
     expect(dragSurface.getAttribute("aria-hidden")).toBe("true");
-    expect(dragSurface.style.left).toBe("");
-    expect(dragSurface.style.top).toBe("");
+    expect(dragSurface.style.left).toBe("100px");
+    expect(dragSurface.style.top).toBe("0px");
     expect(JSON.parse(dataTransfer.getData("text/rion-runtime-tab"))).not.toHaveProperty(
       "previewMarkup"
     );
@@ -1023,15 +1023,18 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     };
     dragOverAt(260, 1);
     dragOverAt(320, 29);
-    expect(dragSurface.style.left).toBe("");
-    expect(dragSurface.style.top).toBe("");
+    expect(dragSurface.style.left).toBe("270px");
+    expect(dragSurface.style.top).toBe("0px");
 
     document.body.dispatchEvent(new Event("dragleave", { bubbles: true }));
     expect(dragSurface.getAttribute("aria-hidden")).toBe("true");
+    expect(dragSurface.classList.contains("drag-surface-suspended")).toBe(true);
     expect(document.querySelector(".drag-slot")).toBeNull();
     dragOverAt(340, 14);
     expect(document.querySelector(".drag-surface")).toBe(dragSurface);
     expect(dragSurface.getAttribute("aria-hidden")).toBe("true");
+    expect(dragSurface.classList.contains("drag-surface-suspended")).toBe(false);
+    expect(dragSurface.style.left).toBe("290px");
 
     const dragEnd = new Event("dragend", { bubbles: true });
     Object.defineProperties(dragEnd, {
@@ -1094,8 +1097,8 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(targetSurface.classList.contains("drag-surface")).toBe(true);
     expect(targetSurface.getAttribute("aria-hidden")).toBe("true");
     expect(targetSurface.querySelector(".name")?.textContent).toBe("External tab");
-    expect(targetSurface.style.left).toBe("");
-    expect(targetSurface.style.top).toBe("");
+    expect(targetSurface.style.left).toBe("180px");
+    expect(targetSurface.style.top).toBe("0px");
     expect(document.querySelectorAll('[data-tab-id="external-tab"]')).toHaveLength(1);
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperties(drop, {
@@ -1162,6 +1165,44 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       screenY: { value: 80 }
     });
     tab.dispatchEvent(dragEnd);
+  });
+
+  it("does not treat HTML drag pointer handoff as cancellation", async () => {
+    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+    const dataTransfer = dragTransfer();
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      clientX: { value: 120 },
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 320 },
+      screenY: { value: 240 }
+    });
+    tab.dispatchEvent(dragStart);
+    window.dispatchEvent(new Event("pointercancel", { bubbles: true }));
+    window.dispatchEvent(new Event("lostpointercapture", { bubbles: true }));
+    await flushMicrotasks();
+
+    expect(invoke.mock.calls.some((call) => (
+      call as unknown as [string, { action: { type: string } }]
+    )[1].action.type === "tabDragCancel")).toBe(false);
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperties(dragEnd, {
+      dataTransfer: { value: { ...dataTransfer, dropEffect: "none" } },
+      screenX: { value: 520 },
+      screenY: { value: 340 }
+    });
+    tab.dispatchEvent(dragEnd);
+    await flushMicrotasks();
+
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: expect.objectContaining({
+        type: "tabDragEnd",
+        cancelled: false,
+        screenX: 520,
+        screenY: 340
+      })
+    });
   });
 
   it("serializes drag lifecycle actions until the previous native action settles", async () => {

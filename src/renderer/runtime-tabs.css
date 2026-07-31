@@ -160,10 +160,15 @@ button {
 
 .tab.drag-surface {
   position: absolute;
+  z-index: var(--layer-selection);
   margin: 0;
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
   transition: none;
+}
+
+.tab.drag-surface.drag-surface-suspended {
+  opacity: 0;
 }
 
 .drag-proxy {

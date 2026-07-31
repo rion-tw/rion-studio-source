@@ -71,6 +71,7 @@ let edgeScrollFrame: number | undefined;
 let edgeScrollClientX: number | undefined;
 let dragInsertionState: { sessionId: string; beforeTabId?: string } | undefined;
 let dragPreviewElement: HTMLElement | undefined;
+let dragProxyElement: HTMLElement | undefined;
 let renderRevision = 0;
 let activeTabId: string | undefined;
 let optimisticActiveTabId: string | undefined;
@@ -252,20 +253,16 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     const bounds = button.getBoundingClientRect();
     const tabWidth = Math.max(1, bounds.width || button.offsetWidth || 1);
     const tabHeight = Math.max(1, bounds.height || button.offsetHeight || 28);
-    installDragPreview(
-      event.dataTransfer,
-      button,
-      tabWidth,
-      tabHeight,
-      grabRatioX,
-      grabRatioY
-    );
-    event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify({
+    const payload: RuntimeTabDragPayload = {
       sessionId: dragSessionId,
       tabId,
       tabWidth,
-      tabHeight
-    }));
+      tabHeight,
+      grabRatioX,
+      previewMarkup: button.innerHTML
+    };
+    installDragPreview(event.dataTransfer, button, payload, event.clientX);
+    event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify(payload));
     dispatch({
       type: "tabDragStart",
       sessionId: dragSessionId,
@@ -327,6 +324,7 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     if (payload) clearDropIndicator();
     else setDropIndicator(beforeTab);
     previewDragPosition(payload, beforeTab);
+    showAttachedDragPreview(payload, event.clientX);
     scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
     scrollForDragPoint(event.clientX, Boolean(payload));
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -350,42 +348,99 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     });
     stopEdgeScroll();
     clearDragPlaceholder();
+    clearDragPreview();
   });
 }
 
 function installDragPreview(
   dataTransfer: DataTransfer | null,
   button: HTMLButtonElement,
-  width: number,
-  height: number,
-  grabRatioX: number,
-  grabRatioY: number
+  payload: RuntimeTabDragPayload,
+  clientX: number
 ): void {
   clearDragPreview();
   if (!dataTransfer || typeof dataTransfer.setDragImage !== "function") return;
-  const preview = button.cloneNode(true) as HTMLButtonElement;
-  preview.removeAttribute("id");
-  preview.classList.remove("dragging", "drag-placeholder", "drop-before");
-  preview.classList.add("active", "drag-preview");
-  preview.draggable = false;
-  preview.tabIndex = -1;
-  preview.ariaHidden = "true";
-  preview.style.width = `${width}px`;
-  preview.style.minWidth = `${width}px`;
-  preview.style.height = `${height}px`;
-  document.body.append(preview);
-  preview.getBoundingClientRect();
-  dataTransfer.setDragImage(
-    preview,
-    Math.round(width * clampRatio(grabRatioX)),
-    Math.round(height * clampRatio(grabRatioY))
-  );
-  dragPreviewElement = preview;
+  const proxy = document.createElement("span");
+  proxy.className = "drag-proxy";
+  proxy.ariaHidden = "true";
+  document.body.append(proxy);
+  proxy.getBoundingClientRect();
+  dataTransfer.setDragImage(proxy, 0, 0);
+  dragProxyElement = proxy;
+  showAttachedDragPreview(payload, clientX, button);
+}
+
+function showAttachedDragPreview(
+  payload: RuntimeTabDragPayload | undefined,
+  clientX: number,
+  sourceButton?: HTMLButtonElement
+): void {
+  if (!payload) return;
+  let preview = dragPreviewElement;
+  if (preview?.dataset.dragPreviewSession !== payload.sessionId) {
+    preview?.remove();
+    const local = sourceButton
+      ?? tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
+    preview = local?.cloneNode(true) as HTMLButtonElement | undefined;
+    if (!preview) {
+      preview = document.createElement("button");
+      appendSafeDragPreviewMarkup(preview, payload.previewMarkup);
+    }
+    preview.removeAttribute("id");
+    preview.className = "tab active drag-preview";
+    preview.dataset.dragPreviewSession = payload.sessionId;
+    preview.removeAttribute("data-tab-id");
+    preview.draggable = false;
+    preview.tabIndex = -1;
+    preview.ariaHidden = "true";
+    document.body.append(preview);
+    dragPreviewElement = preview;
+  }
+
+  const local = sourceButton
+    ?? tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
+  const tabBounds = local?.getBoundingClientRect();
+  const stripBounds = root.getBoundingClientRect();
+  const top = tabBounds?.top
+    ?? stripBounds.top + Math.max(0, (stripBounds.height - payload.tabHeight) / 2);
+  const pointerX = Number.isFinite(clientX) && clientX !== 0
+    ? clientX
+    : (tabBounds?.left ?? 0) + payload.tabWidth * payload.grabRatioX;
+  preview.style.width = `${payload.tabWidth}px`;
+  preview.style.minWidth = `${payload.tabWidth}px`;
+  preview.style.height = `${payload.tabHeight}px`;
+  preview.style.left = `${pointerX - payload.tabWidth * payload.grabRatioX}px`;
+  preview.style.top = `${top}px`;
+}
+
+function appendSafeDragPreviewMarkup(preview: HTMLElement, markup?: string): void {
+  if (!markup) return;
+  const template = document.createElement("template");
+  template.innerHTML = markup;
+  template.content.querySelectorAll("script, style, iframe, object, embed, link, meta, form")
+    .forEach((element) => element.remove());
+  template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      if (name.startsWith("on") || name === "style" || name === "href" || name === "srcset") {
+        element.removeAttribute(attribute.name);
+      } else if (name === "src" && !attribute.value.startsWith("data:image/")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  preview.replaceChildren(template.content.cloneNode(true));
+}
+
+function hideAttachedDragPreview(): void {
+  dragPreviewElement?.remove();
+  dragPreviewElement = undefined;
 }
 
 function clearDragPreview(): void {
-  dragPreviewElement?.remove();
-  dragPreviewElement = undefined;
+  hideAttachedDragPreview();
+  dragProxyElement?.remove();
+  dragProxyElement = undefined;
 }
 
 function setDropIndicator(beforeTab?: HTMLButtonElement): void {
@@ -918,6 +973,7 @@ root.addEventListener("dragover", (event) => {
   if (payload) clearDropIndicator();
   else setDropIndicator();
   previewDragPosition(payload, beforeTab);
+  showAttachedDragPreview(payload, event.clientX);
   scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
   scrollForDragPoint(event.clientX, Boolean(payload));
 });
@@ -942,6 +998,7 @@ root.addEventListener("drop", (event) => {
     ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
   });
   clearDragPlaceholder();
+  clearDragPreview();
   stopEdgeScroll();
 });
 document.body.addEventListener("dragover", (event) => {
@@ -955,9 +1012,14 @@ document.body.addEventListener("dragover", (event) => {
     : undefined;
   rememberDragInsertion(payload, beforeTab);
   previewDragPosition(payload, beforeTab);
+  showAttachedDragPreview(payload, event.clientX);
   scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
   stopEdgeScroll();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+});
+document.body.addEventListener("dragleave", (event) => {
+  if (event.relatedTarget instanceof Node && document.body.contains(event.relatedTarget)) return;
+  hideAttachedDragPreview();
 });
 document.body.addEventListener("drop", (event) => {
   if (event.target instanceof Node && root.contains(event.target)) return;
@@ -977,6 +1039,7 @@ document.body.addEventListener("drop", (event) => {
     ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
   });
   clearDragPlaceholder();
+  clearDragPreview();
   stopEdgeScroll();
 });
 add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
@@ -1012,6 +1075,8 @@ type RuntimeTabDragPayload = {
   tabId: string;
   tabWidth: number;
   tabHeight: number;
+  grabRatioX: number;
+  previewMarkup?: string;
 };
 
 function runtimeTabDragPayload(
@@ -1029,7 +1094,13 @@ function runtimeTabDragPayload(
       sessionId: value.sessionId,
       tabId: value.tabId,
       tabWidth: Math.max(1, value.tabWidth),
-      tabHeight: Math.max(1, value.tabHeight)
+      tabHeight: Math.max(1, value.tabHeight),
+      grabRatioX: clampRatio(
+        typeof value.grabRatioX === "number" ? value.grabRatioX : 0.5
+      ),
+      ...(typeof value.previewMarkup === "string" && value.previewMarkup.length <= 100_000
+        ? { previewMarkup: value.previewMarkup }
+        : {})
     };
   } catch {
     return undefined;
@@ -1179,6 +1250,7 @@ function cancelActiveTabDrag(): void {
   dragCancelled = true;
   clearDropIndicator();
   clearDragPlaceholder();
+  clearDragPreview();
   stopEdgeScroll();
   if (dragSessionId) dispatch({ type: "tabDragCancel", sessionId: dragSessionId });
 }

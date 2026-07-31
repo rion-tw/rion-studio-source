@@ -243,6 +243,7 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("if !still_desired || !mutation_plan.requires_ui_thread");
     expect(runtime).toContain("tab.selection-superseded");
     expect(runtime).toContain("completed_failed_launch_cleanups");
+    expect(runtime).toContain('"tab.launch-cleanup-compensation-noop"');
     expect(runtime).toContain("retryable_failed_launches");
     expect(runtime).toContain("close_failed_launch_surface_and_wait(");
     expect(runtime).toContain("automatic_role_setup_retry_allowed(");
@@ -407,6 +408,16 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).toContain("- (void)mouseDragged:(NSEvent *)event");
     expect(macController).toContain("_tabIconCacheKeys");
     expect(macController).toContain("updateTabMetadata:(RionRuntimeTabModel *)tab");
+    expect(macController).toContain("NSEventMaskFlagsChanged");
+    expect(macController).toContain("_tabShortcutOriginResponder");
+    expect(macController).toContain("RionRuntimeRelayShortcutModifierEvent");
+    expect(macController).toContain('modifierHandoffCompleted');
+    expect(macBridge).toContain("begin_macos_shortcut_modifier_handoff");
+    expect(macBridge).toContain("finish_macos_shortcut_modifier_handoff");
+    expect(runtime).toContain("begin_windows_shortcut_modifier_handoff");
+    expect(runtime).toContain("release_windows_shortcut_modifiers");
+    expect(runtime).toContain("windows_shortcut_modifier_codes");
+    expect(runtime).toContain('input.modifier-handoff-{phase}');
     expect(macController).not.toContain("- (void)updateState:");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");

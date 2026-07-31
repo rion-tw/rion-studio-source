@@ -185,6 +185,16 @@ static NSUInteger RionRuntimeStableInsertionIndex(
   return currentIndex;
 }
 
+static NSRect RionRuntimeDragFrameWithLockedY(NSRect frame, CGFloat screenY) {
+  frame.origin.y = screenY;
+  return frame;
+}
+
+static BOOL RionRuntimePointInHalfOpenRect(NSPoint point, NSRect rect) {
+  return point.x >= NSMinX(rect) && point.x < NSMaxX(rect) &&
+      point.y >= NSMinY(rect) && point.y < NSMaxY(rect);
+}
+
 static void RionDisableToolbarBaselineSeparator(NSToolbar *toolbar) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -956,6 +966,7 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
         longWindowNameWidth - kRionWindowNameTrailingSpacing -
         kRionRootTrailingDraggableWidth - kRionTabHeight -
         kRionAddButtonSpacing;
+    NSRect controlRow = NSMakeRect(-120.0, 80.0, 640.0, kRionTitlebarHeight);
     return !RionRuntimeTabsOverflow(400.5, 400.0) &&
            RionRuntimeTabsOverflow(402.0, 400.0) &&
            RionRuntimeClampScrollOrigin(-20.0, 900.0, 400.0) == 0.0 &&
@@ -966,6 +977,18 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
            longWindowNameWidth == kRionWindowNameMaximumWidth &&
            minimumWindowTabsWidth > kRionTabMinimumWidth &&
            kRionTitlebarHeight == 40.0 &&
+           RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 80.0),
+                                          controlRow) &&
+           RionRuntimePointInHalfOpenRect(NSMakePoint(519.99, 119.99),
+                                          controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(-120.01, 80.0),
+                                           controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(520.0, 80.0),
+                                           controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 79.99),
+                                           controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 120.0),
+                                           controlRow) &&
            RionRuntimeDragScrollDelta(50.0, 0.0, 200.0, 36.0) == 0.0 &&
            RionRuntimeDragScrollDelta(1.0, 0.0, 200.0, 36.0) == -16.0 &&
            RionRuntimeDragScrollDelta(199.0, 0.0, 200.0, 36.0) == 16.0;
@@ -976,29 +999,135 @@ bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
   @autoreleasepool {
     NSArray<NSNumber *> *midpoints = @[ @50.0, @150.0, @250.0 ];
     NSArray<NSNumber *> *widths = @[ @100.0, @100.0, @100.0 ];
+    NSRect originalFrame = NSMakeRect(-140.0, 480.0, 180.0, 28.0);
+    NSRect sourceLockedFrame =
+        RionRuntimeDragFrameWithLockedY(originalFrame, 720.0);
+    NSRect targetLockedFrame =
+        RionRuntimeDragFrameWithLockedY(sourceLockedFrame, 220.0);
     return RionRuntimeTabReorderHysteresis(100.0) == 12.0 &&
            RionRuntimeStableInsertionIndex(61.0, midpoints, widths, 0) == 0 &&
            RionRuntimeStableInsertionIndex(63.0, midpoints, widths, 0) == 1 &&
            RionRuntimeStableInsertionIndex(39.0, midpoints, widths, 1) == 1 &&
            RionRuntimeStableInsertionIndex(37.0, midpoints, widths, 1) == 0 &&
-           RionRuntimeStableInsertionIndex(300.0, midpoints, widths, 0) == 3;
+           RionRuntimeStableInsertionIndex(300.0, midpoints, widths, 0) == 3 &&
+           sourceLockedFrame.origin.x == originalFrame.origin.x &&
+           sourceLockedFrame.origin.y == 720.0 &&
+           NSEqualSizes(sourceLockedFrame.size, originalFrame.size) &&
+           targetLockedFrame.origin.x == originalFrame.origin.x &&
+           targetLockedFrame.origin.y == 220.0 &&
+           NSEqualSizes(targetLockedFrame.size, originalFrame.size);
   }
 }
 
+static NSEventModifierFlags RionRuntimeShortcutModifierFlagForKeyCode(
+    unsigned short keyCode) {
+  switch (keyCode) {
+    case 56:  // Left Shift
+    case 60:  // Right Shift
+      return NSEventModifierFlagShift;
+    case 59:  // Left Control
+    case 62:  // Right Control
+      return NSEventModifierFlagControl;
+    default:
+      return 0;
+  }
+}
+
+static NSEventModifierFlags RionRuntimePendingShortcutModifiersAfterEvent(
+    NSEventModifierFlags pending, NSEvent *event) {
+  NSEventModifierFlags changed =
+      RionRuntimeShortcutModifierFlagForKeyCode(event.keyCode);
+  if ((pending & changed) == 0) return pending;
+  NSEventModifierFlags active = event.modifierFlags &
+      (NSEventModifierFlagControl | NSEventModifierFlagShift);
+  return pending & active;
+}
+
+static BOOL RionRuntimeRelayShortcutModifierEvent(
+    NSResponder *origin, NSResponder *current, NSEventModifierFlags pending,
+    NSEvent *event) {
+  NSEventModifierFlags changed =
+      RionRuntimeShortcutModifierFlagForKeyCode(event.keyCode);
+  if ((pending & changed) == 0 || !origin || origin == current) return NO;
+  [origin flagsChanged:event];
+  return YES;
+}
+
+@interface RionRuntimeShortcutResponderProbe : NSResponder
+
+@property(nonatomic) NSUInteger flagsChangedCount;
+@property(nonatomic) unsigned short lastKeyCode;
+
+@end
+
+
+@implementation RionRuntimeShortcutResponderProbe
+
+- (void)flagsChanged:(NSEvent *)event {
+  self.flagsChangedCount += 1;
+  self.lastKeyCode = event.keyCode;
+}
+
+@end
+
+
 bool rion_runtime_tabs_shortcut_self_test(void) {
-  NSEventModifierFlags control = NSEventModifierFlagControl;
-  NSEventModifierFlags shift = NSEventModifierFlagShift;
-  NSEventModifierFlags command = NSEventModifierFlagCommand;
-  NSEventModifierFlags option = NSEventModifierFlagOption;
-  NSEventModifierFlags mask = NSEventModifierFlagDeviceIndependentFlagsMask;
-  auto accepts = ^BOOL(unsigned short keyCode, NSEventModifierFlags flags) {
-    flags &= mask;
-    return keyCode == 48 && (flags & control) != 0 &&
-        (flags & (command | option | NSEventModifierFlagFunction)) == 0;
-  };
-  return accepts(48, control) && accepts(48, control | shift) &&
-      !accepts(48, command) && !accepts(48, control | option) &&
-      !accepts(49, control);
+  @autoreleasepool {
+    NSEventModifierFlags control = NSEventModifierFlagControl;
+    NSEventModifierFlags shift = NSEventModifierFlagShift;
+    NSEventModifierFlags command = NSEventModifierFlagCommand;
+    NSEventModifierFlags option = NSEventModifierFlagOption;
+    NSEventModifierFlags mask = NSEventModifierFlagDeviceIndependentFlagsMask;
+    auto accepts = ^BOOL(unsigned short keyCode, NSEventModifierFlags flags) {
+      flags &= mask;
+      return keyCode == 48 && (flags & control) != 0 &&
+          (flags & (command | option | NSEventModifierFlagFunction)) == 0;
+    };
+    NSEvent *shiftRelease = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                            location:NSZeroPoint
+                                       modifierFlags:control
+                                           timestamp:0
+                                        windowNumber:0
+                                             context:nil
+                                          characters:@""
+                         charactersIgnoringModifiers:@""
+                                           isARepeat:NO
+                                             keyCode:60];
+    NSEvent *controlRelease = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                              location:NSZeroPoint
+                                         modifierFlags:0
+                                             timestamp:0
+                                          windowNumber:0
+                                               context:nil
+                                            characters:@""
+                           charactersIgnoringModifiers:@""
+                                             isARepeat:NO
+                                               keyCode:62];
+    RionRuntimeShortcutResponderProbe *probe =
+        [[RionRuntimeShortcutResponderProbe alloc] init];
+    RionRuntimeShortcutResponderProbe *current =
+        [[RionRuntimeShortcutResponderProbe alloc] init];
+    BOOL relayed = RionRuntimeRelayShortcutModifierEvent(
+        probe, current, control | shift, shiftRelease);
+    BOOL duplicate = RionRuntimeRelayShortcutModifierEvent(
+        probe, probe, control | shift, controlRelease);
+    NSEventModifierFlags pending =
+        RionRuntimePendingShortcutModifiersAfterEvent(control | shift,
+                                                       shiftRelease);
+    pending = RionRuntimePendingShortcutModifiersAfterEvent(
+        pending, controlRelease);
+    return accepts(48, control) && accepts(48, control | shift) &&
+        !accepts(48, command) && !accepts(48, control | option) &&
+        !accepts(49, control) &&
+        RionRuntimeShortcutModifierFlagForKeyCode(59) == control &&
+        RionRuntimeShortcutModifierFlagForKeyCode(62) == control &&
+        RionRuntimeShortcutModifierFlagForKeyCode(56) == shift &&
+        RionRuntimeShortcutModifierFlagForKeyCode(60) == shift &&
+        RionRuntimeShortcutModifierFlagForKeyCode(58) == 0 &&
+        relayed && !duplicate && probe.flagsChangedCount == 1 &&
+        probe.lastKeyCode == 60 &&
+        pending == 0;
+  }
 }
 
 @interface RionRuntimeBackdropView : NSVisualEffectView
@@ -1047,6 +1176,10 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
              windowActive:(BOOL)windowActive;
 - (void)updateWindowActive:(BOOL)windowActive;
 - (void)updateVisualStateAnimated:(BOOL)animate;
+- (void)beginDragPreviewSession:(NSDraggingSession *)session
+                  lockedScreenY:(CGFloat)screenY;
+- (void)lockDragPreviewToScreenY:(CGFloat)screenY;
+- (void)clearDragPreviewYLock;
 
 @end
 
@@ -1119,6 +1252,12 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 - (void)updateDragPlaceholderAppearance;
 - (void)scrollTabsLeft:(id)sender;
 - (void)scrollTabsRight:(id)sender;
+- (void)beginTabShortcutModifierHandoff:(NSEventModifierFlags)flags;
+- (void)finishTabShortcutModifierHandoffWithAction:(NSString *)actionType;
+- (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType;
+- (void)handleTabShortcutModifierEvent:(NSEvent *)event;
+- (void)notifyTabShortcutModifierHandoff:(NSString *)actionType;
+- (CGFloat)dragPreviewScreenOriginY;
 - (void)updateTabScrollButtonState;
 - (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point;
 - (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
@@ -1459,7 +1598,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 @end
 
 @implementation RionRuntimeTabItemView {
+  __weak NSDraggingSession *_activeDraggingSession;
   BOOL _dragStarted;
+  BOOL _dragPreviewYLocked;
+  CGFloat _dragPreviewLockedScreenY;
   BOOL _hideTabCloseButton;
   BOOL _hovered;
   NSImageView *_audioView;
@@ -1707,6 +1849,40 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                              withObject:self.tabIdentifier];
 }
 
+- (void)applyDragPreviewYLock {
+  if (!_dragPreviewYLocked || !_activeDraggingSession) return;
+  CGFloat lockedScreenY = _dragPreviewLockedScreenY;
+  [_activeDraggingSession
+      enumerateDraggingItemsWithOptions:0
+                                forView:nil
+                                classes:@[ NSPasteboardItem.class ]
+                          searchOptions:@{}
+                             usingBlock:^(NSDraggingItem *draggingItem,
+                                          NSInteger index, BOOL *stop) {
+    (void)index;
+    (void)stop;
+    draggingItem.draggingFrame = RionRuntimeDragFrameWithLockedY(
+        draggingItem.draggingFrame, lockedScreenY);
+  }];
+}
+
+- (void)beginDragPreviewSession:(NSDraggingSession *)session
+                  lockedScreenY:(CGFloat)screenY {
+  _activeDraggingSession = session;
+  [self lockDragPreviewToScreenY:screenY];
+}
+
+- (void)lockDragPreviewToScreenY:(CGFloat)screenY {
+  if (!std::isfinite(screenY)) return;
+  _dragPreviewYLocked = YES;
+  _dragPreviewLockedScreenY = screenY;
+  [self applyDragPreviewYLock];
+}
+
+- (void)clearDragPreviewYLock {
+  _dragPreviewYLocked = NO;
+}
+
 - (NSDragOperation)draggingSession:(NSDraggingSession *)session
     sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
   (void)session;
@@ -1721,7 +1897,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)draggingSession:(NSDraggingSession *)session
           movedToPoint:(NSPoint)screenPoint {
-  (void)session;
+  _activeDraggingSession = session;
+  [self applyDragPreviewYLock];
   if (self.dragSessionID.length > 0) {
     [self.tabsController moveTabDrag:self atScreenPoint:screenPoint];
   }
@@ -1731,6 +1908,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
            endedAtPoint:(NSPoint)screenPoint
               operation:(NSDragOperation)operation {
   (void)session;
+  [self clearDragPreviewYLock];
+  _activeDraggingSession = nil;
   NSEvent *event = NSApp.currentEvent;
   BOOL cancelledWithEscape =
       event.type == NSEventTypeKeyDown && event.keyCode == 53;
@@ -1815,6 +1994,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       stringForType:RionRuntimeTabPasteboardType];
   NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\n"];
   if (parts.count == 3) {
+    id source = sender.draggingSource;
+    if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
+      [(RionRuntimeTabItemView *)source
+          lockDragPreviewToScreenY:self.tabsController.dragPreviewScreenOriginY];
+    }
     NSString *identifier =
         [self.tabsController stableTabIdentifierBeforePoint:point
                                                      inView:self
@@ -1838,7 +2022,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 }
 
 - (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
-  (void)sender;
+  id source = sender.draggingSource;
+  if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
+    [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
+  }
   [self.tabsController hideInsertionIndicator];
   [self.tabsController setDragPlaceholderIdentifier:nil];
   [self.tabsController resetTabDragInsertionState];
@@ -1861,6 +2048,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                 sessionID:sessionID];
   NSPoint screenPoint =
       [self.window convertPointToScreen:sender.draggingLocation];
+  id source = sender.draggingSource;
+  if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
+    [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
+  }
   [self.tabsController hideInsertionIndicator];
   [self.tabsController setDragPlaceholderIdentifier:nil];
   [self.tabsController resetTabDragInsertionState];
@@ -1935,6 +2126,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   CGFloat _stableTitlebarWidgetInset;
   BOOL _hasStableTitlebarWidgetInset;
   __weak NSWindow *_window;
+  __weak NSResponder *_tabShortcutOriginResponder;
+  NSString *_tabShortcutOriginTabIdentifier;
+  NSEventModifierFlags _tabShortcutPendingModifiers;
   NSMutableArray<id> *_windowObservers;
   id _tabShortcutMonitor;
   BOOL _destroyed;
@@ -2154,13 +2348,18 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self installWindowObservers];
   __weak RionRuntimeTabsController *weakShortcutSelf = self;
   _tabShortcutMonitor = [NSEvent
-      addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+      addLocalMonitorForEventsMatchingMask:(NSEventMaskKeyDown |
+                                             NSEventMaskFlagsChanged)
                                 handler:^NSEvent *(NSEvent *event) {
     RionRuntimeTabsController *strongSelf = weakShortcutSelf;
-    if (!strongSelf || strongSelf->_destroyed || event.window != strongSelf->_window ||
-        event.keyCode != 48) {
+    if (!strongSelf || strongSelf->_destroyed || event.window != strongSelf->_window) {
       return event;
     }
+    if (event.type == NSEventTypeFlagsChanged) {
+      [strongSelf handleTabShortcutModifierEvent:event];
+      return event;
+    }
+    if (event.keyCode != 48) return event;
     NSEventModifierFlags flags = event.modifierFlags &
         NSEventModifierFlagDeviceIndependentFlagsMask;
     if ((flags & NSEventModifierFlagControl) == 0 ||
@@ -2180,6 +2379,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     NSUInteger count = strongSelf->_tabItems.count;
     NSUInteger targetIndex = previous ? (activeIndex + count - 1) % count
                                       : (activeIndex + 1) % count;
+    [strongSelf beginTabShortcutModifierHandoff:flags];
     [strongSelf activateTab:strongSelf->_tabItems[targetIndex].tabIdentifier];
     return nil;
   }];
@@ -2490,6 +2690,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
         [strongSelf scheduleContentLayoutNotification];
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
+        if ([notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
+          [strongSelf flushTabShortcutModifierHandoffWithAction:
+                          @"modifierHandoffAbandoned"];
+        }
         if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] &&
             !strongSelf->_fullscreenTransitionActive &&
             (strongSelf->_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
@@ -3182,6 +3386,102 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self updateTabScrollButtonState];
 }
 
+- (void)notifyTabShortcutModifierHandoff:(NSString *)actionType {
+  if (!_actionHandler || actionType.length == 0) return;
+  NSMutableDictionary<NSString *, id> *action = [@{
+    @"type" : actionType,
+    @"sourceWindowId" : _windowID ?: @""
+  } mutableCopy];
+  if (_tabShortcutOriginTabIdentifier.length > 0) {
+    action[@"tabId"] = _tabShortcutOriginTabIdentifier;
+  }
+  _actionHandler(action);
+}
+
+- (void)beginTabShortcutModifierHandoff:(NSEventModifierFlags)flags {
+  if (_tabShortcutPendingModifiers != 0) return;
+  NSEventModifierFlags modifiers = flags &
+      (NSEventModifierFlagControl | NSEventModifierFlagShift);
+  if ((modifiers & NSEventModifierFlagControl) == 0) return;
+  _tabShortcutOriginResponder = _window.firstResponder;
+  _tabShortcutOriginTabIdentifier = [_activeTabItem.tabIdentifier copy];
+  _tabShortcutPendingModifiers = modifiers;
+  [self notifyTabShortcutModifierHandoff:@"modifierHandoffStarted"];
+}
+
+- (void)finishTabShortcutModifierHandoffWithAction:(NSString *)actionType {
+  if (_tabShortcutPendingModifiers == 0 &&
+      _tabShortcutOriginTabIdentifier.length == 0) {
+    return;
+  }
+  [self notifyTabShortcutModifierHandoff:actionType];
+  _tabShortcutPendingModifiers = 0;
+  _tabShortcutOriginResponder = nil;
+  _tabShortcutOriginTabIdentifier = nil;
+}
+
+- (void)handleTabShortcutModifierEvent:(NSEvent *)event {
+  NSEventModifierFlags changed =
+      RionRuntimeShortcutModifierFlagForKeyCode(event.keyCode);
+  if (_tabShortcutPendingModifiers == 0 ||
+      (_tabShortcutPendingModifiers & changed) == 0) {
+    return;
+  }
+  RionRuntimeRelayShortcutModifierEvent(
+      _tabShortcutOriginResponder, _window.firstResponder,
+      _tabShortcutPendingModifiers, event);
+  _tabShortcutPendingModifiers =
+      RionRuntimePendingShortcutModifiersAfterEvent(
+          _tabShortcutPendingModifiers, event);
+  if (_tabShortcutPendingModifiers == 0) {
+    [self finishTabShortcutModifierHandoffWithAction:
+              @"modifierHandoffCompleted"];
+  }
+}
+
+- (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType {
+  if (_tabShortcutPendingModifiers == 0) return;
+  NSResponder *origin = _tabShortcutOriginResponder;
+  if (origin) {
+    NSEventModifierFlags preserved = NSEvent.modifierFlags &
+        NSEventModifierFlagDeviceIndependentFlagsMask &
+        ~(NSEventModifierFlagControl | NSEventModifierFlagShift);
+    if ((_tabShortcutPendingModifiers & NSEventModifierFlagShift) != 0) {
+      NSEventModifierFlags flags = preserved |
+          (_tabShortcutPendingModifiers & NSEventModifierFlagControl);
+      for (NSNumber *keyCode in @[ @56, @60 ]) {
+        NSEvent *release = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                           location:NSZeroPoint
+                                      modifierFlags:flags
+                                          timestamp:NSProcessInfo.processInfo.systemUptime
+                                       windowNumber:_window.windowNumber
+                                            context:nil
+                                         characters:@""
+                        charactersIgnoringModifiers:@""
+                                          isARepeat:NO
+                                            keyCode:keyCode.unsignedShortValue];
+        [origin flagsChanged:release];
+      }
+    }
+    if ((_tabShortcutPendingModifiers & NSEventModifierFlagControl) != 0) {
+      for (NSNumber *keyCode in @[ @59, @62 ]) {
+        NSEvent *release = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                           location:NSZeroPoint
+                                      modifierFlags:preserved
+                                          timestamp:NSProcessInfo.processInfo.systemUptime
+                                       windowNumber:_window.windowNumber
+                                            context:nil
+                                         characters:@""
+                        charactersIgnoringModifiers:@""
+                                          isARepeat:NO
+                                            keyCode:keyCode.unsignedShortValue];
+        [origin flagsChanged:release];
+      }
+    }
+  }
+  [self finishTabShortcutModifierHandoffWithAction:actionType];
+}
+
 - (void)tabPressed:(RionRuntimeTabItemView *)sender {
   [self activateTab:sender.tabIdentifier];
 }
@@ -3485,8 +3785,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [draggingItem setDraggingFrame:item.bounds contents:[item.surfaceView dragImage]];
   NSDraggingSession *draggingSession =
       [item beginDraggingSessionWithItems:@[ draggingItem ] event:event source:item];
+  draggingSession.draggingFormation = NSDraggingFormationNone;
   draggingSession.animatesToStartingPositionsOnCancelOrFail = YES;
+  [item beginDragPreviewSession:draggingSession
+                 lockedScreenY:[self dragPreviewScreenOriginY]];
   [self setDragPlaceholderIdentifier:item.tabIdentifier];
+}
+
+- (CGFloat)dragPreviewScreenOriginY {
+  if (_destroyed || !_tabScrollView.window) return NAN;
+  NSRect windowRect =
+      [_tabScrollView convertRect:_tabScrollView.bounds toView:nil];
+  NSRect screenRect = [_tabScrollView.window convertRectToScreen:windowRect];
+  return NSMinY(screenRect);
 }
 
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view {
@@ -3753,8 +4064,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       RionTopLeftScreenPoint(NSMakePoint(NSMinX(screenRect), NSMaxY(screenRect)));
   NSRect topLeftRect = NSMakeRect(topLeft.x, topLeft.y,
                                  screenRect.size.width, screenRect.size.height);
-  return point.x >= NSMinX(topLeftRect) && point.x < NSMaxX(topLeftRect) &&
-      point.y >= NSMinY(topLeftRect) && point.y < NSMaxY(topLeftRect);
+  return RionRuntimePointInHalfOpenRect(point, topLeftRect);
 }
 
 - (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
@@ -4201,6 +4511,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)destroy {
   if (_destroyed) return;
   RionSetFullscreenPresentationPolicyMarker(_window, NO, NO);
+  [self flushTabShortcutModifierHandoffWithAction:
+            @"modifierHandoffAbandoned"];
   _destroyed = YES;
   [self stopTabDragEdgeScroll];
   if (_tabShortcutMonitor) {

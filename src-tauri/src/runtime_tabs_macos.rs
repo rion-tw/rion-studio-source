@@ -758,6 +758,36 @@ unsafe extern "C" fn action_callback(
         let before_tab_id = c_string_from_pointer(before_tab_id);
         let source_window_id = c_string_from_pointer(source_window_id);
         let target_window_id = c_string_from_pointer(target_window_id);
+        if matches!(
+            action_type.as_str(),
+            "modifierHandoffStarted" | "modifierHandoffCompleted" | "modifierHandoffAbandoned"
+        ) {
+            let (Some(window_id), Some(state)) = (
+                source_window_id.as_deref(),
+                context.app.try_state::<crate::CoreState>(),
+            ) else {
+                return;
+            };
+            if action_type == "modifierHandoffStarted" {
+                if let Some(tab_id) = tab_id.as_deref() {
+                    state
+                        .runtime
+                        .begin_macos_shortcut_modifier_handoff(window_id, tab_id);
+                }
+            } else {
+                let runtime = Arc::clone(&state.runtime);
+                let window_id = window_id.to_owned();
+                let abandoned = action_type == "modifierHandoffAbandoned";
+                tauri::async_runtime::spawn_blocking(move || {
+                    runtime.finish_macos_shortcut_modifier_handoff(
+                        &window_id,
+                        tab_id.as_deref(),
+                        abandoned,
+                    );
+                });
+            }
+            return;
+        }
         if action_type == "openLauncher" {
             // AppKit invokes this callback inside the plus button's mouse event. The launcher
             // model and native Menu are prebuilt, so popup can run in this same event turn

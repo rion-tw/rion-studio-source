@@ -898,6 +898,8 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     const dataTransfer = dragTransfer();
     const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
     Object.defineProperties(dragStart, {
+      clientX: { value: 150 },
+      clientY: { value: 37 },
       dataTransfer: { value: dataTransfer },
       screenX: { value: 350 },
       screenY: { value: 240 }
@@ -915,14 +917,41 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       })
     });
     expect(dataTransfer.setDragImage).toHaveBeenCalledWith(
-      expect.objectContaining({ className: expect.stringContaining("drag-preview") }),
-      50,
-      7
+      expect.objectContaining({ className: expect.stringContaining("drag-proxy") }),
+      0,
+      0
     );
-    const preview = dataTransfer.setDragImage.mock.calls[0]?.[0] as HTMLElement;
+    const preview = document.querySelector<HTMLElement>(".drag-preview")!;
     expect(preview.classList.contains("active")).toBe(true);
     expect(preview.querySelector(".name")?.textContent).toBe("四人隊伍");
     expect(document.body.contains(preview)).toBe(true);
+    expect(preview.style.left).toBe("100px");
+    expect(preview.style.top).toBe("30px");
+
+    const dragOverAt = (clientX: number, clientY: number) => {
+      const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+      Object.defineProperties(dragOver, {
+        clientX: { value: clientX },
+        clientY: { value: clientY },
+        dataTransfer: { value: dataTransfer },
+        screenX: { value: clientX + 200 },
+        screenY: { value: clientY + 200 }
+      });
+      document.querySelector("#tabs")?.dispatchEvent(dragOver);
+    };
+    dragOverAt(260, 1);
+    expect(preview.style.left).toBe("210px");
+    expect(preview.style.top).toBe("30px");
+    dragOverAt(320, 29);
+    expect(preview.style.left).toBe("270px");
+    expect(preview.style.top).toBe("30px");
+
+    document.body.dispatchEvent(new Event("dragleave", { bubbles: true }));
+    expect(document.querySelector(".drag-preview")).toBeNull();
+    dragOverAt(340, 14);
+    const reattachedPreview = document.querySelector<HTMLElement>(".drag-preview")!;
+    expect(reattachedPreview.style.left).toBe("290px");
+    expect(reattachedPreview.style.top).toBe("30px");
 
     const dragEnd = new Event("dragend", { bubbles: true });
     Object.defineProperties(dragEnd, {
@@ -931,7 +960,60 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       screenY: { value: 240 }
     });
     tab.dispatchEvent(dragEnd);
-    expect(document.body.contains(preview)).toBe(false);
+    expect(document.querySelector(".drag-preview")).toBeNull();
+    expect(document.querySelector(".drag-proxy")).toBeNull();
+  });
+
+  it("realigns a reattached drag preview to the target strip without following clientY", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    const root = document.querySelector<HTMLDivElement>("#tabs")!;
+    const dataTransfer = dragTransfer({
+      grabRatioX: 0.25,
+      previewMarkup: '<span class="name">External tab</span>',
+      sessionId: "cross-window-preview",
+      tabHeight: 28,
+      tabId: "external-tab",
+      tabWidth: 160
+    });
+    const dragOverAt = (clientX: number, clientY: number) => {
+      const event = new Event("dragover", { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        clientX: { value: clientX },
+        clientY: { value: clientY },
+        dataTransfer: { value: dataTransfer }
+      });
+      root.dispatchEvent(event);
+    };
+
+    dragOverAt(100, 2);
+    const sourcePreview = document.querySelector<HTMLElement>(".drag-preview")!;
+    expect(sourcePreview.style.left).toBe("60px");
+    expect(sourcePreview.style.top).toBe("1.5px");
+    dragOverAt(180, 30);
+    expect(sourcePreview.style.left).toBe("140px");
+    expect(sourcePreview.style.top).toBe("1.5px");
+
+    root.dispatchEvent(new Event("dragleave", { bubbles: true }));
+    Object.defineProperty(root, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 131,
+        height: 31,
+        left: 0,
+        right: 1_000,
+        toJSON: () => ({}),
+        top: 100,
+        width: 1_000,
+        x: 0,
+        y: 100
+      })
+    });
+    dragOverAt(220, 120);
+    const targetPreview = document.querySelector<HTMLElement>(".drag-preview")!;
+    expect(targetPreview.querySelector(".name")?.textContent).toBe("External tab");
+    expect(targetPreview.style.left).toBe("180px");
+    expect(targetPreview.style.top).toBe("101.5px");
+    root.dispatchEvent(new Event("dragleave", { bubbles: true }));
   });
 
   it("selects an inactive tab as soon as its drag starts", async () => {

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/renderer/src/main.tsx",
+    "src/renderer/runtime-shell/runtimeDivider.ts",
+    "src/renderer/runtime-shell/runtimeTabStrip.ts",
+    "src/shared/browser-overlay/*.js",
+    "scripts/*.mjs",
+    "tests/**/*.{ts,tsx}",
+    "release.config.mjs",
+    "vite.tauri.config.ts",
+    "vitest.config.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx,js}",
+    "scripts/*.{mjs,mts}",
+    "tests/**/*.{ts,tsx}",
+    "*.{ts,mjs}"
+  ],
+  "ignore": [
+    "src/shared/generated/**"
+  ],
+  "ignoreDependencies": [
+    "@types/node",
+    "@types/react",
+    "@types/react-dom"
+  ]
+}

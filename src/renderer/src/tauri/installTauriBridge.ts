@@ -487,7 +487,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     reorderGameWindows: (input) =>
       invokeCore({ type: "gameWindowReorder", orderedIds: input.orderedIds }),
     showGameWindow: (windowId) => invokeShell("showGameWindow", [windowId]),
-    closeGameWindow: (windowId) => invokeShell("closeGameWindow", [windowId]),
+    hideGameWindow: (windowId) => invokeShell("hideGameWindow", [windowId]),
     stopGameWindow: (windowId) => invokeShell("stopGameWindow", [windowId]),
     deleteGameWindow: (windowId) => invokeShell("deleteGameWindow", [windowId]),
     showGameWindowTab: (tabId) => invokeShell("showGameWindowTab", [tabId]),

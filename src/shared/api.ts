@@ -85,7 +85,7 @@ export interface RionStudioApi {
   updateGameWindow: (id: string, input: UpdateGameWindowInput) => Promise<GameWindow>;
   reorderGameWindows: (input: ReorderItemsInput) => Promise<GameWindow[]>;
   showGameWindow: (windowId: string) => Promise<void>;
-  closeGameWindow: (windowId: string) => Promise<void>;
+  hideGameWindow: (windowId: string) => Promise<void>;
   stopGameWindow: (windowId: string) => Promise<void>;
   deleteGameWindow: (windowId: string) => Promise<void>;
   showGameWindowTab: (tabId: string) => Promise<void>;

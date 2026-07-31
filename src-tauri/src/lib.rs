@@ -13,12 +13,15 @@ use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
-    GameWindowTabRecord, GameWindowUpdateInputRecord, StateCollection, StateGameRecord,
-    StateGameWindowRecord, StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord,
-    migrate_legacy_data_root,
+    GameWindowTabRecord, GameWindowUpdateInputRecord, MacroRunStatus, StateCollection,
+    StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord, StateResolutionRecord,
+    StateRoleRecord, migrate_legacy_data_root,
 };
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager, State, Webview, WebviewWindow, webview::PageLoadEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, State, Webview, WebviewWindow, Window, webview::PageLoadEvent,
+};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 mod activation;
 mod application_menu;
@@ -639,6 +642,269 @@ fn game_window_record(
         serde_json::from_value::<StateGameWindowRecord>(value)
             .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GameWindowClosePreview {
+    launching: bool,
+    name: String,
+    role_count: usize,
+    running_macro_count: usize,
+}
+
+impl GameWindowClosePreview {
+    fn requires_confirmation(&self) -> bool {
+        self.launching || self.running_macro_count > 0
+    }
+}
+
+struct GameWindowCloseCopy {
+    cancel: String,
+    confirm: String,
+    message: String,
+    title: String,
+}
+
+fn preview_game_window_close(
+    core: &AppCore,
+    window_id: &str,
+) -> Result<GameWindowClosePreview, CoreErrorPayload> {
+    let name = game_window_record(core, window_id)?.name;
+    let snapshot = core
+        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))
+        })?;
+    let role_ids = snapshot
+        .tabs
+        .iter()
+        .filter(|tab| tab.window_id == window_id)
+        .flat_map(|tab| tab.role_ids.iter().cloned())
+        .collect::<HashSet<_>>();
+    let launching = snapshot
+        .roles
+        .iter()
+        .any(|role| role_ids.contains(&role.role_id) && role.state == "launching")
+        || snapshot.workspaces.iter().any(|workspace| {
+            workspace.window_id.as_deref() == Some(window_id) && workspace.state == "launching"
+        });
+    let macro_statuses = core
+        .invoke(CoreCommand::MacroStatuses)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<Vec<MacroRunStatus>>(value)
+                .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))
+        })?;
+    let running_macro_count = macro_statuses
+        .into_iter()
+        .filter(|status| status.state == "running" && role_ids.contains(&status.role_id))
+        .map(|status| status.macro_id)
+        .collect::<HashSet<_>>()
+        .len();
+    Ok(GameWindowClosePreview {
+        launching,
+        name,
+        role_count: role_ids.len(),
+        running_macro_count,
+    })
+}
+
+fn game_window_close_copy(language: &str, preview: &GameWindowClosePreview) -> GameWindowCloseCopy {
+    let roles = preview.role_count;
+    let macros = preview.running_macro_count;
+    match language {
+        "zh-TW" => GameWindowCloseCopy {
+            title: format!("停止並關閉「{}」？", preview.name),
+            message: if preview.launching && macros > 0 {
+                format!(
+                    "此視窗有 {roles} 個角色、{macros} 個執行中巨集，且仍有角色正在啟動。停止並關閉會取消這些工作。"
+                )
+            } else if preview.launching {
+                format!("此視窗有 {roles} 個角色，且仍有角色正在啟動。停止並關閉會取消啟動。")
+            } else {
+                format!(
+                    "此視窗有 {roles} 個角色與 {macros} 個執行中巨集。停止並關閉會結束這些工作。"
+                )
+            },
+            confirm: "停止並關閉".to_owned(),
+            cancel: "取消".to_owned(),
+        },
+        "zh-CN" => GameWindowCloseCopy {
+            title: format!("停止并关闭“{}”？", preview.name),
+            message: if preview.launching && macros > 0 {
+                format!(
+                    "此窗口有 {roles} 个角色、{macros} 个运行中的宏，且仍有角色正在启动。停止并关闭会取消这些工作。"
+                )
+            } else if preview.launching {
+                format!("此窗口有 {roles} 个角色，且仍有角色正在启动。停止并关闭会取消启动。")
+            } else {
+                format!(
+                    "此窗口有 {roles} 个角色和 {macros} 个运行中的宏。停止并关闭会结束这些工作。"
+                )
+            },
+            confirm: "停止并关闭".to_owned(),
+            cancel: "取消".to_owned(),
+        },
+        "ja" => GameWindowCloseCopy {
+            title: format!("「{}」を停止して閉じますか？", preview.name),
+            message: if preview.launching && macros > 0 {
+                format!(
+                    "このウインドウでは {roles} 個のロールと {macros} 個のマクロが実行され、起動中のロールもあります。停止して閉じると、これらの処理をキャンセルします。"
+                )
+            } else if preview.launching {
+                format!(
+                    "このウインドウでは {roles} 個のロールがあり、起動中のロールもあります。停止して閉じると起動をキャンセルします。"
+                )
+            } else {
+                format!(
+                    "このウインドウでは {roles} 個のロールと {macros} 個のマクロが実行中です。停止して閉じると、これらの処理を終了します。"
+                )
+            },
+            confirm: "停止して閉じる".to_owned(),
+            cancel: "キャンセル".to_owned(),
+        },
+        _ => {
+            let role_label = if roles == 1 { "role" } else { "roles" };
+            let macro_label = if macros == 1 { "macro" } else { "macros" };
+            GameWindowCloseCopy {
+                title: format!("Stop and close “{}”?", preview.name),
+                message: if preview.launching && macros > 0 {
+                    format!(
+                        "This window has {roles} {role_label}, {macros} running {macro_label}, and roles that are still launching. Stopping and closing cancels this work."
+                    )
+                } else if preview.launching {
+                    format!(
+                        "This window has {roles} {role_label}, including roles that are still launching. Stopping and closing cancels their launch."
+                    )
+                } else {
+                    format!(
+                        "This window has {roles} {role_label} and {macros} running {macro_label}. Stopping and closing ends this work."
+                    )
+                },
+                confirm: "Stop and close".to_owned(),
+                cancel: "Cancel".to_owned(),
+            }
+        }
+    }
+}
+
+async fn confirm_game_window_close(
+    app: &AppHandle,
+    window: &Window,
+    copy: GameWindowCloseCopy,
+) -> Result<bool, CoreErrorPayload> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(copy.message)
+        .title(copy.title)
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            copy.confirm,
+            copy.cancel,
+        ))
+        .parent(window)
+        .show(move |accepted| {
+            let _ = sender.send(accepted);
+        });
+    let accepted = receiver.await.map_err(|_| {
+        shell_error(
+            "SHELL_CLOSE_CONFIRMATION_FAILED",
+            "The game window close confirmation did not return a result.",
+        )
+    })?;
+
+    // AppKit can deliver the sheet completion before its parent window has
+    // finished the final modal teardown turn. Queue a main-thread barrier so an
+    // accepted close never destroys that parent while the sheet is still
+    // relinquishing it. This is harmless on Windows and keeps one shared flow.
+    let (settled_sender, settled_receiver) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = settled_sender.send(());
+    })
+    .map_err(|error| shell_error("SHELL_CLOSE_CONFIRMATION_FAILED", error.to_string()))?;
+    settled_receiver.await.map_err(|_| {
+        shell_error(
+            "SHELL_CLOSE_CONFIRMATION_FAILED",
+            "The game window close confirmation did not finish native cleanup.",
+        )
+    })?;
+    Ok(accepted)
+}
+
+async fn process_game_window_close_requested(
+    app: AppHandle,
+    label: String,
+    window_id: String,
+    window: Window,
+) {
+    let (core, runtime, language) = {
+        let Some(state) = app.try_state::<CoreState>() else {
+            return;
+        };
+        let language = state
+            .menu_language
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        (
+            Arc::clone(&state.core),
+            Arc::clone(&state.runtime),
+            language,
+        )
+    };
+
+    let preview_core = Arc::clone(&core);
+    let preview_window_id = window_id.clone();
+    let preview = tauri::async_runtime::spawn_blocking(move || {
+        preview_game_window_close(&preview_core, &preview_window_id)
+    })
+    .await
+    .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))
+    .and_then(|result| result);
+    let preview = match preview {
+        Ok(preview) => preview,
+        Err(error) => {
+            runtime.finish_window_close_requested(&label);
+            reveal_shell_error(&app, error);
+            return;
+        }
+    };
+
+    if preview.requires_confirmation() {
+        let copy = game_window_close_copy(&language, &preview);
+        match confirm_game_window_close(&app, &window, copy).await {
+            Ok(true) => {}
+            Ok(false) => {
+                runtime.finish_window_close_requested(&label);
+                return;
+            }
+            Err(error) => {
+                runtime.finish_window_close_requested(&label);
+                reveal_shell_error(&app, error);
+                return;
+            }
+        }
+    }
+
+    if let Err(error) = runtime.persist_game_window_placement(&label) {
+        runtime.finish_window_close_requested(&label);
+        reveal_shell_error(&app, shell_error("TAURI_GAME_WINDOW_FLUSH_FAILED", error));
+        return;
+    }
+
+    let result = core
+        .invoke_async(CoreCommand::BrowserWindowStop {
+            window_id: window_id.clone(),
+        })
+        .await;
+    runtime.finish_window_close_requested(&label);
+    if let Err(error) = result {
+        let _ = window.show();
+        let _ = window.set_focus();
+        reveal_shell_error(&app, error_payload(error));
+    }
 }
 
 fn same_game_window_record(left: &StateGameWindowRecord, right: &StateGameWindowRecord) -> bool {
@@ -1738,12 +2004,8 @@ async fn rion_shell_invoke(
             serde_json::to_value(authoritative)
                 .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
         }
-        "closeGameWindow" => {
+        "hideGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            if core_game_window_is_empty(&state.core, &window_id) {
-                delete_empty_game_window(&state, &window_id).await?;
-                return Ok(Value::Null);
-            }
             if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
                 runtime_window
                     .hide()
@@ -2254,58 +2516,6 @@ fn game_window_create_rollback_error(
             rollback_error.as_ref()
         ),
     )
-}
-
-fn core_game_window_is_empty(core: &AppCore, window_id: &str) -> bool {
-    core.invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .ok()
-        .and_then(|snapshot| {
-            snapshot["windows"]
-                .as_array()?
-                .iter()
-                .find(|window| window["windowId"].as_str() == Some(window_id))
-                .and_then(|window| window["tabIds"].as_array())
-                .map(Vec::is_empty)
-        })
-        .unwrap_or(false)
-}
-
-fn prune_empty_game_window_records(core: &AppCore) {
-    let Ok(snapshot) = core.invoke(CoreCommand::BrowserRuntimeSnapshot) else {
-        return;
-    };
-    let empty_ids = snapshot["windows"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|window| window["tabIds"].as_array().is_some_and(Vec::is_empty))
-        .filter_map(|window| window["windowId"].as_str().map(str::to_owned))
-        .collect::<Vec<_>>();
-    for id in empty_ids {
-        let _ = core.invoke(CoreCommand::GameWindowDelete { id });
-    }
-}
-
-async fn delete_empty_game_window(
-    state: &CoreState,
-    window_id: &str,
-) -> Result<(), CoreErrorPayload> {
-    if !core_game_window_is_empty(&state.core, window_id) {
-        return Ok(());
-    }
-    Arc::clone(&state.core)
-        .invoke_async(CoreCommand::EmbeddedWindowDelete {
-            window_id: window_id.to_owned(),
-        })
-        .await
-        .map_err(error_payload)?;
-    Arc::clone(&state.core)
-        .invoke_async(CoreCommand::GameWindowDelete {
-            id: window_id.to_owned(),
-        })
-        .await
-        .map_err(error_payload)?;
-    Ok(())
 }
 
 async fn restore_saved_game_windows(
@@ -3933,6 +4143,7 @@ fn clamp_window_bounds(
 
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(StartupWindowState::default())
         .on_page_load(|webview, payload| {
             if webview.label() != "main" {
@@ -4326,7 +4537,6 @@ pub fn run() {
                         let _ = app_handle.emit("rion://application-quit-requested", ());
                         return;
                     }
-                    prune_empty_game_window_records(&state.core);
                     let _ = state.runtime.persist_all_game_window_placements();
                     if let Err(error) = state.runtime.persist_restore_session(true) {
                         let _ = app_handle.emit(
@@ -4356,46 +4566,36 @@ pub fn run() {
                             }
                         }
                         tauri::WindowEvent::CloseRequested { api, .. } if label != "main" => {
-                            let empty_window_id = state
-                                .runtime
-                                .window_id_for_label(&label)
-                                .filter(|window_id| {
-                                    core_game_window_is_empty(&state.core, window_id)
-                                });
-                            if let Some(window_id) = empty_window_id {
-                                api.prevent_close();
-                                let app = app_handle.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    let Some(state) = app.try_state::<CoreState>() else {
-                                        return;
-                                    };
-                                    if let Err(error) =
-                                        delete_empty_game_window(&state, &window_id).await
-                                    {
-                                        let _ = app.emit(
-                                            "rion://shell-error",
-                                            json!({
-                                                "code": error.code,
-                                                "message": error.message
-                                            }),
-                                        );
-                                    }
-                                });
-                            } else {
-                                match state.runtime.handle_window_close_requested(&label) {
-                                    Ok(true) => api.prevent_close(),
-                                    Ok(false) => {}
-                                    Err(error) => {
-                                        api.prevent_close();
-                                        let _ = app_handle.emit(
-                                            "rion://shell-error",
-                                            json!({
-                                                "code": error.code,
-                                                "message": error.message,
-                                                "windowLabel": label
-                                            }),
-                                        );
-                                    }
+                            match state.runtime.begin_window_close_requested(&label) {
+                                Ok(system_runtime::RuntimeWindowCloseRequest::PassThrough) => {}
+                                Ok(system_runtime::RuntimeWindowCloseRequest::Pending) => {
+                                    api.prevent_close();
+                                }
+                                Ok(system_runtime::RuntimeWindowCloseRequest::Start {
+                                    window_id,
+                                    window,
+                                }) => {
+                                    api.prevent_close();
+                                    let app = app_handle.clone();
+                                    tauri::async_runtime::spawn(
+                                        process_game_window_close_requested(
+                                            app,
+                                            label.clone(),
+                                            window_id,
+                                            *window,
+                                        ),
+                                    );
+                                }
+                                Err(error) => {
+                                    api.prevent_close();
+                                    let _ = app_handle.emit(
+                                        "rion://shell-error",
+                                        json!({
+                                            "code": error.code,
+                                            "message": error.message,
+                                            "windowLabel": label
+                                        }),
+                                    );
                                 }
                             }
                         }
@@ -4563,6 +4763,53 @@ mod tests {
             assert!(guard.should_prevent(), "{platform}");
             guard.permit();
             assert!(!guard.should_prevent(), "{platform}");
+        }
+    }
+
+    #[test]
+    fn game_window_close_confirmation_is_limited_to_active_work() {
+        for platform in ["darwin", "win32"] {
+            let ordinary = GameWindowClosePreview {
+                launching: false,
+                name: "Raid".to_owned(),
+                role_count: 3,
+                running_macro_count: 0,
+            };
+            assert!(!ordinary.requires_confirmation(), "{platform}");
+            assert!(
+                GameWindowClosePreview {
+                    launching: true,
+                    ..ordinary.clone()
+                }
+                .requires_confirmation(),
+                "{platform}"
+            );
+            assert!(
+                GameWindowClosePreview {
+                    running_macro_count: 1,
+                    ..ordinary
+                }
+                .requires_confirmation(),
+                "{platform}"
+            );
+        }
+    }
+
+    #[test]
+    fn game_window_close_confirmation_copy_covers_every_supported_language() {
+        let preview = GameWindowClosePreview {
+            launching: true,
+            name: "Raid".to_owned(),
+            role_count: 3,
+            running_macro_count: 2,
+        };
+        for language in ["en", "zh-TW", "zh-CN", "ja"] {
+            let copy = game_window_close_copy(language, &preview);
+            assert!(copy.title.contains("Raid"), "{language}");
+            assert!(copy.message.contains('3'), "{language}");
+            assert!(copy.message.contains('2'), "{language}");
+            assert!(!copy.confirm.is_empty(), "{language}");
+            assert!(!copy.cancel.is_empty(), "{language}");
         }
     }
 

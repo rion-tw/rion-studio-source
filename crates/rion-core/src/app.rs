@@ -4814,11 +4814,6 @@ impl AppCore {
                     .tab_id
                     .clone()
                     .ok_or_else(|| CoreError::Internal("embedded role has no tab".to_owned()))?;
-                let source_window_id = snapshot
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.id == tab_id)
-                    .map(|tab| tab.window_id.clone());
                 let tab_role_count = snapshot
                     .tabs
                     .iter()
@@ -4863,14 +4858,14 @@ impl AppCore {
                         role_id: role_id.to_owned(),
                     }
                 };
-                (role, tab_id, source_window_id, tab_role_count, action)
+                (role, tab_id, tab_role_count, action)
             };
 
             // Native isolation is the safety boundary. Persistence is committed
             // after the exact game surface is offline; a busy SQLite writer must
             // never leave a visually closed role running.
             self.emit_browser_statuses();
-            let (role, tab_id, source_window_id, tab_role_count, action) = prepared;
+            let (role, tab_id, tab_role_count, action) = prepared;
             self.run_effect_plan(vec![effect_step(
                 role_id,
                 action,
@@ -4918,18 +4913,14 @@ impl AppCore {
                         .remove(&tab_id);
                 }
             }
-            let removed_window_ids = if tab_role_count <= 1 {
-                source_window_id
-                    .iter()
-                    .cloned()
-                    .collect::<std::collections::HashSet<_>>()
-            } else {
-                std::collections::HashSet::new()
-            };
             if tab_role_count <= 1 {
-                self.commit_embedded_runtime_snapshot_without_native_effect(&removed_window_ids)?;
+                self.commit_embedded_runtime_snapshot_without_native_effect(
+                    &std::collections::HashSet::new(),
+                )?;
             } else {
-                self.publish_embedded_runtime_snapshot_with_removed(&removed_window_ids)?;
+                self.publish_embedded_runtime_snapshot_with_removed(
+                    &std::collections::HashSet::new(),
+                )?;
             }
             Ok(())
         })();
@@ -4997,11 +4988,6 @@ impl AppCore {
                 let tab_id = workspace.tab_id.clone().ok_or_else(|| {
                     CoreError::Internal("embedded workspace has no tab".to_owned())
                 })?;
-                let source_window_id = snapshot
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.id == tab_id)
-                    .map(|tab| tab.window_id.clone());
                 for role_id in &workspace.role_ids {
                     self.macro_runtime.request_stop_role(role_id)?;
                     self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
@@ -5036,13 +5022,13 @@ impl AppCore {
                         CoreError::Internal("embedded closing tab lock poisoned".to_owned())
                     })?
                     .insert(tab_id.clone());
-                (workspace, tab_id, source_window_id, next_active_tab_id)
+                (workspace, tab_id, next_active_tab_id)
             };
 
             // Keep durability behind native isolation. The final runtime commit
             // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
-            let (workspace, tab_id, source_window_id, next_active_tab_id) = prepared;
+            let (workspace, tab_id, next_active_tab_id) = prepared;
             self.run_effect_plan(vec![effect_step(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
@@ -5092,11 +5078,9 @@ impl AppCore {
                     })?
                     .remove(&tab_id);
             }
-            let removed_window_ids = source_window_id
-                .iter()
-                .cloned()
-                .collect::<std::collections::HashSet<_>>();
-            self.commit_embedded_runtime_snapshot_without_native_effect(&removed_window_ids)?;
+            self.commit_embedded_runtime_snapshot_without_native_effect(
+                &std::collections::HashSet::new(),
+            )?;
             Ok(())
         })();
         let Some(lease) = lease else {
@@ -5146,13 +5130,11 @@ impl AppCore {
             }
         }
 
-        if !delete {
-            return Ok(());
-        }
-
         // Native isolation above deliberately runs without either global runtime
-        // sequence. Reacquire the window sequence only for the short final delete
-        // commit so a slow surface cannot stall unrelated windows.
+        // sequence. Reacquire the window sequence only for the short final close
+        // commit so a slow surface cannot stall unrelated windows. Removing the
+        // now-empty runtime window closes its native host while the persisted Game
+        // Window remains available to be shown again.
         let _window_sequence = self.embedded_window_sequence.acquire()?;
         let runtime_window_exists = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
@@ -5172,6 +5154,10 @@ impl AppCore {
                 None,
                 None,
             )?;
+        }
+
+        if !delete {
+            return Ok(());
         }
 
         let persisted_window_exists = self
@@ -5828,7 +5814,7 @@ impl AppCore {
         &self,
         mut game_windows: Vec<StateGameWindowRecord>,
         snapshot: &crate::model::BrowserRuntimeSnapshot,
-        removed_window_ids: &std::collections::HashSet<String>,
+        _removed_window_ids: &std::collections::HashSet<String>,
     ) -> (Vec<StateGameWindowRecord>, bool) {
         let closing_tabs = self
             .embedded_closing_tabs
@@ -5840,9 +5826,7 @@ impl AppCore {
             .flat_map(|window| window.tabs.iter().cloned())
             .map(|tab| (tab.id.clone(), tab))
             .collect::<std::collections::HashMap<_, _>>();
-        let previous_len = game_windows.len();
-        game_windows.retain(|window| !removed_window_ids.contains(&window.id));
-        let mut changed = game_windows.len() != previous_len;
+        let mut changed = false;
         for runtime_window in &snapshot.windows {
             let Some(game_window) = game_windows
                 .iter_mut()
@@ -7817,7 +7801,7 @@ mod tests {
     }
 
     #[test]
-    fn moving_the_last_tab_deletes_only_its_empty_source_game_window() {
+    fn moving_the_last_tab_preserves_empty_source_game_window_settings() {
         for platform in ["darwin", "win32"] {
             let (_directory, core) = core_for_platform(platform);
             let create_window = |name: &str| {
@@ -7888,13 +7872,21 @@ mod tests {
             .unwrap();
 
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            assert_eq!(windows.as_array().unwrap().len(), 1, "{platform}");
-            assert_eq!(windows[0]["id"], target_id, "{platform}");
-            assert_eq!(
-                windows[0]["tabs"].as_array().unwrap().len(),
-                1,
-                "{platform}"
-            );
+            assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
+            let source = windows
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["id"] == source_id)
+                .unwrap();
+            assert!(source["tabs"].as_array().unwrap().is_empty(), "{platform}");
+            let target = windows
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["id"] == target_id)
+                .unwrap();
+            assert_eq!(target["tabs"].as_array().unwrap().len(), 1, "{platform}");
             let runtime = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
             assert!(
                 runtime["windows"]
@@ -7933,8 +7925,15 @@ mod tests {
             .0;
             assert!(failed.is_err(), "{platform}");
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            assert_eq!(windows.as_array().unwrap().len(), 1, "{platform}");
-            assert_eq!(windows[0]["id"], target_id, "{platform}");
+            assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
+            assert!(
+                windows
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|window| window["id"] == target_id),
+                "{platform}"
+            );
 
             let torn_out_id = uuid::Uuid::new_v4().to_string();
             drive_async_command(
@@ -7965,8 +7964,14 @@ mod tests {
             .0
             .unwrap();
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            assert_eq!(windows.as_array().unwrap().len(), 1, "{platform}");
-            assert_eq!(windows[0]["id"], torn_out_id, "{platform}");
+            assert_eq!(windows.as_array().unwrap().len(), 3, "{platform}");
+            let torn_out = windows
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["id"] == torn_out_id)
+                .unwrap();
+            assert_eq!(torn_out["tabs"].as_array().unwrap().len(), 1, "{platform}");
             core.shutdown();
         }
     }
@@ -7975,7 +7980,26 @@ mod tests {
     fn window_scoped_stop_and_delete_finish_from_one_authoritative_snapshot() {
         for platform in ["darwin", "win32"] {
             let (_directory, core) = core_for_platform(platform);
-            let role_id = create_role(&core, &first_game_id(&core), 1);
+            let game_id = first_game_id(&core);
+            let role_id = create_role(&core, &game_id, 1);
+            let workspace_role_id = create_role(&core, &game_id, 2);
+            let other_role_id = create_role(&core, &game_id, 3);
+            let workspace_id = core
+                .invoke(command(json!({
+                    "type": "workspaceCreate",
+                    "input": {
+                        "name": "Stop together workspace",
+                        "template": "single",
+                        "slots": [{
+                            "roleId": workspace_role_id,
+                            "rect": workspace_rect(0, 1)
+                        }]
+                    }
+                })))
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
             let create_window = |name: &str| {
                 core.invoke(command(json!({
                     "type": "gameWindowCreate",
@@ -8014,11 +8038,33 @@ mod tests {
             };
 
             let stopped_window_id = create_window("Stop together");
+            let other_window_id = create_window("Keep running");
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
+                    zoom_factor: None,
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWorkspaceLaunch {
+                    workspace_id: workspace_id.clone(),
+                    target: target(&stopped_window_id),
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserRoleLaunch {
+                    role_id: other_role_id.clone(),
+                    target: target(&other_window_id),
                     zoom_factor: None,
                 },
                 None,
@@ -8035,7 +8081,79 @@ mod tests {
             .0
             .unwrap();
             let runtime = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
-            assert!(runtime["tabs"].as_array().unwrap().is_empty(), "{platform}");
+            assert_eq!(runtime["tabs"].as_array().unwrap().len(), 1, "{platform}");
+            assert_eq!(runtime["roles"].as_array().unwrap().len(), 1, "{platform}");
+            assert_eq!(runtime["roles"][0]["roleId"], other_role_id, "{platform}");
+            assert!(
+                runtime["workspaces"].as_array().unwrap().is_empty(),
+                "{platform}"
+            );
+            assert!(
+                runtime["windows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|window| window["windowId"] != stopped_window_id),
+                "{platform}"
+            );
+            assert!(
+                runtime["windows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|window| window["windowId"] == other_window_id),
+                "{platform}"
+            );
+            let stopped_windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
+            let stopped_window = stopped_windows
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["id"] == stopped_window_id)
+                .unwrap();
+            assert!(
+                stopped_window["tabs"].as_array().unwrap().is_empty(),
+                "{platform}"
+            );
+
+            drive_command(
+                Arc::clone(&core),
+                CoreCommand::EmbeddedWindowRegister {
+                    target: target(&stopped_window_id),
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            let reopened = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            let reopened_window = reopened["windows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["windowId"] == stopped_window_id)
+                .unwrap();
+            assert!(
+                reopened_window["tabIds"].as_array().unwrap().is_empty(),
+                "{platform}"
+            );
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWindowStop {
+                    window_id: stopped_window_id.clone(),
+                },
+                None,
+            )
+            .0
+            .unwrap();
+            assert!(
+                core.invoke(CoreCommand::GameWindowsList)
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|window| window["id"] == stopped_window_id),
+                "{platform}"
+            );
 
             let deleted_window_id = create_window("Delete together");
             drive_async_command(

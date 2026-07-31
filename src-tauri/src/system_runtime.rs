@@ -999,7 +999,7 @@ struct RuntimeTab {
     roles: HashMap<String, RoleSurface>,
     workspace_id: Option<String>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(windows, target_os = "macos"))]
     workspace_template: Option<String>,
 }
 
@@ -1541,7 +1541,7 @@ struct TabPresentation {
     source_id: String,
     tab_type: String,
     title: String,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(windows, target_os = "macos"))]
     workspace_template: Option<String>,
 }
 
@@ -6408,9 +6408,9 @@ impl SystemRuntimeExecutor {
             selected_tabs_after_move.get(&source_window_id).cloned();
         native_move.target_active_after_move =
             selected_tabs_after_move.get(target_window_id).cloned();
-        #[cfg(target_os = "macos")]
+        #[cfg(any(windows, target_os = "macos"))]
         let workspace_template = native_move.tab.workspace_template.as_deref();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let workspace_template: Option<&str> = None;
         if let Err(error) = self.relocate_native_tab_reservation(
             &source_window_id,
@@ -6610,9 +6610,9 @@ impl SystemRuntimeExecutor {
                 );
             }
             if native_move.relocated {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 let workspace_template = native_move.tab.workspace_template.as_deref();
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(not(any(windows, target_os = "macos")))]
                 let workspace_template: Option<&str> = None;
                 match self.relocate_native_tab_reservation(
                     target_window_id,
@@ -12780,7 +12780,7 @@ impl SystemRuntimeExecutor {
                     source_id: source_id.to_owned(),
                     tab_type: tab_type.to_owned(),
                     title: placeholder_name.to_owned(),
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(windows, target_os = "macos"))]
                     workspace_template: None,
                 },
                 revision,
@@ -13104,7 +13104,7 @@ impl SystemRuntimeExecutor {
                             source_id: completion.source_id.clone(),
                             tab_type: completion.tab_type.clone(),
                             title: completion.title.clone(),
-                            #[cfg(target_os = "macos")]
+                            #[cfg(any(windows, target_os = "macos"))]
                             workspace_template: None,
                         },
                         revision,
@@ -13373,7 +13373,7 @@ impl SystemRuntimeExecutor {
                     roles: HashMap::new(),
                     workspace_id: tab.workspace_id.clone(),
                     workspace_appearance: tab.workspace_appearance.clone(),
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(windows, target_os = "macos"))]
                     workspace_template: tab.workspace_template.clone(),
                 },
             );
@@ -13405,7 +13405,7 @@ impl SystemRuntimeExecutor {
                 source_id: tab.source_id.clone(),
                 tab_type: tab_type.to_owned(),
                 title: tab.name.clone(),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 workspace_template: tab.workspace_template.clone(),
             };
             if let Some(preview) = launch_preview.as_ref() {
@@ -14508,13 +14508,13 @@ impl SystemRuntimeExecutor {
                 )?;
                 continue;
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(windows, target_os = "macos"))]
             let workspace_template = self
                 .state()?
                 .tabs
                 .get(&relocation.tab_id)
                 .and_then(|tab| tab.workspace_template.clone());
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(windows, target_os = "macos")))]
             let workspace_template: Option<String> = None;
             self.relocate_native_tab_reservation(
                 &relocation.source_window_id,
@@ -14548,13 +14548,13 @@ impl SystemRuntimeExecutor {
                 )?;
                 continue;
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(windows, target_os = "macos"))]
             let workspace_template = self
                 .state()?
                 .tabs
                 .get(&snapshot_tab.id)
                 .and_then(|tab| tab.workspace_template.clone());
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(windows, target_os = "macos")))]
             let workspace_template: Option<String> = None;
             self.try_ensure_native_tab(
                 &snapshot_tab.window_id,
@@ -20316,7 +20316,7 @@ mod tests {
             source_id: format!("source-{id}"),
             tab_type: "role".to_owned(),
             title: format!("Tab {id}"),
-            #[cfg(target_os = "macos")]
+            #[cfg(any(windows, target_os = "macos"))]
             workspace_template: None,
         }
     }
@@ -20866,7 +20866,7 @@ mod tests {
                     source_id: "role-a".to_owned(),
                     tab_type: "role".to_owned(),
                     title: "Loading".to_owned(),
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(windows, target_os = "macos"))]
                     workspace_template: None,
                 },
                 1,
@@ -20890,7 +20890,7 @@ mod tests {
                 source_id: "role-a".to_owned(),
                 tab_type: "role".to_owned(),
                 title: "Role A".to_owned(),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 workspace_template: None,
             },
             2,

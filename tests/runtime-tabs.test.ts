@@ -59,6 +59,16 @@ describe("runtime tab shell-neutral contracts", () => {
 
   it("forwards workspace templates through every Windows tab metadata path", () => {
     expect(systemRuntimeSource.match(/"workspaceTemplate": workspace_template/g)).toHaveLength(3);
+    expect(
+      systemRuntimeSource.match(
+        /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+workspace_template: Option<String>,/g
+      )
+    ).toHaveLength(2);
+    expect(
+      systemRuntimeSource.match(
+        /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+let workspace_template/g
+      )
+    ).toHaveLength(4);
     expect(systemRuntimeSource).toContain(
       '"workspaceTemplate": presented\n                                    .workspace_template\n                                    .or_else(|| live.workspace_template.clone())'
     );

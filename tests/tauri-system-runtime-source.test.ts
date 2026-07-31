@@ -406,6 +406,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
     expect(macController).not.toContain("nextEventMatchingMask:");
     expect(macController).toContain("- (void)mouseDragged:(NSEvent *)event");
+    expect(macController).toContain("contents:RionRuntimeTransparentDragImage()");
+    expect(macController).not.toContain("contents:[item.surfaceView dragImage]");
+    expect(macController).not.toContain("- (NSImage *)dragImage");
     expect(macController).toContain("_tabIconCacheKeys");
     expect(macController).toContain("updateTabMetadata:(RionRuntimeTabModel *)tab");
     expect(macController).toContain("NSEventMaskFlagsChanged");
@@ -421,10 +424,14 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).not.toContain("- (void)updateState:");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");
-    expect(windowsStrip).toContain("reconcileTabButtons(nextButtons)");
+    expect(windowsStrip).toContain(
+      "reconcileTabButtons(visibleTabs, state, labels, presentationActiveTabId)"
+    );
+    expect(windowsStrip).toContain("patchTabButton(button, tab, state, labels");
     expect(windowsStrip).toContain("window.__rionEnsureRuntimeTab = (tab)");
     expect(windowsStrip).toContain("window.__rionReorderRuntimeTabs = (tabIds)");
     expect(windowsStrip).not.toContain("root.replaceChildren(");
+    expect(windowsStrip).not.toContain("existing.replaceChildren(");
   });
 
   it("never blocks the native UI thread on a tab launch lane and cancels provisional tabs locally", async () => {

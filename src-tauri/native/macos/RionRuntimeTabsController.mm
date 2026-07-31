@@ -190,6 +190,35 @@ static NSRect RionRuntimeDragFrameWithLockedY(NSRect frame, CGFloat screenY) {
   return frame;
 }
 
+// AppKit always asks an NSDraggingSession for drag contents. Supplying the tab
+// snapshot here creates a second, floating copy of the tab even though the
+// titlebar already owns the reorder placeholder and native detach lifecycle.
+// Keep the dragging item for AppKit's destination routing, but make its visual
+// contents a real transparent bitmap so there is only one visible tab.
+static NSImage *RionRuntimeTransparentDragImage(void) {
+  static NSImage *image;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    NSBitmapImageRep *representation = [[NSBitmapImageRep alloc]
+        initWithBitmapDataPlanes:nullptr
+                      pixelsWide:1
+                      pixelsHigh:1
+                   bitsPerSample:8
+                 samplesPerPixel:4
+                        hasAlpha:YES
+                        isPlanar:NO
+                  colorSpaceName:NSDeviceRGBColorSpace
+                     bytesPerRow:4
+                    bitsPerPixel:32];
+    if (representation.bitmapData) {
+      std::memset(representation.bitmapData, 0, 4);
+    }
+    image = [[NSImage alloc] initWithSize:NSMakeSize(1.0, 1.0)];
+    [image addRepresentation:representation];
+  });
+  return image;
+}
+
 static BOOL RionRuntimePointInHalfOpenRect(NSPoint point, NSRect rect) {
   return point.x >= NSMinX(rect) && point.x < NSMaxX(rect) &&
       point.y >= NSMinY(rect) && point.y < NSMaxY(rect);
@@ -1004,6 +1033,10 @@ bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
         RionRuntimeDragFrameWithLockedY(originalFrame, 720.0);
     NSRect targetLockedFrame =
         RionRuntimeDragFrameWithLockedY(sourceLockedFrame, 220.0);
+    NSImage *dragImage = RionRuntimeTransparentDragImage();
+    NSBitmapImageRep *dragRepresentation =
+        (NSBitmapImageRep *)dragImage.representations.firstObject;
+    NSColor *dragPixel = [dragRepresentation colorAtX:0 y:0];
     return RionRuntimeTabReorderHysteresis(100.0) == 12.0 &&
            RionRuntimeStableInsertionIndex(61.0, midpoints, widths, 0) == 0 &&
            RionRuntimeStableInsertionIndex(63.0, midpoints, widths, 0) == 1 &&
@@ -1015,7 +1048,10 @@ bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
            NSEqualSizes(sourceLockedFrame.size, originalFrame.size) &&
            targetLockedFrame.origin.x == originalFrame.origin.x &&
            targetLockedFrame.origin.y == 220.0 &&
-           NSEqualSizes(targetLockedFrame.size, originalFrame.size);
+           NSEqualSizes(targetLockedFrame.size, originalFrame.size) &&
+           NSEqualSizes(dragImage.size, NSMakeSize(1.0, 1.0)) &&
+           [dragRepresentation isKindOfClass:NSBitmapImageRep.class] &&
+           dragPixel.alphaComponent == 0.0;
   }
 }
 
@@ -1152,7 +1188,6 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
              hovered:(BOOL)hovered
         windowActive:(BOOL)windowActive
              animate:(BOOL)animate;
-- (NSImage *)dragImage;
 
 @end
 
@@ -1548,51 +1583,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   } else {
     updates();
   }
-}
-
-- (NSImage *)dragImage {
-  [self layoutSubtreeIfNeeded];
-  NSRect bounds = NSMakeRect(0, 0, MAX(1.0, self.bounds.size.width),
-                            MAX(1.0, self.bounds.size.height));
-  NSBitmapImageRep *representation =
-      [self bitmapImageRepForCachingDisplayInRect:bounds];
-  NSImage *snapshot = nil;
-  if (representation) {
-    [self cacheDisplayInRect:bounds toBitmapImageRep:representation];
-    snapshot = [[NSImage alloc] initWithSize:bounds.size];
-    [snapshot addRepresentation:representation];
-  }
-  BOOL darkAppearance = RionRuntimeUsesDarkAppearance(self.effectiveAppearance);
-  NSColor *background = [NSColor colorWithCalibratedWhite:darkAppearance ? 0.13 : 0.97
-                                                     alpha:0.97];
-  NSColor *border = RionRuntimeNeutralColor(darkAppearance, 0.22, 0.34);
-  CGFloat cornerRadius = _cornerRadius;
-  return [NSImage imageWithSize:bounds.size
-                       flipped:YES
-                drawingHandler:^BOOL(NSRect destination) {
-      NSBezierPath *shape =
-          [NSBezierPath bezierPathWithRoundedRect:destination
-                                          xRadius:cornerRadius
-                                          yRadius:cornerRadius];
-      [background setFill];
-      [shape fill];
-      if (snapshot) {
-        [NSGraphicsContext saveGraphicsState];
-        [shape addClip];
-        [snapshot drawInRect:destination
-                    fromRect:NSMakeRect(0, 0, snapshot.size.width,
-                                        snapshot.size.height)
-                   operation:NSCompositingOperationSourceOver
-                    fraction:1.0
-              respectFlipped:YES
-                       hints:nil];
-        [NSGraphicsContext restoreGraphicsState];
-      }
-      [border setStroke];
-      shape.lineWidth = 1.0;
-      [shape stroke];
-      return YES;
-                }];
 }
 
 @end
@@ -3782,7 +3772,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
         forType:RionRuntimeTabPasteboardType];
   NSDraggingItem *draggingItem =
       [[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem];
-  [draggingItem setDraggingFrame:item.bounds contents:[item.surfaceView dragImage]];
+  [draggingItem setDraggingFrame:item.bounds
+                        contents:RionRuntimeTransparentDragImage()];
   NSDraggingSession *draggingSession =
       [item beginDraggingSessionWithItems:@[ draggingItem ] event:event source:item];
   draggingSession.draggingFormation = NSDraggingFormationNone;

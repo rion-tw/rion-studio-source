@@ -409,6 +409,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(macController).toContain("contents:RionRuntimeTransparentDragImage()");
     expect(macController).not.toContain("contents:[item.surfaceView dragImage]");
     expect(macController).not.toContain("- (NSImage *)dragImage");
+    expect(macController).toContain("positionDragSurfaceForTabIdentifier:");
+    expect(macController).toContain("previewDragTabIdentifier:");
+    expect(macController).toContain("RionRuntimeTabInsertionProbeX(");
+    expect(macController).toContain("surface.layer.presentationLayer");
+    expect(runtime).toContain("project_native_order: bool");
+    expect(runtime).toContain("if project_native_order {");
     expect(macController).toContain("_tabIconCacheKeys");
     expect(macController).toContain("updateTabMetadata:(RionRuntimeTabModel *)tab");
     expect(macController).toContain("NSEventMaskFlagsChanged");

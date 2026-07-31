@@ -149,7 +149,13 @@ static CGFloat RionRuntimeDragScrollDelta(CGFloat pointX,
 }
 
 static CGFloat RionRuntimeTabReorderHysteresis(CGFloat tabWidth) {
-  return MIN(20.0, MAX(8.0, tabWidth * 0.12));
+  return MIN(5.0, MAX(2.0, round(tabWidth * 0.025)));
+}
+
+static CGFloat RionRuntimeTabInsertionProbeX(CGFloat pointerX,
+                                             CGFloat tabWidth,
+                                             CGFloat grabRatioX) {
+  return pointerX + (0.5 - grabRatioX) * tabWidth;
 }
 
 static NSUInteger RionRuntimeStableInsertionIndex(
@@ -1037,11 +1043,13 @@ bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
     NSBitmapImageRep *dragRepresentation =
         (NSBitmapImageRep *)dragImage.representations.firstObject;
     NSColor *dragPixel = [dragRepresentation colorAtX:0 y:0];
-    return RionRuntimeTabReorderHysteresis(100.0) == 12.0 &&
-           RionRuntimeStableInsertionIndex(61.0, midpoints, widths, 0) == 0 &&
-           RionRuntimeStableInsertionIndex(63.0, midpoints, widths, 0) == 1 &&
-           RionRuntimeStableInsertionIndex(39.0, midpoints, widths, 1) == 1 &&
-           RionRuntimeStableInsertionIndex(37.0, midpoints, widths, 1) == 0 &&
+    return RionRuntimeTabReorderHysteresis(100.0) == 3.0 &&
+           RionRuntimeTabReorderHysteresis(280.0) == 5.0 &&
+           RionRuntimeTabInsertionProbeX(30.0, 100.0, 0.2) == 60.0 &&
+           RionRuntimeStableInsertionIndex(52.0, midpoints, widths, 0) == 0 &&
+           RionRuntimeStableInsertionIndex(54.0, midpoints, widths, 0) == 1 &&
+           RionRuntimeStableInsertionIndex(48.0, midpoints, widths, 1) == 1 &&
+           RionRuntimeStableInsertionIndex(46.0, midpoints, widths, 1) == 0 &&
            RionRuntimeStableInsertionIndex(300.0, midpoints, widths, 0) == 3 &&
            sourceLockedFrame.origin.x == originalFrame.origin.x &&
            sourceLockedFrame.origin.y == 720.0 &&
@@ -1278,6 +1286,12 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
                                                inView:(NSView *)view
                                  draggedTabIdentifier:(NSString *)tabIdentifier
                                             sessionID:(NSString *)sessionID;
+- (void)previewDragTabIdentifier:(NSString *)tabIdentifier
+                beforeIdentifier:(nullable NSString *)beforeIdentifier;
+- (void)positionDragSurfaceForTabIdentifier:(NSString *)tabIdentifier
+                                    atPoint:(NSPoint)point
+                                     inView:(NSView *)view;
+- (void)hideDragSurfaceForTabIdentifier:(NSString *)tabIdentifier;
 - (void)resetTabDragInsertionState;
 - (void)hideInsertionIndicator;
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view;
@@ -1989,13 +2003,18 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       [(RionRuntimeTabItemView *)source
           lockDragPreviewToScreenY:self.tabsController.dragPreviewScreenOriginY];
     }
+    [self.tabsController setDragPlaceholderIdentifier:parts[1]];
+    [self.tabsController positionDragSurfaceForTabIdentifier:parts[1]
+                                                     atPoint:point
+                                                      inView:self];
     NSString *identifier =
         [self.tabsController stableTabIdentifierBeforePoint:point
                                                      inView:self
                                        draggedTabIdentifier:parts[1]
                                                   sessionID:parts[2]];
+    [self.tabsController previewDragTabIdentifier:parts[1]
+                                  beforeIdentifier:identifier];
     [self.tabsController hideInsertionIndicator];
-    [self.tabsController setDragPlaceholderIdentifier:parts[1]];
     NSPoint screenPoint =
         [self.window convertPointToScreen:sender.draggingLocation];
     [self.tabsController handleHoverWithTabIdentifier:parts[1]
@@ -2017,7 +2036,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
   }
   [self.tabsController hideInsertionIndicator];
-  [self.tabsController setDragPlaceholderIdentifier:nil];
+  NSString *payload = [[sender draggingPasteboard]
+      stringForType:RionRuntimeTabPasteboardType];
+  NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\n"];
+  if (parts.count == 3) {
+    [self.tabsController hideDragSurfaceForTabIdentifier:parts[1]];
+  } else {
+    [self.tabsController setDragPlaceholderIdentifier:nil];
+  }
   [self.tabsController resetTabDragInsertionState];
   [self.tabsController stopTabDragEdgeScroll];
 }
@@ -2036,6 +2062,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                    inView:self
                                      draggedTabIdentifier:tabIdentifier
                                                 sessionID:sessionID];
+  [self.tabsController previewDragTabIdentifier:tabIdentifier
+                                beforeIdentifier:beforeIdentifier];
   NSPoint screenPoint =
       [self.window convertPointToScreen:sender.draggingLocation];
   id source = sender.draggingSource;
@@ -2082,6 +2110,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSString *_dragPlaceholderTabIdentifier;
   NSString *_dragInsertionSessionIdentifier;
   NSString *_dragInsertionBeforeIdentifier;
+  CGFloat _dragSurfaceCanvasX;
+  BOOL _dragSurfaceOverlayActive;
+  BOOL _dragSurfaceVisible;
   CGFloat _dragScrollRootX;
   NSTimer *_dragScrollTimer;
   NSMutableArray<NSButton *> *_observedTrafficLightButtons;
@@ -3191,15 +3222,24 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _tabCanvas.frame = NSMakeRect(0, 0, MAX(tabsWidth, viewportWidth), kRionTabHeight);
 
   CGFloat x = 0;
+  RionRuntimeSurfaceView *dragSurface = nil;
   for (NSUInteger index = 0; index < _tabItems.count; ++index) {
     RionRuntimeTabItemView *item = _tabItems[index];
     RionRuntimeSurfaceView *surface = _tabSurfaces[index];
     CGFloat width = item.preferredWidth;
-    surface.frame = NSMakeRect(x, 0, width, kRionTabHeight);
+    BOOL lifted = _dragSurfaceOverlayActive &&
+        [_dragPlaceholderTabIdentifier isEqualToString:item.tabIdentifier];
+    surface.frame = lifted
+        ? NSMakeRect(_dragSurfaceCanvasX, 0, width, kRionTabHeight)
+        : NSMakeRect(x, 0, width, kRionTabHeight);
+    if (lifted) dragSurface = surface;
     [surface layoutSubtreeIfNeeded];
     item.frame = surface.bounds;
     [item layoutSubtreeIfNeeded];
     x += width + kRionTabSpacing;
+  }
+  if (dragSurface) {
+    [_tabCanvas addSubview:dragSurface positioned:NSWindowAbove relativeTo:nil];
   }
   CGFloat tabsEndX = scrollViewX + viewportWidth;
   if (overflowing) {
@@ -3213,7 +3253,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                  verticalInset, kRionTabHeight, kRionTabHeight);
   _addButton.frame = _addSurface.bounds;
 
-  [self scrollActiveTabIntoView];
+  if (!_dragSurfaceOverlayActive) {
+    [self scrollActiveTabIntoView];
+  }
   [self updateTabScrollButtonState];
 }
 
@@ -3633,6 +3675,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }];
   if (index != NSNotFound) {
     RionRuntimeTabItemView *removedItem = _tabItems[index];
+    BOOL removedDragSurface = [_dragPlaceholderTabIdentifier
+        isEqualToString:removedItem.tabIdentifier];
     if (_activeTabItem == removedItem) _activeTabItem = nil;
     [_tabSurfaces[index] removeFromSuperview];
     [_tabItems removeObjectAtIndex:index];
@@ -3640,6 +3684,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [_tabIconCache removeObjectForKey:tabIdentifier];
     [_tabIconCacheKeys removeObjectForKey:tabIdentifier];
     [_tabItemsByIdentifier removeObjectForKey:tabIdentifier];
+    if (removedDragSurface) {
+      _dragPlaceholderTabIdentifier = nil;
+      _dragSurfaceOverlayActive = NO;
+      _dragSurfaceVisible = NO;
+    }
   }
   [self setActiveTabIdentifier:activeTabIdentifier];
   [self layoutTitlebarContent];
@@ -3648,12 +3697,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)reorderTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers {
   if (_destroyed || _tabItems.count < 2 || tabIdentifiers.count == 0) return;
-  NSMutableDictionary<NSString *, NSValue *> *previousFrames =
-      [NSMutableDictionary dictionaryWithCapacity:_tabItems.count];
-  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
-    previousFrames[_tabItems[index].tabIdentifier] =
-        [NSValue valueWithRect:_tabSurfaces[index].frame];
-  }
   NSMutableArray<RionRuntimeTabItemView *> *orderedItems =
       [NSMutableArray arrayWithCapacity:_tabItems.count];
   NSMutableArray<RionRuntimeSurfaceView *> *orderedSurfaces =
@@ -3675,6 +3718,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [orderedSurfaces addObject:_tabSurfaces[index]];
   }
   if ([orderedItems isEqualToArray:_tabItems]) return;
+  NSMutableDictionary<NSString *, NSValue *> *previousFrames =
+      [NSMutableDictionary dictionaryWithCapacity:_tabItems.count];
+  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
+    RionRuntimeSurfaceView *surface = _tabSurfaces[index];
+    CALayer *presentationLayer = (CALayer *)surface.layer.presentationLayer;
+    NSRect visibleFrame = presentationLayer
+        ? NSRectFromCGRect(presentationLayer.frame)
+        : surface.frame;
+    [surface.layer removeAllAnimations];
+    surface.frame = visibleFrame;
+    previousFrames[_tabItems[index].tabIdentifier] =
+        [NSValue valueWithRect:visibleFrame];
+  }
   [_tabItems setArray:orderedItems];
   [_tabSurfaces setArray:orderedSurfaces];
   [self layoutTitlebarContent];
@@ -3687,7 +3743,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     NSRect targetFrame = _tabSurfaces[index].frame;
     [targetFrames addObject:[NSValue valueWithRect:targetFrame]];
     NSValue *previous = previousFrames[_tabItems[index].tabIdentifier];
-    if (previous && fabs(previous.rectValue.origin.x - targetFrame.origin.x) >= 0.5) {
+    BOOL lifted = [_dragPlaceholderTabIdentifier
+        isEqualToString:_tabItems[index].tabIdentifier];
+    if (!lifted && previous &&
+        fabs(previous.rectValue.origin.x - targetFrame.origin.x) >= 0.5) {
       _tabSurfaces[index].frame = previous.rectValue;
       hasMovement = YES;
     }
@@ -3806,6 +3865,15 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                  draggedTabIdentifier:(NSString *)tabIdentifier
                                             sessionID:(NSString *)sessionID {
   NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
+  CGFloat insertionProbeX = canvasPoint.x;
+  RionRuntimeTabItemView *draggedItem = _tabItemsByIdentifier[tabIdentifier];
+  if (draggedItem) {
+    // Reorder from the visual center of the lifted tab, not the raw cursor.
+    // This makes the threshold independent of where inside the tab the user
+    // grabbed it while preserving that exact grab point on the drag surface.
+    insertionProbeX = RionRuntimeTabInsertionProbeX(
+        canvasPoint.x, draggedItem.preferredWidth, draggedItem.grabRatio.x);
+  }
   NSMutableArray<RionRuntimeTabItemView *> *candidates = [NSMutableArray array];
   NSMutableArray<NSNumber *> *midpoints = [NSMutableArray array];
   NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
@@ -3830,7 +3898,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   NSUInteger rawIndex = candidates.count;
   for (NSUInteger index = 0; index < midpoints.count; ++index) {
-    if (canvasPoint.x < midpoints[index].doubleValue) {
+    if (insertionProbeX < midpoints[index].doubleValue) {
       rawIndex = index;
       break;
     }
@@ -3858,13 +3926,60 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }
 
   NSUInteger stableIndex = RionRuntimeStableInsertionIndex(
-      canvasPoint.x, midpoints, widths, currentIndex);
+      insertionProbeX, midpoints, widths, currentIndex);
   NSString *beforeIdentifier = stableIndex < candidates.count
       ? candidates[stableIndex].tabIdentifier
       : nil;
   _dragInsertionSessionIdentifier = [sessionID copy];
   _dragInsertionBeforeIdentifier = [beforeIdentifier copy];
   return beforeIdentifier;
+}
+
+- (void)previewDragTabIdentifier:(NSString *)tabIdentifier
+                beforeIdentifier:(nullable NSString *)beforeIdentifier {
+  RionRuntimeTabItemView *draggedItem = _tabItemsByIdentifier[tabIdentifier];
+  if (!draggedItem || _tabItems.count < 2) return;
+  NSMutableArray<NSString *> *order =
+      [NSMutableArray arrayWithCapacity:_tabItems.count];
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    if (![item.tabIdentifier isEqualToString:tabIdentifier]) {
+      [order addObject:item.tabIdentifier];
+    }
+  }
+  NSUInteger insertionIndex = order.count;
+  if (beforeIdentifier.length > 0) {
+    NSUInteger candidate = [order indexOfObject:beforeIdentifier];
+    if (candidate != NSNotFound) insertionIndex = candidate;
+  }
+  [order insertObject:tabIdentifier atIndex:insertionIndex];
+  [self reorderTabIdentifiers:order];
+}
+
+- (void)positionDragSurfaceForTabIdentifier:(NSString *)tabIdentifier
+                                    atPoint:(NSPoint)point
+                                     inView:(NSView *)view {
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  RionRuntimeSurfaceView *surface = item.surfaceView;
+  if (!item || !surface) return;
+  if (![_dragPlaceholderTabIdentifier isEqualToString:tabIdentifier]) {
+    [self setDragPlaceholderIdentifier:tabIdentifier];
+  }
+  NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
+  _dragSurfaceCanvasX =
+      canvasPoint.x - item.grabRatio.x * item.preferredWidth;
+  _dragSurfaceOverlayActive = YES;
+  _dragSurfaceVisible = YES;
+  surface.alphaValue = 1.0;
+  surface.frame = NSMakeRect(_dragSurfaceCanvasX, 0, item.preferredWidth,
+                             kRionTabHeight);
+  [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
+}
+
+- (void)hideDragSurfaceForTabIdentifier:(NSString *)tabIdentifier {
+  if (![_dragPlaceholderTabIdentifier isEqualToString:tabIdentifier]) return;
+  _dragSurfaceVisible = NO;
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  item.surfaceView.alphaValue = 0.0;
 }
 
 - (void)resetTabDragInsertionState {
@@ -3927,7 +4042,21 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [self updateDragPlaceholderAppearance];
     return;
   }
+  RionRuntimeTabItemView *previousItem =
+      _tabItemsByIdentifier[_dragPlaceholderTabIdentifier];
+  previousItem.surfaceView.alphaValue = 1.0;
   _dragPlaceholderTabIdentifier = [identifier copy];
+  _dragSurfaceOverlayActive = NO;
+  _dragSurfaceVisible = NO;
+  RionRuntimeTabItemView *nextItem = _tabItemsByIdentifier[identifier];
+  if (nextItem.surfaceView) {
+    _dragSurfaceCanvasX = NSMinX(nextItem.surfaceView.frame);
+    _dragSurfaceOverlayActive = YES;
+    _dragSurfaceVisible = YES;
+  }
+  if (identifier.length == 0) {
+    [self layoutTitlebarContent];
+  }
   [self updateDragPlaceholderAppearance];
 }
 
@@ -3936,7 +4065,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     BOOL placeholder = _dragPlaceholderTabIdentifier.length > 0 &&
         [_tabItems[index].tabIdentifier
             isEqualToString:_dragPlaceholderTabIdentifier];
-    _tabSurfaces[index].alphaValue = placeholder ? 0.22 : 1.0;
+    _tabSurfaces[index].alphaValue =
+        placeholder && !_dragSurfaceVisible ? 0.0 : 1.0;
   }
 }
 

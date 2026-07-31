@@ -5921,6 +5921,7 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         tab_id: &str,
         before_tab_id: Option<&str>,
+        project_native_order: bool,
     ) -> Result<(), String> {
         let coordinator = self
             .presentation
@@ -5942,8 +5943,11 @@ impl SystemRuntimeExecutor {
             state.reorder_known_tabs(&ordered);
             ordered
         };
-        self.reorder_native_tabs(window_id, &ordered)
-            .map_err(|error| error.message)
+        if project_native_order {
+            self.reorder_native_tabs(window_id, &ordered)
+                .map_err(|error| error.message)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn restore_tab_drag_window_snapshot(

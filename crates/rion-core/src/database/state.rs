@@ -11,10 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::database::{
-    join_worker_if_finished, legacy,
-    portable_recovery::{self, StorageKind},
-};
+use crate::database::{join_worker_if_finished, portable_recovery};
 use crate::domain::{
     assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
     create_macro, create_role, create_workspace, default_game_browser_settings,
@@ -29,16 +26,15 @@ use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-    GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowSaveRuntimeInputRecord,
-    GameWindowTabRecord, GameWindowUpdateInputRecord, LogLevel, MacroBadgePositionRecord,
-    MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord,
-    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
-    RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord,
-    StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StatePixelBoundsRecord,
-    StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
+    GameWindowCreateInputRecord, GameWindowSaveRuntimeInputRecord, GameWindowUpdateInputRecord,
+    LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
+    MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
+    RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
+    StateCollection, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
+    StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 19;
+pub(crate) const SCHEMA_VERSION: u32 = 20;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -49,14 +45,6 @@ pub(crate) struct OperationJournalRecord {
     pub kind: String,
     pub phase: String,
     pub payload: Value,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct LegacySessionRestoreState {
-    pub role_id: String,
-    pub status: String,
-    pub source_fingerprint: Option<String>,
-    pub cookie_count: u32,
 }
 
 enum Request {
@@ -78,11 +66,6 @@ enum Request {
     OperationJournals(Sender<CoreResult<Vec<OperationJournalRecord>>>),
     OperationJournalPut(OperationJournalRecord, Sender<CoreResult<()>>),
     OperationJournalDelete(String, Sender<CoreResult<()>>),
-    LegacySessionRestoreGet(
-        String,
-        Sender<CoreResult<Option<LegacySessionRestoreState>>>,
-    ),
-    LegacySessionRestorePut(LegacySessionRestoreState, Sender<CoreResult<()>>),
     Shutdown(Sender<()>),
 }
 
@@ -313,24 +296,6 @@ impl StateDatabaseWorker {
         })
     }
 
-    pub(crate) fn legacy_session_restore_get(
-        &self,
-        role_id: String,
-    ) -> CoreResult<Option<LegacySessionRestoreState>> {
-        request(&self.sender, |response| {
-            Request::LegacySessionRestoreGet(role_id, response)
-        })
-    }
-
-    pub(crate) fn legacy_session_restore_put(
-        &self,
-        state: LegacySessionRestoreState,
-    ) -> CoreResult<()> {
-        request(&self.sender, |response| {
-            Request::LegacySessionRestorePut(state, response)
-        })
-    }
-
     pub fn metadata(&self) -> CoreResult<Value> {
         request(&self.sender, Request::Metadata)
     }
@@ -469,12 +434,6 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             }
             Request::OperationJournalDelete(id, response) => {
                 let _ = response.send(delete_operation_journal(&connection, &id));
-            }
-            Request::LegacySessionRestoreGet(role_id, response) => {
-                let _ = response.send(read_legacy_session_restore(&connection, &role_id));
-            }
-            Request::LegacySessionRestorePut(state, response) => {
-                let _ = response.send(put_legacy_session_restore(&connection, &state));
             }
             Request::Shutdown(response) => {
                 let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -1047,68 +1006,6 @@ fn delete_operation_journal(connection: &Connection, id: &str) -> CoreResult<()>
     Ok(())
 }
 
-fn read_legacy_session_restore(
-    connection: &Connection,
-    role_id: &str,
-) -> CoreResult<Option<LegacySessionRestoreState>> {
-    connection
-        .query_row(
-            "SELECT role_id, status, source_fingerprint, cookie_count
-             FROM legacy_session_restores WHERE role_id=?1",
-            params![role_id],
-            |row| {
-                Ok(LegacySessionRestoreState {
-                    role_id: row.get(0)?,
-                    status: row.get(1)?,
-                    source_fingerprint: row.get(2)?,
-                    cookie_count: row.get::<_, u32>(3)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))
-}
-
-fn put_legacy_session_restore(
-    connection: &Connection,
-    state: &LegacySessionRestoreState,
-) -> CoreResult<()> {
-    if !matches!(
-        state.status.as_str(),
-        "pending" | "restored" | "preservedExisting" | "unavailable" | "disabledAfterClear"
-    ) || state
-        .source_fingerprint
-        .as_ref()
-        .is_some_and(|fingerprint| {
-            fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-    {
-        return Err(CoreError::InvalidInput(
-            "Legacy session restore state is invalid.".to_owned(),
-        ));
-    }
-    connection
-        .execute(
-            "INSERT INTO legacy_session_restores(
-               role_id, status, source_fingerprint, cookie_count, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(role_id) DO UPDATE SET
-               status=excluded.status,
-               source_fingerprint=excluded.source_fingerprint,
-               cookie_count=excluded.cookie_count,
-               updated_at=excluded.updated_at",
-            params![
-                state.role_id,
-                state.status,
-                state.source_fingerprint,
-                state.cookie_count,
-                chrono::Utc::now().to_rfc3339(),
-            ],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(())
-}
-
 fn set_operation_journal_phase(connection: &Connection, id: &str, phase: &str) -> CoreResult<()> {
     let changed = connection
         .execute(
@@ -1236,9 +1133,6 @@ fn recover_sqlite_portable_import(
     let Some(plan) = portable_recovery::load(user_data_dir)? else {
         return Ok(false);
     };
-    if plan.storage_kind != StorageKind::Sqlite {
-        return Ok(false);
-    }
     let mut snapshot = read_snapshot(connection)?;
     let object = snapshot
         .as_object_mut()
@@ -1250,6 +1144,43 @@ fn recover_sqlite_portable_import(
 }
 
 pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResult<()> {
+    let schema_table_exists = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+        .is_some();
+    let current_version = if schema_table_exists {
+        connection
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get::<_, Option<u32>>(0)
+            })
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let user_table_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+            [],
+            |row| row.get::<_, u32>(0),
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if current_version == 0 && user_table_count > 0 {
+        return Err(CoreError::UnsupportedDataVersion(
+            "the state database predates supported schema 19".to_owned(),
+        ));
+    }
+    if current_version != 0 && !matches!(current_version, 19 | SCHEMA_VERSION) {
+        return Err(CoreError::UnsupportedDataVersion(format!(
+            "SQLite schema {current_version} is unsupported; only schema 19 or {SCHEMA_VERSION} is accepted"
+        )));
+    }
+
     connection
         .busy_timeout(Duration::from_secs(5))
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -1260,178 +1191,117 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;"
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    connection
-        .execute_batch(
-            "CREATE TABLE IF NOT EXISTS schema_migrations (
-              version INTEGER PRIMARY KEY,
-              applied_at TEXT NOT NULL
-            );",
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let newest_version = connection
-        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-            row.get::<_, Option<u32>>(0)
-        })
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-        .unwrap_or(0);
-    if newest_version > SCHEMA_VERSION {
-        return Err(CoreError::StateDatabase(format!(
-            "database schema {newest_version} is newer than supported schema {SCHEMA_VERSION}"
-        )));
-    }
-    connection
-        .execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS metadata (
-              key TEXT PRIMARY KEY,
-              value TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS games (
-              id TEXT PRIMARY KEY,
-              ordinal INTEGER NOT NULL,
-              name TEXT NOT NULL,
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS game_images (
-              game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-              field TEXT NOT NULL CHECK(field IN ('iconImageDataUrl', 'coverImageDataUrl')),
-              mime TEXT NOT NULL,
-              data BLOB NOT NULL,
-              PRIMARY KEY(game_id, field)
-            );
-            CREATE TABLE IF NOT EXISTS roles (
-              id TEXT PRIMARY KEY,
-              ordinal INTEGER NOT NULL,
-              game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-              name TEXT NOT NULL,
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS role_images (
-              role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-              field TEXT NOT NULL CHECK(field = 'coverImageDataUrl'),
-              mime TEXT NOT NULL,
-              data BLOB NOT NULL,
-              PRIMARY KEY(role_id, field)
-            );
-            CREATE INDEX IF NOT EXISTS roles_game_id_idx ON roles(game_id, ordinal);
-            CREATE TABLE IF NOT EXISTS workspaces (
-              id TEXT PRIMARY KEY,
-              ordinal INTEGER NOT NULL,
-              name TEXT NOT NULL,
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS workspace_slots (
-              workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-              ordinal INTEGER NOT NULL,
-              role_id TEXT REFERENCES roles(id) ON DELETE SET NULL,
-              payload_json TEXT NOT NULL,
-              PRIMARY KEY(workspace_id, ordinal)
-            );
-            CREATE INDEX IF NOT EXISTS workspace_slots_role_idx ON workspace_slots(role_id);
-            CREATE TABLE IF NOT EXISTS game_windows (
-              id TEXT PRIMARY KEY,
-              ordinal INTEGER NOT NULL,
-              name TEXT NOT NULL COLLATE NOCASE,
-              payload_json TEXT NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS game_windows_name_unique_idx
-              ON game_windows(name COLLATE NOCASE);
-            CREATE TABLE IF NOT EXISTS macros (
-              id TEXT PRIMARY KEY,
-              ordinal INTEGER NOT NULL,
-              name TEXT NOT NULL,
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS macro_roles (
-              macro_id TEXT NOT NULL REFERENCES macros(id) ON DELETE CASCADE,
-              ordinal INTEGER NOT NULL,
-              role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-              PRIMARY KEY(macro_id, ordinal)
-            );
-            CREATE INDEX IF NOT EXISTS macro_roles_role_idx ON macro_roles(role_id);
-            CREATE TABLE IF NOT EXISTS macro_steps (
-              macro_id TEXT NOT NULL REFERENCES macros(id) ON DELETE CASCADE,
-              ordinal INTEGER NOT NULL,
-              payload_json TEXT NOT NULL,
-              PRIMARY KEY(macro_id, ordinal)
-            );
-            CREATE TABLE IF NOT EXISTS settings (
-              key TEXT PRIMARY KEY,
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS legal_acceptance (
-              singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-              payload_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS operation_journal (
-              id TEXT PRIMARY KEY,
-              kind TEXT NOT NULL,
-              phase TEXT NOT NULL,
-              payload_json TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS operation_journal_kind_phase_idx
-              ON operation_journal(kind, phase);
-            CREATE TABLE IF NOT EXISTS legacy_session_restores (
-              role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
-              status TEXT NOT NULL CHECK(status IN (
-                'pending', 'restored', 'preservedExisting', 'unavailable', 'disabledAfterClear'
-              )),
-              source_fingerprint TEXT,
-              cookie_count INTEGER NOT NULL DEFAULT 0,
-              updated_at TEXT NOT NULL
-            );
-            ",
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    if newest_version < 1 {
+
+    if current_version == 19 {
         connection
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (1, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
+            .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 2 {
+        let migration = connection.execute_batch(
+            "DROP TABLE IF EXISTS legacy_session_restores;
+             INSERT INTO schema_migrations(version, applied_at)
+             VALUES (20, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
+        );
+        if let Err(error) = migration {
+            let _ = connection.execute_batch("ROLLBACK;");
+            return Err(CoreError::StateDatabase(error.to_string()));
+        }
+        connection
+            .execute_batch("COMMIT;")
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    } else if current_version == 0 {
         connection
             .execute_batch(
                 "BEGIN IMMEDIATE;
+                 CREATE TABLE schema_migrations (
+                   version INTEGER PRIMARY KEY,
+                   applied_at TEXT NOT NULL
+                 );
+                 CREATE TABLE metadata (
+                   key TEXT PRIMARY KEY,
+                   value TEXT NOT NULL
+                 );
                  CREATE TABLE state_revision (
                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
                    revision INTEGER NOT NULL CHECK(revision >= 0)
                  );
-                 INSERT INTO state_revision(singleton, revision)
-                 VALUES (1, COALESCE(
-                   (SELECT CAST(value AS INTEGER) FROM metadata WHERE key='revision'),
-                   0
-                 ));
-                 INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-                 COMMIT;",
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 3 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        repair_required_settings(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (3, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 4 {
-        connection
-            .execute_batch(
-                "BEGIN IMMEDIATE;
-                 CREATE TABLE IF NOT EXISTS operation_journal (
+                 INSERT INTO state_revision(singleton, revision) VALUES (1, 0);
+                 CREATE TABLE games (
+                   id TEXT PRIMARY KEY,
+                   ordinal INTEGER NOT NULL,
+                   name TEXT NOT NULL,
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE TABLE game_images (
+                   game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                   field TEXT NOT NULL CHECK(field IN ('iconImageDataUrl', 'coverImageDataUrl')),
+                   mime TEXT NOT NULL,
+                   data BLOB NOT NULL,
+                   PRIMARY KEY(game_id, field)
+                 );
+                 CREATE TABLE roles (
+                   id TEXT PRIMARY KEY,
+                   ordinal INTEGER NOT NULL,
+                   game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                   name TEXT NOT NULL,
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE TABLE role_images (
+                   role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+                   field TEXT NOT NULL CHECK(field = 'coverImageDataUrl'),
+                   mime TEXT NOT NULL,
+                   data BLOB NOT NULL,
+                   PRIMARY KEY(role_id, field)
+                 );
+                 CREATE INDEX roles_game_id_idx ON roles(game_id, ordinal);
+                 CREATE TABLE workspaces (
+                   id TEXT PRIMARY KEY,
+                   ordinal INTEGER NOT NULL,
+                   name TEXT NOT NULL,
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE TABLE workspace_slots (
+                   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                   ordinal INTEGER NOT NULL,
+                   role_id TEXT REFERENCES roles(id) ON DELETE SET NULL,
+                   payload_json TEXT NOT NULL,
+                   PRIMARY KEY(workspace_id, ordinal)
+                 );
+                 CREATE INDEX workspace_slots_role_idx ON workspace_slots(role_id);
+                 CREATE TABLE game_windows (
+                   id TEXT PRIMARY KEY,
+                   ordinal INTEGER NOT NULL,
+                   name TEXT NOT NULL COLLATE NOCASE,
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE UNIQUE INDEX game_windows_name_unique_idx ON game_windows(name COLLATE NOCASE);
+                 CREATE TABLE macros (
+                   id TEXT PRIMARY KEY,
+                   ordinal INTEGER NOT NULL,
+                   name TEXT NOT NULL,
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE TABLE macro_roles (
+                   macro_id TEXT NOT NULL REFERENCES macros(id) ON DELETE CASCADE,
+                   ordinal INTEGER NOT NULL,
+                   role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+                   PRIMARY KEY(macro_id, ordinal)
+                 );
+                 CREATE INDEX macro_roles_role_idx ON macro_roles(role_id);
+                 CREATE TABLE macro_steps (
+                   macro_id TEXT NOT NULL REFERENCES macros(id) ON DELETE CASCADE,
+                   ordinal INTEGER NOT NULL,
+                   payload_json TEXT NOT NULL,
+                   PRIMARY KEY(macro_id, ordinal)
+                 );
+                 CREATE TABLE settings (
+                   key TEXT PRIMARY KEY,
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE TABLE legal_acceptance (
+                   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                   payload_json TEXT NOT NULL
+                 );
+                 CREATE TABLE operation_journal (
                    id TEXT PRIMARY KEY,
                    kind TEXT NOT NULL,
                    phase TEXT NOT NULL,
@@ -1439,576 +1309,55 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                    created_at TEXT NOT NULL,
                    updated_at TEXT NOT NULL
                  );
-                 CREATE INDEX IF NOT EXISTS operation_journal_kind_phase_idx
-                   ON operation_journal(kind, phase);
+                 CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (20, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 5 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        strip_workspace_resource_policies(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (5, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 6 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        migrate_browser_engine_contracts(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (6, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 7 {
-        connection
-            .execute_batch(
-                "BEGIN IMMEDIATE;
-                 CREATE TABLE IF NOT EXISTS engine_compatibility_cache (
-                   cache_key TEXT PRIMARY KEY,
-                   game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-                   engine TEXT NOT NULL,
-                   payload_json TEXT NOT NULL,
-                   updated_at TEXT NOT NULL
-                 );
-                 CREATE INDEX IF NOT EXISTS engine_compatibility_cache_game_idx
-                   ON engine_compatibility_cache(game_id, engine);
-                 INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-                 COMMIT;",
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 8 {
-        connection
-            .execute_batch(
-                "BEGIN IMMEDIATE;
-                 CREATE TABLE IF NOT EXISTS role_session_migrations (
-                   role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
-                   payload_json TEXT NOT NULL,
-                   updated_at TEXT NOT NULL
-                 );
-                 INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-                 COMMIT;",
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 9 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        migrate_system_only_browser_engine_contracts(&transaction)?;
-        transaction
-            .execute_batch(
-                "DELETE FROM operation_journal WHERE kind='role_session_migration_v1';
-                 DELETE FROM engine_compatibility_cache WHERE engine='electron';
-                 DROP TABLE IF EXISTS role_session_migrations;",
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (9, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 10 {
-        connection
-            .execute_batch(
-                "BEGIN IMMEDIATE;
-                 CREATE TABLE IF NOT EXISTS legacy_session_restores (
-                   role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
-                   status TEXT NOT NULL CHECK(status IN (
-                     'pending', 'restored', 'preservedExisting', 'unavailable', 'disabledAfterClear'
-                   )),
-                   source_fingerprint TEXT,
-                   cookie_count INTEGER NOT NULL DEFAULT 0,
-                   updated_at TEXT NOT NULL
-                 );
-                 INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (10, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-                 COMMIT;",
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 11 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        strip_workspace_target_displays(&transaction)?;
-        migrate_runtime_restore_to_game_windows(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (11, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 12 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        remove_browser_engine_option_contracts(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (12, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 13 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        add_local_storage_sync_contracts(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (13, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 14 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        remove_retired_graphics_settings(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (14, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 15 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        remove_workspace_browser_zoom_contracts(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (15, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 16 {
-        connection
-            .execute_batch(
-                "BEGIN IMMEDIATE;
-                 DROP TABLE IF EXISTS compatibility_reports;
-                 DROP TABLE IF EXISTS engine_compatibility_cache;
-                 INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (16, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-                 COMMIT;",
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 17 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        migrate_browser_font_profiles(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (17, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 18 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        migrate_default_browser_fonts(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (18, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    if newest_version < 19 {
-        let transaction = connection
-            .unchecked_transaction()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        migrate_default_browser_fonts(&transaction)?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (19, ?1)",
-                params![chrono::Utc::now().to_rfc3339()],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        transaction
-            .commit()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        seed_builtin_games(connection)?;
+        repair_required_settings(connection)?;
     }
     repair_optional_log_level(connection)?;
     Ok(())
 }
 
-fn migrate_default_browser_fonts(transaction: &Transaction<'_>) -> CoreResult<()> {
-    let payload = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
+fn seed_builtin_games(connection: &Connection) -> CoreResult<()> {
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    for (ordinal, (id, key, name, launch_url, local_storage_sync_keys)) in [
+        (
+            "builtin-flyff-universe",
+            "flyff-universe",
+            "Flyff Universe",
+            "https://universe.flyff.com/play",
+            vec!["game_client_settings"],
+        ),
+        (
+            "builtin-feifei-infinite-universe",
+            "feifei-infinite-universe",
+            "飞飞：无限宇宙",
+            "https://ffcli.ruiwoo.cn/",
+            vec![],
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let payload = serde_json::to_string(&json!({
+            "id": id,
+            "source": "builtin",
+            "builtinKey": key,
+            "name": name,
+            "defaultLaunchUrl": launch_url,
+            "localStorageSyncKeys": local_storage_sync_keys,
+            "createdAt": timestamp,
+            "updatedAt": timestamp,
+        }))
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let Some(payload) = payload else {
-        return Ok(());
-    };
-    let settings = serde_json::from_str::<GameBrowserSettingsRecord>(&payload)
-        .map(normalize_game_browser_settings)
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    transaction
-        .execute(
-            "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-            params![
-                serde_json::to_string(&settings)
-                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-            ],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(())
-}
-
-fn migrate_browser_font_profiles(transaction: &Transaction<'_>) -> CoreResult<()> {
-    let payload = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let Some(payload) = payload else {
-        return Ok(());
-    };
-    let mut value = parse_payload(&payload)?;
-    let settings = value.as_object_mut().ok_or_else(|| {
-        CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
-    })?;
-    let fonts = settings
-        .entry("fonts".to_owned())
-        .or_insert_with(|| json!({"mode":"default"}))
-        .as_object_mut()
-        .ok_or_else(|| {
-            CoreError::StateDatabase("browser font settings must be an object".to_owned())
-        })?;
-    if fonts.contains_key("slots") {
-        return Ok(());
-    }
-
-    let mode = fonts
-        .get("mode")
-        .and_then(Value::as_str)
-        .filter(|value| matches!(*value, "default" | "custom"))
-        .unwrap_or("default")
-        .to_owned();
-    let legacy = fonts
-        .get("families")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let mut slots = serde_json::Map::new();
-    let family_selection = |family: &str| json!({"source":"system","family":family});
-    if mode == "custom" {
-        let proportional = ["standard", "sansserif", "serif"]
-            .into_iter()
-            .find_map(|key| legacy.get(key).and_then(Value::as_str))
-            .map(str::trim)
-            .filter(|family| !family.is_empty());
-        if let Some(family) = proportional {
-            for slot in ["cjk", "latin", "numeric"] {
-                slots.insert(slot.to_owned(), family_selection(family));
-            }
-        }
-        if let Some(family) = legacy
-            .get("fixed")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|family| !family.is_empty())
-        {
-            slots.insert("monospace".to_owned(), family_selection(family));
-        }
-        if let Some(family) = legacy
-            .get("math")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|family| !family.is_empty())
-        {
-            slots.insert("math".to_owned(), family_selection(family));
-        }
-    }
-    fonts.insert("mode".to_owned(), json!(mode));
-    fonts.insert("cjkVariant".to_owned(), json!("auto"));
-    fonts.insert("slots".to_owned(), Value::Object(slots));
-    fonts.remove("families");
-    fonts.remove("presetId");
-    transaction
-        .execute(
-            "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-            params![serialize_payload(&value)?],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(())
-}
-
-fn remove_workspace_browser_zoom_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
-    rewrite_entity_payloads(transaction, "workspaces", |object| {
-        object.remove("browserZoomMode");
-        object.remove("browserZoomPercent");
-    })
-}
-
-fn remove_retired_graphics_settings(transaction: &Transaction<'_>) -> CoreResult<()> {
-    let payload = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    if let Some(payload) = payload {
-        let mut value = parse_payload(&payload)?;
-        let object = value.as_object_mut().ok_or_else(|| {
-            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
-        })?;
-        object.remove("graphics");
-        transaction
+        connection
             .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                params![serialize_payload(&value)?],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    Ok(())
-}
-
-fn add_local_storage_sync_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
-    rewrite_entity_payloads(transaction, "games", |object| {
-        if !object.contains_key("localStorageSyncKeys") {
-            let defaults =
-                if object.get("id").and_then(Value::as_str) == Some("builtin-flyff-universe") {
-                    json!(["game_client_settings"])
-                } else {
-                    json!([])
-                };
-            object.insert("localStorageSyncKeys".to_owned(), defaults);
-        }
-    })
-}
-
-fn remove_browser_engine_option_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
-    rewrite_entity_payloads(transaction, "games", |object| {
-        object.remove("browserEngine");
-    })?;
-    rewrite_entity_payloads(transaction, "roles", |object| {
-        object.remove("browserEnginePin");
-    })?;
-    rewrite_entity_payloads(transaction, "workspaces", |object| {
-        object.remove("browserEngine");
-    })?;
-
-    let payload = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    if let Some(payload) = payload {
-        let mut value = parse_payload(&payload)?;
-        let object = value.as_object_mut().ok_or_else(|| {
-            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
-        })?;
-        object.remove("browserEngine");
-        transaction
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                params![serialize_payload(&value)?],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    Ok(())
-}
-
-fn migrate_system_only_browser_engine_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
-    rewrite_entity_payloads(transaction, "games", |object| {
-        object.remove("browserLaunchMode");
-        if !matches!(
-            object.get("browserEngine").and_then(Value::as_str),
-            Some("inherit" | "system")
-        ) {
-            object.insert("browserEngine".to_owned(), json!("system"));
-        }
-    })?;
-    rewrite_entity_payloads(transaction, "roles", |object| {
-        object.remove("browserEnginePin");
-        object.remove("browserSessionSource");
-        object.remove("preferredBrowserLaunchMode");
-    })?;
-    rewrite_entity_payloads(transaction, "workspaces", |object| {
-        object.remove("browserLaunchMode");
-        if !matches!(
-            object.get("browserEngine").and_then(Value::as_str),
-            Some("inherit" | "system")
-        ) {
-            object.insert("browserEngine".to_owned(), json!("system"));
-        }
-    })?;
-
-    let payload = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    if let Some(payload) = payload {
-        let mut value = parse_payload(&payload)?;
-        let object = value.as_object_mut().ok_or_else(|| {
-            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
-        })?;
-        object.remove("launchMode");
-        object.insert("browserEngine".to_owned(), json!("system"));
-        if let Some(network) = object.get_mut("network").and_then(Value::as_object_mut) {
-            network.remove("cdnCompatibility");
-        }
-        transaction
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                params![serialize_payload(&value)?],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    Ok(())
-}
-
-fn migrate_browser_engine_contracts(transaction: &Transaction<'_>) -> CoreResult<()> {
-    rewrite_entity_payloads(transaction, "games", |object| {
-        object
-            .entry("browserEngine".to_owned())
-            .or_insert_with(|| json!("inherit"));
-    })?;
-    rewrite_entity_payloads(transaction, "roles", |object| {
-        object.remove("browserEnginePin");
-        object.remove("browserSessionSource");
-        object.remove("preferredBrowserLaunchMode");
-    })?;
-    rewrite_entity_payloads(transaction, "workspaces", |object| {
-        object
-            .entry("browserEngine".to_owned())
-            .or_insert_with(|| json!("system"));
-    })?;
-
-    let payload = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    if let Some(payload) = payload {
-        let mut value = parse_payload(&payload)?;
-        let object = value.as_object_mut().ok_or_else(|| {
-            CoreError::StateDatabase("game browser settings payload must be an object".to_owned())
-        })?;
-        object
-            .entry("browserEngine".to_owned())
-            .or_insert_with(|| json!("system"));
-        transaction
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                params![serialize_payload(&value)?],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    Ok(())
-}
-
-fn rewrite_entity_payloads(
-    transaction: &Transaction<'_>,
-    table: &str,
-    mut rewrite: impl FnMut(&mut Map<String, Value>),
-) -> CoreResult<()> {
-    if !matches!(table, "games" | "roles" | "workspaces") {
-        return Err(CoreError::Internal(
-            "invalid browser engine migration table".to_owned(),
-        ));
-    }
-    let rows = {
-        let mut statement = transaction
-            .prepare(&format!(
-                "SELECT id, payload_json FROM {table} ORDER BY ordinal"
-            ))
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-    };
-    for (id, payload) in rows {
-        let mut value = parse_payload(&payload)?;
-        let object = value.as_object_mut().ok_or_else(|| {
-            CoreError::StateDatabase(format!("{table} payload must be an object"))
-        })?;
-        rewrite(object);
-        transaction
-            .execute(
-                &format!("UPDATE {table} SET payload_json=?1 WHERE id=?2"),
-                params![serialize_payload(&value)?, id],
+                "INSERT INTO games(id, ordinal, name, payload_json) VALUES (?1, ?2, ?3, ?4)",
+                params![id, ordinal as i64, name, payload],
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
@@ -2032,152 +1381,6 @@ fn repair_optional_log_level(connection: &Connection) -> CoreResult<()> {
             .execute("DELETE FROM settings WHERE key='logLevel'", [])
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
-    Ok(())
-}
-
-fn strip_workspace_resource_policies(connection: &Connection) -> CoreResult<()> {
-    let mut statement = connection
-        .prepare("SELECT id, payload_json FROM workspaces")
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    drop(statement);
-
-    for (id, payload) in rows {
-        let mut value = parse_payload(&payload)?;
-        let object = value.as_object_mut().ok_or_else(|| {
-            CoreError::Migration(format!("stored workspace {id} must be an object"))
-        })?;
-        if object.remove("resourcePolicy").is_none() {
-            continue;
-        }
-        connection
-            .execute(
-                "UPDATE workspaces SET payload_json=?1 WHERE id=?2",
-                params![serialize_payload(&value)?, id],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
-    Ok(())
-}
-
-fn strip_workspace_target_displays(connection: &Transaction<'_>) -> CoreResult<()> {
-    rewrite_entity_payloads(connection, "workspaces", |object| {
-        object.remove("targetDisplay");
-    })
-}
-
-fn migrate_runtime_restore_to_game_windows(transaction: &Transaction<'_>) -> CoreResult<()> {
-    let existing = transaction
-        .query_row("SELECT COUNT(*) FROM game_windows", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    if existing > 0 {
-        return Ok(());
-    }
-    let Some(payload) = transaction
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='runtimeRestoreSession'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-    else {
-        return Ok(());
-    };
-    let mut session =
-        serde_json::from_str::<RuntimeRestoreSessionRecord>(&payload).map_err(|error| {
-            CoreError::Migration(format!("runtime restore session is invalid: {error}"))
-        })?;
-    if session.windows.is_empty() {
-        return Ok(());
-    }
-    let mut game_windows = Vec::new();
-    let mut migrated_ids = HashMap::new();
-    for (ordinal, saved) in session.windows.drain(..).enumerate() {
-        let id = uuid::Uuid::new_v4().to_string();
-        migrated_ids.insert(saved.id.clone(), id.clone());
-        let work_area = saved
-            .target_display
-            .fingerprint
-            .as_ref()
-            .map(|fingerprint| fingerprint.bounds.clone())
-            .unwrap_or(StatePixelBoundsRecord {
-                x: 0,
-                y: 0,
-                width: 1200,
-                height: 800,
-            });
-        let width = ((work_area.width as f64 * 0.8).round() as i32).max(640);
-        let height = ((work_area.height as f64 * 0.8).round() as i32).max(480);
-        let mut tabs = saved
-            .tabs
-            .into_iter()
-            .map(|tab| GameWindowTabRecord {
-                id: uuid::Uuid::new_v4().to_string(),
-                tab_type: tab.tab_type,
-                source_id: tab.source_id,
-                name: tab.name,
-                role_ids: tab.role_ids,
-                hidden: tab.hidden,
-                audio_muted: tab.audio_muted,
-                role_views: Vec::new(),
-            })
-            .collect::<Vec<_>>();
-        let active_tab_id = saved.active_source_id.as_ref().and_then(|source_id| {
-            tabs.iter()
-                .find(|tab| &tab.source_id == source_id && !tab.hidden)
-                .map(|tab| tab.id.clone())
-        });
-        let now = chrono::Utc::now().to_rfc3339();
-        game_windows.push(StateGameWindowRecord {
-            id,
-            name: format!("Game Window {}", ordinal + 1),
-            target_display: saved.target_display,
-            placement: GameWindowPlacementRecord {
-                normal_bounds: StatePixelBoundsRecord {
-                    x: work_area.x + (work_area.width - width) / 2,
-                    y: work_area.y + (work_area.height - height) / 2,
-                    width,
-                    height,
-                },
-                saved_work_area: work_area,
-                presentation: "normal".to_owned(),
-            },
-            tabs: std::mem::take(&mut tabs),
-            active_tab_id,
-            created_at: now.clone(),
-            updated_at: now,
-        });
-    }
-    validate_game_window_collection(&game_windows)?;
-    insert_game_windows(
-        transaction,
-        &game_windows
-            .iter()
-            .map(json_value)
-            .collect::<CoreResult<Vec<_>>>()?,
-    )?;
-    session.last_focused_window_id = session
-        .last_focused_window_id
-        .as_ref()
-        .and_then(|id| migrated_ids.get(id))
-        .cloned();
-    session.schema_version = 2;
-    session.updated_at = chrono::Utc::now().to_rfc3339();
-    transaction
-        .execute(
-            "UPDATE settings SET payload_json=?1 WHERE key='runtimeRestoreSession'",
-            params![serialize_payload(&json_value(&session)?)?],
-        )
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(())
 }
 
@@ -2240,21 +1443,6 @@ fn repair_required_settings(connection: &Connection) -> CoreResult<()> {
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
-    Ok(())
-}
-
-pub(super) fn import_legacy_files(
-    connection: &mut Connection,
-    user_data_dir: &Path,
-) -> CoreResult<()> {
-    let snapshot = legacy::build_snapshot(user_data_dir)?;
-    let transaction = connection
-        .transaction()
-        .map_err(|error| CoreError::Migration(error.to_string()))?;
-    replace_snapshot_transaction(&transaction, &snapshot)?;
-    transaction
-        .commit()
-        .map_err(|error| CoreError::Migration(error.to_string()))?;
     Ok(())
 }
 
@@ -3211,152 +2399,6 @@ mod tests {
     }
 
     #[test]
-    fn schema_fourteen_removes_only_graphics_and_rolls_back_invalid_payloads() {
-        let connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        let legacy = json!({
-            "fonts":{"mode":"custom","families":{"standard":"Inter"}},
-            "graphics":{"mode":"experimental","backend":{"windows":"vulkan"}},
-            "macroBadgePosition":{"horizontalAlign":"left","horizontalMarginPx":16,"topPx":64},
-            "workspace":{"background":"black","gap":8}
-        });
-        connection
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                [serde_json::to_string(&legacy).unwrap()],
-            )
-            .unwrap();
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version>=14", [])
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-        let migrated: Value = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(migrated.get("graphics").is_none());
-        assert_eq!(migrated["fonts"]["mode"], "custom");
-        assert_eq!(migrated["fonts"]["cjkVariant"], "auto");
-        for slot in ["cjk", "latin", "numeric"] {
-            assert_eq!(
-                migrated["fonts"]["slots"][slot],
-                json!({"source":"system","family":"Inter"})
-            );
-        }
-        assert!(migrated["fonts"].get("families").is_none());
-        assert_eq!(migrated["macroBadgePosition"], legacy["macroBadgePosition"]);
-        assert_eq!(migrated["workspace"], legacy["workspace"]);
-
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version>=14", [])
-            .unwrap();
-        connection
-            .execute(
-                "UPDATE settings SET payload_json='not-json' WHERE key='gameBrowserSettings'",
-                [],
-            )
-            .unwrap();
-        assert!(create_schema(&connection, false).is_err());
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-            "not-json"
-        );
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT COUNT(*) FROM schema_migrations WHERE version=14",
-                    [],
-                    |row| row.get::<_, u32>(0),
-                )
-                .unwrap(),
-            0
-        );
-    }
-
-    #[test]
-    fn schema_fifteen_removes_only_workspace_zoom_and_preserves_slot_override() {
-        let connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        connection
-            .execute(
-                "INSERT INTO workspaces(id, ordinal, name, payload_json) VALUES (?1, 0, ?2, ?3)",
-                params![
-                    "workspace-zoom",
-                    "Zoom",
-                    json!({
-                        "id":"workspace-zoom",
-                        "name":"Zoom",
-                        "template":"single",
-                        "browserZoomMode":"fixed",
-                        "browserZoomPercent":90,
-                        "marker":"preserved",
-                        "createdAt":"2026-01-01T00:00:00Z",
-                        "updatedAt":"2026-01-01T00:00:00Z"
-                    })
-                    .to_string()
-                ],
-            )
-            .unwrap();
-        connection
-            .execute(
-                "INSERT INTO workspace_slots(workspace_id, ordinal, role_id, payload_json) VALUES (?1, 0, NULL, ?2)",
-                params![
-                    "workspace-zoom",
-                    json!({
-                        "id":"slot-1",
-                        "browserZoomPercent":120,
-                        "rect":{"x":0,"y":0,"width":1,"height":1}
-                    })
-                    .to_string()
-                ],
-            )
-            .unwrap();
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version>=15", [])
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        let workspace: Value = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM workspaces WHERE id='workspace-zoom'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        let slot: Value = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM workspace_slots WHERE workspace_id='workspace-zoom'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(workspace.get("browserZoomMode").is_none());
-        assert!(workspace.get("browserZoomPercent").is_none());
-        assert_eq!(workspace["marker"], "preserved");
-        assert_eq!(slot["browserZoomPercent"], 120);
-    }
-
-    #[test]
     fn snapshot_round_trips_in_one_transaction() {
         let directory = tempdir().unwrap();
         let mut connection = Connection::open(directory.path().join("state.sqlite3")).unwrap();
@@ -3508,7 +2550,7 @@ mod tests {
             let settings: GameBrowserSettingsRecord = serde_json::from_value(json!({
                 "fonts":{
                     "mode":"custom",
-                    "families":{"fixed":"  Courier   New  ","bad":"Ignored"}
+                    "slots":{"monospace":{"source":"system","family":"  Courier   New  "}}
                 },
                 "graphics":{"mode":"automatic"},
                 "browserEngine":"system",
@@ -3536,7 +2578,6 @@ mod tests {
                 serde_json::to_value(&stored.fonts).unwrap()["slots"]["monospace"],
                 json!({"source":"system","family":"Courier New"})
             );
-            assert!(stored.fonts.families.is_empty());
             let mut changed_copy = stored.clone();
             changed_copy.fonts.slots.insert(
                 "latin".to_owned(),
@@ -3824,197 +2865,6 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_the_version_one_database_created_by_the_initial_rust_release() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-                 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (1, 'legacy');
-                 INSERT INTO metadata(key, value) VALUES ('revision', '41');",
-            )
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        assert_eq!(
-            connection
-                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                    row.get::<_, u32>(0)
-                })
-                .unwrap(),
-            SCHEMA_VERSION
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT revision FROM state_revision", [], |row| {
-                    row.get::<_, i64>(0)
-                })
-                .unwrap(),
-            41
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT COUNT(*) FROM settings", [], |row| row
-                    .get::<_, u32>(0))
-                .unwrap(),
-            3
-        );
-        let macro_settings: MacroSettingsRecord = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='macroSettings'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(macro_settings.key_hold_ms, 30);
-    }
-
-    #[test]
-    fn version_three_repairs_missing_and_corrupt_required_settings() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-                 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                 CREATE TABLE state_revision(
-                   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-                   revision INTEGER NOT NULL CHECK(revision >= 0)
-                 );
-                 CREATE TABLE settings(key TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (1, 'legacy');
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (2, 'legacy');
-                 INSERT INTO state_revision(singleton, revision) VALUES (1, 9);
-                 INSERT INTO settings(key, payload_json)
-                 VALUES ('gameBrowserSettings', '{\"broken\":true}');
-                 INSERT INTO settings(key, payload_json)
-                 VALUES ('runtimeWindowPreferences', '{\"alwaysShowToolbarInFullScreen\":true}');",
-            )
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        let macros: MacroSettingsRecord = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='macroSettings'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        let preferences: RuntimeWindowPreferencesRecord = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='runtimeWindowPreferences'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(macros.key_hold_ms, 30);
-        assert!(!preferences.always_hide_tab_close_button);
-        assert!(preferences.always_show_toolbar_in_full_screen);
-        assert_eq!(
-            connection
-                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                    row.get::<_, u32>(0)
-                })
-                .unwrap(),
-            SCHEMA_VERSION
-        );
-    }
-
-    #[test]
-    fn upgrades_schema_three_with_the_versioned_operation_journal() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (1, 'legacy');
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (2, 'legacy');
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (3, 'legacy');",
-            )
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        assert_eq!(
-            connection
-                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                    row.get::<_, u32>(0)
-                })
-                .unwrap(),
-            SCHEMA_VERSION
-        );
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master
-                     WHERE type='table' AND name='operation_journal'",
-                    [],
-                    |row| row.get::<_, u32>(0)
-                )
-                .unwrap(),
-            1
-        );
-    }
-
-    #[test]
-    fn version_five_removes_persisted_workspace_resource_policies() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (1, 'legacy');
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (2, 'legacy');
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (3, 'legacy');
-                 INSERT INTO schema_migrations(version, applied_at) VALUES (4, 'legacy');
-                 CREATE TABLE workspaces(
-                   id TEXT PRIMARY KEY,
-                   ordinal INTEGER NOT NULL,
-                   name TEXT NOT NULL,
-                   payload_json TEXT NOT NULL
-                 );
-                 INSERT INTO workspaces(id, ordinal, name, payload_json)
-                 VALUES (
-                   'workspace-1',
-                   0,
-                   'Legacy',
-                   '{\"id\":\"workspace-1\",\"name\":\"Legacy\",\"resourcePolicy\":{\"mode\":\"unrestricted\"}}'
-                 );",
-            )
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        let payload: Value = serde_json::from_str(
-            &connection
-                .query_row(
-                    "SELECT payload_json FROM workspaces WHERE id='workspace-1'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(payload.get("resourcePolicy").is_none());
-        assert_eq!(
-            connection
-                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                    row.get::<_, u32>(0)
-                })
-                .unwrap(),
-            SCHEMA_VERSION
-        );
-    }
-
-    #[test]
     fn role_delete_commits_relationship_cleanup_and_journal_phase_together() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
@@ -4094,52 +2944,6 @@ mod tests {
     }
 
     #[test]
-    fn schema_thirteen_adds_flyff_local_storage_sync_defaults_only() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        replace_snapshot(
-            &mut connection,
-            &json!({
-                "games":[
-                    {"id":"builtin-flyff-universe","source":"builtin","builtinKey":"flyff-universe","name":"Flyff Universe","defaultLaunchUrl":"https://universe.flyff.com/play","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
-                    {"id":"custom","source":"custom","name":"Custom","defaultLaunchUrl":"https://example.test/play","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
-                ],
-                "roles":[],"launchWorkspaces":[],"macros":[],"compatibilityReports":[]
-            }),
-        )
-        .unwrap();
-        for id in ["builtin-flyff-universe", "custom"] {
-            let payload: String = connection
-                .query_row("SELECT payload_json FROM games WHERE id=?1", [id], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-            let mut value: Value = serde_json::from_str(&payload).unwrap();
-            value
-                .as_object_mut()
-                .unwrap()
-                .remove("localStorageSyncKeys");
-            connection
-                .execute(
-                    "UPDATE games SET payload_json=?2 WHERE id=?1",
-                    rusqlite::params![id, serde_json::to_string(&value).unwrap()],
-                )
-                .unwrap();
-        }
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version>=13", [])
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-        let snapshot = read_snapshot(&connection).unwrap();
-        assert_eq!(
-            snapshot["games"][0]["localStorageSyncKeys"],
-            json!(["game_client_settings"])
-        );
-        assert_eq!(snapshot["games"][1]["localStorageSyncKeys"], json!([]));
-    }
-
-    #[test]
     fn bulk_game_delete_classifies_once() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
@@ -4208,408 +3012,117 @@ mod tests {
             )
             .unwrap();
 
-        assert!(
-            create_schema(&connection, false)
-                .unwrap_err()
-                .to_string()
-                .contains("newer than supported")
-        );
+        let error = create_schema(&connection, false).unwrap_err();
+        assert_eq!(error.code(), "CORE_DATA_VERSION_UNSUPPORTED");
     }
 
     #[test]
-    fn corrupt_optional_legacy_files_do_not_block_migration() {
-        let directory = tempdir().unwrap();
-        fs::write(directory.path().join("games.json"), r#"{"games":[]}"#).unwrap();
-        fs::write(
-            directory.path().join("game-browser-settings.json"),
-            "not-json",
-        )
-        .unwrap();
-        fs::write(directory.path().join("game-compatibility.json"), "not-json").unwrap();
-        let mut connection = Connection::open_in_memory().unwrap();
+    fn upgrades_schema_nineteen_atomically_and_preserves_current_data() {
+        let connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
-
-        import_legacy_files(&mut connection, directory.path()).unwrap();
-
-        let snapshot = read_snapshot(&connection).unwrap();
-        assert!(snapshot.get("compatibilityReports").is_none());
-        assert!(
-            snapshot["gameBrowserSettings"]
-                .get("browserEngine")
-                .is_none()
-        );
-        assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
-    }
-
-    #[test]
-    fn schema_nine_normalizes_legacy_browser_engines_and_removes_retired_fields() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        replace_snapshot(
-            &mut connection,
-            &json!({
-                "games":[{
-                    "id":"g1","source":"custom","name":"Game",
-                    "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                }],
-                "roles":[{
-                    "id":"r1","gameId":"g1","name":"Role",
-                    "launchUrl":"https://example.test/play","notes":"",
-                    "browserSessionSource":"embedded",
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                }],
-                "launchWorkspaces":[{
-                    "id":"w1","name":"Workspace","template":"single",
-                    "browserLaunchMode":"inherit","browserZoomMode":"fixed",
-                    "browserZoomPercent":100,
-                    "slots":[{"id":"slot-1","roleId":"r1","rect":{"x":0,"y":0,"width":1,"height":1}}],
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                }],
-                "macros":[],
-                "compatibilityReports":[],
-                "gameBrowserSettings":{
-                    "fonts":{"mode":"default","families":{}},
-                    "launchMode":"auto",
-                    "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
-                    "network":{"cdnCompatibility":{"mode":"auto"},"proxy":{"mode":"system","server":""}},
-                    "workspace":{"background":"material","gap":4}
-                }
-            }),
-        )
-        .unwrap();
         connection
-            .execute("DELETE FROM schema_migrations WHERE version>=6", [])
+            .execute_batch(
+                "DELETE FROM schema_migrations WHERE version=20;
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
+                 CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
+                 INSERT INTO legacy_session_restores(id) VALUES ('retired');
+                 INSERT INTO metadata(key, value) VALUES ('preserved', 'yes');",
+            )
             .unwrap();
 
         create_schema(&connection, false).unwrap();
 
-        let snapshot = read_snapshot(&connection).unwrap();
-        assert!(snapshot["games"][0].get("browserEngine").is_none());
-        assert!(snapshot["games"][0].get("browserLaunchMode").is_none());
-        assert!(snapshot["roles"][0].get("browserSessionSource").is_none());
-        assert!(snapshot["roles"][0].get("browserEnginePin").is_none());
-        assert!(
-            snapshot["roles"][0]
-                .get("preferredBrowserLaunchMode")
-                .is_none()
-        );
-        assert!(
-            snapshot["launchWorkspaces"][0]
-                .get("browserEngine")
-                .is_none()
-        );
-        assert!(
-            snapshot["launchWorkspaces"][0]
-                .get("browserLaunchMode")
-                .is_none()
-        );
-        assert!(
-            snapshot["gameBrowserSettings"]
-                .get("browserEngine")
-                .is_none()
-        );
-        assert!(snapshot["gameBrowserSettings"].get("launchMode").is_none());
-        assert!(
-            snapshot["gameBrowserSettings"]["network"]
-                .get("cdnCompatibility")
-                .is_none()
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row
+                    .get::<_, u32>(
+                    0
+                ))
+                .unwrap(),
+            20
         );
         assert_eq!(
             connection
                 .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='role_session_migrations'",
+                    "SELECT value FROM metadata WHERE key='preserved'",
                     [],
-                    |row| row.get::<_, i64>(0),
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "yes"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='legacy_session_restores'",
+                    [],
+                    |row| row.get::<_, u32>(0),
                 )
                 .unwrap(),
             0
         );
-        assert_eq!(
-            connection
-                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                    row.get::<_, u32>(0)
-                })
-                .unwrap(),
-            SCHEMA_VERSION
-        );
     }
 
     #[test]
-    fn schema_ten_adds_validated_one_time_legacy_session_restore_state() {
-        let mut connection = Connection::open_in_memory().unwrap();
+    fn schema_nineteen_upgrade_failure_rolls_back() {
+        let connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=10;
-                 DROP TABLE legacy_session_restores;",
+                "DELETE FROM schema_migrations WHERE version=20;
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
+                 CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
+                 CREATE TRIGGER reject_schema_twenty BEFORE INSERT ON schema_migrations
+                 WHEN NEW.version=20 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
             )
             .unwrap();
 
-        create_schema(&connection, false).unwrap();
-        replace_snapshot(
-            &mut connection,
-            &json!({
-                "games":[{
-                    "id":"g1","source":"custom","name":"Game",
-                    "defaultLaunchUrl":"https://example.test/play","browserEngine":"inherit",
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                }],
-                "roles":[{
-                    "id":"r1","gameId":"g1","name":"Role",
-                    "launchUrl":"https://example.test/play","notes":"",
-                    "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-                }],
-                "launchWorkspaces":[],"macros":[],"compatibilityReports":[]
-            }),
-        )
-        .unwrap();
-
-        let fingerprint = "a".repeat(64);
-        for status in [
-            "pending",
-            "restored",
-            "preservedExisting",
-            "unavailable",
-            "disabledAfterClear",
-        ] {
-            put_legacy_session_restore(
-                &connection,
-                &LegacySessionRestoreState {
-                    role_id: "r1".to_owned(),
-                    status: status.to_owned(),
-                    source_fingerprint: Some(fingerprint.clone()),
-                    cookie_count: 7,
-                },
-            )
-            .unwrap();
-            let stored = read_legacy_session_restore(&connection, "r1")
-                .unwrap()
-                .unwrap();
-            assert_eq!(stored.status, status);
-            assert_eq!(stored.cookie_count, 7);
-            assert_eq!(
-                stored.source_fingerprint.as_deref(),
-                Some(fingerprint.as_str())
-            );
-        }
-        assert!(
-            put_legacy_session_restore(
-                &connection,
-                &LegacySessionRestoreState {
-                    role_id: "r1".to_owned(),
-                    status: "retryForever".to_owned(),
-                    source_fingerprint: None,
-                    cookie_count: 0,
-                },
-            )
-            .is_err()
+        assert!(create_schema(&connection, false).is_err());
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row
+                    .get::<_, u32>(
+                    0
+                ))
+                .unwrap(),
+            19
         );
         assert_eq!(
             connection
-                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                    row.get::<_, u32>(0)
-                })
-                .unwrap(),
-            SCHEMA_VERSION
-        );
-    }
-
-    #[test]
-    fn schema_sixteen_removes_retired_compatibility_storage() {
-        let connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        for table in ["compatibility_reports", "engine_compatibility_cache"] {
-            let count = connection
                 .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                    [table],
-                    |row| row.get::<_, u32>(0),
-                )
-                .unwrap();
-            assert_eq!(count, 0);
-        }
-        connection
-            .execute_batch(
-                "CREATE TABLE compatibility_reports(game_id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, payload_json TEXT NOT NULL);
-                 CREATE TABLE engine_compatibility_cache(cache_key TEXT PRIMARY KEY, game_id TEXT NOT NULL, engine TEXT NOT NULL, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
-                 CREATE INDEX engine_compatibility_cache_game_idx ON engine_compatibility_cache(game_id, engine);
-                 DELETE FROM schema_migrations WHERE version>=16;",
-            )
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        for table in ["compatibility_reports", "engine_compatibility_cache"] {
-            let count = connection
-                .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                    [table],
-                    |row| row.get::<_, u32>(0),
-                )
-                .unwrap();
-            assert_eq!(count, 0);
-        }
-    }
-
-    #[test]
-    fn schema_seventeen_migrates_legacy_browser_font_roles_to_routed_slots() {
-        let connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        let legacy = json!({
-            "fonts": {
-                "mode": "custom",
-                "families": {
-                    "standard": "Noto Sans TC",
-                    "fixed": "Courier New",
-                    "math": "Noto Sans Math"
-                }
-            },
-            "macroBadgePosition": {"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
-            "performance": {"macosHighRefreshRate":false},
-            "workspace": {"background":"material","gap":4}
-        });
-        connection
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                [serde_json::to_string(&legacy).unwrap()],
-            )
-            .unwrap();
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version>=17", [])
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        let payload: String = connection
-            .query_row(
-                "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let settings: Value = serde_json::from_str(&payload).unwrap();
-        assert_eq!(settings["fonts"]["cjkVariant"], "auto");
-        assert_eq!(
-            settings["fonts"]["slots"]["cjk"],
-            json!({"source":"system","family":"Noto Sans TC"})
-        );
-        assert_eq!(
-            settings["fonts"]["slots"]["latin"],
-            json!({"source":"system","family":"Noto Sans TC"})
-        );
-        assert_eq!(
-            settings["fonts"]["slots"]["numeric"],
-            json!({"source":"system","family":"Noto Sans TC"})
-        );
-        assert_eq!(
-            settings["fonts"]["slots"]["monospace"],
-            json!({"source":"system","family":"Courier New"})
-        );
-        assert_eq!(
-            settings["fonts"]["slots"]["math"],
-            json!({"source":"system","family":"Noto Sans Math"})
-        );
-        assert!(settings["fonts"].get("families").is_none());
-    }
-
-    #[test]
-    fn schema_eighteen_migrates_browser_defaults_to_system_fonts() {
-        let connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        let legacy = json!({
-            "fonts": {"mode":"default"},
-            "macroBadgePosition": {"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
-            "performance": {"macosHighRefreshRate":false},
-            "workspace": {"background":"material","gap":4}
-        });
-        connection
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                [serde_json::to_string(&legacy).unwrap()],
-            )
-            .unwrap();
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version>=18", [])
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        let payload: String = connection
-            .query_row(
-                "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let settings: Value = serde_json::from_str(&payload).unwrap();
-        assert_eq!(settings["fonts"]["mode"], "custom");
-        assert_eq!(settings["fonts"]["presetId"], "system-default");
-        assert_eq!(settings["fonts"]["fontSmoothingEnabled"], true);
-        assert_eq!(
-            settings["fonts"]["slots"]["cjk"],
-            json!({"source":"system","family":"system-ui"})
-        );
-        assert_eq!(
-            settings["fonts"]["slots"]["monospace"],
-            json!({"source":"system","family":"ui-monospace"})
-        );
-        assert_eq!(
-            settings["fonts"]["slots"]["math"],
-            json!({"source":"system","family":"math"})
-        );
-    }
-
-    #[test]
-    fn schema_nineteen_persists_the_font_smoothing_default_and_preserves_opt_out() {
-        let connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        let mut legacy = serde_json::to_value(default_game_browser_settings()).unwrap();
-        legacy["fonts"]
-            .as_object_mut()
-            .unwrap()
-            .remove("fontSmoothingEnabled");
-        connection
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                [serde_json::to_string(&legacy).unwrap()],
-            )
-            .unwrap();
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version=19", [])
-            .unwrap();
-
-        create_schema(&connection, false).unwrap();
-
-        let read_fonts = || {
-            let payload: String = connection
-                .query_row(
-                    "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='legacy_session_restores'",
                     [],
-                    |row| row.get(0),
+                    |row| row.get::<_, u32>(0),
                 )
-                .unwrap();
-            serde_json::from_str::<Value>(&payload).unwrap()["fonts"].clone()
-        };
-        assert_eq!(read_fonts()["fontSmoothingEnabled"], true);
+                .unwrap(),
+            1
+        );
+    }
 
-        let mut opted_out = read_fonts();
-        opted_out["fontSmoothingEnabled"] = json!(false);
-        let mut settings = serde_json::to_value(default_game_browser_settings()).unwrap();
-        settings["fonts"] = opted_out;
+    #[test]
+    fn rejects_schema_eighteen_without_writes() {
+        let connection = Connection::open_in_memory().unwrap();
         connection
-            .execute(
-                "UPDATE settings SET payload_json=?1 WHERE key='gameBrowserSettings'",
-                [serde_json::to_string(&settings).unwrap()],
+            .execute_batch(
+                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (18, 'retired');
+                 CREATE TABLE sentinel(value TEXT NOT NULL);
+                 INSERT INTO sentinel(value) VALUES ('preserve');",
             )
             .unwrap();
-        connection
-            .execute("DELETE FROM schema_migrations WHERE version=19", [])
-            .unwrap();
+        let changes_before = connection.total_changes();
 
-        create_schema(&connection, false).unwrap();
+        let error = create_schema(&connection, false).unwrap_err();
 
-        assert_eq!(read_fonts()["fontSmoothingEnabled"], false);
+        assert_eq!(error.code(), "CORE_DATA_VERSION_UNSUPPORTED");
+        assert_eq!(connection.total_changes(), changes_before);
+        assert_eq!(
+            connection
+                .query_row("SELECT value FROM sentinel", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            "preserve"
+        );
     }
 
     #[test]

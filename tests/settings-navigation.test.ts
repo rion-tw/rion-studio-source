@@ -5,20 +5,12 @@ import { readSettingsReturnTo, readSettingsSection } from "../src/renderer/src/f
 describe("settings navigation", () => {
   it("normalizes section query values", () => {
     expect(readSettingsSection("interface")).toBe("interface");
-    expect(readSettingsSection("game")).toBe("interface");
     expect(readSettingsSection("macros")).toBe("macros");
     expect(readSettingsSection("data")).toBe("data");
     expect(readSettingsSection("updates")).toBe("updates");
     expect(readSettingsSection("about-legal")).toBe("aboutLegal");
     expect(readSettingsSection("unknown")).toBe("interface");
     expect(readSettingsSection(null)).toBe("interface");
-  });
-
-  it("normalizes legacy section query values", () => {
-    expect(readSettingsSection("appearance")).toBe("interface");
-    expect(readSettingsSection("preferences")).toBe("interface");
-    expect(readSettingsSection("role-defaults")).toBe("interface");
-    expect(readSettingsSection("portability")).toBe("data");
   });
 
   it("returns to a valid application route", () => {

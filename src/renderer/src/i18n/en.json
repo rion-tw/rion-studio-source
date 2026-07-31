@@ -1129,7 +1129,6 @@
   "settings.logsViewerDescription": "Use the filters and controls above to search and monitor recent logs.",
   "settings.logsAllLevels": "All levels",
   "settings.logsAllSources": "All sources",
-  "settings.logsLegacySource": "legacy",
   "settings.logsLiveOn": "Live",
   "settings.logsLiveOff": "Paused",
   "settings.logsEmpty": "No matching log entries.",

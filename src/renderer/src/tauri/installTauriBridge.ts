@@ -400,9 +400,6 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
           case "chromeProfileImportProgress":
             emit("chromeProfileImportProgress", event.progress);
             break;
-          case "legacySessionsRestored":
-            emit("legacySessionsRestored", event.records);
-            break;
           case "coreEffects":
             // The Rust Tauri executor consumes effect events before renderer delivery.
             break;
@@ -644,9 +641,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onShellError: (callback) => on("shellError", callback as Listener),
     onLogEntryAdded: (callback) => on("logEntry", callback as Listener),
     onChromeProfileImportProgress: (callback) =>
-      on("chromeProfileImportProgress", callback as Listener),
-    onLegacySessionsRestored: (callback) =>
-      on("legacySessionsRestored", callback as Listener)
+      on("chromeProfileImportProgress", callback as Listener)
   };
 
   Object.defineProperty(window, "rionStudio", {

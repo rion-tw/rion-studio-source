@@ -930,7 +930,6 @@
   "settings.warningGameRenamed": "游戏“{name}”将以“{next}”导入。", "settings.warningBuiltinGameReplaced": "内置游戏“{name}”将使用导入的可编辑默认值。", "settings.warningRoleGameRecovered": "角色“{name}”缺少游戏关联，将创建恢复用游戏。",
   "error.gameNotFound": "找不到游戏。", "error.gameDataInvalid": "游戏数据文件无效。", "error.gameNameRequired": "请输入游戏名称。", "error.gameNameTooLong": "游戏名称不得超过 80 个字符。", "error.gameNameDuplicate": "已有同名游戏。", "error.gameUrlInvalid": "游戏网址必须使用 HTTP 或 HTTPS。", "error.gameIconInvalid": "游戏图标必须是支持且不超过 1.5 MB 的图片。", "error.gameIconFileInvalid": "游戏图标必须是且不超过 1.5 MB 的图片。", "error.gameIconProcessFailed": "无法处理游戏图标。", "error.gameCoverInvalid": "游戏封面必须是支持且不超过 1.5 MB 的图片。", "error.gameCoverFileInvalid": "游戏封面必须是 PNG、JPEG、WebP 或 GIF，且不超过 8 MB。", "error.gameCoverProcessFailed": "无法处理游戏封面。", "error.gameCoverTooLarge": "游戏封面处理后仍然过大。", "error.gameLaunchModeInvalid": "游戏浏览器启动模式无效。", "error.gameBuiltinProtected": "内置游戏的名称、图标和封面受到保护。", "error.gameNotBuiltin": "只有内置游戏可以重置。", "error.gameBuiltinDeleteForbidden": "内置游戏无法删除。", "error.gameInUse": "请先改派或删除关联角色，再删除此游戏。",
   "bulkDelete.roles.description": "此操作会永久删除所选角色及其浏览器会话数据；运行中的角色会先停止并清空工作区槽位。宏会保留并解除已删除角色的分配；没有剩余角色的宏需重新分配后才能运行。",
-  "settings.logsLegacySource": "旧版",
   "settings.performanceDiagnosticsTitle": "前台游戏性能",
   "settings.performanceDiagnosticsDescription": "测量活动游戏标签页中每个可见角色的 requestAnimationFrame 时序与图形能力；最新结果也会加入诊断导出。",
   "settings.performanceDiagnosticsHint": "测量会在 1.5 秒后开始。请切换到要测试的游戏窗口，并保持聚焦直到采样完成。",

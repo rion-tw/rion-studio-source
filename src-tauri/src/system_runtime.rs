@@ -10379,28 +10379,6 @@ impl SystemRuntimeExecutor {
                 )?;
                 Ok(None)
             }
-            CoreEffectAction::LegacySessionRestore {
-                transaction_id,
-                role_id,
-                launch_url,
-                webview2_user_data_dir,
-                webkit_data_store_identifier,
-            } => {
-                let payload = self.load_session_transfer(&transaction_id)?;
-                let (inserted_cookie_count, _) =
-                    self.apply_role_session_transfer(RoleSessionTransferRequest {
-                        role_id: &role_id,
-                        launch_url: &launch_url,
-                        webview2_user_data_dir: &webview2_user_data_dir,
-                        webkit_data_store_identifier: &webkit_data_store_identifier,
-                        replace_existing: false,
-                        payload,
-                        backup_transaction_id: None,
-                    })?;
-                Ok(Some(
-                    json!({ "insertedCookieCount": inserted_cookie_count }).to_string(),
-                ))
-            }
             CoreEffectAction::ChromeProfileImportSnapshot {
                 transaction_id,
                 role_id,

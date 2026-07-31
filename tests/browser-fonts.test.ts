@@ -11,14 +11,11 @@ import {
 } from "../src/shared/browserFonts";
 
 describe("browser font settings normalization", () => {
-  it("uses the system-font preset for missing and legacy default-mode settings", () => {
+  it("uses the system-font preset for missing and default-mode settings", () => {
     expect(normalizeGameBrowserSettings(undefined)).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
     expect(
       normalizeGameBrowserSettings({
         fonts: {
-          families: {
-            standard: "Arial"
-          },
           mode: "default"
         }
       })
@@ -94,60 +91,6 @@ describe("browser font settings normalization", () => {
         latin: { source: "system", family: "Arial" }
       }
     });
-  });
-
-  it("migrates legacy Chrome-style family roles into the new slots", () => {
-    const normalized = normalizeGameBrowserSettings({
-      fonts: {
-        mode: "custom",
-        families: {
-          standard: "  Missing   But Valid  ",
-          fixed: "Courier New",
-          math: "Noto Sans Math"
-        }
-      }
-    });
-
-    expect(normalized.fonts).toEqual({
-      cjkVariant: "auto",
-      fontSmoothingEnabled: true,
-      mode: "custom",
-      slots: {
-        cjk: { source: "system", family: "Missing But Valid" },
-        latin: { source: "system", family: "Missing But Valid" },
-        numeric: { source: "system", family: "Missing But Valid" },
-        monospace: { source: "system", family: "Courier New" },
-        math: { source: "system", family: "Noto Sans Math" }
-      }
-    });
-  });
-
-  it("upgrades legacy handwriting-preset digits without changing custom digits", () => {
-    expect(
-      normalizeGameBrowserSettings({
-        fonts: {
-          cjkVariant: "auto",
-          mode: "custom",
-          presetId: "natural-handwriting",
-          slots: {
-            latin: { source: "google", catalogId: "patrick-hand" },
-            numeric: { source: "google", catalogId: "caveat" }
-          }
-        }
-      }).fonts.slots.numeric
-    ).toEqual({ source: "google", catalogId: "patrick-hand" });
-
-    expect(
-      normalizeGameBrowserSettings({
-        fonts: {
-          cjkVariant: "auto",
-          mode: "custom",
-          slots: {
-            numeric: { source: "google", catalogId: "caveat" }
-          }
-        }
-      }).fonts.slots.numeric
-    ).toEqual({ source: "google", catalogId: "caveat" });
   });
 
   it("persists an explicit font-smoothing opt-out independently of font mode", () => {
@@ -318,13 +261,6 @@ describe("browser font settings normalization", () => {
     ).toEqual({ macosHighRefreshRate: false });
   });
 
-  it("removes legacy browser engine settings", () => {
-    expect("browserEngine" in normalizeGameBrowserSettings({})).toBe(false);
-    expect(
-      "browserEngine" in normalizeGameBrowserSettings({ browserEngine: "electron" })
-    ).toBe(false);
-  });
-
   it("normalizes macro badge position options and falls back for invalid values", () => {
     expect(
       normalizeGameBrowserSettings({
@@ -348,47 +284,6 @@ describe("browser font settings normalization", () => {
         }
       }).macroBadgePosition
     ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition);
-  });
-
-  it("ignores legacy percentage position fields and uses the px defaults", () => {
-    expect(
-      normalizeGameBrowserSettings({
-        macroBadgePosition: {
-          horizontalAlign: "left",
-          horizontalMarginPercent: 20,
-          topPercent: 80
-        }
-      }).macroBadgePosition
-    ).toEqual({
-      ...DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
-      horizontalAlign: "left"
-    });
-  });
-
-  it("accepts but removes retired graphics settings", () => {
-    const normalized = normalizeGameBrowserSettings({
-      graphics: {
-        mode: "experimental",
-        backend: { windows: "vulkan" },
-        windowsEcoQosEnabled: false
-      }
-    });
-    expect(normalized).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
-    expect("graphics" in normalized).toBe(false);
-  });
-
-  it("accepts and ignores retired legacy custom proxy fields", () => {
-    const normalized = normalizeGameBrowserSettings({
-      network: {
-        proxy: {
-          mode: "custom",
-          server: "socks5://127.0.0.1:7890"
-        }
-      }
-    });
-
-    expect(normalized).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
-    expect("network" in normalized).toBe(false);
   });
 
   it("defaults workspace appearance and validates backgrounds and fixed gap sizes", () => {

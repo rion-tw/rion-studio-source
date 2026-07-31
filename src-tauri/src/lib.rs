@@ -15,7 +15,7 @@ use rion_core::{
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
     GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, MacroRunStatus,
     StateCollection, StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord,
-    StateResolutionRecord, StateRoleRecord, migrate_legacy_data_root,
+    StateResolutionRecord, StateRoleRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -48,7 +48,6 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     match action {
         CoreEffectAction::LocalStorageSyncRefresh { .. } => "localStorageSyncRefresh",
         CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
-        CoreEffectAction::LegacySessionRestore { .. } => "legacySessionRestore",
         CoreEffectAction::ChromeProfileImportSnapshot { .. } => "chromeProfileImportSnapshot",
         CoreEffectAction::ChromeProfileImportApply { .. } => "chromeProfileImportApply",
         CoreEffectAction::ChromeProfileImportVerify { .. } => "chromeProfileImportVerify",
@@ -824,6 +823,17 @@ fn shared_user_data_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<PathBu
         .data_dir()
         .map(|path| path.join(SHARED_DATA_DIRECTORY_NAME))
         .map_err(|error| error.to_string())
+}
+
+fn reject_retired_data_root(data_parent: &std::path::Path) -> Result<(), rion_core::CoreError> {
+    let retired_root = data_parent.join(LEGACY_DATA_DIRECTORY_NAME);
+    if retired_root.exists() {
+        return Err(rion_core::CoreError::UnsupportedDataVersion(format!(
+            "retired application data was found at {}; move or upgrade it with a supported Rion Studio release before starting this version",
+            retired_root.display()
+        )));
+    }
+    Ok(())
 }
 
 fn error_payload(error: rion_core::CoreError) -> CoreErrorPayload {
@@ -4855,11 +4865,7 @@ pub fn run() {
                     .path()
                     .data_dir()
                     .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-                migrate_legacy_data_root(
-                    &data_parent.join(LEGACY_DATA_DIRECTORY_NAME),
-                    &user_data_dir,
-                    &app_version,
-                )?;
+                reject_retired_data_root(&data_parent)?;
             }
             let core = match AppCore::create_with_startup_backup(
                 AppCoreOptions {

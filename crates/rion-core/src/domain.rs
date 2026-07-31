@@ -85,7 +85,6 @@ fn default_browser_font_settings() -> BrowserFontSettingsRecord {
                 },
             ),
         ]),
-        families: HashMap::new(),
     }
 }
 
@@ -2420,7 +2419,6 @@ pub fn normalize_game_browser_settings(
     if !matches!(settings.fonts.mode.as_str(), "default" | "custom") {
         settings.fonts.mode = "default".to_owned();
     }
-    migrate_legacy_browser_font_families(&mut settings.fonts);
     if !matches!(
         settings.fonts.cjk_variant.as_str(),
         "auto" | "tc" | "sc" | "jp"
@@ -2483,7 +2481,6 @@ pub fn normalize_game_browser_settings(
             }
         }
     });
-    settings.fonts.families.clear();
     if settings.fonts.mode == "default" {
         settings.fonts = default_browser_font_settings();
         settings.fonts.font_smoothing_enabled = font_smoothing_enabled;
@@ -2520,46 +2517,6 @@ fn normalize_font_family(value: &str) -> Option<String> {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     (!normalized.is_empty() && normalized.len() <= 120 && !normalized.chars().any(char::is_control))
         .then_some(normalized)
-}
-
-fn migrate_legacy_browser_font_families(fonts: &mut BrowserFontSettingsRecord) {
-    if fonts.families.is_empty() || !fonts.slots.is_empty() {
-        return;
-    }
-    let proportional = ["standard", "sansserif", "serif"]
-        .into_iter()
-        .find_map(|key| fonts.families.get(key))
-        .and_then(|family| normalize_font_family(family));
-    if let Some(family) = proportional {
-        for slot in ["cjk", "latin", "numeric"] {
-            fonts.slots.insert(
-                slot.to_owned(),
-                crate::model::BrowserFontSelectionRecord::System {
-                    family: family.clone(),
-                },
-            );
-        }
-    }
-    if let Some(family) = fonts
-        .families
-        .get("fixed")
-        .and_then(|family| normalize_font_family(family))
-    {
-        fonts.slots.insert(
-            "monospace".to_owned(),
-            crate::model::BrowserFontSelectionRecord::System { family },
-        );
-    }
-    if let Some(family) = fonts
-        .families
-        .get("math")
-        .and_then(|family| normalize_font_family(family))
-    {
-        fonts.slots.insert(
-            "math".to_owned(),
-            crate::model::BrowserFontSelectionRecord::System { family },
-        );
-    }
 }
 
 pub fn normalize_macro_settings(mut settings: MacroSettingsRecord) -> MacroSettingsRecord {
@@ -3244,7 +3201,7 @@ mod tests {
     #[test]
     fn normalizes_browser_and_macro_settings_before_persistence() {
         let settings = serde_json::from_value(json!({
-            "fonts":{"mode":"custom","families":{"fixed":"  Courier   New  ","bad":"Ignored"}},
+            "fonts":{"mode":"custom","slots":{"monospace":{"source":"system","family":"  Courier   New  "}}},
             "graphics":{"mode":"high_performance"},
             "launchMode":"external",
             "macroBadgePosition":{"horizontalAlign":"right","horizontalMarginPx":80,"topPx":280},
@@ -3257,7 +3214,6 @@ mod tests {
             serde_json::to_value(&settings.fonts).unwrap()["slots"]["monospace"],
             json!({"source":"system","family":"Courier New"})
         );
-        assert!(settings.fonts.families.is_empty());
         assert!(settings.performance.macos_high_refresh_rate);
         validate_game_browser_settings(&settings).unwrap();
         assert!(

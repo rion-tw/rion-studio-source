@@ -27,7 +27,7 @@ pub use chrome_profile::{
 };
 mod chrome_cookie;
 pub use chrome_cookie::{
-    CookieDecryptor, decrypt_chrome_cookie, decrypt_legacy_rion_cookie, decrypt_mac_cookie_payload,
+    CookieDecryptor, decrypt_chrome_cookie, decrypt_mac_cookie_payload,
     decrypt_windows_aes_gcm_payload,
 };
 mod protected_data;

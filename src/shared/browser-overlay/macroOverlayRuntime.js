@@ -1,9 +1,5 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v60";
-  const legacyHostIds = [
-    "rion-studio-macro-overlay",
-    ...Array.from({ length: 58 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
-  ];
   const controllerKey = "__rionStudioMacroOverlay";
   const scriptVersion = "2026-07-31.4";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
@@ -164,7 +160,6 @@
     return;
   }
 
-  removeLegacyHosts();
 
   if (window[controllerKey]?.version === scriptVersion) {
     void window[controllerKey].refresh();
@@ -930,12 +925,7 @@
     }
   }
 
-  function removeLegacyHosts() {
-    legacyHostIds.forEach(removeHost);
-  }
-
   function removeVisualHosts() {
-    removeLegacyHosts();
     removeHost(hostId);
   }
 
@@ -955,8 +945,6 @@
   }
 
   function ensureHost() {
-    removeLegacyHosts();
-
     if (!shouldRenderUi() || !document.body) {
       removeHost(hostId);
       return null;

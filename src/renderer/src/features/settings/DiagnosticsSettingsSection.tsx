@@ -367,9 +367,7 @@ function formatLongTasks(
 }
 
 function LogEntryRow({ entry, t }: { entry: LogEntry; t: Translator }): JSX.Element {
-  const source = entry.source === "preload"
-    ? `${entry.source} (${t("settings.logsLegacySource")})`
-    : entry.source;
+  const source = entry.source;
   return <details className="border-b border-border/40 px-3 py-2 last:border-0"><summary className="cursor-pointer list-none"><span className="text-muted-foreground">{new Date(entry.timestamp).toLocaleTimeString()}</span> <span className={entry.level === "error" ? "text-destructive" : entry.level === "warn" ? "text-warning-foreground" : "text-foreground"}>[{entry.level.toUpperCase()}]</span> <span className="text-muted-foreground">[{source}]</span> {entry.message}</summary>{entry.context || entry.error ? <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xs bg-muted/55 p-2 text-muted-foreground">{JSON.stringify({ context: entry.context, error: entry.error }, null, 2)}</pre> : null}</details>;
 }
 

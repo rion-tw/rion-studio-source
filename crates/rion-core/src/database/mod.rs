@@ -1,12 +1,11 @@
 use std::thread::JoinHandle;
 
 mod bootstrap;
-mod legacy;
 mod logs;
 mod portable_recovery;
 mod state;
 
-pub(crate) const LEGACY_STATE_FILES: &[&str] = &[
+pub(crate) const RETIRED_DATA_MARKERS: &[&str] = &[
     "games.json",
     "roles.json",
     "profiles.json",
@@ -21,12 +20,12 @@ pub(crate) const LEGACY_STATE_FILES: &[&str] = &[
     "portable-import-transaction.json",
 ];
 
-pub use bootstrap::{DatabasePaths, bootstrap_databases, create_online_startup_backup};
+pub use bootstrap::{
+    DatabasePaths, bootstrap_databases, create_online_startup_backup, preflight_supported_data,
+};
 pub use logs::LogDatabaseWorker;
 pub use state::StateDatabaseWorker;
-pub(crate) use state::{
-    LegacySessionRestoreState, OperationJournalRecord, SCHEMA_VERSION, StateMutation,
-};
+pub(crate) use state::{OperationJournalRecord, SCHEMA_VERSION, StateMutation};
 
 fn join_worker_if_finished(join: &mut Option<JoinHandle<()>>) {
     let Some(worker) = join.take() else {

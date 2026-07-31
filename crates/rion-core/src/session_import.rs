@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     rc::Rc,
     time::Duration,
@@ -35,64 +35,12 @@ pub(crate) struct ParsedSessionTransfer {
     pub source_fingerprint: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum SessionTransferSource {
-    Chrome,
-    LegacyRion,
-}
-
 struct CookieReadContext<'a> {
     platform: rion_platform::Platform,
     launch: &'a Url,
-    source: SessionTransferSource,
     include_all_cookie_paths: bool,
     warnings: &'a mut Vec<String>,
     unsupported: &'a mut ChromeProfileImportUnsupportedCountsRecord,
-}
-
-pub(crate) fn read_session_transfer(
-    staged_profile: &Path,
-    platform: rion_platform::Platform,
-    launch_url: &str,
-    include_local_storage: bool,
-    source: SessionTransferSource,
-) -> CoreResult<ParsedSessionTransfer> {
-    let launch = Url::parse(launch_url)
-        .map_err(|_| CoreError::InvalidInput("Role launch URL is invalid.".to_owned()))?;
-    let mut warnings = Vec::new();
-    let mut unsupported = ChromeProfileImportUnsupportedCountsRecord::default();
-    let cookies = read_cookies(
-        staged_profile,
-        platform,
-        &launch,
-        source,
-        false,
-        &mut warnings,
-        &mut unsupported,
-    )?;
-    let local_storage = if include_local_storage {
-        match read_local_storage(staged_profile, &launch, &mut warnings) {
-            Ok(entries) => entries,
-            Err(_) => {
-                unsupported.storage_read_failure_count += 1;
-                warnings.push("LOCAL_STORAGE_READ_FAILED".to_owned());
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
-    warnings.sort();
-    warnings.dedup();
-    Ok(ParsedSessionTransfer {
-        payload: SessionTransferPayloadRecord {
-            cookies,
-            local_storage,
-        },
-        unsupported,
-        warnings,
-        source_fingerprint: source_fingerprint(staged_profile, include_local_storage)?,
-    })
 }
 
 pub(crate) fn read_chrome_session_transfer(
@@ -121,7 +69,6 @@ pub(crate) fn read_chrome_session_transfer(
         CookieReadContext {
             platform,
             launch: &launch,
-            source: SessionTransferSource::Chrome,
             include_all_cookie_paths,
             warnings: &mut warnings,
             unsupported: &mut unsupported,
@@ -153,60 +100,6 @@ pub(crate) fn read_chrome_session_transfer(
         warnings,
         source_fingerprint,
     })
-}
-
-pub(crate) fn legacy_profile_candidates(
-    platform: rion_platform::Platform,
-    role_id: &str,
-) -> Vec<PathBuf> {
-    let legacy_root = match platform {
-        rion_platform::Platform::Macos => std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join("Library/Application Support/rion-studio")),
-        rion_platform::Platform::Windows => {
-            std::env::var_os("APPDATA").map(|root| PathBuf::from(root).join("rion-studio"))
-        }
-    };
-    legacy_root
-        .map(|root| legacy_profile_candidates_from_root(&root, role_id))
-        .unwrap_or_default()
-}
-
-fn legacy_profile_candidates_from_root(legacy_root: &Path, role_id: &str) -> Vec<PathBuf> {
-    vec![
-        legacy_root
-            .join("Partitions")
-            .join(format!("rion-role-{role_id}")),
-        legacy_root.join("roles").join(role_id).join("browser"),
-    ]
-}
-
-fn read_cookies(
-    profile: &Path,
-    platform: rion_platform::Platform,
-    launch: &Url,
-    source: SessionTransferSource,
-    include_all_cookie_paths: bool,
-    warnings: &mut Vec<String>,
-    unsupported: &mut ChromeProfileImportUnsupportedCountsRecord,
-) -> CoreResult<Vec<SessionCookieRecord>> {
-    let paths = [
-        profile.join("Default/Network/Cookies"),
-        profile.join("Default/Cookies"),
-        profile.join("Network/Cookies"),
-        profile.join("Cookies"),
-    ];
-    read_cookies_from_paths(
-        &paths,
-        &profile.join("Local State"),
-        CookieReadContext {
-            platform,
-            launch,
-            source,
-            include_all_cookie_paths,
-            warnings,
-            unsupported,
-        },
-    )
 }
 
 fn read_cookies_from_paths(
@@ -311,22 +204,11 @@ fn read_cookie_rows(
                 continue;
             }
             let decryptor = decryptor.get_or_insert_with(|| {
-                match context.source {
-                    SessionTransferSource::Chrome => {
-                        rion_platform::CookieDecryptor::chrome_from_local_state(
-                            context.platform,
-                            local_state,
-                            &row.encrypted_value,
-                        )
-                    }
-                    SessionTransferSource::LegacyRion => {
-                        rion_platform::CookieDecryptor::legacy_rion_from_local_state(
-                            context.platform,
-                            local_state,
-                            &row.encrypted_value,
-                        )
-                    }
-                }
+                rion_platform::CookieDecryptor::chrome_from_local_state(
+                    context.platform,
+                    local_state,
+                    &row.encrypted_value,
+                )
                 .map_err(|error| error.to_string())
             });
             let decrypted = match decryptor {
@@ -393,6 +275,7 @@ fn read_cookie_rows(
     Ok(result)
 }
 
+#[cfg(test)]
 fn read_local_storage(
     profile: &Path,
     launch: &Url,
@@ -677,84 +560,6 @@ fn contains_cookie_control(value: &str) -> bool {
         .any(|character| character <= '\u{1f}' || character == '\u{7f}')
 }
 
-fn source_fingerprint(profile: &Path, include_local_storage: bool) -> CoreResult<String> {
-    let mut files = Vec::new();
-    let mut roots = vec![profile.join("Local State")];
-    for cookies in [
-        profile.join("Default/Network/Cookies"),
-        profile.join("Default/Cookies"),
-        profile.join("Network/Cookies"),
-        profile.join("Cookies"),
-    ] {
-        roots.push(cookies.clone());
-        for suffix in ["-wal", "-shm"] {
-            let mut sidecar = cookies.as_os_str().to_os_string();
-            sidecar.push(suffix);
-            roots.push(PathBuf::from(sidecar));
-        }
-    }
-    if include_local_storage {
-        roots.push(profile.join("Default/Local Storage/leveldb"));
-    }
-    for root in roots {
-        collect_files(profile, &root, &mut files)?;
-    }
-    files.sort();
-    let mut digest = Sha256::new();
-    for (path, size, content_hash) in files {
-        digest.update(path.as_bytes());
-        digest.update(size.to_le_bytes());
-        digest.update(content_hash.as_bytes());
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
-fn collect_files(
-    root: &Path,
-    current: &Path,
-    output: &mut Vec<(String, u64, String)>,
-) -> CoreResult<()> {
-    let metadata = match std::fs::symlink_metadata(current) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(CoreError::Platform(error.to_string())),
-    };
-    if metadata.file_type().is_symlink() {
-        return Err(CoreError::Platform(
-            "Session transfer source contains a symbolic link.".to_owned(),
-        ));
-    }
-    if metadata.is_dir() {
-        for entry in
-            std::fs::read_dir(current).map_err(|error| CoreError::Platform(error.to_string()))?
-        {
-            let entry = entry.map_err(|error| CoreError::Platform(error.to_string()))?;
-            collect_files(root, &entry.path(), output)?;
-        }
-    } else if metadata.is_file() {
-        let relative = current.strip_prefix(root).unwrap_or(current);
-        let mut file =
-            std::fs::File::open(current).map_err(|error| CoreError::Platform(error.to_string()))?;
-        let mut digest = Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
-        loop {
-            let read = file
-                .read(&mut buffer)
-                .map_err(|error| CoreError::Platform(error.to_string()))?;
-            if read == 0 {
-                break;
-            }
-            digest.update(&buffer[..read]);
-        }
-        output.push((
-            relative.to_string_lossy().into_owned(),
-            metadata.len(),
-            format!("{:x}", digest.finalize()),
-        ));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -870,12 +675,12 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        let parsed = read_session_transfer(
+        let parsed = read_chrome_session_transfer(
             profile.path(),
+            "Default",
             rion_platform::Platform::Macos,
             "https://game.example.test/play",
             false,
-            SessionTransferSource::Chrome,
         )
         .unwrap();
         assert_eq!(parsed.payload.cookies.len(), 1);
@@ -1001,18 +806,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_candidates_use_only_old_rion_paths_in_fixed_priority() {
-        let root = Path::new("legacy-rion-data");
-        assert_eq!(
-            legacy_profile_candidates_from_root(root, "role-1"),
-            vec![
-                root.join("Partitions/rion-role-role-1"),
-                root.join("roles/role-1/browser"),
-            ]
-        );
-    }
-
-    #[test]
     fn local_storage_accepts_only_the_exact_launch_origin() {
         let profile = tempdir().unwrap();
         let exact_prefix = b"_https://game.example.test\0";
@@ -1066,12 +859,12 @@ mod tests {
             )
             .is_err()
         );
-        let parsed = read_session_transfer(
+        let parsed = read_chrome_session_transfer(
             corrupt.path(),
+            "Default",
             rion_platform::Platform::Macos,
             "https://game.example.test/play",
-            true,
-            SessionTransferSource::Chrome,
+            false,
         )
         .unwrap();
         assert!(parsed.payload.local_storage.is_empty());
@@ -1119,27 +912,5 @@ mod tests {
         .unwrap();
         assert_eq!(entries.len(), MAX_LOCAL_STORAGE_ENTRIES);
         assert_eq!(warnings, vec!["LOCAL_STORAGE_LIMIT_EXCEEDED"]);
-    }
-
-    #[test]
-    fn source_fingerprint_is_limited_to_the_approved_transfer_files() {
-        let profile = tempdir().unwrap();
-        std::fs::create_dir_all(profile.path().join("Default/Network")).unwrap();
-        std::fs::create_dir_all(profile.path().join("Default/IndexedDB")).unwrap();
-        std::fs::write(profile.path().join("Default/Network/Cookies"), b"cookie-a").unwrap();
-        std::fs::write(
-            profile.path().join("Default/IndexedDB/excluded"),
-            b"outside-scope-a",
-        )
-        .unwrap();
-        let first = source_fingerprint(profile.path(), false).unwrap();
-        std::fs::write(
-            profile.path().join("Default/IndexedDB/excluded"),
-            b"outside-scope-b",
-        )
-        .unwrap();
-        assert_eq!(source_fingerprint(profile.path(), false).unwrap(), first);
-        std::fs::write(profile.path().join("Default/Network/Cookies"), b"cookie-b").unwrap();
-        assert_ne!(source_fingerprint(profile.path(), false).unwrap(), first);
     }
 }

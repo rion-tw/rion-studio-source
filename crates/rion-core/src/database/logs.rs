@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -28,7 +28,6 @@ const RETENTION_TARGET_BYTES: i64 = 90 * 1024 * 1024;
 const RETENTION_DELETE_BATCH_SIZE: usize = 1_000;
 const BATCH_INTERVAL: Duration = Duration::from_millis(250);
 const BATCH_MAX_ENTRIES: usize = 50;
-const LEGACY_AUTH_LOG_SOURCE: &str = "auth";
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -383,39 +382,6 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             ",
         )
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-    Ok(())
-}
-
-pub(super) fn import_legacy_logs(connection: &mut Connection, directory: &Path) -> CoreResult<()> {
-    if !directory.is_dir() {
-        return Ok(());
-    }
-    let mut files = fs::read_dir(directory)
-        .map_err(|error| CoreError::Migration(error.to_string()))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|value| value == "jsonl"))
-        .collect::<Vec<_>>();
-    files.sort();
-    let transaction = connection
-        .transaction()
-        .map_err(|error| CoreError::Migration(error.to_string()))?;
-    for path in files {
-        let file = File::open(&path).map_err(|error| CoreError::Migration(error.to_string()))?;
-        for line in BufReader::new(file).lines() {
-            let Ok(line) = line else { continue };
-            if line.trim().is_empty() {
-                continue;
-            }
-            let Ok(entry) = serde_json::from_str::<LogEntry>(&line) else {
-                continue;
-            };
-            insert_entry(&transaction, &entry)?;
-        }
-    }
-    transaction
-        .commit()
-        .map_err(|error| CoreError::Migration(error.to_string()))?;
     Ok(())
 }
 
@@ -842,10 +808,7 @@ fn placeholders(existing: usize, count: usize) -> String {
 
 fn stored_log_source_values(source: &LogSource) -> &'static [&'static str] {
     match source {
-        // Older desktop-shell releases persisted authentication events under a dedicated
-        // source. Authentication is no longer a public log source, so expose those
-        // retained entries through the closest current source instead.
-        LogSource::Main => &["main", LEGACY_AUTH_LOG_SOURCE],
+        LogSource::Main => &["main"],
         LogSource::Preload => &["preload"],
         LogSource::Renderer => &["renderer"],
         LogSource::Ipc => &["ipc"],
@@ -857,11 +820,6 @@ fn stored_log_source_values(source: &LogSource) -> &'static [&'static str] {
 }
 
 fn parse_stored_log_source(source: &str) -> CoreResult<LogSource> {
-    let source = if source == LEGACY_AUTH_LOG_SOURCE {
-        LogSource::Main.as_str()
-    } else {
-        source
-    };
     serde_json::from_value(Value::String(source.to_owned()))
         .map_err(|error| CoreError::LogDatabase(error.to_string()))
 }
@@ -981,43 +939,6 @@ mod tests {
             assert_eq!(status.file_count, 1);
             assert!(status.total_bytes > 0);
         });
-    }
-
-    #[test]
-    fn reads_filters_and_exports_retained_auth_logs_as_main() {
-        let directory = tempdir().unwrap();
-        let mut connection = Connection::open(directory.path().join("logs.sqlite3")).unwrap();
-        create_schema(&connection, false).unwrap();
-        append_entries(
-            &mut connection,
-            &[entry("legacy-auth", "Authentication status changed.")],
-        )
-        .unwrap();
-        connection
-            .execute(
-                "UPDATE log_entries SET source = ?1 WHERE id = ?2",
-                params![LEGACY_AUTH_LOG_SOURCE, "legacy-auth"],
-            )
-            .unwrap();
-
-        let page = query_entries(
-            &connection,
-            &LogQuery {
-                sources: Some(vec![LogSource::Main]),
-                ..LogQuery::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(page.entries.len(), 1);
-        assert_eq!(page.entries[0].id, "legacy-auth");
-        assert_eq!(page.entries[0].source, LogSource::Main);
-
-        let mut exported = Vec::new();
-        write_jsonl(&connection, &mut exported).unwrap();
-        let exported = String::from_utf8(exported).unwrap();
-        assert!(exported.contains("\"id\":\"legacy-auth\""));
-        assert!(exported.contains("\"source\":\"main\""));
-        assert!(!exported.contains("\"source\":\"auth\""));
     }
 
     #[test]

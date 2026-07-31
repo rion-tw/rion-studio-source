@@ -165,9 +165,9 @@ describe("Tauri shell parity guard", () => {
     expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');
   });
 
-  it("runs legacy-root migration before opening AppCore", async () => {
+  it("rejects the retired sibling data root before opening AppCore", async () => {
     const shell = await readFile("src-tauri/src/lib.rs", "utf8");
-    expect(shell.indexOf("migrate_legacy_data_root(")).toBeLessThan(
+    expect(shell.indexOf("reject_retired_data_root(&data_parent)")).toBeLessThan(
       shell.indexOf("AppCore::create_with_startup_backup(")
     );
     expect(shell).toContain('const LEGACY_DATA_DIRECTORY_NAME: &str = "rion-studio"');

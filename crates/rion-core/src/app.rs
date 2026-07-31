@@ -19,8 +19,8 @@ use serde_json::{Value, json};
 
 use crate::{
     database::{
-        DatabasePaths, LegacySessionRestoreState, LogDatabaseWorker, OperationJournalRecord,
-        SCHEMA_VERSION, StateDatabaseWorker, StateMutation, bootstrap_databases,
+        DatabasePaths, LogDatabaseWorker, OperationJournalRecord, SCHEMA_VERSION,
+        StateDatabaseWorker, StateMutation, bootstrap_databases, preflight_supported_data,
     },
     domain::{
         default_runtime_restore_session, normalize_game_browser_settings, normalize_macro_settings,
@@ -41,13 +41,13 @@ use crate::{
         EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
         EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsPatchRecord,
         GameBrowserSettingsRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
-        GameWindowUpdateInputRecord, LegacySessionRestoreRecord, LegalAcceptanceRecord,
-        LogCaptureRecord, LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
-        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
-        MacroStartRequest, OperationCancelResultRecord, RolePathsRecord,
-        RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord, StateCollection,
-        StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
-        StateNormalizedRectRecord, StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
+        GameWindowUpdateInputRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
+        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
+        RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
+        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
 };
@@ -412,6 +412,7 @@ impl AppCore {
         }
         let platform = rion_platform::Platform::parse(&options.platform)
             .map_err(|error| CoreError::Platform(error.to_string()))?;
+        preflight_supported_data(&user_data_dir)?;
         let instance_lock = acquire_instance_lock(&user_data_dir)?;
         if let Some(backup_label) = backup_label {
             crate::database::create_online_startup_backup(
@@ -1672,7 +1673,6 @@ impl AppCore {
                 zoom_factor,
             } => {
                 let launch_started = std::time::Instant::now();
-                self.restore_legacy_session_if_needed(&role_id).await?;
                 eprintln!(
                     "Core launch phase: role-session-preflight completed elapsedMs={}",
                     launch_started.elapsed().as_millis()
@@ -2065,181 +2065,6 @@ impl AppCore {
         }
     }
 
-    async fn restore_legacy_session_if_needed(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
-        let current = self
-            .with_runtime(|runtime| runtime.state.legacy_session_restore_get(role_id.to_owned()))?;
-        if current
-            .as_ref()
-            .is_some_and(|record| record.status != "pending")
-        {
-            return Ok(());
-        }
-        self.with_runtime(|runtime| {
-            runtime
-                .state
-                .legacy_session_restore_put(LegacySessionRestoreState {
-                    role_id: role_id.to_owned(),
-                    status: "pending".to_owned(),
-                    source_fingerprint: current
-                        .as_ref()
-                        .and_then(|record| record.source_fingerprint.clone()),
-                    cookie_count: 0,
-                })
-        })?;
-        let role = self
-            .read_typed_state_collection::<StateRoleRecord>("roles")?
-            .into_iter()
-            .find(|role| role.id == role_id)
-            .ok_or_else(|| CoreError::Domain {
-                code: "ROLE_NOT_FOUND",
-                message: "Role not found.".to_owned(),
-            })?;
-        let candidates = crate::session_import::legacy_profile_candidates(self.platform, role_id);
-        let platform = self.platform;
-        let launch_url = role.launch_url.clone();
-        let parsed = tokio::task::spawn_blocking(move || {
-            for candidate in candidates {
-                if !candidate.is_dir() {
-                    continue;
-                }
-                if let Ok(parsed) = crate::session_import::read_session_transfer(
-                    &candidate,
-                    platform,
-                    &launch_url,
-                    false,
-                    crate::session_import::SessionTransferSource::LegacyRion,
-                ) && !parsed.payload.cookies.is_empty()
-                {
-                    return Some(parsed);
-                }
-            }
-            None
-        })
-        .await
-        .map_err(|error| CoreError::Internal(error.to_string()))?;
-        let Some(parsed) = parsed else {
-            self.with_runtime(|runtime| {
-                runtime
-                    .state
-                    .legacy_session_restore_put(LegacySessionRestoreState {
-                        role_id: role_id.to_owned(),
-                        status: "unavailable".to_owned(),
-                        source_fingerprint: None,
-                        cookie_count: 0,
-                    })
-            })?;
-            self.emit(vec![CoreEvent::LegacySessionsRestored {
-                records: vec![LegacySessionRestoreRecord {
-                    role_id: role_id.to_owned(),
-                    status: "unavailable".to_owned(),
-                    source_fingerprint: None,
-                    cookie_count: 0,
-                    warnings: vec!["LEGACY_SESSION_UNAVAILABLE".to_owned()],
-                }],
-            }]);
-            return Ok(());
-        };
-        let transaction_id = uuid::Uuid::new_v4().to_string();
-        let staging = crate::chrome_profile_import::session_transfer_directory(
-            &self.user_data_dir,
-            &transaction_id,
-        )?;
-        let payload_for_staging = parsed.payload.clone();
-        let staging_for_write = staging.clone();
-        let staging_result = tokio::task::spawn_blocking(move || {
-            let serialized = serde_json::to_vec(&payload_for_staging)
-                .map_err(|error| CoreError::Internal(error.to_string()))?;
-            let protected = rion_platform::protect_session_transfer(platform, &serialized)
-                .map_err(|error| CoreError::Platform(error.to_string()))?;
-            crate::chrome_profile_import::persist_encrypted_staging(&staging_for_write, &protected)
-        })
-        .await
-        .map_err(|error| CoreError::Internal(error.to_string()))?;
-        if staging_result.is_err() {
-            let source_fingerprint = parsed.source_fingerprint.clone();
-            let mut warnings = parsed.warnings.clone();
-            warnings.push("LEGACY_SESSION_STAGING_FAILED".to_owned());
-            self.with_runtime(|runtime| {
-                runtime
-                    .state
-                    .legacy_session_restore_put(LegacySessionRestoreState {
-                        role_id: role_id.to_owned(),
-                        status: "unavailable".to_owned(),
-                        source_fingerprint: Some(source_fingerprint.clone()),
-                        cookie_count: 0,
-                    })
-            })?;
-            let _ = fs::remove_dir_all(staging);
-            self.emit(vec![CoreEvent::LegacySessionsRestored {
-                records: vec![LegacySessionRestoreRecord {
-                    role_id: role_id.to_owned(),
-                    status: "unavailable".to_owned(),
-                    source_fingerprint: Some(source_fingerprint),
-                    cookie_count: 0,
-                    warnings,
-                }],
-            }]);
-            return Ok(());
-        }
-        let paths = self.resolve_role_paths(role_id)?;
-        let effect = self
-            .request_core_effect(
-                role_id,
-                CoreEffectAction::LegacySessionRestore {
-                    transaction_id,
-                    role_id: role_id.to_owned(),
-                    launch_url: role.launch_url,
-                    webview2_user_data_dir: paths.webview2_user_data_dir,
-                    webkit_data_store_identifier: paths.webkit_data_store_identifier,
-                },
-                Duration::from_secs(30),
-            )
-            .await;
-        let mut warnings = parsed.warnings.clone();
-        let (status, cookie_count) = match effect {
-            Ok(effect) => {
-                let inserted = effect
-                    .value_json
-                    .as_deref()
-                    .and_then(|value| serde_json::from_str::<Value>(value).ok())
-                    .and_then(|value| value.get("insertedCookieCount").and_then(Value::as_u64))
-                    .and_then(|value| u32::try_from(value).ok())
-                    .unwrap_or(parsed.payload.cookies.len() as u32);
-                if inserted == 0 {
-                    ("preservedExisting", 0)
-                } else {
-                    ("restored", inserted)
-                }
-            }
-            Err(_) => {
-                warnings.push("LEGACY_SESSION_APPLY_FAILED".to_owned());
-                ("unavailable", 0)
-            }
-        };
-        let _ = fs::remove_dir_all(&staging);
-        let source_fingerprint = parsed.source_fingerprint.clone();
-        self.with_runtime(|runtime| {
-            runtime
-                .state
-                .legacy_session_restore_put(LegacySessionRestoreState {
-                    role_id: role_id.to_owned(),
-                    status: status.to_owned(),
-                    source_fingerprint: Some(source_fingerprint.clone()),
-                    cookie_count,
-                })
-        })?;
-        self.emit(vec![CoreEvent::LegacySessionsRestored {
-            records: vec![LegacySessionRestoreRecord {
-                role_id: role_id.to_owned(),
-                status: status.to_owned(),
-                source_fingerprint: Some(source_fingerprint),
-                cookie_count,
-                warnings,
-            }],
-        }]);
-        Ok(())
-    }
-
     async fn accept_browser_workspace_launch(
         self: &Arc<Self>,
         workspace_id: String,
@@ -2253,9 +2078,6 @@ impl AppCore {
                 .iter()
                 .filter_map(|slot| slot.role_id.clone())
                 .collect::<Vec<_>>();
-            for role_id in &expected_role_ids {
-                self.restore_legacy_session_if_needed(role_id).await?;
-            }
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
             let target = target.clone();
@@ -3450,16 +3272,6 @@ impl AppCore {
                         return Err(error);
                     }
                 };
-                core.with_runtime(|runtime| {
-                    runtime
-                        .state
-                        .legacy_session_restore_put(LegacySessionRestoreState {
-                            role_id: role_id.clone(),
-                            status: "disabledAfterClear".to_owned(),
-                            source_fingerprint: None,
-                            cookie_count: 0,
-                        })
-                })?;
                 if crate::role_browser_data::discard_quarantine(&core.user_data_dir, &operation_id)
                     .is_ok()
                 {
@@ -8837,15 +8649,6 @@ mod tests {
                     .unwrap()
                     .is_empty()
             );
-            assert_eq!(
-                core.with_runtime(|runtime| {
-                    runtime.state.legacy_session_restore_get(role_id.clone())
-                })
-                .unwrap()
-                .unwrap()
-                .status,
-                "disabledAfterClear"
-            );
         });
         core.shutdown();
     }
@@ -8901,13 +8704,6 @@ mod tests {
             core.with_runtime(|runtime| runtime.state.operation_journals())
                 .unwrap()
                 .is_empty()
-        );
-        assert!(
-            core.with_runtime(|runtime| {
-                runtime.state.legacy_session_restore_get(role_id.clone())
-            })
-            .unwrap()
-            .is_none()
         );
         let lease = core
             .browser_operations

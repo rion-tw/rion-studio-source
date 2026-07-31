@@ -10,9 +10,7 @@ export const REQUIRED_RELEASE_ASSETS = [
   "Rion.Studio-mac.app.tar.gz.sig",
   "Rion.Studio-win.exe",
   "Rion.Studio-win.exe.sig",
-  "latest.json",
-  "latest-mac.yml",
-  "latest.yml"
+  "latest.json"
 ];
 
 export const CHECKSUM_ASSET_NAME = "SHA256SUMS.txt";
@@ -35,16 +33,6 @@ export async function verifyReleaseAssets(directory, expectedVersion, options = 
   }
 
   await verifyTauriManifest(join(directory, "latest.json"), expectedVersion);
-  await verifyLegacyManifest(
-    join(directory, "latest.yml"),
-    expectedVersion,
-    join(directory, "Rion.Studio-win.exe")
-  );
-  await verifyLegacyManifest(
-    join(directory, "latest-mac.yml"),
-    expectedVersion,
-    join(directory, "Rion.Studio-mac.dmg")
-  );
   if (allowChecksums) await verifyReleaseChecksums(directory);
   return names;
 }
@@ -83,23 +71,6 @@ async function verifyTauriManifest(path, expectedVersion) {
     if (!artifact?.url?.endsWith(`/${name}`) || typeof artifact.signature !== "string" || !artifact.signature.trim()) {
       throw new Error(`${basename(path)} has an invalid ${platform} signed artifact.`);
     }
-  }
-}
-
-async function verifyLegacyManifest(path, expectedVersion, artifactPath) {
-  const source = await readFile(path, "utf8");
-  const version = source.match(/^version:\s*['"]?([^'"\s]+)['"]?\s*$/mu)?.[1];
-  if (version !== expectedVersion) {
-    throw new Error(`${basename(path)} version ${version ?? "<missing>"} does not match ${expectedVersion}`);
-  }
-  const name = basename(artifactPath);
-  if (!source.includes(`url: ${name}`) || !source.includes(`path: ${name}`)) {
-    throw new Error(`${basename(path)} does not reference ${name}.`);
-  }
-  const expectedHash = await hashFile(artifactPath, "sha512", "base64");
-  const hashes = [...source.matchAll(/^\s*sha512:\s*(\S+)\s*$/gmu)].map((match) => match[1]);
-  if (hashes.length < 2 || hashes.some((hash) => hash !== expectedHash)) {
-    throw new Error(`${basename(path)} SHA-512 does not match ${name}.`);
   }
 }
 

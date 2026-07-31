@@ -28,7 +28,6 @@ import type {
   LegalAcceptDocumentsInputRecord,
   LegalAcceptanceStatusRecord,
   LegalDocumentVersionsRecord,
-  LegacySessionRestoreRecord,
   LogEntry as RustLogEntry,
   LogErrorDetails as RustLogErrorDetails,
   LogLevel as RustLogLevel,
@@ -320,7 +319,6 @@ export type CreateLaunchWorkspaceInput = WorkspaceCreateRequest;
 export type UpdateLaunchWorkspaceInput = WorkspaceUpdateRequest;
 
 export type DisplayInfo = DisplayInfoRecord;
-// Transitional public alias for callers that only consume the monitor inventory.
 export interface AppSnapshot {
   embeddedRuntimeState: EmbeddedRuntimeState;
   games: Game[];
@@ -465,8 +463,6 @@ export type ChromeProfileImportResolution = ChromeProfileImportResolutionRecord;
 export type ChromeProfileImportResult = ChromeProfileImportResultRecord;
 
 export type ChromeProfileImportProgress = ChromeProfileImportProgressRecord;
-
-export type LegacySessionRestore = LegacySessionRestoreRecord;
 
 export interface ChromeProfileImportInput {
   importId: string;

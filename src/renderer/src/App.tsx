@@ -739,9 +739,12 @@ export function App(): JSX.Element {
                     onQueryChange={macroWorkflow.setQuery}
                     onRoleFilterChange={macroWorkflow.setRoleFilterId}
                     onSetMacroEnabled={(macro, enabled) => void macroWorkflow.handleSetMacroEnabled(macro, enabled)}
+                    onSetMacrosEnabled={macroWorkflow.handleSetMacrosEnabled}
                     onSortChange={macroWorkflow.setSort}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
+                    onStartMacros={macroWorkflow.handleStartMacros}
                     onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
+                    onStopMacros={macroWorkflow.handleStopMacros}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />

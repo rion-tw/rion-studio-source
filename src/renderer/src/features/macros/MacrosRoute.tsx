@@ -11,6 +11,8 @@ import {
   Play,
   Plus,
   Search,
+  ToggleLeft,
+  ToggleRight,
   Trash2
 } from "lucide-react";
 import { type CSSProperties, type JSX, type MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -63,9 +65,12 @@ interface MacrosRouteProps {
   onQueryChange: (query: string) => void;
   onRoleFilterChange: (roleId: string) => void;
   onSetMacroEnabled?: (macro: Macro, enabled: boolean) => void;
+  onSetMacrosEnabled?: (macros: Macro[], enabled: boolean) => Promise<void>;
   onSortChange: (sort: MacroListSortState) => void;
   onStartMacro: (macroId: string) => void;
+  onStartMacros?: (macros: Macro[]) => Promise<void>;
   onStopMacro: (macroId: string) => void;
+  onStopMacros?: (macros: Macro[]) => Promise<void>;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -89,9 +94,12 @@ function MacrosRoute({
   onQueryChange,
   onRoleFilterChange,
   onSetMacroEnabled,
+  onSetMacrosEnabled,
   onSortChange,
   onStartMacro,
+  onStartMacros,
   onStopMacro,
+  onStopMacros,
   roles,
   statusByRole,
   t
@@ -105,11 +113,6 @@ function MacrosRoute({
   const runningCount = new Set(
     macroStatuses.filter((status) => status.state === "running").map((status) => status.macroId)
   ).size;
-  const activeMacroIds = new Set(
-    macroStatuses
-      .filter((status) => status.state === "running" || status.state === "stopping")
-      .map((status) => status.macroId)
-  );
   const unassignedWorkflowMacroIds = useMemo(
     () => new Set(
       macros
@@ -117,6 +120,20 @@ function MacrosRoute({
         .map((macro) => macro.id)
     ),
     [macros]
+  );
+  const runStateByMacroId = useMemo(
+    () => new Map(macros.map((macro) => [
+      macro.id,
+      createMacroListRunActionState({
+        busyMacroIds,
+        busyRunKeys,
+        hasUnassignedDependency: unassignedWorkflowMacroIds.has(macro.id),
+        macro,
+        macroStatusByRun,
+        statusByRole
+      })
+    ])),
+    [busyMacroIds, busyRunKeys, macroStatusByRun, macros, statusByRole, unassignedWorkflowMacroIds]
   );
   const filteredMacros = useMemo(
     () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
@@ -126,6 +143,22 @@ function MacrosRoute({
     orderedIds: filteredMacros.map((macro) => macro.id),
     scrollContainerRef: pageRef
   });
+  const selectedMacros = filteredMacros.filter((macro) => selection.selectedIds.has(macro.id));
+  const startableMacros = selectedMacros.filter(
+    (macro) => runStateByMacroId.get(macro.id)?.canStart
+  );
+  const stoppableMacros = selectedMacros.filter(
+    (macro) => runStateByMacroId.get(macro.id)?.canStop
+  );
+  const enableableMacros = selectedMacros.filter(
+    (macro) => !macro.enabled && !busyMacroIds.has(macro.id) && !busyRunKeys.has(macro.id)
+  );
+  const disableableMacros = selectedMacros.filter(
+    (macro) => macro.enabled && !busyMacroIds.has(macro.id) && !busyRunKeys.has(macro.id)
+  );
+  const isSelectionBusy = selectedMacros.some(
+    (macro) => busyMacroIds.has(macro.id) || busyRunKeys.has(macro.id)
+  );
 
   useEffect(() => {
     if (roleFilterId && !roles.some((role) => role.id === roleFilterId)) {
@@ -148,7 +181,6 @@ function MacrosRoute({
   }
 
   async function handleDeleteSelected(): Promise<void> {
-    const selectedMacros = filteredMacros.filter((macro) => selection.selectedIds.has(macro.id));
     const completed = await onDeleteMacros(selectedMacros);
     if (completed) {
       selection.clearSelection();
@@ -157,6 +189,38 @@ function MacrosRoute({
 
   function handleNewMacro(): void {
     onNewMacro(roleFilterId || undefined);
+  }
+
+  async function handleStartSelected(): Promise<void> {
+    if (onStartMacros) {
+      await onStartMacros(startableMacros);
+      return;
+    }
+    startableMacros.forEach((macro) => onStartMacro(macro.id));
+  }
+
+  async function handleStopSelected(): Promise<void> {
+    if (onStopMacros) {
+      await onStopMacros(stoppableMacros);
+      return;
+    }
+    stoppableMacros.forEach((macro) => onStopMacro(macro.id));
+  }
+
+  async function handleEnableSelected(): Promise<void> {
+    if (onSetMacrosEnabled) {
+      await onSetMacrosEnabled(enableableMacros, true);
+      return;
+    }
+    enableableMacros.forEach((macro) => onSetMacroEnabled?.(macro, true));
+  }
+
+  async function handleDisableSelected(): Promise<void> {
+    if (onSetMacrosEnabled) {
+      await onSetMacrosEnabled(disableableMacros, false);
+      return;
+    }
+    disableableMacros.forEach((macro) => onSetMacroEnabled?.(macro, false));
   }
 
   if (macros.length === 0) {
@@ -219,7 +283,51 @@ function MacrosRoute({
 
       {selection.hasSelection ? (
         <SelectionActionBar
-          isBusy={[...selection.selectedIds].some((id) => busyMacroIds.has(id))}
+          actions={
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isSelectionBusy || startableMacros.length === 0}
+                onClick={() => void handleStartSelected()}
+              >
+                <Play size={14} fill="currentColor" />
+                {t("macros.bulk.runCount").replace("{count}", String(startableMacros.length))}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isSelectionBusy || stoppableMacros.length === 0}
+                onClick={() => void handleStopSelected()}
+              >
+                <Pause size={14} fill="currentColor" />
+                {t("macros.bulk.stopCount").replace("{count}", String(stoppableMacros.length))}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isSelectionBusy || enableableMacros.length === 0}
+                onClick={() => void handleEnableSelected()}
+              >
+                <ToggleRight size={14} />
+                {t("macros.bulk.enableCount").replace("{count}", String(enableableMacros.length))}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isSelectionBusy || disableableMacros.length === 0}
+                onClick={() => void handleDisableSelected()}
+              >
+                <ToggleLeft size={14} />
+                {t("macros.bulk.disableCount").replace("{count}", String(disableableMacros.length))}
+              </Button>
+            </>
+          }
+          isBusy={isSelectionBusy}
           selectedCount={selection.selectedIds.size}
           t={t}
           totalCount={filteredMacros.length}
@@ -297,18 +405,49 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
-                  <th className="w-32 px-4 py-1" aria-label={t("macros.actions")} />
+                  <th className="w-24 px-4 py-1" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-body">
-                {filteredMacros.map((macro) => (
-                  <tr
-                    key={macro.id}
-                    ref={selection.registerItem(macro.id)}
-                    className={cn("group align-middle transition-colors", selection.isSelected(macro.id) && "bg-activity/10")}
-                    data-selection-id={macro.id}
-                    onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
-                  >
+                {filteredMacros.map((macro, index) => {
+                  const runState = runStateByMacroId.get(macro.id)!;
+                  const isActive = runState.isRunning || runState.isStopping;
+                  const isSelected = selection.isSelected(macro.id);
+                  const isPreviousSelected = index > 0 && selection.isSelected(filteredMacros[index - 1].id);
+                  const isNextSelected = index < filteredMacros.length - 1 && selection.isSelected(filteredMacros[index + 1].id);
+                  const isSelectionGroupStart = isSelected && !isPreviousSelected;
+                  const isSelectionGroupEnd = isSelected && !isNextSelected;
+                  const rowTone = isActive
+                    ? "bg-activity/[0.08]"
+                    : macro.roleIds.length === 0
+                      ? "bg-warning/35"
+                      : isSelected
+                        ? "bg-activity/10"
+                        : undefined;
+
+                  return (
+                    <tr
+                      key={macro.id}
+                      ref={selection.registerItem(macro.id)}
+                      className={cn(
+                        "group align-middle transition-[background-color,box-shadow,opacity]",
+                        rowTone,
+                        isSelected && [
+                          "[&>td:first-child]:border-l [&>td:first-child]:border-l-activity/80",
+                          "[&>td:last-child]:border-r [&>td:last-child]:border-r-activity/80"
+                        ],
+                        isSelectionGroupStart && "[&>td]:border-t [&>td]:border-t-activity/80",
+                        isSelectionGroupEnd && "[&>td]:border-b [&>td]:border-b-activity/80",
+                        !macro.enabled && "opacity-[0.55]"
+                      )}
+                      data-macro-active={isActive ? "true" : undefined}
+                      data-macro-disabled={!macro.enabled ? "true" : undefined}
+                      data-macro-unassigned={macro.roleIds.length === 0 ? "true" : undefined}
+                      data-selection-group-start={isSelectionGroupStart ? "true" : undefined}
+                      data-selection-group-end={isSelectionGroupEnd ? "true" : undefined}
+                      data-selection-id={macro.id}
+                      onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
+                    >
                     <td className="relative w-9 p-0">
                       <div className="absolute inset-0 grid place-items-center" data-macro-selection-control>
                         <SelectionToggle
@@ -321,21 +460,35 @@ function MacrosRoute({
                       </div>
                     </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">
-                      <button
-                        className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-                        type="button"
-                        title={t("macros.edit")}
-                        disabled={activeMacroIds.has(macro.id)}
-                        onClick={() => onEditMacro(macro)}
-                      >
-                        <span className="block truncate">{macro.name}</span>
-                      </button>
-                      <MacroFailureMessage
-                        macro={macro}
-                        macroStatusByRun={macroStatusByRun}
-                        roleById={roleById}
-                        t={t}
-                      />
+                      <div className="flex min-w-0 items-center gap-2" data-macro-name-control>
+                        <MacroRunButton
+                          macro={macro}
+                          runState={runState}
+                          t={t}
+                          onStartMacro={onStartMacro}
+                          onStopMacro={onStopMacro}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <button
+                            className={cn(
+                              "-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",
+                              macro.enabled ? "text-foreground" : "text-muted-foreground"
+                            )}
+                            type="button"
+                            title={t("macros.edit")}
+                            disabled={isActive}
+                            onClick={() => onEditMacro(macro)}
+                          >
+                            <span className="block truncate">{macro.name}</span>
+                          </button>
+                          <MacroFailureMessage
+                            macro={macro}
+                            macroStatusByRun={macroStatusByRun}
+                            roleById={roleById}
+                            t={t}
+                          />
+                        </div>
+                      </div>
                     </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">
                       <MacroRoleBadge
@@ -359,7 +512,7 @@ function MacrosRoute({
                     <td className="max-w-[320px] px-4 py-2 align-middle text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
-                    <td className="relative w-32 p-0">
+                    <td className="relative w-24 p-0">
                       <div className="absolute inset-0 flex items-center justify-end gap-2 px-3" data-macro-actions-control>
                         {onSetMacroEnabled ? (
                           <div className="grid place-items-center" data-macro-enabled-control>
@@ -375,22 +528,18 @@ function MacrosRoute({
                         ) : null}
                         <MacroActionMenu
                           busyMacroIds={busyMacroIds}
-                          busyRunKeys={busyRunKeys}
                           macro={macro}
-                          macroStatusByRun={macroStatusByRun}
-                          hasUnassignedDependency={unassignedWorkflowMacroIds.has(macro.id)}
+                          isActive={isActive}
                           onCopy={() => onCopyMacro(macro)}
                           onDelete={() => onDeleteMacro(macro)}
                           onEdit={() => onEditMacro(macro)}
-                          onStartMacro={onStartMacro}
-                          onStopMacro={onStopMacro}
-                          statusByRole={statusByRole}
                           t={t}
                         />
                       </div>
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
                 </tbody>
               </table>
             </div>
@@ -510,18 +659,146 @@ function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBadgeProp
   );
 }
 
-interface MacroActionMenuProps {
+type MacroRunDisabledReason =
+  | "noRoles"
+  | "unassignedDependency"
+  | "macroDisabled"
+  | "rolesNotRunning"
+  | "automationUnavailable";
+
+interface MacroListRunActionState {
+  canStart: boolean;
+  canStop: boolean;
+  disabled: boolean;
+  disabledReason?: MacroRunDisabledReason;
+  isBusy: boolean;
+  isRunning: boolean;
+  isStopping: boolean;
+  kind: "start" | "stop";
+}
+
+function createMacroListRunActionState({
+  busyMacroIds,
+  busyRunKeys,
+  hasUnassignedDependency,
+  macro,
+  macroStatusByRun,
+  statusByRole
+}: {
   busyMacroIds: ReadonlySet<string>;
   busyRunKeys: ReadonlySet<string>;
-  macro: Macro;
   hasUnassignedDependency: boolean;
+  macro: Macro;
   macroStatusByRun: Map<string, MacroRunStatus>;
+  statusByRole: Map<string, RoleStatus>;
+}): MacroListRunActionState {
+  const assignedStatuses = macro.roleIds
+    .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
+    .filter((status): status is MacroRunStatus => Boolean(status));
+  const isRunning = assignedStatuses.some((status) => status.state === "running");
+  const isStopping = assignedStatuses.some((status) => status.state === "stopping");
+  const hasRunningBrowser = macro.roleIds.some(
+    (roleId) => statusByRole.get(roleId)?.state === "running"
+  );
+  const hasRunnableRole = macro.roleIds.some(
+    (roleId) =>
+      statusByRole.get(roleId)?.state === "running" &&
+      statusByRole.get(roleId)?.automationState !== "unavailable" &&
+      statusByRole.get(roleId)?.pageHealth !== "unresponsive"
+  );
+  const isBusy = busyMacroIds.has(macro.id) || busyRunKeys.has(macro.id) || isStopping;
+  const disabledReason = !isRunning && macro.roleIds.length === 0
+    ? "noRoles"
+    : !isRunning && hasUnassignedDependency
+      ? "unassignedDependency"
+      : !isRunning && !macro.enabled
+        ? "macroDisabled"
+        : !isRunning && !hasRunningBrowser
+          ? "rolesNotRunning"
+          : !isRunning && !hasRunnableRole
+            ? "automationUnavailable"
+            : undefined;
+  const kind = isRunning || isStopping ? "stop" : "start";
+  const disabled = isBusy || Boolean(disabledReason);
+
+  return {
+    canStart: kind === "start" && !disabled,
+    canStop: kind === "stop" && !disabled,
+    disabled,
+    disabledReason,
+    isBusy,
+    isRunning,
+    isStopping,
+    kind
+  };
+}
+
+function MacroRunButton({
+  macro,
+  onStartMacro,
+  onStopMacro,
+  runState,
+  t
+}: {
+  macro: Macro;
+  onStartMacro: (macroId: string) => void;
+  onStopMacro: (macroId: string) => void;
+  runState: MacroListRunActionState;
+  t: Translator;
+}): JSX.Element {
+  const runLabel = t(runState.kind === "stop" ? "macros.stopShort" : "macros.startShort");
+  const title = runState.disabledReason === "noRoles"
+    ? t("macros.assignRoleFirst")
+    : runState.disabledReason === "unassignedDependency"
+      ? t("macros.assignCalledMacroRoleFirst")
+      : runState.disabledReason === "macroDisabled"
+        ? t("macros.disabledHint")
+        : runState.disabledReason === "rolesNotRunning"
+          ? t("macros.launchRoleFirst")
+          : runState.disabledReason === "automationUnavailable"
+            ? t("macros.automationUnavailable")
+            : runLabel;
+
+  function handleRun(): void {
+    if (runState.disabled) {
+      return;
+    }
+    if (runState.kind === "stop") {
+      onStopMacro(macro.id);
+    } else {
+      onStartMacro(macro.id);
+    }
+  }
+
+  return (
+    <Button
+      className={cn("h-7 w-7 shrink-0", runState.isRunning && "text-activity hover:text-activity")}
+      type="button"
+      variant="ghost"
+      size="icon"
+      title={title}
+      aria-label={runLabel}
+      onClick={handleRun}
+      disabled={runState.disabled}
+    >
+      {runState.isBusy ? (
+        <Loader2 className="spin" size={14} />
+      ) : runState.isRunning ? (
+        <Pause size={14} fill="currentColor" />
+      ) : (
+        <Play size={14} fill="currentColor" />
+      )}
+    </Button>
+  );
+}
+
+interface MacroActionMenuProps {
+  busyMacroIds: ReadonlySet<string>;
+  isActive: boolean;
+  macro: Macro;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onStartMacro: (macroId: string) => void;
-  onStopMacro: (macroId: string) => void;
-  statusByRole: Map<string, RoleStatus>;
   t: Translator;
 }
 
@@ -532,43 +809,18 @@ interface MacroActionMenuPosition {
 
 function MacroActionMenu({
   busyMacroIds,
-  busyRunKeys,
+  isActive,
   macro,
-  macroStatusByRun,
-  hasUnassignedDependency,
   onCopy,
   onDelete,
   onEdit,
-  onStartMacro,
-  onStopMacro,
-  statusByRole,
   t
 }: MacroActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MacroActionMenuPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const assignedRunKeys = macro.roleIds.map((roleId) => createMacroRunKey(roleId, macro.id));
-  const macroRunStatuses = assignedRunKeys
-    .map((runKey) => macroStatusByRun.get(runKey))
-    .filter((status): status is MacroRunStatus => Boolean(status));
-  const hasRunningBrowser = macro.roleIds.some(
-    (roleId) => statusByRole.get(roleId)?.state === "running"
-  );
-  const hasRunnableRole = macro.roleIds.some(
-    (roleId) =>
-      statusByRole.get(roleId)?.state === "running" &&
-      statusByRole.get(roleId)?.automationState !== "unavailable" &&
-      statusByRole.get(roleId)?.pageHealth !== "unresponsive"
-  );
-  const isRunning = macroRunStatuses.some((status) => status.state === "running");
-  const isStopping = macroRunStatuses.some((status) => status.state === "stopping");
-  const isRunBusy = busyRunKeys.has(macro.id) || isStopping;
   const isDeleteBusy = busyMacroIds.has(macro.id);
-  const runLabel = t(isRunning || isStopping ? "macros.stopShort" : "macros.startShort");
-  const isRunDisabled = isRunBusy || (
-    !isRunning && (!macro.enabled || hasUnassignedDependency || !hasRunnableRole)
-  );
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -661,19 +913,6 @@ function MacroActionMenu({
     };
   }, [isOpen]);
 
-  function handleRun(): void {
-    if (isRunDisabled) {
-      return;
-    }
-
-    if (isRunning || isStopping) {
-      onStopMacro(macro.id);
-      return;
-    }
-
-    onStartMacro(macro.id);
-  }
-
   function handleEdit(): void {
     setIsOpen(false);
     onEdit();
@@ -713,7 +952,7 @@ function MacroActionMenu({
               type="button"
               role="menuitem"
               onClick={handleEdit}
-              disabled={isRunning || isStopping}
+              disabled={isActive}
             >
               <Pencil size={14} />
               <span>{t("macros.edit")}</span>
@@ -744,37 +983,7 @@ function MacroActionMenu({
       : null;
 
   return (
-    <div className="relative flex shrink-0 items-center gap-0.5">
-      <Button
-        className={cn("h-7 w-7", isRunning && "text-activity hover:text-activity")}
-        type="button"
-        variant="ghost"
-        size="icon"
-        title={
-          !isRunning && macro.roleIds.length === 0
-            ? t("macros.assignRoleFirst")
-            : !isRunning && hasUnassignedDependency
-              ? t("macros.assignCalledMacroRoleFirst")
-          : !isRunning && !macro.enabled
-            ? t("macros.disabledHint")
-            : !isRunning && !hasRunningBrowser
-            ? t("macros.launchRoleFirst")
-            : !isRunning && !hasRunnableRole
-              ? t("macros.automationUnavailable")
-              : runLabel
-        }
-        aria-label={runLabel}
-        onClick={handleRun}
-        disabled={isRunDisabled}
-      >
-        {isRunBusy ? (
-          <Loader2 className="spin" size={14} />
-        ) : isRunning ? (
-          <Pause size={14} fill="currentColor" />
-        ) : (
-          <Play size={14} fill="currentColor" />
-        )}
-      </Button>
+    <div className="relative flex shrink-0 items-center">
       <Button
         ref={triggerRef}
         className="h-7 w-7"

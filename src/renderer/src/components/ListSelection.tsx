@@ -1,6 +1,6 @@
 import { Loader2, Trash2, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import type { JSX, MouseEvent } from "react";
+import type { JSX, MouseEvent, ReactNode } from "react";
 
 import type { Translator } from "../i18n";
 import type { SelectionRect } from "../hooks/useListSelection";
@@ -65,6 +65,7 @@ export function SelectionToggle({
 }
 
 interface SelectionActionBarProps {
+  actions?: ReactNode;
   isBusy: boolean;
   onClear: () => void;
   onDelete: () => void;
@@ -75,6 +76,7 @@ interface SelectionActionBarProps {
 }
 
 export function SelectionActionBar({
+  actions,
   isBusy,
   onClear,
   onDelete,
@@ -89,7 +91,7 @@ export function SelectionActionBar({
       aria-label={t("selection.count").replace("{count}", String(selectedCount))}
       className={cn(
         host ? "absolute" : "fixed",
-        "bottom-5 left-1/2 z-[var(--layer-toast)] flex w-fit max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 px-2 py-1.5 shadow-lg"
+        "bottom-5 left-1/2 z-[var(--layer-toast)] flex w-fit max-w-[calc(100%-1rem)] -translate-x-1/2 flex-nowrap items-center gap-1.5 overflow-x-auto px-2 py-1.5 shadow-lg"
       )}
       role="toolbar"
       variant="strong"
@@ -102,6 +104,7 @@ export function SelectionActionBar({
           {t("selection.selectAllVisible")}
         </Button>
       ) : null}
+      {actions}
       <Button type="button" size="sm" variant="destructive" disabled={isBusy} onClick={onDelete}>
         {isBusy ? <Loader2 className="spin" size={14} /> : <Trash2 size={14} />}
         {t("selection.deleteCount").replace("{count}", String(selectedCount))}

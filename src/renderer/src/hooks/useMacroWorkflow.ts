@@ -171,8 +171,13 @@ export function useMacroWorkflow({
     }
   }
 
-  async function handleStartMacro(macroId: string): Promise<void> {
-    const finishBusy = beginBusy(macroId);
+  async function handleStartMacros(selectedMacros: Macro[]): Promise<void> {
+    const targets = uniqueMacros(selectedMacros);
+    if (targets.length === 0) {
+      return;
+    }
+
+    const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
       return;
     }
@@ -181,70 +186,144 @@ export function useMacroWorkflow({
     setNotice?.(null);
 
     try {
-      const nextStatuses = await window.rionStudio.startMacro(macroId);
-      setMacroStatuses((current) => mergeMacroStatuses(current, nextStatuses));
-      const partialStart = getMacroPartialStartCounts(
-        macros.find((macro) => macro.id === macroId),
-        nextStatuses
+      const results = await Promise.allSettled(
+        targets.map((macro) => window.rionStudio.startMacro(macro.id))
       );
-      if (partialStart) {
+      const successful = results.flatMap((result, index) =>
+        result.status === "fulfilled"
+          ? [{ macro: targets[index], statuses: result.value }]
+          : []
+      );
+      const startedStatuses = successful.flatMap(({ statuses }) => statuses);
+      setMacroStatuses((current) => mergeMacroStatuses(current, startedStatuses));
+
+      const partialStart = successful.reduce(
+        (total, { macro, statuses }) => {
+          const partial = getMacroPartialStartCounts(macro, statuses);
+          return partial
+            ? {
+                skippedCount: total.skippedCount + partial.skippedCount,
+                startedCount: total.startedCount + partial.startedCount
+              }
+            : total;
+        },
+        { skippedCount: 0, startedCount: 0 }
+      );
+      if (partialStart.skippedCount > 0) {
         setNotice?.(
           t("macros.partialStartNotice")
             .replace("{started}", String(partialStart.startedCount))
             .replace("{skipped}", String(partialStart.skippedCount))
         );
       }
-    } catch (startError) {
-      reportError(startError);
+
       try {
         setMacroStatuses(await window.rionStudio.listMacroStatuses());
       } catch (recoveryError) {
         reportError(recoveryError);
       }
+
+      reportMacroOperationFailures(successful.length, results, reportError, setNotice, t);
+    } finally {
+      finishBusy();
+    }
+  }
+
+  async function handleStartMacro(macroId: string): Promise<void> {
+    const macro = macros.find((candidate) => candidate.id === macroId);
+    if (macro) {
+      await handleStartMacros([macro]);
+    }
+  }
+
+  async function handleSetMacrosEnabled(selectedMacros: Macro[], enabled: boolean): Promise<void> {
+    const targets = uniqueMacros(selectedMacros).filter((macro) => macro.enabled !== enabled);
+    if (targets.length === 0) {
+      return;
+    }
+
+    const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
+    if (!finishBusy) {
+      return;
+    }
+    const reportError = beginErrorOperation();
+    setNotice?.(null);
+
+    try {
+      const results = await Promise.allSettled(
+        targets.map((macro) => window.rionStudio.updateMacro(macro.id, { enabled }))
+      );
+      const updatedMacros = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : []
+      );
+      const updatedById = new Map(updatedMacros.map((macro) => [macro.id, macro]));
+      setMacros((current) => current.map((item) => updatedById.get(item.id) ?? item));
+
+      if (!enabled) {
+        const disabledIds = new Set(updatedMacros.map((macro) => macro.id));
+        setMacroStatuses((current) => current.filter((status) => !disabledIds.has(status.macroId)));
+      }
+
+      try {
+        const [nextMacros, nextStatuses] = await Promise.all([
+          window.rionStudio.listMacros(),
+          window.rionStudio.listMacroStatuses()
+        ]);
+        setMacros(nextMacros);
+        setMacroStatuses(nextStatuses);
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
+
+      reportMacroOperationFailures(updatedMacros.length, results, reportError, setNotice, t);
     } finally {
       finishBusy();
     }
   }
 
   async function handleSetMacroEnabled(macro: Macro, enabled: boolean): Promise<void> {
-    if (macro.enabled === enabled) {
+    await handleSetMacrosEnabled([macro], enabled);
+  }
+
+  async function handleStopMacros(selectedMacros: Macro[]): Promise<void> {
+    const targets = uniqueMacros(selectedMacros);
+    if (targets.length === 0) {
       return;
     }
 
-    const finishBusy = beginBusy(macro.id);
+    const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
       return;
     }
+
     const reportError = beginErrorOperation();
+    setNotice?.(null);
 
     try {
-      const updated = await window.rionStudio.updateMacro(macro.id, { enabled });
-      setMacros((current) => current.map((item) => item.id === updated.id ? updated : item));
-      if (!enabled) {
-        setMacroStatuses((current) => current.filter((status) => status.macroId !== macro.id));
+      const results = await Promise.allSettled(
+        targets.map((macro) => window.rionStudio.stopMacro(macro.id))
+      );
+      const stoppedIds = new Set(results.flatMap((result, index) =>
+        result.status === "fulfilled" ? [targets[index].id] : []
+      ));
+      setMacroStatuses((current) => current.filter((status) => !stoppedIds.has(status.macroId)));
+
+      try {
+        setMacroStatuses(await window.rionStudio.listMacroStatuses());
+      } catch (recoveryError) {
+        reportError(recoveryError);
       }
-    } catch (updateError) {
-      reportError(updateError);
+
+      reportMacroOperationFailures(stoppedIds.size, results, reportError, setNotice, t);
     } finally {
       finishBusy();
     }
   }
 
   async function handleStopMacro(macroId: string): Promise<void> {
-    const finishBusy = beginBusy(macroId);
-    if (!finishBusy) {
-      return;
-    }
-
-    const reportError = beginErrorOperation();
-
-    try {
-      await window.rionStudio.stopMacro(macroId);
-      setMacroStatuses((current) => current.filter((status) => status.macroId !== macroId));
-    } catch (stopError) {
-      reportError(stopError);
-    } finally {
-      finishBusy();
+    const macro = macros.find((candidate) => candidate.id === macroId);
+    if (macro) {
+      await handleStopMacros([macro]);
     }
   }
 
@@ -262,8 +341,11 @@ export function useMacroWorkflow({
     handleDeleteMacro,
     handleDeleteMacros,
     handleStartMacro,
+    handleStartMacros,
     handleSetMacroEnabled,
+    handleSetMacrosEnabled,
     handleStopMacro,
+    handleStopMacros,
     isSavingMacro,
     listScrollTopRef,
     openListForRole,
@@ -283,4 +365,33 @@ function mergeMacroStatuses(current: MacroRunStatus[], next: MacroRunStatus[]): 
   const merged = current.map((status) => nextByKey.get(`${status.roleId}:${status.macroId}`) ?? status);
   const currentKeys = new Set(current.map((status) => `${status.roleId}:${status.macroId}`));
   return [...merged, ...next.filter((status) => !currentKeys.has(`${status.roleId}:${status.macroId}`))];
+}
+
+function uniqueMacros(macros: Macro[]): Macro[] {
+  return [...new Map(macros.map((macro) => [macro.id, macro])).values()];
+}
+
+function reportMacroOperationFailures(
+  succeededCount: number,
+  results: PromiseSettledResult<unknown>[],
+  reportError: (error: unknown) => void,
+  setNotice: ((message: string | null) => void) | undefined,
+  t: Translator
+): void {
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failures.length === 0) {
+    return;
+  }
+  if (results.length === 1) {
+    reportError(failures[0].reason);
+    return;
+  }
+
+  const message = t("macros.bulk.partialFailure")
+    .replace("{succeeded}", String(succeededCount))
+    .replace("{failed}", String(failures.length));
+  setNotice?.(message);
+  reportError(new Error(message));
 }

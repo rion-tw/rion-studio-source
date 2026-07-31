@@ -4903,6 +4903,7 @@ impl SystemRuntimeExecutor {
         });
         self.presentation.remove(window_id);
         if let Some(host) = host {
+            self.unregister_runtime_launcher_window(window_id);
             let _ = host.window.close();
         }
     }
@@ -5773,6 +5774,7 @@ impl SystemRuntimeExecutor {
         if let Ok(mut state) = self.state.lock() {
             let tabs = std::mem::take(&mut state.tabs);
             let display_hosts = std::mem::take(&mut state.display_hosts);
+            let display_window_ids = display_hosts.keys().cloned().collect::<Vec<_>>();
             let popup_labels = std::mem::take(&mut state.popup_roles)
                 .into_keys()
                 .collect::<Vec<_>>();
@@ -5791,6 +5793,9 @@ impl SystemRuntimeExecutor {
                 for role_id in tab.roles.keys() {
                     self.clear_role_keys(role_id);
                 }
+            }
+            for window_id in display_window_ids {
+                self.unregister_runtime_launcher_window(&window_id);
             }
             for (_, host) in display_hosts {
                 let _ = host.window.close();
@@ -10588,6 +10593,7 @@ impl SystemRuntimeExecutor {
             .get(&target.window_id)
             .map(|host| host.window.clone())
         {
+            self.register_runtime_launcher_window(&target.window_id);
             return Ok((window, false));
         }
 
@@ -10656,6 +10662,7 @@ impl SystemRuntimeExecutor {
             let existing = existing.window.clone();
             drop(state);
             let _ = window.close();
+            self.register_runtime_launcher_window(&target.window_id);
             return Ok((existing, false));
         }
         state.display_hosts.insert(
@@ -10672,7 +10679,27 @@ impl SystemRuntimeExecutor {
                 tabs_controller,
             },
         );
+        drop(state);
+        self.register_runtime_launcher_window(&target.window_id);
         Ok((window, true))
+    }
+
+    fn register_runtime_launcher_window(&self, window_id: &str) {
+        let Some(state) = self.app.try_state::<crate::CoreState>() else {
+            return;
+        };
+        if let Err(error) = state
+            .runtime_launcher_refresh
+            .register_window(&self.app, window_id)
+        {
+            eprintln!("Runtime launcher menu could not register window {window_id}: {error}");
+        }
+    }
+
+    fn unregister_runtime_launcher_window(&self, window_id: &str) {
+        if let Some(state) = self.app.try_state::<crate::CoreState>() {
+            state.runtime_launcher_refresh.unregister_window(window_id);
+        }
     }
 
     fn remove_empty_display_host(&self, window_id: &str, created_for_operation: bool) {
@@ -10691,6 +10718,7 @@ impl SystemRuntimeExecutor {
             Some(host)
         });
         if let Some(host) = host {
+            self.unregister_runtime_launcher_window(window_id);
             let _ = host.window.close();
         }
     }
@@ -12256,11 +12284,12 @@ impl SystemRuntimeExecutor {
                     state
                         .allow_window_close_labels
                         .insert(host.window.label().to_owned());
-                    Some(host)
+                    Some((window_id, host))
                 })
                 .collect::<Vec<_>>()
         };
-        for host in obsolete_hosts {
+        for (window_id, host) in obsolete_hosts {
+            self.unregister_runtime_launcher_window(&window_id);
             let _ = host.window.close();
         }
         Ok(())

@@ -14,6 +14,8 @@ describe("foreground System WebView performance diagnostics", () => {
     ]);
 
     expect(model).toContain("pub struct BrowserPerformanceDiagnosticsRecord");
+    expect(model).toContain("pub system_low_power_mode_enabled: Option<bool>");
+    expect(model).toContain("pub system_thermal_state: Option<String>");
     expect(runtime).toContain("PERFORMANCE_DIAGNOSTIC_START_SOURCE");
     expect(runtime).toContain("requestAnimationFrame(tick)");
     expect(runtime).toContain("PerformanceObserver");
@@ -28,7 +30,14 @@ describe("foreground System WebView performance diagnostics", () => {
     expect(core).toContain('"foregroundPerformance": snapshot.browser_performance');
     expect(native).toContain("rion_ns_window_display_refresh_rate");
     expect(native).toContain("maximumFramesPerSecond");
+    expect(native).toContain("rion_ns_low_power_mode_enabled");
+    expect(native).toContain("isLowPowerModeEnabled");
+    expect(native).toContain("rion_ns_thermal_state");
+    expect(native).toContain("NSProcessInfoThermalStateCritical");
     expect(cargo).toContain('"Win32_Graphics_Gdi"');
+    expect(cargo).toContain('"Win32_System_Power"');
     expect(runtime).toContain("GetDeviceCaps(Some(device_context), VREFRESH)");
+    expect(runtime).toContain("GetSystemPowerStatus(&mut status)");
+    expect(runtime).toContain("windows_low_power_mode_from_system_status_flag");
   });
 });

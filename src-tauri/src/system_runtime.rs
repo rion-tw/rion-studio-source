@@ -46,6 +46,8 @@ use tauri::{
     },
     window::WindowBuilder,
 };
+#[cfg(target_os = "macos")]
+use {objc2::rc::Retained, objc2_web_kit::WKWebViewConfiguration};
 
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(40);
 const RION_STUDIO_APP_NAME: &str = "Rion Studio";
@@ -1970,6 +1972,11 @@ struct PerformanceDiagnosticWindow {
     window_id: String,
 }
 
+struct PlatformPerformanceEnvironment {
+    system_low_power_mode_enabled: Option<bool>,
+    system_thermal_state: Option<String>,
+}
+
 pub struct SystemRuntimeExecutor {
     app: AppHandle,
     close_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
@@ -2906,21 +2913,6 @@ impl SystemRuntimeExecutor {
             }
             let shortcut_status = install_role_zoom_shortcut_handler(&webview, self.app.clone());
             degraded |= shortcut_status.is_err();
-            self.wait_for_optional_idle();
-            let high_refresh_rate_status = configure_platform_high_refresh_rate(
-                &webview,
-                self.configuration.macos_high_refresh_rate,
-            );
-            if let Ok(mut state) = self.state.lock()
-                && let Some(surface) = state
-                    .tabs
-                    .get_mut(tab_id)
-                    .and_then(|tab| tab.roles.get_mut(&role_id))
-                && surface.generation == generation
-                && surface.webview.label() == webview.label()
-            {
-                surface.high_refresh_rate_status = high_refresh_rate_status;
-            }
             self.record_runtime_stage(
                 format!("optional-hydration:{tab_id}:{role_id}"),
                 if shortcut_status.is_ok() {
@@ -5393,6 +5385,7 @@ impl SystemRuntimeExecutor {
         sample_duration: Duration,
     ) -> RuntimeResult<BrowserPerformanceDiagnosticsRecord> {
         let captured_at = chrono::Utc::now().to_rfc3339();
+        let environment = platform_performance_environment();
         let platform = if cfg!(target_os = "macos") {
             "macos"
         } else {
@@ -5449,6 +5442,8 @@ impl SystemRuntimeExecutor {
                     BrowserPerformanceDiagnosticStatus::NoRunningRole,
                     self.configuration.macos_high_refresh_rate,
                     sample_duration,
+                    environment.system_low_power_mode_enabled,
+                    environment.system_thermal_state,
                 )),
             );
         }
@@ -5472,6 +5467,8 @@ impl SystemRuntimeExecutor {
                     BrowserPerformanceDiagnosticStatus::NoVisibleGameWindow,
                     self.configuration.macos_high_refresh_rate,
                     sample_duration,
+                    environment.system_low_power_mode_enabled,
+                    environment.system_thermal_state,
                 )),
             );
         }
@@ -5542,6 +5539,8 @@ impl SystemRuntimeExecutor {
                 window_id: Some(selected.window_id),
                 window_focused: selected.focused,
                 display_refresh_rate_hz,
+                system_low_power_mode_enabled: environment.system_low_power_mode_enabled,
+                system_thermal_state: environment.system_thermal_state,
                 high_refresh_rate_requested: self.configuration.macos_high_refresh_rate,
                 sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
                 surfaces,
@@ -8031,18 +8030,17 @@ impl SystemRuntimeExecutor {
         let callback_navigation = Arc::clone(&navigation);
         let paths = role_session_paths(&self.user_data_dir, role_id)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-        let mut builder = self
-            .webview_builder(
-                format!(
-                    "{}-recovery-{generation}",
-                    runtime_label("game-role", role_id)
-                ),
-                &paths,
-                Some(role_id),
-            )?
-            .on_page_load(move |_webview, payload| {
-                callback_navigation.page_event(payload.event(), payload.url());
-            });
+        let (builder, high_refresh_rate_status) = self.role_webview_builder(
+            format!(
+                "{}-recovery-{generation}",
+                runtime_label("game-role", role_id)
+            ),
+            &paths,
+            role_id,
+        )?;
+        let mut builder = builder.on_page_load(move |_webview, payload| {
+            callback_navigation.page_event(payload.event(), payload.url());
+        });
         if let Some(config) = local_storage_sync.as_ref() {
             builder = builder
                 .initialization_script_for_all_frames(&local_storage_sync_observer_script(config)?);
@@ -8065,10 +8063,6 @@ impl SystemRuntimeExecutor {
             LogicalSize::new(bounds.width, bounds.height),
             role_id,
         )?;
-        let high_refresh_rate_status = configure_platform_high_refresh_rate(
-            &webview,
-            self.configuration.macos_high_refresh_rate,
-        );
         let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
             Ok(lifecycle) => lifecycle,
             Err(error) => {
@@ -8861,7 +8855,6 @@ impl SystemRuntimeExecutor {
         let popup_role_id = role_id.map(str::to_owned);
         let popup_webview2_data_directory = paths.webview2.clone();
         let popup_webkit_data_store_identifier = paths.webkit_identifier;
-        let popup_high_refresh_rate = self.configuration.macos_high_refresh_rate;
         #[cfg(windows)]
         let popup_additional_browser_arguments =
             self.configuration.additional_browser_arguments.clone();
@@ -8977,10 +8970,6 @@ impl SystemRuntimeExecutor {
                 let popup = popup_builder.build();
                 match popup {
                     Ok(window) => {
-                        configure_platform_high_refresh_rate(
-                            window.as_ref(),
-                            popup_high_refresh_rate,
-                        );
                         if let Err(error) = install_platform_security_policy(window.as_ref())
                             .and_then(|()| {
                                 install_document_navigation_macro_release_handler(
@@ -9154,6 +9143,21 @@ impl SystemRuntimeExecutor {
                 builder.additional_browser_args(&self.configuration.additional_browser_arguments);
         }
         Ok(builder)
+    }
+
+    fn role_webview_builder(
+        &self,
+        label: String,
+        paths: &SessionPaths,
+        role_id: &str,
+    ) -> RuntimeResult<(WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus)> {
+        let builder = self.webview_builder(label, paths, Some(role_id))?;
+        Ok(prepare_platform_role_webview_builder(
+            &self.app,
+            builder,
+            paths.webkit_identifier,
+            self.configuration.macos_high_refresh_rate,
+        ))
     }
 
     fn clear_role_browser_data(
@@ -11374,11 +11378,11 @@ impl SystemRuntimeExecutor {
                     runtime_label("game-role", &format!("{role_id}:generation-{generation}"));
                 let paths = role_session_paths(&self.user_data_dir, &role_id)?;
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-                let mut builder = self
-                    .webview_builder(role_label, &paths, Some(&role_id))?
-                    .on_page_load(move |_webview, payload| {
-                        callback_navigation.page_event(payload.event(), payload.url());
-                    });
+                let (builder, high_refresh_rate_status) =
+                    self.role_webview_builder(role_label, &paths, &role_id)?;
+                let mut builder = builder.on_page_load(move |_webview, payload| {
+                    callback_navigation.page_event(payload.event(), payload.url());
+                });
                 if let Some(config) = sync_config.as_ref() {
                     builder = builder.initialization_script_for_all_frames(
                         &local_storage_sync_observer_script(config)?,
@@ -11493,9 +11497,7 @@ impl SystemRuntimeExecutor {
                         RoleSurface {
                             current_url: None,
                             generation,
-                            high_refresh_rate_status: configure_platform_high_refresh_rate(
-                                &webview, false,
-                            ),
+                            high_refresh_rate_status,
                             lifecycle: Arc::clone(&lifecycle),
                             local_storage_sync: sync_config,
                             local_storage_sync_sequence: 0,
@@ -13647,6 +13649,8 @@ fn empty_performance_diagnostics(
     status: BrowserPerformanceDiagnosticStatus,
     high_refresh_rate_requested: bool,
     sample_duration: Duration,
+    system_low_power_mode_enabled: Option<bool>,
+    system_thermal_state: Option<String>,
 ) -> BrowserPerformanceDiagnosticsRecord {
     BrowserPerformanceDiagnosticsRecord {
         captured_at,
@@ -13655,6 +13659,8 @@ fn empty_performance_diagnostics(
         window_id: None,
         window_focused: false,
         display_refresh_rate_hz: None,
+        system_low_power_mode_enabled,
+        system_thermal_state,
         high_refresh_rate_requested,
         sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
         surfaces: Vec::new(),
@@ -13852,6 +13858,67 @@ fn platform_display_refresh_rate(window: &Window) -> Option<f64> {
 #[cfg(not(any(target_os = "macos", windows)))]
 fn platform_display_refresh_rate(_window: &Window) -> Option<f64> {
     None
+}
+
+#[cfg(target_os = "macos")]
+fn platform_performance_environment() -> PlatformPerformanceEnvironment {
+    unsafe extern "C" {
+        fn rion_ns_low_power_mode_enabled() -> i32;
+        fn rion_ns_thermal_state() -> i32;
+    }
+
+    PlatformPerformanceEnvironment {
+        system_low_power_mode_enabled: match unsafe { rion_ns_low_power_mode_enabled() } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+        system_thermal_state: decode_macos_thermal_state(unsafe { rion_ns_thermal_state() }),
+    }
+}
+
+#[cfg(windows)]
+fn platform_performance_environment() -> PlatformPerformanceEnvironment {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+
+    let mut status = SYSTEM_POWER_STATUS::default();
+    let system_low_power_mode_enabled = unsafe { GetSystemPowerStatus(&mut status) }
+        .ok()
+        .and_then(|()| windows_low_power_mode_from_system_status_flag(status.SystemStatusFlag));
+    PlatformPerformanceEnvironment {
+        system_low_power_mode_enabled,
+        system_thermal_state: None,
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn platform_performance_environment() -> PlatformPerformanceEnvironment {
+    PlatformPerformanceEnvironment {
+        system_low_power_mode_enabled: None,
+        system_thermal_state: None,
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn decode_macos_thermal_state(value: i32) -> Option<String> {
+    match value {
+        0 => Some("nominal"),
+        1 => Some("fair"),
+        2 => Some("serious"),
+        3 => Some("critical"),
+        4 => Some("unknown"),
+        _ => None,
+    }
+    .map(str::to_owned)
+}
+
+#[cfg(any(windows, test))]
+fn windows_low_power_mode_from_system_status_flag(value: u8) -> Option<bool> {
+    match value {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
 }
 
 fn surface_host_initialization_requires_visible_parent(platform: &str) -> bool {
@@ -15661,45 +15728,77 @@ fn validate_mouse_button(button: &str) -> RuntimeResult<&str> {
 }
 
 #[cfg(target_os = "macos")]
-fn configure_platform_high_refresh_rate(
-    webview: &Webview,
+fn prepare_platform_role_webview_builder(
+    app: &AppHandle,
+    builder: WebviewBuilder<tauri::Wry>,
+    data_store_identifier: [u8; 16],
     enabled: bool,
-) -> HighRefreshRateDiagnosticStatus {
+) -> (WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus) {
     if !enabled {
-        return HighRefreshRateDiagnosticStatus::Disabled;
+        return (builder, HighRefreshRateDiagnosticStatus::Disabled);
     }
 
     unsafe extern "C" {
-        fn rion_wk_enable_high_refresh_rate(webview: *mut std::ffi::c_void) -> i32;
+        fn rion_wk_create_role_configuration(
+            data_store_identifier_bytes: *const u8,
+            high_refresh_rate_status: *mut i32,
+        ) -> *mut std::ffi::c_void;
     }
 
-    let label = webview.label().to_owned();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let outcome = match webview.with_webview(move |platform_webview| {
-        let status = unsafe { rion_wk_enable_high_refresh_rate(platform_webview.inner()) };
-        let _ = sender.send(status);
-    }) {
-        Ok(()) => match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-            Ok(0) => HighRefreshRateDiagnosticStatus::Applied,
-            Ok(1) => HighRefreshRateDiagnosticStatus::Unavailable,
-            Ok(_) => HighRefreshRateDiagnosticStatus::Failed,
-            Err(_) => HighRefreshRateDiagnosticStatus::Timeout,
-        },
-        Err(_) => HighRefreshRateDiagnosticStatus::ScheduleFailed,
+    let scheduling = app.run_on_main_thread(move || {
+        let mut raw_status = 2_i32;
+        let raw_configuration = unsafe {
+            rion_wk_create_role_configuration(data_store_identifier.as_ptr(), &mut raw_status)
+        };
+        let raw_configuration = raw_configuration as usize;
+        if sender.send((raw_configuration, raw_status)).is_err() && raw_configuration != 0 {
+            let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
+            drop(unsafe { Retained::from_raw(raw_configuration) });
+        }
+    });
+    let (builder, outcome) = if scheduling.is_err() {
+        (builder, HighRefreshRateDiagnosticStatus::ScheduleFailed)
+    } else {
+        match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+            Ok((raw_configuration, raw_status)) => {
+                let status = decode_macos_high_refresh_rate_status(raw_status);
+                if raw_configuration == 0 {
+                    (builder, HighRefreshRateDiagnosticStatus::Failed)
+                } else {
+                    let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
+                    let configuration = unsafe { Retained::from_raw(raw_configuration) }
+                        .expect("native WKWebView configuration pointer was non-null");
+                    (builder.with_webview_configuration(configuration), status)
+                }
+            }
+            Err(_) => (builder, HighRefreshRateDiagnosticStatus::Timeout),
+        }
     };
     eprintln!(
-        "System WebView macOS high refresh rate: label={label} status={}.",
+        "System WebView macOS high refresh rate: status={}.",
         high_refresh_rate_status_label(outcome)
     );
-    outcome
+    (builder, outcome)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn configure_platform_high_refresh_rate(
-    _webview: &Webview,
+fn prepare_platform_role_webview_builder(
+    _app: &AppHandle,
+    builder: WebviewBuilder<tauri::Wry>,
+    _data_store_identifier: [u8; 16],
     _enabled: bool,
-) -> HighRefreshRateDiagnosticStatus {
-    HighRefreshRateDiagnosticStatus::NotApplicable
+) -> (WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus) {
+    (builder, HighRefreshRateDiagnosticStatus::NotApplicable)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn decode_macos_high_refresh_rate_status(value: i32) -> HighRefreshRateDiagnosticStatus {
+    match value {
+        0 => HighRefreshRateDiagnosticStatus::Applied,
+        1 => HighRefreshRateDiagnosticStatus::Unavailable,
+        _ => HighRefreshRateDiagnosticStatus::Failed,
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -18439,6 +18538,30 @@ mod tests {
             frame_budget_diagnostics(&[f64::NAN, -1.0, 16.0], Some(60.0)),
             (Some(0), Some(0))
         );
+    }
+
+    #[test]
+    fn performance_environment_maps_platform_power_and_thermal_states() {
+        assert_eq!(
+            windows_low_power_mode_from_system_status_flag(0),
+            Some(false)
+        );
+        assert_eq!(
+            windows_low_power_mode_from_system_status_flag(1),
+            Some(true)
+        );
+        assert_eq!(windows_low_power_mode_from_system_status_flag(255), None);
+
+        for (raw, expected) in [
+            (0, Some("nominal")),
+            (1, Some("fair")),
+            (2, Some("serious")),
+            (3, Some("critical")),
+            (4, Some("unknown")),
+            (-1, None),
+        ] {
+            assert_eq!(decode_macos_thermal_state(raw).as_deref(), expected);
+        }
     }
 
     #[test]

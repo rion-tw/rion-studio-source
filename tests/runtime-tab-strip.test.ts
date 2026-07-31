@@ -50,7 +50,7 @@ beforeAll(async () => {
     observe() {}
     unobserve() {}
   });
-  document.body.innerHTML = '<button id="scroll-left" hidden>‹</button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden>›</button><button id="add">+</button>';
+  document.body.innerHTML = '<button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button>';
   await import("../src/renderer/runtime-shell/runtimeTabStrip");
 });
 
@@ -200,6 +200,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     const tab = document.querySelector<HTMLElement>('[role="tab"]');
     expect(tab?.title).toBe("四人隊伍：米娜, 露娜");
     expect(tab?.querySelector('[aria-label="正在播放聲音"]')).toBeTruthy();
+    expect(tab?.querySelector(".lucide-volume-2")).toBeTruthy();
 
     tab?.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();
 
@@ -207,6 +208,55 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: { type: "stop", tabId: "tab-1" }
     });
+  });
+
+  it("shows a keyboard-accessible close control only on the active tab", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    window.__rionSetActiveRuntimeTab?.("tab-1");
+
+    const firstClose = document.querySelector<HTMLElement>('[data-tab-id="tab-1"] .close')!;
+    const secondClose = document.querySelector<HTMLElement>('[data-tab-id="tab-2"] .close')!;
+    expect(firstClose.ariaHidden).toBe("false");
+    expect(firstClose.tabIndex).toBe(0);
+    expect(secondClose.ariaHidden).toBe("true");
+    expect(secondClose.tabIndex).toBe(-1);
+
+    document.querySelector<HTMLElement>('[data-tab-id="tab-2"]')?.click();
+
+    expect(firstClose.ariaHidden).toBe("true");
+    expect(firstClose.tabIndex).toBe(-1);
+    expect(secondClose.ariaHidden).toBe("false");
+    expect(secondClose.tabIndex).toBe(0);
+  });
+
+  it("uses macOS-equivalent Lucide fallbacks while preserving custom icons", () => {
+    const iconState = stateWithTabs();
+    iconState.tabs[0] = { ...iconState.tabs[0], type: "role" };
+    iconState.tabWorkspaceTemplates = {
+      "tab-2": "single",
+      "tab-3": "two_columns",
+      "tab-4": "quad"
+    };
+    iconState.tabIconDataUrls = {
+      "tab-4": "data:image/png;base64,AA=="
+    };
+
+    window.__rionApplyRuntimeTabState?.(iconState);
+
+    expect(document.querySelector('[data-tab-id="tab-1"] .lucide-gamepad-2')).toBeTruthy();
+    expect(document.querySelector('[data-tab-id="tab-2"] .lucide-square')).toBeTruthy();
+    expect(document.querySelector('[data-tab-id="tab-3"] .lucide-columns-2')).toBeTruthy();
+    expect(document.querySelector('[data-tab-id="tab-4"] img.icon')?.getAttribute("src"))
+      .toBe("data:image/png;base64,AA==");
+    expect(document.querySelector("#scroll-left .lucide-chevron-left")).toBeTruthy();
+    expect(document.querySelector("#scroll-right .lucide-chevron-right")).toBeTruthy();
+    expect(document.querySelector("#add .lucide-plus")).toBeTruthy();
+
+    window.__rionUpdateRuntimeTabMetadata?.(runtimeTabMetadata({
+      id: "tab-4",
+      workspaceTemplate: "quad"
+    }));
+    expect(document.querySelector('[data-tab-id="tab-4"] .lucide-grid-2x2')).toBeTruthy();
   });
 
   it("keeps Ctrl+Tab and Ctrl+Shift+Tab inside the scoped bridge", () => {
@@ -416,17 +466,17 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
   });
 
-  it("localizes add, menu, and close accessibility labels in every supported language", () => {
+  it("localizes add and close accessibility labels without rendering a menu glyph", () => {
     for (const [language, expected] of [
-      ["en", ["Open role or workspace", "Open tab menu", "Stop and close tab"]],
-      ["zh-TW", ["開啟角色或工作區", "開啟分頁選單", "停止並關閉分頁"]],
-      ["zh-CN", ["打开角色或工作区", "打开标签页菜单", "停止并关闭标签页"]],
-      ["ja", ["ロールまたはワークスペースを開く", "タブメニューを開く", "停止してタブを閉じる"]]
+      ["en", ["Open role or workspace", "Stop and close tab"]],
+      ["zh-TW", ["開啟角色或工作區", "停止並關閉分頁"]],
+      ["zh-CN", ["打开角色或工作区", "停止并关闭标签页"]],
+      ["ja", ["ロールまたはワークスペースを開く", "停止してタブを閉じる"]]
     ] as const) {
       window.__rionApplyRuntimeTabState?.({ ...state, language });
       expect(document.querySelector<HTMLButtonElement>("#add")?.ariaLabel).toBe(expected[0]);
-      expect(document.querySelector<HTMLElement>(".more")?.ariaLabel).toBe(expected[1]);
-      expect(document.querySelector<HTMLElement>(".close")?.ariaLabel).toBe(expected[2]);
+      expect(document.querySelector(".more")).toBeNull();
+      expect(document.querySelector<HTMLElement>(".close")?.ariaLabel).toBe(expected[1]);
     }
   });
 
@@ -465,9 +515,20 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       tooltip: "四人隊伍",
       type: "workspace"
     });
-    document.querySelector<HTMLElement>('[data-tab-id="tab-1"] .more')
-      ?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: " " }));
-    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+    const metadataTab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+    metadataTab.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      key: "ContextMenu"
+    }));
+    metadataTab.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      key: "F10",
+      shiftKey: true
+    }));
+    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+      action: { type: "openTabMenu", tabId: "tab-1" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
       action: { type: "openTabMenu", tabId: "tab-1" }
     });
   });
@@ -499,6 +560,18 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
       action: { type: "stop", tabId: "tab-1" }
+    });
+  });
+
+  it("removes a presentation-locked tab close control without removing its action menu", () => {
+    window.__rionUpdateRuntimeTabMetadata?.(runtimeTabMetadata({ hideCloseButton: true }));
+    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+
+    expect(tab.querySelector(".close")).toBeNull();
+    tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "openTabMenu", tabId: "tab-1" }
     });
   });
 

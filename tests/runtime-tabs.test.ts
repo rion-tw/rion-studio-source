@@ -1,6 +1,13 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
 
 import { formatRuntimeTabTooltip, isRuntimeTabAction } from "../src/shared/runtimeTabs";
+
+const systemRuntimeSource = await readFile(
+  new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+  "utf8"
+);
 
 describe("runtime tab shell-neutral contracts", () => {
   it("accepts only bounded runtime tab action shapes", () => {
@@ -42,5 +49,12 @@ describe("runtime tab shell-neutral contracts", () => {
     const tab = { name: "Daily", type: "workspace" as const, roleNames: ["One", "Two"] };
     expect(formatRuntimeTabTooltip(tab, "en")).toBe("Daily:One, Two");
     expect(formatRuntimeTabTooltip(tab, "zh-TW")).toBe("Daily：One, Two");
+  });
+
+  it("forwards workspace templates through every Windows tab metadata path", () => {
+    expect(systemRuntimeSource.match(/"workspaceTemplate": workspace_template/g)).toHaveLength(3);
+    expect(systemRuntimeSource).toContain(
+      '"workspaceTemplate": presented\n                                    .workspace_template\n                                    .or_else(|| live.workspace_template.clone())'
+    );
   });
 });

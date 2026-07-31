@@ -1,7 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Columns2,
+  Gamepad2,
+  Grid2x2,
+  Plus,
+  Square,
+  Volume2,
+  VolumeX,
+  X,
+  type LucideIcon
+} from "lucide-react";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { applicationShortcutForKeyEvent } from "../../shared/applicationShortcuts";
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
+import type { WorkspaceLayoutTemplate } from "../../shared/types";
 import { runtimeTabStripLabels } from "../src/i18n";
 
 declare global {
@@ -24,6 +40,7 @@ type ProvisionalRuntimeTab = {
   id: string;
   name: string;
   type: "role" | "workspace";
+  workspaceTemplate?: WorkspaceLayoutTemplate | null;
 };
 
 type RuntimeTabMetadata = ProvisionalRuntimeTab & {
@@ -31,7 +48,7 @@ type RuntimeTabMetadata = ProvisionalRuntimeTab & {
   audioMuted: boolean;
   closeLabel: string;
   hideCloseButton: boolean;
-  iconDataUrl?: string;
+  iconDataUrl?: string | null;
   mutedLabel: string;
   phase: "reserved" | "attaching" | "loading" | "ready" | "degraded" | "failed";
   playingLabel: string;
@@ -55,8 +72,80 @@ let optimisticActiveTabId: string | undefined;
 let dragActionPending = false;
 let scrollControlsFrame: number | undefined;
 const dragActionQueue: RuntimeTabAction[] = [];
+const workspaceTemplateByTabId = new Map<string, WorkspaceLayoutTemplate>();
+const iconMarkup = new Map<LucideIcon, string>();
 
 const OVERFLOW_EPSILON = 1;
+
+function createLucideSvg(Icon: LucideIcon): SVGSVGElement {
+  let markup = iconMarkup.get(Icon);
+  if (!markup) {
+    markup = renderToStaticMarkup(createElement(Icon, {
+      "aria-hidden": true,
+      className: "glyph",
+      focusable: false,
+      size: 16,
+      strokeWidth: 2
+    }));
+    iconMarkup.set(Icon, markup);
+  }
+  const template = document.createElement("template");
+  template.innerHTML = markup;
+  return template.content.querySelector<SVGSVGElement>("svg")!;
+}
+
+function fallbackIconForTab(
+  type: ProvisionalRuntimeTab["type"],
+  workspaceTemplate?: WorkspaceLayoutTemplate | null
+): LucideIcon {
+  if (type === "role") return Gamepad2;
+  if (workspaceTemplate === "single") return Square;
+  if (workspaceTemplate?.includes("columns")
+    || workspaceTemplate?.includes("left")
+    || workspaceTemplate?.includes("right")) {
+    return Columns2;
+  }
+  return Grid2x2;
+}
+
+function createTabIcon(
+  type: ProvisionalRuntimeTab["type"],
+  iconDataUrl?: string | null,
+  workspaceTemplate?: WorkspaceLayoutTemplate | null
+): HTMLImageElement | HTMLSpanElement {
+  if (iconDataUrl) {
+    const image = document.createElement("img");
+    image.alt = "";
+    image.className = "icon";
+    image.draggable = false;
+    image.src = iconDataUrl;
+    return image;
+  }
+  const fallback = document.createElement("span");
+  fallback.className = "icon fallback";
+  fallback.ariaHidden = "true";
+  fallback.append(createLucideSvg(fallbackIconForTab(type, workspaceTemplate)));
+  return fallback;
+}
+
+function createAudioIndicator(
+  audioMuted: boolean,
+  audible: boolean,
+  mutedLabel: string,
+  playingLabel: string
+): HTMLSpanElement {
+  const audio = document.createElement("span");
+  audio.className = "audio";
+  if (!audioMuted && !audible) {
+    audio.classList.add("idle");
+    audio.ariaHidden = "true";
+    return audio;
+  }
+  audio.role = "img";
+  audio.ariaLabel = audioMuted ? mutedLabel : playingLabel;
+  audio.append(createLucideSvg(audioMuted ? VolumeX : Volume2));
+  return audio;
+}
 
 const dispatch = (action: RuntimeTabAction): void => {
   if (action.type === "activate") optimisticallyActivateTab(action.tabId);
@@ -80,37 +169,33 @@ const dispatch = (action: RuntimeTabAction): void => {
   });
 };
 
-function createTabControl(
-  className: "close" | "more",
-  text: string,
-  label: string,
-  action: RuntimeTabAction
-): HTMLSpanElement {
+function createCloseControl(tabId: string, label: string): HTMLSpanElement {
   const control = document.createElement("span");
-  control.className = className;
-  control.textContent = text;
+  control.className = "close";
   control.role = "button";
-  control.tabIndex = 0;
+  control.tabIndex = -1;
   control.ariaLabel = label;
+  control.ariaHidden = "true";
+  control.append(createLucideSvg(X));
   control.addEventListener("click", (event) => {
     event.stopPropagation();
-    dispatch(action);
+    dispatch({ type: "stop", tabId });
   });
   control.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     event.stopPropagation();
-    dispatch(action);
+    dispatch({ type: "stop", tabId });
   });
   return control;
 }
 
-function createMoreControl(tabId: string, label: string): HTMLSpanElement {
-  return createTabControl("more", "•••", label, { type: "openTabMenu", tabId });
-}
-
-function createCloseControl(tabId: string, label: string): HTMLSpanElement {
-  return createTabControl("close", "×", label, { type: "stop", tabId });
+function syncCloseControlState(button: HTMLButtonElement): void {
+  const close = button.querySelector<HTMLElement>(".close");
+  if (!close) return;
+  const visible = button.classList.contains("active");
+  close.tabIndex = visible ? 0 : -1;
+  close.ariaHidden = String(!visible);
 }
 
 function installTabButtonInteractions(button: HTMLButtonElement, tabId: string): void {
@@ -121,6 +206,12 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
   });
   button.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    dispatch({ type: "openTabMenu", tabId });
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault();
+    event.stopPropagation();
     dispatch({ type: "openTabMenu", tabId });
   });
   button.addEventListener("dragstart", (event) => {
@@ -211,6 +302,7 @@ function optimisticallyActivateTab(tabId: string): void {
     const active = tab.dataset.tabId === tabId;
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
+    syncCloseControlState(tab);
   }
   activeTabId = tabId;
   optimisticActiveTabId = tabId;
@@ -234,6 +326,7 @@ function optimisticallyCloseTab(tabId: string): void {
   if (closingIndex < 0) return;
   const wasActive = tabs[closingIndex].classList.contains("active");
   tabs[closingIndex].remove();
+  workspaceTemplateByTabId.delete(tabId);
   if (wasActive) {
     const remaining = tabElements();
     const successor = remaining[Math.min(closingIndex, remaining.length - 1)];
@@ -274,6 +367,10 @@ function render(state: RuntimeTabStripState): void {
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);
   const visibleTabs = state.tabs
     .filter((tab) => tab.windowId === state.windowId && !tab.hidden);
+  for (const tab of visibleTabs) {
+    const workspaceTemplate = state.tabWorkspaceTemplates[tab.id];
+    if (workspaceTemplate) workspaceTemplateByTabId.set(tab.id, workspaceTemplate);
+  }
   const snapshotActiveTabId = visibleTabs.find((tab) => tab.active)?.id;
   // Native presentation owns selection. A delayed Core projection may refresh metadata and
   // topology, but it must not repaint an older active tab over an optimistic pointer/key action.
@@ -296,24 +393,19 @@ function render(state: RuntimeTabStripState): void {
       button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
         ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
         : tab.name;
-      const iconUrl = state.tabIconDataUrls[tab.id];
-      const icon = iconUrl ? document.createElement("img") : document.createElement("span");
-      icon.className = `icon${iconUrl ? "" : " fallback"}`;
-      if (icon instanceof HTMLImageElement) icon.src = iconUrl;
-      else icon.textContent = tab.type === "workspace" ? "W" : "R";
+      const icon = createTabIcon(
+        tab.type,
+        state.tabIconDataUrls[tab.id],
+        workspaceTemplateByTabId.get(tab.id)
+      );
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = tab.name;
-      button.append(icon, name);
-      if (tab.audioMuted || tab.audible) {
-        const audio = document.createElement("span");
-        audio.className = "audio";
-        audio.textContent = tab.audioMuted ? "⌁" : "◖";
-        audio.role = "img";
-        audio.ariaLabel = tab.audioMuted ? labels.tabMuted : labels.playingAudio;
-        button.append(audio);
-      }
-      button.append(createMoreControl(tab.id, labels.openTabMenu));
+      button.append(
+        icon,
+        name,
+        createAudioIndicator(tab.audioMuted, tab.audible, labels.tabMuted, labels.playingAudio)
+      );
       if (!state.alwaysHideTabCloseButton) {
         button.append(createCloseControl(tab.id, labels.closeTab));
       }
@@ -321,6 +413,7 @@ function render(state: RuntimeTabStripState): void {
       return button;
     });
   reconcileTabButtons(nextButtons);
+  for (const tab of tabElements()) syncCloseControlState(tab);
   const nextActiveTabId = presentationActiveTabId;
   root.scrollLeft = previousScrollLeft;
   scheduleScrollControlsUpdate();
@@ -367,6 +460,7 @@ function reconcileTabButtons(nextButtons: HTMLButtonElement[]): void {
 window.__rionApplyRuntimeTabState = render;
 window.__rionEnsureRuntimeTab = (tab) => {
   const labels = runtimeTabStripLabels(current?.language ?? "en");
+  if (tab.workspaceTemplate) workspaceTemplateByTabId.set(tab.id, tab.workspaceTemplate);
   let button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
   if (!button) {
     button = document.createElement("button");
@@ -376,14 +470,13 @@ window.__rionEnsureRuntimeTab = (tab) => {
     button.role = "tab";
     button.setAttribute("aria-selected", "false");
     button.title = tab.name;
-    const icon = document.createElement("span");
-    icon.className = "icon fallback";
-    icon.textContent = tab.type === "workspace" ? "W" : "R";
+    const icon = createTabIcon(tab.type, undefined, tab.workspaceTemplate);
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = tab.name;
+    const audio = createAudioIndicator(false, false, "", "");
     const close = createCloseControl(tab.id, labels.closeTab);
-    button.append(icon, name, close);
+    button.append(icon, name, audio, close);
     installTabButtonInteractions(button, tab.id);
     root.append(button);
   }
@@ -396,6 +489,7 @@ window.__rionReserveRuntimeTab = (tab) => {
 };
 window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
   tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
+  workspaceTemplateByTabId.delete(tabId);
   if (nextTabId) optimisticallyActivateTab(nextTabId);
   else {
     activeTabId = undefined;
@@ -420,6 +514,7 @@ window.__rionSetActiveRuntimeTab = (tabId) => {
     for (const tab of tabElements()) {
       tab.classList.remove("active");
       tab.setAttribute("aria-selected", "false");
+      syncCloseControlState(tab);
     }
     activeTabId = undefined;
     optimisticActiveTabId = undefined;
@@ -428,36 +523,27 @@ window.__rionSetActiveRuntimeTab = (tabId) => {
 window.__rionUpdateRuntimeTabMetadata = (tab) => {
   const button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
   if (!button) return;
-  const labels = runtimeTabStripLabels(current?.language ?? "en");
+  if (tab.workspaceTemplate) workspaceTemplateByTabId.set(tab.id, tab.workspaceTemplate);
   button.title = tab.tooltip;
   button.dataset.phase = tab.phase;
   button.dataset.sourceId = tab.sourceId;
   const name = button.querySelector<HTMLElement>(".name");
   if (name) name.textContent = tab.name;
   const previousIcon = button.querySelector<HTMLElement>(".icon");
-  const icon = tab.iconDataUrl ? document.createElement("img") : document.createElement("span");
-  icon.className = `icon${tab.iconDataUrl ? "" : " fallback"}`;
-  if (icon instanceof HTMLImageElement) icon.src = tab.iconDataUrl ?? "";
-  else icon.textContent = tab.type === "workspace" ? "W" : "R";
+  const icon = createTabIcon(
+    tab.type,
+    tab.iconDataUrl,
+    workspaceTemplateByTabId.get(tab.id)
+  );
   previousIcon?.replaceWith(icon);
 
-  button.querySelector(".audio")?.remove();
-  if (tab.audioMuted || tab.audible) {
-    const audio = document.createElement("span");
-    audio.className = "audio";
-    audio.textContent = tab.audioMuted ? "⌁" : "◖";
-    audio.role = "img";
-    audio.ariaLabel = tab.audioMuted ? tab.mutedLabel : tab.playingLabel;
-    button.querySelector(".more, .close")?.before(audio);
-  }
-
-  let more = button.querySelector<HTMLElement>(".more");
-  if (!more) {
-    more = createMoreControl(tab.id, labels.openTabMenu);
-    button.append(more);
-  } else {
-    more.ariaLabel = labels.openTabMenu;
-  }
+  const audio = createAudioIndicator(
+    tab.audioMuted,
+    tab.audible,
+    tab.mutedLabel,
+    tab.playingLabel
+  );
+  button.querySelector(".audio")?.replaceWith(audio);
   let close = button.querySelector<HTMLElement>(".close");
   if (tab.hideCloseButton) close?.remove();
   else if (!close) {
@@ -465,6 +551,7 @@ window.__rionUpdateRuntimeTabMetadata = (tab) => {
     button.append(close);
   }
   if (close) close.ariaLabel = tab.closeLabel;
+  syncCloseControlState(button);
   scheduleScrollControlsUpdate();
 };
 window.__rionUpdateRuntimeTabMetadataBatch = (tabs) => {
@@ -540,6 +627,9 @@ root.addEventListener("wheel", (event) => {
 }, { passive: false });
 scrollLeftButton.addEventListener("click", () => scrollToAdjacentHiddenTab("left"));
 scrollRightButton.addEventListener("click", () => scrollToAdjacentHiddenTab("right"));
+scrollLeftButton.replaceChildren(createLucideSvg(ChevronLeft));
+scrollRightButton.replaceChildren(createLucideSvg(ChevronRight));
+add.replaceChildren(createLucideSvg(Plus));
 addEventListener("resize", scheduleScrollControlsUpdate);
 if (typeof ResizeObserver !== "undefined") {
   new ResizeObserver(scheduleScrollControlsUpdate).observe(root);

@@ -4705,7 +4705,7 @@ impl SystemRuntimeExecutor {
         tab_type: &str,
         workspace_template: Option<&str>,
     ) -> RuntimeResult<()> {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let _ = workspace_template;
         #[cfg(target_os = "macos")]
         let controller = {
@@ -4745,6 +4745,7 @@ impl SystemRuntimeExecutor {
                 "id": tab_id,
                 "name": name,
                 "type": tab_type,
+                "workspaceTemplate": workspace_template,
             }))
             .map_err(|error| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", error.to_string())
@@ -4766,7 +4767,7 @@ impl SystemRuntimeExecutor {
         tab_type: &str,
         workspace_template: Option<&str>,
     ) -> RuntimeResult<()> {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let _ = workspace_template;
         #[cfg(target_os = "macos")]
         let result = self
@@ -4801,6 +4802,7 @@ impl SystemRuntimeExecutor {
                 "id": tab_id,
                 "name": name,
                 "type": tab_type,
+                "workspaceTemplate": workspace_template,
             }))
             .map_err(|error| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", error.to_string())
@@ -4986,7 +4988,7 @@ impl SystemRuntimeExecutor {
         active_tab_id: Option<&str>,
         revision: u64,
     ) -> RuntimeResult<()> {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let _ = workspace_template;
         #[cfg(target_os = "macos")]
         let result = self
@@ -5032,6 +5034,7 @@ impl SystemRuntimeExecutor {
                 "id": tab_id,
                 "name": name,
                 "type": tab_type,
+                "workspaceTemplate": workspace_template,
             }))
             .map_err(|error| RuntimeError::tauri(error.to_string()))?;
             tab_strip
@@ -14139,6 +14142,9 @@ impl SystemRuntimeExecutor {
                                 "id": tab.id,
                                 "name": presented.title,
                                 "type": presented.tab_type,
+                                "workspaceTemplate": presented
+                                    .workspace_template
+                                    .or_else(|| live.workspace_template.clone()),
                                 "sourceId": presented.source_id,
                                 "phase": presented.phase.as_str(),
                                 "tooltip": tooltip,

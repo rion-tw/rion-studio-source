@@ -1,0 +1,675 @@
+impl SystemRuntimeExecutor {
+    pub fn handle_divider_pointer(
+        &self,
+        webview_label: &str,
+        payload: DividerPointerPayload,
+    ) -> Result<(), String> {
+        if !matches!(payload.phase.as_str(), "start" | "move" | "end" | "reset") {
+            return Err("divider pointer phase is invalid".to_owned());
+        }
+        let context = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let Some((tab_id, tab)) = state.tabs.iter_mut().find(|(_, tab)| {
+                tab.dividers
+                    .iter()
+                    .any(|divider| divider.webview.label() == webview_label)
+            }) else {
+                return Err("divider bridge is not authorized for this WebView".to_owned());
+            };
+            let divider = tab
+                .dividers
+                .iter()
+                .find(|divider| divider.webview.label() == webview_label)
+                .ok_or_else(|| "runtime divider was not found".to_owned())?;
+            if payload.phase == "end" {
+                let active = tab.active_divider_resize.take();
+                let role_ids = active.map(|value| value.role_ids).unwrap_or_default();
+                let tab_id = tab_id.clone();
+                drop(state);
+                self.send_divider_indicators(&role_ids, "hide");
+                self.persist_runtime_tab_role_views(&tab_id)?;
+                return Ok(());
+            }
+            let previous = tab
+                .active_divider_resize
+                .as_ref()
+                .filter(|active| active.divider_index == divider.index)
+                .map(|active| active.snapped_position);
+            let tab_context = (
+                tab_id.clone(),
+                divider.index,
+                divider.descriptor.clone(),
+                tab.dividers
+                    .iter()
+                    .map(|divider| divider.descriptor.clone())
+                    .collect::<Vec<_>>(),
+                tab.roles
+                    .iter()
+                    .map(|(role_id, role)| LayoutRoleInput {
+                        role_id: role_id.clone(),
+                        rect: LayoutRect {
+                            x: role.rect.x,
+                            y: role.rect.y,
+                            width: role.rect.width,
+                            height: role.rect.height,
+                        },
+                    })
+                    .collect::<Vec<_>>(),
+                tab.window_id.clone(),
+                previous,
+            );
+            let host = state.display_hosts.get(&tab_context.5).ok_or_else(|| {
+                "runtime display host was not found for divider WebView".to_owned()
+            })?;
+            #[cfg(windows)]
+            let toolbar_revealed = host.toolbar_revealed;
+            #[cfg(not(windows))]
+            let toolbar_revealed = false;
+            (
+                tab_context.0,
+                tab_context.1,
+                tab_context.2,
+                tab_context.3,
+                tab_context.4,
+                host.window.clone(),
+                tab_context.6,
+                toolbar_revealed,
+            )
+        };
+        let (tab_id, divider_index, divider, dividers, roles, window, previous, _toolbar_revealed) =
+            context;
+        let requested_position = if payload.phase == "reset" {
+            divider.default_position
+        } else {
+            let event_screen_position =
+                payload
+                    .screen_position
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "divider screen position is invalid".to_owned())?;
+            let scale = window.scale_factor().map_err(|error| error.to_string())?;
+            let position = window.inner_position().map_err(|error| error.to_string())?;
+            #[cfg(windows)]
+            let metrics = runtime_window_content_metrics_with_tab_strip(
+                &window,
+                self.windows_tab_strip_height(&window, _toolbar_revealed),
+            )
+            .map_err(|error| error.message)?;
+            #[cfg(not(windows))]
+            let metrics = runtime_window_content_metrics(&window).map_err(|error| error.message)?;
+            let screen_position = if cfg!(windows) {
+                let cursor = self
+                    .app
+                    .cursor_position()
+                    .map_err(|error| error.to_string())?;
+                if divider.axis == "vertical" {
+                    cursor.x / scale
+                } else {
+                    cursor.y / scale
+                }
+            } else {
+                event_screen_position
+            };
+            if divider.axis == "vertical" {
+                (screen_position - position.x as f64 / scale) / metrics.width.max(1.0)
+            } else {
+                (screen_position - position.y as f64 / scale - metrics.top_inset)
+                    / metrics.height.max(1.0)
+            }
+        };
+        let result = self
+            .core
+            .invoke(CoreCommand::LayoutResizeDivider {
+                input: WorkspaceDividerResizeInput {
+                    roles,
+                    dividers,
+                    divider_index,
+                    requested_position,
+                    previous_position: (payload.phase == "move").then_some(previous).flatten(),
+                },
+            })
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<WorkspaceDividerResizeOutput>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get_mut(&tab_id)
+                .ok_or_else(|| "runtime tab was closed during divider resize".to_owned())?;
+            for role in &result.roles {
+                if let Some(surface) = tab.roles.get_mut(&role.role_id) {
+                    surface.rect = StateNormalizedRectRecord {
+                        x: role.rect.x,
+                        y: role.rect.y,
+                        width: role.rect.width,
+                        height: role.rect.height,
+                    };
+                }
+            }
+            if payload.phase == "start" {
+                tab.active_divider_resize = Some(ActiveDividerResize {
+                    divider_index,
+                    role_ids: result.role_ids.clone(),
+                    snapped_position: result.position,
+                });
+            } else if payload.phase == "move"
+                && let Some(active) = tab.active_divider_resize.as_mut()
+            {
+                active.role_ids = result.role_ids.clone();
+                active.snapped_position = result.position;
+            } else if payload.phase == "reset" {
+                tab.active_divider_resize = None;
+            }
+        }
+        if result.changed {
+            self.layout_runtime_tab(&tab_id)
+                .map_err(|error| error.message)?;
+        }
+        let indicator_type = if payload.phase == "start" {
+            "show"
+        } else {
+            "update"
+        };
+        self.send_divider_indicators(&result.role_ids, indicator_type);
+        if payload.phase == "reset" {
+            self.send_divider_indicators(&result.role_ids, "hide");
+            self.persist_runtime_tab_role_views(&tab_id)?;
+        }
+        Ok(())
+    }
+
+    fn persist_runtime_tab_role_views(&self, tab_id: &str) -> Result<(), String> {
+        let role_views = {
+            let state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "Runtime tab was not found while saving its layout.".to_owned())?;
+            let mut role_views = tab
+                .roles
+                .iter()
+                .map(|(role_id, surface)| GameWindowRoleViewRecord {
+                    role_id: role_id.clone(),
+                    rect: surface.rect.clone(),
+                    browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
+                })
+                .collect::<Vec<_>>();
+            role_views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+            role_views
+        };
+        let mut game_windows = self
+            .core
+            .invoke(CoreCommand::GameWindowsList)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let Some(game_window) = game_windows
+            .iter_mut()
+            .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
+        else {
+            return Ok(());
+        };
+        let tab = game_window
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == tab_id)
+            .ok_or_else(|| "Saved runtime tab was not found while saving its layout.".to_owned())?;
+        tab.role_views = role_views;
+        self.core
+            .invoke(CoreCommand::GameWindowUpdate {
+                id: game_window.id.clone(),
+                input: GameWindowUpdateInputRecord {
+                    tabs: Some(game_window.tabs.clone()),
+                    active_tab_id: Some(game_window.active_tab_id.clone()),
+                    ..GameWindowUpdateInputRecord::default()
+                },
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn restore_tab_role_views(
+        &self,
+        tab_id: &str,
+        role_views: &[GameWindowRoleViewRecord],
+    ) -> Result<(), String> {
+        if role_views.is_empty() {
+            return Ok(());
+        }
+        let restored = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
+                "Runtime tab was not found while restoring its layout.".to_owned()
+            })?;
+            let mut restored = 0;
+            for view in role_views {
+                if let Some(surface) = tab.roles.get_mut(&view.role_id) {
+                    surface.rect = view.rect.clone();
+                    surface.zoom_factor = (view.browser_zoom_percent / 100.0).clamp(0.25, 5.0);
+                    surface.zoom_mode = "fixed".to_owned();
+                    restored += 1;
+                }
+            }
+            restored
+        };
+        if restored == 0 {
+            return Err("No saved role view matched the restored runtime tab.".to_owned());
+        }
+        self.layout_runtime_tab(tab_id)
+            .map_err(|error| error.message)
+    }
+
+    fn send_divider_indicators(&self, role_ids: &[String], indicator_type: &str) {
+        let surfaces = self.state.lock().ok().map(|state| {
+            role_ids
+                .iter()
+                .filter_map(|role_id| {
+                    let tab_id = state.role_tabs.get(role_id)?;
+                    let role = state.tabs.get(tab_id)?.roles.get(role_id)?;
+                    Some((role.webview.clone(), role.rect.clone()))
+                })
+                .collect::<Vec<_>>()
+        });
+        for (webview, rect) in surfaces.unwrap_or_default() {
+            let payload = if indicator_type == "hide" {
+                json!({ "type": "hide" })
+            } else {
+                json!({
+                    "type": indicator_type,
+                    "label": format!("{} × {}", format_ratio(rect.width), format_ratio(rect.height))
+                })
+            };
+            let _ = webview.eval(format!(
+                "globalThis.__rionStudioWorkspaceResizeIndicator?.({payload});"
+            ));
+        }
+    }
+
+    pub fn toggle_focused_runtime_fullscreen(&self) -> Result<bool, String> {
+        let window_id = {
+            let state = self.state().map_err(|error| error.message)?;
+            state
+                .display_hosts
+                .values()
+                .find(|host| host.window.is_focused().unwrap_or(false))
+                .map(|host| host.target.window_id.clone())
+        };
+        let Some(window_id) = window_id else {
+            return Ok(false);
+        };
+        self.toggle_runtime_window_fullscreen(&window_id)?;
+        Ok(true)
+    }
+
+    pub fn toggle_runtime_window_fullscreen(&self, window_id: &str) -> Result<(), String> {
+        let window = self
+            .window_for_id(window_id)
+            .ok_or_else(|| "Runtime window was not found.".to_owned())?;
+        let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+        #[cfg(target_os = "macos")]
+        self.prepare_runtime_window_fullscreen(window.label(), !fullscreen);
+        window
+            .set_fullscreen(!fullscreen)
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    pub fn collect_browser_performance_diagnostics(
+        &self,
+        sample_duration: Duration,
+    ) -> Result<BrowserPerformanceDiagnosticsRecord, String> {
+        self.collect_browser_performance_diagnostics_inner(sample_duration)
+            .map_err(|error| error.message)
+    }
+
+    fn collect_browser_performance_diagnostics_inner(
+        &self,
+        sample_duration: Duration,
+    ) -> RuntimeResult<BrowserPerformanceDiagnosticsRecord> {
+        let captured_at = chrono::Utc::now().to_rfc3339();
+        let environment = platform_performance_environment();
+        let platform = if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "windows"
+        }
+        .to_owned();
+        let sample_duration =
+            sample_duration.clamp(Duration::from_millis(500), Duration::from_millis(5_000));
+        let snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string()))
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
+                    RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string())
+                })
+            })?;
+        let candidates = {
+            let state = self.state()?;
+            snapshot
+                .windows
+                .iter()
+                .filter_map(|runtime_window| {
+                    let tab_id = runtime_window.active_tab_id.as_deref()?;
+                    let host = state.display_hosts.get(&runtime_window.window_id)?;
+                    let tab = state.tabs.get(tab_id)?;
+                    let surfaces = tab
+                        .roles
+                        .iter()
+                        .map(|(role_id, surface)| PerformanceDiagnosticSurface {
+                            high_refresh_rate_status: surface.high_refresh_rate_status,
+                            origin: surface.current_url.as_ref().and_then(|url| {
+                                let origin = url.origin().ascii_serialization();
+                                (origin != "null").then_some(origin)
+                            }),
+                            role_id: role_id.clone(),
+                            webview: surface.webview.clone(),
+                        })
+                        .collect::<Vec<_>>();
+                    (!surfaces.is_empty()).then(|| PerformanceDiagnosticWindow {
+                        focused: false,
+                        surfaces,
+                        window: host.window.clone(),
+                        window_id: runtime_window.window_id.clone(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        if candidates.is_empty() {
+            return Ok(
+                self.store_performance_diagnostics(empty_performance_diagnostics(
+                    captured_at,
+                    platform,
+                    BrowserPerformanceDiagnosticStatus::NoRunningRole,
+                    self.configuration.macos_high_refresh_rate,
+                    sample_duration,
+                    environment.system_low_power_mode_enabled,
+                    environment.system_thermal_state,
+                )),
+            );
+        }
+        let mut visible = candidates
+            .into_iter()
+            .filter_map(|mut candidate| {
+                let is_visible = candidate.window.is_visible().unwrap_or(false)
+                    && !candidate.window.is_minimized().unwrap_or(false);
+                if !is_visible {
+                    return None;
+                }
+                candidate.focused = candidate.window.is_focused().unwrap_or(false);
+                Some(candidate)
+            })
+            .collect::<Vec<_>>();
+        if visible.is_empty() {
+            return Ok(
+                self.store_performance_diagnostics(empty_performance_diagnostics(
+                    captured_at,
+                    platform,
+                    BrowserPerformanceDiagnosticStatus::NoVisibleGameWindow,
+                    self.configuration.macos_high_refresh_rate,
+                    sample_duration,
+                    environment.system_low_power_mode_enabled,
+                    environment.system_thermal_state,
+                )),
+            );
+        }
+        visible.sort_by_key(|candidate| !candidate.focused);
+        let selected = visible.remove(0);
+        let display_refresh_rate_hz = platform_display_refresh_rate(&selected.window);
+        let mut samples = selected
+            .surfaces
+            .into_iter()
+            .map(|surface| {
+                let error = surface
+                    .webview
+                    .eval(PERFORMANCE_DIAGNOSTIC_START_SOURCE)
+                    .err()
+                    .map(|error| error.to_string());
+                (surface, error)
+            })
+            .collect::<Vec<_>>();
+        thread::sleep(sample_duration);
+        let pending_reads = samples
+            .drain(..)
+            .map(|(surface, start_error)| {
+                if let Some(error) = start_error {
+                    return (surface, Err(error));
+                }
+                let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+                match surface.webview.eval_with_callback(
+                    PERFORMANCE_DIAGNOSTIC_READ_SOURCE,
+                    move |value| {
+                        let _ = sender.send(value);
+                    },
+                ) {
+                    Ok(()) => (surface, Ok(receiver)),
+                    Err(error) => (surface, Err(error.to_string())),
+                }
+            })
+            .collect::<Vec<_>>();
+        let read_deadline = Instant::now() + Duration::from_secs(5);
+        let surfaces = pending_reads
+            .into_iter()
+            .map(|(surface, pending)| {
+                let readback = pending
+                    .map_err(|error| RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error))
+                    .and_then(|receiver| {
+                        receiver
+                            .recv_timeout(read_deadline.saturating_duration_since(Instant::now()))
+                            .map_err(|_| {
+                                RuntimeError::new(
+                                    "PERFORMANCE_DIAGNOSTIC_TIMEOUT",
+                                    "System WebView performance diagnostic timed out.",
+                                )
+                            })
+                    })
+                    .and_then(|raw| decode_performance_diagnostic_readback(&raw));
+                match readback {
+                    Ok(readback) => {
+                        completed_performance_surface(surface, readback, display_refresh_rate_hz)
+                    }
+                    Err(error) => failed_performance_surface(surface, error.message),
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(
+            self.store_performance_diagnostics(BrowserPerformanceDiagnosticsRecord {
+                captured_at,
+                platform,
+                status: BrowserPerformanceDiagnosticStatus::Available,
+                window_id: Some(selected.window_id),
+                window_focused: selected.focused,
+                display_refresh_rate_hz,
+                system_low_power_mode_enabled: environment.system_low_power_mode_enabled,
+                system_thermal_state: environment.system_thermal_state,
+                high_refresh_rate_requested: self.configuration.macos_high_refresh_rate,
+                sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
+                surfaces,
+            }),
+        )
+    }
+
+    pub fn last_browser_performance_diagnostics(
+        &self,
+    ) -> Option<BrowserPerformanceDiagnosticsRecord> {
+        self.last_performance_diagnostics
+            .lock()
+            .ok()
+            .and_then(|record| record.clone())
+    }
+
+    fn store_performance_diagnostics(
+        &self,
+        record: BrowserPerformanceDiagnosticsRecord,
+    ) -> BrowserPerformanceDiagnosticsRecord {
+        if let Ok(mut last) = self.last_performance_diagnostics.lock() {
+            *last = Some(record.clone());
+        }
+        record
+    }
+
+    pub fn zoom_focused_runtime(&self, action: &str) -> Result<bool, String> {
+        let window_id = {
+            let state = self.state().map_err(|error| error.message)?;
+            state
+                .display_hosts
+                .values()
+                .find(|host| host.window.is_focused().unwrap_or(false))
+                .map(|host| host.target.window_id.clone())
+        };
+        let Some(window_id) = window_id else {
+            return Ok(false);
+        };
+        self.zoom_runtime_window(&window_id, action)
+    }
+
+    pub fn zoom_runtime_window(&self, window_id: &str, action: &str) -> Result<bool, String> {
+        if !matches!(action, "in" | "out" | "reset") {
+            return Err("Runtime window zoom action is invalid.".to_owned());
+        }
+        let current_zoom = {
+            let state = self.state().map_err(|error| error.message)?;
+            let Some(host) = state.display_hosts.get(window_id) else {
+                return Ok(false);
+            };
+            host.zoom_factor
+        };
+        let next_zoom = next_zoom_factor(current_zoom, action, 0.25, 5.0);
+        let snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let Some(tab_id) = snapshot
+            .windows
+            .iter()
+            .find(|window| window.window_id == *window_id)
+            .and_then(|window| window.active_tab_id.as_deref())
+        else {
+            return Ok(false);
+        };
+        let (surfaces, visible_role_ids) = {
+            let state = self.state().map_err(|error| error.message)?;
+            let Some(active_tab) = state.tabs.get(tab_id) else {
+                return Ok(false);
+            };
+            let visible_role_ids = active_tab.roles.keys().cloned().collect::<HashSet<_>>();
+            let surfaces = state
+                .tabs
+                .values()
+                .filter(|tab| tab.window_id == *window_id)
+                .flat_map(|tab| {
+                    tab.roles.iter().map(|(role_id, surface)| {
+                        (
+                            role_id.clone(),
+                            surface.webview.clone(),
+                            effective_zoom_factor(surface.zoom_factor, current_zoom),
+                            effective_zoom_factor(surface.zoom_factor, next_zoom),
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            (surfaces, visible_role_ids)
+        };
+        let popup_surfaces = {
+            let state = self.state().map_err(|error| error.message)?;
+            state
+                .popup_roles
+                .iter()
+                .filter_map(|(label, role_id)| {
+                    let tab_id = state.role_tabs.get(role_id)?;
+                    let tab = state.tabs.get(tab_id)?;
+                    if tab.window_id != *window_id {
+                        return None;
+                    }
+                    let base = tab.roles.get(role_id)?.zoom_factor;
+                    Some((
+                        label.clone(),
+                        effective_zoom_factor(base, current_zoom),
+                        effective_zoom_factor(base, next_zoom),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut zoom_mutations = surfaces
+            .iter()
+            .map(|(_, webview, previous_zoom, zoom)| (webview.clone(), *previous_zoom, *zoom))
+            .collect::<Vec<_>>();
+        for (label, previous_zoom, zoom) in popup_surfaces {
+            let webview = self
+                .app
+                .get_webview(&label)
+                .ok_or_else(|| format!("Runtime popup {label} has no live native handle."))?;
+            zoom_mutations.push((webview, previous_zoom, zoom));
+        }
+        if let Err(failure) = apply_reversible_fanout(
+            &zoom_mutations,
+            |index, (webview, _, zoom)| {
+                webview
+                    .set_zoom(*zoom)
+                    .map_err(|error| format!("surface {index}: {error}"))
+            },
+            |index, (webview, previous_zoom, _)| {
+                webview
+                    .set_zoom(*previous_zoom)
+                    .map_err(|error| format!("surface {index}: {error}"))
+            },
+        ) {
+            if !failure.rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+            }
+            return Err(reversible_fanout_runtime_error(
+                "TAURI_RUNTIME_ZOOM_FAILED",
+                "Updating runtime window zoom",
+                &failure,
+            )
+            .message);
+        }
+        let commit = (|| -> Result<(), String> {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let host = state
+                .display_hosts
+                .get_mut(window_id)
+                .ok_or_else(|| "Runtime window stopped while zooming.".to_owned())?;
+            if host.zoom_factor != current_zoom {
+                return Err("Runtime window zoom changed concurrently.".to_owned());
+            }
+            host.zoom_factor = next_zoom;
+            Ok(())
+        })();
+        if let Err(error) = commit {
+            let rollback_errors = rollback_reversible_fanout(
+                &zoom_mutations,
+                |index, (webview, previous_zoom, _)| {
+                    webview
+                        .set_zoom(*previous_zoom)
+                        .map_err(|rollback_error| format!("surface {index}: {rollback_error}"))
+                },
+            );
+            if !rollback_errors.is_empty() {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "{error} Native zoom compensation also failed: {}. Restart Rion Studio to recover safely.",
+                    rollback_errors.join("; ")
+                ));
+            }
+            return Err(error);
+        }
+        let label = self.window_zoom_indicator_label(next_zoom);
+        for (role_id, webview, _, _) in surfaces {
+            if visible_role_ids.contains(&role_id) {
+                show_zoom_indicator(&webview, &label);
+            }
+        }
+        Ok(true)
+    }
+
+}

@@ -57,6 +57,7 @@ unsafe extern "C" {
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
     fn rion_runtime_tabs_is_main_thread() -> bool;
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
+    fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
         controller: *mut c_void,
         tab_id: *const c_char,
@@ -295,6 +296,21 @@ impl MacRuntimeTabsController {
                         .map_or(std::ptr::null(), |value| value.as_ptr()),
                 );
             }
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn set_window_name(&self, window_name: Option<&str>) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let window_name = window_name.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_set_window_name(
+                inner.raw,
+                window_name
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
         })
         .map_err(|error| error.to_string())
     }

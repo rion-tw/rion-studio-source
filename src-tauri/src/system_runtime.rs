@@ -22,15 +22,15 @@ use rion_core::{
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
     EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
     EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
-    GameWindowRoleViewRecord, GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus,
-    LayoutBounds, LayoutDividerInput, LayoutRect, LayoutRoleInput, LogCaptureRecord,
-    LogErrorDetails, LogLevel, LogSource, ResolvedBrowserEngine, RuntimeRestoreSessionRecord,
-    RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, SessionCookieRecord,
-    SessionTransferPayloadRecord, StateGameRecord, StateGameWindowRecord,
-    StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord, StateWebGraphicsRecord,
-    SystemWebViewRuntimeRegistrationRecord, WorkspaceAppearanceSettingsRecord,
-    WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
-    WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
+    GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
+    LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
+    ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
+    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
+    StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    StateWebGraphicsRecord, SystemWebViewRuntimeRegistrationRecord,
+    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
+    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -363,20 +363,30 @@ const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
 })();
 "#;
 
-fn native_runtime_window_title_for_platform<'a>(platform: &str, title: &'a str) -> &'a str {
-    if platform == "macos" {
-        RION_STUDIO_APP_NAME
+fn native_runtime_window_title_for_platform(platform: &str, saved_name: Option<&str>) -> String {
+    if platform == "windows"
+        && let Some(saved_name) = saved_name.filter(|name| !name.trim().is_empty())
+    {
+        format!("{saved_name} — {RION_STUDIO_APP_NAME}")
+    } else if platform == "macos"
+        && let Some(saved_name) = saved_name.filter(|name| !name.trim().is_empty())
+    {
+        saved_name.to_owned()
     } else {
-        title
+        RION_STUDIO_APP_NAME.to_owned()
     }
 }
 
-pub(crate) fn native_runtime_window_title(title: &str) -> &str {
+fn should_persist_role_zoom(saved_window_names: &HashMap<String, String>, window_id: &str) -> bool {
+    saved_window_names.contains_key(window_id)
+}
+
+pub(crate) fn native_runtime_window_title(saved_name: Option<&str>) -> String {
     #[cfg(target_os = "macos")]
     const PLATFORM: &str = "macos";
     #[cfg(not(target_os = "macos"))]
     const PLATFORM: &str = "windows";
-    native_runtime_window_title_for_platform(PLATFORM, title)
+    native_runtime_window_title_for_platform(PLATFORM, saved_name)
 }
 
 fn next_zoom_factor(current: f64, action: &str, minimum: f64, maximum: f64) -> f64 {
@@ -2158,6 +2168,7 @@ struct RuntimeState {
     recovery_generations: HashMap<String, u64>,
     recovering_roles: HashSet<String>,
     role_tabs: HashMap<String, String>,
+    saved_window_names: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
     surface_registry: HashMap<String, ManagedSurface>,
     retired_surface_registry: HashMap<String, ManagedSurface>,
@@ -2971,6 +2982,16 @@ fn capture_presentation_batch_events(
 }
 
 impl SystemRuntimeExecutor {
+    fn is_saved_game_window(&self, window_id: &str) -> Result<bool, String> {
+        match self.core.invoke(CoreCommand::GameWindowGet {
+            id: window_id.to_owned(),
+        }) {
+            Ok(_) => Ok(true),
+            Err(error) if error.payload().code == "GAME_WINDOW_NOT_FOUND" => Ok(false),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
     pub fn new(app: AppHandle, user_data_dir: PathBuf, core: Arc<AppCore>) -> Result<Self, String> {
         let settings = core
             .invoke(CoreCommand::GameBrowserSettingsGet)
@@ -3016,6 +3037,10 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                     .map_err(|error| error.to_string())
             })?;
+        let saved_window_names = game_windows
+            .iter()
+            .map(|window| (window.id.clone(), window.name.clone()))
+            .collect::<HashMap<_, _>>();
         let dormant_windows = game_windows
             .iter()
             .filter(|window| !window.tabs.is_empty())
@@ -3092,6 +3117,7 @@ impl SystemRuntimeExecutor {
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
+                saved_window_names,
                 ..RuntimeState::default()
             }),
             user_data_dir,
@@ -4123,6 +4149,169 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "The conflicting runtime window has no live native host.".to_owned())
     }
 
+    pub(crate) fn runtime_game_window_save_input(
+        &self,
+        window_id: &str,
+        name: String,
+    ) -> Result<GameWindowSaveRuntimeInputRecord, String> {
+        let snapshot = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                    .map_err(|error| error.to_string())
+            })?;
+        let runtime_window = snapshot
+            .windows
+            .iter()
+            .find(|window| window.window_id == window_id)
+            .ok_or_else(|| "Runtime window was not found while saving.".to_owned())?;
+        let primary_id = self
+            .app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .as_ref()
+            .map(super::monitor_id);
+        let placement = query_unlocked_snapshot(
+            &self.state,
+            |state| {
+                state
+                    .display_hosts
+                    .get(window_id)
+                    .map(|host| (host.window.clone(), host.target.clone()))
+            },
+            |(window, target)| {
+                let presentation = if window.is_fullscreen().unwrap_or(false) {
+                    "fullscreen"
+                } else if window.is_maximized().unwrap_or(false) {
+                    "maximized"
+                } else {
+                    "normal"
+                };
+                let target_display = window
+                    .current_monitor()
+                    .ok()
+                    .flatten()
+                    .map(|monitor| super::display_target_and_work_area(&monitor, primary_id).0)
+                    .unwrap_or(DisplayTargetRecord {
+                        id: target.display_id,
+                        fingerprint: None,
+                    });
+                (
+                    target_display,
+                    GameWindowPlacementRecord {
+                        normal_bounds: target.bounds,
+                        saved_work_area: target.work_area,
+                        presentation: presentation.to_owned(),
+                    },
+                )
+            },
+        )
+        .ok_or_else(|| "Native runtime window was not found while saving.".to_owned())?;
+        let native_tabs = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            runtime_window
+                .tab_ids
+                .iter()
+                .map(|tab_id| {
+                    let runtime_tab = state.tabs.get(tab_id).ok_or_else(|| {
+                        "Native runtime tab was not found while saving.".to_owned()
+                    })?;
+                    let mut role_views = runtime_tab
+                        .roles
+                        .iter()
+                        .map(|(role_id, surface)| GameWindowRoleViewRecord {
+                            role_id: role_id.clone(),
+                            rect: surface.rect.clone(),
+                            browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
+                        })
+                        .collect::<Vec<_>>();
+                    role_views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+                    Ok::<_, String>((tab_id.clone(), (runtime_tab.audio_muted, role_views)))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?
+        };
+        let tabs = runtime_window
+            .tab_ids
+            .iter()
+            .map(|tab_id| {
+                let tab = snapshot
+                    .tabs
+                    .iter()
+                    .find(|tab| &tab.id == tab_id)
+                    .ok_or_else(|| "Runtime tab metadata changed while saving.".to_owned())?;
+                let (audio_muted, role_views) = native_tabs.get(tab_id).ok_or_else(|| {
+                    "Native runtime tab metadata changed while saving.".to_owned()
+                })?;
+                Ok(GameWindowTabRecord {
+                    id: tab.id.clone(),
+                    tab_type: tab.tab_type.clone(),
+                    source_id: tab.source_id.clone(),
+                    name: tab.name.clone(),
+                    role_ids: tab.role_ids.clone(),
+                    hidden: tab.hidden,
+                    audio_muted: *audio_muted,
+                    role_views: role_views.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(GameWindowSaveRuntimeInputRecord {
+            window_id: window_id.to_owned(),
+            name,
+            target_display: placement.0,
+            placement: placement.1,
+            tabs,
+            active_tab_id: runtime_window.active_tab_id.clone(),
+        })
+    }
+
+    pub(crate) fn refresh_saved_game_windows(
+        &self,
+        game_windows: &[StateGameWindowRecord],
+    ) -> Result<(), String> {
+        let names = game_windows
+            .iter()
+            .map(|window| (window.id.clone(), window.name.clone()))
+            .collect::<HashMap<_, _>>();
+        let updates = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            state.saved_window_names = names.clone();
+            state
+                .display_hosts
+                .iter()
+                .map(|(window_id, host)| {
+                    (
+                        window_id.clone(),
+                        host.window.clone(),
+                        #[cfg(target_os = "macos")]
+                        host.tabs_controller.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        for update in updates {
+            #[cfg(target_os = "macos")]
+            let (window_id, window, controller) = update;
+            #[cfg(not(target_os = "macos"))]
+            let (window_id, window) = update;
+            let saved_name = names.get(&window_id).map(String::as_str);
+            window
+                .set_title(&native_runtime_window_title(saved_name))
+                .map_err(|error| error.to_string())?;
+            #[cfg(target_os = "macos")]
+            controller.set_window_name(saved_name)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn launcher_context_for_window_id(
         &self,
         window_id: &str,
@@ -4151,6 +4340,31 @@ impl SystemRuntimeExecutor {
             .and_then(|tab| tab.roles.get(role_id))
             .map(|surface| surface.zoom_factor)
             .ok_or_else(|| "The conflicting role has no live native surface.".to_owned())
+    }
+
+    pub(crate) fn runtime_tab_role_views(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<GameWindowRoleViewRecord>, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+        let tab = state
+            .tabs
+            .get(tab_id)
+            .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+        let mut views = tab
+            .roles
+            .iter()
+            .map(|(role_id, surface)| GameWindowRoleViewRecord {
+                role_id: role_id.clone(),
+                rect: surface.rect.clone(),
+                browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
+            })
+            .collect::<Vec<_>>();
+        views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+        Ok(views)
     }
 
     fn record_runtime_stage(&self, stage: impl Into<String>, status: &str, started: Instant) {
@@ -6264,10 +6478,12 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                     .map_err(|error| error.to_string())
             })?;
-        let game_window = game_windows
+        let Some(game_window) = game_windows
             .iter_mut()
             .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
-            .ok_or_else(|| "Saved Game Window was not found while saving its layout.".to_owned())?;
+        else {
+            return Ok(());
+        };
         let tab = game_window
             .tabs
             .iter_mut()
@@ -7819,6 +8035,9 @@ impl SystemRuntimeExecutor {
         let Some(window_id) = self.window_id_for_label(label) else {
             return;
         };
+        if !self.is_saved_game_window(&window_id).unwrap_or(false) {
+            return;
+        }
         if let Ok(mut session) = self
             .core
             .invoke(CoreCommand::RuntimeRestoreSessionGet)
@@ -7855,6 +8074,12 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn persist_game_window_placement(&self, label: &str) -> Result<(), String> {
+        let Some(window_id) = self.window_id_for_label(label) else {
+            return Ok(());
+        };
+        if !self.is_saved_game_window(&window_id)? {
+            return Ok(());
+        }
         let primary_id = self
             .app
             .primary_monitor()
@@ -8298,6 +8523,7 @@ impl SystemRuntimeExecutor {
         let (
             tab_id,
             workspace_id,
+            persist_saved_zoom,
             window_zoom_factor,
             previous_base_zoom_factor,
             base_zoom_factor,
@@ -8339,6 +8565,7 @@ impl SystemRuntimeExecutor {
             (
                 tab_id,
                 tab.workspace_id.clone(),
+                should_persist_role_zoom(&state.saved_window_names, &tab.window_id),
                 window_zoom_factor,
                 surface.zoom_factor,
                 next_zoom_factor(surface.zoom_factor, action, 0.25, 3.0),
@@ -8411,8 +8638,11 @@ impl SystemRuntimeExecutor {
         {
             show_zoom_indicator(source, &format!("{percent}%"));
         }
-        if let Some(workspace_id) = workspace_id {
-            self.schedule_role_zoom_persistence(workspace_id, role_id, percent);
+        if persist_saved_zoom {
+            self.persist_runtime_tab_role_views(&tab_id)?;
+            if let Some(workspace_id) = workspace_id {
+                self.schedule_role_zoom_persistence(workspace_id, role_id, percent);
+            }
         }
         Ok(percent)
     }
@@ -11609,7 +11839,7 @@ impl SystemRuntimeExecutor {
     fn ensure_display_host(
         &self,
         target: &EmbeddedLaunchTargetRecord,
-        title: &str,
+        _title: &str,
     ) -> RuntimeResult<(Window, bool)> {
         if let Some(window) = self
             .state()?
@@ -11628,7 +11858,12 @@ impl SystemRuntimeExecutor {
         let host_id = format!("{}:{host_generation}", target.window_id);
         let window_label = runtime_label("game-display", &host_id);
         let window_app = self.app.clone();
-        let window_title = native_runtime_window_title(title).to_owned();
+        let saved_name = self
+            .state()?
+            .saved_window_names
+            .get(&target.window_id)
+            .cloned();
+        let window_title = native_runtime_window_title(saved_name.as_deref());
         let bounds = target.bounds.clone();
         let physical_position = physical_window_position(bounds.x, bounds.y, target.scale_factor);
         let window = self.create_window_bounded(&target.window_id, move || {
@@ -11662,6 +11897,10 @@ impl SystemRuntimeExecutor {
                 return Err(RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message));
             }
         };
+        #[cfg(target_os = "macos")]
+        tabs_controller
+            .set_window_name(saved_name.as_deref())
+            .map_err(|message| RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message))?;
         #[cfg(windows)]
         let tab_strip = match self.add_child_bounded(
             &window,
@@ -13268,8 +13507,8 @@ impl SystemRuntimeExecutor {
 
         // apply_runtime is a native topology projection and must not synchronously call back
         // into AppCore while a core effect is awaiting it. Restore callers already omit focus
-        // requests, and titles fall back to the active snapshot tab below.
-        let game_window_names = HashMap::<String, String>::new();
+        // requests. Saved names come from the local runtime cache so this effect never calls Core.
+        let game_window_names = self.state()?.saved_window_names.clone();
         let desired_windows = snapshot
             .windows
             .iter()
@@ -13859,19 +14098,9 @@ impl SystemRuntimeExecutor {
                                     && !state.optimistic_closed_tabs.contains(*tab_id)
                             })
                         });
-                    let title = game_window_names
-                        .get(window_id)
-                        .cloned()
-                        .or_else(|| {
-                            active_tab.and_then(|tab_id| {
-                                snapshot
-                                    .tabs
-                                    .iter()
-                                    .find(|tab| tab.id == tab_id)
-                                    .map(|tab| tab.name.clone())
-                            })
-                        })
-                        .map(|title| native_runtime_window_title(&title).to_owned());
+                    let title = Some(native_runtime_window_title(
+                        game_window_names.get(window_id).map(String::as_str),
+                    ));
                     HostUpdate {
                         focus_window: runtime_host_should_receive_window_focus(
                             focus_window_ids.contains(window_id),
@@ -20138,12 +20367,26 @@ mod tests {
     #[test]
     fn native_runtime_window_title_is_platform_explicit() {
         let original = "遊戲視窗 1";
-        for (platform, expected) in [("macos", "Rion Studio"), ("windows", original)] {
+        for (platform, expected) in [
+            ("macos", original.to_owned()),
+            ("windows", format!("{original} — Rion Studio")),
+        ] {
             assert_eq!(
-                native_runtime_window_title_for_platform(platform, original),
+                native_runtime_window_title_for_platform(platform, Some(original)),
                 expected
             );
+            assert_eq!(
+                native_runtime_window_title_for_platform(platform, None),
+                "Rion Studio"
+            );
         }
+    }
+
+    #[test]
+    fn role_zoom_persistence_requires_a_saved_runtime_window() {
+        let saved = HashMap::from([("saved-window".to_owned(), "Game Window 1".to_owned())]);
+        assert!(should_persist_role_zoom(&saved, "saved-window"));
+        assert!(!should_persist_role_zoom(&saved, "transient-window"));
     }
 
     #[test]

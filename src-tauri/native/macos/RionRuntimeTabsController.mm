@@ -28,6 +28,8 @@ static const CGFloat kRionTabScrollButtonWidth = 22.0;
 static const CGFloat kRionTabScrollButtonSpacing = 3.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
+static const CGFloat kRionWindowNameMaximumWidth = 160.0;
+static const CGFloat kRionWindowNameTrailingSpacing = 10.0;
 static const CGFloat kRionRootTrailingDraggableWidth = 12.0;
 static const CGFloat kRionTrafficLightFallbackWidth = 76.0;
 static const NSInteger kRionAddButtonTag = 41001;
@@ -640,6 +642,15 @@ void rion_runtime_tabs_set_reveal_locked(void *rawController, bool locked) {
   }
 }
 
+void rion_runtime_tabs_set_window_name(void *rawController,
+                                       const char *windowName) {
+  @autoreleasepool {
+    if (!rawController) return;
+    [(__bridge RionRuntimeTabsController *)rawController
+        setWindowName:RionStringFromUTF8(windowName)];
+  }
+}
+
 void rion_runtime_tabs_set_active(void *rawController,
                                   const char *tabIdentifier) {
   @autoreleasepool {
@@ -830,13 +841,21 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
   @autoreleasepool {
     CGFloat visibleWidth = RionRuntimePreferredTabWidth(160.0, NO);
     CGFloat hiddenWidth = RionRuntimePreferredTabWidth(160.0, YES);
+    CGFloat longWindowNameWidth = MIN(kRionWindowNameMaximumWidth, 420.0);
+    CGFloat minimumWindowTabsWidth =
+        640.0 - kRionTrafficLightFallbackWidth - kRionRootLeadingInset -
+        longWindowNameWidth - kRionWindowNameTrailingSpacing -
+        kRionRootTrailingDraggableWidth - kRionTabHeight -
+        kRionAddButtonSpacing;
     return !RionRuntimeTabsOverflow(400.5, 400.0) &&
            RionRuntimeTabsOverflow(402.0, 400.0) &&
            RionRuntimeClampScrollOrigin(-20.0, 900.0, 400.0) == 0.0 &&
            RionRuntimeClampScrollOrigin(700.0, 900.0, 400.0) == 500.0 &&
            RionRuntimeRevealScrollOrigin(620.0, 760.0, 100.0, 400.0,
                                          900.0) == 360.0 &&
-           hiddenWidth < visibleWidth;
+           hiddenWidth < visibleWidth &&
+           longWindowNameWidth == kRionWindowNameMaximumWidth &&
+           minimumWindowTabsWidth > kRionTabMinimumWidth;
   }
 }
 
@@ -863,6 +882,9 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @end
 
 @interface RionRuntimeHorizontalScrollView : NSScrollView
+@end
+
+@interface RionRuntimeWindowNameField : NSTextField
 @end
 
 @interface RionRuntimeSurfaceView : NSView
@@ -997,6 +1019,14 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 - (BOOL)isFlipped {
   return YES;
 }
+
+- (BOOL)mouseDownCanMoveWindow {
+  return YES;
+}
+
+@end
+
+@implementation RionRuntimeWindowNameField
 
 - (BOOL)mouseDownCanMoveWindow {
   return YES;
@@ -1633,6 +1663,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSMutableDictionary<NSValue *, NSDictionary<NSString *, NSNumber *> *> *
       _originalTrafficLightStates;
   NSMutableDictionary<NSNumber *, NSValue *> *_windowedTrafficLightFrames;
+  RionRuntimeWindowNameField *_windowNameField;
   NSToolbar *_fullscreenToolbar;
   NSToolbar *_toolbar;
   dispatch_block_t _pendingContentLayoutNotification;
@@ -1773,6 +1804,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _tabScrollView.documentView = _tabCanvas;
   _tabScrollView.contentView.postsBoundsChangedNotifications = YES;
 
+  _windowNameField = [[RionRuntimeWindowNameField alloc] initWithFrame:NSZeroRect];
+  _windowNameField.bezeled = NO;
+  _windowNameField.bordered = NO;
+  _windowNameField.drawsBackground = NO;
+  _windowNameField.editable = NO;
+  _windowNameField.selectable = NO;
+  _windowNameField.enabled = YES;
+  _windowNameField.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
+  _windowNameField.textColor = NSColor.labelColor;
+  _windowNameField.lineBreakMode = NSLineBreakByTruncatingTail;
+  _windowNameField.maximumNumberOfLines = 1;
+  _windowNameField.hidden = YES;
+
   NSImage *scrollLeft = [NSImage imageWithSystemSymbolName:@"chevron.left"
                                   accessibilityDescription:nil];
   scrollLeft = [scrollLeft imageWithSymbolConfiguration:
@@ -1822,6 +1866,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _addButton.surfaceView = _addSurface;
 
   [_clusterContent addSubview:_scrollLeftSurface];
+  [_clusterContent addSubview:_windowNameField];
   [_clusterContent addSubview:_tabScrollView];
   [_clusterContent addSubview:_scrollRightSurface];
   [_clusterContent addSubview:_addSurface];
@@ -2638,6 +2683,17 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   return width;
 }
 
+- (void)setWindowName:(nullable NSString *)windowName {
+  if (_destroyed) return;
+  NSString *name = [windowName stringByTrimmingCharactersInSet:
+      NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  _windowNameField.stringValue = name ?: @"";
+  _windowNameField.toolTip = name.length > 0 ? name : nil;
+  _windowNameField.accessibilityLabel = name.length > 0 ? name : nil;
+  _windowNameField.hidden = name.length == 0;
+  [self layoutTitlebarContent];
+}
+
 - (void)layoutTitlebarContent {
   if (_destroyed || !_window) return;
   NSView *root = _accessoryController.view;
@@ -2649,6 +2705,17 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _clusterContent.frame = root.bounds;
 
   CGFloat leadingInset = [self trafficLightReserveWidth] + kRionRootLeadingInset;
+  CGFloat windowNameWidth = 0;
+  if (!_windowNameField.hidden) {
+    windowNameWidth = MIN(kRionWindowNameMaximumWidth,
+                          ceil(_windowNameField.intrinsicContentSize.width));
+    _windowNameField.frame = NSMakeRect(
+        leadingInset, MAX(0, (rootHeight - kRionTabHeight) / 2.0),
+        windowNameWidth, kRionTabHeight);
+    leadingInset += windowNameWidth + kRionWindowNameTrailingSpacing;
+  } else {
+    _windowNameField.frame = NSZeroRect;
+  }
   CGFloat tabsWidth = [self tabsContentWidth];
   CGFloat availableWithoutScrollControls = MAX(
       0,

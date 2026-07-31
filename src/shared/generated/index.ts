@@ -73,6 +73,7 @@ export type { GameUpdateRequest } from "./GameUpdateRequest";
 export type { GameWindowCreateInputRecord } from "./GameWindowCreateInputRecord";
 export type { GameWindowPlacementRecord } from "./GameWindowPlacementRecord";
 export type { GameWindowRoleViewRecord } from "./GameWindowRoleViewRecord";
+export type { GameWindowSaveRuntimeInputRecord } from "./GameWindowSaveRuntimeInputRecord";
 export type { GameWindowTabRecord } from "./GameWindowTabRecord";
 export type { GameWindowUpdateInputRecord } from "./GameWindowUpdateInputRecord";
 export type { HighRefreshRateDiagnosticStatus } from "./HighRefreshRateDiagnosticStatus";

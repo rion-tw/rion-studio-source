@@ -571,7 +571,7 @@
   "settings.warningWorkspaceRoleMissing": "工作区“{name}”有 {count} 个角色引用不在此 JSON 中；那些位置会留空。",
   "settings.warningGameWindowRenamed": "游戏窗口“{name}”将以“{next}”导入。",
   "settings.warningGameWindowTabDependencyMissing": "标签页“{name}”因找不到角色或工作区而跳过。",
-  "settings.warningGameWindowTabRoleConflict": "标签页“{name}”因角色已被其他保存标签页使用而跳过。",
+  "settings.warningGameWindowTabRoleConflict": "标签页“{name}”因来源或角色已在同一个已保存窗口中使用而跳过。",
   "settings.warningMacroRenamed": "宏“{name}”会以“{next}”导入。",
   "settings.warningMacroRoleMissing": "宏“{name}”有 {count} 个角色引用不在此 JSON 中；那些角色会略过。",
   "settings.warningMacroSkipped": "宏“{name}”没有任何角色存在于此 JSON 中，因此会略过。",

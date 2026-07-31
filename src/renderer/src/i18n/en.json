@@ -601,7 +601,7 @@
   "settings.warningWorkspaceRoleMissing": "Workspace \"{name}\" has {count} role references that are not in this JSON; those slots will be empty.",
   "settings.warningGameWindowRenamed": "Game window \"{name}\" will be imported as \"{next}\".",
   "settings.warningGameWindowTabDependencyMissing": "Tab \"{name}\" will be skipped because its role or workspace is unavailable.",
-  "settings.warningGameWindowTabRoleConflict": "Tab \"{name}\" will be skipped because one of its roles is already used by another saved tab.",
+  "settings.warningGameWindowTabRoleConflict": "Tab \"{name}\" will be skipped because its source or one of its roles is already used in the same saved window.",
   "settings.warningMacroRenamed": "Macro \"{name}\" will be imported as \"{next}\".",
   "settings.warningMacroRoleMissing": "Macro \"{name}\" has {count} role references that are not in this JSON; those roles will be skipped.",
   "settings.warningMacroSkipped": "Macro \"{name}\" will be skipped because none of its roles are in this JSON.",

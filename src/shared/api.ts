@@ -90,7 +90,7 @@ export interface RionStudioApi {
   deleteGameWindow: (windowId: string) => Promise<void>;
   showGameWindowTab: (tabId: string) => Promise<void>;
   moveGameWindowTab: (tabId: string, windowId: string) => Promise<void>;
-  moveGameWindowTabToNewWindow: (tabId: string) => Promise<GameWindow>;
+  moveGameWindowTabToNewWindow: (tabId: string) => Promise<{ windowId: string }>;
   setGameWindowTabMuted: (tabId: string, muted: boolean) => Promise<void>;
   setGameWindowTabHidden: (tabId: string, hidden: boolean) => Promise<void>;
   stopGameWindowTab: (tabId: string) => Promise<void>;

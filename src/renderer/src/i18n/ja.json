@@ -571,7 +571,7 @@
   "settings.warningWorkspaceRoleMissing": "ワークスペース「{name}」には、この JSON に存在しないロール参照が {count} 件あります。該当スロットは空になります。",
   "settings.warningGameWindowRenamed": "ゲームウィンドウ「{name}」は「{next}」としてインポートされます。",
   "settings.warningGameWindowTabDependencyMissing": "タブ「{name}」はロールまたはワークスペースが見つからないためスキップされます。",
-  "settings.warningGameWindowTabRoleConflict": "タブ「{name}」はロールが別の保存済みタブで使用されているためスキップされます。",
+  "settings.warningGameWindowTabRoleConflict": "タブ「{name}」はソースまたはロールが同じ保存済みウインドウ内ですでに使用されているためスキップされます。",
   "settings.warningMacroRenamed": "マクロ「{name}」は「{next}」としてインポートされます。",
   "settings.warningMacroRoleMissing": "マクロ「{name}」には、この JSON に存在しないロール参照が {count} 件あります。該当ロールはスキップされます。",
   "settings.warningMacroSkipped": "マクロ「{name}」は、この JSON 内に対象ロールがないためスキップされます。",

@@ -45,6 +45,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen;
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow;
 - (void)setRevealLocked:(BOOL)locked;
+- (void)setWindowName:(nullable NSString *)windowName;
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier;
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
                        name:(NSString *)name
@@ -115,6 +116,8 @@ void rion_runtime_tabs_set_fullscreen_policy(
 bool rion_runtime_tabs_is_main_thread(void);
 void rion_runtime_tabs_set_reveal_locked(
     void * _Nullable controller, bool locked);
+void rion_runtime_tabs_set_window_name(
+    void * _Nullable controller, const char * _Nullable windowName);
 void rion_runtime_tabs_set_active(
     void * _Nullable controller, const char * _Nullable tabIdentifier);
 void rion_runtime_tabs_ensure(

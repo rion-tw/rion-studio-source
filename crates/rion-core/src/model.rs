@@ -400,6 +400,9 @@ pub enum CoreCommand {
     GameWindowCreate {
         input: GameWindowCreateInputRecord,
     },
+    GameWindowSaveRuntime {
+        input: GameWindowSaveRuntimeInputRecord,
+    },
     GameWindowUpdate {
         id: String,
         input: GameWindowUpdateInputRecord,
@@ -410,6 +413,11 @@ pub enum CoreCommand {
     },
     GameWindowDelete {
         id: String,
+    },
+    GameWindowDeleteIfUnchanged {
+        id: String,
+        #[ts(rename = "updatedAt")]
+        updated_at: String,
     },
     MacrosList,
     MacroGet {
@@ -703,15 +711,6 @@ pub enum CoreCommand {
         target: EmbeddedLaunchTargetRecord,
     },
     EmbeddedTabMoveOrdered {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        target: EmbeddedLaunchTargetRecord,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "beforeTabId")]
-        before_tab_id: Option<String>,
-    },
-    GameWindowCreateAndMoveTab {
-        input: GameWindowCreateInputRecord,
         #[ts(rename = "tabId")]
         tab_id: String,
         target: EmbeddedLaunchTargetRecord,
@@ -1760,6 +1759,20 @@ pub struct GameWindowCreateInputRecord {
     pub name: String,
     pub target_display: DisplayTargetRecord,
     pub placement: GameWindowPlacementRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowSaveRuntimeInputRecord {
+    pub window_id: String,
+    pub name: String,
+    pub target_display: DisplayTargetRecord,
+    pub placement: GameWindowPlacementRecord,
+    pub tabs: Vec<GameWindowTabRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_tab_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]

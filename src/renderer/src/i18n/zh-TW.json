@@ -601,7 +601,7 @@
   "settings.warningWorkspaceRoleMissing": "工作區「{name}」有 {count} 個角色參照不在此 JSON 中；那些位置會留空。",
   "settings.warningGameWindowRenamed": "遊戲視窗「{name}」將以「{next}」匯入。",
   "settings.warningGameWindowTabDependencyMissing": "分頁「{name}」因找不到角色或工作區而略過。",
-  "settings.warningGameWindowTabRoleConflict": "分頁「{name}」因角色已由其他保存分頁使用而略過。",
+  "settings.warningGameWindowTabRoleConflict": "分頁「{name}」因來源或角色已在同一個已儲存視窗中使用而略過。",
   "settings.warningMacroRenamed": "巨集「{name}」會以「{next}」匯入。",
   "settings.warningMacroRoleMissing": "巨集「{name}」有 {count} 個角色參照不在此 JSON 中；那些角色會略過。",
   "settings.warningMacroSkipped": "巨集「{name}」沒有任何角色存在於此 JSON 中，因此會略過。",

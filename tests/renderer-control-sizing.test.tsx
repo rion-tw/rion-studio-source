@@ -12,6 +12,7 @@ import { Input } from "../src/renderer/src/components/ui/input";
 import { SegmentedControl } from "../src/renderer/src/components/ui/patterns";
 import { Slider } from "../src/renderer/src/components/ui/slider";
 import { Textarea } from "../src/renderer/src/components/ui/textarea";
+import { readSourceTreeSync } from "./helpers/readSourceTree";
 
 afterEach(() => {
   cleanup();
@@ -20,7 +21,7 @@ afterEach(() => {
 
 describe("renderer control sizing", () => {
   it("defines a floating 30px hit target without imposing global layout minimums", () => {
-    const styles = readFileSync(
+    const styles = readSourceTreeSync(
       path.join(process.cwd(), "src", "renderer", "src", "styles.css"),
       "utf8"
     );

@@ -1,0 +1,699 @@
+// @vitest-environment jsdom
+
+import { readSourceTreeSync as readFileSync } from "./helpers/readSourceTree";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Macro, MacroRunStatus as _MacroRunStatus } from "../src/shared/types";
+import { v1Case as _v1Case } from "./helpers/v1Parity";
+
+const runtimeSource = readFileSync("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8");
+const shortcutGuardSource = readFileSync(
+  "src/shared/browser-overlay/macroOverlayShortcutGuard.js",
+  "utf8"
+);
+const overlayCss = readFileSync("src/shared/browser-overlay/macroOverlay.css", "utf8");
+const coordinateMeasurementModuleSource = readFileSync(
+  "src/shared/browser-overlay/macroCoordinateMeasurement.js",
+  "utf8"
+);
+const coordinateMeasurementModuleUrl =
+  `data:text/javascript;charset=utf-8,${encodeURIComponent(coordinateMeasurementModuleSource)}`;
+const MACRO_OVERLAY_SCRIPT = runtimeSource
+  .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__"), shortcutGuardSource.trim())
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__"),
+    "() => true"
+  )
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_BINDING__"),
+    "window.rionStudioMacroOverlay"
+  )
+  .replace(JSON.stringify("__RION_STUDIO_MACRO_OVERLAY_CSS__"), JSON.stringify(overlayCss))
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE__"),
+    JSON.stringify(coordinateMeasurementModuleSource)
+  )
+  .replace(
+    JSON.stringify("__RION_STUDIO_MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER__"),
+    "window.__rionTestCoordinateMeasurementModuleImporter"
+  );
+
+interface OverlayController {
+  clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
+  dispose: () => void;
+  refresh: () => Promise<void>;
+  suppressNextShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
+}
+
+interface OverlayTestWindow extends Window {
+  __rionStudioMacroOverlay?: OverlayController;
+  rionStudioMacroOverlay?: (request: unknown) => Promise<unknown>;
+  __rionTestCoordinateMeasurementModuleImporter?: (url: string) => Promise<unknown>;
+}
+
+const assignedMacro: Macro = {
+  id: "macro-1",
+  enabled: true,
+  name: "Auto heal",
+  roleIds: ["role-1"],
+  trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
+  repeat: { type: "once" },
+  steps: [{ id: "step-1", type: "key", code: "KeyQ" }],
+  createdAt: "2026-07-10T00:00:00.000Z",
+  updatedAt: "2026-07-10T00:00:00.000Z"
+};
+
+const _clickMacro: Macro = {
+  ...assignedMacro,
+  id: "click-macro",
+  name: "Click targets",
+  steps: [
+    { id: "click-first", type: "click", xPercent: 25, yPercent: 50 },
+    { id: "click-duplicate", type: "click", xPercent: 25, yPercent: 50 },
+    { id: "click-bottom-right", type: "click", unit: "px", anchor: "bottom-right", xPx: -24, yPx: -32 }
+  ]
+};
+
+describe("macro overlay interactions", () => {
+beforeEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.lang = "en";
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => coordinateMeasurementModuleUrl)
+    });
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn()
+    });
+    Object.defineProperty(window, "__rionTestCoordinateMeasurementModuleImporter", {
+      configurable: true,
+      value: (url: string) => import(url)
+    });
+  });
+
+afterEach(() => {
+    const overlayWindow = window as OverlayTestWindow;
+    overlayWindow.__rionStudioMacroOverlay?.dispose();
+    delete overlayWindow.__rionStudioMacroOverlay;
+    delete overlayWindow.rionStudioMacroOverlay;
+    delete overlayWindow.__rionTestCoordinateMeasurementModuleImporter;
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+it("leaves editable controls and operating-system switch shortcuts untouched", async () => {
+    const { canvas } = createGameSurface(document);
+    const input = document.createElement("input");
+    document.body.append(input);
+    const binding = vi.fn(async () => ({ macros: [], statuses: [] }));
+    installOverlay(window, binding);
+
+    input.focus();
+    const editableTab = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      key: "Tab"
+    });
+    expect(input.dispatchEvent(editableTab)).toBe(true);
+    expect(editableTab.defaultPrevented).toBe(false);
+
+    canvas.tabIndex = -1;
+    canvas.focus();
+    for (const modifiers of [{ metaKey: true }, { altKey: true }]) {
+      const systemTab = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        code: "Tab",
+        key: "Tab",
+        ...modifiers
+      });
+      expect(canvas.dispatchEvent(systemTab)).toBe(true);
+      expect(systemTab.defaultPrevented).toBe(false);
+    }
+    const systemSpace = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Space",
+      key: " ",
+      metaKey: true
+    });
+    expect(canvas.dispatchEvent(systemSpace)).toBe(true);
+    expect(systemSpace.defaultPrevented).toBe(false);
+
+    const windowsSystemShortcut = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Home",
+      key: "Home",
+      metaKey: true
+    });
+    expect(canvas.dispatchEvent(windowsSystemShortcut)).toBe(true);
+    expect(windowsSystemShortcut.defaultPrevented).toBe(false);
+
+    input.focus();
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "game-input-context",
+      active: false
+    }));
+  });
+
+it("blocks macOS browser navigation while preserving system desktop shortcuts", () => {
+    vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    installOverlay(window, vi.fn(async () => ({ macros: [], statuses: [] })));
+    const pageKeyDown = vi.fn();
+    canvas.addEventListener("keydown", pageKeyDown);
+
+    for (const input of [
+      { code: "ArrowLeft", key: "ArrowLeft", metaKey: true },
+      { code: "BracketLeft", key: "[", metaKey: true },
+      { code: "ArrowRight", key: "ArrowRight", altKey: true },
+      { code: "BrowserBack", key: "BrowserBack" }
+    ]) {
+      const event = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        ...input
+      });
+      expect(canvas.dispatchEvent(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    const systemDesktopShortcut = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "ArrowLeft",
+      ctrlKey: true,
+      key: "ArrowLeft"
+    });
+    expect(canvas.dispatchEvent(systemDesktopShortcut)).toBe(true);
+    expect(systemDesktopShortcut.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledTimes(5);
+  });
+
+it("keeps modified wheel input in the game canvas without affecting editable controls", () => {
+    const { canvas } = createGameSurface(document);
+    const input = document.createElement("input");
+    document.body.append(input);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    installOverlay(window, vi.fn(async () => ({ macros: [], statuses: [] })));
+    const canvasWheel = vi.fn();
+    canvas.addEventListener("wheel", canvasWheel);
+
+    const gameWheel = new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: 10
+    });
+    expect(canvas.dispatchEvent(gameWheel)).toBe(false);
+    expect(gameWheel.defaultPrevented).toBe(true);
+    expect(canvasWheel).toHaveBeenCalledOnce();
+
+    input.focus();
+    const editableWheel = new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: 10
+    });
+    expect(input.dispatchEvent(editableWheel)).toBe(true);
+    expect(editableWheel.defaultPrevented).toBe(false);
+  });
+
+it("does not run legacy macros that use reserved browser zoom shortcuts", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const legacyZoomMacro: Macro = {
+      ...assignedMacro,
+      trigger: { code: "Equal", ctrl: true, alt: false, shift: true, meta: false }
+    };
+    const binding = vi.fn(async () => ({ macros: [legacyZoomMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Equal",
+      ctrlKey: true,
+      key: "+",
+      shiftKey: true
+    });
+
+    expect(canvas.dispatchEvent(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyZoomMacro.id });
+  });
+
+it("leaves reserved runtime tab switching shortcuts to the browser", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const legacyTabMacro: Macro = {
+      ...assignedMacro,
+      trigger: { code: "Tab", ctrl: true, alt: false, shift: true, meta: false }
+    };
+    const binding = vi.fn(async () => ({ macros: [legacyTabMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      ctrlKey: true,
+      key: "Tab",
+      shiftKey: true
+    });
+
+    expect(canvas.dispatchEvent(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyTabMacro.id });
+  });
+
+it("preserves Flyff text input focus and ignores keyboard events forwarded to the canvas", async () => {
+    const { canvas } = createGameSurface(document);
+    const input = document.createElement("input");
+    input.id = "text_input";
+    input.type = "text";
+    document.body.append(input);
+    const binding = vi.fn(async (request: unknown) => ({
+      macros: [assignedMacro],
+      statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const canvasKeyDown = vi.fn();
+    canvas.addEventListener("keydown", canvasKeyDown);
+    const forwardedEvents: KeyboardEvent[] = [];
+    input.addEventListener("keydown", (event) => {
+      const forwarded = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        code: event.code,
+        ctrlKey: event.ctrlKey,
+        isComposing: event.isComposing,
+        key: event.key
+      });
+      forwardedEvents.push(forwarded);
+      canvas.dispatchEvent(forwarded);
+    });
+
+    canvas.dispatchEvent(createMouseEvent(window, "pointerdown"));
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "game-input-context",
+      active: false
+    }));
+
+    const inputs = [
+      { code: "KeyA", key: "a" },
+      { code: "Digit1", key: "1" },
+      { code: "Backspace", key: "Backspace" },
+      { code: "Delete", key: "Delete" },
+      { code: "ArrowLeft", key: "ArrowLeft" },
+      { code: "Enter", key: "Enter" },
+      { code: "F2", key: "F2" },
+      { code: "KeyA", isComposing: true, key: "Process" }
+    ];
+    const originalEvents = inputs.map((init) => new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      ...init
+    }));
+    originalEvents.forEach((event) => expect(input.dispatchEvent(event)).toBe(true));
+
+    expect(document.activeElement).toBe(input);
+    expect(originalEvents.every((event) => !event.defaultPrevented)).toBe(true);
+    expect(forwardedEvents).toHaveLength(inputs.length);
+    expect(forwardedEvents.every((event) => !event.defaultPrevented)).toBe(true);
+    expect(canvasKeyDown).toHaveBeenCalledTimes(inputs.length);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
+  });
+
+it("pairs while-held shortcuts with one press and release while consuming auto-repeat", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = {
+      ...assignedMacro,
+      activationMode: "while_held",
+      steps: [{ id: "step-1", type: "key", code: "F3", action: "hold_until_stop" }]
+    };
+    let isHeld = false;
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "press") isHeld = true;
+      if (isRecord(request) && request.type === "release") isHeld = false;
+      return {
+        macros: [heldMacro],
+        statuses: isHeld ? [runningStatus()] : []
+      };
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    const repeated = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2",
+      repeat: true
+    });
+    expect(document.dispatchEvent(repeated)).toBe(false);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: heldMacro.id,
+      pressId: expect.any(String)
+    })));
+    expect(getOverlayRoot(document).querySelector(".active-badge-shortcut")?.textContent)
+      .toBe("F2");
+    expect(getOverlayRoot(document).querySelector(".active-badge-behavior")?.textContent)
+      .toContain("Tap or hold · Hold");
+    expect(binding.mock.calls.filter(([request]) => isRecord(request) && request.type === "press")).toHaveLength(1);
+
+    const pressRequest = binding.mock.calls
+      .map(([request]) => request)
+      .find((request) => isRecord(request) && request.type === "press") as Record<string, unknown>;
+    const keyUp = new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    expect(document.dispatchEvent(keyUp)).toBe(false);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "release",
+      macroId: heldMacro.id,
+      pressId: pressRequest.pressId,
+      releaseMode: "complete_first_iteration"
+    }));
+  });
+
+it("does not release a physical held shortcut for a suppressed synthetic keyup", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async () => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: heldMacro.id
+    })));
+
+    controller.suppressNextShortcut?.("F2", "keyup");
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+    await Promise.resolve();
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "release" }));
+
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      macroId: heldMacro.id
+    })));
+  });
+
+it("releases a while-held shortcut when the source window loses focus", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
+    window.dispatchEvent(new window.Event("blur"));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      macroId: heldMacro.id,
+      releaseMode: "immediate"
+    })));
+  });
+
+it("matches release by physical code after modifiers are released", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = {
+      ...assignedMacro,
+      activationMode: "while_held",
+      trigger: { ...assignedMacro.trigger!, ctrl: true }
+    };
+    const binding = vi.fn(async () => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2",
+      ctrlKey: true
+    }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2",
+      ctrlKey: false
+    }));
+
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      macroId: heldMacro.id,
+      releaseMode: "complete_first_iteration"
+    })));
+  });
+
+it("releases a while-held shortcut when the page becomes hidden or the overlay is disposed", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      releaseMode: "immediate"
+    })));
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "press"
+    )).toHaveLength(2));
+    controller.dispose();
+    await vi.waitFor(() => expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "release"
+    )).toHaveLength(2));
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "release"
+    ).every(([request]) => (request as Record<string, unknown>).releaseMode === "immediate")).toBe(true);
+  });
+
+it("starts a macro even when the game already prevented the shortcut event", async () => {
+    createGameSurface(document);
+    const binding = vi.fn(async (request: unknown) => ({
+      macros: [assignedMacro],
+      statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    event.preventDefault();
+
+    document.dispatchEvent(event);
+
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
+  });
+
+it("captures macro shortcuts before game document handlers", async () => {
+    createGameSurface(document);
+    const gameKeyDown = vi.fn((event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    });
+    document.addEventListener("keydown", gameKeyDown, true);
+    const binding = vi.fn(async (request: unknown) => ({
+      macros: [assignedMacro],
+      statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+
+    document.removeEventListener("keydown", gameKeyDown, true);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
+    expect(gameKeyDown).not.toHaveBeenCalled();
+  });
+
+it("does not let a stale editable active element block a canvas shortcut", async () => {
+    const { canvas } = createGameSurface(document);
+    const staleInput = document.createElement("input");
+    document.body.append(staleInput);
+    staleInput.focus();
+    const binding = vi.fn(async (request: unknown) => ({
+      macros: [assignedMacro],
+      statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+
+    canvas.dispatchEvent(createMouseEvent(window, "pointerdown"));
+    expect(document.activeElement).toBe(staleInput);
+    canvas.dispatchEvent(event);
+
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
+  });
+
+it("lets disabled macro shortcuts reach the game", async () => {
+    createGameSurface(document);
+    const disabledMacro = { ...assignedMacro, enabled: false };
+    const binding = vi.fn(async () => ({ macros: [disabledMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const pageKeyDown = vi.fn();
+    document.addEventListener("keydown", pageKeyDown);
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+
+    expect(document.dispatchEvent(event)).toBe(true);
+    document.removeEventListener("keydown", pageKeyDown);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledOnce();
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggle" }));
+  });
+
+it("disposes a detached overlay and stops its polling intervals", async () => {
+    vi.useFakeTimers();
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async () => ({ detached: true, macros: [], statuses: [] }));
+
+      installOverlay(window, binding);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(document.getElementById("rion-studio-macro-overlay-v60")).toBeNull();
+      expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
+      const requestCountAfterDispose = binding.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(binding).toHaveBeenCalledTimes(requestCountAfterDispose);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+function installOverlay(
+  targetWindow: Window,
+  binding: (request: unknown) => Promise<unknown> = async () => ({ macros: [], statuses: [] })
+): OverlayController {
+  const overlayWindow = targetWindow as OverlayTestWindow;
+  Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
+    configurable: true,
+    value: binding
+  });
+  (targetWindow as unknown as { eval: (source: string) => unknown }).eval(MACRO_OVERLAY_SCRIPT);
+  if (!overlayWindow.__rionStudioMacroOverlay) {
+    throw new Error("Expected the macro overlay controller to be installed.");
+  }
+  return overlayWindow.__rionStudioMacroOverlay;
+}
+
+function createGameSurface(ownerDocument: Document): { button: HTMLButtonElement; canvas: HTMLCanvasElement } {
+  const canvas = ownerDocument.createElement("canvas");
+  const button = ownerDocument.createElement("button");
+  button.textContent = "Play";
+  ownerDocument.body.append(canvas, button);
+  return { button, canvas };
+}
+
+function createMouseEvent(
+  targetWindow: Window,
+  type: string,
+  init: MouseEventInit = {}
+): MouseEvent {
+  const MouseEventConstructor = (targetWindow as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent;
+  return new MouseEventConstructor(type, {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    ...init
+  });
+}
+
+function dispatchShortcut(targetWindow: Window, code: string, key: string): void {
+  const KeyboardEventConstructor = (targetWindow as unknown as { KeyboardEvent: typeof KeyboardEvent }).KeyboardEvent;
+  targetWindow.document.dispatchEvent(new KeyboardEventConstructor("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code,
+    key
+  }));
+}
+
+function runningStatus(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    roleId: "role-1",
+    macroId: assignedMacro.id,
+    state: "running",
+    startedAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function getOverlayRoot(ownerDocument: Document): ShadowRoot {
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v60")?.shadowRoot;
+  if (!root) throw new Error("Expected the macro overlay shadow root.");
+  return root;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function _createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}

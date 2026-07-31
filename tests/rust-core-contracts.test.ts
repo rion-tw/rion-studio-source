@@ -118,7 +118,7 @@ describe("direct Rust core build verification", () => {
 
   it("does not generate the retired addon latency contract", async () => {
     const [model, telemetry, generated] = await Promise.all([
-      readFile("crates/rion-core/src/model.rs", "utf8"),
+      readFile("crates/rion-core/src/model/mod.rs", "utf8"),
       readFile("crates/rion-core/src/telemetry.rs", "utf8"),
       readFile("src/shared/generated/PerformanceTelemetryRecord.ts", "utf8")
     ]);

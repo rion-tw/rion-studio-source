@@ -1,0 +1,670 @@
+// Focused implementation extracted from MacroModal.tsx.
+import { Copy, GripVertical, Trash2 } from "lucide-react";
+
+import { type ClipboardEvent, type JSX, type PointerEvent as ReactPointerEvent, useEffect, useState } from "react";
+
+import { Button } from "../../components/ui/button";
+
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+
+import type { Translator } from "../../i18n";
+
+import { cn } from "../../lib/utils";
+
+import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
+
+import { convertMacroCoordinateToOffset, DEFAULT_MACRO_CLICK_ANCHOR, findNearestMacroClickAnchor, MACRO_CLICK_ANCHORS, parseMacroCoordinateClipboard } from "../../../../shared/macroCoordinates";
+
+import type { MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroStep } from "../../../../shared/types";
+
+import { commonMacroKeyCodes, createClientId, formatMacroCode, formatMacroKeyCombination, formatMacroModifierLabel, type MacroTargetOption, isPureModifierCode } from "./macroUtils";
+
+import { AffixedInput, RecordingButton, TimeUnitSelect, fromDisplayTime, getTimeUnitMax, getTimeUnitStep, toDisplayTime } from "./MacroEditorControls";
+
+import type { TimeUnit } from "./MacroEditorControls";
+
+interface MacroStepEditorProps {
+  index: number;
+  isDragging: boolean;
+  isDropTarget: boolean;
+  isSaving: boolean;
+  macroTargetOptions: MacroTargetOption[];
+  onRemove: () => void;
+  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  onDuplicate: () => void;
+  onUpdate: (step: MacroStep) => void;
+  step: MacroStep;
+  t: Translator;
+}
+
+export function MacroStepEditor({
+  index,
+  isDragging,
+  isDropTarget,
+  isSaving,
+  macroTargetOptions,
+  onDuplicate,
+  onRemove,
+  onReorderPointerDown,
+  onUpdate,
+  step,
+  t
+}: MacroStepEditorProps): JSX.Element {
+    return (
+      <div
+      data-testid={`macro-step-${step.id}`}
+      data-macro-step-id={step.id}
+      className={cn(
+        "glass-divider flex flex-wrap items-center gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200",
+        isDragging && "opacity-50",
+        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
+      )}
+    >
+      <Button
+        className="touch-none cursor-grab active:cursor-grabbing"
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={t("macroForm.dragStep")}
+        title={t("macroForm.dragStep")}
+        onPointerDown={onReorderPointerDown}
+        disabled={isSaving}
+      >
+        <GripVertical size={14} />
+      </Button>
+
+      <span className="mr-2 shrink-0 text-caption text-muted-foreground">
+        {String(index + 1).padStart(2, "0")}
+      </span>
+
+      <Select
+        value={step.type}
+        onValueChange={(value) =>
+          onUpdate(createStep(
+            value as MacroStep["type"],
+            step.id,
+            macroTargetOptions.find((option) => !option.unavailableReason)?.macro.id
+          ))
+        }
+        disabled={isSaving}
+      >
+        <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.stepType")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {macroStepTypeOrder.map((type) => (
+            <SelectItem key={type} value={type}>
+              {getMacroStepTypeLabel(type, t)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <MacroStepFields
+        className="ml-0 flex-1"
+        isSaving={isSaving}
+        macroTargetOptions={macroTargetOptions}
+        step={step}
+        t={t}
+        onUpdate={onUpdate}
+      />
+
+      <div className="ml-auto flex shrink-0 justify-end gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={t("macros.copy")}
+          onClick={onDuplicate}
+          disabled={isSaving}
+        >
+          <Copy size={14} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={t("macroForm.removeStep")}
+          onClick={onRemove}
+          disabled={isSaving}
+        >
+          <Trash2 size={14} />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay", "macro"];
+
+const macroKeyModifiers: MacroKeyModifier[] = ["primary", "ctrl", "alt", "shift", "meta"];
+
+export const MODIFIERS_NONE_VALUE = "__no_modifiers__";
+
+function macroClickAnchorLabel(anchor: MacroClickAnchor, t: Translator): string {
+  switch (anchor) {
+    case "top-left": return t("macroForm.clickAnchor.topLeft");
+    case "top-center": return t("macroForm.clickAnchor.topCenter");
+    case "top-right": return t("macroForm.clickAnchor.topRight");
+    case "center-left": return t("macroForm.clickAnchor.centerLeft");
+    case "center": return t("macroForm.clickAnchor.center");
+    case "center-right": return t("macroForm.clickAnchor.centerRight");
+    case "bottom-left": return t("macroForm.clickAnchor.bottomLeft");
+    case "bottom-center": return t("macroForm.clickAnchor.bottomCenter");
+    case "bottom-right": return t("macroForm.clickAnchor.bottomRight");
+  }
+}
+
+export function getModifierComboOptions(t: Translator): Array<{ value: string; label: string }> {
+  const combinations: Array<{ value: string; label: string }> = [];
+
+  for (let mask = 0; mask < (1 << macroKeyModifiers.length); mask += 1) {
+    const selectedModifiers: MacroKeyModifier[] = [];
+
+    for (let index = 0; index < macroKeyModifiers.length; index += 1) {
+      if (mask & (1 << index)) {
+        selectedModifiers.push(macroKeyModifiers[index]);
+      }
+    }
+
+    if (
+      selectedModifiers.includes("primary") &&
+      (selectedModifiers.includes("ctrl") || selectedModifiers.includes("meta"))
+    ) {
+      continue;
+    }
+
+    const normalizedModifiers = canonicalizeMacroKeyModifiers(selectedModifiers);
+    const value = normalizedModifiers.length > 0
+      ? normalizedModifiers.join(",")
+      : MODIFIERS_NONE_VALUE;
+    const label = normalizedModifiers.length > 0
+      ? normalizedModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ")
+      : t("macroForm.modifiersNone");
+
+    combinations.push({ value, label });
+  }
+
+  return combinations.sort((left, right) => {
+    const leftModifiers = left.value === MODIFIERS_NONE_VALUE
+      ? []
+      : left.value.split(",");
+    const rightModifiers = right.value === MODIFIERS_NONE_VALUE
+      ? []
+      : right.value.split(",");
+
+    if (leftModifiers.length !== rightModifiers.length) {
+      return leftModifiers.length - rightModifiers.length;
+    }
+
+    const leftOrder = leftModifiers.map((item) => macroKeyModifiers.indexOf(item as MacroKeyModifier));
+    const rightOrder = rightModifiers.map((item) => macroKeyModifiers.indexOf(item as MacroKeyModifier));
+
+    for (let index = 0; index < leftOrder.length; index += 1) {
+      if (leftOrder[index] !== rightOrder[index]) {
+        return leftOrder[index] - rightOrder[index];
+      }
+    }
+
+    return 0;
+  });
+}
+
+export function parseModifierComboValue(value: string): MacroKeyModifier[] {
+  if (value === MODIFIERS_NONE_VALUE) {
+    return [];
+  }
+
+  if (!value) {
+    return [];
+  }
+
+  const parsed = value
+    .split(",")
+    .map((rawModifier) => (
+      macroKeyModifiers.includes(rawModifier as MacroKeyModifier)
+        ? rawModifier as MacroKeyModifier
+        : undefined
+    ))
+    .filter((modifier): modifier is MacroKeyModifier => modifier !== undefined);
+
+  return canonicalizeMacroKeyModifiers(parsed);
+}
+
+function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
+  switch (type) {
+    case "key":
+      return t("macro.step.key");
+    case "click":
+      return t("macro.step.click");
+    case "delay":
+      return t("macro.step.delay");
+    case "macro":
+      return t("macro.step.macro");
+  }
+}
+
+function getMacroTargetOptionLabel(
+  option: MacroTargetOption,
+  t: Translator,
+  callMode: MacroCallMode = "wait"
+): string {
+  const details: string[] = [];
+  if (option.macro.repeat.type === "loop") {
+    details.push(t(callMode === "trigger"
+      ? "macroForm.macroTargetRunsConfigured"
+      : "macroForm.macroTargetRunsOnce"));
+  }
+  if (!option.macro.enabled) {
+    details.push(t("macroForm.macroTargetDisabled"));
+  }
+  switch (option.unavailableReason) {
+    case "self":
+      details.push(t("macroForm.macroTargetSelf"));
+      break;
+    case "cycle":
+      details.push(t("macroForm.macroTargetCreatesCycle"));
+      break;
+    case "missing":
+      details.push(t("macroForm.macroTargetUnavailable"));
+      break;
+  }
+  return details.length > 0
+    ? `${option.macro.name} (${details.join(" · ")})`
+    : option.macro.name;
+}
+
+function MacroStepFields({
+  isSaving,
+  macroTargetOptions,
+  className,
+  onUpdate,
+  step,
+  t
+}: {
+  className?: string;
+  isSaving: boolean;
+  macroTargetOptions: MacroTargetOption[];
+  onUpdate: (step: MacroStep) => void;
+  step: MacroStep;
+  t: Translator;
+}): JSX.Element {
+  const [isRecording, setIsRecording] = useState(false);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>("s");
+  const isKeyStep = step.type === "key";
+
+  useEffect(() => {
+    if (!isKeyStep) {
+      setIsRecording(false);
+    }
+  }, [isKeyStep]);
+
+  if (isKeyStep) {
+    const modifiers = step.modifiers ?? [];
+    const canonicalModifiers = canonicalizeMacroKeyModifiers(modifiers);
+    const mainKeyIsModifier = isPureModifierCode(step.code);
+    const modifierComboOptions = getModifierComboOptions(t);
+    const selectedModifierValue = canonicalModifiers.length > 0
+      ? canonicalModifiers.join(",")
+      : MODIFIERS_NONE_VALUE;
+    const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {
+      const normalizedModifiers = canonicalizeMacroKeyModifiers(nextModifiers);
+      onUpdate({
+        ...step,
+        code,
+        ...(normalizedModifiers.length > 0 ? { modifiers: normalizedModifiers } : { modifiers: undefined }),
+        label: formatMacroKeyCombination(code, normalizedModifiers, t)
+      });
+    };
+
+    return (
+      <div className={cn("grid min-w-0 gap-2", className)}>
+        <div className="flex min-w-0 items-center gap-2">
+          <Select
+            value={selectedModifierValue}
+            onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
+            disabled={isSaving || isRecording || mainKeyIsModifier}
+          >
+            <SelectTrigger
+              className="w-fit shrink-0"
+              aria-label={t("macroForm.modifiers")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {modifierComboOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={step.code}
+            onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
+            disabled={isSaving || isRecording}
+          >
+            <SelectTrigger className="w-fit shrink-0" aria-label={t("macro.step.key")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(commonMacroKeyCodes.includes(step.code as typeof commonMacroKeyCodes[number])
+                ? commonMacroKeyCodes
+                : [step.code, ...commonMacroKeyCodes]
+              ).map((code) => (
+                <SelectItem
+                  key={code}
+                  value={code}
+                  disabled={canonicalModifiers.length > 0 && isPureModifierCode(code)}
+                >
+                  {formatMacroCode(code)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <KeyRecorder
+            disabled={isSaving}
+            isRecording={isRecording}
+            t={t}
+            onRecordingChange={setIsRecording}
+            onRecord={({ code, modifiers: recordedModifiers }) =>
+              updateKeyInput(code, recordedModifiers)
+            }
+          />
+          <Select
+            disabled={isSaving}
+            value={step.action ?? "tap"}
+            onValueChange={(action) => onUpdate({
+              ...step,
+              action: action as Extract<MacroStep, { type: "key" }>["action"]
+            })}
+          >
+            <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.keyAction")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tap">{t("macroForm.keyAction.tap")}</SelectItem>
+              <SelectItem value="hold_until_stop">
+                {canonicalModifiers.length > 0
+                  ? t("macroForm.keyAction.holdCombination")
+                  : t("macroForm.keyAction.hold")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {mainKeyIsModifier ? (
+          <p className="text-caption text-muted-foreground">
+            {t("macroForm.modifiersNeedMainKey")}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (step.type === "click") {
+    const unit: MacroClickUnit = step.unit ?? "percent";
+    const isPixel = unit === "px";
+    const anchor = step.anchor ?? DEFAULT_MACRO_CLICK_ANCHOR;
+    const storedAnchor = anchor === DEFAULT_MACRO_CLICK_ANCHOR ? {} : { anchor };
+    const x = step.unit === "px" ? step.xPx : step.xPercent;
+    const y = step.unit === "px" ? step.yPx : step.yPercent;
+    const handleCoordinatePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
+      const measurement = parseMacroCoordinateClipboard(event.clipboardData.getData("text"));
+      const nextAnchor = measurement?.anchor
+        ?? (measurement ? findNearestMacroClickAnchor(measurement) : undefined)
+        ?? anchor;
+      const offset = measurement
+        ? convertMacroCoordinateToOffset(measurement, nextAnchor, unit)
+        : undefined;
+      if (!offset) {
+        return;
+      }
+
+      event.preventDefault();
+      const nextStoredAnchor = nextAnchor === DEFAULT_MACRO_CLICK_ANCHOR ? {} : { anchor: nextAnchor };
+      onUpdate(isPixel
+        ? { id: step.id, type: "click", unit: "px", ...nextStoredAnchor, xPx: offset.x, yPx: offset.y }
+        : {
+            id: step.id,
+            type: "click",
+            ...nextStoredAnchor,
+            xPercent: offset.x,
+            yPercent: offset.y
+          });
+    };
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
+        <Select
+          disabled={isSaving}
+          value={unit}
+          onValueChange={(nextUnit) => onUpdate(nextUnit === "px"
+            ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: step.unit === "px" ? step.xPx : step.xPercent, yPx: step.unit === "px" ? step.yPx : step.yPercent }
+            : { id: step.id, type: "click", ...storedAnchor, xPercent: step.unit === "px" ? step.xPx : step.xPercent, yPercent: step.unit === "px" ? step.yPx : step.yPercent })}
+        >
+          <SelectTrigger aria-label={t("macroForm.clickUnit")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="percent">%</SelectItem>
+            <SelectItem value="px">px</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          disabled={isSaving}
+          value={anchor}
+          onValueChange={(nextAnchor) => {
+            const nextStoredAnchor = nextAnchor === DEFAULT_MACRO_CLICK_ANCHOR
+              ? {}
+              : { anchor: nextAnchor as MacroClickAnchor };
+            onUpdate(isPixel
+              ? { id: step.id, type: "click", unit: "px", ...nextStoredAnchor, xPx: x, yPx: y }
+              : { id: step.id, type: "click", ...nextStoredAnchor, xPercent: x, yPercent: y });
+          }}
+        >
+          <SelectTrigger aria-label={t("macroForm.clickAnchor")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {MACRO_CLICK_ANCHORS.map((option) => (
+              <SelectItem key={option} value={option}>{macroClickAnchorLabel(option, t)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <AffixedInput
+          aria-label={t("macroForm.clickXOffset")}
+          disabled={isSaving}
+          max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
+          min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
+          prefix={t("macroForm.clickXOffset")}
+          suffix={unit === "px" ? "px" : "%"}
+          step={unit === "px" ? 1 : 0.01}
+          value={x}
+          widthClassName="w-full max-w-36 shrink-0"
+          onChange={(value) => onUpdate(isPixel
+            ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: value, yPx: y }
+            : { id: step.id, type: "click", ...storedAnchor, xPercent: value, yPercent: y })}
+          onPaste={handleCoordinatePaste}
+        />
+        <AffixedInput
+          aria-label={t("macroForm.clickYOffset")}
+          disabled={isSaving}
+          max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
+          min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
+          prefix={t("macroForm.clickYOffset")}
+          suffix={unit === "px" ? "px" : "%"}
+          step={unit === "px" ? 1 : 0.01}
+          value={y}
+          widthClassName="w-full max-w-36 shrink-0"
+          onChange={(value) => onUpdate(isPixel
+            ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: x, yPx: value }
+            : { id: step.id, type: "click", ...storedAnchor, xPercent: x, yPercent: value })}
+          onPaste={handleCoordinatePaste}
+        />
+      </div>
+    );
+  }
+
+  if (step.type === "macro") {
+    const selectedTarget = macroTargetOptions.find((option) => option.macro.id === step.macroId);
+    const hasCallableTarget = macroTargetOptions.some((option) => !option.unavailableReason);
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Select
+          disabled={isSaving}
+          value={step.callMode ?? "wait"}
+          onValueChange={(callMode) => onUpdate({
+            ...step,
+            callMode: callMode as MacroCallMode
+          })}
+        >
+          <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.macroCallMode")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="wait">{t("macroForm.macroCallMode.wait")}</SelectItem>
+            <SelectItem value="trigger">{t("macroForm.macroCallMode.trigger")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          disabled={isSaving || !hasCallableTarget}
+          value={step.macroId || undefined}
+          onValueChange={(macroId) => onUpdate({ ...step, macroId })}
+        >
+          <SelectTrigger className="w-fit max-w-full" aria-label={t("macroForm.macroTarget")}>
+            <SelectValue placeholder={t("macroForm.macroTargetPlaceholder")} />
+          </SelectTrigger>
+          <SelectContent>
+            {macroTargetOptions.map((option) => (
+              <SelectItem
+                key={option.macro.id}
+                value={option.macro.id}
+                disabled={Boolean(option.unavailableReason)}
+              >
+                {getMacroTargetOptionLabel(option, t, step.callMode ?? "wait")}
+              </SelectItem>
+            ))}
+            {!selectedTarget && step.macroId ? (
+              <SelectItem value={step.macroId}>{t("macroForm.macroTargetUnavailable")}</SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <AffixedInput
+      aria-label={t("macroForm.delayMs")}
+      disabled={isSaving}
+      max={getTimeUnitMax(timeUnit)}
+      min={0}
+      step={getTimeUnitStep(timeUnit)}
+      suffix={timeUnit}
+      value={toDisplayTime(step.ms, timeUnit)}
+      widthClassName="w-fit shrink-0"
+      onChange={(value) => onUpdate({ ...step, ms: fromDisplayTime(value, timeUnit) })}
+      />
+      <TimeUnitSelect disabled={isSaving} t={t} unit={timeUnit} onChange={setTimeUnit} />
+    </div>
+  );
+}
+
+function KeyRecorder({
+  disabled,
+  isRecording,
+  onRecord,
+  onRecordingChange,
+  t
+}: {
+  disabled: boolean;
+  isRecording: boolean;
+  onRecord: (input: { code: string; modifiers: MacroKeyModifier[] }) => void;
+  onRecordingChange: (isRecording: boolean) => void;
+  t: Translator;
+}): JSX.Element {
+  useEffect(() => {
+    if (!isRecording) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (isPureModifierCode(event.code)) {
+        return;
+      }
+
+      onRecord({
+        code: event.code,
+        modifiers: canonicalizeMacroKeyModifiers([
+          ...(event.ctrlKey ? ["ctrl" as const] : []),
+          ...(event.altKey ? ["alt" as const] : []),
+          ...(event.shiftKey ? ["shift" as const] : []),
+          ...(event.metaKey ? ["meta" as const] : [])
+        ])
+      });
+      onRecordingChange(false);
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isRecording, onRecord, onRecordingChange]);
+
+  return (
+    <RecordingButton
+      disabled={disabled}
+      isRecording={isRecording}
+      t={t}
+      onRecordingChange={onRecordingChange}
+    />
+  );
+}
+
+export function createStep(
+  type: MacroStep["type"],
+  id = createClientId(),
+  macroId = "",
+  activationMode: MacroActivationMode = "toggle",
+  keyAction?: MacroKeyAction
+): MacroStep {
+  switch (type) {
+    case "key":
+      return {
+        id,
+        type: "key",
+        code: "Tab",
+        action: keyAction ?? (activationMode === "while_held" ? "hold_until_stop" : "tap"),
+        label: "Tab"
+      };
+    case "click":
+      return {
+        id,
+        type: "click",
+        unit: "px",
+        anchor: "center",
+        xPx: 0,
+        yPx: 0
+      };
+    case "delay":
+      return {
+        id,
+        type: "delay",
+        ms: 1000
+      };
+    case "macro":
+      return {
+        id,
+        type: "macro",
+        macroId,
+        callMode: "wait"
+      };
+  }
+}
+
+export function duplicateStepState(step: MacroStep): MacroStep {
+  return {
+    ...step,
+    id: createClientId()
+  };
+}

@@ -101,8 +101,12 @@ thread_local! {
 }
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css");
-const MACRO_OVERLAY_RUNTIME_SOURCE: &str =
-    include_str!("../../../src/shared/browser-overlay/macroOverlayRuntime.js");
+const MACRO_OVERLAY_RUNTIME_SOURCE: &str = concat!(
+    include_str!("../../../src/shared/browser-overlay/macro-overlay-runtime/state-and-input.js"),
+    include_str!(
+        "../../../src/shared/browser-overlay/macro-overlay-runtime/presentation-and-lifecycle.js"
+    )
+);
 const MACRO_COORDINATE_MEASUREMENT_MODULE_SOURCE: &str =
     include_str!("../../../src/shared/browser-overlay/macroCoordinateMeasurement.js");
 const MACRO_OVERLAY_CSS: &str = include_str!("../../../src/shared/browser-overlay/macroOverlay.css");

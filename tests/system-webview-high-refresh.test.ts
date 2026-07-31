@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 

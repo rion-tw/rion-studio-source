@@ -1,0 +1,25 @@
+@keyframes spin {
+  from {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate3d(0, 0, 0) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+    transform: none;
+    will-change: auto;
+  }
+
+}
+
+@media (max-width: 1040px) {
+  body {
+    min-width: 0;
+    overflow: auto;
+  }
+}

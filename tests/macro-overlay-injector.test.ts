@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { readFile } from "node:fs/promises";
+import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

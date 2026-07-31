@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Badge } from "../src/renderer/src/components/ui/badge";
 import { Button } from "../src/renderer/src/components/ui/button";
 import { NavItem } from "../src/renderer/src/components/ui/patterns";
+import { readSourceTreeSync } from "./helpers/readSourceTree";
 
 const rendererPath = (...segments: string[]): string =>
   path.join(process.cwd(), "src", "renderer", ...segments);
@@ -18,7 +19,7 @@ afterEach(cleanup);
 
 describe("renderer visual foundation", () => {
   it("uses system-font tabular lining figures throughout the renderer and boot fallback", () => {
-    const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
     const bootDocument = readFileSync(rendererPath("index.html"), "utf8");
     const runtimeTabs = readFileSync(rendererPath("runtime-tabs.html"), "utf8");
     const bootStyles = readFileSync(rendererPath("src", "boot.css"), "utf8");
@@ -61,7 +62,7 @@ describe("renderer visual foundation", () => {
   });
 
   it("keeps on-media launch controls on the dedicated liquid-glass surface", () => {
-    const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
     render(<Button variant="media">Launch</Button>);
 
     const launch = screen.getByRole("button", { name: "Launch" });
@@ -72,7 +73,7 @@ describe("renderer visual foundation", () => {
   });
 
   it("bases page grids on available content width and fills the dashboard with four stats", () => {
-    const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
     const dashboard = readFileSync(
       rendererPath("src", "features", "dashboard", "DashboardRoute.tsx"),
       "utf8"
@@ -92,7 +93,7 @@ describe("renderer visual foundation", () => {
   });
 
   it("reserves backdrop blur for top-level glass surfaces", () => {
-    const styles = readFileSync(rendererPath("src", "styles.css"), "utf8");
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
 
     expect(styles).toContain(
       ".glass-panel,\n  .glass-panel-strong,\n  .glass-modal,\n  .glass-popover {\n    -webkit-backdrop-filter: blur(var(--blur-surface)) saturate(1.08);"

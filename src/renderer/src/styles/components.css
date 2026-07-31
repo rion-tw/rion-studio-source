@@ -1,0 +1,561 @@
+@layer utilities {
+  .list-toolbar {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  @container app-content (max-width: 599px) {
+    .collection-grid-games,
+    .collection-grid-roles,
+    .collection-grid-workspaces {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @container app-content (min-width: 600px) {
+    .app-page-actions {
+      flex-direction: row;
+    }
+
+    .page-header-control {
+      width: auto;
+      flex: none;
+    }
+
+    .page-header-search {
+      width: 11rem;
+    }
+
+    .page-header-select {
+      width: 11rem;
+    }
+  }
+
+  @container app-content (min-width: 660px) {
+    .dashboard-panels-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .form-grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .list-toolbar {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+  }
+
+  @container app-content (min-width: 760px) {
+    .browser-font-cache-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .app-page {
+      padding: 2.5rem;
+    }
+
+    .settings-page {
+      padding-block: 3.5rem;
+    }
+
+    .dashboard-stats-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .collection-grid-roles {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @container app-content (min-width: 860px) {
+    .editor-layout-game {
+      grid-template-columns: minmax(0, 1fr) 260px;
+      align-items: start;
+    }
+  }
+
+  @container app-content (min-width: 920px) {
+    .dashboard-panels-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .form-grid-3,
+    .workspace-editor-fields {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .editor-layout-role {
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+      align-items: start;
+    }
+
+    .editor-layout-macro {
+      grid-template-columns: 320px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .editor-layout-macro-help {
+      grid-column: span 2 / span 2;
+    }
+
+    .workspace-editor-surface {
+      grid-template-columns: minmax(0, 1fr) 270px;
+    }
+
+    .workspace-editor-role-list {
+      min-height: 0;
+      max-height: none;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .workspace-editor-sidebar {
+      overflow: hidden;
+      border-top: 0;
+      border-left-width: 1px;
+      contain: size;
+    }
+  }
+
+  @container app-content (min-width: 960px) {
+    .app-page-header {
+      flex-direction: row;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .app-page-actions {
+      width: auto;
+    }
+
+    .page-header-search {
+      width: 12rem;
+    }
+  }
+
+  @container app-content (min-width: 1000px) {
+    .browser-font-cache-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .collection-grid-games,
+    .collection-grid-workspaces {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .collection-grid-game-windows {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .editor-layout-macro {
+      grid-template-columns: 340px minmax(0, 1fr);
+    }
+  }
+
+  @container app-content (min-width: 1120px) {
+    .collection-grid-roles {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @container app-content (min-width: 1280px) {
+    .collection-grid-workspaces {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @container app-content (max-width: 599px) {
+    .app-editor-header {
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+      gap: 0.75rem;
+    }
+
+    .app-editor-header > :last-child {
+      width: 100%;
+      align-items: stretch;
+    }
+
+    .app-editor-header > :last-child > :last-child {
+      justify-content: flex-end;
+    }
+  }
+
+  :root[data-theme="dark"] .glass-panel {
+    box-shadow:
+      inset 0 1px 0 hsl(var(--glass-highlight-muted)),
+      0 1px 2px hsl(var(--glass-shadow));
+  }
+
+  :root[data-theme="dark"] .glass-panel-strong {
+    box-shadow:
+      inset 0 1px 0 hsl(var(--glass-highlight-muted)),
+      0 2px 4px hsl(var(--glass-shadow-strong));
+  }
+
+  :root[data-theme="dark"] .glass-modal {
+    background:
+      linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 48%),
+      hsl(var(--glass-modal));
+    -webkit-backdrop-filter: blur(var(--blur-surface)) saturate(1.06);
+    backdrop-filter: blur(var(--blur-surface)) saturate(1.06);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--glass-highlight-muted)),
+      0 2px 8px hsl(var(--glass-shadow-strong));
+  }
+
+  :root[data-theme="dark"] .glass-control,
+  :root[data-theme="dark"] .glass-control-selected {
+    box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
+  }
+
+  :root[data-theme="dark"] .glass-popover {
+    box-shadow:
+      inset 0 1px 0 hsl(var(--glass-highlight-muted)),
+      0 4px 14px hsl(var(--glass-shadow-strong));
+  }
+
+  :root[data-theme="dark"] .glass-inset {
+    box-shadow: inset 0 0 6px hsl(var(--glass-inner-shadow));
+  }
+
+  .glass-control.glass-select {
+    background-color: hsl(var(--glass-control));
+    background-image: linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%);
+  }
+
+  .glass-control.glass-select:hover {
+    background-color: hsl(var(--glass-control-hover));
+    background-image: linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .liquid-app-shell,
+    .app-content,
+    .app-modal-backdrop,
+    .app-sidebar,
+    .glass-panel,
+    .glass-panel-strong,
+    .glass-modal,
+    .glass-control,
+    .glass-control-selected,
+    .glass-popover,
+    .glass-inset,
+    .role-cover-control {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    .role-cover-control,
+    .role-cover-control:hover {
+      background: hsl(var(--on-media-control-solid));
+    }
+
+    .confirmation-dialog::backdrop,
+    .app-dialog::backdrop {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    .app-sidebar {
+      background: hsl(var(--sidebar));
+    }
+
+    .liquid-app-shell,
+    .app-content {
+      background: hsl(var(--background));
+    }
+
+    .glass-panel,
+    .glass-panel-strong,
+    .glass-modal,
+    .glass-popover {
+      background: hsl(var(--card));
+    }
+  }
+
+  .boot-card {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .role-cover-card {
+    --role-cover-accent: hsl(var(--primary));
+
+    border-color: hsl(var(--role-cover-border));
+    box-shadow:
+      inset 0 1px 0 hsl(var(--media-white) / 0.1),
+      0 10px 26px hsl(var(--role-cover-shadow));
+    color: hsl(var(--role-cover-foreground));
+    isolation: isolate;
+  }
+
+  :root[data-theme="dark"] .role-cover-card {
+    box-shadow:
+      inset 0 1px 0 hsl(var(--media-white) / 0.06),
+      0 1px 3px hsl(var(--role-cover-shadow));
+  }
+
+  .role-cover-actions {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .role-cover-actions > * {
+    position: relative;
+    z-index: var(--layer-selection);
+  }
+
+  .role-cover-actions::before,
+  .role-cover-actions::after {
+    position: absolute;
+    pointer-events: none;
+    content: "";
+  }
+
+  .role-cover-actions::before {
+    inset: auto -16px -16px;
+    z-index: var(--layer-content);
+    height: calc(100% + 58px);
+    background:
+      linear-gradient(180deg, hsl(var(--media-white) / 0.04) 0%, hsl(var(--media-white) / 0.1) 58%, hsl(var(--media-black) / 0.2) 100%),
+      color-mix(in srgb, var(--role-cover-accent) 14%, transparent);
+    -webkit-backdrop-filter: blur(var(--blur-role-cover)) saturate(1.22);
+    backdrop-filter: blur(var(--blur-role-cover)) saturate(1.22);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.42) 36%, hsl(var(--media-black)) 100%);
+    mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.42) 36%, hsl(var(--media-black)) 100%);
+  }
+
+  .role-cover-actions::after {
+    inset: auto -16px -16px;
+    z-index: var(--layer-decoration);
+    height: calc(100% + 64px);
+    background:
+      linear-gradient(180deg, hsl(var(--media-white) / 0.1) 0%, transparent 30%),
+      radial-gradient(78% 86% at 18% 92%, color-mix(in srgb, var(--role-cover-accent) 36%, transparent) 0%, transparent 68%),
+      radial-gradient(58% 72% at 92% 90%, hsl(var(--media-white) / 0.12) 0%, transparent 66%),
+      linear-gradient(180deg, transparent 20%, hsl(var(--media-black) / 0.16) 58%, hsl(var(--media-black) / 0.6) 100%);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.55) 34%, hsl(var(--media-black)) 100%);
+    mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.55) 34%, hsl(var(--media-black)) 100%);
+  }
+
+  .role-cover-title {
+    text-shadow:
+      0 1px 1px hsl(var(--media-black) / 0.28),
+      0 3px 10px hsl(var(--media-black) / 0.16);
+  }
+
+  .workspace-slot-caption {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--layer-selection);
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
+    min-height: 3.7rem;
+    overflow: hidden;
+    border-bottom-right-radius: var(
+      --workspace-slot-caption-bottom-right-radius,
+      var(--workspace-slot-radius, var(--radius-md))
+    );
+    border-bottom-left-radius: var(
+      --workspace-slot-caption-bottom-left-radius,
+      var(--workspace-slot-radius, var(--radius-md))
+    );
+    isolation: isolate;
+    padding: 0 0.75rem 0.82rem;
+    pointer-events: none;
+    -webkit-clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, var(--radius-md)))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, var(--radius-md)))
+    );
+    clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, var(--radius-md)))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, var(--radius-md)))
+    );
+  }
+
+  .workspace-slot-caption::before,
+  .workspace-slot-caption::after {
+    position: absolute;
+    inset: auto 0 0;
+    border-bottom-right-radius: var(
+      --workspace-slot-caption-bottom-right-radius,
+      var(--workspace-slot-radius, var(--radius-md))
+    );
+    border-bottom-left-radius: var(
+      --workspace-slot-caption-bottom-left-radius,
+      var(--workspace-slot-radius, var(--radius-md))
+    );
+    pointer-events: none;
+    content: "";
+    -webkit-clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, var(--radius-md)))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, var(--radius-md)))
+    );
+    clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, var(--radius-md)))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, var(--radius-md)))
+    );
+  }
+
+  .workspace-slot-caption::before {
+    z-index: var(--layer-background);
+    height: calc(100% + 1.5rem);
+    background:
+      linear-gradient(180deg, transparent 0%, hsl(var(--media-white) / 0.08) 48%, hsl(var(--media-black) / 0.22) 100%),
+      color-mix(in srgb, var(--role-cover-accent, hsl(var(--primary))) 12%, transparent);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.45) 32%, hsl(var(--media-black)) 100%);
+    mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.45) 32%, hsl(var(--media-black)) 100%);
+  }
+
+  .workspace-slot-caption::after {
+    z-index: var(--layer-underlay);
+    height: calc(100% + 1.75rem);
+    background:
+      linear-gradient(180deg, transparent 12%, hsl(var(--media-black) / 0.1) 54%, hsl(var(--media-black) / 0.48) 100%),
+      radial-gradient(78% 90% at 18% 100%, color-mix(in srgb, var(--role-cover-accent, hsl(var(--primary))) 28%, transparent) 0%, transparent 70%);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.54) 30%, hsl(var(--media-black)) 100%);
+    mask-image: linear-gradient(180deg, transparent 0%, hsl(var(--media-black) / 0.54) 30%, hsl(var(--media-black)) 100%);
+  }
+
+  .workspace-slot-caption--compact {
+    min-height: 4.25rem;
+    padding: 1.65rem 0.55rem 0.55rem;
+  }
+
+  .workspace-slot-caption--compact::before {
+    height: 100%;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      hsl(var(--media-black) / 0.035) 36%,
+      hsl(var(--media-black) / 0.18) 68%,
+      hsl(var(--media-black) / 0.42) 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      transparent 0%,
+      transparent 18%,
+      hsl(var(--media-black) / 0.16) 42%,
+      hsl(var(--media-black) / 0.58) 70%,
+      hsl(var(--media-black)) 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      transparent 0%,
+      transparent 18%,
+      hsl(var(--media-black) / 0.16) 42%,
+      hsl(var(--media-black) / 0.58) 70%,
+      hsl(var(--media-black)) 100%
+    );
+  }
+
+  .workspace-slot-caption--compact::after {
+    height: 100%;
+    background:
+      linear-gradient(180deg, transparent 22%, hsl(var(--media-black) / 0.04) 52%, hsl(var(--media-black) / 0.34) 100%),
+      radial-gradient(
+        86% 78% at 18% 100%,
+        color-mix(in srgb, var(--role-cover-accent, hsl(var(--primary))) 18%, transparent) 0%,
+        transparent 74%
+      );
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      transparent 0%,
+      transparent 20%,
+      hsl(var(--media-black) / 0.14) 44%,
+      hsl(var(--media-black) / 0.52) 72%,
+      hsl(var(--media-black)) 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      transparent 0%,
+      transparent 20%,
+      hsl(var(--media-black) / 0.14) 44%,
+      hsl(var(--media-black) / 0.52) 72%,
+      hsl(var(--media-black)) 100%
+    );
+  }
+
+  .workspace-slot-caption-title {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    overflow: hidden;
+    padding: 0;
+    color: hsl(var(--on-media));
+  }
+
+  .workspace-slot-name-chip {
+    position: relative;
+    max-width: 100%;
+    overflow: hidden;
+    color: hsl(var(--on-media));
+  }
+
+  .workspace-role-chip-text {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 0.22rem;
+    line-height: 1.1;
+  }
+
+  .workspace-role-game-label {
+    color: hsl(var(--on-media-muted));
+    font-size: var(--type-micro-size);
+    font-weight: var(--weight-semibold);
+  }
+
+  .workspace-slot-caption-title,
+  .workspace-slot-name-chip {
+    text-shadow:
+      0 1px 1px hsl(var(--media-black) / 0.28),
+      0 3px 10px hsl(var(--media-black) / 0.16);
+  }
+
+  .role-cover-control {
+    border-color: hsl(var(--on-media-border));
+    background:
+      linear-gradient(180deg, hsl(var(--on-media) / 0.16) 0%, transparent 54%),
+      hsl(var(--on-media-control));
+    box-shadow:
+      inset 0 1px 0 hsl(var(--on-media) / 0.18),
+      0 8px 22px hsl(var(--on-media-shadow));
+    color: hsl(var(--on-media));
+    -webkit-backdrop-filter: blur(var(--blur-on-media)) saturate(1.18);
+    backdrop-filter: blur(var(--blur-on-media)) saturate(1.18);
+  }
+
+  .role-cover-control:hover {
+    border-color: hsl(var(--on-media) / 0.48);
+    background:
+      linear-gradient(180deg, hsl(var(--on-media) / 0.2) 0%, transparent 54%),
+      hsl(var(--on-media-control-hover));
+    color: hsl(var(--on-media));
+  }
+
+  .role-cover-menu-control {
+    background: hsl(var(--role-cover-menu-control));
+    border-color: hsl(var(--on-media) / 0.14);
+    color: hsl(var(--on-media));
+    -webkit-backdrop-filter: blur(var(--blur-on-media)) saturate(1.18);
+    backdrop-filter: blur(var(--blur-on-media)) saturate(1.18);
+  }
+
+  .role-cover-menu-control:hover {
+    background: hsl(var(--role-cover-menu-control-hover));
+    border-color: hsl(var(--on-media) / 0.22);
+    color: hsl(var(--on-media));
+  }
+}

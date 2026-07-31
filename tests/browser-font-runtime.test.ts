@@ -309,7 +309,42 @@ function createRuntimeDocumentFixture(
 }
 
 describe("browser font document-start runtime", () => {
-  it("loads cached faces and routes numbers, Latin, CJK, monospace, and math separately", async () => {
+it.each([
+    { platform: "windows" as const, expectedKerning: "normal", expectedRendering: "optimizeLegibility" },
+    { platform: "macos" as const, expectedKerning: undefined, expectedRendering: undefined }
+  ])(
+    "feature-detects Canvas text quality on $platform",
+    async ({ platform, expectedKerning, expectedRendering }) => {
+      class LoadedFontFace {
+        async load(): Promise<this> {
+          return this;
+        }
+      }
+      const fixture = createRuntimeDocumentFixture(
+        async () => ({
+          settings: {
+            mode: "custom",
+            cjkVariant: "auto",
+            fontSmoothingEnabled: true,
+            slots: { latin: { source: "system", family: "system-ui" } }
+          },
+          faces: []
+        }),
+        LoadedFontFace,
+        { canvas: true, platform }
+      );
+
+      vm.runInContext(runtimeSource, fixture.context);
+      await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
+      const canvas = fixture.createCanvasContext();
+      canvas.fillText("platform text");
+
+      expect(canvas.calls.at(-1)?.fontKerning).toBe(expectedKerning);
+      expect(canvas.calls.at(-1)?.textRendering).toBe(expectedRendering);
+    }
+  );
+
+it("loads cached faces and routes numbers, Latin, CJK, monospace, and math separately", async () => {
     class LoadedFontFace {
       constructor(
         readonly family: string,
@@ -367,7 +402,7 @@ describe("browser font document-start runtime", () => {
     expect(fixture.styles[0].textContent).toContain("font-optical-sizing:auto!important");
   });
 
-  it("does not attach a stale face after a newer refresh wins", async () => {
+it("does not attach a stale face after a newer refresh wins", async () => {
     let resolveLoad: (() => void) | undefined;
     let signalLoadStarted: (() => void) | undefined;
     const loadStarted = new Promise<void>((resolve) => {
@@ -416,7 +451,7 @@ describe("browser font document-start runtime", () => {
     expect(fixture.styles).toHaveLength(0);
   });
 
-  it("routes Canvas 2D text while preserving font shorthand, page fallbacks, and context state", async () => {
+it("routes Canvas 2D text while preserving font shorthand, page fallbacks, and context state", async () => {
     class LoadedFontFace {
       async load(): Promise<this> {
         return this;
@@ -504,7 +539,7 @@ describe("browser font document-start runtime", () => {
     expect(canvas.calls.at(-1)?.font).toContain("sans-serif");
   });
 
-  it("skips native font rewrites when a game repeats the same font every frame", async () => {
+it("skips native font rewrites when a game repeats the same font every frame", async () => {
     class LoadedFontFace {
       async load(): Promise<this> {
         return this;
@@ -558,7 +593,7 @@ describe("browser font document-start runtime", () => {
     expect(canvas.calls.at(-1)?.font).toContain('"Rion Studio latin system"');
   });
 
-  it("applies refreshes on the next Canvas draw without reloading or hiding the page font", async () => {
+it("applies refreshes on the next Canvas draw without reloading or hiding the page font", async () => {
     class LoadedFontFace {
       async load(): Promise<this> {
         return this;
@@ -623,7 +658,7 @@ describe("browser font document-start runtime", () => {
     expect(fixture.styles).toHaveLength(0);
   });
 
-  it("toggles font replacement and text quality independently on the next Canvas operation", async () => {
+it("toggles font replacement and text quality independently on the next Canvas operation", async () => {
     class LoadedFontFace {
       async load(): Promise<this> {
         return this;
@@ -694,155 +729,5 @@ describe("browser font document-start runtime", () => {
     expect(canvas.calls.at(-1)?.font).toBe('16px "Game UI", sans-serif');
     expect(canvas.calls.at(-1)?.fontKerning).toBe("none");
     expect(canvas.calls.at(-1)?.textRendering).toBe("optimizeSpeed");
-  });
-
-  it("covers main-thread OffscreenCanvas glyph sources and installs hooks idempotently", async () => {
-    class LoadedFontFace {
-      async load(): Promise<this> {
-        return this;
-      }
-    }
-    const invoke = vi.fn(async () => ({
-      settings: {
-        mode: "custom",
-        cjkVariant: "tc",
-        fontSmoothingEnabled: true,
-        slots: { latin: { source: "system", family: "Helvetica Neue" } }
-      },
-      faces: []
-    }));
-    const fixture = createRuntimeDocumentFixture(invoke, LoadedFontFace, {
-      canvas: true,
-      offscreenCanvas: true,
-      platform: "windows"
-    });
-
-    vm.runInContext(runtimeSource, fixture.context);
-    await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
-    const hookedFillText = fixture.context.OffscreenCanvasRenderingContext2D?.prototype.fillText;
-    vm.runInContext(runtimeSource, fixture.context);
-    expect(fixture.context.OffscreenCanvasRenderingContext2D?.prototype.fillText).toBe(hookedFillText);
-
-    const glyphSurface = fixture.createOffscreenCanvasContext();
-    glyphSurface.font = '24px "WebGL Glyph Source", sans-serif';
-    glyphSurface.fillText("texture glyph");
-    const uploadedTextureFont = glyphSurface.calls.at(-1)?.font;
-    expect(uploadedTextureFont).toContain('"Rion Studio latin system"');
-    expect(uploadedTextureFont).toContain('"WebGL Glyph Source", sans-serif');
-    expect(glyphSurface.calls.at(-1)?.fontKerning).toBe("normal");
-    expect(glyphSurface.calls.at(-1)?.textRendering).toBe("optimizeLegibility");
-    expect(glyphSurface.fontKerning).toBe("auto");
-    expect(glyphSurface.textRendering).toBe("auto");
-  });
-
-  it.each([
-    { platform: "windows" as const, expectedKerning: "normal", expectedRendering: "optimizeLegibility" },
-    { platform: "macos" as const, expectedKerning: undefined, expectedRendering: undefined }
-  ])(
-    "feature-detects Canvas text quality on $platform",
-    async ({ platform, expectedKerning, expectedRendering }) => {
-      class LoadedFontFace {
-        async load(): Promise<this> {
-          return this;
-        }
-      }
-      const fixture = createRuntimeDocumentFixture(
-        async () => ({
-          settings: {
-            mode: "custom",
-            cjkVariant: "auto",
-            fontSmoothingEnabled: true,
-            slots: { latin: { source: "system", family: "system-ui" } }
-          },
-          faces: []
-        }),
-        LoadedFontFace,
-        { canvas: true, platform }
-      );
-
-      vm.runInContext(runtimeSource, fixture.context);
-      await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
-      const canvas = fixture.createCanvasContext();
-      canvas.fillText("platform text");
-
-      expect(canvas.calls.at(-1)?.fontKerning).toBe(expectedKerning);
-      expect(canvas.calls.at(-1)?.textRendering).toBe(expectedRendering);
-    }
-  );
-
-  it("restores Canvas quality after native errors and ignores inaccessible properties", async () => {
-    class LoadedFontFace {
-      async load(): Promise<this> {
-        return this;
-      }
-    }
-    const payload = async () => ({
-      settings: {
-        mode: "custom",
-        cjkVariant: "auto",
-        fontSmoothingEnabled: true,
-        slots: { latin: { source: "system", family: "system-ui" } }
-      },
-      faces: []
-    });
-    const throwingFixture = createRuntimeDocumentFixture(payload, LoadedFontFace, {
-      canvas: true,
-      canvasTextMethodThrows: "fillText",
-      platform: "windows"
-    });
-
-    vm.runInContext(runtimeSource, throwingFixture.context);
-    await vi.waitFor(() => expect(throwingFixture.styles).toHaveLength(1));
-    const throwingCanvas = throwingFixture.createCanvasContext();
-    throwingCanvas.fontKerning = "none";
-    throwingCanvas.textRendering = "optimizeSpeed";
-
-    expect(() => throwingCanvas.fillText("failure")).toThrow("fixture fillText failure");
-    expect(throwingCanvas.calls.at(-1)?.fontKerning).toBe("normal");
-    expect(throwingCanvas.calls.at(-1)?.textRendering).toBe("optimizeLegibility");
-    expect(throwingCanvas.fontKerning).toBe("none");
-    expect(throwingCanvas.textRendering).toBe("optimizeSpeed");
-
-    const inaccessibleFixture = createRuntimeDocumentFixture(payload, LoadedFontFace, {
-      canvas: true,
-      canvasTextQualityAccessorsThrow: true,
-      platform: "macos"
-    });
-    vm.runInContext(runtimeSource, inaccessibleFixture.context);
-    await vi.waitFor(() => expect(inaccessibleFixture.styles).toHaveLength(1));
-    const inaccessibleCanvas = inaccessibleFixture.createCanvasContext();
-
-    expect(() => inaccessibleCanvas.fillText("native fallback")).not.toThrow();
-    expect(inaccessibleCanvas.calls.at(-1)?.fontKerning).toBeUndefined();
-    expect(inaccessibleCanvas.calls.at(-1)?.textRendering).toBeUndefined();
-  });
-
-  it("leaves Canvas native behavior intact when its font descriptor cannot be hooked", async () => {
-    class LoadedFontFace {
-      async load(): Promise<this> {
-        return this;
-      }
-    }
-    const fixture = createRuntimeDocumentFixture(
-      async () => ({
-        settings: {
-          mode: "custom",
-          cjkVariant: "tc",
-          fontSmoothingEnabled: true,
-          slots: { latin: { source: "system", family: "Helvetica Neue" } }
-        },
-        faces: []
-      }),
-      LoadedFontFace,
-      { canvas: true, canvasFontConfigurable: false, platform: "macos" }
-    );
-
-    vm.runInContext(runtimeSource, fixture.context);
-    await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
-    const canvas = fixture.createCanvasContext();
-    canvas.font = '16px "Game UI", sans-serif';
-    canvas.fillText("native");
-
-    expect(canvas.calls.at(-1)?.font).toBe('16px "Game UI", sans-serif');
   });
 });

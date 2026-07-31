@@ -6,7 +6,16 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["coverage", "dist", "node_modules", "out", "release", "target"]
+    ignores: [
+      "coverage",
+      "dist",
+      "node_modules",
+      "out",
+      "release",
+      "target",
+      // These two files are ordered raw-script fragments, parsed after Rust concatenates them.
+      "src/shared/browser-overlay/macro-overlay-runtime/*.js"
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

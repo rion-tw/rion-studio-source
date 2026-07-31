@@ -1,4 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { readSourceTree } from "./helpers/readSourceTree";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -22,8 +23,8 @@ describe("thin renderer and Tauri bridge boundary", () => {
   it("keeps filesystem and system WebView ownership in Rust", async () => {
     const [bridge, core, shell] = await Promise.all([
       readFile("src/renderer/src/tauri/installTauriBridge.ts", "utf8"),
-      readFile("crates/rion-core/src/app.rs", "utf8"),
-      readFile("src-tauri/src/system_runtime.rs", "utf8")
+      readSourceTree("crates/rion-core/src/app.rs", "utf8"),
+      readSourceTree("src-tauri/src/system_runtime.rs", "utf8")
     ]);
 
     expect(bridge).not.toContain('from "node:fs');

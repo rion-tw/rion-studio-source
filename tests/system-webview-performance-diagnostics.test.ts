@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 
@@ -6,7 +6,7 @@ describe("foreground System WebView performance diagnostics", () => {
   it("samples live role surfaces and exports the most recent result", async () => {
     const [core, model, shell, runtime, native, cargo] = await Promise.all([
       readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8"),
-      readFile(new URL("../crates/rion-core/src/model.rs", import.meta.url), "utf8"),
+      readFile(new URL("../crates/rion-core/src/model/mod.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/native/macos/RionWKWebViewInput.m", import.meta.url), "utf8"),

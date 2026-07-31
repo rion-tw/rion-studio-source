@@ -12,28 +12,16 @@ thread_local! {
 
 unsafe extern "C" {
     fn rion_dock_menu_set_menu(menu: *mut std::ffi::c_void) -> bool;
-    fn rion_dock_menu_promote_section_header(menu: *mut std::ffi::c_void, index: usize) -> bool;
     #[cfg(test)]
     fn rion_dock_menu_adapter_self_test() -> bool;
 }
 
 pub fn install(entries: &[MenuEntry]) -> Result<(), String> {
     let menu = Submenu::new("Rion Studio Quick Menu", true);
-    let mut section_headers = Vec::new();
-    for (index, entry) in entries.iter().enumerate() {
+    for entry in entries {
         append_entry(&menu, entry)?;
-        if matches!(entry, MenuEntry::Header { .. }) {
-            section_headers.push(index);
-        }
     }
-
     let raw_menu = menu.ns_menu();
-    for index in section_headers {
-        // SAFETY: `menu` owns a live NSMenu and this function is called from Tauri's main thread.
-        if !unsafe { rion_dock_menu_promote_section_header(raw_menu, index) } {
-            return Err("Unable to create the macOS Dock menu section header.".to_owned());
-        }
-    }
     // SAFETY: the pointer belongs to `menu`; the native adapter retains it before this function
     // replaces the Rust-side owner below.
     if !unsafe { rion_dock_menu_set_menu(raw_menu) } {
@@ -64,10 +52,6 @@ fn append_entry(menu: &Submenu, entry: &MenuEntry) -> Result<(), String> {
         MenuEntry::Separator => {
             let separator = PredefinedMenuItem::separator();
             menu.append(&separator).map_err(|error| error.to_string())
-        }
-        MenuEntry::Header { text } => {
-            let item = MenuItem::new(text, false, None);
-            menu.append(&item).map_err(|error| error.to_string())
         }
     }
 }

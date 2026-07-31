@@ -148,6 +148,43 @@ static CGFloat RionRuntimeDragScrollDelta(CGFloat pointX,
   return 0;
 }
 
+static CGFloat RionRuntimeTabReorderHysteresis(CGFloat tabWidth) {
+  return MIN(20.0, MAX(8.0, tabWidth * 0.12));
+}
+
+static NSUInteger RionRuntimeStableInsertionIndex(
+    CGFloat pointX, NSArray<NSNumber *> *midpoints, NSArray<NSNumber *> *widths,
+    NSUInteger currentIndex) {
+  NSUInteger count = MIN(midpoints.count, widths.count);
+  currentIndex = MIN(currentIndex, count);
+  NSUInteger desiredIndex = count;
+  for (NSUInteger index = 0; index < count; ++index) {
+    if (pointX < midpoints[index].doubleValue) {
+      desiredIndex = index;
+      break;
+    }
+  }
+  if (desiredIndex > currentIndex) {
+    while (currentIndex < desiredIndex) {
+      CGFloat midpoint = midpoints[currentIndex].doubleValue;
+      CGFloat margin =
+          RionRuntimeTabReorderHysteresis(widths[currentIndex].doubleValue);
+      if (pointX < midpoint + margin) break;
+      currentIndex += 1;
+    }
+  } else if (desiredIndex < currentIndex) {
+    while (currentIndex > desiredIndex) {
+      NSUInteger boundaryIndex = currentIndex - 1;
+      CGFloat midpoint = midpoints[boundaryIndex].doubleValue;
+      CGFloat margin =
+          RionRuntimeTabReorderHysteresis(widths[boundaryIndex].doubleValue);
+      if (pointX > midpoint - margin) break;
+      currentIndex -= 1;
+    }
+  }
+  return currentIndex;
+}
+
 static void RionDisableToolbarBaselineSeparator(NSToolbar *toolbar) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -935,6 +972,19 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
   }
 }
 
+bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
+  @autoreleasepool {
+    NSArray<NSNumber *> *midpoints = @[ @50.0, @150.0, @250.0 ];
+    NSArray<NSNumber *> *widths = @[ @100.0, @100.0, @100.0 ];
+    return RionRuntimeTabReorderHysteresis(100.0) == 12.0 &&
+           RionRuntimeStableInsertionIndex(61.0, midpoints, widths, 0) == 0 &&
+           RionRuntimeStableInsertionIndex(63.0, midpoints, widths, 0) == 1 &&
+           RionRuntimeStableInsertionIndex(39.0, midpoints, widths, 1) == 1 &&
+           RionRuntimeStableInsertionIndex(37.0, midpoints, widths, 1) == 0 &&
+           RionRuntimeStableInsertionIndex(300.0, midpoints, widths, 0) == 3;
+  }
+}
+
 bool rion_runtime_tabs_shortcut_self_test(void) {
   NSEventModifierFlags control = NSEventModifierFlagControl;
   NSEventModifierFlags shift = NSEventModifierFlagShift;
@@ -1055,6 +1105,11 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
        screenPoint:(NSPoint)screenPoint
          cancelled:(BOOL)cancelled;
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view;
+- (nullable NSString *)stableTabIdentifierBeforePoint:(NSPoint)point
+                                               inView:(NSView *)view
+                                 draggedTabIdentifier:(NSString *)tabIdentifier
+                                            sessionID:(NSString *)sessionID;
+- (void)resetTabDragInsertionState;
 - (void)hideInsertionIndicator;
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view;
 - (void)stopTabDragEdgeScroll;
@@ -1710,12 +1765,15 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }
   NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
   [self.tabsController scrollTabStripForDragPoint:point inView:self];
-  NSString *identifier =
-      [self.tabsController tabIdentifierBeforePoint:point inView:self];
   NSString *payload = [[sender draggingPasteboard]
       stringForType:RionRuntimeTabPasteboardType];
   NSArray<NSString *> *parts = [payload componentsSeparatedByString:@"\n"];
   if (parts.count == 3) {
+    NSString *identifier =
+        [self.tabsController stableTabIdentifierBeforePoint:point
+                                                     inView:self
+                                       draggedTabIdentifier:parts[1]
+                                                  sessionID:parts[2]];
     [self.tabsController hideInsertionIndicator];
     [self.tabsController setDragPlaceholderIdentifier:parts[1]];
     NSPoint screenPoint =
@@ -1726,6 +1784,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                       beforeIdentifier:identifier
                                            screenPoint:screenPoint];
   } else {
+    NSString *identifier =
+        [self.tabsController tabIdentifierBeforePoint:point inView:self];
     [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
   }
   return NSDragOperationMove;
@@ -1735,6 +1795,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   (void)sender;
   [self.tabsController hideInsertionIndicator];
   [self.tabsController setDragPlaceholderIdentifier:nil];
+  [self.tabsController resetTabDragInsertionState];
   [self.tabsController stopTabDragEdgeScroll];
 }
 
@@ -1748,11 +1809,15 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSString *sessionID = parts[2];
   NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
   NSString *beforeIdentifier =
-      [self.tabsController tabIdentifierBeforePoint:point inView:self];
+      [self.tabsController stableTabIdentifierBeforePoint:point
+                                                   inView:self
+                                     draggedTabIdentifier:tabIdentifier
+                                                sessionID:sessionID];
   NSPoint screenPoint =
       [self.window convertPointToScreen:sender.draggingLocation];
   [self.tabsController hideInsertionIndicator];
   [self.tabsController setDragPlaceholderIdentifier:nil];
+  [self.tabsController resetTabDragInsertionState];
   [self.tabsController stopTabDragEdgeScroll];
   [self.tabsController handleDropWithTabIdentifier:tabIdentifier
                                     sourceWindowID:sourceWindowID
@@ -1788,6 +1853,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSString *_windowID;
   NSView *_insertionIndicator;
   NSString *_dragPlaceholderTabIdentifier;
+  NSString *_dragInsertionSessionIdentifier;
+  NSString *_dragInsertionBeforeIdentifier;
   CGFloat _dragScrollRootX;
   NSTimer *_dragScrollTimer;
   NSMutableArray<NSButton *> *_observedTrafficLightButtons;
@@ -3341,6 +3408,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 }
 
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event {
+  [self resetTabDragInsertionState];
   NSString *sessionID = NSUUID.UUID.UUIDString;
   item.dragSessionID = sessionID;
   [self setActiveTabIdentifier:item.tabIdentifier];
@@ -3383,6 +3451,77 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     }
   }
   return nil;
+}
+
+- (nullable NSString *)stableTabIdentifierBeforePoint:(NSPoint)point
+                                               inView:(NSView *)view
+                                 draggedTabIdentifier:(NSString *)tabIdentifier
+                                            sessionID:(NSString *)sessionID {
+  NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
+  NSMutableArray<RionRuntimeTabItemView *> *candidates = [NSMutableArray array];
+  NSMutableArray<NSNumber *> *midpoints = [NSMutableArray array];
+  NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
+  NSUInteger inferredIndex = NSNotFound;
+  CGFloat layoutX = 0;
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    CGFloat width = item.preferredWidth;
+    if ([item.tabIdentifier isEqualToString:tabIdentifier]) {
+      inferredIndex = candidates.count;
+    } else {
+      [candidates addObject:item];
+      [midpoints addObject:@(layoutX + width / 2.0)];
+      [widths addObject:@(width)];
+    }
+    layoutX += width + kRionTabSpacing;
+  }
+  if (candidates.count == 0) {
+    _dragInsertionSessionIdentifier = [sessionID copy];
+    _dragInsertionBeforeIdentifier = nil;
+    return nil;
+  }
+
+  NSUInteger rawIndex = candidates.count;
+  for (NSUInteger index = 0; index < midpoints.count; ++index) {
+    if (canvasPoint.x < midpoints[index].doubleValue) {
+      rawIndex = index;
+      break;
+    }
+  }
+  BOOL sameSession =
+      [_dragInsertionSessionIdentifier isEqualToString:sessionID];
+  NSUInteger currentIndex = rawIndex;
+  if (sameSession) {
+    if (_dragInsertionBeforeIdentifier.length == 0) {
+      currentIndex = candidates.count;
+    } else {
+      NSUInteger rememberedIndex = [candidates indexOfObjectPassingTest:
+          ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
+        (void)index;
+        BOOL matches = [item.tabIdentifier
+            isEqualToString:self->_dragInsertionBeforeIdentifier];
+        if (matches) *stop = YES;
+        return matches;
+      }];
+      if (rememberedIndex != NSNotFound) currentIndex = rememberedIndex;
+      else if (inferredIndex != NSNotFound) currentIndex = inferredIndex;
+    }
+  } else if (inferredIndex != NSNotFound) {
+    currentIndex = inferredIndex;
+  }
+
+  NSUInteger stableIndex = RionRuntimeStableInsertionIndex(
+      canvasPoint.x, midpoints, widths, currentIndex);
+  NSString *beforeIdentifier = stableIndex < candidates.count
+      ? candidates[stableIndex].tabIdentifier
+      : nil;
+  _dragInsertionSessionIdentifier = [sessionID copy];
+  _dragInsertionBeforeIdentifier = [beforeIdentifier copy];
+  return beforeIdentifier;
+}
+
+- (void)resetTabDragInsertionState {
+  _dragInsertionSessionIdentifier = nil;
+  _dragInsertionBeforeIdentifier = nil;
 }
 
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view {
@@ -3555,6 +3694,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   });
   item.dragSessionID = @"";
   [self setDragPlaceholderIdentifier:nil];
+  [self resetTabDragInsertionState];
   [self stopTabDragEdgeScroll];
 }
 

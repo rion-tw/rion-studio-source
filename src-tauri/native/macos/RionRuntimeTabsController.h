@@ -46,6 +46,11 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow;
 - (void)setRevealLocked:(BOOL)locked;
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier;
+- (void)ensureTabIdentifier:(NSString *)tabIdentifier
+                       name:(NSString *)name
+                       type:(NSString *)type
+          workspaceTemplate:(nullable NSString *)workspaceTemplate
+           windowIdentifier:(NSString *)windowIdentifier;
 - (void)reserveTabIdentifier:(NSString *)tabIdentifier
                         name:(NSString *)name
                         type:(NSString *)type
@@ -59,6 +64,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)removeTabIdentifier:(NSString *)tabIdentifier
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
+- (void)reorderTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers;
 - (void)updateTabMetadata:(RionRuntimeTabModel *)tab
        hideTabCloseButton:(BOOL)hideTabCloseButton
                  addLabel:(NSString *)addLabel
@@ -111,6 +117,10 @@ void rion_runtime_tabs_set_reveal_locked(
     void * _Nullable controller, bool locked);
 void rion_runtime_tabs_set_active(
     void * _Nullable controller, const char * _Nullable tabIdentifier);
+void rion_runtime_tabs_ensure(
+    void * _Nullable controller, const char *tabIdentifier,
+    const char *name, const char *type,
+    const char * _Nullable workspaceTemplate, const char *windowIdentifier);
 void rion_runtime_tabs_reserve(
     void * _Nullable controller, const char *tabIdentifier,
     const char *name, const char *type,
@@ -123,6 +133,8 @@ void rion_runtime_tabs_replace(
 void rion_runtime_tabs_remove(
     void * _Nullable controller, const char *tabIdentifier,
     const char * _Nullable activeTabIdentifier);
+void rion_runtime_tabs_reorder(
+    void * _Nullable controller, const char *tabIdentifiersJSON);
 void rion_runtime_tabs_update_metadata(
     void * _Nullable controller, const RionRuntimeTabInput *tab,
     bool alwaysHideTabCloseButton, const char *audioMutedLabel,

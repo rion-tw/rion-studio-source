@@ -249,6 +249,34 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(document.querySelector('[data-tab-id="unknown-tab"]')).toBeNull();
   });
 
+  it("reorders existing native tabs without recreating their controls", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs(1));
+    const original = document.querySelector<HTMLElement>('[data-tab-id="tab-2"]');
+
+    window.__rionReorderRuntimeTabs?.(["tab-4", "tab-2", "missing-tab", "tab-1", "tab-3"]);
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')).toBe(original);
+    expect(Array.from(document.querySelectorAll<HTMLElement>(".tab"), (tab) => tab.dataset.tabId))
+      .toEqual(["tab-4", "tab-2", "tab-1", "tab-3"]);
+    expect(original?.classList.contains("active")).toBe(true);
+  });
+
+  it("ensures a projected tab exists without changing the active tab", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs(1));
+
+    window.__rionEnsureRuntimeTab?.({
+      id: "tab-5",
+      name: "Workspace 5",
+      type: "workspace"
+    });
+
+    expect(document.querySelector('[data-tab-id="tab-5"]')).not.toBeNull();
+    expect(document.querySelector('[data-tab-id="tab-2"]')?.classList.contains("active"))
+      .toBe(true);
+    expect(document.querySelector('[data-tab-id="tab-5"]')?.classList.contains("active"))
+      .toBe(false);
+  });
+
   it("keeps close intent committed when the scoped native command is rejected", async () => {
     invoke.mockRejectedValueOnce(new Error("rejected"));
     document.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();

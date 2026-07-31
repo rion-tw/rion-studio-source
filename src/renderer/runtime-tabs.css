@@ -45,7 +45,8 @@ body[data-toolbar-visible="false"] > * {
 #tabs {
   display: flex;
   min-width: 0;
-  flex: 1;
+  max-width: 100%;
+  flex: 0 1 auto;
   gap: 7px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -79,12 +80,18 @@ button {
 
 #add {
   width: 28px;
+  margin-left: var(--space-0-5);
+  border-radius: var(--radius-pill);
 }
 
 .scroll:hover:not(:disabled),
 #add:hover {
-  background: hsl(var(--accent) / 0.5);
+  background: hsl(var(--glass-control-hover));
   color: hsl(var(--foreground));
+}
+
+#add:active {
+  background: hsl(var(--glass-control-selected));
 }
 
 .scroll:focus-visible,

@@ -2300,37 +2300,6 @@ async fn delete_empty_game_window(
     Ok(())
 }
 
-fn schedule_empty_game_window_prune(app: &AppHandle, label: String) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = tauri::async_runtime::spawn_blocking(|| {
-            thread::sleep(Duration::from_millis(250));
-        })
-        .await;
-        let Some(state) = app.try_state::<CoreState>() else {
-            return;
-        };
-        let Some(window_id) = state.runtime.window_id_for_label(&label) else {
-            return;
-        };
-        if state
-            .runtime
-            .window_for_id(&window_id)
-            .and_then(|window| window.is_focused().ok())
-            .unwrap_or(false)
-            || !core_game_window_is_empty(&state.core, &window_id)
-        {
-            return;
-        }
-        if let Err(error) = delete_empty_game_window(&state, &window_id).await {
-            let _ = app.emit(
-                "rion://shell-error",
-                json!({ "code": error.code, "message": error.message }),
-            );
-        }
-    });
-}
-
 async fn restore_saved_game_windows(
     state: &CoreState,
     window: &WebviewWindow,
@@ -4467,9 +4436,6 @@ pub fn run() {
                                 .spawn(move || {
                                     let _ = runtime.persist_restore_session(false);
                                 });
-                        }
-                        tauri::WindowEvent::Focused(false) if label != "main" => {
-                            schedule_empty_game_window_prune(app_handle, label.clone());
                         }
                         tauri::WindowEvent::Destroyed => {
                             state.runtime.forget_popup(&label);

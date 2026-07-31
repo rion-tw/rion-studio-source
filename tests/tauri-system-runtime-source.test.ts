@@ -636,6 +636,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(applyRuntime).not.toContain("webview.set_focus()");
     expect(applyRuntime).not.toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");
+    expect(applyRuntime).toContain("runtime_host_should_receive_window_focus(");
+    expect(applyRuntime).toContain("update.window.unminimize()");
+    expect(applyRuntime).toContain("update.window.set_focus()");
+    expect(runtime).toContain("record_runtime_stage_failure(&setup_stage, setup_started, &error)");
+    expect(runtime).toContain("record_presentation_event_with_error(");
+    expect(runtime).toContain("completion.error.as_ref()");
 
     const closeRuntimeWindow = runtime.slice(
       runtime.indexOf("pub(crate) fn handle_window_close_requested("),
@@ -652,6 +658,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(closeRuntimeWindow).not.toContain("BrowserWorkspaceStop");
     expect(shell).toContain("match state.runtime.handle_window_close_requested(&label)");
     expect(shell).toContain('"windowLabel": label');
+    expect(shell).not.toContain("schedule_empty_game_window_prune");
+    expect(shell).toContain("delete_empty_game_window(&state, &window_id).await");
     const resizeRuntimeWindow = runtime.slice(
       runtime.indexOf("pub fn resize_window("),
       runtime.indexOf("pub fn move_window(")

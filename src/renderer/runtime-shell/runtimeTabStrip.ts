@@ -70,21 +70,45 @@ let lastDragPoint: { screenX: number; screenY: number } | undefined;
 let edgeScrollFrame: number | undefined;
 let edgeScrollClientX: number | undefined;
 let dragInsertionState: { sessionId: string; beforeTabId?: string } | undefined;
-let dragPreviewElement: HTMLElement | undefined;
 let dragProxyElement: HTMLElement | undefined;
+let dragVisualState: RuntimeTabDragVisualState | undefined;
+let pendingRuntimeTabOrder: string[] | undefined;
 let renderRevision = 0;
 let activeTabId: string | undefined;
 let optimisticActiveTabId: string | undefined;
 let dragActionPending = false;
 let scrollControlsFrame: number | undefined;
 const dragActionQueue: RuntimeTabAction[] = [];
+const terminalDragSessions = new Set<string>();
+const cancelledDragSessions = new Set<string>();
+const localDropSessions = new Set<string>();
 const workspaceTemplateByTabId = new Map<string, WorkspaceLayoutTemplate>();
 const iconMarkup = new Map<LucideIcon, string>();
+const iconSignatureByButton = new WeakMap<HTMLButtonElement, string>();
+const audioSignatureByButton = new WeakMap<HTMLButtonElement, string>();
+const reorderAnimationFrameByElement = new Map<HTMLElement, number>();
 
 const OVERFLOW_EPSILON = 1;
 const TAB_REORDER_HYSTERESIS_RATIO = 0.12;
 const TAB_REORDER_HYSTERESIS_MIN = 8;
 const TAB_REORDER_HYSTERESIS_MAX = 20;
+const FINISHED_DRAG_SESSION_LIMIT = 128;
+
+type RuntimeTabModel = RuntimeTabStripState["tabs"][number];
+
+type RuntimeTabDragVisualState = {
+  beforeTabId?: string;
+  grabRatioX: number;
+  latestClientX?: number;
+  originOrder: string[];
+  sessionId: string;
+  slot: HTMLDivElement;
+  surface?: HTMLButtonElement;
+  suspended: boolean;
+  tabHeight: number;
+  tabId: string;
+  tabWidth: number;
+};
 
 function createLucideSvg(Icon: LucideIcon): SVGSVGElement {
   let markup = iconMarkup.get(Icon);
@@ -161,8 +185,13 @@ const dispatch = (action: RuntimeTabAction): void => {
   else if (action.type === "activateAdjacent") optimisticallyActivateAdjacentTab(action.direction);
   else if (action.type === "stop") optimisticallyCloseTab(action.tabId);
   if (action.type.startsWith("tabDrag")) {
-    const queued = dragActionQueue.at(-1);
     const isMotion = action.type === "tabDragMove" || action.type === "tabDragHover";
+    if (isMotion && terminalDragSessions.has(action.sessionId)) return;
+    if (action.type === "tabDragDrop" || action.type === "tabDragEnd"
+      || action.type === "tabDragCancel") {
+      rememberTerminalDragSession(action.sessionId);
+    }
+    const queued = dragActionQueue.at(-1);
     const queuedIsMotion = queued?.type === "tabDragMove" || queued?.type === "tabDragHover";
     if (isMotion && queuedIsMotion && action.sessionId === queued.sessionId) {
       dragActionQueue[dragActionQueue.length - 1] = action;
@@ -187,6 +216,16 @@ const dispatch = (action: RuntimeTabAction): void => {
   });
 };
 
+function rememberTerminalDragSession(sessionId: string): void {
+  terminalDragSessions.add(sessionId);
+  while (terminalDragSessions.size > FINISHED_DRAG_SESSION_LIMIT) {
+    const oldest = terminalDragSessions.values().next().value as string | undefined;
+    if (!oldest) break;
+    terminalDragSessions.delete(oldest);
+    cancelledDragSessions.delete(oldest);
+  }
+}
+
 function createCloseControl(tabId: string, label: string): HTMLSpanElement {
   const control = document.createElement("span");
   control.className = "close";
@@ -195,6 +234,11 @@ function createCloseControl(tabId: string, label: string): HTMLSpanElement {
   control.ariaLabel = label;
   control.ariaHidden = "true";
   control.append(createLucideSvg(X));
+  control.addEventListener("pointerdown", (event) => event.stopPropagation());
+  control.addEventListener("dragstart", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
   control.addEventListener("click", (event) => {
     event.stopPropagation();
     dispatch({ type: "stop", tabId });
@@ -242,9 +286,8 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
   });
   button.addEventListener("dragstart", (event) => {
     clearDropIndicator();
-    clearDragPlaceholder();
+    clearDragVisual({ mode: "restore" });
     optimisticallyActivateTab(tabId);
-    button.classList.add("dragging");
     draggingTabId = tabId;
     dragSessionId = crypto.randomUUID();
     dragCancelled = false;
@@ -258,10 +301,10 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
       tabId,
       tabWidth,
       tabHeight,
-      grabRatioX,
-      previewMarkup: button.innerHTML
+      grabRatioX
     };
-    installDragPreview(event.dataTransfer, button, payload, event.clientX);
+    installTransparentDragImage(event.dataTransfer);
+    beginDragVisual(payload, button, event.clientX);
     event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify(payload));
     dispatch({
       type: "tabDragStart",
@@ -288,10 +331,8 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     });
   });
   button.addEventListener("dragend", (event) => {
-    button.classList.remove("dragging");
-    clearDragPreview();
+    const endingSessionId = dragSessionId;
     clearDropIndicator();
-    clearDragPlaceholder();
     stopEdgeScroll();
     if (dragMoveFrame !== undefined) {
       cancelAnimationFrame(dragMoveFrame);
@@ -310,6 +351,12 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
         ...terminalPoint
       });
     }
+    clearDragVisual({ mode: dragCancelled ? "restore" : "settle" });
+    clearDragProxy();
+    if (endingSessionId && !dragCancelled && !localDropSessions.has(endingSessionId)) {
+      flushPendingRuntimeTabOrder();
+    }
+    if (endingSessionId) localDropSessions.delete(endingSessionId);
     draggingTabId = undefined;
     dragSessionId = undefined;
     pendingDragPoint = undefined;
@@ -323,8 +370,7 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
     if (payload) clearDropIndicator();
     else setDropIndicator(beforeTab);
-    previewDragPosition(payload, beforeTab);
-    showAttachedDragPreview(payload, event.clientX);
+    previewDragPosition(payload, beforeTab, event.clientX);
     scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
     scrollForDragPoint(event.clientX, Boolean(payload));
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
@@ -335,6 +381,7 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     clearDropIndicator();
     const payload = runtimeTabDragPayload(event.dataTransfer);
     if (!payload || !current) return;
+    localDropSessions.add(payload.sessionId);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
     dispatch({
       type: "tabDragDrop",
@@ -347,100 +394,127 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
         : beforeTab?.dataset.tabId
     });
     stopEdgeScroll();
-    clearDragPlaceholder();
-    clearDragPreview();
+    clearDragVisual({ mode: "settle", sessionId: payload.sessionId });
   });
 }
 
-function installDragPreview(
-  dataTransfer: DataTransfer | null,
-  button: HTMLButtonElement,
-  payload: RuntimeTabDragPayload,
-  clientX: number
-): void {
-  clearDragPreview();
+function installTransparentDragImage(dataTransfer: DataTransfer | null): void {
+  clearDragProxy();
   if (!dataTransfer || typeof dataTransfer.setDragImage !== "function") return;
-  const proxy = document.createElement("span");
+  // Chromium falls back to the source element when the custom drag image is fully
+  // transparent or outside the viewport. Keep a drawable 1px canvas in the viewport;
+  // its tokenized 1% alpha background is imperceptible but prevents WebView2 from
+  // briefly painting the default cloned-tab ghost.
+  const proxy = document.createElement("canvas");
   proxy.className = "drag-proxy";
   proxy.ariaHidden = "true";
+  proxy.width = 1;
+  proxy.height = 1;
   document.body.append(proxy);
   proxy.getBoundingClientRect();
   dataTransfer.setDragImage(proxy, 0, 0);
   dragProxyElement = proxy;
-  showAttachedDragPreview(payload, clientX, button);
 }
 
-function showAttachedDragPreview(
-  payload: RuntimeTabDragPayload | undefined,
-  clientX: number,
-  sourceButton?: HTMLButtonElement
-): void {
-  if (!payload) return;
-  let preview = dragPreviewElement;
-  if (preview?.dataset.dragPreviewSession !== payload.sessionId) {
-    preview?.remove();
-    const local = sourceButton
-      ?? tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
-    preview = local?.cloneNode(true) as HTMLButtonElement | undefined;
-    if (!preview) {
-      preview = document.createElement("button");
-      appendSafeDragPreviewMarkup(preview, payload.previewMarkup);
-    }
-    preview.removeAttribute("id");
-    preview.className = "tab active drag-preview";
-    preview.dataset.dragPreviewSession = payload.sessionId;
-    preview.removeAttribute("data-tab-id");
-    preview.draggable = false;
-    preview.tabIndex = -1;
-    preview.ariaHidden = "true";
-    document.body.append(preview);
-    dragPreviewElement = preview;
-  }
-
-  const local = sourceButton
-    ?? tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
-  const tabBounds = local?.getBoundingClientRect();
-  const stripBounds = root.getBoundingClientRect();
-  const top = tabBounds?.top
-    ?? stripBounds.top + Math.max(0, (stripBounds.height - payload.tabHeight) / 2);
-  const pointerX = Number.isFinite(clientX) && clientX !== 0
-    ? clientX
-    : (tabBounds?.left ?? 0) + payload.tabWidth * payload.grabRatioX;
-  preview.style.width = `${payload.tabWidth}px`;
-  preview.style.minWidth = `${payload.tabWidth}px`;
-  preview.style.height = `${payload.tabHeight}px`;
-  preview.style.left = `${pointerX - payload.tabWidth * payload.grabRatioX}px`;
-  preview.style.top = `${top}px`;
-}
-
-function appendSafeDragPreviewMarkup(preview: HTMLElement, markup?: string): void {
-  if (!markup) return;
-  const template = document.createElement("template");
-  template.innerHTML = markup;
-  template.content.querySelectorAll("script, style, iframe, object, embed, link, meta, form")
-    .forEach((element) => element.remove());
-  template.content.querySelectorAll<HTMLElement>("*").forEach((element) => {
-    for (const attribute of Array.from(element.attributes)) {
-      const name = attribute.name.toLowerCase();
-      if (name.startsWith("on") || name === "style" || name === "href" || name === "srcset") {
-        element.removeAttribute(attribute.name);
-      } else if (name === "src" && !attribute.value.startsWith("data:image/")) {
-        element.removeAttribute(attribute.name);
-      }
-    }
-  });
-  preview.replaceChildren(template.content.cloneNode(true));
-}
-
-function hideAttachedDragPreview(): void {
-  dragPreviewElement?.remove();
-  dragPreviewElement = undefined;
-}
-
-function clearDragPreview(): void {
-  hideAttachedDragPreview();
+function clearDragProxy(): void {
   dragProxyElement?.remove();
   dragProxyElement = undefined;
+}
+
+function createDragSlot(payload: RuntimeTabDragPayload): HTMLDivElement {
+  const slot = document.createElement("div");
+  slot.className = "tab drag-slot";
+  slot.dataset.dragSlotSession = payload.sessionId;
+  slot.dataset.dragSlotTab = payload.tabId;
+  slot.ariaHidden = "true";
+  slot.style.width = `${payload.tabWidth}px`;
+  slot.style.minWidth = `${payload.tabWidth}px`;
+  slot.style.maxWidth = `${payload.tabWidth}px`;
+  slot.style.height = `${payload.tabHeight}px`;
+  return slot;
+}
+
+function beginDragVisual(
+  payload: RuntimeTabDragPayload,
+  button: HTMLButtonElement,
+  clientX: number
+): void {
+  const originOrder = tabElements().map((tab) => tab.dataset.tabId).filter(Boolean) as string[];
+  const nextTabId = nextTabElement(button)?.dataset.tabId;
+  const slot = createDragSlot(payload);
+  root.insertBefore(slot, button);
+  dragVisualState = {
+    ...(nextTabId ? { beforeTabId: nextTabId } : {}),
+    grabRatioX: payload.grabRatioX,
+    latestClientX: clientX,
+    originOrder,
+    sessionId: payload.sessionId,
+    slot,
+    suspended: false,
+    tabHeight: payload.tabHeight,
+    tabId: payload.tabId,
+    tabWidth: payload.tabWidth
+  };
+  adoptDragSurface(button);
+}
+
+function adoptDragSurface(button: HTMLButtonElement): void {
+  const visual = dragVisualState;
+  if (!visual || button.dataset.tabId !== visual.tabId) return;
+  if (visual.surface && visual.surface !== button) clearDragSurfaceStyles(visual.surface);
+  visual.surface = button;
+  visual.slot.after(button);
+  button.classList.add("drag-surface");
+  button.classList.remove("drag-placeholder", "dragging");
+  button.setAttribute("aria-grabbed", "true");
+  button.setAttribute("aria-hidden", "true");
+  button.style.width = `${visual.tabWidth}px`;
+  button.style.minWidth = `${visual.tabWidth}px`;
+  button.style.maxWidth = `${visual.tabWidth}px`;
+  button.style.height = `${visual.tabHeight}px`;
+}
+
+function clearDragSurfaceStyles(button: HTMLButtonElement): void {
+  button.classList.remove("drag-surface", "dragging", "drag-placeholder");
+  button.removeAttribute("aria-grabbed");
+  button.removeAttribute("aria-hidden");
+  button.style.removeProperty("width");
+  button.style.removeProperty("min-width");
+  button.style.removeProperty("max-width");
+  button.style.removeProperty("height");
+}
+
+function suspendDragVisual(): void {
+  const visual = dragVisualState;
+  if (!visual) return;
+  visual.suspended = true;
+  visual.slot.remove();
+}
+
+function clearDragVisual(options: {
+  mode: "discard" | "restore" | "settle";
+  sessionId?: string;
+}): void {
+  const visual = dragVisualState;
+  if (!visual || (options.sessionId && options.sessionId !== visual.sessionId)) return;
+  const surface = visual.surface;
+  if (surface) {
+    if (options.mode === "discard" || (visual.suspended && options.mode === "settle")) {
+      surface.remove();
+    } else if (options.mode === "restore" && !visual.originOrder.includes(visual.tabId)) {
+      surface.remove();
+    } else if (visual.slot.isConnected) {
+      visual.slot.replaceWith(surface);
+    }
+    clearDragSurfaceStyles(surface);
+  }
+  visual.slot.remove();
+  dragVisualState = undefined;
+  dragInsertionState = undefined;
+  if (options.mode === "restore" && visual.originOrder.length > 0) {
+    applyRuntimeTabOrder(visual.originOrder, true);
+  }
+  scheduleScrollControlsUpdate();
 }
 
 function setDropIndicator(beforeTab?: HTMLButtonElement): void {
@@ -516,9 +590,9 @@ function currentDragInsertionIndex(
     if (rememberedIndex >= 0) return rememberedIndex;
   }
 
-  const marker = tabElements().find((tab) => tab.dataset.tabId === payload.tabId)
-    ?? Array.from(root.querySelectorAll<HTMLElement>("[data-drag-placeholder-session]"))
-      .find((candidate) => candidate.dataset.dragPlaceholderSession === payload.sessionId);
+  const marker = dragVisualState?.sessionId === payload.sessionId
+    ? dragVisualState.slot
+    : tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
   if (!marker) return fallbackIndex;
   const children = Array.from(root.children);
   const markerIndex = children.indexOf(marker);
@@ -558,63 +632,68 @@ function rememberDragInsertion(
 
 function previewDragPosition(
   payload: RuntimeTabDragPayload | undefined,
-  beforeTab?: HTMLButtonElement
+  beforeTab?: HTMLButtonElement,
+  clientX?: number
 ): void {
   if (!payload) return;
+  if (terminalDragSessions.has(payload.sessionId)) return;
+  if (dragVisualState?.sessionId !== payload.sessionId) {
+    clearDragVisual({ mode: "discard" });
+    const slot = createDragSlot(payload);
+    dragVisualState = {
+      grabRatioX: payload.grabRatioX,
+      ...(Number.isFinite(clientX) ? { latestClientX: clientX } : {}),
+      originOrder: tabElements().map((tab) => tab.dataset.tabId).filter(Boolean) as string[],
+      sessionId: payload.sessionId,
+      slot,
+      suspended: false,
+      tabHeight: payload.tabHeight,
+      tabId: payload.tabId,
+      tabWidth: payload.tabWidth
+    };
+  }
+  const visual = dragVisualState;
+  if (!visual) return;
   const previousRects = new Map(
     Array.from(root.children).map((child) => [child, child.getBoundingClientRect()] as const)
   );
   const local = tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
-  if (local) {
-    root.querySelectorAll<HTMLElement>("[data-drag-placeholder-session]")
-      .forEach((placeholder) => placeholder.remove());
-    local.classList.add("drag-placeholder");
-    if (beforeTab && beforeTab !== local) root.insertBefore(local, beforeTab);
-    else if (!beforeTab) root.append(local);
+  const nextBeforeTabId = beforeTab?.dataset.tabId;
+  const insertionChanged = visual.suspended || !visual.slot.isConnected
+    || visual.beforeTabId !== nextBeforeTabId;
+  visual.suspended = false;
+  if (insertionChanged) {
+    if (beforeTab) root.insertBefore(visual.slot, beforeTab);
+    else root.append(visual.slot);
+    if (visual.surface) visual.slot.after(visual.surface);
+    visual.beforeTabId = nextBeforeTabId;
     animateReorderedTabs(previousRects);
-    return;
   }
-  let placeholder = Array.from(
-    root.querySelectorAll<HTMLElement>("[data-drag-placeholder-session]")
-  ).find((candidate) => candidate.dataset.dragPlaceholderSession === payload.sessionId);
-  if (!placeholder) {
-    placeholder = document.createElement("div");
-    placeholder.className = "tab drag-placeholder external";
-    placeholder.dataset.dragPlaceholderSession = payload.sessionId;
-    placeholder.dataset.dragPlaceholderTab = payload.tabId;
-    placeholder.ariaHidden = "true";
-    placeholder.style.width = `${payload.tabWidth}px`;
-    placeholder.style.minWidth = `${payload.tabWidth}px`;
-    placeholder.style.height = `${payload.tabHeight}px`;
-  }
-  if (beforeTab) root.insertBefore(placeholder, beforeTab);
-  else root.append(placeholder);
-  animateReorderedTabs(previousRects);
+  if (local && visual.surface !== local) adoptDragSurface(local);
+  if (clientX !== undefined && Number.isFinite(clientX)) visual.latestClientX = clientX;
 }
 
 function animateReorderedTabs(previousRects: Map<Element, DOMRect>): void {
   if (typeof matchMedia === "function"
     && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   for (const child of Array.from(root.children) as HTMLElement[]) {
+    if (child.classList.contains("drag-surface")) continue;
     const previous = previousRects.get(child);
     if (!previous) continue;
     const next = child.getBoundingClientRect();
     const deltaX = previous.left - next.left;
     if (Math.abs(deltaX) < 0.5) continue;
+    const pendingFrame = reorderAnimationFrameByElement.get(child);
+    if (pendingFrame !== undefined) cancelAnimationFrame(pendingFrame);
     child.style.transition = "none";
     child.style.transform = `translateX(${deltaX}px)`;
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
+      reorderAnimationFrameByElement.delete(child);
       child.style.transition = "transform 120ms ease-out";
       child.style.transform = "";
     });
+    reorderAnimationFrameByElement.set(child, frame);
   }
-}
-
-function clearDragPlaceholder(): void {
-  root.querySelectorAll<HTMLElement>("[data-drag-placeholder-session]")
-    .forEach((placeholder) => placeholder.remove());
-  for (const tab of tabElements()) tab.classList.remove("drag-placeholder");
-  dragInsertionState = undefined;
 }
 
 function scheduleDragHover(
@@ -623,9 +702,9 @@ function scheduleDragHover(
   event: DragEvent
 ): void {
   if (!payload || !current) return;
-  const preview = tabElements().find((tab) => tab.dataset.tabId === payload.tabId)
-    ?? Array.from(root.querySelectorAll<HTMLElement>("[data-drag-placeholder-session]"))
-      .find((candidate) => candidate.dataset.dragPlaceholderSession === payload.sessionId);
+  const visual = dragVisualState?.sessionId === payload.sessionId ? dragVisualState : undefined;
+  const preview = visual?.surface ?? visual?.slot
+    ?? tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
   const bounds = preview?.getBoundingClientRect();
   dispatch({
     type: "tabDragHover",
@@ -687,8 +766,16 @@ const dispatchNextDragAction = (): void => {
   if (!action) return;
   dragActionPending = true;
   void invoke("rion_runtime_tab_action", { action })
+    .then(() => {
+      if (action.type === "tabDragDrop" || action.type === "tabDragEnd"
+        || action.type === "tabDragCancel") {
+        completeTerminalDragAction(action.sessionId);
+      }
+    })
     .catch(() => {
-      if (action.type === "tabDragDrop" || action.type === "tabDragEnd") {
+      if ((action.type === "tabDragDrop" || action.type === "tabDragEnd")
+        && !cancelledDragSessions.has(action.sessionId)) {
+        cancelledDragSessions.add(action.sessionId);
         dragActionQueue.unshift({ type: "tabDragCancel", sessionId: action.sessionId });
       }
     })
@@ -697,6 +784,94 @@ const dispatchNextDragAction = (): void => {
       dispatchNextDragAction();
     });
 };
+
+function completeTerminalDragAction(sessionId: string): void {
+  if (dragVisualState?.sessionId === sessionId) {
+    clearDragVisual({
+      mode: cancelledDragSessions.has(sessionId) ? "restore" : "settle",
+      sessionId
+    });
+  }
+  localDropSessions.delete(sessionId);
+  flushPendingRuntimeTabOrder();
+}
+
+function flushPendingRuntimeTabOrder(): void {
+  if (!pendingRuntimeTabOrder) return;
+  const order = pendingRuntimeTabOrder;
+  pendingRuntimeTabOrder = undefined;
+  applyRuntimeTabOrder(order, true);
+}
+
+function createTabButton(tabId: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tab";
+  button.dataset.tabId = tabId;
+  button.draggable = true;
+  button.role = "tab";
+  button.setAttribute("aria-selected", "false");
+  installTabButtonInteractions(button, tabId);
+  return button;
+}
+
+function patchTabButton(
+  button: HTMLButtonElement,
+  tab: RuntimeTabModel,
+  state: RuntimeTabStripState,
+  labels: ReturnType<typeof runtimeTabStripLabels>,
+  active: boolean
+): void {
+  button.classList.toggle("active", active);
+  button.draggable = true;
+  button.setAttribute("aria-selected", String(active));
+  button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
+    ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
+    : tab.name;
+
+  const workspaceTemplate = workspaceTemplateByTabId.get(tab.id);
+  const iconDataUrl = state.tabIconDataUrls[tab.id];
+  const iconSignature = `${tab.type}\u0000${workspaceTemplate ?? ""}\u0000${iconDataUrl ?? ""}`;
+  let icon = button.querySelector<HTMLElement>(".icon");
+  if (!icon || iconSignatureByButton.get(button) !== iconSignature) {
+    const replacement = createTabIcon(tab.type, iconDataUrl, workspaceTemplate);
+    if (icon) icon.replaceWith(replacement);
+    else button.prepend(replacement);
+    icon = replacement;
+    iconSignatureByButton.set(button, iconSignature);
+  }
+
+  let name = button.querySelector<HTMLElement>(".name");
+  if (!name) {
+    name = document.createElement("span");
+    name.className = "name";
+    icon.after(name);
+  }
+  if (name.textContent !== tab.name) name.textContent = tab.name;
+
+  const audioSignature = `${tab.audioMuted}\u0000${tab.audible}\u0000${labels.tabMuted}\u0000${labels.playingAudio}`;
+  const audio = button.querySelector<HTMLElement>(".audio");
+  if (!audio || audioSignatureByButton.get(button) !== audioSignature) {
+    const replacement = createAudioIndicator(
+      tab.audioMuted,
+      tab.audible,
+      labels.tabMuted,
+      labels.playingAudio
+    );
+    if (audio) audio.replaceWith(replacement);
+    else name.after(replacement);
+    audioSignatureByButton.set(button, audioSignature);
+  }
+
+  let close = button.querySelector<HTMLElement>(".close");
+  if (state.alwaysHideTabCloseButton) close?.remove();
+  else if (!close) {
+    close = createCloseControl(tab.id, labels.closeTab);
+    button.append(close);
+  }
+  if (close) close.ariaLabel = labels.closeTab;
+  syncCloseControlState(button);
+}
 
 function render(state: RuntimeTabStripState): void {
   const revision = ++renderRevision;
@@ -722,39 +897,7 @@ function render(state: RuntimeTabStripState): void {
   const presentationActiveTabId = optimisticSelectionIsVisible
     ? optimisticActiveTabId
     : snapshotActiveTabId;
-  const nextButtons = visibleTabs
-    .map((tab) => {
-      const active = tab.id === presentationActiveTabId;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `tab${active ? " active" : ""}`;
-      button.dataset.tabId = tab.id;
-      button.draggable = true;
-      button.role = "tab";
-      button.setAttribute("aria-selected", String(active));
-      button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
-        ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
-        : tab.name;
-      const icon = createTabIcon(
-        tab.type,
-        state.tabIconDataUrls[tab.id],
-        workspaceTemplateByTabId.get(tab.id)
-      );
-      const name = document.createElement("span");
-      name.className = "name";
-      name.textContent = tab.name;
-      button.append(
-        icon,
-        name,
-        createAudioIndicator(tab.audioMuted, tab.audible, labels.tabMuted, labels.playingAudio)
-      );
-      if (!state.alwaysHideTabCloseButton) {
-        button.append(createCloseControl(tab.id, labels.closeTab));
-      }
-      installTabButtonInteractions(button, tab.id);
-      return button;
-    });
-  reconcileTabButtons(nextButtons);
+  reconcileTabButtons(visibleTabs, state, labels, presentationActiveTabId);
   for (const tab of tabElements()) syncCloseControlState(tab);
   const nextActiveTabId = presentationActiveTabId;
   root.scrollLeft = previousScrollLeft;
@@ -774,52 +917,41 @@ function render(state: RuntimeTabStripState): void {
   scrollRightButton.title = scrollRightButton.ariaLabel;
 }
 
-function reconcileTabButtons(nextButtons: HTMLButtonElement[]): void {
-  const incomingPlaceholderTabIds = new Set(
-    Array.from(root.querySelectorAll<HTMLElement>("[data-drag-placeholder-tab]"))
-      .map((placeholder) => placeholder.dataset.dragPlaceholderTab)
-      .filter((tabId): tabId is string => Boolean(tabId))
-  );
+function reconcileTabButtons(
+  tabs: RuntimeTabModel[],
+  state: RuntimeTabStripState,
+  labels: ReturnType<typeof runtimeTabStripLabels>,
+  presentationActiveTabId?: string
+): void {
   const existingById = new Map(tabElements().map((button) => [button.dataset.tabId, button]));
-  const preserveLocalDragOrder = Boolean(
-    draggingTabId
-    && existingById.get(draggingTabId)?.classList.contains("drag-placeholder")
-  );
   const retained = new Set<string>();
-  let insertionPoint: Element | null = root.firstElementChild;
-  for (const desired of nextButtons) {
-    const tabId = desired.dataset.tabId;
-    if (!tabId) continue;
-    retained.add(tabId);
-    const existing = existingById.get(tabId) as HTMLButtonElement | undefined;
-    const resolved = existing ?? desired;
-    if (existing) {
-      const wasDragging = existing.classList.contains("dragging");
-      const wasPlaceholder = existing.classList.contains("drag-placeholder");
-      existing.className = desired.className;
-      existing.classList.toggle("dragging", wasDragging);
-      existing.classList.toggle("drag-placeholder", wasPlaceholder);
-      existing.title = desired.title;
-      existing.draggable = desired.draggable;
-      existing.setAttribute("aria-selected", desired.getAttribute("aria-selected") ?? "false");
-      existing.replaceChildren(...desired.childNodes);
-    }
-    if (incomingPlaceholderTabIds.has(tabId)) {
-      resolved.classList.add("drag-placeholder");
-      root.querySelectorAll<HTMLElement>("[data-drag-placeholder-tab]")
-        .forEach((placeholder) => {
-          if (placeholder.dataset.dragPlaceholderTab === tabId) placeholder.remove();
-        });
-    }
-    if (!preserveLocalDragOrder && resolved !== insertionPoint) {
-      root.insertBefore(resolved, insertionPoint);
-    } else if (!existing) {
-      root.append(resolved);
-    }
-    insertionPoint = resolved.nextElementSibling;
+  for (const tab of tabs) {
+    retained.add(tab.id);
+    const button = existingById.get(tab.id) ?? createTabButton(tab.id);
+    if (!button.isConnected) root.append(button);
+    patchTabButton(button, tab, state, labels, tab.id === presentationActiveTabId);
+    existingById.set(tab.id, button);
   }
   for (const [tabId, existing] of existingById) {
-    if (tabId && !retained.has(tabId)) existing.remove();
+    if (!tabId || retained.has(tabId)) continue;
+    existing.remove();
+    if (dragVisualState?.surface === existing) {
+      dragVisualState.surface = undefined;
+      dragVisualState.slot.remove();
+      dragVisualState.suspended = true;
+    }
+  }
+
+  const desiredOrder = tabs.map((tab) => tab.id);
+  if (dragVisualState) {
+    pendingRuntimeTabOrder = desiredOrder;
+    const incoming = existingById.get(dragVisualState.tabId);
+    if (incoming && retained.has(dragVisualState.tabId) && dragVisualState.slot.isConnected
+      && dragVisualState.surface !== incoming) {
+      adoptDragSurface(incoming);
+    }
+  } else {
+    applyRuntimeTabOrder(desiredOrder, false);
   }
 }
 
@@ -829,12 +961,7 @@ window.__rionEnsureRuntimeTab = (tab) => {
   if (tab.workspaceTemplate) workspaceTemplateByTabId.set(tab.id, tab.workspaceTemplate);
   let button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
   if (!button) {
-    button = document.createElement("button");
-    button.type = "button";
-    button.className = "tab";
-    button.dataset.tabId = tab.id;
-    button.role = "tab";
-    button.setAttribute("aria-selected", "false");
+    button = createTabButton(tab.id);
     button.title = tab.name;
     const icon = createTabIcon(tab.type, undefined, tab.workspaceTemplate);
     const name = document.createElement("span");
@@ -843,8 +970,12 @@ window.__rionEnsureRuntimeTab = (tab) => {
     const audio = createAudioIndicator(false, false, "", "");
     const close = createCloseControl(tab.id, labels.closeTab);
     button.append(icon, name, audio, close);
-    installTabButtonInteractions(button, tab.id);
+    iconSignatureByButton.set(button, `${tab.type}\u0000${tab.workspaceTemplate ?? ""}\u0000`);
+    audioSignatureByButton.set(button, "false\u0000false\u0000\u0000");
     root.append(button);
+    if (dragVisualState?.tabId === tab.id && dragVisualState.slot.isConnected) {
+      adoptDragSurface(button);
+    }
   }
   scheduleScrollControlsUpdate();
 };
@@ -854,7 +985,14 @@ window.__rionReserveRuntimeTab = (tab) => {
   scheduleScrollControlsUpdate();
 };
 window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
-  tabElements().find((tab) => tab.dataset.tabId === tabId)?.remove();
+  const button = tabElements().find((tab) => tab.dataset.tabId === tabId);
+  button?.remove();
+  const visual = dragVisualState;
+  if (visual && button && visual.surface === button) {
+    visual.surface = undefined;
+    visual.slot.remove();
+    visual.suspended = true;
+  }
   workspaceTemplateByTabId.delete(tabId);
   if (nextTabId) optimisticallyActivateTab(nextTabId);
   else {
@@ -864,6 +1002,15 @@ window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
   scheduleScrollControlsUpdate();
 };
 window.__rionReorderRuntimeTabs = (tabIds) => {
+  if (dragVisualState) {
+    pendingRuntimeTabOrder = [...tabIds];
+    return;
+  }
+  pendingRuntimeTabOrder = undefined;
+  applyRuntimeTabOrder(tabIds, true);
+};
+
+function applyRuntimeTabOrder(tabIds: string[], animate: boolean): void {
   const previousRects = new Map(
     Array.from(root.children).map((child) => [child, child.getBoundingClientRect()] as const)
   );
@@ -875,9 +1022,9 @@ window.__rionReorderRuntimeTabs = (tabIds) => {
     if (tab !== insertionPoint) root.insertBefore(tab, insertionPoint);
     insertionPoint = tab.nextElementSibling;
   }
-  animateReorderedTabs(previousRects);
+  if (animate) animateReorderedTabs(previousRects);
   scheduleScrollControlsUpdate();
-};
+}
 window.__rionSetActiveRuntimeTab = (tabId) => {
   if (tabId) optimisticallyActivateTab(tabId);
   else {
@@ -906,6 +1053,10 @@ window.__rionUpdateRuntimeTabMetadata = (tab) => {
     workspaceTemplateByTabId.get(tab.id)
   );
   previousIcon?.replaceWith(icon);
+  iconSignatureByButton.set(
+    button,
+    `${tab.type}\u0000${workspaceTemplateByTabId.get(tab.id) ?? ""}\u0000${tab.iconDataUrl ?? ""}`
+  );
 
   const audio = createAudioIndicator(
     tab.audioMuted,
@@ -914,6 +1065,10 @@ window.__rionUpdateRuntimeTabMetadata = (tab) => {
     tab.playingLabel
   );
   button.querySelector(".audio")?.replaceWith(audio);
+  audioSignatureByButton.set(
+    button,
+    `${tab.audioMuted}\u0000${tab.audible}\u0000${tab.mutedLabel}\u0000${tab.playingLabel}`
+  );
   let close = button.querySelector<HTMLElement>(".close");
   if (tab.hideCloseButton) close?.remove();
   else if (!close) {
@@ -972,15 +1127,13 @@ root.addEventListener("dragover", (event) => {
   const beforeTab = resolveStableDragInsertion(payload, event.clientX);
   if (payload) clearDropIndicator();
   else setDropIndicator();
-  previewDragPosition(payload, beforeTab);
-  showAttachedDragPreview(payload, event.clientX);
+  previewDragPosition(payload, beforeTab, event.clientX);
   scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
   scrollForDragPoint(event.clientX, Boolean(payload));
 });
 root.addEventListener("dragleave", (event) => {
   if (event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) return;
   clearDropIndicator();
-  clearDragPlaceholder();
   stopEdgeScroll();
 });
 root.addEventListener("drop", (event) => {
@@ -988,6 +1141,7 @@ root.addEventListener("drop", (event) => {
   clearDropIndicator();
   const payload = runtimeTabDragPayload(event.dataTransfer);
   if (!payload || !current) return;
+  localDropSessions.add(payload.sessionId);
   const beforeTab = resolveStableDragInsertion(payload, event.clientX);
   dispatch({
     type: "tabDragDrop",
@@ -997,8 +1151,7 @@ root.addEventListener("drop", (event) => {
     screenY: event.screenY,
     ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
   });
-  clearDragPlaceholder();
-  clearDragPreview();
+  clearDragVisual({ mode: "settle", sessionId: payload.sessionId });
   stopEdgeScroll();
 });
 document.body.addEventListener("dragover", (event) => {
@@ -1011,20 +1164,21 @@ document.body.addEventListener("dragover", (event) => {
     ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
     : undefined;
   rememberDragInsertion(payload, beforeTab);
-  previewDragPosition(payload, beforeTab);
-  showAttachedDragPreview(payload, event.clientX);
+  previewDragPosition(payload, beforeTab, event.clientX);
   scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
   stopEdgeScroll();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
 });
 document.body.addEventListener("dragleave", (event) => {
   if (event.relatedTarget instanceof Node && document.body.contains(event.relatedTarget)) return;
-  hideAttachedDragPreview();
+  suspendDragVisual();
+  stopEdgeScroll();
 });
 document.body.addEventListener("drop", (event) => {
   if (event.target instanceof Node && root.contains(event.target)) return;
   const payload = runtimeTabDragPayload(event.dataTransfer);
   if (!payload || !current) return;
+  localDropSessions.add(payload.sessionId);
   event.preventDefault();
   const beforeTab = event.clientX <= root.getBoundingClientRect().left
     ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
@@ -1038,13 +1192,15 @@ document.body.addEventListener("drop", (event) => {
     screenY: event.screenY,
     ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
   });
-  clearDragPlaceholder();
-  clearDragPreview();
+  clearDragVisual({ mode: "settle", sessionId: payload.sessionId });
   stopEdgeScroll();
 });
 add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
 add.addEventListener("contextmenu", (event) => event.preventDefault());
-root.addEventListener("scroll", scheduleScrollControlsUpdate);
+root.addEventListener("scroll", () => {
+  scheduleScrollControlsUpdate();
+  refreshDragVisualForScroll();
+});
 root.addEventListener("wheel", (event) => {
   if (!hasTabOverflow() || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
   event.preventDefault();
@@ -1076,7 +1232,6 @@ type RuntimeTabDragPayload = {
   tabWidth: number;
   tabHeight: number;
   grabRatioX: number;
-  previewMarkup?: string;
 };
 
 function runtimeTabDragPayload(
@@ -1097,10 +1252,7 @@ function runtimeTabDragPayload(
       tabHeight: Math.max(1, value.tabHeight),
       grabRatioX: clampRatio(
         typeof value.grabRatioX === "number" ? value.grabRatioX : 0.5
-      ),
-      ...(typeof value.previewMarkup === "string" && value.previewMarkup.length <= 100_000
-        ? { previewMarkup: value.previewMarkup }
-        : {})
+      )
     };
   } catch {
     return undefined;
@@ -1201,6 +1353,7 @@ function scrollForDragPoint(clientX: number, continuous = false): void {
     return;
   }
   root.scrollLeft += delta;
+  refreshDragVisualForScroll();
   scheduleScrollControlsUpdate();
   if (!continuous) return;
   edgeScrollClientX = clientX;
@@ -1221,10 +1374,26 @@ function scrollForDragPoint(clientX: number, continuous = false): void {
       return;
     }
     root.scrollLeft += nextDelta;
+    refreshDragVisualForScroll();
     scheduleScrollControlsUpdate();
     edgeScrollFrame = requestAnimationFrame(tick);
   };
   edgeScrollFrame = requestAnimationFrame(tick);
+}
+
+function refreshDragVisualForScroll(): void {
+  const visual = dragVisualState;
+  if (!visual || visual.suspended || visual.latestClientX === undefined
+    || terminalDragSessions.has(visual.sessionId)) return;
+  const payload: RuntimeTabDragPayload = {
+    grabRatioX: visual.grabRatioX,
+    sessionId: visual.sessionId,
+    tabHeight: visual.tabHeight,
+    tabId: visual.tabId,
+    tabWidth: visual.tabWidth
+  };
+  const beforeTab = resolveStableDragInsertion(payload, visual.latestClientX);
+  previewDragPosition(payload, beforeTab, visual.latestClientX);
 }
 
 function dragScrollDelta(clientX: number, left: number, right: number, edge: number): number {
@@ -1249,8 +1418,8 @@ function cancelActiveTabDrag(): void {
   if (!draggingTabId || dragCancelled) return;
   dragCancelled = true;
   clearDropIndicator();
-  clearDragPlaceholder();
-  clearDragPreview();
+  clearDragVisual({ mode: "restore" });
+  clearDragProxy();
   stopEdgeScroll();
   if (dragSessionId) dispatch({ type: "tabDragCancel", sessionId: dragSessionId });
 }

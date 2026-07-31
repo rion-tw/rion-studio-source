@@ -43,12 +43,14 @@ body[data-toolbar-visible="false"] > * {
 }
 
 #tabs {
+  position: relative;
   display: flex;
   min-width: 0;
   max-width: 100%;
   flex: 0 1 auto;
   gap: 7px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
@@ -144,7 +146,7 @@ button {
   pointer-events: none;
 }
 
-.tab:hover:not(.active) {
+.tab:hover:not(.active):not(.drag-slot) {
   background: hsl(var(--glass-control-hover));
   color: hsl(var(--foreground));
 }
@@ -156,51 +158,37 @@ button {
   box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
 }
 
-.tab.dragging {
-  opacity: 0.12;
-}
-
-.tab.drag-preview {
-  position: fixed;
-  top: 0;
-  left: 0;
+.tab.drag-surface {
+  position: absolute;
   margin: 0;
-  opacity: 1;
-  border: 1px solid hsl(var(--border) / 0.58);
-  background: hsl(var(--background) / 0.97);
-  color: hsl(var(--foreground));
-  box-shadow:
-    inset 0 1px 0 hsl(var(--glass-highlight-muted)),
-    0 7px 20px hsl(var(--foreground) / 0.18);
+  opacity: 0;
   pointer-events: none;
   transition: none;
-  will-change: left;
 }
 
 .drag-proxy {
   position: fixed;
-  top: -10000px;
-  left: -10000px;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
+  background: hsl(var(--foreground) / 0.01);
+  pointer-events: none;
+}
+
+.tab.drag-slot {
+  flex: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   opacity: 0;
   pointer-events: none;
 }
 
-.tab.drag-placeholder {
-  opacity: 1;
-  background: hsl(var(--glass-control-selected) / 0.42);
-  box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.5);
-  color: transparent;
-}
-
-.tab.drag-placeholder > * {
-  visibility: hidden;
-}
-
-.tab.drag-placeholder.external {
-  flex: none;
-  pointer-events: none;
+.tab.drag-slot::after,
+.tab.drag-surface::after,
+.tab.drag-surface + .tab::after {
+  display: none;
 }
 
 .tab.drop-before::before,

@@ -1745,8 +1745,6 @@ fn build_import_plan(
             .filter(|window| !incoming_ids.contains(window.id.as_str()))
             .map(|window| normalize_name_key(&window.name))
             .collect::<HashSet<_>>();
-        let mut claimed_sources = HashSet::new();
-        let mut claimed_roles = HashSet::new();
         let mut used_tab_ids = HashSet::new();
         for window in snapshot
             .game_windows
@@ -1754,8 +1752,6 @@ fn build_import_plan(
             .filter(|window| !incoming_ids.contains(window.id.as_str()))
         {
             for tab in &window.tabs {
-                claimed_sources.insert(format!("{}:{}", tab.tab_type, tab.source_id));
-                claimed_roles.extend(tab.role_ids.iter().cloned());
                 used_tab_ids.insert(tab.id.clone());
             }
         }
@@ -1775,6 +1771,8 @@ fn build_import_plan(
                 ));
             }
             let mut tabs = Vec::new();
+            let mut claimed_sources = HashSet::new();
+            let mut claimed_roles = HashSet::new();
             let mut imported_tab_ids = HashMap::new();
             for tab in &portable.tabs {
                 let source_id = if tab.tab_type == "role" {
@@ -2783,7 +2781,7 @@ mod tests {
     }
 
     #[test]
-    fn portable_game_windows_remap_dependencies_and_keep_first_role_claim() {
+    fn portable_game_windows_remap_dependencies_and_preserve_cross_window_role_claims() {
         let mut source = fixture_value(8);
         let first_window_id = uuid::Uuid::new_v4().to_string();
         let second_window_id = uuid::Uuid::new_v4().to_string();
@@ -2860,13 +2858,17 @@ mod tests {
             prepared.snapshot.game_windows[0].placement.presentation,
             "maximized"
         );
-        assert!(prepared.snapshot.game_windows[1].tabs.is_empty());
+        assert_eq!(prepared.snapshot.game_windows[1].tabs.len(), 1);
+        assert_eq!(
+            prepared.snapshot.game_windows[1].tabs[0].source_id,
+            prepared.snapshot.game_windows[0].tabs[0].role_ids[0]
+        );
         assert!(
             prepared
                 .result
                 .warnings
                 .iter()
-                .any(|warning| { warning.code == "GAME_WINDOW_TAB_ROLE_CONFLICT" })
+                .all(|warning| warning.code != "GAME_WINDOW_TAB_ROLE_CONFLICT")
         );
     }
 

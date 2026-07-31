@@ -7,7 +7,7 @@ use std::{
 
 use rion_core::{
     AppCore, BrowserRuntimeSnapshot, CoreCommand, EmbeddedLaunchTargetRecord, LogCaptureRecord,
-    LogErrorDetails, LogLevel, LogSource,
+    LogErrorDetails, LogLevel, LogSource, StateGameWindowRecord,
 };
 use tauri::{
     AppHandle, Manager, Window,
@@ -22,6 +22,7 @@ const MOVE_PREFIX: &str = "runtime-tab-move:";
 const MOVE_NEW_PREFIX: &str = "runtime-tab-move-new:";
 const MUTE_PREFIX: &str = "runtime-tab-mute:";
 const RELOAD_PREFIX: &str = "runtime-tab-reload:";
+const SAVE_WINDOW_PREFIX: &str = "runtime-window-save:";
 const STOP_PREFIX: &str = "runtime-tab-stop:";
 const LAUNCH_INTENT_CAPACITY: usize = 64;
 const MAX_CONCURRENT_LAUNCH_INTENTS: usize = 4;
@@ -266,10 +267,12 @@ struct RefreshState {
     presence: crate::system_runtime::RuntimeLauncherPresence,
     presence_revision: u64,
     registered_window_ids: HashSet<String>,
+    saving_window_ids: HashSet<String>,
 }
 
 #[derive(Clone)]
 struct LauncherCatalog {
+    game_windows: serde_json::Value,
     language: String,
     roles: serde_json::Value,
     workspaces: serde_json::Value,
@@ -514,6 +517,20 @@ impl RefreshCoordinator {
         }
     }
 
+    fn begin_save(&self, window_id: &str) -> Result<bool, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+        Ok(state.saving_window_ids.insert(window_id.to_owned()))
+    }
+
+    fn finish_save(&self, window_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.saving_window_ids.remove(window_id);
+        }
+    }
+
     fn install_window_menu(
         &self,
         app: &AppHandle,
@@ -588,6 +605,9 @@ fn desired_launcher_model(
 
 impl LauncherCatalog {
     fn load(core: &AppCore, language: String) -> Result<Self, String> {
+        let game_windows = core
+            .invoke(CoreCommand::GameWindowsList)
+            .map_err(|error| error.to_string())?;
         let roles = core
             .invoke(CoreCommand::RolesList)
             .map_err(|error| error.to_string())?;
@@ -595,6 +615,7 @@ impl LauncherCatalog {
             .invoke(CoreCommand::WorkspacesList)
             .map_err(|error| error.to_string())?;
         Ok(Self {
+            game_windows,
             language,
             roles,
             workspaces,
@@ -742,8 +763,18 @@ fn launcher_menu(
             );
         }
     }
-    MenuBuilder::new(app)
-        .item(&roles_menu.build().map_err(|error| error.to_string())?)
+    let saved = model
+        .catalog
+        .game_windows
+        .as_array()
+        .is_some_and(|windows| windows.iter().any(|window| window["id"] == window_id));
+    let mut menu = MenuBuilder::new(app);
+    if !saved {
+        menu = menu
+            .text(format!("{SAVE_WINDOW_PREFIX}{window_id}"), text.save_window)
+            .separator();
+    }
+    menu.item(&roles_menu.build().map_err(|error| error.to_string())?)
         .item(&workspaces_menu.build().map_err(|error| error.to_string())?)
         .build()
         .map_err(|error| error.to_string())
@@ -892,6 +923,8 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
         launch_from_scoped_menu(app, &state, value, false);
     } else if let Some(value) = id.strip_prefix(LAUNCH_WORKSPACE_PREFIX) {
         launch_from_scoped_menu(app, &state, value, true);
+    } else if let Some(window_id) = id.strip_prefix(SAVE_WINDOW_PREFIX) {
+        save_runtime_game_window(app, &state, window_id);
     }
     true
 }
@@ -914,6 +947,110 @@ fn launch_from_scoped_menu(
     }
 }
 
+fn save_runtime_game_window(app: &AppHandle, state: &crate::CoreState, window_id: &str) {
+    match state.runtime_launcher_refresh.begin_save(window_id) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(message) => {
+            reveal_menu_error(app, message);
+            return;
+        }
+    }
+    let app = app.clone();
+    let core = Arc::clone(&state.core);
+    let runtime = Arc::clone(&state.runtime);
+    let coordinator = state.runtime_launcher_refresh.clone();
+    let language = state
+        .menu_language
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_else(|_| "en".to_owned());
+    let window_id = window_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let preparation_core = Arc::clone(&core);
+        let preparation_runtime = Arc::clone(&runtime);
+        let preparation_window_id = window_id.clone();
+        let preparation_language = language.clone();
+        let preparation = tauri::async_runtime::spawn_blocking(move || {
+            let windows = saved_game_windows(&preparation_core)?;
+            if windows
+                .iter()
+                .any(|window| window.id == preparation_window_id)
+            {
+                return Ok((None, windows));
+            }
+            let name = crate::next_game_window_name(&windows, &preparation_language);
+            let input = preparation_runtime
+                .runtime_game_window_save_input(&preparation_window_id, name)
+                .map_err(|message| crate::shell_error("TAURI_GAME_WINDOW_SAVE_FAILED", message))?;
+            Ok((Some(input), windows))
+        })
+        .await
+        .map_err(|error| crate::shell_error("CORE_INTERNAL_FAILED", error.to_string()))
+        .and_then(|result| result);
+
+        let result = async {
+            let (input, existing_windows) = preparation?;
+            let Some(input) = input else {
+                runtime
+                    .refresh_saved_game_windows(&existing_windows)
+                    .map_err(|message| crate::shell_error("SHELL_WINDOW_FAILED", message))?;
+                return Ok::<(), rion_core::CoreErrorPayload>(());
+            };
+            let saved = core
+                .invoke_async(CoreCommand::GameWindowSaveRuntime { input })
+                .await
+                .map_err(crate::error_payload)
+                .and_then(|value| {
+                    serde_json::from_value::<StateGameWindowRecord>(value).map_err(|error| {
+                        crate::shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
+                    })
+                })?;
+            let windows = saved_game_windows(&core)?;
+            if let Err(message) = runtime.refresh_saved_game_windows(&windows) {
+                let compensation = core
+                    .invoke_async(CoreCommand::GameWindowDeleteIfUnchanged {
+                        id: saved.id.clone(),
+                        updated_at: saved.updated_at.clone(),
+                    })
+                    .await;
+                let authoritative = saved_game_windows(&core);
+                if let Ok(authoritative) = &authoritative {
+                    let _ = runtime.refresh_saved_game_windows(authoritative);
+                }
+                if let Err(error) = compensation {
+                    return Err(crate::shell_error(
+                        "TAURI_GAME_WINDOW_SAVE_ROLLBACK_FAILED",
+                        format!(
+                            "Native title update failed ({message}); saved-window rollback also failed: {error}"
+                        ),
+                    ));
+                }
+                return Err(crate::shell_error("SHELL_WINDOW_FAILED", message));
+            }
+            Ok(())
+        }
+        .await;
+
+        coordinator.finish_save(&window_id);
+        let _ = coordinator.request(app.clone(), Arc::clone(&core), language);
+        if let Err(error) = result {
+            crate::reveal_shell_error(&app, error);
+        }
+    });
+}
+
+fn saved_game_windows(
+    core: &AppCore,
+) -> Result<Vec<StateGameWindowRecord>, rion_core::CoreErrorPayload> {
+    core.invoke(CoreCommand::GameWindowsList)
+        .map_err(crate::error_payload)
+        .and_then(|value| {
+            serde_json::from_value(value)
+                .map_err(|error| crate::shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
+        })
+}
+
 fn is_runtime_menu_event(id: &str) -> bool {
     [
         ACTIVATE_PREFIX,
@@ -924,6 +1061,7 @@ fn is_runtime_menu_event(id: &str) -> bool {
         MOVE_NEW_PREFIX,
         MUTE_PREFIX,
         RELOAD_PREFIX,
+        SAVE_WINDOW_PREFIX,
         STOP_PREFIX,
     ]
     .iter()
@@ -1284,6 +1422,7 @@ struct Labels {
     no_workspaces: &'static str,
     reload: &'static str,
     roles: &'static str,
+    save_window: &'static str,
     stop: &'static str,
     unmute: &'static str,
     workspaces: &'static str,
@@ -1301,6 +1440,7 @@ fn labels(language: &str) -> Labels {
             no_workspaces: "沒有工作區",
             reload: "重新整理",
             roles: "角色",
+            save_window: "儲存為新遊戲視窗",
             stop: "停止並關閉",
             unmute: "取消分頁靜音",
             workspaces: "工作區",
@@ -1315,6 +1455,7 @@ fn labels(language: &str) -> Labels {
             no_workspaces: "没有工作区",
             reload: "重新加载",
             roles: "角色",
+            save_window: "保存为新游戏窗口",
             stop: "停止并关闭",
             unmute: "取消标签页静音",
             workspaces: "工作区",
@@ -1329,6 +1470,7 @@ fn labels(language: &str) -> Labels {
             no_workspaces: "ワークスペースなし",
             reload: "再読み込み",
             roles: "ロール",
+            save_window: "新しいゲームウインドウとして保存",
             stop: "停止して閉じる",
             unmute: "タブのミュートを解除",
             workspaces: "ワークスペース",
@@ -1343,6 +1485,7 @@ fn labels(language: &str) -> Labels {
             no_workspaces: "No Workspaces",
             reload: "Reload",
             roles: "Roles",
+            save_window: "Save as New Game Window",
             stop: "Stop and Close",
             unmute: "Unmute Tab",
             workspaces: "Workspaces",
@@ -1374,6 +1517,18 @@ mod tests {
     }
 
     #[test]
+    fn save_window_label_is_localized_for_every_supported_language() {
+        for (language, expected) in [
+            ("en", "Save as New Game Window"),
+            ("zh-TW", "儲存為新遊戲視窗"),
+            ("zh-CN", "保存为新游戏窗口"),
+            ("ja", "新しいゲームウインドウとして保存"),
+        ] {
+            assert_eq!(labels(language).save_window, expected, "{language}");
+        }
+    }
+
+    #[test]
     fn runtime_menu_events_are_recognized_before_app_state_resolution() {
         for id in [
             "runtime-tab-activate:tab-1",
@@ -1384,6 +1539,7 @@ mod tests {
             "runtime-tab-move-new:tab-1",
             "runtime-tab-mute:tab-1",
             "runtime-tab-reload:tab-1",
+            "runtime-window-save:window-1",
             "runtime-tab-stop:tab-1",
         ] {
             assert!(is_runtime_menu_event(id), "{id}");
@@ -1449,6 +1605,7 @@ mod tests {
     fn launcher_catalog_and_presence_revisions_advance_independently() {
         let mut state = RefreshState {
             catalog: Some(LauncherCatalog {
+                game_windows: serde_json::json!([]),
                 language: "en".to_owned(),
                 roles: serde_json::json!([]),
                 workspaces: serde_json::json!([]),

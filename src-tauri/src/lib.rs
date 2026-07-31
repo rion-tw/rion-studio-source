@@ -13,9 +13,9 @@ use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
-    GameWindowTabRecord, GameWindowUpdateInputRecord, MacroRunStatus, StateCollection,
-    StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord, StateResolutionRecord,
-    StateRoleRecord, migrate_legacy_data_root,
+    GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, MacroRunStatus,
+    StateCollection, StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord,
+    StateResolutionRecord, StateRoleRecord, migrate_legacy_data_root,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -262,13 +262,11 @@ struct GameWindowTabDragSession {
     detached: bool,
     detach_requested: bool,
     id: String,
-    name: String,
     prepared: bool,
     provisional_window_id: String,
     source_window_id: String,
     tab_id: String,
     target: EmbeddedLaunchTargetRecord,
-    target_display: DisplayTargetRecord,
 }
 
 #[derive(Clone)]
@@ -278,11 +276,19 @@ struct WorkspaceConflictRollbackPlan {
     before_tab_id: Option<String>,
     hidden: bool,
     role_zoom_factor: Option<f64>,
+    role_views: Vec<GameWindowRoleViewRecord>,
     source_id: String,
     tab_id: String,
     tab_type: String,
     target: EmbeddedLaunchTargetRecord,
     window_index: usize,
+}
+
+struct SavedWindowTakeover {
+    original_target_tab_ids: HashSet<String>,
+    plans: Vec<WorkspaceConflictRollbackPlan>,
+    recovery_records: Vec<StateGameWindowRecord>,
+    target_window_id: String,
 }
 
 fn sort_workspace_conflict_rollback_plans(plans: &mut [WorkspaceConflictRollbackPlan]) {
@@ -319,6 +325,7 @@ async fn rollback_workspace_conflicts(
     plans: &[WorkspaceConflictRollbackPlan],
 ) -> Vec<String> {
     let mut errors = Vec::new();
+    let mut restored_tab_ids = HashMap::new();
     for plan in plans.iter().rev() {
         let launch = if plan.tab_type == "workspace" {
             CoreCommand::BrowserWorkspaceLaunch {
@@ -336,10 +343,31 @@ async fn rollback_workspace_conflicts(
             errors.push(format!("launch {}: {error}", plan.source_id));
             continue;
         }
+        let restored_tab_id = browser_runtime_snapshot(state)
+            .ok()
+            .and_then(|snapshot| {
+                snapshot
+                    .tabs
+                    .into_iter()
+                    .find(|tab| {
+                        tab.window_id == plan.target.window_id
+                            && tab.tab_type == plan.tab_type
+                            && tab.source_id == plan.source_id
+                    })
+                    .map(|tab| tab.id)
+            })
+            .unwrap_or_else(|| plan.tab_id.clone());
+        restored_tab_ids.insert(plan.tab_id.clone(), restored_tab_id.clone());
+        let before_tab_id = plan.before_tab_id.as_ref().map(|before_tab_id| {
+            restored_tab_ids
+                .get(before_tab_id)
+                .cloned()
+                .unwrap_or_else(|| before_tab_id.clone())
+        });
         if let Err(error) = Arc::clone(&state.core)
             .invoke_async(CoreCommand::EmbeddedTabReorder {
-                tab_id: plan.tab_id.clone(),
-                before_tab_id: plan.before_tab_id.clone(),
+                tab_id: restored_tab_id.clone(),
+                before_tab_id,
             })
             .await
         {
@@ -348,23 +376,31 @@ async fn rollback_workspace_conflicts(
         if plan.hidden
             && let Err(error) = Arc::clone(&state.core)
                 .invoke_async(CoreCommand::EmbeddedTabHide {
-                    tab_id: plan.tab_id.clone(),
+                    tab_id: restored_tab_id.clone(),
                 })
                 .await
         {
             errors.push(format!("hide {}: {error}", plan.tab_id));
         }
         if plan.audio_muted
-            && let Err(error) = state.runtime.set_tab_audio_muted(&plan.tab_id, true)
+            && let Err(error) = state.runtime.set_tab_audio_muted(&restored_tab_id, true)
         {
             errors.push(format!("mute {}: {error}", plan.tab_id));
         }
+        if let Err(error) = state
+            .runtime
+            .restore_tab_role_views(&restored_tab_id, &plan.role_views)
+        {
+            errors.push(format!("layout {}: {error}", plan.tab_id));
+        }
     }
     for plan in plans.iter().filter(|plan| plan.active && !plan.hidden) {
+        let tab_id = restored_tab_ids
+            .get(&plan.tab_id)
+            .cloned()
+            .unwrap_or_else(|| plan.tab_id.clone());
         if let Err(error) = Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedTabActivate {
-                tab_id: plan.tab_id.clone(),
-            })
+            .invoke_async(CoreCommand::EmbeddedTabActivate { tab_id })
             .await
         {
             errors.push(format!("activate {}: {error}", plan.tab_id));
@@ -418,6 +454,178 @@ fn workspace_conflict_transaction_error(
             rollback_errors.join("; ")
         ),
     )
+}
+
+async fn begin_saved_window_takeover(
+    state: &CoreState,
+    saved: &StateGameWindowRecord,
+    game_windows: &[StateGameWindowRecord],
+) -> Result<SavedWindowTakeover, CoreErrorPayload> {
+    let snapshot = browser_runtime_snapshot(state)?;
+    let desired_roles = saved
+        .tabs
+        .iter()
+        .flat_map(|tab| tab.role_ids.iter().cloned())
+        .collect::<HashSet<_>>();
+    let desired_sources = saved
+        .tabs
+        .iter()
+        .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+        .collect::<HashSet<_>>();
+    let original_target_tab_ids = snapshot
+        .tabs
+        .iter()
+        .filter(|tab| tab.window_id == saved.id)
+        .map(|tab| tab.id.clone())
+        .collect::<HashSet<_>>();
+    let conflicting_tabs = snapshot
+        .tabs
+        .iter()
+        .filter(|tab| {
+            tab.window_id != saved.id
+                && (desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
+                    || tab
+                        .role_ids
+                        .iter()
+                        .any(|role_id| desired_roles.contains(role_id)))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut affected_window_ids = HashSet::from([saved.id.clone()]);
+    let mut plans = Vec::with_capacity(conflicting_tabs.len());
+    for tab in conflicting_tabs {
+        let runtime_window = snapshot
+            .windows
+            .iter()
+            .find(|window| window.window_id == tab.window_id)
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                    "A conflicting runtime tab has no runtime window.",
+                )
+            })?;
+        let window_index = runtime_window
+            .tab_ids
+            .iter()
+            .position(|tab_id| tab_id == &tab.id)
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_SNAPSHOT_INVALID",
+                    "A conflicting runtime tab is missing from its window order.",
+                )
+            })?;
+        let role_views = state
+            .runtime
+            .runtime_tab_role_views(&tab.id)
+            .map_err(|error| shell_error("TAURI_RUNTIME_ROLE_NOT_FOUND", error))?;
+        affected_window_ids.insert(tab.window_id.clone());
+        plans.push(WorkspaceConflictRollbackPlan {
+            active: runtime_window.active_tab_id.as_deref() == Some(tab.id.as_str()),
+            audio_muted: state
+                .runtime
+                .tab_audio_muted(&tab.id)
+                .map_err(|error| shell_error("TAURI_RUNTIME_AUDIO_FAILED", error))?,
+            before_tab_id: runtime_window.tab_ids.get(window_index + 1).cloned(),
+            hidden: tab.hidden,
+            role_zoom_factor: (tab.tab_type == "role")
+                .then(|| {
+                    role_views
+                        .first()
+                        .map(|view| view.browser_zoom_percent / 100.0)
+                })
+                .flatten(),
+            role_views,
+            source_id: tab.source_id,
+            tab_id: tab.id,
+            tab_type: tab.tab_type,
+            target: state
+                .runtime
+                .launch_target_for_window_id(&tab.window_id)
+                .map_err(|error| shell_error("TAURI_RUNTIME_DISPLAY_NOT_FOUND", error))?,
+            window_index,
+        });
+    }
+    sort_workspace_conflict_rollback_plans(&mut plans);
+    let recovery_records = game_windows
+        .iter()
+        .filter(|window| affected_window_ids.contains(&window.id))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    for index in 0..plans.len() {
+        if let Err(error) = stop_workspace_conflict(state, &plans[index]).await {
+            let mut rollback_errors = restore_workspace_conflict_metadata(state, &recovery_records);
+            rollback_errors.extend(rollback_workspace_conflicts(state, &plans[..index]).await);
+            return Err(workspace_conflict_transaction_error(
+                state,
+                error,
+                rollback_errors,
+                &recovery_records,
+            ));
+        }
+    }
+    let persistence_errors = restore_workspace_conflict_metadata(state, &recovery_records);
+    if !persistence_errors.is_empty() {
+        let mut rollback_errors = persistence_errors;
+        rollback_errors.extend(rollback_workspace_conflicts(state, &plans).await);
+        return Err(workspace_conflict_transaction_error(
+            state,
+            shell_error(
+                "TAURI_GAME_WINDOW_TAKEOVER_PERSIST_FAILED",
+                "Saved Game Window configurations could not be preserved during takeover.",
+            ),
+            rollback_errors,
+            &recovery_records,
+        ));
+    }
+    Ok(SavedWindowTakeover {
+        original_target_tab_ids,
+        plans,
+        recovery_records,
+        target_window_id: saved.id.clone(),
+    })
+}
+
+async fn rollback_saved_window_takeover(
+    state: &CoreState,
+    takeover: &SavedWindowTakeover,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    if let Ok(snapshot) = browser_runtime_snapshot(state) {
+        let launched_target_tabs = snapshot
+            .tabs
+            .iter()
+            .filter(|tab| {
+                tab.window_id == takeover.target_window_id
+                    && !takeover.original_target_tab_ids.contains(&tab.id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for tab in launched_target_tabs.into_iter().rev() {
+            let command = if tab.tab_type == "workspace" {
+                CoreCommand::BrowserWorkspaceStop {
+                    workspace_id: tab.source_id.clone(),
+                }
+            } else {
+                CoreCommand::BrowserRoleStop {
+                    role_id: tab.source_id.clone(),
+                }
+            };
+            if let Err(error) = Arc::clone(&state.core).invoke_async(command).await {
+                errors.push(format!("stop takeover tab {}: {error}", tab.id));
+            }
+        }
+    }
+    errors.extend(restore_workspace_conflict_metadata(
+        state,
+        &takeover.recovery_records,
+    ));
+    errors.extend(rollback_workspace_conflicts(state, &takeover.plans).await);
+    errors.extend(restore_workspace_conflict_metadata(
+        state,
+        &takeover.recovery_records,
+    ));
+    errors
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -669,7 +877,11 @@ fn preview_game_window_close(
     core: &AppCore,
     window_id: &str,
 ) -> Result<GameWindowClosePreview, CoreErrorPayload> {
-    let name = game_window_record(core, window_id)?.name;
+    let name = match game_window_record(core, window_id) {
+        Ok(record) => record.name,
+        Err(error) if error.code == "GAME_WINDOW_NOT_FOUND" => String::new(),
+        Err(error) => return Err(error),
+    };
     let snapshot = core
         .invoke(CoreCommand::BrowserRuntimeSnapshot)
         .map_err(error_payload)
@@ -715,61 +927,87 @@ fn game_window_close_copy(language: &str, preview: &GameWindowClosePreview) -> G
     let roles = preview.role_count;
     let macros = preview.running_macro_count;
     match language {
-        "zh-TW" => GameWindowCloseCopy {
-            title: format!("停止並關閉「{}」？", preview.name),
-            message: if preview.launching && macros > 0 {
-                format!(
-                    "此視窗有 {roles} 個角色、{macros} 個執行中巨集，且仍有角色正在啟動。停止並關閉會取消這些工作。"
-                )
-            } else if preview.launching {
-                format!("此視窗有 {roles} 個角色，且仍有角色正在啟動。停止並關閉會取消啟動。")
+        "zh-TW" => {
+            let name = if preview.name.is_empty() {
+                "暫存遊戲視窗"
             } else {
-                format!(
-                    "此視窗有 {roles} 個角色與 {macros} 個執行中巨集。停止並關閉會結束這些工作。"
-                )
-            },
-            confirm: "停止並關閉".to_owned(),
-            cancel: "取消".to_owned(),
-        },
-        "zh-CN" => GameWindowCloseCopy {
-            title: format!("停止并关闭“{}”？", preview.name),
-            message: if preview.launching && macros > 0 {
-                format!(
-                    "此窗口有 {roles} 个角色、{macros} 个运行中的宏，且仍有角色正在启动。停止并关闭会取消这些工作。"
-                )
-            } else if preview.launching {
-                format!("此窗口有 {roles} 个角色，且仍有角色正在启动。停止并关闭会取消启动。")
+                &preview.name
+            };
+            GameWindowCloseCopy {
+                title: format!("停止並關閉「{name}」？"),
+                message: if preview.launching && macros > 0 {
+                    format!(
+                        "此視窗有 {roles} 個角色、{macros} 個執行中巨集，且仍有角色正在啟動。停止並關閉會取消這些工作。"
+                    )
+                } else if preview.launching {
+                    format!("此視窗有 {roles} 個角色，且仍有角色正在啟動。停止並關閉會取消啟動。")
+                } else {
+                    format!(
+                        "此視窗有 {roles} 個角色與 {macros} 個執行中巨集。停止並關閉會結束這些工作。"
+                    )
+                },
+                confirm: "停止並關閉".to_owned(),
+                cancel: "取消".to_owned(),
+            }
+        }
+        "zh-CN" => {
+            let name = if preview.name.is_empty() {
+                "临时游戏窗口"
             } else {
-                format!(
-                    "此窗口有 {roles} 个角色和 {macros} 个运行中的宏。停止并关闭会结束这些工作。"
-                )
-            },
-            confirm: "停止并关闭".to_owned(),
-            cancel: "取消".to_owned(),
-        },
-        "ja" => GameWindowCloseCopy {
-            title: format!("「{}」を停止して閉じますか？", preview.name),
-            message: if preview.launching && macros > 0 {
-                format!(
-                    "このウインドウでは {roles} 個のロールと {macros} 個のマクロが実行され、起動中のロールもあります。停止して閉じると、これらの処理をキャンセルします。"
-                )
-            } else if preview.launching {
-                format!(
-                    "このウインドウでは {roles} 個のロールがあり、起動中のロールもあります。停止して閉じると起動をキャンセルします。"
-                )
+                &preview.name
+            };
+            GameWindowCloseCopy {
+                title: format!("停止并关闭“{name}”？"),
+                message: if preview.launching && macros > 0 {
+                    format!(
+                        "此窗口有 {roles} 个角色、{macros} 个运行中的宏，且仍有角色正在启动。停止并关闭会取消这些工作。"
+                    )
+                } else if preview.launching {
+                    format!("此窗口有 {roles} 个角色，且仍有角色正在启动。停止并关闭会取消启动。")
+                } else {
+                    format!(
+                        "此窗口有 {roles} 个角色和 {macros} 个运行中的宏。停止并关闭会结束这些工作。"
+                    )
+                },
+                confirm: "停止并关闭".to_owned(),
+                cancel: "取消".to_owned(),
+            }
+        }
+        "ja" => {
+            let name = if preview.name.is_empty() {
+                "一時ゲームウインドウ"
             } else {
-                format!(
-                    "このウインドウでは {roles} 個のロールと {macros} 個のマクロが実行中です。停止して閉じると、これらの処理を終了します。"
-                )
-            },
-            confirm: "停止して閉じる".to_owned(),
-            cancel: "キャンセル".to_owned(),
-        },
+                &preview.name
+            };
+            GameWindowCloseCopy {
+                title: format!("「{name}」を停止して閉じますか？"),
+                message: if preview.launching && macros > 0 {
+                    format!(
+                        "このウインドウでは {roles} 個のロールと {macros} 個のマクロが実行され、起動中のロールもあります。停止して閉じると、これらの処理をキャンセルします。"
+                    )
+                } else if preview.launching {
+                    format!(
+                        "このウインドウでは {roles} 個のロールがあり、起動中のロールもあります。停止して閉じると起動をキャンセルします。"
+                    )
+                } else {
+                    format!(
+                        "このウインドウでは {roles} 個のロールと {macros} 個のマクロが実行中です。停止して閉じると、これらの処理を終了します。"
+                    )
+                },
+                confirm: "停止して閉じる".to_owned(),
+                cancel: "キャンセル".to_owned(),
+            }
+        }
         _ => {
             let role_label = if roles == 1 { "role" } else { "roles" };
             let macro_label = if macros == 1 { "macro" } else { "macros" };
+            let name = if preview.name.is_empty() {
+                "Temporary Game Window"
+            } else {
+                &preview.name
+            };
             GameWindowCloseCopy {
-                title: format!("Stop and close “{}”?", preview.name),
+                title: format!("Stop and close “{name}”?"),
                 message: if preview.launching && macros > 0 {
                     format!(
                         "This window has {roles} {role_label}, {macros} running {macro_label}, and roles that are still launching. Stopping and closing cancels this work."
@@ -1804,6 +2042,10 @@ async fn rion_shell_invoke(
                                     })?,
                             )
                         },
+                        role_views: state
+                            .runtime
+                            .runtime_tab_role_views(tab_id)
+                            .map_err(|error| shell_error("TAURI_RUNTIME_ROLE_NOT_FOUND", error))?,
                         source_id: source_id.to_owned(),
                         tab_id: tab_id.to_owned(),
                         tab_type: tab["tabType"].as_str().unwrap_or("role").to_owned(),
@@ -1927,13 +2169,21 @@ async fn rion_shell_invoke(
                     })
                 })?;
             let mut operation_record = updated;
-            if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
+            if state.runtime.window_for_id(&window_id).is_some() {
                 let native_result = (|| {
-                    runtime_window
-                        .set_title(crate::system_runtime::native_runtime_window_title(
-                            &operation_record.name,
-                        ))
-                        .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+                    let game_windows = state
+                        .core
+                        .invoke(CoreCommand::GameWindowsList)
+                        .map_err(error_payload)
+                        .and_then(|value| {
+                            serde_json::from_value::<Vec<StateGameWindowRecord>>(value).map_err(
+                                |error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()),
+                            )
+                        })?;
+                    state
+                        .runtime
+                        .refresh_saved_game_windows(&game_windows)
+                        .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error))?;
                     if should_relocate {
                         let target = launch_target_for_game_window(&app, &window_id)?;
                         operation_record = game_window_record(&state.core, &window_id)?;
@@ -1948,7 +2198,7 @@ async fn rion_shell_invoke(
                 })();
                 if let Err(native_error) = native_result {
                     let current = game_window_record(&state.core, &window_id)?;
-                    let authoritative = if same_game_window_record(&current, &operation_record) {
+                    let _authoritative = if same_game_window_record(&current, &operation_record) {
                         match state
                             .core
                             .invoke(CoreCommand::GameWindowUpdate {
@@ -1978,9 +2228,19 @@ async fn rion_shell_invoke(
                     } else {
                         current
                     };
-                    if let Err(error) = runtime_window.set_title(
-                        crate::system_runtime::native_runtime_window_title(&authoritative.name),
-                    ) {
+                    let authoritative_windows = state
+                        .core
+                        .invoke(CoreCommand::GameWindowsList)
+                        .map_err(error_payload)
+                        .and_then(|value| {
+                            serde_json::from_value::<Vec<StateGameWindowRecord>>(value).map_err(
+                                |error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()),
+                            )
+                        })?;
+                    if let Err(error) = state
+                        .runtime
+                        .refresh_saved_game_windows(&authoritative_windows)
+                    {
                         return Err(game_window_recovery_error(
                             "SHELL_GAME_WINDOW_RECONCILE_FAILED",
                             &native_error,
@@ -2557,17 +2817,25 @@ async fn restore_saved_game_windows(
             serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                 .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
         })?;
-    let selected = game_windows
-        .iter()
-        .filter(|saved| match scope {
-            "window" => Some(saved.id.as_str()) == input["windowId"].as_str(),
-            // Visibility is deliberately not duplicated in the lifecycle
-            // journal. Every permanent window reopens after a clean launch.
-            "last-visible" | "all" => true,
-            _ => false,
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let last_focused_window_id = state
+        .core
+        .invoke(CoreCommand::RuntimeRestoreSessionGet)
+        .ok()
+        .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned));
+    let selected = if scope == "window" {
+        game_windows
+            .iter()
+            .filter(|saved| Some(saved.id.as_str()) == input["windowId"].as_str())
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        let runtime_before_restore = browser_runtime_snapshot(state)?;
+        select_auto_restore_saved_windows(
+            &game_windows,
+            last_focused_window_id.as_deref(),
+            &runtime_before_restore,
+        )
+    };
     let recovery_flow = state.runtime.recovery_required();
     replace_restore_progress(
         state,
@@ -2587,6 +2855,11 @@ async fn restore_saved_game_windows(
                 }));
                 continue;
             }
+        };
+        let takeover = if scope == "window" {
+            Some(begin_saved_window_takeover(state, &saved, &game_windows).await?)
+        } else {
+            None
         };
         let mut window_failed = false;
         if saved.tabs.is_empty()
@@ -2756,6 +3029,36 @@ async fn restore_saved_game_windows(
             }));
             window_failed = true;
         }
+        if let Some(takeover) = takeover.as_ref() {
+            if window_failed {
+                let rollback_errors = rollback_saved_window_takeover(state, takeover).await;
+                if !rollback_errors.is_empty() {
+                    state.runtime.mark_unhealthy_after_failed_compensation();
+                    return Err(shell_error(
+                        "TAURI_GAME_WINDOW_TAKEOVER_ROLLBACK_FAILED",
+                        format!(
+                            "Opening the saved Game Window failed, and its previous runtime could not be restored: {}",
+                            rollback_errors.join("; ")
+                        ),
+                    ));
+                }
+            } else {
+                let persistence_errors =
+                    restore_workspace_conflict_metadata(state, &takeover.recovery_records);
+                if !persistence_errors.is_empty() {
+                    let mut rollback_errors = persistence_errors;
+                    rollback_errors.extend(rollback_saved_window_takeover(state, takeover).await);
+                    state.runtime.mark_unhealthy_after_failed_compensation();
+                    return Err(shell_error(
+                        "TAURI_GAME_WINDOW_TAKEOVER_ROLLBACK_FAILED",
+                        format!(
+                            "The saved Game Window opened, but its reusable configurations could not be preserved: {}",
+                            rollback_errors.join("; ")
+                        ),
+                    ));
+                }
+            }
+        }
         if !window_failed {
             restored_ids.push(saved.id.clone());
         }
@@ -2767,11 +3070,7 @@ async fn restore_saved_game_windows(
         })
         .map(game_window_restore_record)
         .collect::<Vec<_>>();
-    let focus_window_id = state
-        .core
-        .invoke(CoreCommand::RuntimeRestoreSessionGet)
-        .ok()
-        .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned))
+    let focus_window_id = last_focused_window_id
         .filter(|window_id| restored_ids.contains(window_id))
         .or_else(|| restored_ids.last().cloned());
     restore_progress.finish()?;
@@ -2813,10 +3112,18 @@ fn match_runtime_restore_tab(
     window_id: &str,
     saved: &GameWindowTabRecord,
 ) -> RuntimeRestoreTabMatch {
+    let saved_role_ids = saved.role_ids.iter().collect::<HashSet<_>>();
     let Some(tab) = snapshot
         .tabs
         .iter()
         .find(|tab| tab.source_id == saved.source_id && tab.tab_type == saved.tab_type)
+        .or_else(|| {
+            snapshot.tabs.iter().find(|tab| {
+                tab.role_ids
+                    .iter()
+                    .any(|role_id| saved_role_ids.contains(role_id))
+            })
+        })
     else {
         return RuntimeRestoreTabMatch::Missing;
     };
@@ -2830,6 +3137,86 @@ fn match_runtime_restore_tab(
             window_id: tab.window_id.clone(),
         }
     }
+}
+
+fn select_non_conflicting_saved_windows(
+    game_windows: &[StateGameWindowRecord],
+    last_focused_window_id: Option<&str>,
+) -> Vec<StateGameWindowRecord> {
+    let mut ordered = game_windows.iter().collect::<Vec<_>>();
+    if let Some(last_focused_window_id) = last_focused_window_id
+        && let Some(index) = ordered
+            .iter()
+            .position(|window| window.id == last_focused_window_id)
+    {
+        let focused = ordered.remove(index);
+        ordered.insert(0, focused);
+    }
+    let mut claimed_roles = HashSet::new();
+    let mut claimed_sources = HashSet::new();
+    ordered
+        .into_iter()
+        .filter(|window| {
+            let roles = window
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.role_ids.iter())
+                .collect::<HashSet<_>>();
+            let sources = window
+                .tabs
+                .iter()
+                .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+                .collect::<HashSet<_>>();
+            if roles.iter().any(|role_id| claimed_roles.contains(*role_id))
+                || sources
+                    .iter()
+                    .any(|source| claimed_sources.contains(source))
+            {
+                return false;
+            }
+            claimed_roles.extend(roles.into_iter().cloned());
+            claimed_sources.extend(sources);
+            true
+        })
+        .cloned()
+        .collect()
+}
+
+fn select_auto_restore_saved_windows(
+    game_windows: &[StateGameWindowRecord],
+    last_focused_window_id: Option<&str>,
+    snapshot: &BrowserRuntimeSnapshot,
+) -> Vec<StateGameWindowRecord> {
+    let eligible = game_windows
+        .iter()
+        .filter(|saved| !saved_window_conflicts_with_runtime(saved, snapshot))
+        .cloned()
+        .collect::<Vec<_>>();
+    select_non_conflicting_saved_windows(&eligible, last_focused_window_id)
+}
+
+fn saved_window_conflicts_with_runtime(
+    saved: &StateGameWindowRecord,
+    snapshot: &BrowserRuntimeSnapshot,
+) -> bool {
+    let desired_roles = saved
+        .tabs
+        .iter()
+        .flat_map(|tab| tab.role_ids.iter())
+        .collect::<HashSet<_>>();
+    let desired_sources = saved
+        .tabs
+        .iter()
+        .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+        .collect::<HashSet<_>>();
+    snapshot.tabs.iter().any(|tab| {
+        tab.window_id != saved.id
+            && (desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
+                || tab
+                    .role_ids
+                    .iter()
+                    .any(|role_id| desired_roles.contains(role_id)))
+    })
 }
 
 fn game_window_restore_record(
@@ -2993,7 +3380,7 @@ fn game_window_launch_target_internal(
     requested_window_id: Option<&str>,
     force_new: bool,
 ) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
-    let mut game_windows = state
+    let game_windows = state
         .core
         .invoke(CoreCommand::GameWindowsList)
         .map_err(error_payload)
@@ -3017,89 +3404,43 @@ fn game_window_launch_target_internal(
                 .or_else(|| game_windows.first().map(|window| window.id.clone()))
         })
         .flatten();
-    let selected_id = if let Some(id) = selected_id {
-        id
+    if let Some(id) = selected_id {
+        return launch_target_for_game_window(app, &id);
+    }
+
+    let mut target = default_display_launch_target(main_window, None)?;
+    let display_id = target.display_id;
+    let work_area = target.work_area.clone();
+    let existing_on_display = game_windows
+        .iter()
+        .filter(|window| window.target_display.id == display_id)
+        .count() as i32;
+    let width = if work_area.width >= 960 {
+        ((work_area.width as f64 * 0.8).round() as i32).max(960)
     } else {
-        let base_target = default_display_launch_target(main_window, None)?;
-        let display_id = base_target.display_id;
-        let work_area = base_target.work_area;
-        let existing_on_display = game_windows
-            .iter()
-            .filter(|window| window.target_display.id == display_id)
-            .count() as i32;
-        let width = if work_area.width >= 960 {
-            ((work_area.width as f64 * 0.8).round() as i32).max(960)
-        } else {
-            work_area.width
-        }
-        .min(work_area.width)
-        .max(640.min(work_area.width));
-        let height = if work_area.height >= 640 {
-            ((work_area.height as f64 * 0.8).round() as i32).max(640)
-        } else {
-            work_area.height
-        }
-        .min(work_area.height)
-        .max(480.min(work_area.height));
-        let cascade = (existing_on_display * 24).min(240);
-        let max_x = work_area.x + (work_area.width - width).max(0);
-        let max_y = work_area.y + (work_area.height - height).max(0);
-        let x = (work_area.x + (work_area.width - width) / 2 + cascade).min(max_x);
-        let y = (work_area.y + (work_area.height - height) / 2 + cascade).min(max_y);
-        let language = state
-            .menu_language
-            .lock()
-            .map(|value| value.clone())
-            .unwrap_or_else(|_| "en".to_owned());
-        let name = next_game_window_name(&game_windows, &language);
-        let primary_id = app
-            .primary_monitor()
-            .ok()
-            .flatten()
-            .as_ref()
-            .map(monitor_id);
-        let target_display = app
-            .available_monitors()
-            .ok()
-            .and_then(|monitors| {
-                monitors
-                    .into_iter()
-                    .find(|monitor| monitor_id(monitor) == display_id)
-            })
-            .map(|monitor| display_target_and_work_area(&monitor, primary_id).0)
-            .unwrap_or(DisplayTargetRecord {
-                id: display_id,
-                fingerprint: None,
-            });
-        let created = state
-            .core
-            .invoke(CoreCommand::GameWindowCreate {
-                input: GameWindowCreateInputRecord {
-                    id: None,
-                    name,
-                    target_display,
-                    placement: GameWindowPlacementRecord {
-                        normal_bounds: StatePixelBoundsRecord {
-                            x,
-                            y,
-                            width,
-                            height,
-                        },
-                        saved_work_area: work_area,
-                        presentation: "normal".to_owned(),
-                    },
-                },
-            })
-            .map_err(error_payload)
-            .and_then(|value| {
-                serde_json::from_value::<StateGameWindowRecord>(value)
-                    .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
-            })?;
-        let id = created.id.clone();
-        game_windows.push(created);
-        id
+        work_area.width
+    }
+    .min(work_area.width)
+    .max(640.min(work_area.width));
+    let height = if work_area.height >= 640 {
+        ((work_area.height as f64 * 0.8).round() as i32).max(640)
+    } else {
+        work_area.height
+    }
+    .min(work_area.height)
+    .max(480.min(work_area.height));
+    let cascade = (existing_on_display * 24).min(240);
+    let max_x = work_area.x + (work_area.width - width).max(0);
+    let max_y = work_area.y + (work_area.height - height).max(0);
+    let x = (work_area.x + (work_area.width - width) / 2 + cascade).min(max_x);
+    let y = (work_area.y + (work_area.height - height) / 2 + cascade).min(max_y);
+    target.bounds = StatePixelBoundsRecord {
+        x,
+        y,
+        width,
+        height,
     };
-    launch_target_for_game_window(app, &selected_id)
+    Ok(target)
 }
 
 fn default_display_launch_target(
@@ -3400,32 +3741,9 @@ pub(crate) async fn handle_game_window_tab_drag(
                     )
                 })?;
             let source = state
-                .core
-                .invoke(CoreCommand::GameWindowGet {
-                    id: source_window_id.to_owned(),
-                })
-                .map_err(error_payload)
-                .and_then(|value| {
-                    serde_json::from_value::<StateGameWindowRecord>(value).map_err(|error| {
-                        shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
-                    })
-                })?;
-            let windows = state
-                .core
-                .invoke(CoreCommand::GameWindowsList)
-                .map_err(error_payload)
-                .and_then(|value| {
-                    serde_json::from_value::<Vec<StateGameWindowRecord>>(value).map_err(|error| {
-                        shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
-                    })
-                })?;
-            let source_will_empty = source.tabs.len() == 1;
-            if windows.len() >= 32 && !source_will_empty {
-                return Err(shell_error(
-                    "GAME_WINDOW_LIMIT_REACHED",
-                    "No more than 32 game windows can be saved.",
-                ));
-            }
+                .runtime
+                .launch_target_for_window_id(source_window_id)
+                .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
             if state
                 .tab_drag
                 .lock()
@@ -3440,20 +3758,14 @@ pub(crate) async fn handle_game_window_tab_drag(
                 ));
             }
             let provisional_window_id = uuid::Uuid::new_v4().to_string();
-            let (target, target_display) = provisional_target_for_screen(
+            let target = provisional_target_for_screen(
                 app,
                 &source,
                 &provisional_window_id,
                 screen_x,
                 screen_y,
             )?;
-            let language = state
-                .menu_language
-                .lock()
-                .map(|value| value.clone())
-                .unwrap_or_else(|_| "en".to_owned());
-            let name = next_game_window_name(&windows, &language);
-            let title = tab["name"].as_str().unwrap_or(&name).to_owned();
+            let title = tab["name"].as_str().unwrap_or("Rion Studio").to_owned();
             let initial_target = target.clone();
             *state.tab_drag.lock().map_err(|_| {
                 shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned.")
@@ -3461,13 +3773,11 @@ pub(crate) async fn handle_game_window_tab_drag(
                 detached: false,
                 detach_requested: false,
                 id: session_id.to_owned(),
-                name,
                 prepared: false,
                 provisional_window_id,
                 source_window_id: source_window_id.to_owned(),
                 tab_id: tab_id.to_owned(),
                 target,
-                target_display,
             });
             if let Err(message) = state
                 .runtime
@@ -3549,17 +3859,10 @@ pub(crate) async fn handle_game_window_tab_drag(
                 return Ok(true);
             };
             let source = state
-                .core
-                .invoke(CoreCommand::GameWindowGet {
-                    id: session.source_window_id.clone(),
-                })
-                .map_err(error_payload)
-                .and_then(|value| {
-                    serde_json::from_value::<StateGameWindowRecord>(value).map_err(|error| {
-                        shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())
-                    })
-                })?;
-            let (target, target_display) = provisional_target_for_screen(
+                .runtime
+                .launch_target_for_window_id(&session.source_window_id)
+                .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
+            let target = provisional_target_for_screen(
                 app,
                 &source,
                 &session.provisional_window_id,
@@ -3580,7 +3883,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     return Ok(true);
                 };
                 current.target = target;
-                current.target_display = target_display;
                 current.detach_requested |= outside_source;
                 current.clone()
             };
@@ -3634,10 +3936,14 @@ pub(crate) async fn handle_game_window_tab_drag(
                         .map_err(error_payload)?;
                 }
             } else {
-                let target = match launch_target_for_game_window(app, target_window_id) {
+                let target = match state.runtime.launch_target_for_window_id(target_window_id) {
                     Ok(target) => target,
-                    Err(error) => {
-                        return Err(cancel_tab_drag_preserving_error(state, &session, error));
+                    Err(message) => {
+                        return Err(cancel_tab_drag_preserving_error(
+                            state,
+                            &session,
+                            shell_error("TAURI_TAB_DRAG_INVALID", message),
+                        ));
                     }
                 };
                 let result = Arc::clone(&state.core)
@@ -3831,17 +4137,7 @@ async fn commit_tab_drag_to_new_window(
         .make_provisional_game_window_interactive(&session.provisional_window_id)
         .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     Arc::clone(&state.core)
-        .invoke_async(CoreCommand::GameWindowCreateAndMoveTab {
-            input: GameWindowCreateInputRecord {
-                id: Some(session.provisional_window_id.clone()),
-                name: session.name.clone(),
-                target_display: session.target_display.clone(),
-                placement: GameWindowPlacementRecord {
-                    normal_bounds: session.target.bounds.clone(),
-                    saved_work_area: session.target.work_area.clone(),
-                    presentation: "normal".to_owned(),
-                },
-            },
+        .invoke_async(CoreCommand::EmbeddedTabMoveOrdered {
             tab_id: session.tab_id.clone(),
             target: session.target.clone(),
             before_tab_id: None,
@@ -3853,44 +4149,40 @@ async fn commit_tab_drag_to_new_window(
 
 fn provisional_target_for_screen(
     app: &AppHandle,
-    source: &StateGameWindowRecord,
+    source: &EmbeddedLaunchTargetRecord,
     provisional_window_id: &str,
     screen_x: f64,
     screen_y: f64,
-) -> Result<(EmbeddedLaunchTargetRecord, DisplayTargetRecord), CoreErrorPayload> {
+) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
     let monitors = app
         .available_monitors()
         .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
     let primary = app
         .primary_monitor()
         .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
-    let primary_id = primary.as_ref().map(monitor_id);
     let monitor = monitor_near_screen_point(&monitors, screen_x, screen_y)
         .or(primary)
         .or_else(|| monitors.first().cloned())
         .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
-    let (target_display, work_area) = display_target_and_work_area(&monitor, primary_id);
+    let (_, work_area) = display_target_and_work_area(&monitor, None);
     let (screen_x, screen_y) = if cfg!(windows) {
         let scale = monitor.scale_factor().max(f64::EPSILON);
         (screen_x / scale, screen_y / scale)
     } else {
         (screen_x, screen_y)
     };
-    let mut bounds = source.placement.normal_bounds.clone();
+    let mut bounds = source.bounds.clone();
     bounds.x = (screen_x - f64::from(bounds.width) / 2.0).round() as i32;
     bounds.y = (screen_y - 28.0).round() as i32;
     bounds = clamp_window_bounds(&bounds, &work_area);
-    Ok((
-        EmbeddedLaunchTargetRecord {
-            window_id: provisional_window_id.to_owned(),
-            display_id: monitor_id(&monitor),
-            scale_factor: monitor.scale_factor().max(f64::EPSILON),
-            work_area,
-            bounds,
-            presentation: "normal".to_owned(),
-        },
-        target_display,
-    ))
+    Ok(EmbeddedLaunchTargetRecord {
+        window_id: provisional_window_id.to_owned(),
+        display_id: monitor_id(&monitor),
+        scale_factor: monitor.scale_factor().max(f64::EPSILON),
+        work_area,
+        bounds,
+        presentation: "normal".to_owned(),
+    })
 }
 
 pub(crate) async fn move_game_window_tab_to_new_window(
@@ -3898,7 +4190,7 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     state: &CoreState,
     tab_id: &str,
     screen_point: Option<(f64, f64)>,
-) -> Result<StateGameWindowRecord, CoreErrorPayload> {
+) -> Result<Value, CoreErrorPayload> {
     let runtime = state
         .core
         .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -3909,50 +4201,25 @@ pub(crate) async fn move_game_window_tab_to_new_window(
         .and_then(|tab| tab["windowId"].as_str())
         .ok_or_else(|| shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
     let source = state
-        .core
-        .invoke(CoreCommand::GameWindowGet {
-            id: source_window_id.to_owned(),
-        })
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<StateGameWindowRecord>(value)
-                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
-        })?;
-    let windows = state
-        .core
-        .invoke(CoreCommand::GameWindowsList)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
-        })?;
-    let language = state
-        .menu_language
-        .lock()
-        .map(|value| value.clone())
-        .unwrap_or_else(|_| "en".to_owned());
-    let name = next_game_window_name(&windows, &language);
+        .runtime
+        .launch_target_for_window_id(source_window_id)
+        .map_err(|message| shell_error("TAURI_RUNTIME_WINDOW_NOT_FOUND", message))?;
 
     let monitors = app
         .available_monitors()
         .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
-    let primary_id = app
-        .primary_monitor()
-        .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?
-        .as_ref()
-        .map(monitor_id);
     let monitor = screen_point
         .and_then(|(x, y)| monitor_near_screen_point(&monitors, x, y))
         .or_else(|| {
             monitors
                 .iter()
-                .find(|monitor| monitor_id(monitor) == source.target_display.id)
+                .find(|monitor| monitor_id(monitor) == source.display_id)
                 .cloned()
         })
         .or_else(|| monitors.first().cloned())
         .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
-    let (target_display, work_area) = display_target_and_work_area(&monitor, primary_id);
-    let mut bounds = source.placement.normal_bounds.clone();
+    let (_, work_area) = display_target_and_work_area(&monitor, None);
+    let mut bounds = source.bounds.clone();
     if let Some((x, y)) = screen_point {
         bounds.x = (x - f64::from(bounds.width) / 2.0).round() as i32;
         bounds.y = (y - 28.0).round() as i32;
@@ -3965,34 +4232,21 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     let window_id = uuid::Uuid::new_v4().to_string();
     let target = EmbeddedLaunchTargetRecord {
         window_id: window_id.clone(),
-        display_id: target_display.id,
+        display_id: monitor_id(&monitor),
         scale_factor: monitor.scale_factor().max(f64::EPSILON),
         work_area: work_area.clone(),
         bounds: bounds.clone(),
         presentation: "normal".to_owned(),
     };
     Arc::clone(&state.core)
-        .invoke_async(CoreCommand::GameWindowCreateAndMoveTab {
-            input: GameWindowCreateInputRecord {
-                id: Some(window_id),
-                name,
-                target_display,
-                placement: GameWindowPlacementRecord {
-                    normal_bounds: bounds,
-                    saved_work_area: work_area,
-                    presentation: "normal".to_owned(),
-                },
-            },
+        .invoke_async(CoreCommand::EmbeddedTabMoveOrdered {
             tab_id: tab_id.to_owned(),
             target,
             before_tab_id: None,
         })
         .await
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<StateGameWindowRecord>(value)
-                .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
-        })
+        .map_err(error_payload)?;
+    Ok(json!({ "windowId": window_id }))
 }
 
 fn next_game_window_name(windows: &[StateGameWindowRecord], language: &str) -> String {
@@ -4382,9 +4636,36 @@ pub fn run() {
                                                 collection,
                                                 StateCollection::Roles
                                                     | StateCollection::LaunchWorkspaces
+                                                    | StateCollection::GameWindows
                                             )
                                         })
                                     );
+                                    if matches!(
+                                        &event,
+                                        CoreEvent::StateChanged { changed_collections, .. }
+                                            if changed_collections.iter().any(|collection| {
+                                                matches!(collection, StateCollection::GameWindows)
+                                            })
+                                    ) {
+                                        let game_windows = effect_core
+                                            .invoke(CoreCommand::GameWindowsList)
+                                            .ok()
+                                            .and_then(|value| {
+                                                serde_json::from_value::<
+                                                    Vec<StateGameWindowRecord>,
+                                                >(value)
+                                                .ok()
+                                            });
+                                        if let Some(game_windows) = game_windows
+                                            && let Err(message) = effect_runtime
+                                                .refresh_saved_game_windows(&game_windows)
+                                        {
+                                            reveal_shell_error(
+                                                &app_handle,
+                                                shell_error("SHELL_WINDOW_FAILED", message),
+                                            );
+                                        }
+                                    }
                                     if refresh_quick_menu || refresh_runtime_launcher {
                                         let language = app_handle
                                             .try_state::<CoreState>()
@@ -4714,6 +4995,7 @@ mod tests {
             before_tab_id: None,
             hidden: false,
             role_zoom_factor: None,
+            role_views: Vec::new(),
             source_id: source_id.to_owned(),
             tab_id: format!("tab-{source_id}"),
             tab_type: "role".to_owned(),
@@ -5024,9 +5306,82 @@ mod tests {
 
         let mut missing = saved;
         missing.source_id = "role-2".to_owned();
+        missing.role_ids = vec!["role-2".to_owned()];
         assert_eq!(
             match_runtime_restore_tab(&snapshot, "window-1", &missing),
             RuntimeRestoreTabMatch::Missing
+        );
+    }
+
+    #[test]
+    fn restore_selection_prioritizes_last_focus_and_keeps_overlaps_dormant() {
+        let window = |id: &str, role_id: &str| {
+            serde_json::from_value::<StateGameWindowRecord>(json!({
+                "id": id,
+                "name": id,
+                "targetDisplay": { "id": 1 },
+                "placement": {
+                    "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": "normal"
+                },
+                "tabs": [{
+                    "id": format!("tab-{id}"),
+                    "tabType": "role",
+                    "sourceId": role_id,
+                    "name": role_id,
+                    "roleIds": [role_id],
+                    "hidden": false,
+                    "audioMuted": false,
+                    "roleViews": []
+                }],
+                "activeTabId": format!("tab-{id}"),
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap()
+        };
+        let windows = vec![
+            window("window-a", "role-shared"),
+            window("window-b", "role-shared"),
+            window("window-c", "role-independent"),
+        ];
+
+        let selected = select_non_conflicting_saved_windows(&windows, Some("window-b"));
+        assert_eq!(
+            selected
+                .iter()
+                .map(|window| window.id.as_str())
+                .collect::<Vec<_>>(),
+            ["window-b", "window-c"]
+        );
+
+        let runtime = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
+            "windows": [{
+                "windowId": "transient-window",
+                "activeTabId": "runtime-tab",
+                "tabIds": ["runtime-tab"]
+            }],
+            "tabs": [{
+                "id": "runtime-tab",
+                "sourceId": "role-shared",
+                "name": "Shared role",
+                "windowId": "transient-window",
+                "tabType": "role",
+                "roleIds": ["role-shared"],
+                "hidden": false
+            }],
+            "roles": [],
+            "workspaces": []
+        }))
+        .unwrap();
+        let selected = select_auto_restore_saved_windows(&windows, Some("window-b"), &runtime);
+        assert_eq!(
+            selected
+                .iter()
+                .map(|window| window.id.as_str())
+                .collect::<Vec<_>>(),
+            ["window-c"]
         );
     }
 

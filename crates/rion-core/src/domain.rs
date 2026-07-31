@@ -11,13 +11,13 @@ use crate::{
     model::{
         BrowserFontSettingsRecord, BrowserPerformanceSettingsRecord, DisplayTargetRecord,
         GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-        GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowUpdateInputRecord,
-        LegalAcceptanceRecord, MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat,
-        MacroSettingsRecord, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
-        MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
-        RoleUpdateInputRecord, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-        RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord, StateGameRecord,
-        StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowSaveRuntimeInputRecord,
+        GameWindowUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
+        MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
+        MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord, RoleCreateInputRecord,
+        RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeRestoreSessionRecord,
+        RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord,
+        StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceSlotInputRecord,
         WorkspaceUpdateInputRecord,
@@ -126,8 +126,6 @@ pub fn normalize_runtime_restore_session(
     const MAX_LABEL_LENGTH: usize = 256;
 
     let mut window_ids = HashSet::new();
-    let mut source_keys = HashSet::new();
-    let mut claimed_role_ids = HashSet::new();
     let mut tab_count = 0usize;
     let mut windows = Vec::new();
 
@@ -140,6 +138,8 @@ pub fn normalize_runtime_restore_session(
         let target_display = validate_display_target(window.target_display)?;
 
         let mut tabs = Vec::new();
+        let mut source_keys = HashSet::new();
+        let mut claimed_role_ids = HashSet::new();
         for tab in window.tabs {
             if tab_count >= MAX_TABS {
                 break;
@@ -798,6 +798,48 @@ pub fn update_game_window(
     Ok(game_window)
 }
 
+pub fn save_runtime_game_window(
+    game_windows: &mut Vec<StateGameWindowRecord>,
+    input: GameWindowSaveRuntimeInputRecord,
+) -> CoreResult<StateGameWindowRecord> {
+    if let Some(existing) = game_windows
+        .iter()
+        .find(|window| window.id == input.window_id)
+    {
+        return Ok(existing.clone());
+    }
+
+    let GameWindowSaveRuntimeInputRecord {
+        window_id,
+        name,
+        target_display,
+        placement,
+        tabs,
+        active_tab_id,
+    } = input;
+    let mut candidate = game_windows.clone();
+    create_game_window(
+        &mut candidate,
+        GameWindowCreateInputRecord {
+            id: Some(window_id.clone()),
+            name,
+            target_display,
+            placement,
+        },
+    )?;
+    let saved = update_game_window(
+        &mut candidate,
+        &window_id,
+        GameWindowUpdateInputRecord {
+            tabs: Some(tabs),
+            active_tab_id: Some(active_tab_id),
+            ..GameWindowUpdateInputRecord::default()
+        },
+    )?;
+    *game_windows = candidate;
+    Ok(saved)
+}
+
 pub fn reorder_game_windows(
     game_windows: &mut Vec<StateGameWindowRecord>,
     ordered_ids: &[String],
@@ -836,6 +878,21 @@ pub fn delete_game_window(
     Ok(())
 }
 
+pub fn delete_game_window_if_unchanged(
+    game_windows: &mut Vec<StateGameWindowRecord>,
+    id: &str,
+    updated_at: &str,
+) -> bool {
+    let Some(index) = game_windows
+        .iter()
+        .position(|window| window.id == id && window.updated_at == updated_at)
+    else {
+        return false;
+    };
+    game_windows.remove(index);
+    true
+}
+
 pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -> CoreResult<()> {
     if game_windows.len() > 32 {
         return Err(domain(
@@ -845,8 +902,6 @@ pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -
     }
     let mut names = HashSet::new();
     let mut window_ids = HashSet::new();
-    let mut source_keys = HashSet::new();
-    let mut claimed_role_ids = HashSet::new();
     let mut tab_count = 0usize;
     for window in game_windows {
         normalize_game_window(window.clone())?;
@@ -862,6 +917,8 @@ pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -
                 "A game window with this name already exists.",
             ));
         }
+        let mut source_keys = HashSet::new();
+        let mut claimed_role_ids = HashSet::new();
         for tab in &window.tabs {
             tab_count += 1;
             let source_key = format!("{}:{}", tab.tab_type, tab.source_id);
@@ -873,7 +930,7 @@ pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -
             {
                 return Err(domain(
                     "GAME_WINDOW_TAB_CONFLICT",
-                    "A role or source can belong to only one saved game-window tab.",
+                    "A role or source can belong to only one tab in the same saved game window.",
                 ));
             }
         }
@@ -2993,12 +3050,24 @@ mod tests {
             },
         )
         .unwrap();
+        update_game_window(
+            &mut windows,
+            &second.id,
+            GameWindowUpdateInputRecord {
+                tabs: Some(vec![role_tab(Uuid::new_v4().to_string())]),
+                ..GameWindowUpdateInputRecord::default()
+            },
+        )
+        .unwrap();
         assert_eq!(
             update_game_window(
                 &mut windows,
                 &second.id,
                 GameWindowUpdateInputRecord {
-                    tabs: Some(vec![role_tab(Uuid::new_v4().to_string())]),
+                    tabs: Some(vec![
+                        role_tab(Uuid::new_v4().to_string()),
+                        role_tab(Uuid::new_v4().to_string()),
+                    ]),
                     ..GameWindowUpdateInputRecord::default()
                 },
             )
@@ -3050,6 +3119,72 @@ mod tests {
             .code(),
             "GAME_WINDOW_TAB_LIMIT_REACHED"
         );
+    }
+
+    #[test]
+    fn runtime_game_window_save_is_atomic_and_idempotent() {
+        let mut windows = Vec::new();
+        let create = game_window_input("Runtime Window");
+        let role_tab = |role_id: &str| {
+            serde_json::from_value(json!({
+                "id": Uuid::new_v4().to_string(),
+                "tabType": "role",
+                "sourceId": role_id,
+                "name": role_id,
+                "roleIds": [role_id],
+                "hidden": false,
+                "audioMuted": true,
+                "roleViews": []
+            }))
+            .unwrap()
+        };
+        let input = GameWindowSaveRuntimeInputRecord {
+            window_id: Uuid::new_v4().to_string(),
+            name: create.name,
+            target_display: create.target_display,
+            placement: create.placement,
+            tabs: vec![role_tab("role-1")],
+            active_tab_id: None,
+        };
+        let saved = save_runtime_game_window(&mut windows, input.clone()).unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(saved.tabs.len(), 1);
+        assert!(saved.tabs[0].audio_muted);
+
+        let retried = save_runtime_game_window(&mut windows, input).unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(retried.id, saved.id);
+        assert_eq!(retried.created_at, saved.created_at);
+
+        let invalid_create = game_window_input("Invalid Runtime Window");
+        let invalid = GameWindowSaveRuntimeInputRecord {
+            window_id: Uuid::new_v4().to_string(),
+            name: invalid_create.name,
+            target_display: invalid_create.target_display,
+            placement: invalid_create.placement,
+            tabs: vec![role_tab("role-2"), role_tab("role-2")],
+            active_tab_id: None,
+        };
+        assert_eq!(
+            save_runtime_game_window(&mut windows, invalid)
+                .unwrap_err()
+                .code(),
+            "GAME_WINDOW_TAB_CONFLICT"
+        );
+        assert_eq!(windows.len(), 1);
+
+        assert!(!delete_game_window_if_unchanged(
+            &mut windows,
+            &saved.id,
+            "stale-update"
+        ));
+        assert_eq!(windows.len(), 1);
+        assert!(delete_game_window_if_unchanged(
+            &mut windows,
+            &saved.id,
+            &saved.updated_at
+        ));
+        assert!(windows.is_empty());
     }
 
     #[test]
@@ -3234,7 +3369,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_runtime_restore_sessions_and_keeps_first_conflicting_source() {
+    fn normalizes_runtime_restore_sessions_and_keeps_cross_window_sources() {
         let session: RuntimeRestoreSessionRecord = serde_json::from_value(json!({
             "schemaVersion": 9,
             "updatedAt": "stale",
@@ -3314,9 +3449,10 @@ mod tests {
         assert_eq!(normalized.windows[0].active_source_id, None);
         assert_eq!(normalized.windows[0].tabs[0].name, "Main");
         assert_eq!(normalized.windows[0].tabs[0].role_ids, ["role-1"]);
-        assert_eq!(normalized.windows[1].tabs.len(), 1);
-        assert_eq!(normalized.windows[1].tabs[0].source_id, "role-2");
-        assert_eq!(normalized.windows[1].tabs[0].name, "role-2");
+        assert_eq!(normalized.windows[1].tabs.len(), 2);
+        assert_eq!(normalized.windows[1].tabs[0].source_id, "role-1");
+        assert_eq!(normalized.windows[1].tabs[1].source_id, "role-2");
+        assert_eq!(normalized.windows[1].tabs[1].name, "role-2");
         assert_eq!(normalized.windows[1].active_source_id, None);
     }
 

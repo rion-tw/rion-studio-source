@@ -19,19 +19,20 @@ use crate::domain::{
     assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
     create_macro, create_role, create_workspace, default_game_browser_settings,
     default_macro_settings, default_runtime_window_preferences, delete_game, delete_game_window,
-    delete_macro, delete_macros, delete_workspace, normalize_game_browser_settings,
-    normalize_macro_settings, reorder_game_windows, reorder_roles, reorder_workspaces,
-    reset_builtin_game, update_game, update_game_window, update_macro, update_role,
-    update_workspace, validate_game_window_collection,
+    delete_game_window_if_unchanged, delete_macro, delete_macros, delete_workspace,
+    normalize_game_browser_settings, normalize_macro_settings, reorder_game_windows, reorder_roles,
+    reorder_workspaces, reset_builtin_game, save_runtime_game_window, update_game,
+    update_game_window, update_macro, update_role, update_workspace,
+    validate_game_window_collection,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-    GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowTabRecord,
-    GameWindowUpdateInputRecord, LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord,
-    MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord,
-    RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
+    GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowSaveRuntimeInputRecord,
+    GameWindowTabRecord, GameWindowUpdateInputRecord, LogLevel, MacroBadgePositionRecord,
+    MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord,
+    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
     RuntimeRestoreSessionRecord, RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord,
     StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StatePixelBoundsRecord,
     StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
@@ -148,6 +149,7 @@ pub(crate) enum StateMutation {
         browser_zoom_percent: f64,
     },
     GameWindowCreate(GameWindowCreateInputRecord),
+    GameWindowSaveRuntime(GameWindowSaveRuntimeInputRecord),
     GameWindowUpdate {
         id: String,
         input: GameWindowUpdateInputRecord,
@@ -157,6 +159,10 @@ pub(crate) enum StateMutation {
     },
     GameWindowDelete {
         id: String,
+    },
+    GameWindowDeleteIfUnchanged {
+        id: String,
+        updated_at: String,
     },
     GameWindowsSync {
         windows: Vec<StateGameWindowRecord>,
@@ -203,9 +209,11 @@ impl StateMutation {
             | Self::WorkspaceClearRole { .. }
             | Self::WorkspaceSetRoleBrowserZoom { .. } => vec![LaunchWorkspaces],
             Self::GameWindowCreate(_)
+            | Self::GameWindowSaveRuntime(_)
             | Self::GameWindowUpdate { .. }
             | Self::GameWindowReorder { .. }
             | Self::GameWindowDelete { .. }
+            | Self::GameWindowDeleteIfUnchanged { .. }
             | Self::GameWindowsSync { .. } => vec![GameWindows],
             Self::MacroCreate(_)
             | Self::MacroUpdate { .. }
@@ -829,6 +837,17 @@ fn apply_domain_mutation(
                 )?;
                 serde_json::to_value(game_window)
             }
+            StateMutation::GameWindowSaveRuntime(input) => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let game_window = save_runtime_game_window(&mut game_windows, input)?;
+                let ordinal = game_windows
+                    .iter()
+                    .position(|window| window.id == game_window.id)
+                    .expect("saved runtime Game Window must be in the collection");
+                upsert_game_window(&transaction, &json_value(&game_window)?, ordinal)?;
+                serde_json::to_value(game_window)
+            }
             StateMutation::GameWindowUpdate { id, input } => {
                 let mut game_windows =
                     read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
@@ -855,6 +874,17 @@ fn apply_domain_mutation(
                     .execute("DELETE FROM game_windows WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
                 Ok(json!({ "deleted": true }))
+            }
+            StateMutation::GameWindowDeleteIfUnchanged { id, updated_at } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let deleted = delete_game_window_if_unchanged(&mut game_windows, &id, &updated_at);
+                if deleted {
+                    transaction
+                        .execute("DELETE FROM game_windows WHERE id=?1", params![id])
+                        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                }
+                Ok(json!({ "deleted": deleted }))
             }
             StateMutation::GameWindowsSync { windows } => {
                 validate_game_window_collection(&windows)?;
@@ -3100,6 +3130,84 @@ mod tests {
             stored,
             serde_json::to_value(default_game_browser_settings()).unwrap()
         );
+    }
+
+    #[test]
+    fn runtime_game_window_save_commits_only_the_complete_record() {
+        let directory = tempdir().unwrap();
+        let database_path = directory.path().join("rion-studio.sqlite3");
+        let worker = StateDatabaseWorker::start(database_path).unwrap();
+        const SAVED_WINDOW_ID: &str = "00000000-0000-4000-8000-000000000001";
+        const INVALID_WINDOW_ID: &str = "00000000-0000-4000-8000-000000000002";
+        const ROLE_ID: &str = "00000000-0000-4000-8000-000000000003";
+        const TAB_ID: &str = "00000000-0000-4000-8000-000000000004";
+        const INVALID_TAB_ID_1: &str = "00000000-0000-4000-8000-000000000005";
+        const INVALID_TAB_ID_2: &str = "00000000-0000-4000-8000-000000000006";
+        let input = |window_id: &str, name: &str, duplicate_role: bool| {
+            let tabs = if duplicate_role {
+                json!([
+                    {
+                        "id": INVALID_TAB_ID_1, "tabType": "role", "sourceId": ROLE_ID,
+                        "name": "Role 1", "roleIds": [ROLE_ID], "hidden": false,
+                        "audioMuted": false, "roleViews": []
+                    },
+                    {
+                        "id": INVALID_TAB_ID_2, "tabType": "role", "sourceId": ROLE_ID,
+                        "name": "Role 1", "roleIds": [ROLE_ID], "hidden": false,
+                        "audioMuted": false, "roleViews": []
+                    }
+                ])
+            } else {
+                json!([{
+                    "id": TAB_ID, "tabType": "role", "sourceId": ROLE_ID,
+                    "name": "Role 1", "roleIds": [ROLE_ID], "hidden": false,
+                    "audioMuted": true,
+                    "roleViews": [{
+                        "roleId": ROLE_ID,
+                        "rect": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 },
+                        "browserZoomPercent": 125.0
+                    }]
+                }])
+            };
+            serde_json::from_value::<GameWindowSaveRuntimeInputRecord>(json!({
+                "windowId": window_id,
+                "name": name,
+                "targetDisplay": { "id": 1 },
+                "placement": {
+                    "normalBounds": { "x": 20, "y": 30, "width": 960, "height": 640 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": "maximized"
+                },
+                "tabs": tabs,
+                "activeTabId": if duplicate_role { INVALID_TAB_ID_1 } else { TAB_ID }
+            }))
+            .unwrap()
+        };
+
+        let saved = worker
+            .mutate(StateMutation::GameWindowSaveRuntime(input(
+                SAVED_WINDOW_ID,
+                "Game Window 1",
+                false,
+            )))
+            .unwrap();
+        assert_eq!(saved["value"]["tabs"][0]["audioMuted"], true);
+        assert_eq!(
+            saved["value"]["tabs"][0]["roleViews"][0]["browserZoomPercent"],
+            125.0
+        );
+
+        let error = worker
+            .mutate(StateMutation::GameWindowSaveRuntime(input(
+                INVALID_WINDOW_ID,
+                "Game Window 2",
+                true,
+            )))
+            .unwrap_err();
+        assert_eq!(error.code(), "GAME_WINDOW_TAB_CONFLICT");
+        let snapshot = worker.snapshot().unwrap();
+        assert_eq!(snapshot["gameWindows"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["gameWindows"][0]["id"], SAVED_WINDOW_ID);
     }
 
     #[test]

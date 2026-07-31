@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CloudDownload, Download, Eye, FileJson, FileText, Laptop, Loader2, Moon, PenLine, RefreshCw, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Sun, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
+import { Check, ChevronDown, CloudDownload, Download, Eye, FileJson, FileText, Laptop, Loader2, Moon, PenLine, RefreshCw, RotateCcw, Search, Sparkles, Sun, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -868,6 +868,7 @@ function BrowserFontsSettingsRows({
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const [busyCatalogId, setBusyCatalogId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
   const [customFontFamily, setCustomFontFamily] = useState("");
@@ -1172,17 +1173,8 @@ function BrowserFontsSettingsRows({
       />
 
       {isExpanded ? (
-        <div className="glass-divider border-b bg-background/[0.035]">
+        <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/30 bg-background/[0.035]">
           <div className="settings-row glass-divider grid gap-3 border-b px-4 py-4">
-            <div className="min-w-0">
-              <p className="flex items-center gap-2 text-body font-semibold text-foreground">
-                <Type className="size-3.5 text-muted-foreground" aria-hidden="true" />
-                {t("settings.browserFontsPresets")}
-              </p>
-              <p className="mt-0.5 text-control text-muted-foreground">
-                {t("settings.browserFontsPresetsDescription")}
-              </p>
-            </div>
             <BrowserFontPresetCards
               activePresetId={draft.fonts.presetId}
               catalog={catalog}
@@ -1196,18 +1188,6 @@ function BrowserFontsSettingsRows({
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
               <span>{t("settings.browserFontsForceWarning")}</span>
             </StatusCallout>
-          </div>
-
-          <div className="settings-row glass-divider flex items-start gap-3 border-b px-4 py-3">
-            <SlidersHorizontal className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <div>
-              <p className="text-body font-semibold text-foreground">
-                {t("settings.browserFontsFineTune")}
-              </p>
-              <p className="mt-0.5 text-control text-muted-foreground">
-                {t("settings.browserFontsFineTuneDescription")}
-              </p>
-            </div>
           </div>
 
           {browserFontSlots.map((slot) => (
@@ -1242,124 +1222,6 @@ function BrowserFontsSettingsRows({
               t={t}
             />
           </div>
-
-          <details className="settings-row glass-divider group border-b px-4 py-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-              <div className="flex min-w-0 items-start gap-3">
-                <Settings2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <div className="min-w-0">
-                  <p className="text-body font-semibold text-foreground">
-                    {t("settings.browserFontsAdvanced")}
-                  </p>
-                  <p className="mt-0.5 text-control text-muted-foreground">
-                    {t("settings.browserFontsAdvancedDescription")}
-                  </p>
-                </div>
-              </div>
-              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="mt-4 grid gap-4 border-t border-border/25 pt-4">
-              <div className="grid gap-2.5">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold leading-5 text-foreground">
-                    {t("settings.browserFontsCustomDownloadTitle")}
-                  </p>
-                  <p className="mt-0.5 text-caption leading-5 text-muted-foreground">
-                    {t("settings.browserFontsCustomDownloadDescription")}
-                  </p>
-                </div>
-                <form
-                  className="flex flex-col gap-2 sm:flex-row"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void installCustomGoogleFont();
-                  }}
-                >
-                  <Input
-                    aria-label={t("settings.browserFontsCustomDownloadLabel")}
-                    autoComplete="off"
-                    className="min-w-0 flex-1"
-                    disabled={isSaving || isInstallingCustomFont}
-                    maxLength={120}
-                    placeholder={t("settings.browserFontsCustomDownloadPlaceholder")}
-                    value={customFontFamily}
-                    onChange={(event) => {
-                      setCustomFontFamily(event.target.value);
-                      setCustomFontNotice(null);
-                    }}
-                  />
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    disabled={isSaving || isInstallingCustomFont || !normalizedCustomFontFamily}
-                  >
-                    {isInstallingCustomFont ? <Loader2 className="animate-spin" size={14} /> : <CloudDownload size={14} />}
-                    {isInstallingCustomFont
-                      ? t("settings.browserFontsCustomDownloading")
-                      : t("settings.browserFontsCustomDownloadAction")}
-                  </Button>
-                </form>
-                {customFontNotice ? (
-                  <StatusCallout
-                    aria-live={customFontNotice.tone === "success" ? "polite" : undefined}
-                    role={customFontNotice.tone === "destructive" ? "alert" : "status"}
-                    tone={customFontNotice.tone}
-                  >
-                    {customFontNotice.tone === "destructive" ? (
-                      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                    )}
-                    <span>{customFontNotice.text}</span>
-                  </StatusCallout>
-                ) : null}
-              </div>
-
-              <div className="grid gap-2.5">
-                <div>
-                  <p className="text-xs font-semibold leading-5 text-foreground">
-                    {t("settings.browserFontsCache")} · {formatBrowserFontBytes(
-                      installedFonts.reduce((total, font) => total + font.cachedBytes, 0)
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-caption text-muted-foreground">
-                    {t("settings.browserFontsCacheDescription")}
-                  </p>
-                </div>
-                {installedFonts.length === 0 ? (
-                  <p className="rounded-md bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
-                    {t("settings.browserFontsCacheEmpty")}
-                  </p>
-                ) : (
-                  installedFonts.map((font) => {
-                    const isSelected = selectedCatalogIds.includes(font.catalogId);
-                    return (
-                      <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
-                          <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("settings.browserFontsRemove")}
-                          disabled={isSaving || isInstallingCustomFont || busyCatalogId === font.catalogId || isSelected}
-                          title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
-                          onClick={() => void removeCatalogFont(font.catalogId)}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <p className="text-caption leading-5 text-muted-foreground">
-                {t("settings.browserFontsGoogleNotice")}
-              </p>
-            </div>
-          </details>
 
           <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 text-control text-muted-foreground" role="status">
@@ -1450,6 +1312,131 @@ function BrowserFontsSettingsRows({
           </Select>
         }
       />
+
+      <SettingsRow
+        title={t("settings.browserFontsAdvanced")}
+        description={t("settings.browserFontsAdvancedDescription")}
+        showDivider={!isAdvancedExpanded}
+        control={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("settings.browserFontsAdvanced")}
+            aria-expanded={isAdvancedExpanded}
+            onClick={() => setIsAdvancedExpanded((current) => !current)}
+          >
+            <ChevronDown
+              size={14}
+              className={isAdvancedExpanded ? "rotate-180 transition-transform duration-150" : "transition-transform duration-150"}
+            />
+          </Button>
+        }
+      />
+
+      {isAdvancedExpanded ? (
+        <div className="settings-row glass-divider grid gap-4 border-b bg-background/[0.035] px-4 py-4">
+          <div className="grid gap-2.5">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold leading-5 text-foreground">
+                {t("settings.browserFontsCustomDownloadTitle")}
+              </p>
+              <p className="mt-0.5 text-caption leading-5 text-muted-foreground">
+                {t("settings.browserFontsCustomDownloadDescription")}
+              </p>
+            </div>
+            <form
+              className="flex flex-col gap-2 sm:flex-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void installCustomGoogleFont();
+              }}
+            >
+              <Input
+                aria-label={t("settings.browserFontsCustomDownloadLabel")}
+                autoComplete="off"
+                className="min-w-0 flex-1"
+                disabled={isSaving || isInstallingCustomFont}
+                maxLength={120}
+                placeholder={t("settings.browserFontsCustomDownloadPlaceholder")}
+                value={customFontFamily}
+                onChange={(event) => {
+                  setCustomFontFamily(event.target.value);
+                  setCustomFontNotice(null);
+                }}
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={isSaving || isInstallingCustomFont || !normalizedCustomFontFamily}
+              >
+                {isInstallingCustomFont ? <Loader2 className="animate-spin" size={14} /> : <CloudDownload size={14} />}
+                {isInstallingCustomFont
+                  ? t("settings.browserFontsCustomDownloading")
+                  : t("settings.browserFontsCustomDownloadAction")}
+              </Button>
+            </form>
+            {customFontNotice ? (
+              <StatusCallout
+                aria-live={customFontNotice.tone === "success" ? "polite" : undefined}
+                role={customFontNotice.tone === "destructive" ? "alert" : "status"}
+                tone={customFontNotice.tone}
+              >
+                {customFontNotice.tone === "destructive" ? (
+                  <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                )}
+                <span>{customFontNotice.text}</span>
+              </StatusCallout>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2.5">
+            <div>
+              <p className="text-xs font-semibold leading-5 text-foreground">
+                {t("settings.browserFontsCache")} · {formatBrowserFontBytes(
+                  installedFonts.reduce((total, font) => total + font.cachedBytes, 0)
+                )}
+              </p>
+              <p className="mt-0.5 text-caption text-muted-foreground">
+                {t("settings.browserFontsCacheDescription")}
+              </p>
+            </div>
+            {installedFonts.length === 0 ? (
+              <p className="rounded-md bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+                {t("settings.browserFontsCacheEmpty")}
+              </p>
+            ) : (
+              installedFonts.map((font) => {
+                const isSelected = selectedCatalogIds.includes(font.catalogId);
+                return (
+                  <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
+                      <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("settings.browserFontsRemove")}
+                      disabled={isSaving || isInstallingCustomFont || busyCatalogId === font.catalogId || isSelected}
+                      title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
+                      onClick={() => void removeCatalogFont(font.catalogId)}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <p className="text-caption leading-5 text-muted-foreground">
+            {t("settings.browserFontsGoogleNotice")}
+          </p>
+        </div>
+      ) : null}
     </>
   );
 }

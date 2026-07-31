@@ -205,6 +205,10 @@ describe("browser font settings", () => {
     const toggle = screen.getByRole("button", { name: "Customize fonts" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Distinctive styles")).toBeNull();
+    const advancedToggle = screen.getByRole("button", { name: "Advanced font management" });
+    expect(advancedToggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByText("Advanced font management"));
+    expect(advancedToggle.getAttribute("aria-expanded")).toBe("false");
     expect(document.head.querySelector("link[data-rion-google-font-preview]")).toBeNull();
 
     fireEvent.click(toggle);
@@ -310,7 +314,7 @@ describe("browser font settings", () => {
 
     renderSettings(onGameBrowserSettingsChange);
     await user.click(screen.getByRole("button", { name: "Customize fonts" }));
-    await user.click(screen.getByText("Advanced font management"));
+    await user.click(screen.getByRole("button", { name: "Advanced font management" }));
     const input = screen.getByRole("textbox", { name: "Google Font family name" });
     await user.type(input, "  Cormorant   Garamond  ");
     await user.click(screen.getByRole("button", { name: "Download font" }));
@@ -364,7 +368,7 @@ describe("browser font settings", () => {
 
     renderSettings(vi.fn(async (settings) => settings));
     await user.click(screen.getByRole("button", { name: "Customize fonts" }));
-    await user.click(screen.getByText("Advanced font management"));
+    await user.click(screen.getByRole("button", { name: "Advanced font management" }));
     await user.type(
       screen.getByRole("textbox", { name: "Google Font family name" }),
       "Definitely Missing Font"

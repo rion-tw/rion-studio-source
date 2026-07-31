@@ -154,6 +154,7 @@ bool rion_runtime_tabs_drag_anchor(
     double grabRatioX, double grabRatioY, double *windowOffsetX,
     double *windowOffsetY);
 bool rion_runtime_tabs_action_scope_self_test(void);
+bool rion_runtime_tabs_drag_hysteresis_self_test(void);
 bool rion_runtime_tabs_overflow_layout_self_test(void);
 bool rion_runtime_tabs_shortcut_self_test(void);
 

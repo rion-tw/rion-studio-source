@@ -787,14 +787,12 @@ describe("Tauri-owned Windows runtime tab strip", () => {
 
   it("uses an equal-width placeholder and live DOM order while dragging", () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs());
-    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
     const dragged = document.querySelector<HTMLElement>('[data-tab-id="tab-3"]')!;
-    Object.defineProperty(tab, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        bottom: 28, height: 28, left: 0, right: 200,
-        toJSON: () => ({}), top: 0, width: 200, x: 0, y: 0
-      })
+    document.querySelectorAll<HTMLElement>("#tabs .tab").forEach((tab, index) => {
+      Object.defineProperties(tab, {
+        offsetLeft: { configurable: true, get: () => index * 206 },
+        offsetWidth: { configurable: true, get: () => 200 }
+      });
     });
     const dataTransfer = dragTransfer({
       sessionId: "drag-placeholder",
@@ -807,7 +805,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       clientX: { value: 40 },
       dataTransfer: { value: dataTransfer }
     });
-    tab.dispatchEvent(overTab);
+    document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')?.dispatchEvent(overTab);
 
     expect(dragged.classList.contains("drag-placeholder")).toBe(true);
     expect(Array.from(document.querySelectorAll<HTMLElement>("#tabs .tab"))
@@ -817,7 +815,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
 
     const overEnd = new Event("dragover", { bubbles: true, cancelable: true });
     Object.defineProperties(overEnd, {
-      clientX: { value: 500 },
+      clientX: { value: 900 },
       dataTransfer: { value: dataTransfer }
     });
     document.querySelector("#tabs")?.dispatchEvent(overEnd);
@@ -830,6 +828,55 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
     document.querySelector("#tabs")?.dispatchEvent(drop);
     expect(dragged.classList.contains("drag-placeholder")).toBe(false);
+  });
+
+  it("uses spatial hysteresis so a reordered tab does not oscillate at the midpoint", () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    const positions: Record<string, number> = {
+      "tab-1": 0,
+      "tab-2": 106,
+      "tab-3": 212,
+      "tab-4": 318
+    };
+    for (const tab of document.querySelectorAll<HTMLElement>("#tabs .tab")) {
+      const tabId = tab.dataset.tabId!;
+      Object.defineProperties(tab, {
+        offsetLeft: { configurable: true, get: () => positions[tabId] },
+        offsetWidth: { configurable: true, get: () => 100 }
+      });
+    }
+    const dataTransfer = dragTransfer({
+      sessionId: "drag-hysteresis",
+      tabId: "tab-2",
+      tabWidth: 100,
+      tabHeight: 28
+    });
+    const tab3 = document.querySelector<HTMLElement>('[data-tab-id="tab-3"]')!;
+    const dragOverAt = (clientX: number) => {
+      const event = new Event("dragover", { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        clientX: { value: clientX },
+        dataTransfer: { value: dataTransfer }
+      });
+      tab3.dispatchEvent(event);
+    };
+    const order = () => Array.from(
+      document.querySelectorAll<HTMLElement>("#tabs .tab"),
+      (tab) => tab.dataset.tabId
+    );
+
+    dragOverAt(273);
+    expect(order()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+
+    dragOverAt(275);
+    expect(order()).toEqual(["tab-1", "tab-3", "tab-2", "tab-4"]);
+
+    dragOverAt(251);
+    expect(order()).toEqual(["tab-1", "tab-3", "tab-2", "tab-4"]);
+
+    dragOverAt(249);
+    expect(order()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+    document.querySelector("#tabs")?.dispatchEvent(new Event("dragleave", { bubbles: true }));
   });
 
   it("preserves the pointer grab ratios and measured tab geometry", async () => {

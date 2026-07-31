@@ -120,6 +120,8 @@ unsafe extern "C" {
     #[cfg(test)]
     fn rion_runtime_tabs_action_scope_self_test() -> bool;
     #[cfg(test)]
+    fn rion_runtime_tabs_drag_hysteresis_self_test() -> bool;
+    #[cfg(test)]
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_shortcut_self_test() -> bool;
@@ -1142,6 +1144,11 @@ mod tests {
     #[test]
     fn native_tab_overflow_layout_clamps_and_reclaims_hidden_close_width() {
         assert!(unsafe { super::rion_runtime_tabs_overflow_layout_self_test() });
+    }
+
+    #[test]
+    fn native_tab_drag_reorder_uses_spatial_hysteresis() {
+        assert!(unsafe { super::rion_runtime_tabs_drag_hysteresis_self_test() });
     }
 
     #[test]

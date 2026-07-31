@@ -62,6 +62,8 @@ const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 const OPTIONAL_HYDRATION_IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
+const FAILED_LAUNCH_CLEANUP_RETENTION: Duration = Duration::from_secs(60);
+const WINDOWS_ROLE_SETUP_RETRY_DELAY: Duration = Duration::from_millis(500);
 const LOCAL_STORAGE_SYNC_MAX_BYTES: usize = 10 * 1024 * 1024;
 #[cfg(target_os = "macos")]
 const MACOS_KEY_DISPATCH_SETTLE_INTERVAL: Duration = Duration::from_millis(25);
@@ -1214,10 +1216,24 @@ struct NativePresentationOutcome {
     applied: bool,
     focus_applied: bool,
     hidden_surface_count: usize,
+    hide_ms: u64,
     main_queue_wait_ms: u64,
     main_thread_ms: u64,
+    no_op: bool,
     shown_surface_count: usize,
+    show_ms: u64,
     visibility_errors: Vec<String>,
+    webview_focus_ms: u64,
+    window_focus_applied: bool,
+    window_focus_ms: u64,
+    window_visibility_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NativePresentationMutationPlan {
+    apply_focus: bool,
+    presentation_changed: bool,
+    requires_ui_thread: bool,
 }
 
 struct LatestOnlyPresentationQueue<T> {
@@ -1256,8 +1272,10 @@ impl<T> LatestOnlyPresentationQueue<T> {
 #[derive(Default)]
 struct NativeWindowActorState {
     applied_revision: u64,
+    applied_surface_identities: HashSet<(String, u64)>,
     applied_surfaces: Vec<Webview>,
     applied_tab_id: Option<String>,
+    applied_window_visibility: Option<bool>,
     burst_first_requested_at: Option<Instant>,
     burst_first_revision: u64,
     burst_request_count: u32,
@@ -1348,10 +1366,22 @@ impl NativeWindowActor {
                         .0
                         .lock()
                         .ok()
-                        .map(|state| (state.applied_tab_id.clone(), state.applied_surfaces.clone()))
+                        .map(|state| {
+                            (
+                                state.applied_tab_id.clone(),
+                                state.applied_surface_identities.clone(),
+                                state.applied_surfaces.clone(),
+                                state.applied_window_visibility,
+                            )
+                        })
                         .unwrap_or_default();
-                    let outcome =
-                        apply_native_presentation_batch(&batch.request, &previous.0, previous.1);
+                    let outcome = apply_native_presentation_batch(
+                        &batch.request,
+                        &previous.0,
+                        &previous.1,
+                        previous.2,
+                        previous.3,
+                    );
                     let (lock, changed) = &*worker_queue;
                     let Ok(mut state) = lock.lock() else {
                         return;
@@ -1359,7 +1389,14 @@ impl NativeWindowActor {
                     if outcome.applied {
                         state.applied_revision = batch.request.revision;
                         state.applied_tab_id = batch.request.tab_id.clone();
+                        state.applied_surface_identities = presentation_owner_identities(
+                            &batch.request.next_surfaces,
+                            &batch.request.surface_owner_revisions,
+                        );
                         state.applied_surfaces = batch.request.next_surfaces.clone();
+                        if let Some(window_visibility) = batch.request.window_visibility {
+                            state.applied_window_visibility = Some(window_visibility);
+                        }
                     }
                     state.requests.finish();
                     let has_pending = state.requests.pending.is_some();
@@ -1394,6 +1431,10 @@ impl NativeWindowActor {
             && state.applied_surfaces.is_empty()
         {
             state.applied_tab_id = request.observed_previous_tab_id.clone();
+            state.applied_surface_identities = presentation_owner_identities(
+                &request.observed_previous_surfaces,
+                &request.surface_owner_revisions,
+            );
             state.applied_surfaces = request.observed_previous_surfaces.clone();
         }
         if state.requests.pending.is_none() {
@@ -1690,6 +1731,17 @@ struct ProvisionalLaunch {
     source_id: String,
     tab_type: String,
     window_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeErrorDiagnostic {
+    native_code: Option<String>,
+    setup_stage: &'static str,
+}
+
+struct RoleSurfaceSetupFailure {
+    error: RuntimeError,
+    lifecycle: Option<Arc<SurfaceLifecycleTracker>>,
 }
 
 impl PresentationRegistry {
@@ -2088,6 +2140,8 @@ struct RuntimeState {
     launch_phases: HashMap<String, LaunchPhase>,
     pending_macro_page_request: Option<Value>,
     close_previews: HashMap<String, CloseTransaction>,
+    completed_failed_launch_cleanups: HashMap<String, Instant>,
+    failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,
     optimistic_closed_tabs: HashSet<String>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
@@ -2097,6 +2151,8 @@ struct RuntimeState {
     overlay_ready_webviews: HashSet<String>,
     popup_roles: HashMap<String, String>,
     provisional_launches: HashMap<String, ProvisionalLaunch>,
+    automatic_launch_retries: HashMap<String, u8>,
+    retryable_failed_launches: HashSet<String>,
     recovery_required: bool,
     recovery_budgets: HashMap<String, RecoveryBudget>,
     recovery_generations: HashMap<String, u64>,
@@ -2421,8 +2477,9 @@ fn capture_presentation_event(
     trigger: &'static str,
     elapsed_ms: u64,
     error: Option<LogErrorDetails>,
+    diagnostic: Option<RuntimeErrorDiagnostic>,
 ) {
-    let context = json!({
+    let mut context = json!({
         "elapsedMs": elapsed_ms,
         "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
         "revision": revision,
@@ -2430,6 +2487,26 @@ fn capture_presentation_event(
         "trigger": trigger,
         "windowId": window_id,
     });
+    if event.starts_with("tab.launch-auto-retry")
+        && let Some(context) = context.as_object_mut()
+    {
+        context.insert("retryAttempt".to_owned(), Value::from(1));
+        context.insert(
+            "retryDelayMs".to_owned(),
+            Value::from(WINDOWS_ROLE_SETUP_RETRY_DELAY.as_millis() as u64),
+        );
+    }
+    if let Some(diagnostic) = diagnostic
+        && let Some(context) = context.as_object_mut()
+    {
+        context.insert(
+            "setupStage".to_owned(),
+            Value::String(diagnostic.setup_stage.to_owned()),
+        );
+        if let Some(native_code) = diagnostic.native_code {
+            context.insert("nativeCode".to_owned(), Value::String(native_code));
+        }
+    }
     tauri::async_runtime::spawn(async move {
         let _ = core
             .invoke_async(CoreCommand::LogsCapture {
@@ -2451,6 +2528,36 @@ fn presentation_surface_labels(surfaces: &[Webview]) -> HashSet<String> {
         .iter()
         .map(|surface| surface.label().to_owned())
         .collect()
+}
+
+fn current_runtime_platform() -> &'static str {
+    if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "other"
+    }
+}
+
+fn automatic_role_setup_retry_allowed(
+    platform: &str,
+    completed_retries: u8,
+    error_code: &str,
+    release_verified: bool,
+) -> bool {
+    platform == "windows"
+        && completed_retries == 0
+        && error_code == "SYSTEM_ROLE_SETUP_FAILED"
+        && release_verified
+}
+
+fn automatic_launch_retry_is_current(state: &RuntimeState, key: &str) -> bool {
+    state.automatic_launch_retries.get(key).copied() == Some(1)
+        && state
+            .provisional_launches
+            .get(key)
+            .is_some_and(|launch| !launch.cancelled)
 }
 
 fn native_surface_mutation_is_current(
@@ -2478,51 +2585,126 @@ fn native_presentation_changed(
     previous_tab_id != next_tab_id || previous_labels != next_labels
 }
 
+fn native_presentation_mutation_plan(
+    previous_tab_id: &Option<String>,
+    next_tab_id: &Option<String>,
+    previous_surface_identities: &HashSet<(String, u64)>,
+    next_surface_identities: &HashSet<(String, u64)>,
+    previous_window_visibility: Option<bool>,
+    window_visibility: Option<bool>,
+    focus: bool,
+) -> NativePresentationMutationPlan {
+    let presentation_changed =
+        previous_tab_id != next_tab_id || previous_surface_identities != next_surface_identities;
+    NativePresentationMutationPlan {
+        apply_focus: focus && presentation_changed && window_visibility != Some(false),
+        presentation_changed,
+        requires_ui_thread: presentation_changed
+            || window_visibility.is_some_and(|visible| Some(visible) != previous_window_visibility),
+    }
+}
+
+fn presentation_owner_identities(
+    surfaces: &[Webview],
+    revisions: &HashMap<String, u64>,
+) -> HashSet<(String, u64)> {
+    surfaces
+        .iter()
+        .map(|surface| {
+            (
+                surface.label().to_owned(),
+                revisions.get(surface.label()).copied().unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
 fn apply_native_presentation_batch(
     request: &NativePresentationRequest,
     previous_tab_id: &Option<String>,
+    previous_surface_identities: &HashSet<(String, u64)>,
     previous_surfaces: Vec<Webview>,
+    previous_window_visibility: Option<bool>,
 ) -> NativePresentationOutcome {
+    let previous_labels = presentation_surface_labels(&previous_surfaces);
+    let next_labels = presentation_surface_labels(&request.next_surfaces);
+    let next_surface_mutation_identities =
+        presentation_owner_identities(&request.next_surfaces, &request.surface_owner_revisions);
+    let mutation_plan = native_presentation_mutation_plan(
+        previous_tab_id,
+        &request.tab_id,
+        previous_surface_identities,
+        &next_surface_mutation_identities,
+        previous_window_visibility,
+        request.window_visibility,
+        request.focus,
+    );
+    let still_desired = request.coordinator.lock().ok().is_some_and(|selection| {
+        selection.revision == request.revision
+            && selection.selected_tab_id == request.tab_id
+            && selection.surface_identities(request.tab_id.as_deref())
+                == request.next_surface_identities
+    });
+    if !still_desired || !mutation_plan.requires_ui_thread {
+        return NativePresentationOutcome {
+            applied: still_desired,
+            focus_applied: false,
+            hidden_surface_count: 0,
+            hide_ms: 0,
+            main_queue_wait_ms: request
+                .requested_at
+                .elapsed()
+                .as_millis()
+                .min(u64::MAX as u128) as u64,
+            main_thread_ms: 0,
+            no_op: still_desired,
+            shown_surface_count: 0,
+            show_ms: 0,
+            visibility_errors: Vec::new(),
+            webview_focus_ms: 0,
+            window_focus_applied: false,
+            window_focus_ms: 0,
+            window_visibility_ms: 0,
+        };
+    }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let coordinator = Arc::clone(&request.coordinator);
     let requested_at = request.requested_at;
     let revision = request.revision;
     let tab_id = request.tab_id.clone();
-    let previous_tab_id = previous_tab_id.clone();
     let next_surfaces = request.next_surfaces.clone();
-    let next_surface_identities = request.next_surface_identities.clone();
     let surface_owner_revisions = request.surface_owner_revisions.clone();
     let surface_owners = Arc::clone(&request.surface_owners);
     let active_webview = request.active_webview.clone();
     let window = request.window.clone();
     let window_id = request.window_id.clone();
     let window_visibility = request.window_visibility;
-    let focus = request.focus;
+    let mutation_plan = mutation_plan.clone();
     let scheduling = request.window.run_on_main_thread(move || {
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let still_desired = coordinator.lock().ok().is_some_and(|selection| {
-            selection.revision == revision
-                && selection.selected_tab_id == tab_id
-                && selection.surface_identities(tab_id.as_deref()) == next_surface_identities
+            selection.revision == revision && selection.selected_tab_id == tab_id
         });
         if !still_desired {
             let _ = sender.send(NativePresentationOutcome {
                 applied: false,
                 focus_applied: false,
                 hidden_surface_count: 0,
+                hide_ms: 0,
                 main_queue_wait_ms,
                 main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                no_op: false,
                 shown_surface_count: 0,
+                show_ms: 0,
                 visibility_errors: Vec::new(),
+                webview_focus_ms: 0,
+                window_focus_applied: false,
+                window_focus_ms: 0,
+                window_visibility_ms: 0,
             });
             return;
         }
-
-        let previous_labels = presentation_surface_labels(&previous_surfaces);
-        let next_labels = presentation_surface_labels(&next_surfaces);
-        let presentation_changed =
-            native_presentation_changed(&previous_tab_id, &tab_id, &previous_labels, &next_labels);
         let mut visibility_errors = Vec::new();
         let mut hidden_surface_count = 0;
         let mut shown_surface_count = 0;
@@ -2530,7 +2712,10 @@ fn apply_native_presentation_batch(
         if surface_owners.is_none() {
             visibility_errors.push("The native surface ownership fence is unavailable.".to_owned());
         }
-        if presentation_changed && let Some(surface_owners) = surface_owners.as_ref() {
+        let hide_started_at = Instant::now();
+        if mutation_plan.presentation_changed
+            && let Some(surface_owners) = surface_owners.as_ref()
+        {
             for surface in previous_surfaces {
                 if next_labels.contains(surface.label()) {
                     continue;
@@ -2548,6 +2733,12 @@ fn apply_native_presentation_batch(
                     Err(error) => visibility_errors.push(error.to_string()),
                 }
             }
+        }
+        let hide_ms = hide_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let show_started_at = Instant::now();
+        if mutation_plan.presentation_changed
+            && let Some(surface_owners) = surface_owners.as_ref()
+        {
             for surface in &next_surfaces {
                 if previous_labels.contains(surface.label()) {
                     continue;
@@ -2566,7 +2757,9 @@ fn apply_native_presentation_batch(
                 }
             }
         }
+        let show_ms = show_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
 
+        let window_visibility_started_at = Instant::now();
         if let Some(visible) = window_visibility {
             if visible {
                 if matches!(window.is_visible(), Ok(false))
@@ -2580,24 +2773,52 @@ fn apply_native_presentation_batch(
                 visibility_errors.push(error.to_string());
             }
         }
+        let window_visibility_ms = window_visibility_started_at
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
 
         let mut focus_applied = false;
-        if focus && presentation_changed && window_visibility != Some(false) {
-            if matches!(window.is_focused(), Ok(false)) {
-                let _ = window.set_focus();
-            }
-            if let Some(webview) = active_webview {
-                focus_applied = webview.set_focus().is_ok();
+        let mut window_focus_applied = false;
+        let window_focus_started_at = Instant::now();
+        if mutation_plan.apply_focus && matches!(window.is_focused(), Ok(false)) {
+            match window.set_focus() {
+                Ok(()) => window_focus_applied = true,
+                Err(error) => visibility_errors.push(error.to_string()),
             }
         }
+        let window_focus_ms = window_focus_started_at
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        let webview_focus_started_at = Instant::now();
+        if mutation_plan.apply_focus
+            && let Some(webview) = active_webview
+        {
+            match webview.set_focus() {
+                Ok(()) => focus_applied = true,
+                Err(error) => visibility_errors.push(error.to_string()),
+            }
+        }
+        let webview_focus_ms = webview_focus_started_at
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
         let _ = sender.send(NativePresentationOutcome {
             applied: true,
             focus_applied,
             hidden_surface_count,
+            hide_ms,
             main_queue_wait_ms,
             main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            no_op: false,
             shown_surface_count,
+            show_ms,
             visibility_errors,
+            webview_focus_ms,
+            window_focus_applied,
+            window_focus_ms,
+            window_visibility_ms,
         });
     });
     if let Err(error) = scheduling {
@@ -2605,14 +2826,21 @@ fn apply_native_presentation_batch(
             applied: false,
             focus_applied: false,
             hidden_surface_count: 0,
+            hide_ms: 0,
             main_queue_wait_ms: request
                 .requested_at
                 .elapsed()
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
             main_thread_ms: 0,
+            no_op: false,
             shown_surface_count: 0,
+            show_ms: 0,
             visibility_errors: vec![error.to_string()],
+            webview_focus_ms: 0,
+            window_focus_applied: false,
+            window_focus_ms: 0,
+            window_visibility_ms: 0,
         };
     }
     receiver
@@ -2621,16 +2849,23 @@ fn apply_native_presentation_batch(
             applied: false,
             focus_applied: false,
             hidden_surface_count: 0,
+            hide_ms: 0,
             main_queue_wait_ms: request
                 .requested_at
                 .elapsed()
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
             main_thread_ms: 0,
+            no_op: false,
             shown_surface_count: 0,
+            show_ms: 0,
             visibility_errors: vec![
                 "The native presentation callback was disconnected.".to_owned(),
             ],
+            webview_focus_ms: 0,
+            window_focus_applied: false,
+            window_focus_ms: 0,
+            window_visibility_ms: 0,
         })
 }
 
@@ -2655,17 +2890,25 @@ fn capture_presentation_batch_events(
         "firstRevision": first_revision,
         "firstRequestAgeMs": batch.first_requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
         "focusApplied": outcome.focus_applied,
+        "hideMs": outcome.hide_ms,
         "hiddenSurfaceCount": outcome.hidden_surface_count,
         "mainQueueWaitMs": outcome.main_queue_wait_ms,
         "mainThreadMs": outcome.main_thread_ms,
+        "noOp": outcome.no_op,
         "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+        "preCloseTransition": request.trigger.contains("close"),
         "requestCount": batch.request_count,
         "revision": request.revision,
+        "showMs": outcome.show_ms,
         "shownSurfaceCount": outcome.shown_surface_count,
         "tabId": request.tab_id,
         "trigger": request.trigger,
         "visibilityErrorCount": outcome.visibility_errors.len(),
+        "webViewFocusMs": outcome.webview_focus_ms,
         "windowId": request.window_id,
+        "windowFocusApplied": outcome.window_focus_applied,
+        "windowFocusMs": outcome.window_focus_ms,
+        "windowVisibilityMs": outcome.window_visibility_ms,
     });
     let completion_event = if !outcome.visibility_errors.is_empty() {
         "native.presentation-failed"
@@ -2701,7 +2944,12 @@ fn capture_presentation_batch_events(
             event: completion_event.to_owned(),
             message: completion_message.to_owned(),
             context_raw_json: serde_json::to_string(&context).ok(),
-            error: None,
+            error: (!outcome.visibility_errors.is_empty()).then(|| LogErrorDetails {
+                name: "NATIVE_PRESENTATION_FAILED".to_owned(),
+                message: outcome.visibility_errors.join("; "),
+                stack: None,
+                cause: None,
+            }),
         },
     ];
     if outcome.main_queue_wait_ms > 100 || outcome.main_thread_ms > 100 {
@@ -3514,7 +3762,7 @@ impl SystemRuntimeExecutor {
         };
         if close_effect {
             let succeeded = result.ok;
-            let error_code = result.error.as_ref().map(|error| error.code.clone());
+            let error_payload = result.error.clone();
             eprintln!(
                 "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
                 started.elapsed().as_millis()
@@ -3530,7 +3778,7 @@ impl SystemRuntimeExecutor {
                         &effect_id,
                         succeeded,
                         accepted,
-                        error_code.as_deref(),
+                        error_payload.as_ref(),
                         started.elapsed(),
                     );
                     if succeeded && accepted {
@@ -3542,12 +3790,13 @@ impl SystemRuntimeExecutor {
                     }
                 }
                 Err(error) => {
+                    let error_payload = error.payload();
                     self.record_close_effect_completion(
                         action_name,
                         &effect_id,
                         succeeded,
                         false,
-                        Some(error.code()),
+                        Some(&error_payload),
                         started.elapsed(),
                     );
                 }
@@ -3639,10 +3888,12 @@ impl SystemRuntimeExecutor {
         effect_id: &str,
         native_succeeded: bool,
         acknowledgement_accepted: bool,
-        error_code: Option<&str>,
+        error: Option<&rion_core::CoreErrorPayload>,
         elapsed: Duration,
     ) {
         let core = Arc::clone(&self.core);
+        let error_code = error.map(|error| error.code.clone());
+        let error = error.map(|error| log_error_details(&error.code, &error.message));
         let context = json!({
             "acknowledgementAccepted": acknowledgement_accepted,
             "action": action_name,
@@ -3666,7 +3917,7 @@ impl SystemRuntimeExecutor {
                         message: "Native close completion was dispatched to the Core coordinator."
                             .to_owned(),
                         context_raw_json: serde_json::to_string(&context).ok(),
-                        error: None,
+                        error,
                     }],
                 })
                 .await;
@@ -3903,7 +4154,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn record_runtime_stage(&self, stage: impl Into<String>, status: &str, started: Instant) {
-        self.record_runtime_stage_with_error(stage, status, started, None);
+        self.record_runtime_stage_with_error(stage, status, started, None, None);
     }
 
     fn record_runtime_stage_failure(
@@ -3917,6 +4168,7 @@ impl SystemRuntimeExecutor {
             "failed",
             started,
             Some(log_error_details(error.code, &error.message)),
+            error.diagnostic.clone(),
         );
     }
 
@@ -3926,6 +4178,7 @@ impl SystemRuntimeExecutor {
         status: &str,
         started: Instant,
         error: Option<LogErrorDetails>,
+        diagnostic: Option<RuntimeErrorDiagnostic>,
     ) {
         let stage = stage.into();
         let elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -3934,12 +4187,23 @@ impl SystemRuntimeExecutor {
             elapsed_ms
         );
         let core = Arc::clone(&self.core);
-        let context = json!({
+        let mut context = json!({
             "elapsedMs": elapsed_ms,
             "phase": stage,
             "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
             "status": status,
         });
+        if let Some(diagnostic) = diagnostic
+            && let Some(context) = context.as_object_mut()
+        {
+            context.insert(
+                "setupStage".to_owned(),
+                Value::String(diagnostic.setup_stage.to_owned()),
+            );
+            if let Some(native_code) = diagnostic.native_code {
+                context.insert("nativeCode".to_owned(), Value::String(native_code));
+            }
+        }
         let level = if status == "failed" {
             LogLevel::Warn
         } else {
@@ -3973,7 +4237,7 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         role_id: &str,
         generation: u64,
-    ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
         platform_role_surface_setup(
             webview,
             self.app.clone(),
@@ -4237,6 +4501,7 @@ impl SystemRuntimeExecutor {
             trigger,
             elapsed_ms,
             None,
+            None,
         );
     }
 
@@ -4264,6 +4529,36 @@ impl SystemRuntimeExecutor {
             trigger,
             elapsed_ms,
             error.map(|error| log_error_details(&error.code, &error.message)),
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_presentation_event_with_error_diagnostic(
+        &self,
+        level: LogLevel,
+        event: &'static str,
+        message: &'static str,
+        window_id: &str,
+        tab_id: Option<&str>,
+        revision: u64,
+        trigger: &'static str,
+        elapsed_ms: u64,
+        error: Option<&rion_core::CoreErrorPayload>,
+        diagnostic: Option<RuntimeErrorDiagnostic>,
+    ) {
+        capture_presentation_event(
+            Arc::clone(&self.core),
+            level,
+            event,
+            message,
+            window_id.to_owned(),
+            tab_id.map(str::to_owned),
+            revision,
+            trigger,
+            elapsed_ms,
+            error.map(|error| log_error_details(&error.code, &error.message)),
+            diagnostic,
         );
     }
 
@@ -9135,47 +9430,60 @@ impl SystemRuntimeExecutor {
                 tab_id,
                 next_active_tab_id,
             } => {
-                let retained_failed_provisional = {
-                    let state = self.state()?;
-                    failed_provisional_tab_has_completed_native_cleanup(&state, &tab_id)
+                let completed_failed_launch_cleanup = {
+                    let mut state = self.state()?;
+                    let completed = consume_completed_failed_launch_cleanup(&mut state, &tab_id);
+                    if completed {
+                        state.retryable_failed_launches.insert(tab_id.clone());
+                    }
+                    completed
                 };
-                if !retained_failed_provisional {
-                    self.destroy_tab(&tab_id)?;
-                }
-                if !retained_failed_provisional && let Some(next_tab_id) = next_active_tab_id {
-                    // Isolation is the close transaction's commit boundary. A
-                    // rapid X burst may already have removed or marked this
-                    // successor as closing by the time the native close effect
-                    // finishes. Focus/visibility is presentation-only and must
-                    // never turn an already successful close into a failed Core
-                    // effect that strands roles in `stopping`.
-                    if let Err(error) = self.show_tab(&next_tab_id, true) {
-                        let window_id = self
-                            .state
-                            .lock()
-                            .ok()
-                            .and_then(|state| {
-                                state
-                                    .tabs
-                                    .get(&next_tab_id)
-                                    .map(|tab| tab.window_id.clone())
-                            })
-                            .unwrap_or_default();
-                        self.record_presentation_event(
-                            LogLevel::Debug,
-                            "tab.close-successor-superseded",
-                            "The close successor was superseded by a newer presentation revision.",
+                if completed_failed_launch_cleanup {
+                    self.record_presentation_event(
+                        LogLevel::Debug,
+                        "tab.launch-cleanup-compensation-noop",
+                        "A failed launch had already completed verified native cleanup.",
+                        "",
+                        Some(&tab_id),
+                        presentation_revision,
+                        "compensation",
+                        0,
+                    );
+                } else {
+                    let window_id = self
+                        .state()
+                        .ok()
+                        .and_then(|state| {
+                            state
+                                .tabs
+                                .get(&tab_id)
+                                .map(|tab| tab.window_id.clone())
+                                .or_else(|| {
+                                    next_active_tab_id.as_deref().and_then(|next_tab_id| {
+                                        state.tabs.get(next_tab_id).map(|tab| tab.window_id.clone())
+                                    })
+                                })
+                        })
+                        .unwrap_or_default();
+                    if let Err(error) = self
+                        .prepare_destroy_tab_presentation(&tab_id, next_active_tab_id.as_deref())
+                    {
+                        self.record_presentation_event_with_error(
+                            LogLevel::Warn,
+                            "tab.close-successor-preflight-failed",
+                            "The close successor could not be presented before native teardown.",
                             &window_id,
-                            Some(&next_tab_id),
+                            next_active_tab_id.as_deref().or(Some(tab_id.as_str())),
                             presentation_revision,
-                            "effect",
+                            "close-effect-preflight",
                             0,
-                        );
-                        eprintln!(
-                            "Native close successor presentation was superseded (tab={next_tab_id}, error={}).",
-                            error.message
+                            Some(&rion_core::CoreErrorPayload {
+                                code: error.code.to_owned(),
+                                message: error.message.clone(),
+                            }),
                         );
                     }
+                    self.destroy_tab(&tab_id)?;
                 }
                 Ok(None)
             }
@@ -11608,11 +11916,10 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn cancel_tab_launch_preview(&self, key: &str) {
-        let provisional = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|mut state| state.provisional_launches.remove(key));
+        let provisional = self.state.lock().ok().and_then(|mut state| {
+            state.automatic_launch_retries.remove(key);
+            state.provisional_launches.remove(key)
+        });
         let Some(provisional) = provisional else {
             return;
         };
@@ -11680,10 +11987,27 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn resolve_browser_launch_completion(
-        &self,
+        self: &Arc<Self>,
         completion: BrowserLaunchCompletionRecord,
-    ) {
-        self.record_presentation_event_with_error(
+    ) -> bool {
+        let key = format!("{}:{}", completion.tab_type, completion.source_id);
+        let (diagnostic, completed_retries, release_verified) = self
+            .state
+            .lock()
+            .ok()
+            .map(|mut state| {
+                (
+                    state.failed_launch_diagnostics.remove(&completion.tab_id),
+                    state
+                        .automatic_launch_retries
+                        .get(&key)
+                        .copied()
+                        .unwrap_or_default(),
+                    state.retryable_failed_launches.remove(&completion.tab_id),
+                )
+            })
+            .unwrap_or_default();
+        self.record_presentation_event_with_error_diagnostic(
             if completion.error.is_some() {
                 LogLevel::Error
             } else {
@@ -11705,27 +12029,116 @@ impl SystemRuntimeExecutor {
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
             completion.error.as_ref(),
+            diagnostic.clone(),
         );
         let Some(error) = completion.error.as_ref() else {
-            return;
+            if completed_retries > 0 {
+                if let Ok(mut state) = self.state.lock() {
+                    state.automatic_launch_retries.remove(&key);
+                }
+                self.record_presentation_event(
+                    LogLevel::Info,
+                    "tab.launch-auto-retry-recovered",
+                    "The Windows System WebView launch recovered on its automatic retry.",
+                    &completion.window_id,
+                    Some(&completion.tab_id),
+                    self.presentation.current_revision(),
+                    "launch-auto-retry",
+                    0,
+                );
+            }
+            return false;
         };
+        let retry = automatic_role_setup_retry_allowed(
+            current_runtime_platform(),
+            completed_retries,
+            &error.code,
+            release_verified,
+        );
+        if retry && let Ok(mut state) = self.state.lock() {
+            state.automatic_launch_retries.insert(key.clone(), 1);
+        }
+        self.retain_launch_completion_presentation(&completion, !retry);
+        if retry {
+            self.record_presentation_event_with_error_diagnostic(
+                LogLevel::Warn,
+                "tab.launch-auto-retry-scheduled",
+                "The transient Windows System WebView setup failure will be retried once.",
+                &completion.window_id,
+                Some(&completion.tab_id),
+                self.presentation.current_revision(),
+                "launch-auto-retry",
+                WINDOWS_ROLE_SETUP_RETRY_DELAY.as_millis() as u64,
+                Some(error),
+                diagnostic,
+            );
+            self.schedule_automatic_launch_retry(key, completion);
+            return false;
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.automatic_launch_retries.remove(&key);
+        }
+        if completed_retries > 0 {
+            self.record_presentation_event_with_error_diagnostic(
+                LogLevel::Error,
+                "tab.launch-auto-retry-exhausted",
+                "The Windows System WebView launch failed again after its automatic retry.",
+                &completion.window_id,
+                Some(&completion.tab_id),
+                self.presentation.current_revision(),
+                "launch-auto-retry",
+                0,
+                Some(error),
+                diagnostic.clone(),
+            );
+        }
+        self.record_presentation_event_with_error_diagnostic(
+            LogLevel::Error,
+            "tab.launch-failed-retained",
+            "The background launch failed and its presentation tab was retained.",
+            &completion.window_id,
+            Some(&completion.tab_id),
+            self.presentation.current_revision(),
+            "launch-completion",
+            0,
+            Some(error),
+            diagnostic,
+        );
+        true
+    }
+
+    fn retain_launch_completion_presentation(
+        &self,
+        completion: &BrowserLaunchCompletionRecord,
+        failed: bool,
+    ) {
         let key = format!("{}:{}", completion.tab_type, completion.source_id);
-        if self
-            .state
-            .lock()
-            .ok()
-            .is_some_and(|state| state.provisional_launches.contains_key(&key))
-        {
-            self.fail_tab_launch_preview(&key);
+        let existing = self.state.lock().ok().and_then(|mut state| {
+            let provisional = state.provisional_launches.get_mut(&key)?;
+            provisional.failed = failed;
+            Some(provisional.clone())
+        });
+        if let Some(provisional) = existing {
+            if let Some(presentation) = self.presentation.existing(&provisional.window_id)
+                && let Ok(mut presentation) = presentation.lock()
+            {
+                presentation.update_phase(
+                    &provisional.id,
+                    if failed {
+                        TabPresentationPhase::Failed
+                    } else {
+                        TabPresentationPhase::Reserved
+                    },
+                );
+            }
             return;
         }
-
         let host_created = match self.ensure_display_host(&completion.target, &completion.title) {
             Ok((_, created)) => created,
             Err(host_error) => {
                 eprintln!(
-                    "Failed launch tab could not retain its native host after {}: {}",
-                    error.code, host_error.message
+                    "Failed launch tab could not retain its native host: {}",
+                    host_error.message
                 );
                 return;
             }
@@ -11738,6 +12151,11 @@ impl SystemRuntimeExecutor {
                 return;
             }
         };
+        let phase = if failed {
+            TabPresentationPhase::Failed
+        } else {
+            TabPresentationPhase::Reserved
+        };
         let active_tab_id = match presentation.lock() {
             Ok(mut presentation) => {
                 if presentation
@@ -11745,7 +12163,7 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .any(|tab| tab.id == completion.tab_id)
                 {
-                    presentation.update_phase(&completion.tab_id, TabPresentationPhase::Failed);
+                    presentation.update_phase(&completion.tab_id, phase);
                 } else {
                     let should_select = presentation.selected_tab_id.is_none();
                     presentation.insert_tab(
@@ -11753,7 +12171,7 @@ impl SystemRuntimeExecutor {
                             closable: true,
                             icon_data_url: None,
                             id: completion.tab_id.clone(),
-                            phase: TabPresentationPhase::Failed,
+                            phase,
                             role_ids: if completion.tab_type == "role" {
                                 vec![completion.source_id.clone()]
                             } else {
@@ -11778,7 +12196,7 @@ impl SystemRuntimeExecutor {
                 key,
                 ProvisionalLaunch {
                     cancelled: false,
-                    failed: true,
+                    failed,
                     host_created,
                     id: completion.tab_id.clone(),
                     source_id: completion.source_id.clone(),
@@ -11804,16 +12222,67 @@ impl SystemRuntimeExecutor {
                 "launch-completion-failed",
             );
         }
-        self.record_presentation_event(
-            LogLevel::Error,
-            "tab.launch-failed-retained",
-            "The background launch failed and its presentation tab was retained.",
-            &completion.window_id,
-            Some(&completion.tab_id),
-            revision,
-            "launch-completion",
-            0,
-        );
+    }
+
+    fn schedule_automatic_launch_retry(
+        self: &Arc<Self>,
+        key: String,
+        completion: BrowserLaunchCompletionRecord,
+    ) {
+        let runtime = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(WINDOWS_ROLE_SETUP_RETRY_DELAY).await;
+            let retry_is_current = runtime
+                .state
+                .lock()
+                .ok()
+                .is_some_and(|state| automatic_launch_retry_is_current(&state, &key));
+            if !retry_is_current {
+                return;
+            }
+            let command = if completion.tab_type == "workspace" {
+                CoreCommand::BrowserWorkspaceLaunch {
+                    workspace_id: completion.source_id.clone(),
+                    target: completion.target.clone(),
+                }
+            } else {
+                CoreCommand::BrowserRoleLaunch {
+                    role_id: completion.source_id.clone(),
+                    target: completion.target.clone(),
+                    zoom_factor: completion.zoom_factor,
+                }
+            };
+            if let Err(error) = Arc::clone(&runtime.core).invoke_async(command).await {
+                let error = error.payload();
+                if let Ok(mut state) = runtime.state.lock() {
+                    state.automatic_launch_retries.remove(&key);
+                }
+                runtime.fail_tab_launch_preview(&key);
+                runtime.record_presentation_event_with_error(
+                    LogLevel::Error,
+                    "tab.launch-auto-retry-exhausted",
+                    "The automatic Windows System WebView retry could not be accepted.",
+                    &completion.window_id,
+                    Some(&completion.tab_id),
+                    runtime.presentation.current_revision(),
+                    "launch-auto-retry",
+                    0,
+                    Some(&error),
+                );
+                runtime.record_presentation_event_with_error(
+                    LogLevel::Error,
+                    "tab.launch-failed-retained",
+                    "The automatic retry was rejected and its presentation tab was retained.",
+                    &completion.window_id,
+                    Some(&completion.tab_id),
+                    runtime.presentation.current_revision(),
+                    "launch-auto-retry",
+                    0,
+                    Some(&error),
+                );
+                crate::reveal_shell_error(&runtime.app, error);
+            }
+        });
     }
 
     pub(crate) fn cancel_provisional_tab_launch(&self, tab_id: &str) -> bool {
@@ -11830,6 +12299,12 @@ impl SystemRuntimeExecutor {
         let Some(provisional) = provisional else {
             return false;
         };
+        if let Ok(mut state) = self.state.lock() {
+            state.automatic_launch_retries.remove(&format!(
+                "{}:{}",
+                provisional.tab_type, provisional.source_id
+            ));
+        }
         let mut next_tab_id = None;
         if let Some(presentation) = self.presentation.existing(&provisional.window_id)
             && let Ok(mut selection) = presentation.lock()
@@ -12097,7 +12572,7 @@ impl SystemRuntimeExecutor {
         let mut created_surfaces = Vec::new();
         let mut first_surface_recorded = false;
         let mut first_navigation_recorded = false;
-        let result = (|| -> RuntimeResult<()> {
+        let mut result = (|| -> RuntimeResult<()> {
             let content_metrics = runtime_window_content_metrics(&window)?;
             let role_inputs = tab
                 .roles
@@ -12217,9 +12692,19 @@ impl SystemRuntimeExecutor {
                         );
                         lifecycle
                     }
-                    Err(error) => {
-                        self.record_runtime_stage_failure(&setup_stage, setup_started, &error);
-                        return Err(error);
+                    Err(failure) => {
+                        if let Some(lifecycle) = failure.lifecycle {
+                            created_surfaces
+                                .last_mut()
+                                .expect("role surface was just recorded")
+                                .2 = Some(lifecycle);
+                        }
+                        self.record_runtime_stage_failure(
+                            &setup_stage,
+                            setup_started,
+                            &failure.error,
+                        );
+                        return Err(failure.error);
                     }
                 };
                 created_surfaces
@@ -12414,6 +12899,10 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if result.is_err() {
+            let failed_launch_diagnostic = result
+                .as_ref()
+                .err()
+                .and_then(|error| error.diagnostic.clone());
             if let Some(presentation) = self.presentation.existing(&target.window_id)
                 && let Ok(mut presentation) = presentation.lock()
             {
@@ -12424,13 +12913,45 @@ impl SystemRuntimeExecutor {
                 .map(|(_, webview, _, _)| webview.label().to_owned())
                 .collect::<Vec<_>>();
             self.finish_controlled_navigations(&controlled_labels);
+            let failed_role_ids = tab
+                .roles
+                .iter()
+                .map(|role| role.role.id.clone())
+                .collect::<Vec<_>>();
+            let mut cleanup_error = None;
             for (surface_id, webview, lifecycle, instance_id) in created_surfaces {
-                if let Some(instance_id) = instance_id {
-                    let _ = self.close_managed_surface_and_wait(&instance_id, &surface_id);
+                let cleanup = if let Some(instance_id) = instance_id {
+                    self.close_managed_surface_and_wait(&instance_id, &surface_id)
                 } else if let Some(lifecycle) = lifecycle {
-                    let _ = self.close_surface_and_wait(&webview, &lifecycle, &surface_id);
+                    if cfg!(windows) {
+                        self.close_failed_launch_surface_and_wait(&webview, &lifecycle, &surface_id)
+                    } else {
+                        self.close_surface_and_wait(&webview, &lifecycle, &surface_id)
+                            .map(|_| ())
+                    }
                 } else {
-                    let _ = webview.close();
+                    let close_message = webview.close().err().map(|error| error.to_string());
+                    if cfg!(windows) {
+                        Err(RuntimeError::new(
+                            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                            close_message.map_or_else(
+                                || {
+                                    "The failed WebView2 controller closed without a lifecycle tracker, so release could not be verified. Restart Rion Studio before retrying."
+                                        .to_owned()
+                                },
+                                |message| {
+                                    format!(
+                                        "The failed WebView2 controller could not be closed or verified: {message}. Restart Rion Studio before retrying."
+                                    )
+                                },
+                            ),
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                };
+                if let Err(error) = cleanup {
+                    cleanup_error.get_or_insert(error);
                 }
             }
             if let Ok(mut state) = self.state.lock() {
@@ -12439,6 +12960,27 @@ impl SystemRuntimeExecutor {
                 state
                     .role_tabs
                     .retain(|_, tab_id| tab_id != &created_tab_id);
+                if cleanup_error.is_none() {
+                    state
+                        .completed_failed_launch_cleanups
+                        .retain(|_, completed_at| {
+                            completed_at.elapsed() <= FAILED_LAUNCH_CLEANUP_RETENTION
+                        });
+                    state
+                        .completed_failed_launch_cleanups
+                        .insert(created_tab_id.clone(), Instant::now());
+                } else {
+                    state.recovery_required = true;
+                    state
+                        .close_coordinator
+                        .quarantined_roles
+                        .extend(failed_role_ids);
+                }
+                if let Some(diagnostic) = failed_launch_diagnostic {
+                    state
+                        .failed_launch_diagnostics
+                        .insert(created_tab_id.clone(), diagnostic);
+                }
                 if let Some(preview) = launch_preview.as_ref() {
                     state.provisional_launches.insert(
                         format!("{tab_type}:{}", tab.source_id),
@@ -12453,6 +12995,10 @@ impl SystemRuntimeExecutor {
                         },
                     );
                 }
+            }
+            if let Some(error) = cleanup_error {
+                self.health.mark_unhealthy();
+                result = Err(error);
             }
             if launch_preview.is_none() {
                 let mut next_tab_id = None;
@@ -13760,6 +14306,42 @@ impl SystemRuntimeExecutor {
         result
     }
 
+    fn close_failed_launch_surface_and_wait(
+        &self,
+        webview: &Webview,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+        role_id: &str,
+    ) -> RuntimeResult<()> {
+        let label = webview.label().to_owned();
+        let outcome = self.close_surface_and_wait(webview, lifecycle, role_id)?;
+        if outcome.released {
+            return Ok(());
+        }
+        let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
+        while Instant::now() < deadline {
+            if self.app.get_webview(&label).is_none() {
+                lifecycle.mark_controller_released();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let platform = current_runtime_platform();
+        if lifecycle.wait_for_controller_release(platform, Duration::ZERO) {
+            self.record_surface_stage_by_label(
+                LogLevel::Debug,
+                "surface.failed-launch-release-verified",
+                "The failed launch controller release was verified before compensation.",
+                &label,
+            );
+            Ok(())
+        } else {
+            Err(RuntimeError::new(
+                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                "The failed launch controller did not release before the cleanup deadline. Restart Rion Studio before retrying.",
+            ))
+        }
+    }
+
     fn close_managed_surface_and_wait(
         &self,
         instance_id: &str,
@@ -14576,10 +15158,84 @@ impl SystemRuntimeExecutor {
         result
     }
 
-    fn show_tab(&self, tab_id: &str, focus: bool) -> RuntimeResult<()> {
-        self.request_tab_presentation(tab_id, focus, "effect")
-            .map(|_| ())
-            .map_err(|message| RuntimeError::new("TAURI_RUNTIME_VISIBILITY_FAILED", message))
+    fn prepare_destroy_tab_presentation(
+        &self,
+        tab_id: &str,
+        next_active_tab_id: Option<&str>,
+    ) -> RuntimeResult<()> {
+        let (window_id, revision) = if let Some(next_tab_id) = next_active_tab_id {
+            let window_id = self
+                .request_tab_presentation(next_tab_id, true, "close-effect-preflight")
+                .map_err(|message| RuntimeError::new("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
+            let revision = self
+                .presentation
+                .existing(&window_id)
+                .and_then(|presentation| presentation.lock().ok().map(|state| state.revision))
+                .unwrap_or_default();
+            (window_id, revision)
+        } else {
+            let (window_id, window) = {
+                let state = self.state()?;
+                let tab = state.tabs.get(tab_id).ok_or_else(|| {
+                    RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
+                })?;
+                let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                        "Runtime display host was not found.",
+                    )
+                })?;
+                (tab.window_id.clone(), host.window.clone())
+            };
+            let presentation = self
+                .presentation
+                .coordinator(&window_id)
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                })?;
+            let revision = self.presentation.next_revision();
+            let (previous_tab_id, previous_surfaces) = {
+                let mut state = presentation.lock().map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                        "The runtime tab presentation coordinator is unavailable.",
+                    )
+                })?;
+                let previous_tab_id = state.selected_tab_id.clone();
+                let previous_surfaces = state.surfaces(previous_tab_id.as_deref());
+                state.select(None, revision);
+                (previous_tab_id, previous_surfaces)
+            };
+            self.apply_native_active_style(&window_id, None, revision, "close-effect-preflight");
+            self.dispatch_native_presentation(
+                window_id.clone(),
+                None,
+                revision,
+                "close-effect-preflight",
+                Instant::now(),
+                window,
+                previous_tab_id,
+                previous_surfaces,
+                Vec::new(),
+                None,
+                Some(false),
+                false,
+            );
+            (window_id, revision)
+        };
+        let applied = self
+            .presentation
+            .actor(&window_id)
+            .ok()
+            .is_some_and(|actor| actor.wait_until_applied(revision, Duration::from_secs(1)));
+        if applied {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(
+                "TAURI_RUNTIME_VISIBILITY_FAILED",
+                "The pre-close native presentation did not settle within one second.",
+            ))
+        }
     }
 
     fn set_role_audio_muted(&self, role_id: &str, muted: bool) -> RuntimeResult<()> {
@@ -16094,12 +16750,11 @@ fn runtime_host_should_receive_window_focus(focus_requested: bool, has_active_ta
     focus_requested && !has_active_tab
 }
 
-fn failed_provisional_tab_has_completed_native_cleanup(state: &RuntimeState, tab_id: &str) -> bool {
-    !state.tabs.contains_key(tab_id)
-        && state
-            .provisional_launches
-            .values()
-            .any(|launch| launch.id == tab_id && launch.failed && !launch.cancelled)
+fn consume_completed_failed_launch_cleanup(state: &mut RuntimeState, tab_id: &str) -> bool {
+    state
+        .completed_failed_launch_cleanups
+        .remove(tab_id)
+        .is_some()
 }
 
 fn log_error_details(code: &str, message: &str) -> LogErrorDetails {
@@ -17534,8 +18189,42 @@ fn install_role_zoom_shortcut_handler(_webview: &Webview, _app: AppHandle) -> Ru
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(windows)]
 fn platform_role_surface_setup(
+    webview: &Webview,
+    app: AppHandle,
+    target: SurfaceFailureTarget,
+) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
+    let lifecycle =
+        platform_surface_lifecycle_tracker(webview).map_err(|error| RoleSurfaceSetupFailure {
+            error: windows_role_lifecycle_setup_error(error),
+            lifecycle: None,
+        })?;
+    install_windows_role_surface_handlers(webview, app, target).map_err(|error| {
+        RoleSurfaceSetupFailure {
+            error,
+            lifecycle: Some(Arc::clone(&lifecycle)),
+        }
+    })?;
+    Ok(lifecycle)
+}
+
+#[cfg(not(windows))]
+fn platform_role_surface_setup(
+    webview: &Webview,
+    app: AppHandle,
+    target: SurfaceFailureTarget,
+) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
+    platform_role_surface_setup_inner(webview, app, target).map_err(|error| {
+        RoleSurfaceSetupFailure {
+            error,
+            lifecycle: None,
+        }
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn platform_role_surface_setup_inner(
     webview: &Webview,
     _app: AppHandle,
     _target: SurfaceFailureTarget,
@@ -17604,20 +18293,18 @@ fn platform_role_surface_setup(
 }
 
 #[cfg(windows)]
-fn platform_role_surface_setup(
+fn install_windows_role_surface_handlers(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,
-) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+) -> RuntimeResult<()> {
     use webview2_com::{
-        BrowserProcessExitedEventHandler,
         Microsoft::Web::WebView2::Win32::{
             COREWEBVIEW2_PERMISSION_STATE_DENY, COREWEBVIEW2_PROCESS_FAILED_KIND,
             COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
             COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
             COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
             COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_CANCEL, ICoreWebView2, ICoreWebView2_14,
-            ICoreWebView2Environment5,
         },
         PermissionRequestedEventHandler, ProcessFailedEventHandler,
         ServerCertificateErrorDetectedEventHandler,
@@ -17630,38 +18317,19 @@ fn platform_role_surface_setup(
             return Err(RuntimeError::new(
                 "SYSTEM_ROLE_SETUP_FAILED",
                 "WebView2 role setup requires a role surface target.",
-            ));
+            )
+            .with_setup_diagnostic("target-validation", None));
         }
     };
     let navigation_webview_label = webview.label().to_owned();
-    let tracker = Arc::new(SurfaceLifecycleTracker::default());
-    let callback_tracker = Arc::clone(&tracker);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let result = (|| -> Result<(u32, u64), String> {
+            let result = (|| -> RuntimeResult<()> {
                 let controller = platform_webview.controller();
                 let core: ICoreWebView2 = controller
                     .CoreWebView2()
-                    .map_err(|error| error.to_string())?;
-                let mut browser_process_id = 0;
-                core.BrowserProcessId(&mut browser_process_id)
-                    .map_err(|error| error.to_string())?;
-
-                let environment: ICoreWebView2Environment5 = platform_webview
-                    .environment()
-                    .cast()
-                    .map_err(|error| error.to_string())?;
-                let browser_handler = BrowserProcessExitedEventHandler::create(Box::new(
-                    move |_environment, _args| {
-                        callback_tracker.mark_browser_process_exited();
-                        Ok(())
-                    },
-                ));
-                let mut browser_token = 0;
-                environment
-                    .add_BrowserProcessExited(&browser_handler, &mut browser_token)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| windows_role_setup_error("core-webview", error))?;
 
                 let permission_handler =
                     PermissionRequestedEventHandler::create(Box::new(move |_webview, args| {
@@ -17672,7 +18340,7 @@ fn platform_role_surface_setup(
                     }));
                 let mut permission_token = 0;
                 core.add_PermissionRequested(&permission_handler, &mut permission_token)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| windows_role_setup_error("permission-handler", error))?;
 
                 let certificate_handler = ServerCertificateErrorDetectedEventHandler::create(
                     Box::new(move |_webview, args| {
@@ -17682,15 +18350,16 @@ fn platform_role_surface_setup(
                         Ok(())
                     }),
                 );
-                let certificate_core: ICoreWebView2_14 =
-                    core.cast().map_err(|error| error.to_string())?;
+                let certificate_core: ICoreWebView2_14 = core
+                    .cast()
+                    .map_err(|error| windows_role_setup_error("certificate-interface", error))?;
                 let mut certificate_token = 0;
                 certificate_core
                     .add_ServerCertificateErrorDetected(
                         &certificate_handler,
                         &mut certificate_token,
                     )
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| windows_role_setup_error("certificate-handler", error))?;
 
                 let event_app = app.clone();
                 let event_target = target.clone();
@@ -17718,7 +18387,7 @@ fn platform_role_surface_setup(
                     }));
                 let mut process_token = 0;
                 core.add_ProcessFailed(&process_handler, &mut process_token)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| windows_role_setup_error("process-failed-handler", error))?;
 
                 register_windows_document_navigation_handler(
                     &core,
@@ -17726,33 +18395,57 @@ fn platform_role_surface_setup(
                     navigation_role_id.clone(),
                     navigation_webview_label.clone(),
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| windows_role_setup_error("document-navigation-handler", error))?;
 
-                Ok((browser_process_id, controller.as_raw() as usize as u64))
+                Ok(())
             })();
             let _ = sender.send(result);
         })
-        .map_err(RuntimeError::tauri)?;
-    let (browser_process_id, controller_identity) = receiver
+        .map_err(|error| {
+            RuntimeError::new(
+                "SYSTEM_ROLE_SETUP_FAILED",
+                format!("WebView2 role setup callback could not run: {error}"),
+            )
+            .with_setup_diagnostic("with-webview", None)
+        })?;
+    receiver
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_ROLE_SETUP_TIMEOUT",
-                "WebView2 identity, security, lifecycle, and process setup timed out.",
+                "WebView2 security, process, and navigation setup timed out.",
             )
+            .with_setup_diagnostic("handler-timeout", None)
         })?
-        .map_err(|message| RuntimeError::new("SYSTEM_ROLE_SETUP_FAILED", message))?;
-    tracker
-        .browser_process_id
-        .store(u64::from(browser_process_id), Ordering::Release);
-    tracker
-        .controller_identity
-        .store(controller_identity, Ordering::Release);
-    Ok(tracker)
+}
+
+#[cfg(windows)]
+fn windows_role_setup_error(stage: &'static str, error: windows::core::Error) -> RuntimeError {
+    RuntimeError::new(
+        "SYSTEM_ROLE_SETUP_FAILED",
+        format!("WebView2 role setup failed during {stage}: {error}"),
+    )
+    .with_setup_diagnostic(stage, Some(format!("0x{:08X}", error.code().0 as u32)))
+}
+
+#[cfg(windows)]
+fn windows_role_lifecycle_setup_error(error: RuntimeError) -> RuntimeError {
+    RuntimeError {
+        code: if error.code == "SYSTEM_SURFACE_LIFECYCLE_TIMEOUT" {
+            "SYSTEM_ROLE_SETUP_TIMEOUT"
+        } else {
+            "SYSTEM_ROLE_SETUP_FAILED"
+        },
+        diagnostic: error.diagnostic.or(Some(RuntimeErrorDiagnostic {
+            native_code: None,
+            setup_stage: "lifecycle",
+        })),
+        message: error.message,
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn platform_role_surface_setup(
+fn platform_role_surface_setup_inner(
     webview: &Webview,
     _app: AppHandle,
     _target: SurfaceFailureTarget,
@@ -17777,19 +18470,21 @@ fn platform_surface_lifecycle_tracker(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let result = (|| -> Result<(u32, u64), String> {
+            let result = (|| -> RuntimeResult<(u32, u64)> {
                 let controller = platform_webview.controller();
                 let core: ICoreWebView2 = platform_webview
                     .controller()
                     .CoreWebView2()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| windows_surface_lifecycle_error("lifecycle-core", error))?;
                 let mut browser_process_id = 0;
                 core.BrowserProcessId(&mut browser_process_id)
-                    .map_err(|error| error.to_string())?;
-                let environment: ICoreWebView2Environment5 = platform_webview
-                    .environment()
-                    .cast()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error("lifecycle-process-id", error)
+                    })?;
+                let environment: ICoreWebView2Environment5 =
+                    platform_webview.environment().cast().map_err(|error| {
+                        windows_surface_lifecycle_error("lifecycle-environment", error)
+                    })?;
                 let handler = BrowserProcessExitedEventHandler::create(Box::new(
                     move |_environment, _args| {
                         callback_tracker.mark_browser_process_exited();
@@ -17799,12 +18494,20 @@ fn platform_surface_lifecycle_tracker(
                 let mut token = 0;
                 environment
                     .add_BrowserProcessExited(&handler, &mut token)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error("lifecycle-process-exit-handler", error)
+                    })?;
                 Ok((browser_process_id, controller.as_raw() as usize as u64))
             })();
             let _ = sender.send(result);
         })
-        .map_err(RuntimeError::tauri)?;
+        .map_err(|error| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+                format!("WebView2 lifecycle callback could not run: {error}"),
+            )
+            .with_setup_diagnostic("lifecycle-with-webview", None)
+        })?;
     let (browser_process_id, controller_identity) = receiver
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|_| {
@@ -17812,8 +18515,8 @@ fn platform_surface_lifecycle_tracker(
                 "SYSTEM_SURFACE_LIFECYCLE_TIMEOUT",
                 "WebView2 surface lifecycle registration timed out.",
             )
-        })?
-        .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_LIFECYCLE_FAILED", message))?;
+            .with_setup_diagnostic("lifecycle-timeout", None)
+        })??;
     tracker
         .browser_process_id
         .store(u64::from(browser_process_id), Ordering::Release);
@@ -17821,6 +18524,18 @@ fn platform_surface_lifecycle_tracker(
         .controller_identity
         .store(controller_identity, Ordering::Release);
     Ok(tracker)
+}
+
+#[cfg(windows)]
+fn windows_surface_lifecycle_error(
+    stage: &'static str,
+    error: windows::core::Error,
+) -> RuntimeError {
+    RuntimeError::new(
+        "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+        format!("WebView2 surface lifecycle setup failed during {stage}: {error}"),
+    )
+    .with_setup_diagnostic(stage, Some(format!("0x{:08X}", error.code().0 as u32)))
 }
 
 #[cfg(target_os = "macos")]
@@ -18245,6 +18960,7 @@ type RuntimeResult<T> = Result<T, RuntimeError>;
 #[derive(Debug)]
 pub(crate) struct RuntimeError {
     pub(crate) code: &'static str,
+    diagnostic: Option<RuntimeErrorDiagnostic>,
     pub(crate) message: String,
 }
 
@@ -18252,8 +18968,22 @@ impl RuntimeError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
+            diagnostic: None,
             message: message.into(),
         }
+    }
+
+    #[cfg(windows)]
+    fn with_setup_diagnostic(
+        mut self,
+        setup_stage: &'static str,
+        native_code: Option<String>,
+    ) -> Self {
+        self.diagnostic = Some(RuntimeErrorDiagnostic {
+            native_code,
+            setup_stage,
+        });
+        self
     }
 
     fn io(error: std::io::Error) -> Self {
@@ -18861,6 +19591,124 @@ mod tests {
             &labels,
             &labels
         ));
+
+        let identities = HashSet::from([("surface-a".to_owned(), 7)]);
+        let no_op = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &identities,
+            None,
+            None,
+            true,
+        );
+        assert!(!no_op.requires_ui_thread);
+        assert!(!no_op.apply_focus);
+
+        let replacement_identities = HashSet::from([("surface-a".to_owned(), 8)]);
+        let replacement = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &replacement_identities,
+            None,
+            None,
+            true,
+        );
+        assert!(replacement.requires_ui_thread);
+        assert!(replacement.presentation_changed);
+        assert!(replacement.apply_focus);
+
+        let hide_window = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &identities,
+            Some(true),
+            Some(false),
+            true,
+        );
+        assert!(hide_window.requires_ui_thread);
+        assert!(!hide_window.apply_focus);
+
+        let visibility_no_op = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &identities,
+            Some(false),
+            Some(false),
+            false,
+        );
+        assert!(!visibility_no_op.requires_ui_thread);
+    }
+
+    #[test]
+    fn automatic_setup_retry_policy_is_windows_only_and_single_use() {
+        for (platform, completed_retries, error_code, release_verified, expected) in [
+            ("windows", 0, "SYSTEM_ROLE_SETUP_FAILED", true, true),
+            ("windows", 0, "SYSTEM_ROLE_SETUP_FAILED", false, false),
+            ("windows", 1, "SYSTEM_ROLE_SETUP_FAILED", true, false),
+            ("windows", 0, "SYSTEM_ROLE_SETUP_TIMEOUT", true, false),
+            ("windows", 0, "TAURI_NAVIGATION_FAILED", true, false),
+            ("windows", 0, "LAUNCH_CANCELLED", true, false),
+            ("macos", 0, "SYSTEM_ROLE_SETUP_FAILED", true, false),
+        ] {
+            assert_eq!(
+                automatic_role_setup_retry_allowed(
+                    platform,
+                    completed_retries,
+                    error_code,
+                    release_verified,
+                ),
+                expected,
+                "platform={platform}, completedRetries={completed_retries}, error={error_code}, releaseVerified={release_verified}"
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_retry_keeps_provisional_loading_until_the_final_failure() {
+        let first_retry =
+            automatic_role_setup_retry_allowed("windows", 0, "SYSTEM_ROLE_SETUP_FAILED", true);
+        assert!(first_retry);
+        let first_failure_retained = !first_retry;
+        let first_error_revealed = !first_retry;
+        assert!(!first_failure_retained);
+        assert!(!first_error_revealed);
+
+        let second_retry =
+            automatic_role_setup_retry_allowed("windows", 1, "SYSTEM_ROLE_SETUP_FAILED", true);
+        let second_failure_retained = !second_retry;
+        let second_error_revealed = !second_retry;
+        assert!(!second_retry);
+        assert!(second_failure_retained);
+        assert!(second_error_revealed);
+    }
+
+    #[test]
+    fn cancelling_during_retry_delay_invalidates_the_pending_attempt() {
+        let key = "role:role-1";
+        let mut state = RuntimeState::default();
+        state.automatic_launch_retries.insert(key.to_owned(), 1);
+        state.provisional_launches.insert(
+            key.to_owned(),
+            ProvisionalLaunch {
+                cancelled: false,
+                failed: false,
+                host_created: false,
+                id: "tab-1".to_owned(),
+                source_id: "role-1".to_owned(),
+                tab_type: "role".to_owned(),
+                window_id: "window-1".to_owned(),
+            },
+        );
+        assert!(automatic_launch_retry_is_current(&state, key));
+        state.provisional_launches.get_mut(key).unwrap().cancelled = true;
+        assert!(!automatic_launch_retry_is_current(&state, key));
+        state.provisional_launches.get_mut(key).unwrap().cancelled = false;
+        state.automatic_launch_retries.remove(key);
+        assert!(!automatic_launch_retry_is_current(&state, key));
     }
 
     #[test]
@@ -20031,48 +20879,21 @@ mod tests {
     }
 
     #[test]
-    fn failed_provisional_tabs_make_native_destroy_compensation_idempotent() {
-        let provisional = |failed, cancelled| ProvisionalLaunch {
-            cancelled,
-            failed,
-            host_created: false,
-            id: "tab-failed".to_owned(),
-            source_id: "role-1".to_owned(),
-            tab_type: "role".to_owned(),
-            window_id: "window-1".to_owned(),
-        };
-
+    fn failed_launch_cleanup_tombstones_are_consumed_exactly_once() {
         let mut state = RuntimeState::default();
-        assert!(!failed_provisional_tab_has_completed_native_cleanup(
-            &state,
-            "tab-failed"
-        ));
-
         state
-            .provisional_launches
-            .insert("role:role-1".to_owned(), provisional(false, false));
-        assert!(!failed_provisional_tab_has_completed_native_cleanup(
-            &state,
+            .completed_failed_launch_cleanups
+            .insert("tab-failed".to_owned(), Instant::now());
+        assert!(consume_completed_failed_launch_cleanup(
+            &mut state,
             "tab-failed"
         ));
-
-        state
-            .provisional_launches
-            .insert("role:role-1".to_owned(), provisional(true, true));
-        assert!(!failed_provisional_tab_has_completed_native_cleanup(
-            &state,
+        assert!(!consume_completed_failed_launch_cleanup(
+            &mut state,
             "tab-failed"
         ));
-
-        state
-            .provisional_launches
-            .insert("role:role-1".to_owned(), provisional(true, false));
-        assert!(failed_provisional_tab_has_completed_native_cleanup(
-            &state,
-            "tab-failed"
-        ));
-        assert!(!failed_provisional_tab_has_completed_native_cleanup(
-            &state,
+        assert!(!consume_completed_failed_launch_cleanup(
+            &mut state,
             "tab-unknown"
         ));
     }

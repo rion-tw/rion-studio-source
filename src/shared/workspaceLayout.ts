@@ -1,15 +1,10 @@
 import type {
   LaunchWorkspaceSlot,
   NormalizedRect,
-  WorkspaceSlotBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "./types";
-
-export const MAX_WORKSPACE_SLOTS = 9;
 export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
-export const MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 25;
-export const MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 300;
 
 export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "single",
@@ -26,17 +21,6 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "eight_grid",
   "nine_grid"
 ];
-
-export function isWorkspaceSlotBrowserZoomPercent(
-  value: unknown
-): value is WorkspaceSlotBrowserZoomPercent {
-  return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT &&
-    value <= MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT
-  );
-}
 
 export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate): number {
   switch (template) {

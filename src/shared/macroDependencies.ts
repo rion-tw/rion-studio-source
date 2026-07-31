@@ -1,71 +1,11 @@
 import type { Macro } from "./types";
 
-export type MacroDependencyNode = Pick<Macro, "id" | "steps">;
+type MacroDependencyNode = Pick<Macro, "id" | "steps">;
 
-export type MacroAssignmentNode = Pick<Macro, "id" | "roleIds" | "steps">;
+type MacroAssignmentNode = Pick<Macro, "id" | "roleIds" | "steps">;
 
-export type MacroDependencyIssue =
-  | {
-      type: "missing";
-      macroId: string;
-      targetMacroId: string;
-    }
-  | {
-      type: "cycle";
-      macroIds: string[];
-    };
-
-export function getMacroDependencyIds(macro: Pick<Macro, "steps">): string[] {
+function getMacroDependencyIds(macro: Pick<Macro, "steps">): string[] {
   return macro.steps.flatMap((step) => step.type === "macro" ? [step.macroId] : []);
-}
-
-export function findMacroDependencyIssue(
-  macros: MacroDependencyNode[]
-): MacroDependencyIssue | undefined {
-  const macroById = new Map(macros.map((macro) => [macro.id, macro]));
-
-  for (const macro of macros) {
-    for (const targetMacroId of getMacroDependencyIds(macro)) {
-      const target = macroById.get(targetMacroId);
-      if (!target) {
-        return { type: "missing", macroId: macro.id, targetMacroId };
-      }
-    }
-  }
-
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const path: string[] = [];
-
-  const visit = (macroId: string): string[] | undefined => {
-    if (visiting.has(macroId)) {
-      const cycleStart = path.indexOf(macroId);
-      return [...path.slice(Math.max(0, cycleStart)), macroId];
-    }
-    if (visited.has(macroId)) {
-      return undefined;
-    }
-
-    visiting.add(macroId);
-    path.push(macroId);
-    for (const targetMacroId of getMacroDependencyIds(macroById.get(macroId)!)) {
-      const cycle = visit(targetMacroId);
-      if (cycle) return cycle;
-    }
-    path.pop();
-    visiting.delete(macroId);
-    visited.add(macroId);
-    return undefined;
-  };
-
-  for (const macro of macros) {
-    const cycle = visit(macro.id);
-    if (cycle) {
-      return { type: "cycle", macroIds: cycle };
-    }
-  }
-
-  return undefined;
 }
 
 export function macroDependsOn(
@@ -87,10 +27,6 @@ export function macroDependsOn(
   }
 
   return false;
-}
-
-export function getMacroReferrers(macros: Macro[], targetMacroId: string): Macro[] {
-  return macros.filter((macro) => getMacroDependencyIds(macro).includes(targetMacroId));
 }
 
 export function findUnassignedMacroDependency<T extends MacroAssignmentNode>(

@@ -62,7 +62,7 @@
             assert!(wait_started.elapsed() < Duration::from_secs(2));
             thread::yield_now();
         };
-        crate::v1_case!("macro-1d428d305b23", {
+        {
             assert_eq!(
                 parent.error.as_deref(),
                 Some("Cancelled because a called macro was stopped.")
@@ -75,7 +75,7 @@
                     "parent dispatched its next step"
                 );
             }
-        });
+        };
         runtime.stop_macro("m1").unwrap();
     }
 
@@ -138,7 +138,7 @@
             );
             thread::yield_now();
         };
-        crate::v1_case!("macro-86fe57b6249c", {
+        {
             assert_eq!(
                 statuses
                     .iter()
@@ -153,7 +153,7 @@
                     ("r2", "cancelled", Some(SIBLING_FAILURE_MESSAGE)),
                 ]
             );
-        });
+        };
     }
 
     #[test]
@@ -211,10 +211,10 @@
         runtime.dispatch_results(success_results(focus)).unwrap();
         let statuses = start.join().unwrap();
         assert_eq!(statuses.len(), 1);
-        crate::v1_case!("macro-61139813b60e", {
+        {
             assert_eq!(focused_role_ids, ["r1".to_owned()]);
             assert!(status_was_hidden_during_preflight);
-        });
+        };
     }
 
     #[test]
@@ -273,7 +273,7 @@
     }
 
     #[test]
-    fn v1_rechecks_focus_once_for_each_separate_macro_start() {
+    fn rechecks_focus_once_for_each_separate_macro_start() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -312,9 +312,9 @@
                 thread::yield_now();
             }
         }
-        crate::v1_case!("macro-832559ff652f", {
+        {
             assert_eq!(focus_count, 2);
-        });
+        };
     }
 
     #[test]
@@ -354,9 +354,9 @@
         let focus = next_browser_actions(&receiver);
         assert_eq!(focus.len(), 2);
         runtime.dispatch_results(success_results(focus)).unwrap();
-        crate::v1_case!("macro-cfe1e21720c6", {
+        {
             assert_eq!(press.join().unwrap().len(), 2);
-        });
+        };
 
         let holds = next_browser_action_count(&receiver, 2);
         assert_eq!(holds.len(), 2);
@@ -397,10 +397,10 @@
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         runtime.dispatch_results(success_results(holds)).unwrap();
         let releases = next_browser_action_count(&receiver, 2);
-        crate::v1_case!("macro-0ac489bf140b", {
+        {
             assert_eq!(releases.len(), 2);
-        });
-        crate::v1_case!("macro-badb57de73cf", {
+        };
+        {
             assert_eq!(
                 releases
                     .iter()
@@ -414,20 +414,20 @@
                     .count(),
                 2
             );
-        });
+        };
         runtime.dispatch_results(success_results(releases)).unwrap();
         release.join().unwrap();
         stop.join().unwrap();
-        crate::v1_case!("macro-77cf800f4fc9", {
+        {
             assert!(runtime.statuses().unwrap().is_empty());
-        });
-        crate::v1_case!("macro-f49ff2bd81d6", {
+        };
+        {
             assert!(runtime.statuses().unwrap().is_empty());
-        });
+        };
     }
 
     #[test]
-    fn v1_immediate_release_interrupts_first_or_later_while_held_iterations() {
+    fn immediate_release_interrupts_first_or_later_while_held_iterations() {
         for (completed_iterations, press_id, case_id) in [
             (0, "first-iteration", "macro-8b4e22c0e423"),
             (1, "later-iteration", "macro-cefbad4638d2"),
@@ -498,19 +498,19 @@
             release.join().unwrap();
             match case_id {
                 "macro-8b4e22c0e423" => {
-                    crate::v1_case!("macro-8b4e22c0e423", {
+                    {
                         assert!(runtime.statuses().unwrap().is_empty());
-                    });
+                    };
                 }
                 "macro-cefbad4638d2" => {
-                    crate::v1_case!("macro-cefbad4638d2", {
+                    {
                         assert!(runtime.statuses().unwrap().is_empty());
                         while let Ok(events) = receiver.try_recv() {
                             assert!(events.iter().all(|event| {
                                 !matches!(event, CoreEvent::BrowserActions { .. })
                             }));
                         }
-                    });
+                    };
                 }
                 _ => unreachable!(),
             }
@@ -518,7 +518,7 @@
     }
 
     #[test]
-    fn v1_zero_delay_loop_yields_without_blocking_the_runtime_caller() {
+    fn zero_delay_loop_yields_without_blocking_the_runtime_caller() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -536,7 +536,7 @@
             caller_progressed_output.store(true, Ordering::Release);
         });
         caller.join().unwrap();
-        crate::v1_case!("macro-3c32b7b3055b", {
+        {
             assert!(caller_progressed.load(Ordering::Acquire));
             assert!(
                 runtime
@@ -545,7 +545,7 @@
                     .iter()
                     .any(|status| status.state == "running")
             );
-        });
+        };
         runtime.stop_macro("m1").unwrap();
     }
 
@@ -577,7 +577,7 @@
         let hold = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(hold)).unwrap();
 
-        crate::v1_case!("macro-e72e89468ae9", {
+        {
             for (source_role_id, press_id) in [("r1", "press-other"), ("r2", "press-correct")] {
                 runtime
                     .release(MacroReleaseRequest {
@@ -600,7 +600,7 @@
                     }
                 }
             }
-        });
+        };
 
         let releasing_runtime = runtime.clone();
         let release = thread::spawn(move || {
@@ -656,7 +656,7 @@
             .unwrap();
         runtime.dispatch_results(success_results(focus)).unwrap();
 
-        crate::v1_case!("macro-ec0ed215114c", {
+        {
             assert!(press.join().unwrap().unwrap().is_empty());
             let deadline = std::time::Instant::now() + Duration::from_millis(100);
             while std::time::Instant::now() < deadline {
@@ -669,7 +669,7 @@
                     );
                 }
             }
-        });
+        };
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         while !runtime.statuses().unwrap().is_empty() {
             assert!(std::time::Instant::now() < deadline);

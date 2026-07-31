@@ -27,7 +27,7 @@ type Listener = (...payload: never[]) => void;
 type Unlisten = () => void;
 type ListenerRegistration = () => Promise<Unlisten>;
 
-export const TAURI_BRIDGE_TIMEOUT_MS = 10_000;
+const TAURI_BRIDGE_TIMEOUT_MS = 10_000;
 const COLLECTION_REFRESH_RETRY_DELAYS_MS = [100, 500] as const;
 const SNAPSHOT_COLLECTIONS = [
   "games",
@@ -91,7 +91,7 @@ export function gameCreateInput(input: CreateGameInput): Extract<
   };
 }
 
-export function gameUpdateInput(input: UpdateGameInput): Extract<
+function gameUpdateInput(input: UpdateGameInput): Extract<
   CoreCommand,
   { type: "gameUpdate" }
 >["input"] {
@@ -114,7 +114,7 @@ export function gameUpdateInput(input: UpdateGameInput): Extract<
   };
 }
 
-export function roleCreateInput(input: CreateRoleInput): Extract<
+function roleCreateInput(input: CreateRoleInput): Extract<
   CoreCommand,
   { type: "roleCreate" }
 >["input"] {

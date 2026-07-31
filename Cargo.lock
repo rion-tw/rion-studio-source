@@ -3119,7 +3119,6 @@ dependencies = [
 name = "rion-core"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "crossbeam-channel",
@@ -3132,7 +3131,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sysinfo",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -3174,7 +3172,6 @@ dependencies = [
  "objc2-web-kit",
  "rion-core",
  "rion-platform",
- "rusqlite",
  "serde",
  "serde_json",
  "sha2",

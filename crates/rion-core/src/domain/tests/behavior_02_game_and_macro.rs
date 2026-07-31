@@ -29,8 +29,8 @@
     }
 
     #[test]
-    fn macro_store_domain_contracts_match_v1() {
-        crate::v1_case!("state-migration-24fee99df77d", {
+    fn macro_store_domain_contracts() {
+        {
             let mut macros = Vec::new();
             let created = create_macro(
                 &mut macros,
@@ -44,9 +44,9 @@
             isolated[0].name = "Changed".to_owned();
             assert_eq!(macros[0].name, "Copy");
             assert_eq!(created.name, "Copy");
-        });
+        };
 
-        crate::v1_case!("state-migration-a59f6e22aea7", {
+        {
             let mut macros = Vec::new();
             let created = create_macro(
                 &mut macros,
@@ -66,9 +66,9 @@
             assert_eq!(updated.name, "Party updated");
             delete_macro(&mut macros, &created.id).unwrap();
             assert!(macros.is_empty());
-        });
+        };
 
-        crate::v1_case!("state-migration-7dd0a543761c", {
+        {
             let mut macros = Vec::new();
             let disabled = create_macro(
                 &mut macros,
@@ -88,9 +88,9 @@
             .unwrap();
             assert!(!disabled.enabled);
             assert!(enabled.enabled);
-        });
+        };
 
-        crate::v1_case!("state-migration-18973c29ec15", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -119,9 +119,9 @@
                 &parent.steps[1],
                 MacroStepDefinition::Macro { call_mode: Some(mode), .. } if mode == "trigger"
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-f5d8acae045e", {
+        {
             let mut macros = Vec::new();
             let held = create_macro(
                 &mut macros,
@@ -148,9 +148,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-25770bd4824c", {
+        {
             let mut macros = Vec::new();
             let normalized = create_macro(
                 &mut macros,
@@ -178,9 +178,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-44163e85a900", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -207,9 +207,9 @@
                 &parent.steps[0],
                 MacroStepDefinition::Macro { macro_id, .. } if macro_id == &target.id
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-905d5e9f3e52", {
+        {
             let mut macros = Vec::new();
             for name in ["Duplicate", "Duplicate"] {
                 create_macro(
@@ -234,9 +234,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-4c9648c9e15d", {
+        {
             let invalid = serde_json::from_value::<MacroCreateInputRecord>(json!({
                 "name":"Missing roles","steps":[{"type":"delay","ms":1}]
             }));
@@ -251,9 +251,9 @@
             )
             .unwrap();
             assert!(unassigned.role_ids.is_empty());
-        });
+        };
 
-        crate::v1_case!("state-migration-f03e9cfce6a3", {
+        {
             let mut macros = Vec::new();
             let created = create_macro(
                 &mut macros,
@@ -264,9 +264,9 @@
             )
             .unwrap();
             assert_eq!(created.role_ids, vec!["r1", "r2"]);
-        });
+        };
 
-        crate::v1_case!("state-migration-a4407a2e1282", {
+        {
             let mut macros = Vec::new();
             assert!(
                 create_macro(
@@ -287,9 +287,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-238ae0807744", {
+        {
             let mut macros = Vec::new();
             let created = create_macro(
                 &mut macros,
@@ -308,9 +308,9 @@
                     ..
                 } if *x_px == 12.0 && *y_px == 35.0
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-e8dafd40d2f5", {
+        {
             let mut macros = Vec::new();
             let created = create_macro(
                 &mut macros,
@@ -333,9 +333,9 @@
                     ..
                 } if anchor == "bottom-right" && *x_px == -24.0 && *y_px == -32.0
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-f7980c6af8d2", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -361,9 +361,9 @@
                 &macros[1].steps[0],
                 MacroStepDefinition::Macro { macro_id, .. } if macro_id == &target.id
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-a3755087145d", {
+        {
             let mut macros = Vec::new();
             create_macro(
                 &mut macros,
@@ -376,9 +376,9 @@
             clear_macro_role(&mut macros, "r1");
             clear_macro_role(&mut macros, "r2");
             assert_eq!(macros[0].role_ids, vec!["r3"]);
-        });
+        };
 
-        crate::v1_case!("state-migration-ee5e6e6e550a", {
+        {
             let mut macros = Vec::new();
             let created = create_macro(
                 &mut macros,
@@ -397,9 +397,9 @@
                 created.steps[0],
                 MacroStepDefinition::Delay { ms: 0, .. }
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-11854785813c", {
+        {
             let trigger = json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
             let mut macros = Vec::new();
             create_macro(
@@ -441,9 +441,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-08dee212a406", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -472,9 +472,9 @@
                 MacroStepDefinition::Macro { id, macro_id, .. }
                     if id == "call-step" && macro_id == &target.id
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-5ec8118b2de8", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -495,9 +495,9 @@
                 )
                 .is_ok()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-e1b19c8acafb", {
+        {
             let mut macros = Vec::new();
             assert!(
                 create_macro(
@@ -545,9 +545,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-eaeea61f42ff", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -575,9 +575,9 @@
                 updated.repeat,
                 MacroRepeat::Loop { interval_ms: 500 }
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-a995f2021932", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -608,9 +608,9 @@
                 MacroStepDefinition::Key { action: Some(ref action), .. }
                     if action == "hold_until_stop"
             ));
-        });
+        };
 
-        crate::v1_case!("state-migration-b436d48eb42a", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -634,9 +634,9 @@
             assert_eq!(error.code(), "MACRO_IN_USE");
             assert!(error.to_string().contains("First referrer"));
             assert!(error.to_string().contains("Second referrer"));
-        });
+        };
 
-        crate::v1_case!("state-migration-eb10d0654aa7", {
+        {
             let mut macros = Vec::new();
             let target = create_macro(
                 &mut macros,
@@ -671,5 +671,5 @@
             assert_eq!(deleted, vec![unrelated.id]);
             assert_eq!(skipped[0].1, "not_found");
             assert!(macros.is_empty());
-        });
+        };
     }

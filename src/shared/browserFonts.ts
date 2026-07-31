@@ -16,7 +16,7 @@ import {
 } from "./macroOverlay";
 
 export const browserFontSlots = ["cjk", "latin", "numeric", "monospace", "math"] as const;
-export const browserFontCjkVariants = ["auto", "tc", "sc", "jp"] as const;
+const browserFontCjkVariants = ["auto", "tc", "sc", "jp"] as const;
 
 export type BrowserFontPresetId =
   | "system-default"
@@ -40,7 +40,7 @@ export type BrowserFontPresetId =
   | "future-interface"
   | "relaxed-dialogue";
 
-export interface BrowserFontPresetDefinition {
+interface BrowserFontPresetDefinition {
   id: BrowserFontPresetId;
   category: "general" | "handwriting" | "personality";
   slots: Partial<Record<BrowserFontSlot, BrowserFontSelection>>;
@@ -193,7 +193,7 @@ export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   }
 };
 
-export const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
+const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
   macosHighRefreshRate: false
 };
 
@@ -228,7 +228,7 @@ export function normalizeGameBrowserSettings(
   };
 }
 
-export function normalizeBrowserPerformanceSettings(
+function normalizeBrowserPerformanceSettings(
   value: unknown,
   fallback: BrowserPerformanceSettings = DEFAULT_BROWSER_PERFORMANCE_SETTINGS
 ): BrowserPerformanceSettings {
@@ -241,7 +241,7 @@ export function normalizeBrowserPerformanceSettings(
   };
 }
 
-export function normalizeWorkspaceAppearanceSettings(
+function normalizeWorkspaceAppearanceSettings(
   value: unknown,
   fallback: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 ): WorkspaceAppearanceSettings {
@@ -252,7 +252,7 @@ export function normalizeWorkspaceAppearanceSettings(
   };
 }
 
-export function normalizeBrowserFontSettings(
+function normalizeBrowserFontSettings(
   value: unknown,
   fallback: BrowserFontSettings = DEFAULT_BROWSER_FONT_SETTINGS
 ): BrowserFontSettings {
@@ -286,7 +286,7 @@ function cloneBrowserFontSettings(settings: BrowserFontSettings): BrowserFontSet
   return { ...settings, slots: { ...settings.slots } };
 }
 
-export function normalizeBrowserFontSlots(
+function normalizeBrowserFontSlots(
   value: unknown,
   fallback: Partial<Record<BrowserFontSlot, BrowserFontSelection>> = {}
 ): Partial<Record<BrowserFontSlot, BrowserFontSelection>> {
@@ -301,10 +301,6 @@ export function normalizeBrowserFontSlots(
   }
 
   return normalized;
-}
-
-export function isBrowserFontSlot(value: unknown): value is BrowserFontSlot {
-  return browserFontSlots.includes(value as BrowserFontSlot);
 }
 
 export function normalizeBrowserFontFamily(value: unknown, fallback?: string): string | undefined {

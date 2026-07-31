@@ -50,7 +50,7 @@
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         }
-        crate::v1_case!("macro-e00157ddebea", {
+        {
             assert_eq!(phases, ["hold", "release"]);
             while let Ok(events) = receiver.try_recv() {
                 assert!(
@@ -60,7 +60,7 @@
                     "the early release allowed a second iteration"
                 );
             }
-        });
+        };
     }
 
     fn drive_timed_tap(

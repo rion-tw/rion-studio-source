@@ -253,7 +253,7 @@ mod tests {
                 ),
             ),
         ]);
-        crate::v1_case!("logging-9ee67b0d531a", {
+        {
             assert_eq!(entries.len(), 1);
             assert_eq!(entries[0].id.split(':').count(), 2);
             assert_eq!(entries[0].message, "https://example.com/play");
@@ -273,12 +273,12 @@ mod tests {
                 entries[0].context.as_ref().unwrap()["path"],
                 "<USER_DATA>/logs"
             );
-        });
+        };
     }
 
     #[test]
     fn sanitizes_capture_cycles_long_strings_error_causes_and_cookie_diagnostics() {
-        crate::v1_case!("logging-8d2b57184a63", {
+        {
             let cause = LogErrorDetails {
                 name: "Error".to_owned(),
                 message: "token failure in /app/data".to_owned(),
@@ -312,9 +312,9 @@ mod tests {
                     .message,
                 "token failure in <USER_DATA>"
             );
-        });
+        };
 
-        crate::v1_case!("logging-863617eb2d4b", {
+        {
             let mut runtime = LogCaptureRuntime::new(PathBuf::from("/tmp/rion"), LogLevel::Info);
             let entries = runtime.capture(vec![capture(
                 LogLevel::Info,
@@ -324,7 +324,7 @@ mod tests {
             assert_eq!(context["sourceItemCount"], 4);
             assert_eq!(context["flushFailed"], true);
             assert_eq!(context["sessionStorage"], "<REDACTED>");
-        });
+        };
     }
 
     #[test]

@@ -34,7 +34,7 @@ const surfaceVariants = cva("text-card-foreground", {
   }
 });
 
-export interface SurfaceProps
+interface SurfaceProps
   extends HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof surfaceVariants> {}
 
@@ -46,7 +46,7 @@ export const Surface = forwardRef<HTMLDivElement, SurfaceProps>(
 
 Surface.displayName = "Surface";
 
-export type HelpPanelProps = HTMLAttributes<HTMLDivElement>;
+type HelpPanelProps = HTMLAttributes<HTMLDivElement>;
 
 export const HelpPanel = forwardRef<HTMLDivElement, HelpPanelProps>(
   ({ className, ...props }, ref) => (
@@ -56,7 +56,7 @@ export const HelpPanel = forwardRef<HTMLDivElement, HelpPanelProps>(
 
 HelpPanel.displayName = "HelpPanel";
 
-export interface PageFrameProps extends HTMLAttributes<HTMLElement> {
+interface PageFrameProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
   containerRef?: MutableRefObject<HTMLElement | null>;
   contentClassName?: string;
@@ -114,7 +114,7 @@ export function PageFrame({
   );
 }
 
-export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
+interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   actions?: ReactNode;
   description?: ReactNode;
   kicker?: ReactNode;
@@ -147,7 +147,7 @@ const iconTileVariants = cva("glass-control flex shrink-0 items-center justify-c
   }
 });
 
-export interface IconTileProps
+interface IconTileProps
   extends HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof iconTileVariants> {}
 
@@ -159,7 +159,7 @@ export const IconTile = forwardRef<HTMLDivElement, IconTileProps>(
 
 IconTile.displayName = "IconTile";
 
-export interface FieldHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+interface FieldHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   description?: ReactNode;
   title: ReactNode;
 }
@@ -173,7 +173,7 @@ export function FieldHeader({ className, description, title, ...props }: FieldHe
   );
 }
 
-export interface FieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+interface FieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   children?: ReactNode;
   description?: ReactNode;
   title: ReactNode;
@@ -188,7 +188,7 @@ export function Field({ children, className, description, title, ...props }: Fie
   );
 }
 
-export interface FormFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+interface FormFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   children: ReactNode;
   description?: ReactNode;
   htmlFor?: string;
@@ -224,7 +224,7 @@ export function FormField({
   );
 }
 
-export interface FormGridProps extends HTMLAttributes<HTMLDivElement> {
+interface FormGridProps extends HTMLAttributes<HTMLDivElement> {
   columns?: 1 | 2 | 3;
 }
 
@@ -262,14 +262,14 @@ function CountPill({ children, className }: CountPillProps) {
   );
 }
 
-export interface SegmentedItem<T extends string> {
+interface SegmentedItem<T extends string> {
   count?: number;
   icon?: LucideIcon;
   label: string;
   value: T;
 }
 
-export interface SegmentedControlProps<T extends string> extends HTMLAttributes<HTMLDivElement> {
+interface SegmentedControlProps<T extends string> extends HTMLAttributes<HTMLDivElement> {
   disabled?: boolean;
   items: Array<SegmentedItem<T>>;
   onValueChange: (value: T) => void;
@@ -314,7 +314,7 @@ export function SegmentedControl<T extends string>({
   );
 }
 
-export interface NavItemProps {
+interface NavItemProps {
   active?: boolean;
   className?: string;
   count?: number;
@@ -397,7 +397,7 @@ const calloutVariants = cva(
   }
 );
 
-export interface StatusCalloutProps
+interface StatusCalloutProps
   extends HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof calloutVariants> {}
 
@@ -409,7 +409,7 @@ export const StatusCallout = forwardRef<HTMLDivElement, StatusCalloutProps>(
 
 StatusCallout.displayName = "StatusCallout";
 
-export interface DialogLayerProps extends HTMLAttributes<HTMLDivElement> {
+interface DialogLayerProps extends HTMLAttributes<HTMLDivElement> {
   backdropLabel: string;
   onDismiss: () => void;
 }
@@ -440,7 +440,7 @@ export function DialogLayer({
   );
 }
 
-export interface SettingsSectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
+interface SettingsSectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   title?: ReactNode;
 }
 
@@ -455,7 +455,7 @@ export function SettingsSection({ children, className, title, ...props }: Settin
   );
 }
 
-export interface SettingsRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+interface SettingsRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   control: ReactNode;
   description: ReactNode;
   showDivider?: boolean;

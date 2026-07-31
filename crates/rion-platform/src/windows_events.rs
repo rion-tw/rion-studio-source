@@ -44,11 +44,11 @@ mod tests {
 
     #[test]
     fn skips_windows_tools_on_macos() {
-        crate::v1_case!("resource-platform-29722c6512e9", {
+        {
             assert_eq!(
                 query_windows_display_driver_events(Platform::Macos).unwrap(),
                 None
             );
-        });
+        };
     }
 }

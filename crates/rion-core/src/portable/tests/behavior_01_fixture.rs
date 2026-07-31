@@ -156,10 +156,10 @@ use super::*;
                 "steps":[{"id":"call-a","type":"macro","macroId":"a"}]
             }
         ]);
-        crate::v1_case!("portable-profile-8808c827c529", {
+        {
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
-        });
+        };
         let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":12");
         assert!(normalize(&future).is_err());
     }
@@ -209,8 +209,8 @@ use super::*;
     }
 
     #[test]
-    fn portable_macro_schema_and_dependency_contracts_match_v1() {
-        crate::v1_case!("portable-profile-8e28536dd709", {
+    fn portable_macro_schema_and_dependency_contracts() {
+        {
             let mut source = fixture_value(11);
             source["roles"] = json!([]);
             source["launchWorkspaces"] = json!([]);
@@ -259,9 +259,9 @@ use super::*;
                 step,
                 MacroStepDefinition::Macro { macro_id, .. } if macro_id == child_id
             )));
-        });
+        };
 
-        crate::v1_case!("portable-profile-e6af9396e983", {
+        {
             let mut current = fixture_value(11);
             current["macros"][0]["steps"] = json!([{
                 "id":"key","type":"key","code":"KeyK","modifiers":["primary","shift"]
@@ -271,9 +271,9 @@ use super::*;
                 normalized["macros"][0]["steps"][0]["modifiers"],
                 json!(["primary", "shift"])
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-ad31d6182c00", {
+        {
             let mut source = fixture_value(11);
             source["macros"][0]["activationMode"] = json!("while_held");
             source["macros"][0]["trigger"] =
@@ -287,9 +287,9 @@ use super::*;
                 normalized["macros"][0]["steps"][0]["action"],
                 "hold_until_stop"
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-1e98f72121bd", {
+        {
             let mut source = fixture_value(11);
             source["macros"] = json!([
                 {
@@ -338,9 +338,9 @@ use super::*;
                 MacroStepDefinition::Macro { macro_id, .. } if macro_id == &child.id
             )));
             assert_eq!(child.activation_mode.as_deref(), Some("while_held"));
-        });
+        };
 
-        crate::v1_case!("portable-profile-80399681ac04", {
+        {
             let mut source = fixture_value(11);
             source["macros"] = json!([
                 {
@@ -375,12 +375,12 @@ use super::*;
                     .count(),
                 2
             );
-        });
+        };
     }
 
     #[test]
-    fn portable_export_selection_and_preferences_match_v1() {
-        crate::v1_case!("portable-profile-f1fe3b381736", {
+    fn portable_export_selection_and_preferences() {
+        {
             let exported = export(
                 state_fixture(),
                 None,
@@ -400,9 +400,9 @@ use super::*;
             assert_eq!(exported.macros.len(), 1);
             assert!(exported.launch_workspaces.is_empty());
             assert!(exported.preferences.is_none());
-        });
+        };
 
-        crate::v1_case!("portable-profile-5304f75afec4", {
+        {
             let mut snapshot = state_fixture();
             snapshot.roles.clear();
             snapshot.macros.clear();
@@ -432,9 +432,9 @@ use super::*;
                 .unwrap();
             assert_eq!(preview.game_count, 1);
             assert_eq!(preview.role_count, 0);
-        });
+        };
 
-        crate::v1_case!("portable-profile-9ff67670a6e1", {
+        {
             let error = export(
                 empty_snapshot(),
                 None,
@@ -450,9 +450,9 @@ use super::*;
             )
             .unwrap_err();
             assert_eq!(error.code(), "PORTABLE_SELECTION_EMPTY");
-        });
+        };
 
-        crate::v1_case!("portable-profile-34a45c05788e", {
+        {
             let preferences = PortablePreferencesRecord {
                 game_browser_settings: None,
                 language: None,
@@ -477,9 +477,9 @@ use super::*;
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);
-        });
+        };
 
-        crate::v1_case!("portable-profile-aeb1cbd39bbb", {
+        {
             let mut source = fixture_value(11);
             source["preferences"] = json!({"language":"ja","themeMode":"light"});
             let mut runtime = PortableRuntime::default();
@@ -517,9 +517,9 @@ use super::*;
                     .and_then(|preferences| preferences.language.as_deref()),
                 Some("ja")
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-3f9907060aae", {
+        {
             let mut source = fixture_value(11);
             source["preferences"] = json!({"language":"en"});
             let mut runtime = PortableRuntime::default();
@@ -566,7 +566,7 @@ use super::*;
                 )
                 .unwrap();
             assert!(retry.result.preferences_included);
-        });
+        };
     }
 
     #[test]

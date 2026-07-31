@@ -1,5 +1,5 @@
 #[test]
-    fn role_creation_and_selected_browser_directory_reset_match_v1() {
+    fn role_creation_and_selected_browser_directory_reset() {
         let (directory, core) = core();
         let game_id = first_game_id(&core);
         let first_id = create_role(&core, &game_id, 1);
@@ -15,7 +15,7 @@
             .join(&second_id)
             .join("browser");
 
-        crate::v1_case!("state-migration-2847be74e6ef", {
+        {
             let role: StateRoleRecord = serde_json::from_value(
                 core.invoke(CoreCommand::RoleGet {
                     id: first_id.clone(),
@@ -28,7 +28,7 @@
             assert!(value.get("windowWidth").is_none());
             assert!(value.get("windowHeight").is_none());
             assert!(value.get("launchPreset").is_none());
-        });
+        };
 
         fs::write(first_browser.join("session"), b"first").unwrap();
         fs::write(second_browser.join("session"), b"second").unwrap();
@@ -37,7 +37,7 @@
         })
         .unwrap();
 
-        crate::v1_case!("state-migration-022970179dc8", {
+        {
             assert!(first_browser.is_dir());
             assert!(!first_browser.join("session").exists());
             assert_eq!(fs::read(second_browser.join("session")).unwrap(), b"second");
@@ -47,7 +47,7 @@
                 })
                 .is_ok()
             );
-        });
+        };
         core.shutdown();
     }
 
@@ -67,7 +67,7 @@
         });
         let (first_result, second_result) = tokio::join!(first, second);
 
-        crate::v1_case!("state-migration-badd3d9837fd", {
+        {
             first_result.unwrap();
             second_result.unwrap();
             assert!(
@@ -79,7 +79,7 @@
             );
             assert!(!directory.path().join("roles").join(first_id).exists());
             assert!(!directory.path().join("roles").join(second_id).exists());
-        });
+        };
         core.shutdown();
     }
 
@@ -229,13 +229,13 @@
         assert_eq!(view["resolvedTheme"], "light");
         assert_eq!(view["macros"][0]["id"], macro_id);
         assert_eq!(view["statuses"], json!([]));
-        crate::v1_case!("overlay-ff7db98ddb5f", {
+        {
             assert_eq!(view["macroBadgePosition"]["horizontalAlign"], "right");
             assert!(view["macroBadgePosition"]["topPx"].is_number());
-        });
-        crate::v1_case!("overlay-368345bae2c9", {
+        };
+        {
             assert_eq!(view["statuses"], json!([]));
-        });
+        };
 
         core.invoke(CoreCommand::RuntimeThemeSet {
             theme: "dark".to_owned(),
@@ -273,11 +273,11 @@
                 "requestJson": json!({"type": "stop", "macroId": macro_id.clone()}).to_string()
             }))))
             .unwrap_err();
-        crate::v1_case!("macro-7f0e0fdc25ad", {
+        {
             assert_eq!(start_error.code(), "MACRO_ROLE_INVALID");
             assert_eq!(stop_error.code(), "MACRO_ROLE_INVALID");
             assert!(core.macro_runtime.statuses().unwrap().is_empty());
-        });
+        };
 
         let (opened, actions, _) = drive_async_command(
             Arc::clone(&core),
@@ -289,13 +289,13 @@
             None,
         );
         assert!(opened.is_ok());
-        crate::v1_case!("overlay-af98ca2701ca", {
+        {
             assert!(actions.iter().any(|action| matches!(
                 action,
                 CoreEffectAction::OverlayOpenMacroPage { role_id: current }
                     if current == &role_id
             )));
-        });
+        };
 
         let (copied, actions, _) = drive_async_command(
             Arc::clone(&core),
@@ -307,13 +307,13 @@
             None,
         );
         assert!(copied.is_ok());
-        crate::v1_case!("overlay-ff53e3a9a048", {
+        {
             assert!(actions.iter().any(|action| matches!(
                 action,
                 CoreEffectAction::OverlayCopyCoordinate { coordinate }
                     if coordinate.x_px == 10 && coordinate.y_px == 20
             )));
-        });
+        };
         core.shutdown();
     }
 
@@ -379,7 +379,7 @@
             None,
         );
 
-        crate::v1_case!("portable-profile-d7ae496f0b91", {
+        {
             let _: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
             assert!(browser.is_dir());
             assert!(!browser.join("session").exists());
@@ -395,7 +395,7 @@
                     .unwrap()
                     .is_empty()
             );
-        });
+        };
         core.shutdown();
     }
 
@@ -411,7 +411,7 @@
                 role_id: "missing".to_owned(),
             }));
 
-        crate::v1_case!("portable-profile-57a504e12e6a", {
+        {
             let error = result.unwrap_err();
             assert_eq!(error.code(), "ROLE_NOT_FOUND");
             assert_eq!(error.to_string(), "Role not found.");
@@ -421,7 +421,7 @@
                     .flatten()
                     .all(|event| { !matches!(event, CoreEvent::CoreEffects { .. }) })
             );
-        });
+        };
         core.shutdown();
     }
 
@@ -551,7 +551,7 @@
             resolutions: Vec::new(),
         });
 
-        crate::v1_case!("portable-profile-f3f377a06988", {
+        {
             assert_eq!(busy.unwrap_err().code(), "PORTABLE_IMPORT_BUSY");
             assert_eq!(retry.unwrap()["macroCount"], 1);
             assert_eq!(
@@ -561,7 +561,7 @@
                 .unwrap()["steps"][0]["ms"],
                 2
             );
-        });
+        };
         core.shutdown();
     }
 

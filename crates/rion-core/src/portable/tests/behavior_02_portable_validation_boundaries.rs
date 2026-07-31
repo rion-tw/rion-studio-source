@@ -1,15 +1,15 @@
 #[test]
-    fn portable_validation_boundaries_match_v1() {
-        crate::v1_case!("portable-profile-2d3cefe26629", {
+    fn portable_validation_boundaries() {
+        {
             let mut source = fixture_value(11);
             source["games"][0]["coverImageDataUrl"] = json!("https://example.test/cover.png");
             assert_eq!(
                 normalize(&source.to_string()).unwrap_err().code(),
                 "CORE_INPUT_INVALID"
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-9a858942068b", {
+        {
             assert_eq!(
                 normalize(r#"{"app":"Rion Studio","schemaVersion":999}"#)
                     .unwrap_err()
@@ -17,9 +17,9 @@
                 "CORE_DATA_VERSION_UNSUPPORTED"
             );
             assert_eq!(normalize("{").unwrap_err().code(), "CORE_INPUT_INVALID");
-        });
+        };
 
-        crate::v1_case!("portable-profile-920e788a3d07", {
+        {
             let mut source = fixture_value(11);
             for macro_value in [
                 json!({
@@ -49,9 +49,9 @@
                 normalize(&source.to_string()).unwrap_err().code(),
                 "CORE_DATA_VERSION_UNSUPPORTED"
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-4a3164c3671d", {
+        {
             let mut source = fixture_value(11);
             source["macros"][0]["repeat"] = json!({"type":"loop","intervalMs":86_400_000_u64});
             source["macros"][0]["steps"] =
@@ -62,12 +62,12 @@
             source["macros"][0]["steps"][0]["ms"] = json!(86_400_000_u64);
             source["macros"][0]["repeat"]["intervalMs"] = json!(86_400_001_u64);
             assert!(normalize(&source.to_string()).is_err());
-        });
+        };
     }
 
     #[test]
     fn portable_browser_preferences_are_normalized_before_preview() {
-        crate::v1_case!("portable-profile-fa211529b3fe", {
+        {
             let mut source = fixture_value(11);
             let mut settings =
                 serde_json::to_value(crate::domain::default_game_browser_settings()).unwrap();
@@ -125,7 +125,7 @@
             assert!(serialized_fonts["slots"].get("monospace").is_none());
             assert!(fonts.font_smoothing_enabled);
             assert!(browser_settings.performance.macos_high_refresh_rate);
-        });
+        };
     }
 
     #[test]
@@ -178,8 +178,8 @@
     }
 
     #[test]
-    fn portable_role_mapping_and_shortcut_resolution_match_v1() {
-        crate::v1_case!("portable-profile-33fe29268d6f", {
+    fn portable_role_mapping_and_shortcut_resolution() {
+        {
             let mut runtime = PortableRuntime::default();
             let preview = runtime
                 .preview(
@@ -206,9 +206,9 @@
             );
             assert_eq!(prepared.snapshot.macros.len(), 1);
             assert_eq!(prepared.snapshot.macros[0].role_ids, vec!["r"]);
-        });
+        };
 
-        crate::v1_case!("portable-profile-18b7bc217566", {
+        {
             let mut source = fixture_value(11);
             let duplicate = json!({
                 "id":"r2","gameId":"g1","name":"Role",
@@ -229,9 +229,9 @@
                     .code(),
                 "PORTABLE_ROLE_NAME_CONFLICT"
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-b1d7a007f597", {
+        {
             let mut snapshot = state_fixture();
             let mut duplicate = snapshot.roles[0].clone();
             duplicate.id = "r-duplicate".to_owned();
@@ -253,9 +253,9 @@
                 serde_json::to_value(before.clone()).unwrap(),
                 serde_json::to_value(before).unwrap()
             );
-        });
+        };
 
-        crate::v1_case!("portable-profile-8e828c607960", {
+        {
             let mut source = fixture_value(11);
             source["macros"] = json!([
                 {
@@ -316,7 +316,7 @@
                     .filter(|item| matches!(item.name.as_str(), "Conflict" | "Reserved"))
                     .all(|item| item.trigger.is_none())
             );
-        });
+        };
     }
 
     #[test]
@@ -381,7 +381,7 @@
             Vec::new(),
             snapshot.clone(),
         );
-        crate::v1_case!("portable-profile-f49ebbf4835b", {
+        {
             assert!(matches!(
                 unresolved,
                 Err(CoreError::Domain {
@@ -391,7 +391,7 @@
             ));
             assert_eq!(preview.conflicts.len(), 1);
             assert_eq!(preview.conflicts[0].candidates.len(), 2);
-        });
+        };
 
         let resolved = runtime
             .prepare_apply(
@@ -470,7 +470,7 @@
             serde_json::to_value(prepared.snapshot.clone()).unwrap(),
             serde_json::to_value(snapshot).unwrap()
         );
-        crate::v1_case!("portable-profile-277d992999d1", {
+        {
             let source = prepared
                 .snapshot
                 .macros
@@ -488,8 +488,8 @@
                 .find(|macro_record| macro_record.id == "target")
                 .unwrap();
             assert!(matches!(target.repeat, crate::model::MacroRepeat::Once));
-        });
-        crate::v1_case!("portable-profile-a4e93b0bc110", {
+        };
+        {
             let source = prepared
                 .snapshot
                 .macros
@@ -520,7 +520,7 @@
                     ..
                 } if unit == "px" && anchor == "center" && *x == 3.0 && *y == 4.0
             )));
-        });
+        };
     }
 
     #[test]
@@ -539,7 +539,7 @@
         .unwrap();
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
-        crate::v1_case!("portable-profile-3dc36f8d51a0", {
+        {
             assert_eq!(value["schemaVersion"], 11);
             assert!(
                 value["launchWorkspaces"][0]
@@ -567,7 +567,7 @@
                 assert!(value["roles"][0].get(field).is_none());
             }
             assert!(value.get("gameCompatibilityReports").is_none());
-        });
+        };
         assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
     }
 

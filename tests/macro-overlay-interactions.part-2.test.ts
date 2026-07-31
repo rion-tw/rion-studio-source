@@ -4,7 +4,6 @@ import { readSourceTreeSync as readFileSync } from "./helpers/readSourceTree";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Macro, MacroRunStatus } from "../src/shared/types";
-import { v1Case } from "./helpers/v1Parity";
 
 const runtimeSource = readFileSync("src/shared/browser-overlay/macroOverlayRuntime.js", "utf8");
 const shortcutGuardSource = readFileSync(
@@ -481,9 +480,7 @@ it("does not poll for reconciliation while an event-driven refresh is pending", 
 
     firstResponse.resolve({ macros: [assignedMacro], statuses: [] });
     await vi.advanceTimersByTimeAsync(0);
-    v1Case("overlay-ebc04483a160", () => {
-      expect(binding).toHaveBeenCalledTimes(1);
-    });
+    expect(binding).toHaveBeenCalledTimes(1);
   });
 
 it("starts and stops macros from their in-game shortcuts while updating the badge", async () => {
@@ -510,10 +507,8 @@ it("starts and stops macros from their in-game shortcuts while updating the badg
         isRecord(request) && request.type === "toggle"
       )).toHaveLength(2)
     );
-    await v1Case("overlay-26bea50b5338", async () => {
-      await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
-      expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
-    });
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
+    expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
   });
 
 it("queues dense toggle intents instead of dropping a shortcut while the prior toggle is pending", async () => {

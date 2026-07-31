@@ -1,10 +1,12 @@
 import type {
+  AppThemeMode as SharedAppThemeMode,
   GameSource,
   LaunchWorkspaceSlot,
   MacroActivationMode,
   MacroRepeat,
   MacroStep,
   MacroTrigger,
+  ResolvedTheme as SharedResolvedTheme,
   WorkspaceLayoutTemplate
 } from "../../../shared/types";
 
@@ -48,8 +50,8 @@ export interface MacroFormState {
 }
 
 export type SidebarFilter = "all" | "running" | "stopped";
-export type ThemeMode = import("../../../shared/types").AppThemeMode;
-export type ResolvedTheme = import("../../../shared/types").ResolvedTheme;
+export type ThemeMode = SharedAppThemeMode;
+export type ResolvedTheme = SharedResolvedTheme;
 
 export interface AppStats {
   total: number;

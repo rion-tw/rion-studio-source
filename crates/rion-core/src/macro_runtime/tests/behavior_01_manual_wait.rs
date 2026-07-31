@@ -282,7 +282,7 @@ use std::sync::mpsc;
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
         let _ = start_and_ack_focus(&runtime, &receiver, start);
         let percent = next_browser_actions(&receiver);
-        crate::v1_case!("macro-c39036338d41", {
+        {
             assert!(matches!(
                 percent[0].action,
                 BrowserAction::Click {
@@ -296,15 +296,15 @@ use std::sync::mpsc;
                     && x == -10.0
                     && y == -20.0
             ));
-        });
+        };
         runtime.dispatch_results(success_results(percent)).unwrap();
         let first_click = wait_for_last_click(&runtime, "r1", 1, "percent-click");
-        crate::v1_case!("macro-runtime-09beabfa3d19", {
+        {
             assert_eq!(
                 (first_click.sequence, first_click.step_id.as_str()),
                 (1, "percent-click")
             );
-        });
+        };
 
         let pixels = next_browser_actions(&receiver);
         assert!(matches!(
@@ -322,7 +322,7 @@ use std::sync::mpsc;
         ));
         runtime.dispatch_results(success_results(pixels)).unwrap();
         let second_click = wait_for_last_click(&runtime, "r1", 2, "pixel-click");
-        crate::v1_case!("macro-baf3548b5c3b", {
+        {
             assert_eq!(
                 (first_click.sequence, first_click.step_id.as_str()),
                 (1, "percent-click")
@@ -331,7 +331,7 @@ use std::sync::mpsc;
                 (second_click.sequence, second_click.step_id.as_str()),
                 (2, "pixel-click")
             );
-        });
+        };
         runtime.stop_macro("m1").unwrap();
     }
 
@@ -358,7 +358,7 @@ use std::sync::mpsc;
         start.macros[0].role_ids.push("r2".to_owned());
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
         let (started, focus) = start_and_ack_focus(&runtime, &receiver, start);
-        crate::v1_case!("macro-23762f0194b5", {
+        {
             assert_eq!(
                 started
                     .iter()
@@ -366,7 +366,7 @@ use std::sync::mpsc;
                     .collect::<Vec<_>>(),
                 ["r1"]
             );
-        });
+        };
         let mut phases = focus.iter().map(|_| "focus".to_owned()).collect::<Vec<_>>();
         let startup = next_wait(&waits);
         assert_eq!(startup.duration_ms, 0);
@@ -408,7 +408,7 @@ use std::sync::mpsc;
 
         runtime.stop_macro("m1").unwrap();
         drop(pending_loop_wait);
-        crate::v1_case!("macro-87360f7f466d", {
+        {
             assert_eq!(loop_waits, [1_000, 1_000, 1_000]);
             assert_eq!(
                 phases,
@@ -417,11 +417,11 @@ use std::sync::mpsc;
                 ]
             );
             assert!(runtime.statuses().unwrap().is_empty());
-        });
+        };
     }
 
     #[test]
-    fn v1_applies_startup_timing_once_and_captures_settings_per_start() {
+    fn applies_startup_timing_once_and_captures_settings_per_start() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -470,17 +470,17 @@ use std::sync::mpsc;
         };
         let second_waits = drive_timed_tap(&runtime, &receiver, &waits, second);
 
-        crate::v1_case!("macro-89c4b8841d73", {
+        {
             assert_eq!(first_waits, [100, 30, 30]);
-        });
-        crate::v1_case!("macro-02f53b92e12c", {
+        };
+        {
             assert_eq!(second_waits, [0, 80, 30]);
             assert_eq!(first_waits[1], 30);
-        });
+        };
     }
 
     #[test]
-    fn v1_omits_implicit_timing_but_keeps_explicit_delays_without_a_shortcut() {
+    fn omits_implicit_timing_but_keeps_explicit_delays_without_a_shortcut() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -543,12 +543,12 @@ use std::sync::mpsc;
             runtime.dispatch_results(success_results(action)).unwrap();
         }
         let loop_wait = next_wait(&waits);
-        crate::v1_case!("macro-3446dd16a6af", {
+        {
             assert_eq!(loop_wait.duration_ms, 50);
             assert!(waits.try_recv().is_err());
-        });
-        crate::v1_case!("macro-3c7a66fa8062", {
+        };
+        {
             assert_eq!((explicit.duration_ms, loop_wait.duration_ms), (100, 50));
-        });
+        };
         runtime.stop_macro("m1").unwrap();
     }

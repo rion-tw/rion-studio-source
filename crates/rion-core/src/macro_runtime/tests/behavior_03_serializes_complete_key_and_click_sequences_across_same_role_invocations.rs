@@ -1,5 +1,5 @@
 #[test]
-    fn v1_serializes_complete_key_and_click_sequences_across_same_role_invocations() {
+    fn serializes_complete_key_and_click_sequences_across_same_role_invocations() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -58,12 +58,12 @@
             .dispatch_results(success_results(second_focus))
             .unwrap();
         second_start.join().unwrap();
-        crate::v1_case!("effect-lifecycle-9fd32f9d9a46", {
+        {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
-        });
-        crate::v1_case!("effect-lifecycle-3ea8a4d777a6", {
+        };
+        {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
-        });
+        };
 
         post_input.release.send(()).unwrap();
         let click = next_browser_actions(&receiver);
@@ -77,7 +77,7 @@
     }
 
     #[test]
-    fn v1_serializes_concurrent_key_sequences_for_the_same_role() {
+    fn serializes_concurrent_key_sequences_for_the_same_role() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -128,9 +128,9 @@
             .dispatch_results(success_results(second_focus))
             .unwrap();
         second_start.join().unwrap();
-        crate::v1_case!("effect-lifecycle-58de3b545b87", {
+        {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
-        });
+        };
 
         key_hold.release.send(()).unwrap();
         let first_release = next_browser_actions(&receiver);
@@ -158,7 +158,7 @@
     }
 
     #[test]
-    fn v1_keeps_held_key_cleanup_inside_the_same_role_input_sequence() {
+    fn keeps_held_key_cleanup_inside_the_same_role_input_sequence() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -215,18 +215,18 @@
 
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
-        crate::v1_case!("effect-lifecycle-71c3f4375db4", {
+        {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
             assert!(!stop.is_finished());
-        });
-        crate::v1_case!("macro-runtime-046554940f1f", {
+        };
+        {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
             assert!(!stop.is_finished());
-        });
-        crate::v1_case!("macro-runtime-5f44c60fd7a4", {
+        };
+        {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
             assert!(!stop.is_finished());
-        });
+        };
         key_hold.release.send(()).unwrap();
         let queued_release = next_browser_actions(&receiver);
         assert!(matches!(
@@ -321,9 +321,9 @@
             .map(|action| action.role_id.as_str())
             .collect::<Vec<_>>();
         released_roles.sort_unstable();
-        crate::v1_case!("macro-70847388785a", {
+        {
             assert_eq!(released_roles, ["r1", "r2"]);
-        });
+        };
         runtime.dispatch_results(success_results(releases)).unwrap();
         stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
@@ -352,7 +352,7 @@
             .dispatch_results(success_results(focus.clone()))
             .unwrap();
         let statuses = start.join().unwrap();
-        crate::v1_case!("macro-7f1350a27644", {
+        {
             assert_eq!(
                 statuses
                     .iter()
@@ -361,8 +361,8 @@
                 ["r1", "r2"]
             );
             assert!(statuses.iter().all(|status| status.role_id != "r3"));
-        });
-        crate::v1_case!("macro-55aadc285c62", {
+        };
+        {
             assert_eq!(focus.len(), 2);
             assert_eq!(
                 focus
@@ -371,11 +371,11 @@
                     .collect::<Vec<_>>(),
                 ["r1", "r2"]
             );
-        });
-        crate::v1_case!("macro-5c368d9c8ecd", {
+        };
+        {
             runtime.stop_macro("m1").unwrap();
             assert!(runtime.statuses().unwrap().is_empty());
-        });
+        };
     }
 
     #[test]
@@ -408,11 +408,11 @@
                 }
             }
         }
-        crate::v1_case!("macro-39621b53863b", {
+        {
             assert_eq!(runtime.statuses().unwrap().len(), 1);
             assert_eq!(phases, ["focus", "hold"]);
-        });
-        crate::v1_case!("macro-b40211c87ff3", {
+        };
+        {
             let deadline = std::time::Instant::now() + Duration::from_secs(2);
             loop {
                 let statuses = runtime.statuses().unwrap();
@@ -425,13 +425,13 @@
                 assert!(std::time::Instant::now() < deadline);
                 thread::yield_now();
             }
-        });
-        crate::v1_case!("macro-67ee29e0f60e", {
+        };
+        {
             let error = runtime
                 .acquire_mutation(vec!["m2".to_owned(), "m1".to_owned()], false)
                 .unwrap_err();
             assert_eq!(error.code(), "MACRO_MUTATION_BUSY");
-        });
+        };
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         while phases.last().map(String::as_str) != Some("release") {
@@ -449,10 +449,10 @@
         stop.join().unwrap();
         assert_eq!(phases, ["focus", "hold", "release"]);
         assert!(runtime.statuses().unwrap().is_empty());
-        crate::v1_case!("macro-runtime-8dff14f03246", {
+        {
             assert_eq!(phases.last().map(String::as_str), Some("release"));
             assert!(runtime.statuses().unwrap().is_empty());
-        });
+        };
     }
 
     #[test]
@@ -486,7 +486,7 @@
 
         runtime.dispatch_results(success_results(hold)).unwrap();
         let release = next_browser_actions(&receiver);
-        crate::v1_case!("macro-runtime-10c50f77180d", {
+        {
             assert!(matches!(
                 release[0].action,
                 BrowserAction::Key {
@@ -496,7 +496,7 @@
                 } if phase == "release" && release_owner == &owner_id
             ));
             assert!(!stop.is_finished());
-        });
+        };
         runtime.dispatch_results(success_results(release)).unwrap();
         stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
@@ -558,13 +558,13 @@
             runtime.dispatch_results(success_results(release)).unwrap();
         }
         stop.join().unwrap();
-        crate::v1_case!("macro-03c6ea334e84", {
+        {
             assert_eq!(released_codes, ["KeyB", "KeyA"]);
-        });
+        };
     }
 
     #[test]
-    fn v1_uses_distinct_owners_for_two_macros_holding_the_same_role_key() {
+    fn uses_distinct_owners_for_two_macros_holding_the_same_role_key() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -616,11 +616,11 @@
             .dispatch_results(success_results(second_hold))
             .unwrap();
 
-        crate::v1_case!("macro-dda7b6b3249d", {
+        {
             assert_ne!(first_owner, second_owner);
             assert!(first_owner.contains(":r1:m1:m1-hold"));
             assert!(second_owner.contains(":r1:m2:m2-hold"));
-        });
+        };
 
         let stopping_first = runtime.clone();
         let first_stop = thread::spawn(move || stopping_first.stop_macro("m1").unwrap());

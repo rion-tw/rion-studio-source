@@ -319,7 +319,7 @@ use serde_json::json;
                 .is_none()
         );
 
-        crate::v1_case!("state-migration-40f54d27f418", {
+        {
             let macros = normalize_macro_settings(MacroSettingsRecord {
                 startup_delay_ms: 10_001,
                 key_hold_ms: 0,
@@ -330,9 +330,9 @@ use serde_json::json;
             assert_eq!(macros.key_hold_ms, 30);
             assert_eq!(macros.post_input_delay_ms, 30);
             assert_eq!(macros.default_loop_delay_ms, 1_000);
-        });
+        };
 
-        crate::v1_case!("state-migration-16455f5cd61d", {
+        {
             let defaults = default_game_browser_settings();
             validate_game_browser_settings(&defaults).unwrap();
             assert_eq!(defaults.fonts.mode, "custom");
@@ -368,15 +368,15 @@ use serde_json::json;
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);
             assert!(!defaults.performance.macos_high_refresh_rate);
-        });
-        crate::v1_case!("state-migration-53ba1094014a", {
+        };
+        {
             let defaults = default_macro_settings();
             validate_macro_settings(&defaults).unwrap();
             assert_eq!(defaults.startup_delay_ms, 100);
             assert_eq!(defaults.key_hold_ms, 30);
             assert_eq!(defaults.post_input_delay_ms, 30);
             assert_eq!(defaults.default_loop_delay_ms, 1_000);
-        });
+        };
     }
 
     #[test]

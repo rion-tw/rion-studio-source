@@ -10,7 +10,7 @@ const SUPPORTED_GAME_COVER_TYPES = new Set([
   "image/gif"
 ]);
 
-export interface GameCoverCropRect {
+interface GameCoverCropRect {
   height: number;
   width: number;
   x: number;

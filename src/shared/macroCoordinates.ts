@@ -14,12 +14,12 @@ export const MACRO_CLICK_ANCHORS: readonly MacroClickAnchor[] = [
   "bottom-right"
 ];
 
-export interface MacroViewportSize {
+interface MacroViewportSize {
   height: number;
   width: number;
 }
 
-export interface MacroCoordinateMeasurement {
+interface MacroCoordinateMeasurement {
   anchor?: MacroClickAnchor;
   xPercent: number;
   xPx: number;
@@ -117,14 +117,14 @@ export function findNearestMacroClickAnchor(
   return nearestAnchor;
 }
 
-export interface MacroClickOffset {
+interface MacroClickOffset {
   anchor?: MacroClickAnchor;
   unit: MacroClickUnit;
   x: number;
   y: number;
 }
 
-export interface ResolvedMacroClickOffset {
+interface ResolvedMacroClickOffset {
   x: number;
   y: number;
 }
@@ -147,7 +147,7 @@ export function resolveMacroClickOffset(
   };
 }
 
-export function isMacroClickAnchor(value: unknown): value is MacroClickAnchor {
+function isMacroClickAnchor(value: unknown): value is MacroClickAnchor {
   return typeof value === "string" && MACRO_CLICK_ANCHORS.includes(value as MacroClickAnchor);
 }
 

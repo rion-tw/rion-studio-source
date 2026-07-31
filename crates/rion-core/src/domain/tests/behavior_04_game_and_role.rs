@@ -1,6 +1,6 @@
     #[test]
-    fn game_and_role_store_domain_contracts_match_v1() {
-        crate::v1_case!("state-migration-ece15253f5ea", {
+    fn game_and_role_store_domain_contracts() {
+        {
             let mut games = Vec::new();
             create_game(
                 &mut games,
@@ -54,9 +54,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-d0148c9da12a", {
+        {
             let mut games = vec![game_record(json!({
                 "id":"builtin-flyff-universe","source":"builtin",
                 "builtinKey":"flyff-universe","name":"Flyff Universe",
@@ -78,9 +78,9 @@
             assert_eq!(reset.name, "Flyff Universe");
             assert_eq!(reset.default_launch_url, "https://universe.flyff.com/play");
             assert!(delete_game(&mut games, &[], "builtin-flyff-universe").is_err());
-        });
+        };
 
-        crate::v1_case!("state-migration-12eeac5ebdd5", {
+        {
             let game = game_record(json!({
                 "id":"g1","source":"custom","name":"Game",
                 "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
@@ -95,7 +95,7 @@
             let error = delete_game(&mut games, &[role], "g1").unwrap_err();
             assert_eq!(error.code(), "GAME_IN_USE");
             assert_eq!(games.len(), 1);
-        });
+        };
 
         let games = vec![
             game_record(json!({
@@ -110,7 +110,7 @@
             })),
         ];
 
-        crate::v1_case!("state-migration-a22e317b5201", {
+        {
             let mut roles = Vec::new();
             create_role(
                 &games,
@@ -129,9 +129,9 @@
             let mut copy = roles.clone();
             copy[0].name = "Changed".to_owned();
             assert_eq!(roles[0].name, "Role");
-        });
+        };
 
-        crate::v1_case!("state-migration-dd656a1ce95e", {
+        {
             let mut roles = Vec::new();
             let first = create_role(
                 &games,
@@ -180,9 +180,9 @@
             )
             .unwrap();
             assert_eq!(roles.last().unwrap().id, third.id);
-        });
+        };
 
-        crate::v1_case!("state-migration-ebab678949df", {
+        {
             let role = role_record(json!({
                 "id":"r1","gameId":"g1","name":"Role",
                 "launchUrl":"https://one.test/play","notes":"",
@@ -197,9 +197,9 @@
                 assert!(reorder_roles(&mut roles, &order).is_err());
                 assert_eq!(roles[0].id, "r1");
             }
-        });
+        };
 
-        crate::v1_case!("state-migration-d4a525975422", {
+        {
             let mut roles = Vec::new();
             let role = create_role(
                 &games,
@@ -227,9 +227,9 @@
             )
             .unwrap();
             assert_eq!(updated.launch_url, "https://one.test/updated");
-        });
+        };
 
-        crate::v1_case!("state-migration-8436b92a9a3c", {
+        {
             let mut roles = Vec::new();
             create_role(
                 &games,
@@ -261,9 +261,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-fcc108ce785b", {
+        {
             let mut roles = Vec::new();
             for game_id in ["g1", "g2"] {
                 create_role(
@@ -282,9 +282,9 @@
                 .unwrap();
             }
             assert_eq!(roles.len(), 2);
-        });
+        };
 
-        crate::v1_case!("state-migration-b3cbb430c785", {
+        {
             let mut roles = Vec::new();
             let role = create_role(
                 &games,
@@ -313,9 +313,9 @@
             .unwrap();
             assert_eq!(updated.name, "After");
             assert_eq!(updated.created_at, created_at);
-        });
+        };
 
-        crate::v1_case!("state-migration-91c76a57ca59", {
+        {
             let mut roles = Vec::new();
             let role = create_role(
                 &games,
@@ -336,9 +336,9 @@
                 Some("data:image/png;base64,AQ==")
             );
             assert_eq!(role.cover_image_dominant_color.as_deref(), Some("#123456"));
-        });
+        };
 
-        crate::v1_case!("state-migration-18c6d70a1950", {
+        {
             let mut roles = Vec::new();
             let role = create_role(
                 &games,
@@ -381,9 +381,9 @@
             .unwrap();
             assert!(cleared.cover_image_data_url.is_none());
             assert!(cleared.cover_image_dominant_color.is_none());
-        });
+        };
 
-        crate::v1_case!("state-migration-32f9dd5be142", {
+        {
             let mut roles = Vec::new();
             let role = create_role(
                 &games,
@@ -401,9 +401,9 @@
             .unwrap();
             assert!(role.cover_image_data_url.is_none());
             assert!(role.cover_image_dominant_color.is_none());
-        });
+        };
 
-        crate::v1_case!("state-migration-a25bac4e9534", {
+        {
             let mut roles = Vec::new();
             assert!(
                 create_role(
@@ -440,9 +440,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-bf976dd9efa1", {
+        {
             let mut roles = Vec::new();
             assert!(
                 create_role(
@@ -460,9 +460,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-6f61d05c2101", {
+        {
             let mut roles = Vec::new();
             assert!(
                 create_role(
@@ -480,9 +480,9 @@
                 )
                 .is_err()
             );
-        });
+        };
 
-        crate::v1_case!("state-migration-c78fcecd60d3", {
+        {
             let legacy = role_record(json!({
                 "id":"legacy","gameId":"g1","name":"Legacy",
                 "launchUrl":"https://one.test/play","notes":"",
@@ -491,5 +491,5 @@
             }));
             assert!(legacy.cover_image_data_url.is_some());
             assert!(legacy.cover_image_dominant_color.is_none());
-        });
+        };
     }

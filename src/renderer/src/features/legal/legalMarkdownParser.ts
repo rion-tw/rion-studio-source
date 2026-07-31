@@ -1,4 +1,4 @@
-export type LegalMarkdownBlock =
+type LegalMarkdownBlock =
   | { level: 1 | 2; text: string; type: "heading" }
   | { items: string[]; type: "list" }
   | { text: string; type: "paragraph" };

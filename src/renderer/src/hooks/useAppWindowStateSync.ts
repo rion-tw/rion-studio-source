@@ -4,7 +4,7 @@ import type { AppWindowState } from "../../../shared/types";
 
 const WINDOW_FULLSCREEN_DATA_ATTRIBUTE = "windowFullscreen";
 
-export function applyAppWindowState(state: AppWindowState): void {
+function applyAppWindowState(state: AppWindowState): void {
   document.documentElement.dataset[WINDOW_FULLSCREEN_DATA_ATTRIBUTE] = String(state.fullscreen);
 }
 

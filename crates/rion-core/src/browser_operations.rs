@@ -339,9 +339,9 @@ mod tests {
         let stale_error = stale.join().unwrap().unwrap_err();
         let fresh = coordinator.acquire(request(&["r1"], "normal")).unwrap();
         coordinator.complete(&fresh.id).unwrap();
-        crate::v1_case!("browser-workspace-1c12d2a62541", {
+        {
             assert_eq!(stale_error.code(), "ROLE_DATA_CHANGED");
-        });
+        };
 
         let destructive = coordinator
             .acquire(request(&["r2"], "destructiveMutation"))
@@ -368,7 +368,7 @@ mod tests {
         let deletion = deleting.join().unwrap().unwrap();
         coordinator.complete(&deletion.id).unwrap();
         let queued_error = queued.join().unwrap().unwrap_err();
-        crate::v1_case!("browser-workspace-5070fdd94192", {
+        {
             assert_eq!(queued_error.code(), "ROLE_MUTATION_BLOCKED");
             assert_eq!(
                 coordinator
@@ -377,7 +377,7 @@ mod tests {
                     .code(),
                 "ROLE_MUTATION_BLOCKED"
             );
-        });
+        };
     }
 
     #[test]

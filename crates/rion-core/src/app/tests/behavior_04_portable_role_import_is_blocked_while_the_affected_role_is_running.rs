@@ -581,18 +581,18 @@
             }
         }
         let start_view = start.join().unwrap().unwrap();
-        crate::v1_case!("overlay-a35a6eef09de", {
+        {
             assert_eq!(start_view["startSummary"]["startedCount"], 2);
             assert_eq!(start_view["startSummary"]["skippedCount"], 1);
-        });
-        crate::v1_case!("resource-platform-c06f9afb7ed3", {
+        };
+        {
             assert!(!failed);
             assert!(releases.get(&role_id).copied().unwrap_or_default() >= 3);
             assert!(releases.get(&sibling_role_id).copied().unwrap_or_default() >= 3);
             // The loop remains active until MacroStop below, so it may already have
             // started the next balanced iteration after both roles released three
             // times. Assert the fully drained key state only after stop completes.
-        });
+        };
 
         let stop_core = Arc::clone(&core);
         let stop = thread::spawn(move || stop_core.invoke(CoreCommand::MacroStop { macro_id }));

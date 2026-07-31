@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 const execFileAsync = promisify(execFile);
 
 describe("Tauri development and release commands", () => {
-  it("starts Tauri development directly without native parity or attestation gates", async () => {
+  it("starts Tauri development directly without retired compatibility or attestation gates", async () => {
     const [packageSource, launcher, macRunner, tauriSource, viteSource] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile("scripts/devTauri.mjs", "utf8"),

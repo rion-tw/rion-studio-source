@@ -52,6 +52,12 @@ jobs:
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
 
+      - name: Enforce source, reachability, dependency, and stale-path hygiene
+        run: pnpm run check:hygiene
+
+      - name: Enforce architecture dependency direction
+        run: pnpm exec vitest run tests/rust-architecture-boundaries.test.ts tests/thin-typescript-boundary.test.ts
+
       - name: Check portable Rust formatting and lints
         run: pnpm run lint:rust:portable
 

@@ -37,7 +37,7 @@ export function updatePortableDataSelection(
   return normalizePortableDataSelection({ ...selection, [section]: checked }, availability);
 }
 
-export function normalizePortableDataSelection(
+function normalizePortableDataSelection(
   selection: PortableDataSelection,
   availability: PortableDataAvailability
 ): PortableDataSelection {

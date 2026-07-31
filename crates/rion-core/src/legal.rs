@@ -91,25 +91,25 @@ mod tests {
             },
         )
         .unwrap();
-        crate::v1_case!("state-migration-7c41c609c666", {
+        {
             assert_eq!(acceptance.schema_version, 1);
             assert!(chrono::DateTime::parse_from_rfc3339(&acceptance.accepted_at).is_ok());
             assert_eq!(acceptance.accepted_fair_use_version, "f1");
             assert_eq!(acceptance.accepted_terms_version, "t1");
             assert_eq!(acceptance.acknowledged_privacy_version, "p1");
             assert!(status(Some(&acceptance), versions()).is_accepted);
-        });
+        };
 
-        crate::v1_case!("state-migration-1368a806b190", {
+        {
             let current = status(None, versions());
             assert!(!current.is_accepted);
             assert!(current.accepted_at.is_none());
-        });
+        };
     }
 
     #[test]
     fn corrupt_incomplete_and_superseded_acceptance_fails_closed() {
-        crate::v1_case!("state-migration-9a5e58e76965", {
+        {
             for raw in [
                 json!({"schemaVersion":1}),
                 json!({
@@ -140,7 +140,7 @@ mod tests {
                 schema_version: 1,
             };
             assert!(!status(Some(&superseded), versions()).is_accepted);
-        });
+        };
     }
 
     #[test]
@@ -154,12 +154,12 @@ mod tests {
             },
         )
         .unwrap_err();
-        crate::v1_case!("state-migration-5f69dae5fe23", {
+        {
             assert_eq!(error.code(), "LEGAL_VERSIONS_OUTDATED");
             assert_eq!(
                 error.to_string(),
                 "Legal document versions are out of date."
             );
-        });
+        };
     }
 }

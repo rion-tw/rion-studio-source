@@ -1,6 +1,6 @@
 import type { WorkspaceLayoutTemplate } from "./types";
 
-export type WorkspaceLayoutIconNode = [
+type WorkspaceLayoutIconNode = [
   elementName: "path" | "rect",
   attributes: Record<string, string>
 ];

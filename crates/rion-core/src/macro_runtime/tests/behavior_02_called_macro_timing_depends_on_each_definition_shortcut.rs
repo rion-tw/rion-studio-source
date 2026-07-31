@@ -1,5 +1,5 @@
 #[test]
-    fn v1_called_macro_timing_depends_on_each_definition_shortcut() {
+    fn called_macro_timing_depends_on_each_definition_shortcut() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -141,9 +141,9 @@
             timed_waits.push(wait.duration_ms);
             wait.release.send(()).unwrap();
         }
-        crate::v1_case!("macro-b0cc1d61fb76", {
+        {
             assert_eq!(timed_waits, [100, 30, 30, 100, 30, 30]);
-        });
+        };
     }
 
     #[test]
@@ -180,17 +180,17 @@
             steps: Vec::new(),
         });
         let error = runtime.start(start).unwrap_err();
-        crate::v1_case!("macro-9e169962dea5", {
+        {
             assert!(matches!(
                 error,
                 CoreError::InvalidInput(message) if message == UNASSIGNED_WORKFLOW_MESSAGE
             ));
             assert!(receiver.try_recv().is_err());
-        });
+        };
     }
 
     #[test]
-    fn v1_rejects_disabled_unassigned_and_unavailable_starts() {
+    fn rejects_disabled_unassigned_and_unavailable_starts() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -198,7 +198,7 @@
 
         let mut unavailable = request(Vec::new());
         unavailable.active_role_ids.clear();
-        crate::v1_case!("macro-2e985330d84a", {
+        {
             let error = runtime.start(unavailable).unwrap_err();
             assert!(matches!(
                 error,
@@ -206,22 +206,22 @@
                     if message == UNAVAILABLE_ROLE_MESSAGE
             ));
             assert!(runtime.statuses().unwrap().is_empty());
-        });
+        };
 
         let mut unassigned = request(Vec::new());
         unassigned.macros[0].role_ids.clear();
-        crate::v1_case!("macro-f7e4fa9e23ea", {
+        {
             let error = runtime.start(unassigned).unwrap_err();
             assert!(matches!(
                 error,
                 CoreError::InvalidInput(message) if message == UNASSIGNED_WORKFLOW_MESSAGE
             ));
             assert!(receiver.try_recv().is_err());
-        });
+        };
 
         let mut disabled = request(Vec::new());
         disabled.macros[0].enabled = false;
-        crate::v1_case!("macro-0b5213817444", {
+        {
             let error = runtime.start(disabled).unwrap_err();
             assert!(matches!(
                 error,
@@ -230,11 +230,11 @@
             ));
             assert!(runtime.statuses().unwrap().is_empty());
             assert!(receiver.try_recv().is_err());
-        });
+        };
     }
 
     #[test]
-    fn v1_waits_for_all_focus_results_before_running_or_dispatching_input() {
+    fn waits_for_all_focus_results_before_running_or_dispatching_input() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -258,12 +258,12 @@
             .unwrap();
         runtime.dispatch_results(success_results(vec![r1])).unwrap();
 
-        crate::v1_case!("macro-78c7a107997d", {
+        {
             thread::sleep(Duration::from_millis(25));
             assert!(!starting.is_finished());
             assert!(runtime.statuses().unwrap().is_empty());
             assert!(receiver.try_recv().is_err());
-        });
+        };
 
         runtime
             .dispatch_results(success_results(
@@ -281,7 +281,7 @@
     }
 
     #[test]
-    fn v1_rejects_duplicate_runs_and_stops_only_the_requested_macro() {
+    fn rejects_duplicate_runs_and_stops_only_the_requested_macro() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -304,19 +304,19 @@
         first.active_role_ids.push("r2".to_owned());
         let (_, _) = start_and_ack_focus(&runtime, &receiver, first.clone());
 
-        crate::v1_case!("macro-677fecf721f6", {
+        {
             let error = runtime.start(first.clone()).unwrap_err();
             assert!(matches!(
                 error,
                 CoreError::InvalidInput(message)
                     if message == "macro is already running for this role"
             ));
-        });
+        };
 
         let mut second = first;
         second.macro_id = "m2".to_owned();
         let (_, _) = start_and_ack_focus(&runtime, &receiver, second);
-        crate::v1_case!("macro-96f1664fe14f", {
+        {
             runtime.stop_macro("m1").unwrap();
             assert_eq!(
                 runtime
@@ -327,7 +327,7 @@
                     .collect::<Vec<_>>(),
                 [("m2", "r2")]
             );
-        });
+        };
         runtime.stop_macro("m2").unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
     }
@@ -343,9 +343,9 @@
             .unwrap();
 
         let error = runtime.start(request(Vec::new())).unwrap_err();
-        crate::v1_case!("macro-34e3112bbe5b", {
+        {
             assert_eq!(error.code(), "MACRO_MUTATION_BUSY");
-        });
+        };
 
         runtime.release_mutation(&lease).unwrap();
         let (statuses, _) = start_and_ack_focus(&runtime, &receiver, request(Vec::new()));
@@ -421,7 +421,7 @@
                 }
             }
         }
-        crate::v1_case!("macro-23c30b4fba31", {
+        {
             for role_id in ["r1", "r2"] {
                 assert_eq!(
                     actions
@@ -432,8 +432,8 @@
                     ["focus", "hold", "release", "click"]
                 );
             }
-        });
-        crate::v1_case!("macro-7ef873c48bd8", {
+        };
+        {
             assert_eq!(
                 key_operation_modifiers,
                 [
@@ -443,7 +443,7 @@
                     vec!["primary".to_owned(), "shift".to_owned()],
                 ]
             );
-        });
+        };
     }
 
     #[test]
@@ -527,9 +527,9 @@
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         thread::sleep(Duration::from_millis(50));
-        crate::v1_case!("macro-8a8d01d649bb", {
+        {
             assert!(!stop.is_finished());
-        });
+        };
 
         runtime.dispatch_results(success_results(holds)).unwrap();
         let releases = next_browser_action_count(&receiver, 2);
@@ -541,7 +541,7 @@
     }
 
     #[test]
-    fn v1_fails_an_unacknowledged_input_with_the_original_timeout_error() {
+    fn fails_an_unacknowledged_input_with_the_original_timeout_error() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new_with_waiter_and_timeout(
             Arc::new(move |batch| {
@@ -584,7 +584,7 @@
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         };
-        crate::v1_case!("macro-2f12cec90976", {
+        {
             assert_eq!(
                 failed.error.as_deref(),
                 Some("Macro input timed out after 10000 ms.")
@@ -592,7 +592,7 @@
             runtime
                 .dispatch_results(success_results(hung_hold))
                 .unwrap();
-        });
+        };
     }
 
     #[test]
@@ -618,7 +618,7 @@
         let second_runtime = runtime.clone();
         let second_start = thread::spawn(move || second_runtime.start(second_request).unwrap());
 
-        crate::v1_case!("macro-900c71b89cc0", {
+        {
             let wait_started = std::time::Instant::now();
             while wait_started.elapsed() < Duration::from_millis(100) {
                 let remaining = Duration::from_millis(100).saturating_sub(wait_started.elapsed());
@@ -632,7 +632,7 @@
                     "a second same-role action escaped before the first result was acknowledged"
                 );
             }
-        });
+        };
         runtime.dispatch_results(success_results(first)).unwrap();
         first_start.join().unwrap();
         let second = next_browser_actions(&receiver);

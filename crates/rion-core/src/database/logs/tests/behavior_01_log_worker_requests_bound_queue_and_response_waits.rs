@@ -58,7 +58,7 @@ use serde_json::json;
             &[browser.clone(), warning.clone(), entry("3", "gamma role")],
         )
         .unwrap();
-        crate::v1_case!("logging-9fcfdf8da221", {
+        {
             let filtered = query_entries(
                 &connection,
                 &LogQuery {
@@ -106,7 +106,7 @@ use serde_json::json;
             assert_eq!(status.entry_count, 3);
             assert_eq!(status.file_count, 1);
             assert!(status.total_bytes > 0);
-        });
+        };
     }
 
     #[test]
@@ -345,8 +345,8 @@ use serde_json::json;
     }
 
     #[test]
-    fn default_level_clear_and_query_validation_match_v1() {
-        crate::v1_case!("logging-1a70a51d1e39", {
+    fn default_level_clear_and_query_validation() {
+        {
             let directory = tempdir().unwrap();
             let path = directory.path().join("logs.sqlite3");
             let mut connection = Connection::open(&path).unwrap();
@@ -386,9 +386,9 @@ use serde_json::json;
                     .entries
                     .is_empty()
             );
-        });
+        };
 
-        crate::v1_case!("logging-ab48857b7878", {
+        {
             let connection = Connection::open_in_memory().unwrap();
             create_schema(&connection, false).unwrap();
             assert!(
@@ -421,7 +421,7 @@ use serde_json::json;
                 )
                 .is_err()
             );
-        });
+        };
     }
 
     #[test]

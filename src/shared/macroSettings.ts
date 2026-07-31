@@ -27,12 +27,6 @@ export function normalizeMacroSettings(value: unknown): MacroSettings {
   };
 }
 
-export function isValidMacroSettings(settings: MacroSettings): boolean {
-  return (Object.keys(MACRO_SETTINGS_CONSTRAINTS) as Array<keyof MacroSettings>).every((key) =>
-    isValidMacroSettingValue(key, settings[key])
-  );
-}
-
 export function isValidMacroSettingValue(
   key: keyof MacroSettings,
   value: number

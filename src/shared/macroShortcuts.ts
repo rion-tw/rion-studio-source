@@ -1,7 +1,5 @@
 import type { MacroTrigger } from "./types";
 
-export const MACRO_OVERLAY_CONTROLLER_KEY = "__rionStudioMacroOverlay";
-
 export const MACRO_OVERLAY_TRIGGER: MacroTrigger = {
   code: "KeyM",
   ctrl: true,
@@ -66,28 +64,4 @@ export function isReservedRuntimeTabSwitchMacroTrigger(
       !trigger.alt &&
       !trigger.meta
   );
-}
-
-export function createMacroShortcutSuppressionSource(code: string): string {
-  return createMacroShortcutPhaseSuppressionSource(code, "keydown");
-}
-
-export function createMacroShortcutSuppressionClearSource(code: string): string {
-  return createMacroShortcutPhaseSuppressionClearSource(code, "keydown");
-}
-
-export type MacroShortcutEventPhase = "keydown" | "keyup";
-
-export function createMacroShortcutPhaseSuppressionSource(
-  code: string,
-  phase: MacroShortcutEventPhase
-): string {
-  return `window[${JSON.stringify(MACRO_OVERLAY_CONTROLLER_KEY)}]?.suppressNextShortcut?.(${JSON.stringify(code)}, ${JSON.stringify(phase)})`;
-}
-
-export function createMacroShortcutPhaseSuppressionClearSource(
-  code: string,
-  phase: MacroShortcutEventPhase
-): string {
-  return `window[${JSON.stringify(MACRO_OVERLAY_CONTROLLER_KEY)}]?.clearSuppressedShortcut?.(${JSON.stringify(code)}, ${JSON.stringify(phase)})`;
 }

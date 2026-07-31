@@ -56,7 +56,7 @@ export const DropdownMenuItem = forwardRef<
 
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
 
-export const DropdownMenuCheckboxItem = forwardRef<
+const DropdownMenuCheckboxItem = forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.CheckboxItem>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
 >(({ className, children, ...props }, ref) => (

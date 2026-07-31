@@ -90,7 +90,7 @@ mod tests {
             r#"<Event><System><Provider Name="Display"/><EventID>4101</EventID><TimeCreated SystemTime="2026-07-21T09:59:59.0000000Z"/></System></Event>"#,
             r#"<Event><System><Provider Name="Display"/><EventID>1</EventID><TimeCreated SystemTime="2026-07-21T10:05:00.0000000Z"/></System></Event>"#,
         );
-        crate::v1_case!("resource-platform-20d15f57b3e7", {
+        {
             assert_eq!(
                 parse(xml, "2026-07-21T10:00:00Z".parse().unwrap()),
                 vec![WindowsGraphicsEventRecord {
@@ -99,12 +99,12 @@ mod tests {
                     timestamp: "2026-07-21T10:05:00.000Z".to_owned(),
                 }]
             );
-        });
+        };
     }
 
     #[test]
     fn ignores_empty_and_malformed_events() {
-        crate::v1_case!("resource-platform-5ded26264061", {
+        {
             let since = "2026-07-21T10:00:00Z".parse().unwrap();
             assert!(parse("", since).is_empty());
             assert!(
@@ -121,12 +121,12 @@ mod tests {
                 )
                 .is_empty()
             );
-        });
+        };
     }
 
     #[test]
     fn reports_platform_query_failures_as_safe_unavailable_results() {
-        crate::v1_case!("resource-platform-036dfbda6cb5", {
+        {
             let result = collection_from_query(
                 Err(rion_platform::PlatformError::Operation(
                     "Access is denied.".to_owned(),
@@ -141,6 +141,6 @@ mod tests {
                     error: Some("Access is denied.".to_owned()),
                 }
             );
-        });
+        };
     }
 }

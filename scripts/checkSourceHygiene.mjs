@@ -22,7 +22,7 @@ const generatedPrefixes = ["src/shared/generated/"];
 const limits = { bytes: 64 * 1024, lines: 800 };
 const facadeLineLimit = 250;
 
-const { stdout } = await execute("git", ["ls-files", "-z"], {
+const { stdout } = await execute("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
   cwd: process.cwd(),
   encoding: "buffer",
   maxBuffer: 16 * 1024 * 1024

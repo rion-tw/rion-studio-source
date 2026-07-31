@@ -39,6 +39,10 @@ type ActionCallback = unsafe extern "C" fn(
     *const c_char,
     f64,
     f64,
+    f64,
+    f64,
+    f64,
+    f64,
     bool,
 );
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
@@ -100,6 +104,19 @@ unsafe extern "C" {
         scroll_left_label: *const c_char,
         scroll_right_label: *const c_char,
     );
+    fn rion_runtime_tabs_control_row_contains(
+        controller: *mut c_void,
+        screen_x: f64,
+        screen_y: f64,
+    ) -> bool;
+    fn rion_runtime_tabs_drag_anchor(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        grab_ratio_x: f64,
+        grab_ratio_y: f64,
+        window_offset_x: *mut f64,
+        window_offset_y: *mut f64,
+    ) -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_action_scope_self_test() -> bool;
     #[cfg(test)]
@@ -174,6 +191,12 @@ pub struct MacRuntimeTabState {
     pub workspace_template: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MacRuntimeTabDragAnchor {
+    pub window_offset_x: f64,
+    pub window_offset_y: f64,
+}
+
 impl MacRuntimeTabsController {
     pub fn create(app: &AppHandle, window: &Window, window_id: &str) -> Result<Self, String> {
         let ns_window = window.ns_window().map_err(|error| error.to_string())?;
@@ -243,6 +266,78 @@ impl MacRuntimeTabsController {
         let _ = self.inner.app.run_on_main_thread(move || unsafe {
             rion_runtime_tabs_prepare_fullscreen(raw as *mut c_void, fullscreen);
         });
+    }
+
+    pub fn control_row_contains(&self, screen_x: f64, screen_y: f64) -> bool {
+        let raw = self.inner.raw as usize;
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            return unsafe {
+                rion_runtime_tabs_control_row_contains(raw as *mut c_void, screen_x, screen_y)
+            };
+        }
+        let (sender, receiver) = mpsc::sync_channel(1);
+        if self
+            .inner
+            .app
+            .run_on_main_thread(move || {
+                let value = unsafe {
+                    rion_runtime_tabs_control_row_contains(raw as *mut c_void, screen_x, screen_y)
+                };
+                let _ = sender.send(value);
+            })
+            .is_err()
+        {
+            return false;
+        }
+        receiver
+            .recv_timeout(Duration::from_millis(250))
+            .unwrap_or(false)
+    }
+
+    pub fn drag_anchor(
+        &self,
+        tab_id: &str,
+        grab_ratio_x: f64,
+        grab_ratio_y: f64,
+    ) -> Option<MacRuntimeTabDragAnchor> {
+        let raw = self.inner.raw as usize;
+        let tab_id = c_string(tab_id);
+        let query = move || {
+            let mut window_offset_x = 0.0;
+            let mut window_offset_y = 0.0;
+            let available = unsafe {
+                rion_runtime_tabs_drag_anchor(
+                    raw as *mut c_void,
+                    tab_id.as_ptr(),
+                    grab_ratio_x,
+                    grab_ratio_y,
+                    &mut window_offset_x,
+                    &mut window_offset_y,
+                )
+            };
+            available.then_some(MacRuntimeTabDragAnchor {
+                window_offset_x,
+                window_offset_y,
+            })
+        };
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            return query();
+        }
+        let (sender, receiver) = mpsc::sync_channel(1);
+        if self
+            .inner
+            .app
+            .run_on_main_thread(move || {
+                let _ = sender.send(query());
+            })
+            .is_err()
+        {
+            return None;
+        }
+        receiver
+            .recv_timeout(Duration::from_millis(250))
+            .ok()
+            .flatten()
     }
 
     pub fn update_metadata(
@@ -642,6 +737,10 @@ unsafe extern "C" fn action_callback(
     before_tab_id: *const c_char,
     screen_x: f64,
     screen_y: f64,
+    grab_ratio_x: f64,
+    grab_ratio_y: f64,
+    tab_width: f64,
+    tab_height: f64,
     cancelled: bool,
 ) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -684,6 +783,10 @@ unsafe extern "C" fn action_callback(
                 before_tab_id,
                 screen_x,
                 screen_y,
+                grab_ratio_x,
+                grab_ratio_y,
+                tab_width,
+                tab_height,
                 cancelled,
             },
         );
@@ -761,6 +864,10 @@ struct NativeTabAction {
     before_tab_id: Option<String>,
     screen_x: f64,
     screen_y: f64,
+    grab_ratio_x: f64,
+    grab_ratio_y: f64,
+    tab_width: f64,
+    tab_height: f64,
     cancelled: bool,
 }
 
@@ -775,6 +882,10 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             before_tab_id,
             screen_x,
             screen_y,
+            grab_ratio_x,
+            grab_ratio_y,
+            tab_width,
+            tab_height,
             cancelled,
         } = action;
         let Some(state) = app.try_state::<crate::CoreState>() else {
@@ -787,7 +898,12 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
         let host_window_id = state.runtime.window_id_for_label(&window_label);
         if matches!(
             action_type.as_str(),
-            "tabDragStart" | "tabDragMove" | "tabDragDrop" | "tabDragEnd" | "tabDragCancel"
+            "tabDragStart"
+                | "tabDragMove"
+                | "tabDragHover"
+                | "tabDragDrop"
+                | "tabDragEnd"
+                | "tabDragCancel"
         ) {
             let source_window_id = source_window_id.or_else(|| host_window_id.clone());
             let Some(source_window_id) = source_window_id else {
@@ -797,8 +913,25 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                 "type": action_type,
                 "cancelled": cancelled,
                 "screenX": screen_x,
-                "screenY": screen_y
+                "screenY": screen_y,
+                "grabRatioX": grab_ratio_x,
+                "grabRatioY": grab_ratio_y,
+                "tabWidth": tab_width,
+                "tabHeight": tab_height
             });
+            if action_type != "tabDragStart"
+                && let Some(value) = action.as_object_mut()
+            {
+                value.remove("grabRatioX");
+                value.remove("grabRatioY");
+            }
+            if action_type != "tabDragStart"
+                && action_type != "tabDragHover"
+                && let Some(value) = action.as_object_mut()
+            {
+                value.remove("tabWidth");
+                value.remove("tabHeight");
+            }
             if let Some(session_id) = session_id {
                 action["sessionId"] = serde_json::Value::String(session_id);
             }

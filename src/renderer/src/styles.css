@@ -571,6 +571,10 @@
     flex-direction: column;
   }
 
+  .browser-font-cache-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settings-page {
     padding-block: 2.5rem;
   }
@@ -697,6 +701,10 @@
   }
 
   @container app-content (min-width: 760px) {
+    .browser-font-cache-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     .app-page {
       padding: 2.5rem;
     }
@@ -781,6 +789,10 @@
   }
 
   @container app-content (min-width: 1000px) {
+    .browser-font-cache-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
     .collection-grid-games,
     .collection-grid-workspaces {
       grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -1174,7 +1174,7 @@ function BrowserFontsSettingsRows({
 
       {isExpanded ? (
         <div className="glass-divider border-b pb-3">
-          <div className="mx-3 overflow-hidden rounded-lg border border-border/30 bg-background/[0.035]">
+          <Surface className="mx-3 overflow-hidden" radius="lg" variant="strong">
             <div className="settings-row glass-divider grid gap-3 border-b px-4 py-4">
               <BrowserFontPresetCards
                 activePresetId={draft.fonts.presetId}
@@ -1282,7 +1282,7 @@ function BrowserFontsSettingsRows({
                 </Button>
               </div>
             </div>
-          </div>
+          </Surface>
         </div>
       ) : null}
 
@@ -1338,7 +1338,7 @@ function BrowserFontsSettingsRows({
 
       {isAdvancedExpanded ? (
         <div className="glass-divider border-b pb-3">
-          <div className="mx-3 overflow-hidden rounded-lg border border-border/30 bg-background/[0.035]">
+          <Surface className="mx-3 overflow-hidden" radius="lg" variant="strong">
             <div className="grid w-full gap-4 px-4 py-4">
               <div className="grid gap-2.5">
                 <div className="min-w-0">
@@ -1412,35 +1412,37 @@ function BrowserFontsSettingsRows({
                     {t("settings.browserFontsCacheEmpty")}
                   </p>
                 ) : (
-                  installedFonts.map((font) => {
-                    const isSelected = selectedCatalogIds.includes(font.catalogId);
-                    return (
-                      <div key={font.catalogId} className="flex items-center justify-between gap-3 rounded-md bg-muted/20 px-2.5 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
-                          <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                  <div className="browser-font-cache-grid grid gap-2">
+                    {installedFonts.map((font) => {
+                      const isSelected = selectedCatalogIds.includes(font.catalogId);
+                      return (
+                        <div key={font.catalogId} className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-muted/20 px-2.5 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold text-foreground">{font.family}</p>
+                            <p className="text-micro text-muted-foreground">{formatBrowserFontBytes(font.cachedBytes)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("settings.browserFontsRemove")}
+                            disabled={isSaving || isInstallingCustomFont || busyCatalogId === font.catalogId || isSelected}
+                            title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
+                            onClick={() => void removeCatalogFont(font.catalogId)}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("settings.browserFontsRemove")}
-                          disabled={isSaving || isInstallingCustomFont || busyCatalogId === font.catalogId || isSelected}
-                          title={isSelected ? t("settings.browserFontsInUse") : t("settings.browserFontsRemove")}
-                          onClick={() => void removeCatalogFont(font.catalogId)}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    );
-                  })
+                      );
+                    })}
+                  </div>
                 )}
               </div>
               <p className="text-caption leading-5 text-muted-foreground">
                 {t("settings.browserFontsGoogleNotice")}
               </p>
             </div>
-          </div>
+          </Surface>
         </div>
       ) : null}
     </>

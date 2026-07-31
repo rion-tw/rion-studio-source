@@ -361,11 +361,15 @@ describe("Tauri System WebView runtime source", () => {
     expect(macBridge).toContain("selection_generation: AtomicU64");
     expect(macBridge).toContain("inner.selection_generation.load(Ordering::Acquire) != generation");
     expect(macBridge).toContain("pub fn replace_reservation(");
+    expect(macBridge).toContain("pub fn ensure(");
+    expect(macBridge).toContain("pub fn reorder(&self, tab_ids: &[String])");
     expect(macBridge).toContain("rion_runtime_tabs_is_main_thread()");
     expect(macController).toContain("_tabItemsByIdentifier[tabIdentifier]");
     expect(macController).toContain("[previousItem updateVisualStateAnimated:NO]");
     expect(macController).toContain("[nextItem updateVisualStateAnimated:NO]");
     expect(macController).toContain("replaceTabIdentifier:");
+    expect(macController).toContain("ensureTabIdentifier:");
+    expect(macController).toContain("reorderTabIdentifiers:");
     expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
     expect(macController).not.toContain("nextEventMatchingMask:");
     expect(macController).toContain("- (void)mouseDragged:(NSEvent *)event");
@@ -375,6 +379,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");
     expect(windowsStrip).toContain("reconcileTabButtons(nextButtons)");
+    expect(windowsStrip).toContain("window.__rionEnsureRuntimeTab = (tab)");
+    expect(windowsStrip).toContain("window.__rionReorderRuntimeTabs = (tabIds)");
     expect(windowsStrip).not.toContain("root.replaceChildren(");
   });
 
@@ -645,7 +651,15 @@ describe("Tauri System WebView runtime source", () => {
     expect(nativeMacTabs).toContain("controller.update_metadata(");
     expect(nativeMacTabs).not.toContain("controller.update(");
     expect(applyRuntime).toContain("surface.reparent(&window)");
-    expect(applyRuntime).toContain('reconcile_window_presentation(window_id, "topology-reconciled")');
+    expect(applyRuntime).toContain("move_tab_with_activation(");
+    expect(applyRuntime).toContain("relocate_native_tab_reservation(");
+    expect(applyRuntime).toContain("try_ensure_native_tab(");
+    expect(applyRuntime).toContain("reorder_native_tabs(");
+    expect(applyRuntime).toContain("let projected_native_tab_window_ids = snapshot");
+    expect(applyRuntime).toContain("resolved_runtime_window_selection(");
+    expect(applyRuntime).toContain("dispatch_native_presentation(");
+    expect(applyRuntime).toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");
+    expect(applyRuntime).toContain("self.presentation.remove(&window_id)");
     expect(applyRuntime).not.toContain("visibility_mutations");
     expect(applyRuntime).not.toContain("webview.set_focus()");
     expect(applyRuntime).not.toContain("surface.show()");

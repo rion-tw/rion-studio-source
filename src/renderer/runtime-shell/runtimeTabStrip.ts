@@ -7,8 +7,12 @@ import { runtimeTabStripLabels } from "../src/i18n";
 declare global {
   interface Window {
     __rionApplyRuntimeTabState?: (state: RuntimeTabStripState) => void;
+    __rionEnsureRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
+    __rionPendingRuntimeTabOrder?: string[];
+    __rionPendingRuntimeTabEnsures?: ProvisionalRuntimeTab[];
     __rionPendingRuntimeTabs?: ProvisionalRuntimeTab[];
     __rionRemoveRuntimeTab?: (tabId: string, nextTabId?: string) => void;
+    __rionReorderRuntimeTabs?: (tabIds: string[]) => void;
     __rionReserveRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionSetActiveRuntimeTab?: (tabId?: string) => void;
     __rionUpdateRuntimeTabMetadata?: (tab: RuntimeTabMetadata) => void;
@@ -360,7 +364,7 @@ function reconcileTabButtons(nextButtons: HTMLButtonElement[]): void {
 }
 
 window.__rionApplyRuntimeTabState = render;
-window.__rionReserveRuntimeTab = (tab) => {
+window.__rionEnsureRuntimeTab = (tab) => {
   const labels = runtimeTabStripLabels(current?.language ?? "en");
   let button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
   if (!button) {
@@ -382,6 +386,9 @@ window.__rionReserveRuntimeTab = (tab) => {
     installTabButtonInteractions(button, tab.id);
     root.append(button);
   }
+};
+window.__rionReserveRuntimeTab = (tab) => {
+  window.__rionEnsureRuntimeTab?.(tab);
   optimisticallyActivateTab(tab.id);
   requestAnimationFrame(updateScrollControls);
 };
@@ -391,6 +398,17 @@ window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
   else {
     activeTabId = undefined;
     optimisticActiveTabId = undefined;
+  }
+  requestAnimationFrame(updateScrollControls);
+};
+window.__rionReorderRuntimeTabs = (tabIds) => {
+  const byId = new Map(tabElements().map((tab) => [tab.dataset.tabId, tab]));
+  let insertionPoint: Element | null = root.firstElementChild;
+  for (const tabId of tabIds) {
+    const tab = byId.get(tabId);
+    if (!tab) continue;
+    if (tab !== insertionPoint) root.insertBefore(tab, insertionPoint);
+    insertionPoint = tab.nextElementSibling;
   }
   requestAnimationFrame(updateScrollControls);
 };
@@ -449,10 +467,16 @@ window.__rionUpdateRuntimeTabMetadata = (tab) => {
 window.__rionUpdateRuntimeTabMetadataBatch = (tabs) => {
   for (const tab of tabs) window.__rionUpdateRuntimeTabMetadata?.(tab);
 };
+for (const tab of window.__rionPendingRuntimeTabEnsures ?? []) {
+  window.__rionEnsureRuntimeTab(tab);
+}
+window.__rionPendingRuntimeTabEnsures = [];
 for (const tab of window.__rionPendingRuntimeTabs ?? []) {
   window.__rionReserveRuntimeTab(tab);
 }
 window.__rionPendingRuntimeTabs = [];
+window.__rionReorderRuntimeTabs(window.__rionPendingRuntimeTabOrder ?? []);
+window.__rionPendingRuntimeTabOrder = [];
 document.body.addEventListener("pointerenter", () => {
   if (current?.fullscreen && !current.alwaysShowToolbarInFullScreen) {
     dispatch({ type: "fullscreenToolbarEnter" });

@@ -650,6 +650,23 @@ void rion_runtime_tabs_set_active(void *rawController,
   }
 }
 
+void rion_runtime_tabs_ensure(void *rawController, const char *tabIdentifier,
+                              const char *name, const char *type,
+                              const char *workspaceTemplate,
+                              const char *windowIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifier || !name || !type ||
+        !windowIdentifier) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller ensureTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                               name:RionStringFromUTF8(name)
+                               type:RionStringFromUTF8(type)
+                  workspaceTemplate:RionStringFromUTF8(workspaceTemplate)
+                   windowIdentifier:RionStringFromUTF8(windowIdentifier)];
+  }
+}
+
 void rion_runtime_tabs_reserve(void *rawController, const char *tabIdentifier,
                                const char *name, const char *type,
                                const char *workspaceTemplate,
@@ -696,6 +713,29 @@ void rion_runtime_tabs_remove(void *rawController, const char *tabIdentifier,
         (__bridge RionRuntimeTabsController *)rawController;
     [controller removeTabIdentifier:RionStringFromUTF8(tabIdentifier)
                 activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
+  }
+}
+
+void rion_runtime_tabs_reorder(void *rawController,
+                               const char *tabIdentifiersJSON) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifiersJSON) return;
+    NSString *json = RionStringFromUTF8(tabIdentifiersJSON);
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                       options:0
+                                                         error:nil]
+                    : nil;
+    if (![value isKindOfClass:[NSArray class]]) return;
+    NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
+    for (id identifier in (NSArray *)value) {
+      if ([identifier isKindOfClass:[NSString class]]) {
+        [identifiers addObject:identifier];
+      }
+    }
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller reorderTabIdentifiers:identifiers];
   }
 }
 
@@ -2863,11 +2903,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self scrollActiveTabIntoView];
 }
 
-- (void)reserveTabIdentifier:(NSString *)tabIdentifier
-                        name:(NSString *)name
-                        type:(NSString *)type
-           workspaceTemplate:(nullable NSString *)workspaceTemplate
-            windowIdentifier:(NSString *)windowIdentifier {
+- (void)ensureTabIdentifier:(NSString *)tabIdentifier
+                       name:(NSString *)name
+                       type:(NSString *)type
+          workspaceTemplate:(nullable NSString *)workspaceTemplate
+           windowIdentifier:(NSString *)windowIdentifier {
   if (_destroyed || tabIdentifier.length == 0) return;
   _windowID = windowIdentifier;
   NSUInteger existingIndex = [_tabItems indexOfObjectPassingTest:
@@ -2878,7 +2918,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }];
   if (existingIndex == NSNotFound) {
     RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
-    tab.active = YES;
+    tab.active = NO;
     tab.audible = NO;
     tab.audioMuted = NO;
     tab.identifier = tabIdentifier;
@@ -2907,8 +2947,22 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [_tabCanvas addSubview:surface];
     _tabItemsByIdentifier[tabIdentifier] = item;
   }
-  [self setActiveTabIdentifier:tabIdentifier];
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  item.sourceWindowID = _windowID;
   [self layoutTitlebarContent];
+}
+
+- (void)reserveTabIdentifier:(NSString *)tabIdentifier
+                        name:(NSString *)name
+                        type:(NSString *)type
+           workspaceTemplate:(nullable NSString *)workspaceTemplate
+            windowIdentifier:(NSString *)windowIdentifier {
+  [self ensureTabIdentifier:tabIdentifier
+                       name:name
+                       type:type
+          workspaceTemplate:workspaceTemplate
+           windowIdentifier:windowIdentifier];
+  [self setActiveTabIdentifier:tabIdentifier];
 }
 
 - (void)replaceTabIdentifier:(NSString *)provisionalIdentifier
@@ -2981,6 +3035,34 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [_tabItemsByIdentifier removeObjectForKey:tabIdentifier];
   }
   [self setActiveTabIdentifier:activeTabIdentifier];
+  [self layoutTitlebarContent];
+}
+
+- (void)reorderTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers {
+  if (_destroyed || _tabItems.count < 2 || tabIdentifiers.count == 0) return;
+  NSMutableArray<RionRuntimeTabItemView *> *orderedItems =
+      [NSMutableArray arrayWithCapacity:_tabItems.count];
+  NSMutableArray<RionRuntimeSurfaceView *> *orderedSurfaces =
+      [NSMutableArray arrayWithCapacity:_tabSurfaces.count];
+  NSMutableSet<NSString *> *retained = [NSMutableSet set];
+  for (NSString *identifier in tabIdentifiers) {
+    RionRuntimeTabItemView *item = _tabItemsByIdentifier[identifier];
+    if (!item || [retained containsObject:identifier]) continue;
+    NSUInteger index = [_tabItems indexOfObjectIdenticalTo:item];
+    if (index == NSNotFound || index >= _tabSurfaces.count) continue;
+    [retained addObject:identifier];
+    [orderedItems addObject:item];
+    [orderedSurfaces addObject:_tabSurfaces[index]];
+  }
+  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
+    RionRuntimeTabItemView *item = _tabItems[index];
+    if ([retained containsObject:item.tabIdentifier]) continue;
+    [orderedItems addObject:item];
+    [orderedSurfaces addObject:_tabSurfaces[index]];
+  }
+  if ([orderedItems isEqualToArray:_tabItems]) return;
+  [_tabItems setArray:orderedItems];
+  [_tabSurfaces setArray:orderedSurfaces];
   [self layoutTitlebarContent];
 }
 

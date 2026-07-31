@@ -57,6 +57,14 @@ unsafe extern "C" {
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
     fn rion_runtime_tabs_is_main_thread() -> bool;
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
+    fn rion_runtime_tabs_ensure(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        name: *const c_char,
+        tab_type: *const c_char,
+        workspace_template: *const c_char,
+        window_id: *const c_char,
+    );
     fn rion_runtime_tabs_reserve(
         controller: *mut c_void,
         tab_id: *const c_char,
@@ -79,6 +87,7 @@ unsafe extern "C" {
         tab_id: *const c_char,
         active_tab_id: *const c_char,
     );
+    fn rion_runtime_tabs_reorder(controller: *mut c_void, tab_ids_json: *const c_char);
     fn rion_runtime_tabs_update_metadata(
         controller: *mut c_void,
         tab: *const NativeTabInput,
@@ -296,6 +305,36 @@ impl MacRuntimeTabsController {
         }
     }
 
+    pub fn ensure(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        name: &str,
+        tab_type: &str,
+        workspace_template: Option<&str>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_id = c_string(tab_id);
+        let name = c_string(name);
+        let tab_type = c_string(tab_type);
+        let workspace_template = workspace_template.map(c_string);
+        let window_id = c_string(window_id);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_ensure(
+                inner.raw,
+                tab_id.as_ptr(),
+                name.as_ptr(),
+                tab_type.as_ptr(),
+                workspace_template
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+                window_id.as_ptr(),
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+
     pub fn reserve(
         &self,
         window_id: &str,
@@ -354,6 +393,18 @@ impl MacRuntimeTabsController {
                     .as_ref()
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
             );
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn reorder(&self, tab_ids: &[String]) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_ids = serde_json::to_string(tab_ids)
+            .map(|value| c_string(&value))
+            .map_err(|error| error.to_string())?;
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_reorder(inner.raw, tab_ids.as_ptr());
         })
         .map_err(|error| error.to_string())
     }

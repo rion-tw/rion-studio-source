@@ -517,14 +517,24 @@ describe("Tauri System WebView runtime source", () => {
     );
     const move = runtime.slice(
       runtime.indexOf("pub fn provisionally_move_tab("),
-      runtime.indexOf("pub fn cancel_provisional_tab_move(")
+      runtime.indexOf("fn rollback_provisional_tab_move(")
     );
     const hidePhase = move.indexOf("for surface in &surfaces");
     const reparentPhase = move.indexOf("for (index, surface) in surfaces.iter().enumerate()");
     const stateCommit = move.indexOf("tab.window_id = target_window_id.to_owned()");
+    const presentationCommit = move.indexOf("let selected_tabs_after_move");
+    const nativeRelocation = move.indexOf(
+      "if let Err(error) = self.relocate_native_tab_reservation("
+    );
+    const revealPhase = move.indexOf("let reveal_result");
     expect(hidePhase).toBeGreaterThan(-1);
     expect(reparentPhase).toBeGreaterThan(hidePhase);
     expect(stateCommit).toBeGreaterThan(reparentPhase);
+    expect(presentationCommit).toBeGreaterThan(stateCommit);
+    expect(nativeRelocation).toBeGreaterThan(presentationCommit);
+    expect(revealPhase).toBeGreaterThan(nativeRelocation);
+    expect(move).toContain("native_move.relocated = true");
+    expect(move).toContain('"provisional-move"');
     expect(move).toContain("rollback_provisional_tab_move(");
     expect(move).toContain("provisional_move_error(");
 
@@ -533,6 +543,10 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("fn provisional_move_error(")
     );
     expect(rollback).toContain("errors.push");
+    expect(rollback).toContain("if native_move.relocated");
+    expect(rollback).toContain("self.relocate_native_tab_reservation(");
+    expect(rollback).toContain('"native tab rollback: {}"');
+    expect(rollback).toContain('"provisional-rollback"');
     expect(rollback).not.toMatch(/let _ = surface\.(hide|show|reparent)/);
     expect(runtime).toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
   });

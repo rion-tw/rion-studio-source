@@ -1500,6 +1500,15 @@ struct TabPresentation {
     workspace_template: Option<String>,
 }
 
+struct ProvisionalNativeTabMove {
+    relocated: bool,
+    source_active_after_move: Option<String>,
+    source_active_before_move: Option<String>,
+    tab: TabPresentation,
+    target_active_after_move: Option<String>,
+    target_active_before_move: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeLauncherPresenceTab {
     pub(crate) role_ids: Vec<String>,
@@ -5183,16 +5192,20 @@ impl SystemRuntimeExecutor {
         if source_window_id == target_window_id {
             return Ok(());
         }
-        let tab_was_visible = self
+        let tab_presentation = self
             .presentation
-            .existing(&source_window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .map(|presentation| presentation.selected_tab_id.as_deref() == Some(tab_id))
-            })
-            .unwrap_or(false);
+            .tab(&source_window_id, tab_id)
+            .ok_or_else(|| "Runtime tab presentation was not found.".to_owned())?;
+        let selected_tabs_before_move = self.presentation.selected_tabs();
+        let mut native_move = ProvisionalNativeTabMove {
+            relocated: false,
+            source_active_after_move: None,
+            source_active_before_move: selected_tabs_before_move.get(&source_window_id).cloned(),
+            tab: tab_presentation,
+            target_active_after_move: None,
+            target_active_before_move: selected_tabs_before_move.get(target_window_id).cloned(),
+        };
+        let tab_was_visible = native_move.source_active_before_move.as_deref() == Some(tab_id);
         let source_window_was_visible = source_window
             .is_visible()
             .map_err(|error| error.to_string())?;
@@ -5211,6 +5224,7 @@ impl SystemRuntimeExecutor {
                     &surfaces,
                     0,
                     false,
+                    &native_move,
                     tab_was_visible,
                     source_window_was_visible,
                     target_window_was_visible,
@@ -5229,6 +5243,7 @@ impl SystemRuntimeExecutor {
                     &surfaces,
                     index + 1,
                     false,
+                    &native_move,
                     tab_was_visible,
                     source_window_was_visible,
                     target_window_was_visible,
@@ -5249,6 +5264,7 @@ impl SystemRuntimeExecutor {
                         &surfaces,
                         surfaces.len(),
                         false,
+                        &native_move,
                         tab_was_visible,
                         source_window_was_visible,
                         target_window_was_visible,
@@ -5270,6 +5286,7 @@ impl SystemRuntimeExecutor {
                     &surfaces,
                     surfaces.len(),
                     false,
+                    &native_move,
                     tab_was_visible,
                     source_window_was_visible,
                     target_window_was_visible,
@@ -5290,6 +5307,7 @@ impl SystemRuntimeExecutor {
                     &surfaces,
                     surfaces.len(),
                     false,
+                    &native_move,
                     tab_was_visible,
                     source_window_was_visible,
                     target_window_was_visible,
@@ -5339,12 +5357,59 @@ impl SystemRuntimeExecutor {
                 &surfaces,
                 surfaces.len(),
                 true,
+                &native_move,
                 tab_was_visible,
                 source_window_was_visible,
                 target_window_was_visible,
             );
             return Err(self.provisional_move_error(message, rollback_errors));
         }
+        let selected_tabs_after_move = self.presentation.selected_tabs();
+        native_move.source_active_after_move =
+            selected_tabs_after_move.get(&source_window_id).cloned();
+        native_move.target_active_after_move =
+            selected_tabs_after_move.get(target_window_id).cloned();
+        #[cfg(target_os = "macos")]
+        let workspace_template = native_move.tab.workspace_template.as_deref();
+        #[cfg(not(target_os = "macos"))]
+        let workspace_template: Option<&str> = None;
+        if let Err(error) = self.relocate_native_tab_reservation(
+            &source_window_id,
+            target_window_id,
+            tab_id,
+            &native_move.tab.title,
+            &native_move.tab.tab_type,
+            workspace_template,
+            native_move.source_active_after_move.as_deref(),
+            native_move.target_active_before_move.as_deref(),
+            move_revision,
+        ) {
+            if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" {
+                self.health.mark_unhealthy();
+            }
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                &native_move,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(error.message, rollback_errors));
+        }
+        native_move.relocated = true;
+        self.apply_native_active_style(
+            target_window_id,
+            native_move.target_active_after_move.as_deref(),
+            move_revision,
+            "provisional-move",
+        );
         let reveal_result = (|| {
             self.layout_runtime_tab(tab_id)
                 .map_err(|error| error.message)?;
@@ -5369,6 +5434,7 @@ impl SystemRuntimeExecutor {
                 &surfaces,
                 surfaces.len(),
                 true,
+                &native_move,
                 tab_was_visible,
                 source_window_was_visible,
                 target_window_was_visible,
@@ -5390,6 +5456,7 @@ impl SystemRuntimeExecutor {
         surfaces: &[Webview],
         reparent_attempted: usize,
         state_committed: bool,
+        native_move: &ProvisionalNativeTabMove,
         tab_was_visible: bool,
         source_window_was_visible: bool,
         target_window_was_visible: bool,
@@ -5409,15 +5476,17 @@ impl SystemRuntimeExecutor {
             }
         }
         if state_committed {
+            let rollback_revision = self.presentation.next_revision();
             if self
                 .presentation
                 .window_contains_tab(target_window_id, tab_id)
             {
-                let revision = self.presentation.next_revision();
-                if let Err(error) =
-                    self.presentation
-                        .move_tab(tab_id, target_window_id, source_window_id, revision)
-                {
+                if let Err(error) = self.presentation.move_tab(
+                    tab_id,
+                    target_window_id,
+                    source_window_id,
+                    rollback_revision,
+                ) {
                     errors.push(format!("presentation rollback: {error}"));
                 }
             } else if !self
@@ -5449,6 +5518,31 @@ impl SystemRuntimeExecutor {
                     "Native surface ownership move was rolled back.",
                     surface,
                 );
+            }
+            if native_move.relocated {
+                #[cfg(target_os = "macos")]
+                let workspace_template = native_move.tab.workspace_template.as_deref();
+                #[cfg(not(target_os = "macos"))]
+                let workspace_template: Option<&str> = None;
+                match self.relocate_native_tab_reservation(
+                    target_window_id,
+                    source_window_id,
+                    tab_id,
+                    &native_move.tab.title,
+                    &native_move.tab.tab_type,
+                    workspace_template,
+                    native_move.target_active_before_move.as_deref(),
+                    native_move.source_active_after_move.as_deref(),
+                    rollback_revision,
+                ) {
+                    Ok(()) => self.apply_native_active_style(
+                        source_window_id,
+                        native_move.source_active_before_move.as_deref(),
+                        rollback_revision,
+                        "provisional-rollback",
+                    ),
+                    Err(error) => errors.push(format!("native tab rollback: {}", error.message)),
+                }
             }
             if let Err(error) = self.layout_runtime_tab(tab_id) {
                 errors.push(format!("layout: {}", error.message));

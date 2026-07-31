@@ -582,14 +582,20 @@ static void RionForwardRuntimeTabsAction(
 }
 
 void *rion_runtime_tabs_create(
-    void *rawWindow, void *context, RionRuntimeTabsCActionHandler actionHandler,
+    void *rawWindow, const char *rawWindowIdentifier, void *context,
+    RionRuntimeTabsCActionHandler actionHandler,
     RionRuntimeTabsCLayoutHandler layoutHandler) {
   @autoreleasepool {
-    if (!rawWindow || !actionHandler || !layoutHandler) return nullptr;
+    if (!rawWindow || !rawWindowIdentifier || !actionHandler || !layoutHandler) {
+      return nullptr;
+    }
     NSWindow *window = (__bridge NSWindow *)rawWindow;
+    NSString *windowIdentifier = RionStringFromUTF8(rawWindowIdentifier);
+    if (windowIdentifier.length == 0) return nullptr;
     RionRuntimeTabsController *controller =
         [[RionRuntimeTabsController alloc]
             initWithWindow:window
+            windowIdentifier:windowIdentifier
             actionHandler:^(NSDictionary<NSString *, id> *action) {
               RionForwardRuntimeTabsAction(action, context, actionHandler);
             }
@@ -1627,14 +1633,22 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 }
 
 - (nullable instancetype)initWithWindow:(NSWindow *)window
+                       windowIdentifier:(NSString *)windowIdentifier
                            actionHandler:(RionRuntimeTabsActionHandler)actionHandler
                     contentLayoutHandler:
                         (RionRuntimeContentLayoutHandler)contentLayoutHandler {
-  if (!window || !actionHandler || !contentLayoutHandler) return nil;
+  if (!window || windowIdentifier.length == 0 || !actionHandler ||
+      !contentLayoutHandler) {
+    return nil;
+  }
   self = [super init];
   if (!self) return nil;
 
   _window = window;
+  // The plus button exists before the first tab. Bind the controller to its
+  // Game Window during construction so an empty host can still scope
+  // openLauncher to the correct launch target.
+  _windowID = [windowIdentifier copy];
   _hasPreviousCustomTitlebarHeight =
       [self readCustomTitlebarHeight:&_previousCustomTitlebarHeight
                        fromFrameView:window.contentView.superview];

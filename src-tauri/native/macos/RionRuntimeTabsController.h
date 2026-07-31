@@ -36,6 +36,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic, readonly) BOOL revealLocked;
 
 - (nullable instancetype)initWithWindow:(NSWindow *)window
+                       windowIdentifier:(NSString *)windowIdentifier
                            actionHandler:(RionRuntimeTabsActionHandler)actionHandler
                     contentLayoutHandler:
                         (RionRuntimeContentLayoutHandler)contentLayoutHandler;
@@ -96,7 +97,8 @@ extern "C" {
 #endif
 
 void * _Nullable rion_runtime_tabs_create(
-    void *window, void *context, RionRuntimeTabsCActionHandler actionHandler,
+    void *window, const char *windowIdentifier, void *context,
+    RionRuntimeTabsCActionHandler actionHandler,
     RionRuntimeTabsCLayoutHandler layoutHandler);
 bool rion_runtime_tabs_install_safe_tao_event_dispatch(void);
 void rion_runtime_tabs_destroy(void * _Nullable controller);

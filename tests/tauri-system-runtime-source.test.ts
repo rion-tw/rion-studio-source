@@ -335,6 +335,15 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(macLauncherCallback).toContain("open_launcher(&context.app, &window_id)");
     expect(macLauncherCallback).toContain("return;");
+    expect(runtime).toContain(
+      "MacRuntimeTabsController::create(\n            &self.app,\n            &window,\n            &target.window_id,"
+    );
+    expect(macBridge).toContain(
+      "pub fn create(app: &AppHandle, window: &Window, window_id: &str)"
+    );
+    expect(macBridge).toContain("window_id.as_ptr()");
+    expect(macController).toContain("windowIdentifier:windowIdentifier");
+    expect(macController).toContain("_windowID = [windowIdentifier copy]");
     const quickMenuNativeBuild = quickMenu.slice(
       quickMenu.indexOf("fn menu(app: &AppHandle, model: &MenuModel)"),
       quickMenu.indexOf("fn handle_menu_event(")

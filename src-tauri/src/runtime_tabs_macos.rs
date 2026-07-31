@@ -47,6 +47,7 @@ unsafe extern "C" {
     fn rion_runtime_tabs_install_safe_tao_event_dispatch() -> bool;
     fn rion_runtime_tabs_create(
         window: *mut c_void,
+        window_id: *const c_char,
         context: *mut c_void,
         action: ActionCallback,
         layout: LayoutCallback,
@@ -164,8 +165,9 @@ pub struct MacRuntimeTabState {
 }
 
 impl MacRuntimeTabsController {
-    pub fn create(app: &AppHandle, window: &Window) -> Result<Self, String> {
+    pub fn create(app: &AppHandle, window: &Window, window_id: &str) -> Result<Self, String> {
         let ns_window = window.ns_window().map_err(|error| error.to_string())?;
+        let window_id = c_string(window_id);
         let context = Box::into_raw(Box::new(CallbackContext {
             app: app.clone(),
             layout_updates: Arc::new(LayoutUpdateState::default()),
@@ -178,6 +180,7 @@ impl MacRuntimeTabsController {
             let raw = unsafe {
                 rion_runtime_tabs_create(
                     window_address as *mut c_void,
+                    window_id.as_ptr(),
                     context_address as *mut c_void,
                     action_callback,
                     layout_callback,

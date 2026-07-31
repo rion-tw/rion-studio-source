@@ -10617,14 +10617,17 @@ impl SystemRuntimeExecutor {
             return Err(error);
         }
         #[cfg(target_os = "macos")]
-        let tabs_controller =
-            match crate::runtime_tabs_macos::MacRuntimeTabsController::create(&self.app, &window) {
-                Ok(controller) => controller,
-                Err(message) => {
-                    let _ = window.close();
-                    return Err(RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message));
-                }
-            };
+        let tabs_controller = match crate::runtime_tabs_macos::MacRuntimeTabsController::create(
+            &self.app,
+            &window,
+            &target.window_id,
+        ) {
+            Ok(controller) => controller,
+            Err(message) => {
+                let _ = window.close();
+                return Err(RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message));
+            }
+        };
         #[cfg(windows)]
         let tab_strip = match self.add_child_bounded(
             &window,

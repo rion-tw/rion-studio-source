@@ -392,14 +392,24 @@ impl BrowserRuntime {
             return Ok(());
         }
         self.register_window(window_id);
+        let source_successor = self.windows.get(&source_id).and_then(|source| {
+            (source.active_tab_id.as_deref() == Some(tab_id))
+                .then(|| {
+                    let moving_index = source.tab_ids.iter().position(|id| id == tab_id)?;
+                    source
+                        .tab_ids
+                        .iter()
+                        .skip(moving_index + 1)
+                        .chain(source.tab_ids[..moving_index].iter().rev())
+                        .find(|id| self.tabs.get(*id).is_some_and(|tab| !tab.hidden))
+                        .cloned()
+                })
+                .flatten()
+        });
         if let Some(source) = self.windows.get_mut(&source_id) {
             source.tab_ids.retain(|id| id != tab_id);
             if source.active_tab_id.as_deref() == Some(tab_id) {
-                source.active_tab_id = source
-                    .tab_ids
-                    .iter()
-                    .find(|id| self.tabs.get(*id).is_some_and(|tab| !tab.hidden))
-                    .cloned();
+                source.active_tab_id = source_successor;
             }
         }
         self.tabs.get_mut(tab_id).expect("tab exists").hidden = false;
@@ -715,6 +725,61 @@ mod tests {
             })))
             .unwrap();
         assert_eq!(adjacent.snapshot.windows[0].active_tab_id, Some(first));
+    }
+
+    #[test]
+    fn moving_the_active_tab_selects_next_then_previous_in_the_source_window() {
+        let mut runtime = BrowserRuntime::default();
+        let mut tab_ids = Vec::new();
+        for (source_id, name) in [("r1", "One"), ("r2", "Two"), ("r3", "Three")] {
+            tab_ids.push(
+                runtime
+                    .invoke(command(json!({
+                        "type":"createTab", "sourceId":source_id, "name":name,
+                        "windowId":"window-1", "tabType":"role", "roleIds":[source_id]
+                    })))
+                    .unwrap()
+                    .created_tab_id
+                    .unwrap(),
+            );
+        }
+        for tab_id in &tab_ids {
+            runtime
+                .invoke(command(json!({"type":"activateTab","tabId":tab_id})))
+                .unwrap();
+        }
+        runtime
+            .invoke(command(json!({"type":"activateTab","tabId":tab_ids[1]})))
+            .unwrap();
+        let moved_middle = runtime
+            .invoke(command(json!({
+                "type":"moveTab", "tabId":tab_ids[1], "windowId":"window-2"
+            })))
+            .unwrap();
+        assert_eq!(
+            moved_middle
+                .snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == "window-1")
+                .and_then(|window| window.active_tab_id.as_deref()),
+            Some(tab_ids[2].as_str())
+        );
+
+        let moved_last = runtime
+            .invoke(command(json!({
+                "type":"moveTab", "tabId":tab_ids[2], "windowId":"window-3"
+            })))
+            .unwrap();
+        assert_eq!(
+            moved_last
+                .snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == "window-1")
+                .and_then(|window| window.active_tab_id.as_deref()),
+            Some(tab_ids[0].as_str())
+        );
     }
 
     #[test]

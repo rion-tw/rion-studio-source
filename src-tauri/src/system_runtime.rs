@@ -5899,6 +5899,37 @@ impl SystemRuntimeExecutor {
             return Err(self.provisional_move_error(error.message, rollback_errors));
         }
         native_move.relocated = true;
+        let source_presentation_result = if let Some(source_active_tab_id) =
+            native_move.source_active_after_move.as_deref()
+        {
+            self.request_tab_presentation(source_active_tab_id, false, "provisional-move-source")
+                .map(|_| ())
+        } else {
+            self.apply_native_active_style(
+                &source_window_id,
+                None,
+                move_revision,
+                "provisional-move-source",
+            );
+            Ok(())
+        };
+        if let Err(message) = source_presentation_result {
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                &native_move,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(message, rollback_errors));
+        }
         self.apply_native_active_style(
             target_window_id,
             native_move.target_active_after_move.as_deref(),
@@ -19599,6 +19630,40 @@ mod tests {
         let target = target.lock().unwrap();
         assert_eq!(target.selected_tab_id.as_deref(), Some("tab-b"));
         assert!(target.contains_tab("tab-b"));
+    }
+
+    #[test]
+    fn moving_a_middle_selected_presentation_tab_prefers_the_next_source_tab() {
+        let registry = PresentationRegistry::default();
+        let source = registry.coordinator("window-a").unwrap();
+        {
+            let mut source = source.lock().unwrap();
+            source.insert_tab(
+                presentation_tab("tab-a", TabPresentationPhase::Ready),
+                1,
+                false,
+            );
+            source.insert_tab(
+                presentation_tab("tab-b", TabPresentationPhase::Ready),
+                2,
+                true,
+            );
+            source.insert_tab(
+                presentation_tab("tab-c", TabPresentationPhase::Ready),
+                3,
+                false,
+            );
+        }
+
+        registry
+            .move_tab("tab-b", "window-a", "window-b", 4)
+            .unwrap();
+
+        let source = registry.existing("window-a").unwrap();
+        assert_eq!(
+            source.lock().unwrap().selected_tab_id.as_deref(),
+            Some("tab-c")
+        );
     }
 
     #[test]

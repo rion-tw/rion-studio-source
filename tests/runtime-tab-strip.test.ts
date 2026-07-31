@@ -6,6 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeTabStripState } from "../src/shared/runtimeTabs";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(() => Promise.resolve()) }));
+let resizeObserverCallback: ResizeObserverCallback | undefined;
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
@@ -40,6 +41,15 @@ const state: RuntimeTabStripState = {
 };
 
 beforeAll(async () => {
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: ResizeObserverCallback) {
+      resizeObserverCallback = callback;
+    }
+
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  });
   document.body.innerHTML = '<button id="scroll-left" hidden>‹</button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden>›</button><button id="add">+</button>';
   await import("../src/renderer/runtime-shell/runtimeTabStrip");
 });
@@ -56,37 +66,56 @@ function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-function installScrollGeometry(clientWidth: number, scrollWidth: number) {
+function installScrollGeometry(
+  clientWidth: number,
+  initialScrollWidth: number,
+  options: { shrinkForScrollControls?: boolean } = {}
+) {
   const root = document.querySelector<HTMLDivElement>("#tabs")!;
   let scrollLeft = 0;
+  let scrollWidth = initialScrollWidth;
+  let scrollWidthReadCount = 0;
+  const effectiveClientWidth = () => options.shrinkForScrollControls
+    && !document.querySelector<HTMLButtonElement>("#scroll-left")?.hidden
+    ? clientWidth - 48
+    : clientWidth;
   const scrollTo = vi.fn((options: ScrollToOptions | number) => {
     const next = typeof options === "number" ? options : options.left ?? 0;
     scrollLeft = Number(next);
     root.dispatchEvent(new Event("scroll"));
   });
   Object.defineProperties(root, {
-    clientWidth: { configurable: true, get: () => clientWidth },
+    clientWidth: { configurable: true, get: effectiveClientWidth },
     scrollLeft: {
       configurable: true,
       get: () => scrollLeft,
       set: (value: number) => { scrollLeft = value; }
     },
     scrollTo: { configurable: true, value: scrollTo },
-    scrollWidth: { configurable: true, get: () => scrollWidth }
+    scrollWidth: {
+      configurable: true,
+      get: () => {
+        scrollWidthReadCount += 1;
+        return scrollWidth;
+      }
+    }
   });
   Object.defineProperty(root, "getBoundingClientRect", {
     configurable: true,
-    value: () => ({
-      bottom: 31,
-      height: 31,
-      left: 0,
-      right: clientWidth,
-      toJSON: () => ({}),
-      top: 0,
-      width: clientWidth,
-      x: 0,
-      y: 0
-    })
+    value: () => {
+      const width = effectiveClientWidth();
+      return {
+        bottom: 31,
+        height: 31,
+        left: 0,
+        right: width,
+        toJSON: () => ({}),
+        top: 0,
+        width,
+        x: 0,
+        y: 0
+      };
+    }
   });
   for (const id of ["#scroll-left", "#scroll-right"]) {
     Object.defineProperty(document.querySelector(id), "offsetWidth", {
@@ -97,6 +126,10 @@ function installScrollGeometry(clientWidth: number, scrollWidth: number) {
   return {
     get scrollLeft() { return scrollLeft; },
     set scrollLeft(value: number) { scrollLeft = value; },
+    get scrollWidth() { return scrollWidth; },
+    set scrollWidth(value: number) { scrollWidth = value; },
+    get scrollWidthReadCount() { return scrollWidthReadCount; },
+    resetScrollWidthReadCount() { scrollWidthReadCount = 0; },
     scrollTo
   };
 }
@@ -112,6 +145,34 @@ function stateWithTabs(activeIndex = 0): RuntimeTabStripState {
       sourceId: `workspace-${index + 1}`
     }))
   };
+}
+
+type RuntimeTabMetadataInput = Parameters<
+  NonNullable<typeof window.__rionUpdateRuntimeTabMetadata>
+>[0];
+
+function runtimeTabMetadata(
+  overrides: Partial<RuntimeTabMetadataInput> = {}
+): RuntimeTabMetadataInput {
+  return {
+    audible: false,
+    audioMuted: false,
+    closeLabel: "Close tab",
+    hideCloseButton: false,
+    id: "tab-1",
+    mutedLabel: "Muted",
+    name: "Workspace",
+    phase: "ready",
+    playingLabel: "Playing",
+    sourceId: "workspace-1",
+    tooltip: "Workspace",
+    type: "workspace",
+    ...overrides
+  };
+}
+
+function notifyResizeObserver(): void {
+  resizeObserverCallback?.([], {} as ResizeObserver);
 }
 
 function setTabGeometry(width = 140, spacing = 10): void {
@@ -460,7 +521,118 @@ describe("Tauri-owned Windows runtime tab strip", () => {
 
     geometry.scrollLeft = 390;
     document.querySelector("#tabs")?.dispatchEvent(new Event("scroll"));
+    await nextAnimationFrame();
     expect(right.disabled).toBe(true);
+  });
+
+  it("rechecks overflow after an ensure-only tab insertion", async () => {
+    const geometry = installScrollGeometry(320, 280);
+    window.__rionApplyRuntimeTabState?.(state);
+    await nextAnimationFrame();
+    expect(document.querySelector<HTMLButtonElement>("#scroll-left")?.hidden).toBe(true);
+
+    geometry.scrollWidth = 480;
+    window.__rionEnsureRuntimeTab?.({
+      id: "tab-2",
+      name: "Second workspace",
+      type: "workspace"
+    });
+    await nextAnimationFrame();
+
+    expect(document.querySelector<HTMLButtonElement>("#scroll-left")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>("#scroll-right")?.hidden).toBe(false);
+  });
+
+  it("rechecks overflow after metadata grows or shrinks tab content", async () => {
+    const geometry = installScrollGeometry(300, 260);
+    window.__rionApplyRuntimeTabState?.(state);
+    await nextAnimationFrame();
+
+    geometry.scrollWidth = 480;
+    window.__rionUpdateRuntimeTabMetadata?.(runtimeTabMetadata({
+      audible: true,
+      name: "A much longer workspace name"
+    }));
+    await nextAnimationFrame();
+
+    const left = document.querySelector<HTMLButtonElement>("#scroll-left")!;
+    const right = document.querySelector<HTMLButtonElement>("#scroll-right")!;
+    expect(left.hidden).toBe(false);
+    expect(left.disabled).toBe(true);
+    expect(right.hidden).toBe(false);
+    expect(right.disabled).toBe(false);
+
+    geometry.scrollLeft = 50;
+    geometry.scrollWidth = 250;
+    window.__rionUpdateRuntimeTabMetadata?.(runtimeTabMetadata({
+      hideCloseButton: true,
+      name: "Short"
+    }));
+    await nextAnimationFrame();
+
+    expect(left.hidden).toBe(true);
+    expect(left.disabled).toBe(true);
+    expect(right.hidden).toBe(true);
+    expect(right.disabled).toBe(true);
+    expect(geometry.scrollLeft).toBe(0);
+  });
+
+  it("coalesces metadata, mutation, and resize notifications into one frame measurement", async () => {
+    const geometry = installScrollGeometry(1_000, 140);
+    window.__rionApplyRuntimeTabState?.(state);
+    await nextAnimationFrame();
+    geometry.resetScrollWidthReadCount();
+
+    window.__rionUpdateRuntimeTabMetadataBatch?.([
+      runtimeTabMetadata({ name: "First update" }),
+      runtimeTabMetadata({ name: "Second update", audible: true })
+    ]);
+    notifyResizeObserver();
+    notifyResizeObserver();
+    await Promise.resolve();
+    await nextAnimationFrame();
+
+    expect(geometry.scrollWidthReadCount).toBe(1);
+
+    geometry.resetScrollWidthReadCount();
+    const name = document.querySelector<HTMLElement>("[data-tab-id=\"tab-1\"] .name")!;
+    name.textContent = "Mutation observer update";
+    await Promise.resolve();
+    await nextAnimationFrame();
+
+    expect(geometry.scrollWidthReadCount).toBe(1);
+  });
+
+  it("keeps the one-pixel overflow threshold stable after controls resize the tab viewport", async () => {
+    const geometry = installScrollGeometry(200, 201, { shrinkForScrollControls: true });
+    window.__rionApplyRuntimeTabState?.(state);
+    await nextAnimationFrame();
+    const left = document.querySelector<HTMLButtonElement>("#scroll-left")!;
+    const right = document.querySelector<HTMLButtonElement>("#scroll-right")!;
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(true);
+
+    geometry.scrollWidth = 202;
+    notifyResizeObserver();
+    await nextAnimationFrame();
+    expect(left.hidden).toBe(false);
+    expect(right.hidden).toBe(false);
+
+    notifyResizeObserver();
+    await nextAnimationFrame();
+    expect(left.hidden).toBe(false);
+    expect(right.hidden).toBe(false);
+
+    geometry.scrollWidth = 201;
+    notifyResizeObserver();
+    await nextAnimationFrame();
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(true);
+
+    notifyResizeObserver();
+    await nextAnimationFrame();
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(true);
   });
 
   it("keeps a newly active offscreen tab visible without resetting status-only updates", async () => {

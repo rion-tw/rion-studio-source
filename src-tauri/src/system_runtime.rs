@@ -15792,7 +15792,7 @@ fn prepare_platform_role_webview_builder(
     (builder, HighRefreshRateDiagnosticStatus::NotApplicable)
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn decode_macos_high_refresh_rate_status(value: i32) -> HighRefreshRateDiagnosticStatus {
     match value {
         0 => HighRefreshRateDiagnosticStatus::Applied,

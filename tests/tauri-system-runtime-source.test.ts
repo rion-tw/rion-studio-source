@@ -434,6 +434,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("begin_windows_shortcut_modifier_handoff");
     expect(runtime).toContain("release_windows_shortcut_modifiers");
     expect(runtime).toContain("windows_shortcut_modifier_codes");
+    expect(runtime).toContain(
+      '#[cfg(target_os = "macos")]\n    fn reassert_tab_shortcut_modifiers'
+    );
+    expect(quickMenu).toContain('#[cfg(any(target_os = "macos", test))]\n    Macos,');
+    expect(quickMenu).toContain('#[cfg(any(target_os = "windows", test))]\n    Windows,');
+    expect(quickMenu.match(/platform\.is_windows\(\)/g)).toHaveLength(2);
     expect(runtime).toContain('input.modifier-handoff-{phase}');
     expect(macController).not.toContain("- (void)updateState:");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");

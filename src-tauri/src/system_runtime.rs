@@ -5780,6 +5780,7 @@ impl SystemRuntimeExecutor {
             })
     }
 
+    #[cfg(target_os = "macos")]
     fn reassert_tab_shortcut_modifiers(&self, tab_id: &str) -> RuntimeResult<()> {
         if tab_id.is_empty() {
             return Ok(());

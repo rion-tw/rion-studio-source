@@ -1880,11 +1880,21 @@ async fn rion_shell_invoke(
         }
         "showGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            let target = launch_target_for_game_window(&app, &window_id)?;
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
+            let saved = game_window_record(&state.core, &window_id)?;
+            if saved.tabs.is_empty() {
+                let target = launch_target_for_game_window(&app, &window_id)?;
+                Arc::clone(&state.core)
+                    .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
+                    .await
+                    .map_err(error_payload)
+            } else {
+                restore_saved_game_windows(
+                    &state,
+                    &window,
+                    &[json!({ "scope": "window", "windowId": window_id })],
+                )
                 .await
-                .map_err(error_payload)
+            }
         }
         "updateGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
@@ -2539,7 +2549,7 @@ async fn restore_saved_game_windows(
             "Saved Game Window restore scope is invalid.",
         ));
     }
-    let mut game_windows = state
+    let game_windows = state
         .core
         .invoke(CoreCommand::GameWindowsList)
         .map_err(error_payload)
@@ -2547,15 +2557,6 @@ async fn restore_saved_game_windows(
             serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                 .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
         })?;
-    for saved in game_windows.iter().filter(|saved| saved.tabs.is_empty()) {
-        state
-            .core
-            .invoke(CoreCommand::GameWindowDelete {
-                id: saved.id.clone(),
-            })
-            .map_err(error_payload)?;
-    }
-    game_windows.retain(|saved| !saved.tabs.is_empty());
     let selected = game_windows
         .iter()
         .filter(|saved| match scope {

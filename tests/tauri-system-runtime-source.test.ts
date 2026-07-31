@@ -717,6 +717,20 @@ describe("Tauri System WebView runtime source", () => {
     expect(shell).toContain('"windowLabel": label');
     expect(shell).not.toContain("prune_empty_game_window_records");
     expect(shell).not.toContain("delete_empty_game_window");
+    const showGameWindow = shell.slice(
+      shell.indexOf('"showGameWindow" =>'),
+      shell.indexOf('"updateGameWindow" =>')
+    );
+    expect(showGameWindow).toContain("game_window_record(&state.core, &window_id)");
+    expect(showGameWindow).toContain("saved.tabs.is_empty()");
+    expect(showGameWindow).toContain("CoreCommand::EmbeddedWindowRegister");
+    expect(showGameWindow).toContain("restore_saved_game_windows(");
+    const restoreSavedWindows = shell.slice(
+      shell.indexOf("async fn restore_saved_game_windows("),
+      shell.indexOf("fn browser_runtime_snapshot(")
+    );
+    expect(restoreSavedWindows).not.toContain("CoreCommand::GameWindowDelete");
+    expect(restoreSavedWindows).not.toContain("game_windows.retain");
     const resizeRuntimeWindow = runtime.slice(
       runtime.indexOf("pub fn resize_window("),
       runtime.indexOf("pub fn move_window(")

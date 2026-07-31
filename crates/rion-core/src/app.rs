@@ -7652,6 +7652,58 @@ mod tests {
         )
     }
 
+    fn drive_accepted_launch_to_completion(core: Arc<AppCore>, command: CoreCommand) -> Value {
+        let effects = core.subscribe().unwrap();
+        let (completion_sender, completion_receiver) = bounded(1);
+        core.set_browser_launch_completion_sink(Arc::new(move |completion| {
+            let _ = completion_sender.try_send(completion);
+        }))
+        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let accepted = runtime.block_on(core.invoke_async(command)).unwrap();
+        let completion_pending = accepted
+            .as_array()
+            .is_some_and(|statuses| statuses.iter().any(|status| status["state"] == "launching"));
+        if !completion_pending {
+            return accepted;
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Ok(completion) = completion_receiver.try_recv() {
+                assert!(
+                    completion.error.is_none(),
+                    "accepted launch failed in the background: {:?}",
+                    completion.error
+                );
+                return accepted;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "accepted launch did not finish; metrics={:?}",
+                core.operation_actor.metrics()
+            );
+            let Ok(events) = effects.recv_timeout(Duration::from_millis(50)) else {
+                continue;
+            };
+            let results = events
+                .into_iter()
+                .filter_map(|event| match event {
+                    CoreEvent::CoreEffects { effects } => Some(effects),
+                    _ => None,
+                })
+                .flatten()
+                .map(|effect| effect_result(effect, None))
+                .collect::<Vec<_>>();
+            if !results.is_empty() {
+                core.dispatch_core_effect_results(results).unwrap();
+            }
+        }
+    }
+
     fn drive_chrome_import_recovery(
         core: Arc<AppCore>,
         fail_rollback: bool,
@@ -7964,38 +8016,29 @@ mod tests {
 
             let stopped_window_id = create_window("Stop together");
             let other_window_id = create_window("Keep running");
-            drive_async_command(
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
                     zoom_factor: None,
                 },
-                None,
-            )
-            .0
-            .unwrap();
-            drive_async_command(
+            );
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserWorkspaceLaunch {
                     workspace_id: workspace_id.clone(),
                     target: target(&stopped_window_id),
                 },
-                None,
-            )
-            .0
-            .unwrap();
-            drive_async_command(
+            );
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: other_role_id.clone(),
                     target: target(&other_window_id),
                     zoom_factor: None,
                 },
-                None,
-            )
-            .0
-            .unwrap();
+            );
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
@@ -8048,27 +8091,21 @@ mod tests {
                 "{platform}"
             );
 
-            drive_async_command(
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
                     zoom_factor: None,
                 },
-                None,
-            )
-            .0
-            .unwrap();
-            drive_async_command(
+            );
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserWorkspaceLaunch {
                     workspace_id: workspace_id.clone(),
                     target: target(&stopped_window_id),
                 },
-                None,
-            )
-            .0
-            .unwrap();
+            );
             let reopened = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
             let reopened_window = reopened["windows"]
                 .as_array()
@@ -8104,17 +8141,14 @@ mod tests {
             );
 
             let deleted_window_id = create_window("Delete together");
-            drive_async_command(
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: deleted_role_id,
                     target: target(&deleted_window_id),
                     zoom_factor: None,
                 },
-                None,
-            )
-            .0
-            .unwrap();
+            );
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowDelete {
@@ -8135,17 +8169,14 @@ mod tests {
             );
 
             let failed_window_id = create_window("Preserve after failure");
-            drive_async_command(
+            drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: failed_role_id,
                     target: target(&failed_window_id),
                     zoom_factor: None,
                 },
-                None,
-            )
-            .0
-            .unwrap();
+            );
             let failed = drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {

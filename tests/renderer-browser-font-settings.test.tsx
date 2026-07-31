@@ -216,7 +216,7 @@ describe("browser font settings", () => {
     expect(toggle.closest(".settings-row")?.classList.contains("border-b")).toBe(false);
     expect(await screen.findByText("Distinctive styles")).toBeTruthy();
     expect(
-      screen.getByText("Distinctive styles").closest(".rounded-lg")?.parentElement?.classList.contains("border-b")
+      screen.getByText("Distinctive styles").closest(".glass-panel-strong")?.parentElement?.classList.contains("border-b")
     ).toBe(true);
     expect(screen.getByRole("button", { name: /High-legibility reading/u })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Compact dashboard/u })).toBeTruthy();
@@ -246,8 +246,8 @@ describe("browser font settings", () => {
     expect(advancedToggle.closest(".settings-row")?.classList.contains("border-b")).toBe(false);
     const advancedPanel = screen
       .getByRole("textbox", { name: "Google Font family name" })
-      .closest(".rounded-lg");
-    expect(advancedPanel?.classList.contains("border")).toBe(true);
+      .closest(".glass-panel-strong");
+    expect(advancedPanel).toBeTruthy();
     expect(advancedPanel?.parentElement?.classList.contains("border-b")).toBe(true);
     expect(advancedPanel?.firstElementChild?.classList.contains("w-full")).toBe(true);
     expect(advancedPanel?.firstElementChild?.classList.contains("settings-row")).toBe(false);
@@ -339,6 +339,7 @@ describe("browser font settings", () => {
     expect(
       await screen.findByText("Downloaded Cormorant Garamond. You can now select it above.")
     ).toBeTruthy();
+    expect(document.querySelector(".browser-font-cache-grid")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "English & Latin" }));
     await user.click(screen.getByRole("combobox", { name: "Font category" }));

@@ -258,8 +258,22 @@ impl MenuModel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QuickMenuPlatform {
+    #[cfg(any(target_os = "macos", test))]
     Macos,
+    #[cfg(any(target_os = "windows", test))]
     Windows,
+}
+
+impl QuickMenuPlatform {
+    #[cfg(any(target_os = "windows", test))]
+    fn is_windows(self) -> bool {
+        matches!(self, Self::Windows)
+    }
+
+    #[cfg(not(any(target_os = "windows", test)))]
+    fn is_windows(self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -387,7 +401,7 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
     }
 
     let mut entries = Vec::new();
-    if platform == QuickMenuPlatform::Windows {
+    if platform.is_windows() {
         entries.push(item("open-app", labels.open, true));
     }
     if !legal_accepted {
@@ -412,7 +426,7 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
         entries.push(MenuEntry::Separator);
         entries.push(item("stop-all", labels.stop_all, true));
     }
-    if platform == QuickMenuPlatform::Windows {
+    if platform.is_windows() {
         entries.push(MenuEntry::Separator);
         entries.push(item("quit-app", labels.quit, true));
     }
@@ -500,7 +514,7 @@ fn apply_menu(app: &AppHandle, model: &MenuModel) -> Result<(), String> {
         let tray = app
             .tray_by_id(TRAY_ID)
             .ok_or_else(|| "Rion Studio Quick Menu is unavailable.".to_owned())?;
-        return tray.set_menu(Some(menu)).map_err(|error| error.to_string());
+        tray.set_menu(Some(menu)).map_err(|error| error.to_string())
     }
     #[cfg(target_os = "macos")]
     {

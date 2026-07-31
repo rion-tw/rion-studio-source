@@ -9,6 +9,59 @@ export type TranslationDictionary = Record<TranslationKey, string>;
 
 export const languages: Language[] = ["en", "zh-TW", "zh-CN", "ja"];
 
+export type RuntimeTabStripLabels = {
+  closeTab: string;
+  openLauncher: string;
+  openTabMenu: string;
+  playingAudio: string;
+  scrollLeft: string;
+  scrollRight: string;
+  tabMuted: string;
+};
+
+const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
+  en: {
+    closeTab: "Stop and close tab",
+    openLauncher: "Open role or workspace",
+    openTabMenu: "Open tab menu",
+    playingAudio: "Playing audio",
+    scrollLeft: "Scroll tabs left",
+    scrollRight: "Scroll tabs right",
+    tabMuted: "Tab muted"
+  },
+  "zh-TW": {
+    closeTab: "停止並關閉分頁",
+    openLauncher: "開啟角色或工作區",
+    openTabMenu: "開啟分頁選單",
+    playingAudio: "正在播放聲音",
+    scrollLeft: "向左捲動分頁",
+    scrollRight: "向右捲動分頁",
+    tabMuted: "分頁已靜音"
+  },
+  "zh-CN": {
+    closeTab: "停止并关闭标签页",
+    openLauncher: "打开角色或工作区",
+    openTabMenu: "打开标签页菜单",
+    playingAudio: "正在播放声音",
+    scrollLeft: "向左滚动标签页",
+    scrollRight: "向右滚动标签页",
+    tabMuted: "标签页已静音"
+  },
+  ja: {
+    closeTab: "停止してタブを閉じる",
+    openLauncher: "ロールまたはワークスペースを開く",
+    openTabMenu: "タブメニューを開く",
+    playingAudio: "音声を再生中",
+    scrollLeft: "タブを左へスクロール",
+    scrollRight: "タブを右へスクロール",
+    tabMuted: "タブはミュート中"
+  }
+};
+
+export function runtimeTabStripLabels(language: Language): RuntimeTabStripLabels {
+  return runtimeTabStripTranslations[language] ?? runtimeTabStripTranslations.en;
+}
+
 const fallbackTranslations = en as TranslationDictionary;
 const loadedTranslations: Partial<Record<Language, TranslationDictionary>> = {
   en: fallbackTranslations

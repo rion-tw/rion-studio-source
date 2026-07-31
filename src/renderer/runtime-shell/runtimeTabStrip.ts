@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { applicationShortcutForKeyEvent } from "../../shared/applicationShortcuts";
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
+import { runtimeTabStripLabels } from "../src/i18n";
 
 declare global {
   interface Window {
@@ -74,6 +75,132 @@ const dispatch = (action: RuntimeTabAction): void => {
   });
 };
 
+function createTabControl(
+  className: "close" | "more",
+  text: string,
+  label: string,
+  action: RuntimeTabAction
+): HTMLSpanElement {
+  const control = document.createElement("span");
+  control.className = className;
+  control.textContent = text;
+  control.role = "button";
+  control.tabIndex = 0;
+  control.ariaLabel = label;
+  control.addEventListener("click", (event) => {
+    event.stopPropagation();
+    dispatch(action);
+  });
+  control.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    dispatch(action);
+  });
+  return control;
+}
+
+function createMoreControl(tabId: string, label: string): HTMLSpanElement {
+  return createTabControl("more", "•••", label, { type: "openTabMenu", tabId });
+}
+
+function createCloseControl(tabId: string, label: string): HTMLSpanElement {
+  return createTabControl("close", "×", label, { type: "stop", tabId });
+}
+
+function installTabButtonInteractions(button: HTMLButtonElement, tabId: string): void {
+  button.draggable = true;
+  button.addEventListener("click", () => dispatch({ type: "activate", tabId }));
+  button.addEventListener("auxclick", (event) => {
+    if (event.button === 1) dispatch({ type: "stop", tabId });
+  });
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    dispatch({ type: "openTabMenu", tabId });
+  });
+  button.addEventListener("dragstart", (event) => {
+    clearDropIndicator();
+    button.classList.add("dragging");
+    draggingTabId = tabId;
+    dragSessionId = crypto.randomUUID();
+    dragCancelled = false;
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify({
+      sessionId: dragSessionId,
+      tabId
+    }));
+    dispatch({
+      type: "tabDragStart",
+      sessionId: dragSessionId,
+      tabId,
+      screenX: event.screenX,
+      screenY: event.screenY
+    });
+  });
+  button.addEventListener("drag", (event) => {
+    if (!dragSessionId || dragCancelled || (event.screenX === 0 && event.screenY === 0)) return;
+    pendingDragPoint = { screenX: event.screenX, screenY: event.screenY };
+    if (dragMoveFrame !== undefined) return;
+    dragMoveFrame = requestAnimationFrame(() => {
+      dragMoveFrame = undefined;
+      if (!dragSessionId || !pendingDragPoint) return;
+      dispatch({ type: "tabDragMove", sessionId: dragSessionId, ...pendingDragPoint });
+      pendingDragPoint = undefined;
+    });
+  });
+  button.addEventListener("dragend", (event) => {
+    button.classList.remove("dragging");
+    clearDropIndicator();
+    if (dragMoveFrame !== undefined) {
+      cancelAnimationFrame(dragMoveFrame);
+      dragMoveFrame = undefined;
+    }
+    if (dragSessionId && event.dataTransfer?.dropEffect !== "move") {
+      dispatch({
+        type: "tabDragEnd",
+        sessionId: dragSessionId,
+        cancelled: dragCancelled
+      });
+    }
+    draggingTabId = undefined;
+    dragSessionId = undefined;
+    pendingDragPoint = undefined;
+    dragCancelled = false;
+  });
+  button.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropIndicator(button);
+    scrollForDragPoint(event.clientX);
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  });
+  button.addEventListener("drop", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearDropIndicator();
+    const payload = runtimeTabDragPayload(event.dataTransfer);
+    if (!payload || !current) return;
+    dispatch({
+      type: "tabDragDrop",
+      sessionId: payload.sessionId,
+      windowId: current.windowId,
+      beforeTabId: payload.tabId === tabId ? undefined : tabId
+    });
+  });
+}
+
+function setDropIndicator(beforeTab?: HTMLButtonElement): void {
+  root.classList.toggle("drop-at-end", !beforeTab);
+  for (const tab of tabElements()) {
+    tab.classList.toggle("drop-before", tab === beforeTab);
+  }
+}
+
+function clearDropIndicator(): void {
+  root.classList.remove("drop-at-end");
+  for (const tab of tabElements()) tab.classList.remove("drop-before");
+}
+
 function optimisticallyActivateTab(tabId: string): void {
   for (const tab of tabElements()) {
     const active = tab.dataset.tabId === tabId;
@@ -134,6 +261,7 @@ const dispatchNextDragAction = (): void => {
 function render(state: RuntimeTabStripState): void {
   const revision = ++renderRevision;
   const previousScrollLeft = root.scrollLeft;
+  const labels = runtimeTabStripLabels(state.language);
   current = state;
   document.documentElement.lang = state.language;
   document.documentElement.dataset.theme = state.resolvedTheme;
@@ -177,111 +305,14 @@ function render(state: RuntimeTabStripState): void {
         audio.className = "audio";
         audio.textContent = tab.audioMuted ? "⌁" : "◖";
         audio.role = "img";
-        audio.ariaLabel = tab.audioMuted
-          ? state.language === "zh-TW" ? "分頁已靜音" : state.language === "zh-CN" ? "标签页已静音" : state.language === "ja" ? "タブはミュート中" : "Tab muted"
-          : state.language === "zh-TW" ? "正在播放聲音" : state.language === "zh-CN" ? "正在播放声音" : state.language === "ja" ? "音声を再生中" : "Playing audio";
+        audio.ariaLabel = tab.audioMuted ? labels.tabMuted : labels.playingAudio;
         button.append(audio);
       }
-      const more = document.createElement("span");
-      more.className = "more";
-      more.textContent = "•••";
-      more.addEventListener("click", (event) => {
-        event.stopPropagation();
-        dispatch({ type: "openTabMenu", tabId: tab.id });
-      });
-      button.append(more);
+      button.append(createMoreControl(tab.id, labels.openTabMenu));
       if (!state.alwaysHideTabCloseButton) {
-        const close = document.createElement("span");
-        close.className = "close";
-        close.textContent = "×";
-        close.role = "button";
-        close.tabIndex = 0;
-        close.ariaLabel = state.language === "zh-TW" ? "停止並關閉分頁" : state.language === "zh-CN"
-          ? "停止并关闭标签页" : state.language === "ja" ? "停止してタブを閉じる" : "Stop and close tab";
-        close.addEventListener("click", (event) => {
-          event.stopPropagation();
-          dispatch({ type: "stop", tabId: tab.id });
-        });
-        close.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            event.stopPropagation();
-            dispatch({ type: "stop", tabId: tab.id });
-          }
-        });
-        button.append(close);
+        button.append(createCloseControl(tab.id, labels.closeTab));
       }
-      button.addEventListener("click", () => dispatch({ type: "activate", tabId: tab.id }));
-      button.addEventListener("auxclick", (event) => {
-        if (event.button === 1) dispatch({ type: "stop", tabId: tab.id });
-      });
-      button.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        dispatch({ type: "openTabMenu", tabId: tab.id });
-      });
-      button.addEventListener("dragstart", (event) => {
-        button.classList.add("dragging");
-        draggingTabId = tab.id;
-        dragSessionId = crypto.randomUUID();
-        dragCancelled = false;
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify({
-          sessionId: dragSessionId,
-          tabId: tab.id
-        }));
-        dispatch({
-          type: "tabDragStart",
-          sessionId: dragSessionId,
-          tabId: tab.id,
-          screenX: event.screenX,
-          screenY: event.screenY
-        });
-      });
-      button.addEventListener("drag", (event) => {
-        if (!dragSessionId || dragCancelled || (event.screenX === 0 && event.screenY === 0)) return;
-        pendingDragPoint = { screenX: event.screenX, screenY: event.screenY };
-        if (dragMoveFrame !== undefined) return;
-        dragMoveFrame = requestAnimationFrame(() => {
-          dragMoveFrame = undefined;
-          if (!dragSessionId || !pendingDragPoint) return;
-          dispatch({ type: "tabDragMove", sessionId: dragSessionId, ...pendingDragPoint });
-          pendingDragPoint = undefined;
-        });
-      });
-      button.addEventListener("dragend", (event) => {
-        button.classList.remove("dragging");
-        if (dragMoveFrame !== undefined) {
-          cancelAnimationFrame(dragMoveFrame);
-          dragMoveFrame = undefined;
-        }
-        if (dragSessionId && event.dataTransfer?.dropEffect !== "move") {
-          dispatch({
-            type: "tabDragEnd",
-            sessionId: dragSessionId,
-            cancelled: dragCancelled
-          });
-        }
-        draggingTabId = undefined;
-        dragSessionId = undefined;
-        pendingDragPoint = undefined;
-        dragCancelled = false;
-      });
-      button.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-      });
-      button.addEventListener("drop", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const payload = runtimeTabDragPayload(event.dataTransfer);
-        if (!payload) return;
-        dispatch({
-          type: "tabDragDrop",
-          sessionId: payload.sessionId,
-          windowId: state.windowId,
-          beforeTabId: payload.tabId === tab.id ? undefined : tab.id
-        });
-      });
+      installTabButtonInteractions(button, tab.id);
       return button;
     });
   reconcileTabButtons(nextButtons);
@@ -295,13 +326,10 @@ function render(state: RuntimeTabStripState): void {
     }
     activeTabId = nextActiveTabId;
   });
-  add.title = state.language === "zh-TW" ? "開啟角色或工作區" : state.language === "zh-CN"
-    ? "打开角色或工作区" : state.language === "ja" ? "ロールまたはワークスペースを開く"
-      : "Open role or workspace";
-  scrollLeftButton.ariaLabel = state.language === "zh-TW" ? "向左捲動分頁" : state.language === "zh-CN"
-    ? "向左滚动标签页" : state.language === "ja" ? "タブを左へスクロール" : "Scroll tabs left";
-  scrollRightButton.ariaLabel = state.language === "zh-TW" ? "向右捲動分頁" : state.language === "zh-CN"
-    ? "向右滚动标签页" : state.language === "ja" ? "タブを右へスクロール" : "Scroll tabs right";
+  add.ariaLabel = labels.openLauncher;
+  add.title = labels.openLauncher;
+  scrollLeftButton.ariaLabel = labels.scrollLeft;
+  scrollRightButton.ariaLabel = labels.scrollRight;
   scrollLeftButton.title = scrollLeftButton.ariaLabel;
   scrollRightButton.title = scrollRightButton.ariaLabel;
 }
@@ -333,6 +361,7 @@ function reconcileTabButtons(nextButtons: HTMLButtonElement[]): void {
 
 window.__rionApplyRuntimeTabState = render;
 window.__rionReserveRuntimeTab = (tab) => {
+  const labels = runtimeTabStripLabels(current?.language ?? "en");
   let button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
   if (!button) {
     button = document.createElement("button");
@@ -348,18 +377,9 @@ window.__rionReserveRuntimeTab = (tab) => {
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = tab.name;
-    const close = document.createElement("span");
-    close.className = "close";
-    close.textContent = "×";
-    close.role = "button";
-    close.tabIndex = 0;
-    close.ariaLabel = "Stop and close tab";
-    close.addEventListener("click", (event) => {
-      event.stopPropagation();
-      dispatch({ type: "stop", tabId: tab.id });
-    });
+    const close = createCloseControl(tab.id, labels.closeTab);
     button.append(icon, name, close);
-    button.addEventListener("click", () => dispatch({ type: "activate", tabId: tab.id }));
+    installTabButtonInteractions(button, tab.id);
     root.append(button);
   }
   optimisticallyActivateTab(tab.id);
@@ -388,6 +408,7 @@ window.__rionSetActiveRuntimeTab = (tabId) => {
 window.__rionUpdateRuntimeTabMetadata = (tab) => {
   const button = tabElements().find((candidate) => candidate.dataset.tabId === tab.id);
   if (!button) return;
+  const labels = runtimeTabStripLabels(current?.language ?? "en");
   button.title = tab.tooltip;
   button.dataset.phase = tab.phase;
   button.dataset.sourceId = tab.sourceId;
@@ -412,27 +433,15 @@ window.__rionUpdateRuntimeTabMetadata = (tab) => {
 
   let more = button.querySelector<HTMLElement>(".more");
   if (!more) {
-    more = document.createElement("span");
-    more.className = "more";
-    more.textContent = "•••";
-    more.addEventListener("click", (event) => {
-      event.stopPropagation();
-      dispatch({ type: "openTabMenu", tabId: tab.id });
-    });
+    more = createMoreControl(tab.id, labels.openTabMenu);
     button.append(more);
+  } else {
+    more.ariaLabel = labels.openTabMenu;
   }
   let close = button.querySelector<HTMLElement>(".close");
   if (tab.hideCloseButton) close?.remove();
   else if (!close) {
-    close = document.createElement("span");
-    close.className = "close";
-    close.textContent = "×";
-    close.role = "button";
-    close.tabIndex = 0;
-    close.addEventListener("click", (event) => {
-      event.stopPropagation();
-      dispatch({ type: "stop", tabId: tab.id });
-    });
+    close = createCloseControl(tab.id, tab.closeLabel);
     button.append(close);
   }
   if (close) close.ariaLabel = tab.closeLabel;
@@ -457,6 +466,7 @@ document.body.addEventListener("pointerleave", () => {
 addEventListener("keydown", (event) => {
   if (event.key === "Escape" && draggingTabId) {
     dragCancelled = true;
+    clearDropIndicator();
     if (dragSessionId) dispatch({ type: "tabDragCancel", sessionId: dragSessionId });
     return;
   }
@@ -473,11 +483,17 @@ addEventListener("keydown", (event) => {
 }, true);
 root.addEventListener("dragover", (event) => {
   event.preventDefault();
+  setDropIndicator();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   scrollForDragPoint(event.clientX);
 });
+root.addEventListener("dragleave", (event) => {
+  if (event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) return;
+  clearDropIndicator();
+});
 root.addEventListener("drop", (event) => {
   event.preventDefault();
+  clearDropIndicator();
   const payload = runtimeTabDragPayload(event.dataTransfer);
   if (!payload || !current) return;
   dispatch({
@@ -488,12 +504,6 @@ root.addEventListener("drop", (event) => {
 });
 add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
 add.addEventListener("contextmenu", (event) => event.preventDefault());
-add.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    dispatch({ type: "openLauncher" });
-  }
-});
 root.addEventListener("scroll", updateScrollControls);
 root.addEventListener("wheel", (event) => {
   if (!hasTabOverflow() || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;

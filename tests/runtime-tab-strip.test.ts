@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTabStripState } from "../src/shared/runtimeTabs";
@@ -301,16 +302,84 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
   });
 
-  it("opens the scoped role/workspace launcher from the add button", () => {
+  it("opens the scoped role/workspace launcher exactly once per pointer or keyboard action", async () => {
+    const user = userEvent.setup();
     const add = document.querySelector<HTMLButtonElement>("#add");
     add?.click();
-    add?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
-
-    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenLastCalledWith("rion_runtime_tab_action", {
       action: { type: "openLauncher" }
     });
-    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+
+    invoke.mockClear();
+    add?.focus();
+    await user.keyboard("{Enter}");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenLastCalledWith("rion_runtime_tab_action", {
       action: { type: "openLauncher" }
+    });
+
+    invoke.mockClear();
+    await user.keyboard(" ");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenLastCalledWith("rion_runtime_tab_action", {
+      action: { type: "openLauncher" }
+    });
+  });
+
+  it("localizes add, menu, and close accessibility labels in every supported language", () => {
+    for (const [language, expected] of [
+      ["en", ["Open role or workspace", "Open tab menu", "Stop and close tab"]],
+      ["zh-TW", ["開啟角色或工作區", "開啟分頁選單", "停止並關閉分頁"]],
+      ["zh-CN", ["打开角色或工作区", "打开标签页菜单", "停止并关闭标签页"]],
+      ["ja", ["ロールまたはワークスペースを開く", "タブメニューを開く", "停止してタブを閉じる"]]
+    ] as const) {
+      window.__rionApplyRuntimeTabState?.({ ...state, language });
+      expect(document.querySelector<HTMLButtonElement>("#add")?.ariaLabel).toBe(expected[0]);
+      expect(document.querySelector<HTMLElement>(".more")?.ariaLabel).toBe(expected[1]);
+      expect(document.querySelector<HTMLElement>(".close")?.ariaLabel).toBe(expected[2]);
+    }
+  });
+
+  it("gives provisional and metadata-created tab controls the same keyboard behavior", () => {
+    window.__rionReserveRuntimeTab?.({
+      id: "provisional-1",
+      name: "載入中…",
+      type: "role"
+    });
+    const provisional = document.querySelector<HTMLElement>('[data-tab-id="provisional-1"]')!;
+    provisional.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    provisional.querySelector<HTMLElement>(".close")?.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      key: "Enter"
+    }));
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+      action: { type: "openTabMenu", tabId: "provisional-1" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: { type: "stop", tabId: "provisional-1" }
+    });
+
+    invoke.mockClear();
+    window.__rionUpdateRuntimeTabMetadata?.({
+      audible: false,
+      audioMuted: false,
+      closeLabel: "停止並關閉分頁",
+      hideCloseButton: false,
+      id: "tab-1",
+      mutedLabel: "分頁已靜音",
+      name: "四人隊伍",
+      phase: "ready",
+      playingLabel: "正在播放聲音",
+      sourceId: "workspace-1",
+      tooltip: "四人隊伍",
+      type: "workspace"
+    });
+    document.querySelector<HTMLElement>('[data-tab-id="tab-1"] .more')
+      ?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: " " }));
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "openTabMenu", tabId: "tab-1" }
     });
   });
 
@@ -402,6 +471,30 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     Object.defineProperty(drag, "clientX", { value: 195 });
     root.dispatchEvent(drag);
     expect(geometry.scrollLeft).toBe(56);
+  });
+
+  it("shows the current native-style insertion target while dragging", () => {
+    const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
+    const overTab = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(overTab, {
+      clientX: { value: 80 },
+      dataTransfer: { value: { dropEffect: "none" } }
+    });
+    tab.dispatchEvent(overTab);
+
+    expect(tab.classList.contains("drop-before")).toBe(true);
+    expect(document.querySelector("#tabs")?.classList.contains("drop-at-end")).toBe(false);
+
+    const overEnd = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(overEnd, {
+      clientX: { value: 500 },
+      dataTransfer: { value: { dropEffect: "none" } }
+    });
+    document.querySelector("#tabs")?.dispatchEvent(overEnd);
+
+    expect(tab.classList.contains("drop-before")).toBe(false);
+    expect(document.querySelector("#tabs")?.classList.contains("drop-at-end")).toBe(true);
+    document.querySelector("#tabs")?.dispatchEvent(new Event("drop", { cancelable: true }));
   });
 
   it("serializes drag lifecycle actions until the previous native action settles", async () => {

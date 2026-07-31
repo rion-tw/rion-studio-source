@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     thread,
     time::Instant,
@@ -6,7 +7,7 @@ use std::{
 
 use rion_core::{
     AppCore, BrowserRuntimeSnapshot, CoreCommand, EmbeddedLaunchTargetRecord, LogCaptureRecord,
-    LogLevel, LogSource,
+    LogErrorDetails, LogLevel, LogSource,
 };
 use tauri::{
     AppHandle, Manager, Window,
@@ -91,12 +92,14 @@ impl LaunchIntentDispatcher {
                         }
                     };
                     let result = core.invoke_async(command).await;
+                    let error = result.as_ref().err().map(|error| error.payload());
                     capture_launch_intent_event(
                         Arc::clone(&core),
                         &intent,
                         result.is_ok(),
                         core_queue_ms,
                         core_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                        error.as_ref(),
                     );
                     if let Err(error) = result {
                         runtime.fail_tab_launch_preview(&intent.preview_key);
@@ -195,6 +198,7 @@ fn capture_launch_intent_event(
     accepted: bool,
     core_queue_ms: u64,
     core_invoke_ms: u64,
+    error: Option<&rion_core::CoreErrorPayload>,
 ) {
     let context = serde_json::json!({
         "coreInvokeMs": core_invoke_ms,
@@ -208,6 +212,12 @@ fn capture_launch_intent_event(
         "sourceId": intent.source_id,
         "sourceType": if intent.workspace { "workspace" } else { "role" },
         "windowId": intent.target.window_id,
+    });
+    let error = error.map(|error| LogErrorDetails {
+        name: error.code.clone(),
+        message: error.message.clone(),
+        stack: None,
+        cause: None,
     });
     tauri::async_runtime::spawn(async move {
         let _ = core
@@ -232,7 +242,7 @@ fn capture_launch_intent_event(
                     }
                     .to_owned(),
                     context_raw_json: serde_json::to_string(&context).ok(),
-                    error: None,
+                    error,
                 }],
             })
             .await;
@@ -248,8 +258,10 @@ pub(crate) struct RefreshCoordinator {
 struct RefreshState {
     language: String,
     loading_menu: Option<Menu<tauri::Wry>>,
-    menu: Option<Menu<tauri::Wry>>,
-    popup_target: Option<EmbeddedLaunchTargetRecord>,
+    menu_model: Option<LauncherMenuModel>,
+    menu_model_revision: u64,
+    menus: HashMap<String, Menu<tauri::Wry>>,
+    registered_window_ids: HashSet<String>,
     revision: u64,
     worker_running: bool,
 }
@@ -341,30 +353,111 @@ impl RefreshCoordinator {
     }
 
     fn apply(&self, app: &AppHandle, revision: u64, model: LauncherMenuModel) {
-        if self
-            .state
-            .lock()
-            .ok()
-            .is_none_or(|state| state.revision != revision)
-        {
-            return;
-        }
-        let menu = match launcher_menu(app, &model) {
-            Ok(menu) => Some(menu),
-            Err(error) => {
-                eprintln!("Runtime launcher menu refresh failed: {error}");
-                None
-            }
+        let window_ids = match self.state.lock() {
+            Ok(state) if state.revision == revision => state
+                .registered_window_ids
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            _ => return,
         };
+        let menus = window_ids
+            .iter()
+            .filter_map(|window_id| match launcher_menu(app, &model, window_id) {
+                Ok(menu) => Some((window_id.clone(), menu)),
+                Err(error) => {
+                    eprintln!(
+                        "Runtime launcher menu refresh failed for window {window_id}: {error}"
+                    );
+                    None
+                }
+            })
+            .collect::<HashMap<_, _>>();
+        let prepared_window_ids = window_ids.iter().cloned().collect::<HashSet<_>>();
+        let loading_menu = launcher_loading_menu(app, &model.language).ok();
         let Ok(mut state) = self.state.lock() else {
             return;
         };
         if state.revision != revision {
             return;
         }
-        state.loading_menu = launcher_loading_menu(app, &model.language).ok();
-        if menu.is_some() {
-            state.menu = menu;
+        state.loading_menu = loading_menu;
+        state.menu_model = Some(model.clone());
+        state.menu_model_revision = revision;
+        for window_id in &window_ids {
+            if let Some(menu) = menus.get(window_id) {
+                state.menus.insert(window_id.clone(), menu.clone());
+            } else {
+                state.menus.remove(window_id);
+            }
+        }
+        let late_window_ids = state
+            .registered_window_ids
+            .difference(&prepared_window_ids)
+            .cloned()
+            .collect::<Vec<_>>();
+        drop(state);
+        for window_id in late_window_ids {
+            self.install_window_menu(app, revision, model.clone(), window_id);
+        }
+    }
+
+    pub(crate) fn register_window(&self, app: &AppHandle, window_id: &str) -> Result<(), String> {
+        let (revision, model) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
+            if !state.registered_window_ids.insert(window_id.to_owned()) {
+                return Ok(());
+            }
+            let model = if state.menu_model_revision == state.revision {
+                state.menu_model.clone()
+            } else {
+                None
+            };
+            (state.revision, model)
+        };
+        let Some(model) = model else {
+            return Ok(());
+        };
+        let coordinator = self.clone();
+        let menu_app = app.clone();
+        let window_id = window_id.to_owned();
+        app.run_on_main_thread(move || {
+            coordinator.install_window_menu(&menu_app, revision, model, window_id);
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn unregister_window(&self, window_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.registered_window_ids.remove(window_id);
+            state.menus.remove(window_id);
+        }
+    }
+
+    fn install_window_menu(
+        &self,
+        app: &AppHandle,
+        revision: u64,
+        model: LauncherMenuModel,
+        window_id: String,
+    ) {
+        let menu = match launcher_menu(app, &model, &window_id) {
+            Ok(menu) => menu,
+            Err(error) => {
+                eprintln!(
+                    "Runtime launcher menu could not be prepared for window {window_id}: {error}"
+                );
+                return;
+            }
+        };
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.revision == revision && state.registered_window_ids.contains(&window_id) {
+            state.menus.insert(window_id, menu);
         }
     }
 
@@ -373,16 +466,18 @@ impl RefreshCoordinator {
         app: &AppHandle,
         core: Arc<AppCore>,
         language: String,
-        target: EmbeddedLaunchTargetRecord,
+        window_id: &str,
         window: Window,
     ) -> Result<(), String> {
         let (cached_menu, loading_menu) = {
-            let mut state = self
+            let state = self
                 .state
                 .lock()
                 .map_err(|_| "runtime launcher refresh coordinator lock poisoned".to_owned())?;
-            state.popup_target = Some(target);
-            (state.menu.clone(), state.loading_menu.clone())
+            (
+                state.menus.get(window_id).cloned(),
+                state.loading_menu.clone(),
+            )
         };
         let menu = if let Some(menu) = cached_menu {
             menu
@@ -396,15 +491,6 @@ impl RefreshCoordinator {
             })?
         };
         menu.popup(window).map_err(|error| error.to_string())
-    }
-
-    fn popup_target(&self) -> Result<EmbeddedLaunchTargetRecord, String> {
-        self.state
-            .try_lock()
-            .map_err(|_| "runtime launcher action context is temporarily busy".to_owned())?
-            .popup_target
-            .clone()
-            .ok_or_else(|| "runtime launcher menu has no launch target".to_owned())
     }
 }
 
@@ -506,13 +592,17 @@ pub fn open_launcher(app: &AppHandle, window_id: &str) -> Result<(), String> {
         .lock()
         .map(|value| value.clone())
         .unwrap_or_else(|_| "en".to_owned());
-    let (window, target) = state.runtime.launcher_context_for_window_id(window_id)?;
+    let (window, _) = state.runtime.launcher_context_for_window_id(window_id)?;
     state
         .runtime_launcher_refresh
-        .popup(app, Arc::clone(&state.core), language, target, window)
+        .popup(app, Arc::clone(&state.core), language, window_id, window)
 }
 
-fn launcher_menu(app: &AppHandle, model: &LauncherMenuModel) -> Result<Menu<tauri::Wry>, String> {
+fn launcher_menu(
+    app: &AppHandle,
+    model: &LauncherMenuModel,
+    window_id: &str,
+) -> Result<Menu<tauri::Wry>, String> {
     let text = labels(&model.language);
     let mut roles_menu = SubmenuBuilder::new(app, text.roles);
     let role_values = model.roles.as_array().cloned().unwrap_or_default();
@@ -527,7 +617,10 @@ fn launcher_menu(app: &AppHandle, model: &LauncherMenuModel) -> Result<Menu<taur
             let (Some(id), Some(name)) = (role["id"].as_str(), role["name"].as_str()) else {
                 continue;
             };
-            roles_menu = roles_menu.text(format!("{LAUNCH_ROLE_PREFIX}{id}"), name);
+            roles_menu = roles_menu.text(
+                launcher_menu_item_id(LAUNCH_ROLE_PREFIX, window_id, id),
+                name,
+            );
         }
     }
     let mut workspaces_menu = SubmenuBuilder::new(app, text.workspaces);
@@ -544,7 +637,10 @@ fn launcher_menu(app: &AppHandle, model: &LauncherMenuModel) -> Result<Menu<taur
             else {
                 continue;
             };
-            workspaces_menu = workspaces_menu.text(format!("{LAUNCH_WORKSPACE_PREFIX}{id}"), name);
+            workspaces_menu = workspaces_menu.text(
+                launcher_menu_item_id(LAUNCH_WORKSPACE_PREFIX, window_id, id),
+                name,
+            );
         }
     }
     MenuBuilder::new(app)
@@ -552,6 +648,20 @@ fn launcher_menu(app: &AppHandle, model: &LauncherMenuModel) -> Result<Menu<taur
         .item(&workspaces_menu.build().map_err(|error| error.to_string())?)
         .build()
         .map_err(|error| error.to_string())
+}
+
+fn launcher_menu_item_id(prefix: &str, window_id: &str, source_id: &str) -> String {
+    format!("{prefix}{window_id}:{source_id}")
+}
+
+fn parse_launcher_menu_target(value: &str) -> Result<(&str, &str), String> {
+    let (window_id, source_id) = value
+        .split_once(':')
+        .ok_or_else(|| "runtime launcher menu target is invalid".to_owned())?;
+    if window_id.is_empty() || source_id.is_empty() {
+        return Err("runtime launcher menu target is invalid".to_owned());
+    }
+    Ok((window_id, source_id))
 }
 
 fn launcher_loading_menu(app: &AppHandle, language: &str) -> Result<Menu<tauri::Wry>, String> {
@@ -657,17 +767,29 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(value) = id.strip_prefix(LAUNCH_ROLE_PREFIX) {
-        match state.runtime_launcher_refresh.popup_target() {
-            Ok(target) => launch_from_menu(app, &state, target, value, false),
-            Err(message) => reveal_menu_error(app, message),
-        }
+        launch_from_scoped_menu(app, &state, value, false);
     } else if let Some(value) = id.strip_prefix(LAUNCH_WORKSPACE_PREFIX) {
-        match state.runtime_launcher_refresh.popup_target() {
-            Ok(target) => launch_from_menu(app, &state, target, value, true),
-            Err(message) => reveal_menu_error(app, message),
-        }
+        launch_from_scoped_menu(app, &state, value, true);
     }
     true
+}
+
+fn launch_from_scoped_menu(
+    app: &AppHandle,
+    state: &crate::CoreState,
+    value: &str,
+    workspace: bool,
+) {
+    let result = parse_launcher_menu_target(value).and_then(|(window_id, source_id)| {
+        state
+            .runtime
+            .launcher_context_for_window_id(window_id)
+            .map(|(_, target)| (target, source_id))
+    });
+    match result {
+        Ok((target, source_id)) => launch_from_menu(app, state, target, source_id, workspace),
+        Err(message) => reveal_menu_error(app, message),
+    }
 }
 
 fn is_runtime_menu_event(id: &str) -> bool {
@@ -871,6 +993,16 @@ fn launch_from_menu(
     let action_started = Instant::now();
     let native_action_at = chrono::Utc::now().to_rfc3339();
     let tab_type = if workspace { "workspace" } else { "role" };
+    capture_launcher_action_event(
+        Arc::clone(&state.core),
+        "tab.launch-menu-selected",
+        "A runtime launcher menu selection was received.",
+        LogLevel::Debug,
+        &target,
+        source_id,
+        workspace,
+        None,
+    );
     let preview = if let Some(tab_id) = state.runtime.presented_tab_for_source(source_id, tab_type)
     {
         if let Err(message) = crate::preview_and_commit_native_tab_selection(app, state, &tab_id) {
@@ -882,10 +1014,30 @@ fn launch_from_menu(
         // The launcher menu belongs to an already-live game window. Commit its
         // provisional presentation before returning from the native menu action so
         // Tokio scheduling, Core work and controller creation cannot delay the tab.
-        state
+        match state
             .runtime
             .preview_tab_launch(&target, source_id, tab_type)
-            .ok()
+        {
+            Ok(preview_key) => Some(preview_key),
+            Err(error) => {
+                let payload = rion_core::CoreErrorPayload {
+                    code: error.code.to_owned(),
+                    message: error.message,
+                };
+                capture_launcher_action_event(
+                    Arc::clone(&state.core),
+                    "tab.launch-preview-rejected",
+                    "The runtime launcher could not reserve its provisional tab.",
+                    LogLevel::Error,
+                    &target,
+                    source_id,
+                    workspace,
+                    Some(&payload),
+                );
+                crate::reveal_shell_error(app, payload);
+                return;
+            }
+        }
     };
     let Some(preview_key) = preview else {
         if state
@@ -907,12 +1059,65 @@ fn launch_from_menu(
         preview_committed_ms,
         preview_key: preview_key.clone(),
         source_id: source_id.to_owned(),
-        target,
+        target: target.clone(),
         workspace,
     }) {
         state.runtime.fail_tab_launch_preview(&preview_key);
-        reveal_menu_error(app, message);
+        let payload = rion_core::CoreErrorPayload {
+            code: "TAURI_RUNTIME_TAB_LAUNCH_QUEUE_FAILED".to_owned(),
+            message,
+        };
+        capture_launcher_action_event(
+            Arc::clone(&state.core),
+            "tab.launch-queue-rejected",
+            "The provisional tab could not enter the background launch queue.",
+            LogLevel::Error,
+            &target,
+            source_id,
+            workspace,
+            Some(&payload),
+        );
+        crate::reveal_shell_error(app, payload);
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_launcher_action_event(
+    core: Arc<AppCore>,
+    event: &'static str,
+    message: &'static str,
+    level: LogLevel,
+    target: &EmbeddedLaunchTargetRecord,
+    source_id: &str,
+    workspace: bool,
+    error: Option<&rion_core::CoreErrorPayload>,
+) {
+    let context = serde_json::json!({
+        "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+        "sourceId": source_id,
+        "sourceType": if workspace { "workspace" } else { "role" },
+        "windowId": target.window_id,
+    });
+    let error = error.map(|error| LogErrorDetails {
+        name: error.code.clone(),
+        message: error.message.clone(),
+        stack: None,
+        cause: None,
+    });
+    tauri::async_runtime::spawn(async move {
+        let _ = core
+            .invoke_async(CoreCommand::LogsCapture {
+                entries: vec![LogCaptureRecord {
+                    level,
+                    source: LogSource::Browser,
+                    event: event.to_owned(),
+                    message: message.to_owned(),
+                    context_raw_json: serde_json::to_string(&context).ok(),
+                    error,
+                }],
+            })
+            .await;
+    });
 }
 
 fn spawn_command(app: &AppHandle, core: &std::sync::Arc<rion_core::AppCore>, command: CoreCommand) {
@@ -1060,5 +1265,35 @@ mod tests {
             assert!(is_runtime_menu_event(id), "{id}");
         }
         assert!(!is_runtime_menu_event("open-app"));
+    }
+
+    #[test]
+    fn launcher_menu_item_ids_preserve_their_source_window() {
+        let first = launcher_menu_item_id(LAUNCH_ROLE_PREFIX, "window-1", "role-1");
+        let second = launcher_menu_item_id(LAUNCH_ROLE_PREFIX, "window-2", "role-1");
+        let workspace =
+            launcher_menu_item_id(LAUNCH_WORKSPACE_PREFIX, "window-1", "workspace:daily");
+
+        assert_eq!(first, "runtime-tab-launch-role:window-1:role-1".to_owned());
+        assert_ne!(first, second);
+        assert_eq!(
+            parse_launcher_menu_target(first.strip_prefix(LAUNCH_ROLE_PREFIX).unwrap()),
+            Ok(("window-1", "role-1"))
+        );
+        assert_eq!(
+            parse_launcher_menu_target(workspace.strip_prefix(LAUNCH_WORKSPACE_PREFIX).unwrap()),
+            Ok(("window-1", "workspace:daily"))
+        );
+    }
+
+    #[test]
+    fn launcher_menu_targets_reject_missing_window_or_source_ids() {
+        for value in ["window-only", ":role-1", "window-1:"] {
+            assert_eq!(
+                parse_launcher_menu_target(value),
+                Err("runtime launcher menu target is invalid".to_owned()),
+                "{value}"
+            );
+        }
     }
 }

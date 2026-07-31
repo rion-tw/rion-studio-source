@@ -310,11 +310,13 @@ describe("Tauri System WebView runtime source", () => {
     expect(quickMenu).toContain("Core and SQLite snapshots are collected on one bounded worker");
     expect(menu).toContain('name("rion-runtime-launcher-model".to_owned())');
     expect(menu).toContain("native plus button never");
-    expect(menu).toContain("popup_target");
+    expect(menu).not.toContain("popup_target");
+    expect(menu).toContain("registered_window_ids");
+    expect(menu).toContain("launcher_menu_item_id(");
+    expect(menu).toContain("parse_launcher_menu_target(");
     expect(menu).toContain("launcher_context_for_window_id(window_id)");
     expect(menu).toContain("presented_tab_for_source(source_id, tab_type)");
     expect(menu).not.toContain("model.runtime");
-    expect(menu).not.toContain("window_ids");
     expect(quickMenu).toContain("runtime.wait_for_shell_idle()");
     const coreEffects = shell.slice(
       shell.indexOf("CoreEvent::CoreEffects { effects }"),
@@ -409,6 +411,9 @@ describe("Tauri System WebView runtime source", () => {
     expect(menuLaunch.indexOf("preview_tab_launch(&target, source_id, tab_type)")).toBeLessThan(
       menuLaunch.indexOf("launch_intents.try_launch(")
     );
+    expect(menuLaunch).not.toContain(".preview_tab_launch(&target, source_id, tab_type)\n            .ok()");
+    expect(menuLaunch).toContain('"tab.launch-preview-rejected"');
+    expect(menuLaunch).toContain('"tab.launch-queue-rejected"');
     expect(menuLaunch).not.toContain("spawn_blocking");
     expect(menuLaunch).not.toContain("launch_target_for_game_window");
     expect(menuLaunch).not.toContain("core.invoke");

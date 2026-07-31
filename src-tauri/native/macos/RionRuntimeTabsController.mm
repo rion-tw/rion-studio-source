@@ -1989,15 +1989,13 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSEvent *event = NSApp.currentEvent;
   BOOL cancelledWithEscape =
       event.type == NSEventTypeKeyDown && event.keyCode == 53;
-  BOOL captureWasCancelled =
-      event && event.type != NSEventTypeLeftMouseUp && !cancelledWithEscape;
   if (operation != NSDragOperationNone) {
     self.dragSessionID = @"";
     return;
   }
   [self.tabsController endTabDrag:self
                       screenPoint:screenPoint
-                        cancelled:cancelledWithEscape || captureWasCancelled];
+                        cancelled:cancelledWithEscape];
 }
 
 - (NSPoint)grabRatio {

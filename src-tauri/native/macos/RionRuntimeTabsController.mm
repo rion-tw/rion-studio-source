@@ -1023,6 +1023,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
              hovered:(BOOL)hovered
         windowActive:(BOOL)windowActive
              animate:(BOOL)animate;
+- (NSImage *)dragImage;
 
 @end
 
@@ -1408,6 +1409,51 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   } else {
     updates();
   }
+}
+
+- (NSImage *)dragImage {
+  [self layoutSubtreeIfNeeded];
+  NSRect bounds = NSMakeRect(0, 0, MAX(1.0, self.bounds.size.width),
+                            MAX(1.0, self.bounds.size.height));
+  NSBitmapImageRep *representation =
+      [self bitmapImageRepForCachingDisplayInRect:bounds];
+  NSImage *snapshot = nil;
+  if (representation) {
+    [self cacheDisplayInRect:bounds toBitmapImageRep:representation];
+    snapshot = [[NSImage alloc] initWithSize:bounds.size];
+    [snapshot addRepresentation:representation];
+  }
+  BOOL darkAppearance = RionRuntimeUsesDarkAppearance(self.effectiveAppearance);
+  NSColor *background = [NSColor colorWithCalibratedWhite:darkAppearance ? 0.13 : 0.97
+                                                     alpha:0.97];
+  NSColor *border = RionRuntimeNeutralColor(darkAppearance, 0.22, 0.34);
+  CGFloat cornerRadius = _cornerRadius;
+  return [NSImage imageWithSize:bounds.size
+                       flipped:YES
+                drawingHandler:^BOOL(NSRect destination) {
+      NSBezierPath *shape =
+          [NSBezierPath bezierPathWithRoundedRect:destination
+                                          xRadius:cornerRadius
+                                          yRadius:cornerRadius];
+      [background setFill];
+      [shape fill];
+      if (snapshot) {
+        [NSGraphicsContext saveGraphicsState];
+        [shape addClip];
+        [snapshot drawInRect:destination
+                    fromRect:NSMakeRect(0, 0, snapshot.size.width,
+                                        snapshot.size.height)
+                   operation:NSCompositingOperationSourceOver
+                    fraction:1.0
+              respectFlipped:YES
+                       hints:nil];
+        [NSGraphicsContext restoreGraphicsState];
+      }
+      [border setStroke];
+      shape.lineWidth = 1.0;
+      [shape stroke];
+      return YES;
+                }];
 }
 
 @end
@@ -3436,7 +3482,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
         forType:RionRuntimeTabPasteboardType];
   NSDraggingItem *draggingItem =
       [[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem];
-  [draggingItem setDraggingFrame:item.bounds contents:item.surfaceView];
+  [draggingItem setDraggingFrame:item.bounds contents:[item.surfaceView dragImage]];
   NSDraggingSession *draggingSession =
       [item beginDraggingSessionWithItems:@[ draggingItem ] event:event source:item];
   draggingSession.animatesToStartingPositionsOnCancelOrFail = YES;

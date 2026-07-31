@@ -70,6 +70,7 @@ let lastDragPoint: { screenX: number; screenY: number } | undefined;
 let edgeScrollFrame: number | undefined;
 let edgeScrollClientX: number | undefined;
 let dragInsertionState: { sessionId: string; beforeTabId?: string } | undefined;
+let dragPreviewElement: HTMLElement | undefined;
 let renderRevision = 0;
 let activeTabId: string | undefined;
 let optimisticActiveTabId: string | undefined;
@@ -251,6 +252,14 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     const bounds = button.getBoundingClientRect();
     const tabWidth = Math.max(1, bounds.width || button.offsetWidth || 1);
     const tabHeight = Math.max(1, bounds.height || button.offsetHeight || 28);
+    installDragPreview(
+      event.dataTransfer,
+      button,
+      tabWidth,
+      tabHeight,
+      grabRatioX,
+      grabRatioY
+    );
     event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify({
       sessionId: dragSessionId,
       tabId,
@@ -283,6 +292,7 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
   });
   button.addEventListener("dragend", (event) => {
     button.classList.remove("dragging");
+    clearDragPreview();
     clearDropIndicator();
     clearDragPlaceholder();
     stopEdgeScroll();
@@ -341,6 +351,41 @@ function installTabButtonInteractions(button: HTMLButtonElement, tabId: string):
     stopEdgeScroll();
     clearDragPlaceholder();
   });
+}
+
+function installDragPreview(
+  dataTransfer: DataTransfer | null,
+  button: HTMLButtonElement,
+  width: number,
+  height: number,
+  grabRatioX: number,
+  grabRatioY: number
+): void {
+  clearDragPreview();
+  if (!dataTransfer || typeof dataTransfer.setDragImage !== "function") return;
+  const preview = button.cloneNode(true) as HTMLButtonElement;
+  preview.removeAttribute("id");
+  preview.classList.remove("dragging", "drag-placeholder", "drop-before");
+  preview.classList.add("active", "drag-preview");
+  preview.draggable = false;
+  preview.tabIndex = -1;
+  preview.ariaHidden = "true";
+  preview.style.width = `${width}px`;
+  preview.style.minWidth = `${width}px`;
+  preview.style.height = `${height}px`;
+  document.body.append(preview);
+  preview.getBoundingClientRect();
+  dataTransfer.setDragImage(
+    preview,
+    Math.round(width * clampRatio(grabRatioX)),
+    Math.round(height * clampRatio(grabRatioY))
+  );
+  dragPreviewElement = preview;
+}
+
+function clearDragPreview(): void {
+  dragPreviewElement?.remove();
+  dragPreviewElement = undefined;
 }
 
 function setDropIndicator(beforeTab?: HTMLButtonElement): void {

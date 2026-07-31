@@ -215,6 +215,7 @@ fn io_error(error: std::io::Error) -> CoreError {
 mod tests {
     use super::*;
     use crate::database::LogDatabaseWorker;
+    use crate::model::{LogCaptureRecord, LogErrorDetails, LogLevel, LogSource};
 
     #[test]
     fn streams_logs_and_atomically_installs_a_standard_zip() {
@@ -234,6 +235,58 @@ mod tests {
                 &0x0605_4b50_u32.to_le_bytes()
             );
         });
+    }
+
+    #[test]
+    fn diagnostics_archive_keeps_structured_setup_failure_details() {
+        let directory = tempfile::tempdir().unwrap();
+        let logs_path = directory.path().join("logs.sqlite3");
+        let logs = LogDatabaseWorker::start(logs_path).unwrap();
+        let mut capture = crate::log_capture::LogCaptureRuntime::new(
+            directory.path().to_path_buf(),
+            LogLevel::Debug,
+        );
+        let entries = capture.capture(vec![LogCaptureRecord {
+            level: LogLevel::Error,
+            source: LogSource::Browser,
+            event: "tab.launch-settled".to_owned(),
+            message: "WebView2 setup failed".to_owned(),
+            context_raw_json: Some(
+                serde_json::json!({
+                    "setupStage": "permission-handler",
+                    "nativeCode": "0x8007139F"
+                })
+                .to_string(),
+            ),
+            error: Some(LogErrorDetails {
+                name: "SYSTEM_ROLE_SETUP_FAILED".to_owned(),
+                message: "WebView2 setup failed".to_owned(),
+                stack: None,
+                cause: None,
+            }),
+        }]);
+        logs.append(entries).unwrap();
+        let output = directory.path().join("diagnostics.zip");
+        export_bundle(&output, &serde_json::json!({"ok": true}), &logs).unwrap();
+
+        let bytes = fs::read(output).unwrap();
+        let name = b"logs/rion-studio-logs.jsonl";
+        let name_offset = bytes
+            .windows(name.len())
+            .position(|candidate| candidate == name)
+            .unwrap();
+        let data_offset = name_offset + name.len();
+        let descriptor_offset = bytes[data_offset..]
+            .windows(4)
+            .position(|candidate| candidate == 0x0807_4b50_u32.to_le_bytes())
+            .map(|offset| data_offset + offset)
+            .unwrap();
+        let jsonl = std::str::from_utf8(&bytes[data_offset..descriptor_offset]).unwrap();
+        let entry: Value = serde_json::from_str(jsonl.trim()).unwrap();
+        assert_eq!(entry["error"]["name"], "SYSTEM_ROLE_SETUP_FAILED");
+        assert_eq!(entry["error"]["message"], "WebView2 setup failed");
+        assert_eq!(entry["context"]["setupStage"], "permission-handler");
+        assert_eq!(entry["context"]["nativeCode"], "0x8007139F");
     }
 
     #[test]

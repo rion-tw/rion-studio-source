@@ -1021,6 +1021,48 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_and_jsonl_preserve_launch_error_and_setup_context() {
+        let directory = tempdir().unwrap();
+        let mut connection = Connection::open(directory.path().join("logs.sqlite3")).unwrap();
+        create_schema(&connection, false).unwrap();
+        let mut launch_error = entry("setup-failure", "WebView2 setup failed");
+        launch_error.level = LogLevel::Error;
+        launch_error.source = LogSource::Browser;
+        launch_error.event = "tab.launch-settled".to_owned();
+        launch_error.context = Some(BTreeMap::from([
+            ("setupStage".to_owned(), json!("permission-handler")),
+            ("nativeCode".to_owned(), json!("0x8007139F")),
+        ]));
+        launch_error.error = Some(LogErrorDetails {
+            name: "SYSTEM_ROLE_SETUP_FAILED".to_owned(),
+            message: "WebView2 setup failed".to_owned(),
+            stack: None,
+            cause: None,
+        });
+        append_entries(&mut connection, std::slice::from_ref(&launch_error)).unwrap();
+
+        let stored = query_entries(&connection, &LogQuery::default()).unwrap();
+        assert_eq!(stored.entries[0].error, launch_error.error);
+        assert_eq!(stored.entries[0].context, launch_error.context);
+
+        let mut exported = Vec::new();
+        write_jsonl(&connection, &mut exported).unwrap();
+        let exported: Value = serde_json::from_slice(
+            String::from_utf8(exported)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(exported["error"]["name"], "SYSTEM_ROLE_SETUP_FAILED");
+        assert_eq!(exported["error"]["message"], "WebView2 setup failed");
+        assert_eq!(exported["context"]["setupStage"], "permission-handler");
+        assert_eq!(exported["context"]["nativeCode"], "0x8007139F");
+    }
+
+    #[test]
     fn reclaims_fragmented_empty_database_without_deleting_the_newest_entry() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("logs.sqlite3");

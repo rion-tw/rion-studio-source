@@ -4249,10 +4249,10 @@ pub fn run() {
             let completion_app = app.handle().clone();
             core.set_browser_launch_completion_sink(Arc::new(move |completion| {
                 let error = completion.error.clone();
-                if let Some(runtime) = completion_runtime.upgrade() {
-                    runtime.resolve_browser_launch_completion(completion);
-                }
-                if let Some(error) = error {
+                let reveal_error = completion_runtime
+                    .upgrade()
+                    .is_none_or(|runtime| runtime.resolve_browser_launch_completion(completion));
+                if reveal_error && let Some(error) = error {
                     reveal_shell_error(&completion_app, error);
                 }
             }))?;

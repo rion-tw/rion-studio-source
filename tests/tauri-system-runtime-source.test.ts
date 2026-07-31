@@ -87,7 +87,7 @@ describe("Tauri System WebView runtime source", () => {
 
     const destroyTab = runtime.slice(
       runtime.indexOf("fn destroy_tab("),
-      runtime.indexOf("fn show_tab(")
+      runtime.indexOf("fn prepare_destroy_tab_presentation(")
     );
     const releaseRoles = destroyTab.indexOf("self.release_marked_role_surfaces(role_id");
     const releaseDividers = destroyTab.indexOf("self.close_managed_divider(instance_id");
@@ -221,9 +221,11 @@ describe("Tauri System WebView runtime source", () => {
       runtime.indexOf("CoreEffectAction::EmbeddedDestroyTab {", runtime.indexOf("fn execute(")),
       runtime.indexOf("CoreEffectAction::EmbeddedApplyRuntime", runtime.indexOf("fn execute("))
     );
-    expect(destroyEffect).toContain("if let Err(error) = self.show_tab(&next_tab_id, true)");
-    expect(destroyEffect).toContain('"tab.close-successor-superseded"');
-    expect(destroyEffect).not.toContain("self.show_tab(&next_tab_id, true)?");
+    expect(destroyEffect).toContain("prepare_destroy_tab_presentation");
+    expect(destroyEffect.indexOf("prepare_destroy_tab_presentation")).toBeLessThan(
+      destroyEffect.indexOf("self.destroy_tab(&tab_id)?")
+    );
+    expect(destroyEffect).toContain('"tab.close-successor-preflight-failed"');
     expect(runtime).toContain("struct WindowPresentationState {");
     expect(runtime).toContain("struct LatestOnlyPresentationQueue<T>");
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
@@ -232,7 +234,23 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain("request.window.run_on_main_thread");
     expect(runtime).toContain("mainQueueWaitMs");
     expect(runtime).toContain("mainThreadMs");
+    expect(runtime).toContain('"noOp": outcome.no_op');
+    expect(runtime).toContain('"hideMs": outcome.hide_ms');
+    expect(runtime).toContain('"showMs": outcome.show_ms');
+    expect(runtime).toContain('"windowVisibilityMs": outcome.window_visibility_ms');
+    expect(runtime).toContain('"windowFocusMs": outcome.window_focus_ms');
+    expect(runtime).toContain('"webViewFocusMs": outcome.webview_focus_ms');
+    expect(runtime).toContain("if !still_desired || !mutation_plan.requires_ui_thread");
     expect(runtime).toContain("tab.selection-superseded");
+    expect(runtime).toContain("completed_failed_launch_cleanups");
+    expect(runtime).toContain("retryable_failed_launches");
+    expect(runtime).toContain("close_failed_launch_surface_and_wait(");
+    expect(runtime).toContain("automatic_role_setup_retry_allowed(");
+    expect(runtime).toContain("WINDOWS_ROLE_SETUP_RETRY_DELAY");
+    expect(runtime).toContain('"tab.launch-auto-retry-scheduled"');
+    expect(runtime).toContain('"tab.launch-auto-retry-recovered"');
+    expect(runtime).toContain('"tab.launch-auto-retry-exhausted"');
+    expect(shell).toContain("let reveal_error = completion_runtime");
     expect(shell).toContain("install_safe_tao_event_dispatch()");
     expect(macBridge).toContain("rion_runtime_tabs_install_safe_tao_event_dispatch");
     expect(macBridge).toContain("std::panic::catch_unwind");
@@ -278,8 +296,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
     const macRoleSetup = runtime.slice(
-      runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup('),
-      runtime.indexOf('#[cfg(windows)]\nfn platform_role_surface_setup(')
+      runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup_inner('),
+      runtime.indexOf('#[cfg(windows)]\nfn install_windows_role_surface_handlers(')
     );
     expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(macRoleSetup).toContain("rion_wk_install_security_policy(native)");
@@ -695,7 +713,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(applyRuntime).toContain("runtime_host_should_receive_window_focus(");
     expect(applyRuntime).toContain("update.window.unminimize()");
     expect(applyRuntime).toContain("update.window.set_focus()");
-    expect(runtime).toContain("record_runtime_stage_failure(&setup_stage, setup_started, &error)");
+    expect(runtime).toContain("self.record_runtime_stage_failure(");
+    expect(runtime).toContain("&setup_stage,");
     expect(runtime).toContain("record_presentation_event_with_error(");
     expect(runtime).toContain("completion.error.as_ref()");
 
@@ -951,8 +970,8 @@ describe("Tauri System WebView runtime source", () => {
     expect(runtime).toContain('should_defer_document_navigation("windows"');
     expect(runtime).toContain("register_windows_document_navigation_handler(");
     const windowsRoleSetup = runtime.slice(
-      runtime.indexOf('#[cfg(windows)]\nfn platform_role_surface_setup('),
-      runtime.indexOf('#[cfg(not(any(windows, target_os = "macos")))]\nfn platform_role_surface_setup(')
+      runtime.indexOf('#[cfg(windows)]\nfn install_windows_role_surface_handlers('),
+      runtime.indexOf('#[cfg(windows)]\nfn windows_role_setup_error(')
     );
     expect(windowsRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(windowsRoleSetup).toContain("register_windows_document_navigation_handler(");

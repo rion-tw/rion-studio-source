@@ -124,6 +124,7 @@ pub struct BrowserLaunchCompletionRecord {
     pub target: EmbeddedLaunchTargetRecord,
     pub title: String,
     pub window_id: String,
+    pub zoom_factor: Option<f64>,
 }
 
 type BrowserLaunchCompletionSink = Arc<dyn Fn(BrowserLaunchCompletionRecord) + Send + Sync>;
@@ -2290,6 +2291,7 @@ impl AppCore {
                             target,
                             title,
                             window_id,
+                            zoom_factor: None,
                         });
                         core.emit_browser_statuses();
                     }));
@@ -4041,6 +4043,7 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         zoom_factor: f64,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let completion_zoom_factor = zoom_factor;
         let completion_permit = self.launch_completion.try_reserve()?;
         let core = Arc::clone(self);
         let start = tokio::task::spawn_blocking(move || {
@@ -4121,6 +4124,7 @@ impl AppCore {
                         target,
                         title: completion_title,
                         window_id,
+                        zoom_factor: Some(completion_zoom_factor),
                     });
                     core.emit_browser_statuses();
                 }));

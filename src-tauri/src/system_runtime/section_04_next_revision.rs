@@ -1,0 +1,663 @@
+impl PresentationRegistry {
+    fn next_revision(&self) -> u64 {
+        self.next_revision
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1)
+    }
+
+    fn current_revision(&self) -> u64 {
+        self.next_revision.load(Ordering::Acquire)
+    }
+
+    fn assign_surface_owner(
+        &self,
+        surface_label: &str,
+        instance_id: &str,
+        window_id: &str,
+    ) -> Result<u64, String> {
+        let revision = self
+            .next_surface_owner_revision
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        self.surface_owners
+            .lock()
+            .map_err(|_| "The native surface ownership registry is unavailable.".to_owned())?
+            .insert(
+                surface_label.to_owned(),
+                SurfacePresentationOwner {
+                    instance_id: instance_id.to_owned(),
+                    revision,
+                    window_id: window_id.to_owned(),
+                },
+            );
+        Ok(revision)
+    }
+
+    fn surface_owner_revisions(&self, surface_labels: &HashSet<String>) -> HashMap<String, u64> {
+        self.surface_owners
+            .lock()
+            .ok()
+            .map(|owners| {
+                surface_labels
+                    .iter()
+                    .map(|label| {
+                        (
+                            label.clone(),
+                            owners
+                                .get(label)
+                                .map(|owner| owner.revision)
+                                .unwrap_or_default(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<WindowPresentationState>>, String> {
+        let mut windows = self
+            .windows
+            .lock()
+            .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?;
+        Ok(Arc::clone(
+            windows
+                .entry(window_id.to_owned())
+                .or_insert_with(|| Arc::new(Mutex::new(WindowPresentationState::default()))),
+        ))
+    }
+
+    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<WindowPresentationState>>> {
+        self.windows
+            .lock()
+            .ok()
+            .and_then(|windows| windows.get(window_id).cloned())
+    }
+
+    fn resolve_tab_alias(&self, tab_id: &str) -> Option<String> {
+        self.windows.lock().ok().and_then(|windows| {
+            windows.values().find_map(|window| {
+                window
+                    .lock()
+                    .ok()
+                    .and_then(|selection| selection.aliases.get(tab_id).cloned())
+            })
+        })
+    }
+
+    fn selected_tabs(&self) -> HashMap<String, String> {
+        self.windows
+            .lock()
+            .ok()
+            .map(|windows| {
+                windows
+                    .iter()
+                    .filter_map(|(window_id, state)| {
+                        state
+                            .lock()
+                            .ok()
+                            .and_then(|state| state.selected_tab_id.clone())
+                            .map(|tab_id| (window_id.clone(), tab_id))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn window_contains_tab(&self, window_id: &str, tab_id: &str) -> bool {
+        self.existing(window_id)
+            .and_then(|state| state.lock().ok().map(|state| state.contains_tab(tab_id)))
+            .unwrap_or(false)
+    }
+
+    fn tab(&self, window_id: &str, tab_id: &str) -> Option<TabPresentation> {
+        self.existing(window_id).and_then(|state| {
+            state
+                .lock()
+                .ok()
+                .and_then(|state| state.tabs.iter().find(|tab| tab.id == tab_id).cloned())
+        })
+    }
+
+    fn tab_window(&self, tab_id: &str) -> Result<Option<String>, String> {
+        let windows = self
+            .windows
+            .lock()
+            .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?
+            .iter()
+            .map(|(window_id, state)| (window_id.clone(), Arc::clone(state)))
+            .collect::<Vec<_>>();
+        let mut owner = None;
+        for (window_id, state) in windows {
+            let state = state
+                .lock()
+                .map_err(|_| "A runtime tab presentation state is unavailable.".to_owned())?;
+            if !state.contains_tab(tab_id) {
+                continue;
+            }
+            if owner.is_some() {
+                return Err(format!(
+                    "Runtime tab {tab_id} exists in more than one presentation window."
+                ));
+            }
+            owner = Some(window_id);
+        }
+        Ok(owner)
+    }
+
+    fn snapshot_states(&self) -> Result<HashMap<String, WindowPresentationState>, String> {
+        let windows = self
+            .windows
+            .lock()
+            .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?
+            .iter()
+            .map(|(window_id, state)| (window_id.clone(), Arc::clone(state)))
+            .collect::<Vec<_>>();
+        windows
+            .into_iter()
+            .map(|(window_id, state)| {
+                state
+                    .lock()
+                    .map(|state| (window_id, state.clone()))
+                    .map_err(|_| "A runtime tab presentation state is unavailable.".to_owned())
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
+        self.windows.lock().ok().and_then(|windows| {
+            windows.values().find_map(|window| {
+                window.lock().ok().and_then(|state| {
+                    state
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.source_id == source_id && tab.tab_type == tab_type)
+                        .map(|tab| tab.id.clone())
+                })
+            })
+        })
+    }
+
+    fn tab_for_launcher_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
+        let mut windows = self.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
+        windows.sort_by(|left, right| left.0.cmp(&right.0));
+        windows.into_iter().find_map(|(_, window)| {
+            window.tabs.into_iter().find_map(|tab| {
+                let matches = if tab_type == "workspace" {
+                    tab.tab_type == "workspace" && tab.source_id == source_id
+                } else {
+                    tab.role_ids.iter().any(|role_id| role_id == source_id)
+                        || (tab.tab_type == "role" && tab.source_id == source_id)
+                };
+                matches.then_some(tab.id)
+            })
+        })
+    }
+
+    fn launcher_presence(&self) -> Result<RuntimeLauncherPresence, String> {
+        let mut windows = self.snapshot_states()?.into_iter().collect::<Vec<_>>();
+        windows.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut tabs = windows
+            .into_iter()
+            .flat_map(|(_, window)| {
+                window
+                    .tabs
+                    .into_iter()
+                    .map(|tab| RuntimeLauncherPresenceTab {
+                        role_ids: tab.role_ids,
+                        source_id: tab.source_id,
+                        tab_id: tab.id,
+                        tab_type: tab.tab_type,
+                    })
+            })
+            .collect::<Vec<_>>();
+        tabs.sort_by(|left, right| left.tab_id.cmp(&right.tab_id));
+        Ok(RuntimeLauncherPresence { tabs })
+    }
+
+    fn actor(&self, window_id: &str) -> Result<Arc<NativeWindowActor>, String> {
+        let mut actors = self
+            .actors
+            .lock()
+            .map_err(|_| "The native window actor registry is unavailable.".to_owned())?;
+        if let Some(actor) = actors.get(window_id) {
+            return Ok(Arc::clone(actor));
+        }
+        let actor = NativeWindowActor::start(window_id)?;
+        actors.insert(window_id.to_owned(), Arc::clone(&actor));
+        Ok(actor)
+    }
+
+    fn move_tab(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        target_window_id: &str,
+        revision: u64,
+    ) -> Result<(), String> {
+        self.move_tab_with_activation(tab_id, source_window_id, target_window_id, revision, true)
+    }
+
+    fn move_tab_with_activation(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        target_window_id: &str,
+        revision: u64,
+        activate_target_if_selected: bool,
+    ) -> Result<(), String> {
+        if source_window_id == target_window_id {
+            return Ok(());
+        }
+        let source = self
+            .existing(source_window_id)
+            .ok_or_else(|| "The source presentation state was not found.".to_owned())?;
+        let target = self.coordinator(target_window_id)?;
+        let (tab, bindings, was_selected, source_before) = {
+            let mut source = source
+                .lock()
+                .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
+            let source_before = source.clone();
+            let index = source
+                .tabs
+                .iter()
+                .position(|tab| tab.id == tab_id)
+                .ok_or_else(|| "The moving presentation tab was not found.".to_owned())?;
+            let was_selected = source.selected_tab_id.as_deref() == Some(tab_id);
+            let successor = was_selected
+                .then(|| successor_tab_after_close(&source.tab_ids(), tab_id, |_| true))
+                .flatten();
+            let tab = source.tabs.remove(index);
+            let bindings = source.surface_bindings.remove(tab_id).unwrap_or_default();
+            source
+                .aliases
+                .retain(|alias, target| alias != tab_id && target != tab_id);
+            if was_selected {
+                source.select(successor, revision);
+            }
+            (tab, bindings, was_selected, source_before)
+        };
+        let moved_surfaces = bindings
+            .iter()
+            .map(|binding| {
+                (
+                    binding.webview.label().to_owned(),
+                    binding.instance_id.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut surface_owners = if moved_surfaces.is_empty() {
+            None
+        } else {
+            match self.surface_owners.lock() {
+                Ok(owners) => Some(owners),
+                Err(_) => {
+                    if let Ok(mut source) = source.lock() {
+                        *source = source_before;
+                        return Err(
+                            "The native surface ownership registry is unavailable.".to_owned()
+                        );
+                    }
+                    return Err(
+                        "The native surface ownership registry is unavailable and source restoration failed."
+                            .to_owned(),
+                    );
+                }
+            }
+        };
+        let mut target = match target.lock() {
+            Ok(target) => target,
+            Err(_) => {
+                if let Ok(mut source) = source.lock() {
+                    *source = source_before;
+                    return Err("The target presentation state is unavailable.".to_owned());
+                }
+                return Err(
+                    "The target presentation state is unavailable and source restoration failed."
+                        .to_owned(),
+                );
+            }
+        };
+        if !target.contains_tab(tab_id) {
+            target.tabs.push(tab);
+        }
+        if !bindings.is_empty() {
+            target.surface_bindings.insert(tab_id.to_owned(), bindings);
+        }
+        if was_selected && activate_target_if_selected {
+            target.select(Some(tab_id.to_owned()), revision);
+        }
+        if let Some(surface_owners) = surface_owners.as_mut() {
+            let owner_revision = self
+                .next_surface_owner_revision
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1);
+            for (surface_label, instance_id) in moved_surfaces {
+                surface_owners.insert(
+                    surface_label,
+                    SurfacePresentationOwner {
+                        instance_id,
+                        revision: owner_revision,
+                        window_id: target_window_id.to_owned(),
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn unbind_surface(&self, instance_id: &str, surface_label: &str) {
+        if let Ok(mut owners) = self.surface_owners.lock()
+            && owners
+                .get(surface_label)
+                .is_some_and(|owner| owner.instance_id == instance_id)
+        {
+            owners.remove(surface_label);
+        }
+        let windows = self
+            .windows
+            .lock()
+            .ok()
+            .map(|windows| windows.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for window in windows {
+            if let Ok(mut window) = window.lock()
+                && window.unbind_surface(instance_id)
+            {
+                break;
+            }
+        }
+    }
+
+    fn remove(&self, window_id: &str) {
+        if let Ok(mut windows) = self.windows.lock() {
+            windows.remove(window_id);
+        }
+        if let Ok(mut actors) = self.actors.lock()
+            && let Some(actor) = actors.remove(window_id)
+        {
+            actor.stop();
+        }
+    }
+}
+
+#[derive(Default)]
+struct RuntimeState {
+    active_window_placement_workers: HashSet<String>,
+    active_window_resize_workers: HashSet<String>,
+    allow_window_close_labels: HashSet<String>,
+    audible_webviews: HashMap<String, bool>,
+    auto_restore_attempted: bool,
+    close_coordinator: CloseCoordinator,
+    controlled_navigation_webviews: HashSet<String>,
+    dormant_windows: Vec<RuntimeRestoreWindowRecord>,
+    launch_phases: HashMap<String, LaunchPhase>,
+    pending_macro_page_request: Option<Value>,
+    close_previews: HashMap<String, CloseTransaction>,
+    completed_failed_launch_cleanups: HashMap<String, Instant>,
+    failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,
+    optimistic_closed_tabs: HashSet<String>,
+    pending_role_zoom_writes: HashMap<(String, String), u64>,
+    pending_window_placement_writes: HashMap<String, u64>,
+    pending_window_resizes: HashMap<String, (u32, u32)>,
+    pending_window_close_labels: HashSet<String>,
+    overlay_capabilities: HashMap<String, String>,
+    overlay_ready_webviews: HashSet<String>,
+    popup_roles: HashMap<String, String>,
+    provisional_launches: HashMap<String, ProvisionalLaunch>,
+    automatic_launch_retries: HashMap<String, u8>,
+    retryable_failed_launches: HashSet<String>,
+    recovery_required: bool,
+    recovery_budgets: HashMap<String, RecoveryBudget>,
+    recovery_generations: HashMap<String, u64>,
+    recovering_roles: HashSet<String>,
+    role_tabs: HashMap<String, String>,
+    saved_window_names: HashMap<String, String>,
+    session_import_backups: HashMap<String, NativeSessionBackup>,
+    surface_registry: HashMap<String, ManagedSurface>,
+    tab_drag_placement_suppressed_windows: HashSet<String>,
+    retired_surface_registry: HashMap<String, ManagedSurface>,
+    display_hosts: HashMap<String, RuntimeDisplayHost>,
+    tabs: HashMap<String, RuntimeTab>,
+}
+
+#[derive(Clone)]
+struct CloseTransaction;
+
+pub(crate) struct RuntimeTabCloseIntent {
+    pub(crate) source_id: String,
+    pub(crate) tab_type: String,
+}
+
+impl RuntimeTabCloseIntent {
+    pub(crate) fn into_core_command(self) -> CoreCommand {
+        if self.tab_type == "workspace" {
+            CoreCommand::BrowserWorkspaceStop {
+                workspace_id: self.source_id,
+            }
+        } else {
+            CoreCommand::BrowserRoleStop {
+                role_id: self.source_id,
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct NativeSessionBackup {
+    cookies: Vec<Cookie<'static>>,
+    local_storage: Vec<(String, String)>,
+    storage_touched: bool,
+}
+
+struct RoleSessionTransferRequest<'a> {
+    role_id: &'a str,
+    launch_url: &'a str,
+    webview2_user_data_dir: &'a str,
+    webkit_data_store_identifier: &'a str,
+    replace_existing: bool,
+    payload: SessionTransferPayloadRecord,
+    backup_transaction_id: Option<&'a str>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedSessionBackup {
+    payload: SessionTransferPayloadRecord,
+    storage_touched: bool,
+}
+
+struct RuntimeWebViewConfiguration {
+    #[cfg(windows)]
+    additional_browser_arguments: String,
+    document_start_script: String,
+    macos_high_refresh_rate: bool,
+    overlay_document_start_script_template: String,
+}
+
+struct NativeCreationGate {
+    active: Mutex<usize>,
+    changed: Condvar,
+    limit: usize,
+}
+
+impl NativeCreationGate {
+    fn new(limit: usize) -> Self {
+        Self {
+            active: Mutex::new(0),
+            changed: Condvar::new(),
+            limit,
+        }
+    }
+
+    fn acquire(&self) -> RuntimeResult<NativeCreationPermit<'_>> {
+        let mut active = self.active.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_RUNTIME_CREATION_UNAVAILABLE",
+                "The native surface creation gate is unavailable.",
+            )
+        })?;
+        while *active >= self.limit {
+            active = self.changed.wait(active).map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_CREATION_UNAVAILABLE",
+                    "The native surface creation gate is unavailable.",
+                )
+            })?;
+        }
+        *active += 1;
+        Ok(NativeCreationPermit { gate: self })
+    }
+}
+
+struct NativeCreationPermit<'a> {
+    gate: &'a NativeCreationGate,
+}
+
+impl Drop for NativeCreationPermit<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.gate.active.lock() {
+            *active = active.saturating_sub(1);
+            self.gate.changed.notify_one();
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PerformanceDiagnosticReadback {
+    document_visibility_state: String,
+    document_has_focus: bool,
+    viewport_width: f64,
+    viewport_height: f64,
+    device_pixel_ratio: f64,
+    hardware_concurrency: u32,
+    frame_count: u32,
+    observed_duration_ms: f64,
+    average_fps: Option<f64>,
+    #[serde(default)]
+    frame_intervals_ms: Vec<f64>,
+    p50_frame_interval_ms: Option<f64>,
+    p95_frame_interval_ms: Option<f64>,
+    p99_frame_interval_ms: Option<f64>,
+    longest_frame_interval_ms: Option<f64>,
+    long_task_count: Option<u32>,
+    long_task_total_duration_ms: Option<f64>,
+    longest_task_ms: Option<f64>,
+    graphics: StateWebGraphicsRecord,
+}
+
+struct PerformanceDiagnosticSurface {
+    high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
+    origin: Option<String>,
+    role_id: String,
+    webview: Webview,
+}
+
+struct PerformanceDiagnosticWindow {
+    focused: bool,
+    surfaces: Vec<PerformanceDiagnosticSurface>,
+    window: Window,
+    window_id: String,
+}
+
+struct PlatformPerformanceEnvironment {
+    system_low_power_mode_enabled: Option<bool>,
+    system_thermal_state: Option<String>,
+}
+
+#[derive(Clone)]
+struct RuntimeShortcutModifierHandoff {
+    modifier_codes: Vec<String>,
+    #[cfg(windows)]
+    source_role_id: Option<String>,
+    source_tab_id: String,
+    #[cfg(windows)]
+    source_webview_label: Option<String>,
+    started_at: Instant,
+    window_id: String,
+}
+
+pub struct SystemRuntimeExecutor {
+    app: AppHandle,
+    close_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
+    configuration: RuntimeWebViewConfiguration,
+    core: Arc<AppCore>,
+    critical_activity_sequence: AtomicU64,
+    effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
+    health: RuntimeHealth,
+    language: Mutex<String>,
+    resolved_theme: Mutex<String>,
+    last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
+    launch_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
+    last_critical_activity: Mutex<Instant>,
+    input_dispatch_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    local_storage_sync_lane: Mutex<()>,
+    native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    native_creation_slots: NativeCreationGate,
+    optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
+    presentation: Arc<PresentationRegistry>,
+    prewarm_state: AtomicU8,
+    restore_persist_requested: AtomicU64,
+    restore_persist_running: AtomicBool,
+    shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
+    state: Mutex<RuntimeState>,
+    user_data_dir: PathBuf,
+}
+
+struct RuntimeHealth(AtomicBool);
+
+impl RuntimeHealth {
+    fn new() -> Self {
+        Self(AtomicBool::new(true))
+    }
+
+    fn is_healthy(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn mark_unhealthy(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+
+    fn require_healthy(&self) -> RuntimeResult<()> {
+        if self.is_healthy() {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(
+                "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
+                "The System WebView runtime is unhealthy. Restart Rion Studio before creating another native surface.",
+            ))
+        }
+    }
+}
+
+enum SystemRuntimeWork {
+    Effect {
+        action_name: &'static str,
+        effect: Box<CoreEffectRequest>,
+        presentation_revision: u64,
+        persist_runtime: bool,
+    },
+    RecoverSurface {
+        allowed: bool,
+        reason: String,
+        role_id: String,
+    },
+    FinalizeSurfaceRelease {
+        instance_id: String,
+        isolated: bool,
+        released: bool,
+    },
+}
+
+struct ConcurrentRuntimeWork {
+    action_name: &'static str,
+    effect: CoreEffectRequest,
+    persist_runtime: bool,
+    presentation_revision: u64,
+}
+
+struct OptionalHydrationWork {
+    tab_id: String,
+}

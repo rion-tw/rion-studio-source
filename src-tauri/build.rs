@@ -47,6 +47,20 @@ fn main() {
         println!("cargo:rerun-if-changed=native/macos/RionDockMenu.m");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.h");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.mm");
+        for source in [
+            "native/macos/RionRuntimeTabsController/01_geometry.mm",
+            "native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
+            "native/macos/RionRuntimeTabsController/03_shortcut_model.mm",
+            "native/macos/RionRuntimeTabsController/04_view_model.mm",
+            "native/macos/RionRuntimeTabsController/05_layout.mm",
+            "native/macos/RionRuntimeTabsController/06_fullscreen.mm",
+            "native/macos/RionRuntimeTabsController/07_drag_drop.mm",
+            "native/macos/RionRuntimeTabsController/08_controller_lifecycle.mm",
+            "native/macos/RionWKWebViewInput/01_surface_lifecycle_security.m",
+            "native/macos/RionWKWebViewInput/02_input_zoom.m",
+        ] {
+            println!("cargo:rerun-if-changed={source}");
+        }
     }
     let manifest = tauri_build::AppManifest::new().commands(&[
         "rion_core_invoke",

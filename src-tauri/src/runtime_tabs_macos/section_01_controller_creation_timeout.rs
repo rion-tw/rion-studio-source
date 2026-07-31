@@ -1,0 +1,670 @@
+
+use std::{
+    collections::HashMap,
+    ffi::{CStr, CString, c_char, c_void},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc,
+    },
+    time::Duration,
+};
+
+use rion_core::{CoreCommand, RuntimeWindowPreferencesRecord};
+use tauri::{AppHandle, Manager, Window};
+
+const CONTROLLER_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[repr(C)]
+struct NativeTabInput {
+    active: bool,
+    audible: bool,
+    audio_muted: bool,
+    identifier: *const c_char,
+    name: *const c_char,
+    tooltip: *const c_char,
+    tab_type: *const c_char,
+    icon_data_url: *const c_char,
+    workspace_template: *const c_char,
+}
+
+type ActionCallback = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    *const c_char,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    bool,
+);
+type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
+
+unsafe extern "C" {
+    fn rion_runtime_tabs_install_safe_tao_event_dispatch() -> bool;
+    fn rion_runtime_tabs_create(
+        window: *mut c_void,
+        window_id: *const c_char,
+        context: *mut c_void,
+        action: ActionCallback,
+        layout: LayoutCallback,
+    ) -> *mut c_void;
+    fn rion_runtime_tabs_destroy(controller: *mut c_void);
+    fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
+    fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
+    fn rion_runtime_tabs_is_main_thread() -> bool;
+    fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
+    fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
+    fn rion_runtime_tabs_ensure(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        name: *const c_char,
+        tab_type: *const c_char,
+        workspace_template: *const c_char,
+        window_id: *const c_char,
+    );
+    fn rion_runtime_tabs_reserve(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        name: *const c_char,
+        tab_type: *const c_char,
+        workspace_template: *const c_char,
+        window_id: *const c_char,
+    );
+    fn rion_runtime_tabs_replace(
+        controller: *mut c_void,
+        provisional_id: *const c_char,
+        tab_id: *const c_char,
+        name: *const c_char,
+        tab_type: *const c_char,
+        workspace_template: *const c_char,
+        active_tab_id: *const c_char,
+    );
+    fn rion_runtime_tabs_remove(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        active_tab_id: *const c_char,
+    );
+    fn rion_runtime_tabs_reorder(controller: *mut c_void, tab_ids_json: *const c_char);
+    fn rion_runtime_tabs_update_metadata(
+        controller: *mut c_void,
+        tab: *const NativeTabInput,
+        always_hide_tab_close_button: bool,
+        audio_muted_label: *const c_char,
+        audio_playing_label: *const c_char,
+        close_label: *const c_char,
+        add_label: *const c_char,
+        scroll_left_label: *const c_char,
+        scroll_right_label: *const c_char,
+    );
+    fn rion_runtime_tabs_control_row_contains(
+        controller: *mut c_void,
+        screen_x: f64,
+        screen_y: f64,
+    ) -> bool;
+    fn rion_runtime_tabs_drag_anchor(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+        grab_ratio_x: f64,
+        grab_ratio_y: f64,
+        window_offset_x: *mut f64,
+        window_offset_y: *mut f64,
+    ) -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_action_scope_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_drag_hysteresis_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_shortcut_self_test() -> bool;
+}
+
+pub fn install_safe_tao_event_dispatch() -> Result<(), String> {
+    if unsafe { rion_runtime_tabs_install_safe_tao_event_dispatch() } {
+        Ok(())
+    } else {
+        Err("TaoWindow was unavailable for safe macOS event dispatch.".to_owned())
+    }
+}
+
+struct CallbackContext {
+    app: AppHandle,
+    layout_updates: Arc<LayoutUpdateState>,
+    window_label: String,
+}
+
+#[derive(Default)]
+struct LayoutUpdateState {
+    requested: AtomicBool,
+    running: AtomicBool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ControllerCreationWaitError {
+    CallbackLost,
+    TimedOut,
+}
+
+#[derive(Clone)]
+pub struct MacRuntimeTabsController {
+    inner: Arc<MacRuntimeTabsControllerInner>,
+}
+
+struct MacRuntimeTabsControllerInner {
+    app: AppHandle,
+    context: *mut CallbackContext,
+    latest_active_tab_id: Mutex<Option<Option<String>>>,
+    metadata_pending: Mutex<HashMap<String, PendingMacTabMetadata>>,
+    metadata_scheduled: AtomicBool,
+    raw: *mut c_void,
+    selection_generation: AtomicU64,
+}
+
+struct PendingMacTabMetadata {
+    always_hide_tab_close_button: bool,
+    always_show_in_fullscreen: bool,
+    language: String,
+    tab: MacRuntimeTabState,
+}
+
+// The Objective-C controller is only dereferenced by closures scheduled on the
+// AppKit main thread. The wrapper itself may be owned by the runtime state mutex.
+unsafe impl Send for MacRuntimeTabsControllerInner {}
+unsafe impl Sync for MacRuntimeTabsControllerInner {}
+
+#[derive(Clone)]
+pub struct MacRuntimeTabState {
+    pub active: bool,
+    pub audio_muted: bool,
+    pub audible: bool,
+    pub icon_data_url: Option<String>,
+    pub id: String,
+    pub name: String,
+    pub tooltip: String,
+    pub tab_type: String,
+    pub workspace_template: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MacRuntimeTabDragAnchor {
+    pub window_offset_x: f64,
+    pub window_offset_y: f64,
+}
+
+impl MacRuntimeTabsController {
+    pub fn create(app: &AppHandle, window: &Window, window_id: &str) -> Result<Self, String> {
+        let ns_window = window.ns_window().map_err(|error| error.to_string())?;
+        let window_id = c_string(window_id);
+        let context = Box::into_raw(Box::new(CallbackContext {
+            app: app.clone(),
+            layout_updates: Arc::new(LayoutUpdateState::default()),
+            window_label: window.label().to_owned(),
+        }));
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let context_address = context as usize;
+        let window_address = ns_window as usize;
+        if let Err(error) = app.run_on_main_thread(move || {
+            let raw = unsafe {
+                rion_runtime_tabs_create(
+                    window_address as *mut c_void,
+                    window_id.as_ptr(),
+                    context_address as *mut c_void,
+                    action_callback,
+                    layout_callback,
+                )
+            };
+            if sender.send(raw as usize).is_err() {
+                unsafe {
+                    if !raw.is_null() {
+                        rion_runtime_tabs_destroy(raw);
+                    }
+                    drop(Box::from_raw(context_address as *mut CallbackContext));
+                }
+            }
+        }) {
+            unsafe { drop(Box::from_raw(context)) };
+            return Err(error.to_string());
+        }
+        let raw = match wait_for_controller(&receiver, CONTROLLER_CREATION_TIMEOUT) {
+            Ok(raw) => raw as *mut c_void,
+            Err(ControllerCreationWaitError::CallbackLost) => {
+                unsafe { drop(Box::from_raw(context)) };
+                return Err("AppKit runtime tabs creation callback was lost.".to_owned());
+            }
+            Err(ControllerCreationWaitError::TimedOut) => {
+                return Err(format!(
+                    "AppKit runtime tabs creation timed out after {} milliseconds.",
+                    CONTROLLER_CREATION_TIMEOUT.as_millis()
+                ));
+            }
+        };
+        if raw.is_null() {
+            unsafe { drop(Box::from_raw(context)) };
+            return Err("AppKit runtime tabs controller could not be created.".to_owned());
+        }
+        Ok(Self {
+            inner: Arc::new(MacRuntimeTabsControllerInner {
+                app: app.clone(),
+                context,
+                latest_active_tab_id: Mutex::new(None),
+                metadata_pending: Mutex::new(HashMap::new()),
+                metadata_scheduled: AtomicBool::new(false),
+                raw,
+                selection_generation: AtomicU64::new(0),
+            }),
+        })
+    }
+
+    pub fn prepare_fullscreen(&self, fullscreen: bool) {
+        let raw = self.inner.raw as usize;
+        let _ = self.inner.app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_prepare_fullscreen(raw as *mut c_void, fullscreen);
+        });
+    }
+
+    pub fn control_row_contains(&self, screen_x: f64, screen_y: f64) -> bool {
+        let raw = self.inner.raw as usize;
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            return unsafe {
+                rion_runtime_tabs_control_row_contains(raw as *mut c_void, screen_x, screen_y)
+            };
+        }
+        let (sender, receiver) = mpsc::sync_channel(1);
+        if self
+            .inner
+            .app
+            .run_on_main_thread(move || {
+                let value = unsafe {
+                    rion_runtime_tabs_control_row_contains(raw as *mut c_void, screen_x, screen_y)
+                };
+                let _ = sender.send(value);
+            })
+            .is_err()
+        {
+            return false;
+        }
+        receiver
+            .recv_timeout(Duration::from_millis(250))
+            .unwrap_or(false)
+    }
+
+    pub fn drag_anchor(
+        &self,
+        tab_id: &str,
+        grab_ratio_x: f64,
+        grab_ratio_y: f64,
+    ) -> Option<MacRuntimeTabDragAnchor> {
+        let raw = self.inner.raw as usize;
+        let tab_id = c_string(tab_id);
+        let query = move || {
+            let mut window_offset_x = 0.0;
+            let mut window_offset_y = 0.0;
+            let available = unsafe {
+                rion_runtime_tabs_drag_anchor(
+                    raw as *mut c_void,
+                    tab_id.as_ptr(),
+                    grab_ratio_x,
+                    grab_ratio_y,
+                    &mut window_offset_x,
+                    &mut window_offset_y,
+                )
+            };
+            available.then_some(MacRuntimeTabDragAnchor {
+                window_offset_x,
+                window_offset_y,
+            })
+        };
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            return query();
+        }
+        let (sender, receiver) = mpsc::sync_channel(1);
+        if self
+            .inner
+            .app
+            .run_on_main_thread(move || {
+                let _ = sender.send(query());
+            })
+            .is_err()
+        {
+            return None;
+        }
+        receiver
+            .recv_timeout(Duration::from_millis(250))
+            .ok()
+            .flatten()
+    }
+
+    pub fn update_metadata(
+        &self,
+        tab: MacRuntimeTabState,
+        always_show_in_fullscreen: bool,
+        always_hide_tab_close_button: bool,
+        language: &str,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        inner
+            .metadata_pending
+            .lock()
+            .map_err(|_| "AppKit tab metadata queue is unavailable.".to_owned())?
+            .insert(
+                tab.id.clone(),
+                PendingMacTabMetadata {
+                    always_hide_tab_close_button,
+                    always_show_in_fullscreen,
+                    language: language.to_owned(),
+                    tab,
+                },
+            );
+        if inner
+            .metadata_scheduled
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            schedule_metadata_batch(inner)?;
+        }
+        Ok(())
+    }
+
+    pub fn set_active(&self, tab_id: Option<&str>) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let generation = inner.selection_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Ok(mut latest) = inner.latest_active_tab_id.lock() {
+            *latest = Some(tab_id.map(str::to_owned));
+        }
+        let tab_id = tab_id.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || {
+            if inner.selection_generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            unsafe {
+                rion_runtime_tabs_set_active(
+                    inner.raw,
+                    tab_id
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                );
+            }
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn set_window_name(&self, window_name: Option<&str>) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let window_name = window_name.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_set_window_name(
+                inner.raw,
+                window_name
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn remember_active(&self, tab_id: Option<&str>) {
+        if let Ok(mut latest) = self.inner.latest_active_tab_id.lock() {
+            *latest = Some(tab_id.map(str::to_owned));
+        }
+    }
+
+    pub fn ensure(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        name: &str,
+        tab_type: &str,
+        workspace_template: Option<&str>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_id = c_string(tab_id);
+        let name = c_string(name);
+        let tab_type = c_string(tab_type);
+        let workspace_template = workspace_template.map(c_string);
+        let window_id = c_string(window_id);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_ensure(
+                inner.raw,
+                tab_id.as_ptr(),
+                name.as_ptr(),
+                tab_type.as_ptr(),
+                workspace_template
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+                window_id.as_ptr(),
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn reserve(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        name: &str,
+        tab_type: &str,
+        workspace_template: Option<&str>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_id = c_string(tab_id);
+        let name = c_string(name);
+        let tab_type = c_string(tab_type);
+        let workspace_template = workspace_template.map(c_string);
+        let window_id = c_string(window_id);
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            unsafe {
+                rion_runtime_tabs_reserve(
+                    inner.raw,
+                    tab_id.as_ptr(),
+                    name.as_ptr(),
+                    tab_type.as_ptr(),
+                    workspace_template
+                        .as_ref()
+                        .map_or(std::ptr::null(), |value| value.as_ptr()),
+                    window_id.as_ptr(),
+                );
+            }
+            return Ok(());
+        }
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_reserve(
+                inner.raw,
+                tab_id.as_ptr(),
+                name.as_ptr(),
+                tab_type.as_ptr(),
+                workspace_template
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+                window_id.as_ptr(),
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn remove(&self, tab_id: &str, active_tab_id: Option<&str>) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_id = c_string(tab_id);
+        let active_tab_id = active_tab_id.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_remove(
+                inner.raw,
+                tab_id.as_ptr(),
+                active_tab_id
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn reorder(&self, tab_ids: &[String]) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_ids = serde_json::to_string(tab_ids)
+            .map(|value| c_string(&value))
+            .map_err(|error| error.to_string())?;
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_reorder(inner.raw, tab_ids.as_ptr());
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    pub fn replace_reservation(
+        &self,
+        provisional_id: &str,
+        tab_id: &str,
+        name: &str,
+        tab_type: &str,
+        workspace_template: Option<&str>,
+        active_tab_id: Option<&str>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let provisional_id = c_string(provisional_id);
+        let tab_id = c_string(tab_id);
+        let name = c_string(name);
+        let tab_type = c_string(tab_type);
+        let workspace_template = workspace_template.map(c_string);
+        let active_tab_id = active_tab_id.map(c_string);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_replace(
+                inner.raw,
+                provisional_id.as_ptr(),
+                tab_id.as_ptr(),
+                name.as_ptr(),
+                tab_type.as_ptr(),
+                workspace_template
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+                active_tab_id
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            );
+        })
+        .map_err(|error| error.to_string())
+    }
+}
+
+fn schedule_metadata_batch(inner: Arc<MacRuntimeTabsControllerInner>) -> Result<(), String> {
+    let app = inner.app.clone();
+    let error_inner = Arc::clone(&inner);
+    app.run_on_main_thread(move || {
+        let pending = inner
+            .metadata_pending
+            .lock()
+            .ok()
+            .map(|mut pending| std::mem::take(&mut *pending))
+            .unwrap_or_default();
+        for update in pending.into_values() {
+            apply_metadata_update(&inner, update);
+        }
+        inner.metadata_scheduled.store(false, Ordering::Release);
+        let has_pending = inner
+            .metadata_pending
+            .lock()
+            .ok()
+            .is_some_and(|pending| !pending.is_empty());
+        if has_pending
+            && inner
+                .metadata_scheduled
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            && let Err(error) = schedule_metadata_batch(Arc::clone(&inner))
+        {
+            inner.metadata_scheduled.store(false, Ordering::Release);
+            eprintln!("AppKit tab metadata batch could not be rescheduled: {error}");
+        }
+    })
+    .map_err(|error| {
+        error_inner
+            .metadata_scheduled
+            .store(false, Ordering::Release);
+        error.to_string()
+    })
+}
+
+fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingMacTabMetadata) {
+    let tab = update.tab;
+    let strings = NativeTabStrings {
+        icon: tab.icon_data_url.as_deref().map(c_string),
+        id: c_string(&tab.id),
+        name: c_string(&tab.name),
+        tab_type: c_string(&tab.tab_type),
+        tooltip: c_string(&tab.tooltip),
+        workspace_template: tab.workspace_template.as_deref().map(c_string),
+    };
+    let labels = labels(&update.language);
+    let muted = c_string(labels.muted);
+    let playing = c_string(labels.playing);
+    let close = c_string(labels.close);
+    let add = c_string(labels.add);
+    let scroll_left = c_string(labels.scroll_left);
+    let scroll_right = c_string(labels.scroll_right);
+    let input = NativeTabInput {
+        active: tab.active,
+        audible: tab.audible,
+        audio_muted: tab.audio_muted,
+        identifier: strings.id.as_ptr(),
+        name: strings.name.as_ptr(),
+        tooltip: strings.tooltip.as_ptr(),
+        tab_type: strings.tab_type.as_ptr(),
+        icon_data_url: strings
+            .icon
+            .as_ref()
+            .map_or(std::ptr::null(), |value| value.as_ptr()),
+        workspace_template: strings
+            .workspace_template
+            .as_ref()
+            .map_or(std::ptr::null(), |value| value.as_ptr()),
+    };
+    unsafe {
+        rion_runtime_tabs_set_fullscreen_policy(inner.raw, update.always_show_in_fullscreen);
+        rion_runtime_tabs_update_metadata(
+            inner.raw,
+            &input,
+            update.always_hide_tab_close_button,
+            muted.as_ptr(),
+            playing.as_ptr(),
+            close.as_ptr(),
+            add.as_ptr(),
+            scroll_left.as_ptr(),
+            scroll_right.as_ptr(),
+        );
+    }
+}
+
+fn wait_for_controller(
+    receiver: &mpsc::Receiver<usize>,
+    timeout: Duration,
+) -> Result<usize, ControllerCreationWaitError> {
+    receiver.recv_timeout(timeout).map_err(|error| match error {
+        mpsc::RecvTimeoutError::Timeout => ControllerCreationWaitError::TimedOut,
+        mpsc::RecvTimeoutError::Disconnected => ControllerCreationWaitError::CallbackLost,
+    })
+}
+
+impl Drop for MacRuntimeTabsControllerInner {
+    fn drop(&mut self) {
+        let raw = self.raw as usize;
+        let context = self.context as usize;
+        // Drop can also be reached from a main-thread window callback. Keep the
+        // native controller and callback context alive until their queued
+        // AppKit teardown executes instead of blocking that same thread.
+        let _ = self.app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_destroy(raw as *mut c_void);
+            drop(Box::from_raw(context as *mut CallbackContext));
+        });
+    }
+}

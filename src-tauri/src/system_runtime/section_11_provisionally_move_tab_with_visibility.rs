@@ -1,0 +1,676 @@
+impl SystemRuntimeExecutor {
+    fn provisionally_move_tab_with_visibility(
+        &self,
+        tab_id: &str,
+        target_window_id: &str,
+        reveal_hidden_target: bool,
+    ) -> Result<(), String> {
+        let (source_window_id, source_window, target_window, surfaces) = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+            let source_window_id = tab.window_id.clone();
+            let source_window = state
+                .display_hosts
+                .get(&source_window_id)
+                .map(|host| host.window.clone())
+                .ok_or_else(|| "Source Game Window was not found.".to_owned())?;
+            let target_window = state
+                .display_hosts
+                .get(target_window_id)
+                .map(|host| host.window.clone())
+                .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
+            let mut surfaces = tab
+                .roles
+                .values()
+                .map(|role| role.webview.clone())
+                .collect::<Vec<_>>();
+            surfaces.extend(tab.dividers.iter().map(|divider| divider.webview.clone()));
+            (source_window_id, source_window, target_window, surfaces)
+        };
+        if source_window_id == target_window_id {
+            return Ok(());
+        }
+        let tab_presentation = self
+            .presentation
+            .tab(&source_window_id, tab_id)
+            .ok_or_else(|| "Runtime tab presentation was not found.".to_owned())?;
+        let selected_tabs_before_move = self.presentation.selected_tabs();
+        let mut native_move = ProvisionalNativeTabMove {
+            relocated: false,
+            source_active_after_move: None,
+            source_active_before_move: selected_tabs_before_move.get(&source_window_id).cloned(),
+            tab: tab_presentation,
+            target_active_after_move: None,
+            target_active_before_move: selected_tabs_before_move.get(target_window_id).cloned(),
+        };
+        let tab_was_visible = native_move.source_active_before_move.as_deref() == Some(tab_id);
+        let source_window_was_visible = source_window
+            .is_visible()
+            .map_err(|error| error.to_string())?;
+        let target_window_was_visible = target_window
+            .is_visible()
+            .map_err(|error| error.to_string())?;
+
+        for surface in &surfaces {
+            if let Err(error) = surface.hide() {
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    0,
+                    false,
+                    &native_move,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+            }
+        }
+        for (index, surface) in surfaces.iter().enumerate() {
+            if let Err(error) = surface.reparent(&target_window) {
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    index + 1,
+                    false,
+                    &native_move,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+            }
+        }
+        let (source_is_empty, moved_surfaces) = {
+            let mut state = match self.state.lock() {
+                Ok(state) => state,
+                Err(_) => {
+                    let rollback_errors = self.rollback_provisional_tab_move(
+                        tab_id,
+                        &source_window_id,
+                        target_window_id,
+                        &source_window,
+                        &target_window,
+                        &surfaces,
+                        surfaces.len(),
+                        false,
+                        &native_move,
+                        tab_was_visible,
+                        source_window_was_visible,
+                        target_window_was_visible,
+                    );
+                    return Err(self.provisional_move_error(
+                        "The System WebView runtime state lock was poisoned.".to_owned(),
+                        rollback_errors,
+                    ));
+                }
+            };
+            let Some(tab) = state.tabs.get_mut(tab_id) else {
+                drop(state);
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    surfaces.len(),
+                    false,
+                    &native_move,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(
+                    "Runtime tab was not found.".to_owned(),
+                    rollback_errors,
+                ));
+            };
+            if tab.window_id != source_window_id {
+                drop(state);
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    surfaces.len(),
+                    false,
+                    &native_move,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(
+                    "Runtime tab moved before the provisional transaction committed.".to_owned(),
+                    rollback_errors,
+                ));
+            }
+            tab.window_id = target_window_id.to_owned();
+            for surface in state.surface_registry.values_mut() {
+                if surface.tab_id.as_deref() == Some(tab_id) {
+                    surface.window_id = target_window_id.to_owned();
+                }
+            }
+            let moved_surfaces = state
+                .surface_registry
+                .values()
+                .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            let source_is_empty = !state
+                .tabs
+                .values()
+                .any(|tab| tab.window_id == source_window_id);
+            (source_is_empty, moved_surfaces)
+        };
+        for surface in &moved_surfaces {
+            self.record_surface_event(
+                LogLevel::Debug,
+                "surface.moved",
+                "Native surface ownership moved to another window.",
+                surface,
+            );
+        }
+        let move_revision = self.presentation.next_revision();
+        if let Err(message) =
+            self.presentation
+                .move_tab(tab_id, &source_window_id, target_window_id, move_revision)
+        {
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                &native_move,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(message, rollback_errors));
+        }
+        let selected_tabs_after_move = self.presentation.selected_tabs();
+        native_move.source_active_after_move =
+            selected_tabs_after_move.get(&source_window_id).cloned();
+        native_move.target_active_after_move =
+            selected_tabs_after_move.get(target_window_id).cloned();
+        #[cfg(any(windows, target_os = "macos"))]
+        let workspace_template = native_move.tab.workspace_template.as_deref();
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let workspace_template: Option<&str> = None;
+        if let Err(error) = self.relocate_native_tab_reservation(
+            &source_window_id,
+            target_window_id,
+            tab_id,
+            &native_move.tab.title,
+            &native_move.tab.tab_type,
+            workspace_template,
+            native_move.source_active_after_move.as_deref(),
+            native_move.target_active_before_move.as_deref(),
+            move_revision,
+        ) {
+            if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" {
+                self.health.mark_unhealthy();
+            }
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                &native_move,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(error.message, rollback_errors));
+        }
+        native_move.relocated = true;
+        let source_presentation_result = if let Some(source_active_tab_id) =
+            native_move.source_active_after_move.as_deref()
+        {
+            self.request_tab_presentation(source_active_tab_id, false, "provisional-move-source")
+                .map(|_| ())
+        } else {
+            self.apply_native_active_style(
+                &source_window_id,
+                None,
+                move_revision,
+                "provisional-move-source",
+            );
+            Ok(())
+        };
+        if let Err(message) = source_presentation_result {
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                &native_move,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(message, rollback_errors));
+        }
+        self.apply_native_active_style(
+            target_window_id,
+            native_move.target_active_after_move.as_deref(),
+            move_revision,
+            "provisional-move",
+        );
+        let reveal_result = (|| {
+            self.layout_runtime_tab(tab_id)
+                .map_err(|error| error.message)?;
+            if tab_was_visible {
+                for surface in &surfaces {
+                    surface.show().map_err(|error| error.to_string())?;
+                }
+                if reveal_hidden_target || target_window_was_visible {
+                    target_window.show().map_err(|error| error.to_string())?;
+                }
+            }
+            if source_is_empty {
+                source_window.hide().map_err(|error| error.to_string())?;
+            }
+            Ok::<(), String>(())
+        })();
+        if let Err(message) = reveal_result {
+            let rollback_errors = self.rollback_provisional_tab_move(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                &source_window,
+                &target_window,
+                &surfaces,
+                surfaces.len(),
+                true,
+                &native_move,
+                tab_was_visible,
+                source_window_was_visible,
+                target_window_was_visible,
+            );
+            return Err(self.provisional_move_error(message, rollback_errors));
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    pub(crate) fn show_tab_drag_window(&self, window_id: &str) -> Result<(), String> {
+        self.window_for_id(window_id)
+            .ok_or_else(|| "Tab drag window was not found.".to_owned())?
+            .show()
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn set_tab_drag_window_ignores_cursor(
+        &self,
+        window_id: &str,
+        ignores_cursor: bool,
+    ) -> Result<(), String> {
+        self.window_for_id(window_id)
+            .ok_or_else(|| "Tab drag window was not found.".to_owned())?
+            .set_ignore_cursor_events(ignores_cursor)
+            .map_err(|error| error.to_string())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rollback_provisional_tab_move(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        target_window_id: &str,
+        source_window: &Window,
+        target_window: &Window,
+        surfaces: &[Webview],
+        reparent_attempted: usize,
+        state_committed: bool,
+        native_move: &ProvisionalNativeTabMove,
+        tab_was_visible: bool,
+        source_window_was_visible: bool,
+        target_window_was_visible: bool,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        let mut rolled_back_surfaces = Vec::new();
+        if reparent_attempted > 0 {
+            for surface in surfaces {
+                if let Err(error) = surface.hide() {
+                    errors.push(format!("hide {}: {error}", surface.label()));
+                }
+            }
+            for surface in surfaces.iter().take(reparent_attempted).rev() {
+                if let Err(error) = surface.reparent(source_window) {
+                    errors.push(format!("reparent {}: {error}", surface.label()));
+                }
+            }
+        }
+        if state_committed {
+            let rollback_revision = self.presentation.next_revision();
+            if self
+                .presentation
+                .window_contains_tab(target_window_id, tab_id)
+            {
+                if let Err(error) = self.presentation.move_tab(
+                    tab_id,
+                    target_window_id,
+                    source_window_id,
+                    rollback_revision,
+                ) {
+                    errors.push(format!("presentation rollback: {error}"));
+                }
+            } else if !self
+                .presentation
+                .window_contains_tab(source_window_id, tab_id)
+            {
+                errors.push("presentation tab disappeared during rollback".to_owned());
+            }
+            match self.state.lock() {
+                Ok(mut state) => match state.tabs.get_mut(tab_id) {
+                    Some(tab) if tab.window_id == target_window_id => {
+                        tab.window_id = source_window_id.to_owned();
+                        for surface in state.surface_registry.values_mut() {
+                            if surface.tab_id.as_deref() == Some(tab_id) {
+                                surface.window_id = source_window_id.to_owned();
+                                rolled_back_surfaces.push(surface.clone());
+                            }
+                        }
+                    }
+                    Some(_) => errors.push("runtime tab host changed during rollback".to_owned()),
+                    None => errors.push("runtime tab disappeared during rollback".to_owned()),
+                },
+                Err(_) => errors.push("runtime state lock was poisoned during rollback".to_owned()),
+            }
+            for surface in &rolled_back_surfaces {
+                self.record_surface_event(
+                    LogLevel::Warn,
+                    "surface.move-rolled-back",
+                    "Native surface ownership move was rolled back.",
+                    surface,
+                );
+            }
+            if native_move.relocated {
+                #[cfg(any(windows, target_os = "macos"))]
+                let workspace_template = native_move.tab.workspace_template.as_deref();
+                #[cfg(not(any(windows, target_os = "macos")))]
+                let workspace_template: Option<&str> = None;
+                match self.relocate_native_tab_reservation(
+                    target_window_id,
+                    source_window_id,
+                    tab_id,
+                    &native_move.tab.title,
+                    &native_move.tab.tab_type,
+                    workspace_template,
+                    native_move.target_active_before_move.as_deref(),
+                    native_move.source_active_after_move.as_deref(),
+                    rollback_revision,
+                ) {
+                    Ok(()) => self.apply_native_active_style(
+                        source_window_id,
+                        native_move.source_active_before_move.as_deref(),
+                        rollback_revision,
+                        "provisional-rollback",
+                    ),
+                    Err(error) => errors.push(format!("native tab rollback: {}", error.message)),
+                }
+            }
+            if let Err(error) = self.layout_runtime_tab(tab_id) {
+                errors.push(format!("layout: {}", error.message));
+            }
+        }
+        if tab_was_visible {
+            for surface in surfaces {
+                if let Err(error) = surface.show() {
+                    errors.push(format!("show {}: {error}", surface.label()));
+                }
+            }
+        }
+        let source_visibility = if source_window_was_visible {
+            source_window.show()
+        } else {
+            source_window.hide()
+        };
+        if let Err(error) = source_visibility {
+            errors.push(format!("source window visibility: {error}"));
+        }
+        let target_visibility = if target_window_was_visible {
+            target_window.show()
+        } else {
+            target_window.hide()
+        };
+        if let Err(error) = target_visibility {
+            errors.push(format!("target window visibility: {error}"));
+        }
+        self.publish_projection();
+        errors
+    }
+
+    fn provisional_move_error(&self, original: String, rollback_errors: Vec<String>) -> String {
+        if rollback_errors.is_empty() {
+            return original;
+        }
+        self.health.mark_unhealthy();
+        provisional_move_failure_message(original, &rollback_errors)
+    }
+
+    pub fn cancel_provisional_tab_move(
+        &self,
+        tab_id: &str,
+        source_window_id: &str,
+        provisional_window_id: &str,
+    ) -> Result<(), String> {
+        let current_window_id = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()));
+        let rollback = if current_window_id
+            .as_deref()
+            .is_some_and(|window_id| window_id != source_window_id)
+        {
+            self.provisionally_move_tab(tab_id, source_window_id)
+        } else {
+            Ok(())
+        };
+        if let Some(source) = self.window_for_id(source_window_id) {
+            let _ = source.show();
+            let _ = source.set_focus();
+        }
+        self.discard_provisional_game_window(provisional_window_id);
+        self.publish_projection();
+        rollback
+    }
+
+    pub fn discard_provisional_game_window(&self, window_id: &str) {
+        let host = self.state.lock().ok().and_then(|mut state| {
+            if state.tabs.values().any(|tab| tab.window_id == window_id) {
+                return None;
+            }
+            let host = state.display_hosts.remove(window_id)?;
+            state
+                .allow_window_close_labels
+                .insert(host.window.label().to_owned());
+            Some(host)
+        });
+        self.presentation.remove(window_id);
+        self.publish_launcher_presence();
+        if let Some(host) = host {
+            self.unregister_runtime_launcher_window(window_id);
+            let _ = host.window.close();
+        }
+    }
+
+    pub fn window_id_for_label(&self, label: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|state| {
+            state.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label).then(|| window_id.clone())
+            })
+        })
+    }
+
+    #[cfg(windows)]
+    pub fn tab_strip_window_for_webview(&self, webview_label: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|state| {
+            state.display_hosts.values().find_map(|host| {
+                (host.tab_strip.label() == webview_label).then(|| host.target.window_id.clone())
+            })
+        })
+    }
+
+    #[cfg(not(windows))]
+    pub fn tab_strip_window_for_webview(&self, _webview_label: &str) -> Option<String> {
+        None
+    }
+
+    pub fn reload_tab(&self, tab_id: &str) -> Result<(), String> {
+        let webviews = {
+            let state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "runtime tab was not found".to_owned())?;
+            let webviews = tab
+                .roles
+                .values()
+                .map(|role| role.webview.clone())
+                .collect::<Vec<_>>();
+            if webviews.is_empty() {
+                return Err("runtime tab has no role surface".to_owned());
+            }
+            webviews
+        };
+        reload_runtime_tab_handles(webviews, |webview| {
+            webview.reload().map_err(|error| error.to_string())
+        })
+    }
+
+    pub fn set_tab_audio_muted(&self, tab_id: &str, muted: bool) -> Result<(), String> {
+        let role_id = self
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                    .map_err(|error| error.to_string())
+            })?
+            .tabs
+            .into_iter()
+            .find(|tab| tab.id == tab_id)
+            .and_then(|tab| tab.role_ids.first().cloned())
+            .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
+        let previous_muted = self
+            .state()
+            .map_err(|error| error.message)?
+            .tabs
+            .get(tab_id)
+            .map(|tab| tab.audio_muted)
+            .ok_or_else(|| "runtime tab was not found".to_owned())?;
+        self.set_role_audio_muted(&role_id, muted)
+            .map_err(|error| error.message)?;
+        let persist_result = (|| -> Result<(), String> {
+            let mut game_windows = self
+                .core
+                .invoke(CoreCommand::GameWindowsList)
+                .map_err(|error| error.to_string())
+                .and_then(|value| {
+                    serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                        .map_err(|error| error.to_string())
+                })?;
+            if let Some(game_window) = game_windows
+                .iter_mut()
+                .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
+            {
+                if let Some(tab) = game_window.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.audio_muted = muted;
+                }
+                self.core
+                    .invoke(CoreCommand::GameWindowUpdate {
+                        id: game_window.id.clone(),
+                        input: GameWindowUpdateInputRecord {
+                            tabs: Some(game_window.tabs.clone()),
+                            active_tab_id: Some(game_window.active_tab_id.clone()),
+                            ..GameWindowUpdateInputRecord::default()
+                        },
+                    })
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = persist_result {
+            return match self.set_role_audio_muted(&role_id, previous_muted) {
+                Ok(()) => Err(error),
+                Err(rollback_error) => {
+                    self.health.mark_unhealthy();
+                    Err(format!(
+                        "{error} Native audio compensation also failed: {}. Restart Rion Studio to recover safely.",
+                        rollback_error.message
+                    ))
+                }
+            };
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn set_windows_toolbar_revealed(
+        &self,
+        window_id: &str,
+        revealed: bool,
+    ) -> Result<(), String> {
+        let tab_ids = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let host = state
+                .display_hosts
+                .get_mut(window_id)
+                .ok_or_else(|| "Runtime display host was not found".to_owned())?;
+            host.toolbar_revealed = revealed;
+            state
+                .tabs
+                .iter()
+                .filter_map(|(tab_id, tab)| (tab.window_id == window_id).then_some(tab_id.clone()))
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tab_ids {
+            self.layout_runtime_tab(&tab_id)
+                .map_err(|error| error.message)?;
+        }
+        self.publish_projection();
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    pub fn set_windows_toolbar_revealed(
+        &self,
+        _window_id: &str,
+        _revealed: bool,
+    ) -> Result<(), String> {
+        Err("Windows runtime tab strip is unavailable on this platform".to_owned())
+    }
+
+}

@@ -43,10 +43,10 @@ impl ApplicationShortcutCommand {
 }
 
 #[derive(Clone, Copy)]
-#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) enum ApplicationShortcutTarget<'a> {
     Focused,
     MainWindow(&'a WebviewWindow),
+    #[cfg(windows)]
     RoleWebview(&'a str),
     RuntimeWindow(&'a str),
 }
@@ -299,6 +299,7 @@ fn toggle_fullscreen(
             toggle_webview_window_fullscreen(&window)
         }
         ApplicationShortcutTarget::MainWindow(window) => toggle_webview_window_fullscreen(window),
+        #[cfg(windows)]
         ApplicationShortcutTarget::RoleWebview(webview_label) => {
             let window_id = state
                 .runtime
@@ -336,6 +337,7 @@ fn zoom(
             zoom_main_window(state, &window, action)
         }
         ApplicationShortcutTarget::MainWindow(window) => zoom_main_window(state, window, action),
+        #[cfg(windows)]
         ApplicationShortcutTarget::RoleWebview(webview_label) => state
             .runtime
             .zoom_role_for_webview(webview_label, action)

@@ -4106,7 +4106,8 @@ fn attach_tab_drag_session(
             .insert(target_window_id.to_owned(), snapshot);
     }
     let previous_window_id = session.current_window_id.clone();
-    if previous_window_id != target_window_id {
+    let ownership_changed = previous_window_id != target_window_id;
+    if ownership_changed {
         state
             .runtime
             .provisionally_move_tab(&session.tab_id, target_window_id)
@@ -4121,6 +4122,7 @@ fn attach_tab_drag_session(
                 target_window_id,
                 &session.tab_id,
                 before_tab_id.filter(|before| *before != session.tab_id),
+                ownership_changed,
             )
         })
         .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;

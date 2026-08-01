@@ -71,6 +71,13 @@ const MACOS_KEY_DISPATCH_SETTLE_INTERVAL: Duration = Duration::from_millis(25);
 #[cfg(target_os = "macos")]
 static MACOS_KEY_DISPATCH_STATE: std::sync::OnceLock<Mutex<Option<String>>> =
     std::sync::OnceLock::new();
+#[cfg(target_os = "macos")]
+const MACOS_MOUSE_DISPATCH_SETTLE_INTERVAL: Duration = Duration::from_millis(25);
+#[cfg(target_os = "macos")]
+const MACOS_MOUSE_PRESS_INTERVAL: Duration = Duration::from_millis(2);
+#[cfg(target_os = "macos")]
+static MACOS_MOUSE_DISPATCH_STATE: std::sync::OnceLock<Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
 static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);

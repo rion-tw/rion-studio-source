@@ -141,17 +141,23 @@ fn indeterminate_mouse_down_schedules_exactly_one_cleanup_mouse_up() {
         ..context.clone()
     };
     let mut phases = Vec::new();
-    let result = dispatch_mouse_input_sequence(&context, || cleanup.clone(), |pressed, _| {
-        phases.push(pressed);
-        if pressed {
-            Err(RuntimeError::new(
-                "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-                "completion lost",
-            ))
-        } else {
-            Ok(())
-        }
-    });
+    let result = dispatch_mouse_input_sequence(
+        &context,
+        || cleanup.clone(),
+        MouseInputDispatchDiagnostics::default(),
+        || {},
+        |pressed, _| {
+            phases.push(pressed);
+            if pressed {
+                Err(RuntimeError::new(
+                    "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                    "completion lost",
+                ))
+            } else {
+                Ok(())
+            }
+        },
+    );
 
     assert!(result.is_err());
     assert_eq!(phases, [true, false]);
@@ -165,13 +171,19 @@ fn rejected_mouse_down_does_not_emit_a_spurious_mouse_up() {
         ..context.clone()
     };
     let mut phases = Vec::new();
-    let result = dispatch_mouse_input_sequence(&context, || cleanup.clone(), |pressed, _| {
-        phases.push(pressed);
-        Err(RuntimeError::new(
-            "BROWSER_ACTION_DEADLINE",
-            "rejected before submit",
-        ))
-    });
+    let result = dispatch_mouse_input_sequence(
+        &context,
+        || cleanup.clone(),
+        MouseInputDispatchDiagnostics::default(),
+        || {},
+        |pressed, _| {
+            phases.push(pressed);
+            Err(RuntimeError::new(
+                "BROWSER_ACTION_DEADLINE",
+                "rejected before submit",
+            ))
+        },
+    );
 
     assert!(result.is_err());
     assert_eq!(phases, [true]);
@@ -192,6 +204,8 @@ fn mouse_up_adopts_a_fence_that_arrives_after_confirmed_mouse_down() {
             lane: Arc::clone(&cleanup_lane),
             surface_generation: 1,
         },
+        MouseInputDispatchDiagnostics::default(),
+        || {},
         |pressed, context| {
             if pressed {
                 lane.epoch.store(2, Ordering::Release);
@@ -204,4 +218,131 @@ fn mouse_up_adopts_a_fence_that_arrives_after_confirmed_mouse_down() {
 
     assert!(result.is_ok());
     assert_eq!(observed_cleanup_epoch, Some(2));
+}
+
+#[test]
+fn coordinated_mouse_handoff_applies_settle_and_press_intervals() {
+    let context = live_input_context();
+    let cleanup = InputDispatchContext {
+        intent: "cleanup".to_owned(),
+        ..context.clone()
+    };
+    let coordinator = Mutex::new(Some("role-a".to_owned()));
+    let mut sleeps = Vec::new();
+    let mut phases = Vec::new();
+
+    let result = dispatch_coordinated_mouse_input_sequence(
+        &coordinator,
+        "role-b",
+        MouseInputDispatchPolicy {
+            handoff_interval: Duration::from_millis(25),
+            press_interval: Duration::from_millis(2),
+        },
+        &context,
+        || cleanup.clone(),
+        |duration| sleeps.push(duration),
+        |pressed, _| {
+            phases.push(pressed);
+            Ok(())
+        },
+    );
+
+    assert!(result.is_ok());
+    assert_eq!(sleeps, [Duration::from_millis(25), Duration::from_millis(2)]);
+    assert_eq!(phases, [true, false]);
+    assert_eq!(coordinator.lock().unwrap().as_deref(), Some("role-b"));
+}
+
+#[test]
+fn confirmed_mouse_down_remains_the_handoff_target_when_mouse_up_fails() {
+    let context = live_input_context();
+    let cleanup = InputDispatchContext {
+        intent: "cleanup".to_owned(),
+        ..context.clone()
+    };
+    let coordinator = Mutex::new(Some("role-a".to_owned()));
+    let result = dispatch_coordinated_mouse_input_sequence(
+        &coordinator,
+        "role-b",
+        MouseInputDispatchPolicy {
+            handoff_interval: Duration::ZERO,
+            press_interval: Duration::ZERO,
+        },
+        &context,
+        || cleanup.clone(),
+        |_| {},
+        |pressed, _| {
+            if pressed {
+                Ok(())
+            } else {
+                Err(RuntimeError::new(
+                    "SYSTEM_TRUSTED_INPUT_UNAVAILABLE",
+                    "mouseUp failed",
+                ))
+            }
+        },
+    );
+
+    let error = result.unwrap_err();
+    assert!(error.down_confirmed);
+    assert_eq!(coordinator.lock().unwrap().as_deref(), Some("role-b"));
+}
+
+#[test]
+fn coordinated_mouse_sequences_do_not_interleave_between_roles() {
+    let coordinator = Arc::new(Mutex::new(None));
+    let events = Arc::new(Mutex::new(Vec::<(String, bool)>::new()));
+    let barrier = Arc::new(std::sync::Barrier::new(3));
+    let handles = ["role-a", "role-b", "role-c"].map(|role_label| {
+        let coordinator = Arc::clone(&coordinator);
+        let events = Arc::clone(&events);
+        let barrier = Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            let context = live_input_context();
+            let cleanup = InputDispatchContext {
+                intent: "cleanup".to_owned(),
+                ..context.clone()
+            };
+            barrier.wait();
+            dispatch_coordinated_mouse_input_sequence(
+                &coordinator,
+                role_label,
+                MouseInputDispatchPolicy {
+                    handoff_interval: Duration::ZERO,
+                    press_interval: Duration::ZERO,
+                },
+                &context,
+                || cleanup.clone(),
+                |_| std::thread::yield_now(),
+                |pressed, _| {
+                    events
+                        .lock()
+                        .unwrap()
+                        .push((role_label.to_owned(), pressed));
+                    std::thread::yield_now();
+                    Ok(())
+                },
+            )
+            .unwrap();
+        })
+    });
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 6);
+    for sequence in events.chunks_exact(2) {
+        assert_eq!(sequence[0].0, sequence[1].0);
+        assert!(sequence[0].1);
+        assert!(!sequence[1].1);
+    }
+    assert_eq!(
+        events
+            .iter()
+            .map(|(role_label, _)| role_label.as_str())
+            .collect::<HashSet<_>>()
+            .len(),
+        3
+    );
 }

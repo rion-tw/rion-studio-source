@@ -87,6 +87,7 @@ impl SystemRuntimeExecutor {
     fn record_macro_click_resolution(
         &self,
         role_id: &str,
+        webview_label: &str,
         click: &ClickActionDispatch<'_>,
         viewport: ViewportSize,
         point: ClickPoint,
@@ -107,6 +108,7 @@ impl SystemRuntimeExecutor {
             "unit": click.unit,
             "viewportHeight": viewport.height,
             "viewportWidth": viewport.width,
+            "webviewLabel": webview_label,
             "x": click.x,
             "y": click.y,
         });
@@ -118,6 +120,56 @@ impl SystemRuntimeExecutor {
                         source: LogSource::Macro,
                         event: "input.click-resolved".to_owned(),
                         message: "A macro click was resolved within the DOM viewport.".to_owned(),
+                        context_raw_json: serde_json::to_string(&diagnostic).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_macro_click_submission(
+        &self,
+        role_id: &str,
+        webview_label: &str,
+        context: &InputDispatchContext,
+        diagnostics: MouseInputDispatchDiagnostics,
+        down_confirmed: bool,
+        action_error_code: Option<&str>,
+        cleanup_error_code: Option<&str>,
+    ) {
+        let core = Arc::clone(&self.core);
+        let succeeded = action_error_code.is_none();
+        let diagnostic = json!({
+            "actionErrorCode": action_error_code,
+            "cleanupErrorCode": cleanup_error_code,
+            "completionScope": "native-submission",
+            "deliveryMode": mouse_input_delivery_mode(),
+            "downCompletionUs": duration_micros(diagnostics.down_completion),
+            "downConfirmed": down_confirmed,
+            "handoffWaitUs": duration_micros(diagnostics.handoff_wait),
+            "inputEpoch": context.input_epoch,
+            "intent": context.intent,
+            "pressDurationUs": duration_micros(diagnostics.press_duration),
+            "roleId": role_id,
+            "succeeded": succeeded,
+            "upCompletionUs": diagnostics.up_completion.map(duration_micros),
+            "webviewLabel": webview_label,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Debug,
+                        source: LogSource::Macro,
+                        event: "input.click-native-submission".to_owned(),
+                        message: if succeeded {
+                            "A macro click completed its native submission sequence."
+                        } else {
+                            "A macro click did not complete its native submission sequence."
+                        }
+                        .to_owned(),
                         context_raw_json: serde_json::to_string(&diagnostic).ok(),
                         error: None,
                     }],
@@ -152,9 +204,54 @@ fn browser_action_diagnostic_context(action: &BrowserAction) -> Value {
             "action": "click",
             "anchor": anchor,
             "button": button,
+            "completionScope": "native-submission",
+            "deliveryMode": mouse_input_delivery_mode(),
+            "handoffWaitPolicyMs": mouse_input_handoff_policy().as_millis() as u64,
+            "pressDurationPolicyMs": mouse_input_press_policy().as_millis() as u64,
             "unit": unit,
             "x": x,
             "y": y,
         }),
+    }
+}
+
+fn duration_micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u64::MAX as u128) as u64
+}
+
+fn mouse_input_delivery_mode() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "appkit-direct-responder"
+    }
+    #[cfg(windows)]
+    {
+        "webview2-cdp"
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        "unsupported"
+    }
+}
+
+fn mouse_input_handoff_policy() -> Duration {
+    #[cfg(target_os = "macos")]
+    {
+        MACOS_MOUSE_DISPATCH_SETTLE_INTERVAL
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Duration::ZERO
+    }
+}
+
+fn mouse_input_press_policy() -> Duration {
+    #[cfg(target_os = "macos")]
+    {
+        MACOS_MOUSE_PRESS_INTERVAL
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Duration::ZERO
     }
 }

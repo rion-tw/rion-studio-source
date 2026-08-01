@@ -317,6 +317,17 @@ static NSPoint RionWKViewPointForDOMPoint(
   return point;
 }
 
+static void RionDispatchMouseEvent(
+    NSView *target, NSEvent *event, int button, bool mouseDown) {
+  if (button == 0) {
+    if (mouseDown) [target mouseDown:event]; else [target mouseUp:event];
+  } else if (button == 1) {
+    if (mouseDown) [target otherMouseDown:event]; else [target otherMouseUp:event];
+  } else {
+    if (mouseDown) [target rightMouseDown:event]; else [target rightMouseUp:event];
+  }
+}
+
 bool rion_wk_dispatch_mouse(void * _Nullable rawWebView,
                             double viewportWidth, double viewportHeight,
                             double x, double y, int button, bool mouseDown) {
@@ -357,13 +368,7 @@ bool rion_wk_dispatch_mouse(void * _Nullable rawWebView,
     if (!event) return false;
     NSResponder *preservedResponder = window.firstResponder;
     NSView *target = [webView hitTest:viewPoint] ?: webView;
-    if (button == 0) {
-      if (mouseDown) [target mouseDown:event]; else [target mouseUp:event];
-    } else if (button == 1) {
-      if (mouseDown) [target otherMouseDown:event]; else [target otherMouseUp:event];
-    } else {
-      if (mouseDown) [target rightMouseDown:event]; else [target rightMouseUp:event];
-    }
+    RionDispatchMouseEvent(target, event, button, mouseDown);
     return RionRestoreFirstResponder(
         (id<RionFirstResponderHost>)window, preservedResponder, webView);
   }
@@ -380,6 +385,26 @@ bool rion_wk_mouse_coordinate_self_test(void) {
       fabs(unflipped.x - 534) < 0.001 &&
       fabs(unflipped.y - 525) < 0.001;
 }
+
+@interface RionMouseResponderFixture : NSView
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *phases;
+@end
+
+@implementation RionMouseResponderFixture
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (self) self.phases = [NSMutableArray array];
+  return self;
+}
+- (void)mouseDown:(NSEvent *)event {
+  (void)event;
+  [self.phases addObject:@1];
+}
+- (void)mouseUp:(NSEvent *)event {
+  (void)event;
+  [self.phases addObject:@0];
+}
+@end
 
 @interface RionInputResponderFixture : NSView
 @property(nonatomic, assign) NSUInteger keyDownCount;
@@ -407,6 +432,46 @@ bool rion_wk_mouse_coordinate_self_test(void) {
   return true;
 }
 @end
+
+bool rion_wk_mouse_dispatch_self_test(void) {
+  @autoreleasepool {
+    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 20, 20)];
+    RionMouseResponderFixture *target =
+        [[RionMouseResponderFixture alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    NSView *foreground = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    [root addSubview:target];
+    if ([root hitTest:NSMakePoint(5, 5)] != target) return false;
+
+    NSEvent *down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+                                       location:NSMakePoint(5, 5)
+                                  modifierFlags:0
+                                      timestamp:1
+                                   windowNumber:0
+                                        context:nil
+                                    eventNumber:1
+                                     clickCount:1
+                                       pressure:1];
+    NSEvent *up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp
+                                     location:NSMakePoint(5, 5)
+                                modifierFlags:0
+                                    timestamp:2
+                                 windowNumber:0
+                                      context:nil
+                                  eventNumber:2
+                                   clickCount:1
+                                     pressure:0];
+    if (!down || !up) return false;
+    RionDispatchMouseEvent(target, down, 0, true);
+    RionDispatchMouseEvent(target, up, 0, false);
+
+    RionFirstResponderHostFixture *host =
+        [[RionFirstResponderHostFixture alloc] init];
+    host.responder = target;
+    BOOL restored = RionRestoreFirstResponder(host, foreground, root);
+    return [target.phases isEqualToArray:@[@1, @0]] && restored &&
+        host.firstResponder == foreground && host.focusChangeCount == 1;
+  }
+}
 
 bool rion_wk_background_input_focus_self_test(void) {
   @autoreleasepool {

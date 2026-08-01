@@ -94,41 +94,141 @@ fn is_modifier_input_code(code: &str) -> bool {
     )
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct MouseInputDispatchDiagnostics {
+    down_completion: Duration,
+    handoff_wait: Duration,
+    press_duration: Duration,
+    up_completion: Option<Duration>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy)]
+struct MouseInputDispatchPolicy {
+    handoff_interval: Duration,
+    press_interval: Duration,
+}
+
+#[derive(Debug)]
 struct MouseInputSequenceError {
     action: RuntimeError,
     cleanup: Option<RuntimeError>,
+    diagnostics: MouseInputDispatchDiagnostics,
     down_confirmed: bool,
 }
 
 fn dispatch_mouse_input_sequence(
     context: &InputDispatchContext,
     mut cleanup_context: impl FnMut() -> InputDispatchContext,
+    mut diagnostics: MouseInputDispatchDiagnostics,
+    mut after_down_submission: impl FnMut(),
     mut dispatch: impl FnMut(bool, &InputDispatchContext) -> RuntimeResult<()>,
-) -> Result<(), Box<MouseInputSequenceError>> {
-    match dispatch(true, context) {
+) -> Result<MouseInputDispatchDiagnostics, Box<MouseInputSequenceError>> {
+    let down_started = Instant::now();
+    let down_result = dispatch(true, context);
+    diagnostics.down_completion = down_started.elapsed();
+    match down_result {
         Ok(()) => {
+            let press_started = Instant::now();
+            after_down_submission();
             let cleanup = cleanup_context();
-            dispatch(false, &cleanup).map_err(|action| Box::new(MouseInputSequenceError {
-                action,
-                cleanup: None,
-                down_confirmed: true,
-            }))
+            let up_started = Instant::now();
+            diagnostics.press_duration = press_started.elapsed();
+            let up_result = dispatch(false, &cleanup);
+            diagnostics.up_completion = Some(up_started.elapsed());
+            up_result
+                .map(|()| diagnostics)
+                .map_err(|action| {
+                    Box::new(MouseInputSequenceError {
+                        action,
+                        cleanup: None,
+                        diagnostics,
+                        down_confirmed: true,
+                    })
+                })
         }
         Err(action) if action.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
+            let press_started = Instant::now();
+            after_down_submission();
             let cleanup = cleanup_context();
+            let up_started = Instant::now();
+            diagnostics.press_duration = press_started.elapsed();
             let cleanup_error = dispatch(false, &cleanup).err();
+            diagnostics.up_completion = Some(up_started.elapsed());
             Err(Box::new(MouseInputSequenceError {
                 action,
                 cleanup: cleanup_error,
+                diagnostics,
                 down_confirmed: false,
             }))
         }
         Err(action) => Err(Box::new(MouseInputSequenceError {
             action,
             cleanup: None,
+            diagnostics,
             down_confirmed: false,
         })),
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn dispatch_coordinated_mouse_input_sequence(
+    coordinator: &Mutex<Option<String>>,
+    role_label: &str,
+    policy: MouseInputDispatchPolicy,
+    context: &InputDispatchContext,
+    cleanup_context: impl FnMut() -> InputDispatchContext,
+    mut sleep: impl FnMut(Duration),
+    dispatch: impl FnMut(bool, &InputDispatchContext) -> RuntimeResult<()>,
+) -> Result<MouseInputDispatchDiagnostics, Box<MouseInputSequenceError>> {
+    let mut previous_role_label = coordinator.lock().map_err(|_| {
+        Box::new(MouseInputSequenceError {
+            action: RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_FAILED",
+                "The mouse dispatch coordinator was poisoned.",
+            ),
+            cleanup: None,
+            diagnostics: MouseInputDispatchDiagnostics::default(),
+            down_confirmed: false,
+        })
+    })?;
+    let mut diagnostics = MouseInputDispatchDiagnostics::default();
+    if previous_role_label
+        .as_deref()
+        .is_some_and(|previous| previous != role_label)
+    {
+        context.ensure_current().map_err(|action| {
+            Box::new(MouseInputSequenceError {
+                action,
+                cleanup: None,
+                diagnostics,
+                down_confirmed: false,
+            })
+        })?;
+        let handoff_started = Instant::now();
+        sleep(policy.handoff_interval);
+        diagnostics.handoff_wait = handoff_started.elapsed();
+        context.ensure_current().map_err(|action| {
+            Box::new(MouseInputSequenceError {
+                action,
+                cleanup: None,
+                diagnostics,
+                down_confirmed: false,
+            })
+        })?;
+    }
+    dispatch_mouse_input_sequence(
+        context,
+        cleanup_context,
+        diagnostics,
+        || {
+            // An indeterminate native callback may still have submitted mouseDown.
+            // Conservatively remember its target before cleanup and the next handoff.
+            *previous_role_label = Some(role_label.to_owned());
+            sleep(policy.press_interval);
+        },
+        dispatch,
+    )
 }
 
 fn parse_devtools_viewport(source: &str) -> Option<ViewportSize> {

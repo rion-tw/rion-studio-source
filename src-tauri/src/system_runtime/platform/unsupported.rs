@@ -28,6 +28,26 @@ fn dispatch_mouse_effect(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
+fn dispatch_mouse_click_sequence(
+    webview: &Webview,
+    viewport: ViewportSize,
+    point: ClickPoint,
+    button: &str,
+    context: &InputDispatchContext,
+    cleanup_context: impl FnMut() -> InputDispatchContext,
+) -> Result<MouseInputDispatchDiagnostics, Box<MouseInputSequenceError>> {
+    dispatch_mouse_input_sequence(
+        context,
+        cleanup_context,
+        MouseInputDispatchDiagnostics::default(),
+        || {},
+        |pressed, context| {
+            dispatch_mouse_effect(webview, viewport, point, button, pressed, context)
+        },
+    )
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn install_platform_security_policy(_webview: &Webview) -> RuntimeResult<()> {
     Ok(())
 }

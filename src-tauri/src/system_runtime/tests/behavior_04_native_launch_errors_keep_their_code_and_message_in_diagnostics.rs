@@ -377,6 +377,15 @@
         assert!(unsafe { rion_wk_mouse_coordinate_self_test() });
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_mouse_dispatch_preserves_target_order_and_foreground_responder() {
+        unsafe extern "C" {
+            fn rion_wk_mouse_dispatch_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_mouse_dispatch_self_test() });
+    }
+
     #[test]
     fn shared_runtime_indicators_are_isolated_and_reset_the_zoom_timer() {
         let source = runtime_indicator_document_start_script().unwrap();

@@ -77,6 +77,87 @@ export function comparePerformanceSummaries(current, baseline) {
   };
 }
 
+export function comparePerformanceNonRegression(current, baseline, maximumRegressionPercent = 5) {
+  const latencyMetrics = ["ipcCommand", "macroScheduleToDispatch", "tabActivation"];
+  const missingTelemetryMetrics = latencyMetrics.filter((metric) =>
+    !hasSamples(baseline.runtimeTelemetry?.[metric]) ||
+    !hasSamples(current.runtimeTelemetry?.[metric])
+  );
+  const latencyRegression = (metric) => percentageRegression(
+    baseline.runtimeTelemetry?.[metric]?.p95Ms,
+    current.runtimeTelemetry?.[metric]?.p95Ms
+  );
+  const gates = {
+    nonRendererCpuRegressionPercent: percentageRegression(
+      baseline.medianNonRendererCpuPercent,
+      current.medianNonRendererCpuPercent
+    ),
+    nonRendererRssRegressionPercent: percentageRegression(
+      baseline.medianNonRendererRssBytes,
+      current.medianNonRendererRssBytes
+    ),
+    treeCpuRegressionPercent: percentageRegression(
+      baseline.medianTreeCpuPercent,
+      current.medianTreeCpuPercent
+    ),
+    treeRssRegressionPercent: percentageRegression(
+      baseline.medianTreeRssBytes,
+      current.medianTreeRssBytes
+    ),
+    p95TreeCpuRegressionPercent: percentageRegression(
+      baseline.p95TreeCpuPercent,
+      current.p95TreeCpuPercent
+    ),
+    p95TreeRssRegressionPercent: percentageRegression(
+      baseline.p95TreeRssBytes,
+      current.p95TreeRssBytes
+    ),
+    ipcCommandP95RegressionPercent: latencyRegression("ipcCommand"),
+    macroScheduleToDispatchP95RegressionPercent: latencyRegression("macroScheduleToDispatch"),
+    mainEventLoopP95Ms: current.runtimeTelemetry?.mainEventLoopDelay?.p95Ms,
+    mainEventLoopP95RegressionPercent: latencyRegression("mainEventLoopDelay"),
+    rendererRafP95RegressionPercent: latencyRegression("rendererRaf"),
+    rssGrowthPercent: current.nonRendererRssGrowthPercent,
+    tabActivationP95RegressionPercent: latencyRegression("tabActivation"),
+    workspaceLaunchP95RegressionPercent: latencyRegression("workspaceLaunch")
+  };
+  const requiredRegressions = [
+    gates.nonRendererCpuRegressionPercent,
+    gates.nonRendererRssRegressionPercent,
+    gates.treeCpuRegressionPercent,
+    gates.treeRssRegressionPercent,
+    gates.ipcCommandP95RegressionPercent,
+    gates.macroScheduleToDispatchP95RegressionPercent,
+    gates.tabActivationP95RegressionPercent
+  ];
+  const optionalRegressions = [
+    gates.p95TreeCpuRegressionPercent,
+    gates.p95TreeRssRegressionPercent,
+    gates.mainEventLoopP95RegressionPercent,
+    gates.rendererRafP95RegressionPercent,
+    gates.workspaceLaunchP95RegressionPercent
+  ];
+
+  return {
+    gates,
+    maximumRegressionPercent,
+    missingTelemetryMetrics,
+    passed:
+      Number.isFinite(maximumRegressionPercent) &&
+      maximumRegressionPercent >= 0 &&
+      missingTelemetryMetrics.length === 0 &&
+      requiredRegressions.every((regression) =>
+        Number.isFinite(regression) && regression <= maximumRegressionPercent
+      ) &&
+      optionalRegressions.every((regression) =>
+        !Number.isFinite(regression) || regression <= maximumRegressionPercent
+      ) &&
+      (!Number.isFinite(gates.mainEventLoopP95Ms) || gates.mainEventLoopP95Ms <= 16.7) &&
+      Number.isFinite(gates.rssGrowthPercent) &&
+      gates.rssGrowthPercent <= 5
+  };
+}
+
 export function aggregatePerformanceSummaries(summaries) {
   if (!Array.isArray(summaries) || summaries.length !== 3) {
     throw new Error("Performance aggregation requires exactly three runs.");
@@ -228,6 +309,12 @@ function hasLatencyShape(metric) {
 function hasSamples(metric) {
   return Number.isSafeInteger(metric?.sampleCount) && metric.sampleCount > 0 &&
     Number.isFinite(metric.p95Ms);
+}
+
+function percentageRegression(before, after) {
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return undefined;
+  if (before === 0) return after === 0 ? 0 : Number.MAX_VALUE;
+  return ((after - before) / before) * 100;
 }
 
 function median(values) {

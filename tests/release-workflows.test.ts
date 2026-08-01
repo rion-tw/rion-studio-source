@@ -196,6 +196,11 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("releaseArtifacts.mjs");
     expect(workflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
     expect(workflow).toContain("Rion.Studio-win.exe.sig");
+    expect(build).toContain("pnpm run check:release-size -- candidate");
+    expect(build.indexOf("Normalize release assets"))
+      .toBeLessThan(build.indexOf("Verify release size reduction"));
+    expect(build.indexOf("Verify release size reduction"))
+      .toBeLessThan(build.indexOf("Upload verified platform candidate"));
     expect(workflow).toContain("upgrade-compatibility:");
     expect(workflow).toContain("PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio");
     expect(workflow).toContain("Verify macOS manual replacement preserves shared data");

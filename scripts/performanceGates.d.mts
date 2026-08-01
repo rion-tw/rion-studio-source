@@ -89,10 +89,38 @@ export interface PerformanceComparison {
   passed: boolean;
 }
 
+export interface PerformanceNonRegressionComparison {
+  gates: {
+    nonRendererCpuRegressionPercent?: number;
+    nonRendererRssRegressionPercent?: number;
+    treeCpuRegressionPercent?: number;
+    treeRssRegressionPercent?: number;
+    p95TreeCpuRegressionPercent?: number;
+    p95TreeRssRegressionPercent?: number;
+    ipcCommandP95RegressionPercent?: number;
+    macroScheduleToDispatchP95RegressionPercent?: number;
+    mainEventLoopP95Ms?: number;
+    mainEventLoopP95RegressionPercent?: number;
+    rendererRafP95RegressionPercent?: number;
+    rssGrowthPercent: number;
+    tabActivationP95RegressionPercent?: number;
+    workspaceLaunchP95RegressionPercent?: number;
+  };
+  maximumRegressionPercent: number;
+  missingTelemetryMetrics: string[];
+  passed: boolean;
+}
+
 export function comparePerformanceSummaries(
   current: PerformanceSummary,
   baseline: PerformanceSummary
 ): PerformanceComparison;
+
+export function comparePerformanceNonRegression(
+  current: PerformanceSummary,
+  baseline: PerformanceSummary,
+  maximumRegressionPercent?: number
+): PerformanceNonRegressionComparison;
 
 export function aggregatePerformanceSummaries(
   summaries: [PerformanceSummary, PerformanceSummary, PerformanceSummary]

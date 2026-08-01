@@ -63,6 +63,8 @@ struct Inner {
     early_releases: HashMap<String, String>,
     mutation_leases: HashMap<String, HashSet<String>>,
     mutating_macro_ids: HashSet<String>,
+    input_epochs: HashMap<String, u64>,
+    quiesced_role_ids: HashSet<String>,
     stopping_role_ids: HashSet<String>,
     statuses: HashMap<String, MacroRunStatus>,
 }

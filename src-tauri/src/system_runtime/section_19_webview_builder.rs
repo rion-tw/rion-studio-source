@@ -88,6 +88,8 @@ impl SystemRuntimeExecutor {
                 let popup_navigation_app = popup_app.clone();
                 let popup_navigation_role_id = role_id.clone();
                 let popup_navigation_label = label.clone();
+                let popup_page_load_app = popup_app.clone();
+                let popup_page_load_label = label.clone();
                 let popup_builder = WebviewWindowBuilder::new(
                     &popup_app,
                     label.clone(),
@@ -110,6 +112,16 @@ impl SystemRuntimeExecutor {
                                 target,
                             )
                         })
+                })
+                .on_page_load(move |_webview, payload| {
+                    if payload.event() == PageLoadEvent::Finished
+                        && let Some(state) =
+                            popup_page_load_app.try_state::<crate::CoreState>()
+                    {
+                        state
+                            .runtime
+                            .finish_navigation_page(&popup_page_load_label, payload.url());
+                    }
                 })
                 .on_download(move |_webview, event| {
                     handle_browser_download(

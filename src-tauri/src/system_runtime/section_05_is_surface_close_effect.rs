@@ -16,6 +16,14 @@ fn is_independent_tab_launch_effect(action: &CoreEffectAction) -> bool {
     )
 }
 
+fn is_browser_action_effect(action: &CoreEffectAction) -> bool {
+    matches!(action, CoreEffectAction::BrowserAction { .. })
+}
+
+fn browser_action_deadline_expired(deadline_ms: u64) -> bool {
+    chrono::Utc::now().timestamp_millis().max(0) as u64 > deadline_ms
+}
+
 fn run_serial_runtime_work_loop<T>(receiver: Receiver<T>, mut execute: impl FnMut(T)) {
     while let Ok(work) = receiver.recv() {
         execute(work);

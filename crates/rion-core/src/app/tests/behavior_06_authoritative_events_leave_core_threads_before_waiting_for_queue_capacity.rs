@@ -51,6 +51,8 @@
             request_id: "health-1".to_owned(),
             role_id: "role-1".to_owned(),
             origin: "macro".to_owned(),
+            input_epoch: 0,
+            intent: "normal".to_owned(),
             scheduled_at_ms: 1,
             deadline_ms: 2,
             action: crate::model::BrowserAction::Focus,

@@ -392,6 +392,7 @@ struct RuntimeState {
     controlled_navigation_webviews: HashSet<String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     launch_phases: HashMap<String, LaunchPhase>,
+    navigation_input_fences: HashMap<String, NavigationInputFence>,
     pending_macro_page_request: Option<Value>,
     close_previews: HashMap<String, CloseTransaction>,
     completed_failed_launch_cleanups: HashMap<String, Instant>,
@@ -419,6 +420,15 @@ struct RuntimeState {
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
+}
+
+#[derive(Clone)]
+struct NavigationInputFence {
+    role_id: String,
+    input_epoch: u64,
+    expected_url: Option<String>,
+    drained: bool,
+    page_finished: bool,
 }
 
 #[derive(Clone)]
@@ -578,6 +588,121 @@ struct RuntimeShortcutModifierHandoff {
     window_id: String,
 }
 
+struct RoleInputDispatchLane {
+    epoch: AtomicU64,
+    normal_enabled: AtomicBool,
+    quarantined: AtomicBool,
+    sequence: Mutex<()>,
+    surface_generation: AtomicU64,
+}
+
+impl Default for RoleInputDispatchLane {
+    fn default() -> Self {
+        Self {
+            epoch: AtomicU64::new(0),
+            normal_enabled: AtomicBool::new(true),
+            quarantined: AtomicBool::new(false),
+            sequence: Mutex::new(()),
+            surface_generation: AtomicU64::new(0),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct InputDispatchContext {
+    deadline: Instant,
+    input_epoch: u64,
+    intent: String,
+    lane: Arc<RoleInputDispatchLane>,
+    surface_generation: u64,
+}
+
+impl InputDispatchContext {
+    fn is_cleanup(&self) -> bool {
+        self.intent == "cleanup"
+    }
+
+    fn ensure_current(&self) -> RuntimeResult<()> {
+        if self.lane.epoch.load(Ordering::Acquire) != self.input_epoch {
+            return Err(RuntimeError::new(
+                "BROWSER_ACTION_STALE",
+                "Browser action belongs to an obsolete role input epoch.",
+            ));
+        }
+        if self.lane.surface_generation.load(Ordering::Acquire) != self.surface_generation {
+            return Err(RuntimeError::new(
+                "BROWSER_ACTION_STALE",
+                "Browser action belongs to an obsolete System WebView surface.",
+            ));
+        }
+        if !self.is_cleanup() && !self.lane.normal_enabled.load(Ordering::Acquire) {
+            return Err(RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_QUARANTINED",
+                "Automatic input is disabled for this role until it is restarted.",
+            ));
+        }
+        if !self.is_cleanup() && Instant::now() >= self.deadline {
+            return Err(RuntimeError::new(
+                "BROWSER_ACTION_DEADLINE",
+                "Browser action deadline expired.",
+            ));
+        }
+        Ok(())
+    }
+
+    fn remaining(&self, maximum: Duration) -> Duration {
+        if self.is_cleanup() {
+            return maximum;
+        }
+        self.deadline
+            .saturating_duration_since(Instant::now())
+            .min(maximum)
+    }
+}
+
+#[derive(Clone)]
+struct NativeInputSubmissionGuard {
+    context: InputDispatchContext,
+    state: Arc<AtomicU8>,
+}
+
+impl NativeInputSubmissionGuard {
+    fn new(context: &InputDispatchContext) -> Self {
+        Self {
+            context: context.clone(),
+            state: Arc::new(AtomicU8::new(0)),
+        }
+    }
+
+    fn claim(&self) -> bool {
+        self.context.ensure_current().is_ok()
+            && self
+                .state
+                .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+
+    fn timeout_error(&self) -> RuntimeError {
+        match self
+            .state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => RuntimeError::new(
+                "BROWSER_ACTION_DEADLINE",
+                "Browser action expired before native input submission.",
+            ),
+            Err(2) => RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                "Native input was submitted but did not confirm before its deadline.",
+            ),
+            Err(_) => RuntimeError::new(
+                "BROWSER_ACTION_STALE",
+                "Browser action was cancelled before native input submission.",
+            ),
+        }
+    }
+}
+
 pub struct SystemRuntimeExecutor {
     app: AppHandle,
     close_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
@@ -590,8 +715,10 @@ pub struct SystemRuntimeExecutor {
     resolved_theme: Mutex<String>,
     last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
     launch_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
+    input_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
+    input_effect_lanes: Mutex<HashMap<String, mpsc::SyncSender<ConcurrentRuntimeWork>>>,
     last_critical_activity: Mutex<Instant>,
-    input_dispatch_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
     local_storage_sync_lane: Mutex<()>,
     native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     native_creation_slots: NativeCreationGate,

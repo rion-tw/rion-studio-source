@@ -94,6 +94,7 @@ struct TabSelectionCommitRequest {
     runtime: Arc<SystemRuntimeExecutor>,
     tab_id: String,
     window_id: String,
+    selection_revision: u64,
 }
 
 impl TabSelectionCommitCoordinator {
@@ -104,6 +105,7 @@ impl TabSelectionCommitCoordinator {
         runtime: Arc<SystemRuntimeExecutor>,
         window_id: String,
         tab_id: String,
+        selection_revision: u64,
     ) -> Result<(), String> {
         let request = TabSelectionCommitRequest {
             app,
@@ -111,6 +113,7 @@ impl TabSelectionCommitCoordinator {
             runtime,
             tab_id,
             window_id: window_id.clone(),
+            selection_revision,
         };
         let mut workers = self
             .workers
@@ -166,7 +169,11 @@ async fn run_tab_selection_commit_worker(
         }
         if !request
             .runtime
-            .tab_selection_is_desired(&request.window_id, &request.tab_id)
+            .tab_selection_is_desired(
+                &request.window_id,
+                &request.tab_id,
+                request.selection_revision,
+            )
         {
             if !wait_for_tab_selection_commit_request(&mut receiver).await {
                 if retire_tab_selection_commit_worker(
@@ -181,8 +188,10 @@ async fn run_tab_selection_commit_worker(
             }
             continue;
         }
-        let command = || CoreCommand::EmbeddedTabActivate {
+        let command = || CoreCommand::EmbeddedTabActivateConditional {
             tab_id: request.tab_id.clone(),
+            window_id: request.window_id.clone(),
+            selection_revision: request.selection_revision,
         };
         let mut result = Arc::clone(&request.core).invoke_async(command()).await;
         if result.is_err() && !receiver.has_changed().unwrap_or(false) {
@@ -190,7 +199,11 @@ async fn run_tab_selection_commit_worker(
             if !receiver.has_changed().unwrap_or(false)
                 && request
                     .runtime
-                    .tab_selection_is_desired(&request.window_id, &request.tab_id)
+                    .tab_selection_is_desired(
+                        &request.window_id,
+                        &request.tab_id,
+                        request.selection_revision,
+                    )
             {
                 result = Arc::clone(&request.core).invoke_async(command()).await;
             }
@@ -199,7 +212,11 @@ async fn run_tab_selection_commit_worker(
             && !receiver.has_changed().unwrap_or(false)
             && request
                 .runtime
-                .tab_selection_is_desired(&request.window_id, &request.tab_id)
+                .tab_selection_is_desired(
+                    &request.window_id,
+                    &request.tab_id,
+                    request.selection_revision,
+                )
         {
             request.runtime.reconcile_tab_activation(&request.window_id);
             reveal_shell_error(&request.app, error.payload());
@@ -303,12 +320,17 @@ pub(crate) fn commit_previewed_tab_selection(
     window_id: &str,
     tab_id: &str,
 ) -> Result<(), String> {
+    let selection_revision = state
+        .runtime
+        .tab_selection_revision(window_id, tab_id)
+        .ok_or_else(|| "The previewed tab selection is no longer current.".to_owned())?;
     state.tab_selection_commit.request(
         app.clone(),
         Arc::clone(&state.core),
         Arc::clone(&state.runtime),
         window_id.to_owned(),
         tab_id.to_owned(),
+        selection_revision,
     )
 }
 

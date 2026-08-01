@@ -15,6 +15,7 @@ include!("app/section_08_stop_embedded_workspace_with_operation_lease.rs");
 include!("app/section_09_apply_embedded_runtime_command_inner.rs");
 include!("app/section_10_shutdown.rs");
 include!("app/section_11_embedded_launch_effects.rs");
+include!("app/section_12_input_fence_and_conditional_activation.rs");
 
 #[cfg(test)]
 mod tests;

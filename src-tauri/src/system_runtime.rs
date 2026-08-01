@@ -32,6 +32,7 @@ include!("system_runtime/section_27_add_child_bounded.rs");
 include!("system_runtime/section_28_set_role_audio_muted.rs");
 include!("system_runtime/section_29_session_storage.rs");
 include!("system_runtime/section_30_geometry_and_input.rs");
+include!("system_runtime/section_31_input_fence.rs");
 include!("system_runtime/platform/shared.rs");
 include!("system_runtime/platform/windows.rs");
 include!("system_runtime/platform/macos.rs");

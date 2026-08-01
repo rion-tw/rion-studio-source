@@ -119,18 +119,27 @@ impl SystemRuntimeExecutor {
         });
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
+        let navigation_app = self.app.clone();
+        let navigation_label = format!(
+            "{}-recovery-{generation}",
+            runtime_label("game-role", role_id)
+        );
         let paths = role_session_paths(&self.user_data_dir, role_id)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
         let (builder, high_refresh_rate_status) = self.role_webview_builder(
-            format!(
-                "{}-recovery-{generation}",
-                runtime_label("game-role", role_id)
-            ),
+            navigation_label.clone(),
             &paths,
             role_id,
         )?;
         let mut builder = builder.on_page_load(move |_webview, payload| {
             callback_navigation.page_event(payload.event(), payload.url());
+            if payload.event() == PageLoadEvent::Finished
+                && let Some(state) = navigation_app.try_state::<crate::CoreState>()
+            {
+                state
+                    .runtime
+                    .finish_navigation_page(&navigation_label, payload.url());
+            }
         });
         if let Some(config) = local_storage_sync.as_ref() {
             builder = builder
@@ -412,6 +421,7 @@ impl SystemRuntimeExecutor {
             surface.phase = ManagedSurfacePhase::Live;
         }
         drop(state);
+        self.set_role_input_surface(role_id, generation, false, false)?;
         let surface_bound = self
             .presentation
             .existing(&window_id)

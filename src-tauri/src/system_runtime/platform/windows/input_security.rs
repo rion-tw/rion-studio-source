@@ -1,7 +1,11 @@
 // windows system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(windows)]
-fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> RuntimeResult<()> {
+fn dispatch_key_effect(
+    webview: &Webview,
+    effect: &EmbeddedKeyEffectRecord,
+    context: &InputDispatchContext,
+) -> RuntimeResult<()> {
     let modifiers = cdp_modifier_mask(&effect.active_codes);
     let mut parameters = cdp_key_descriptor(&effect.code, modifiers);
     let object = parameters
@@ -14,7 +18,7 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
     if modifiers > 0 {
         object.insert("modifiers".to_owned(), json!(modifiers));
     }
-    call_system_devtools(webview, "Input.dispatchKeyEvent", &parameters).map(|_| ())
+    call_system_input_devtools(webview, "Input.dispatchKeyEvent", &parameters, context).map(|_| ())
 }
 
 #[cfg(windows)]
@@ -23,8 +27,9 @@ fn dispatch_mouse_effect(
     point: ClickPoint,
     button: &str,
     pressed: bool,
+    context: &InputDispatchContext,
 ) -> RuntimeResult<()> {
-    call_system_devtools(
+    call_system_input_devtools(
         webview,
         "Input.dispatchMouseEvent",
         &json!({
@@ -34,6 +39,7 @@ fn dispatch_mouse_effect(
             "x": point.x,
             "y": point.y,
         }),
+        context,
     )
     .map(|_| ())
 }
@@ -155,6 +161,29 @@ fn register_windows_document_navigation_handler(
         {
             return Ok(());
         }
+        let input_epoch = match state
+            .runtime
+            .current_navigation_input_epoch(&webview_label, &role_id)
+            .map(Ok)
+            .unwrap_or_else(|| {
+                state
+                    .runtime
+                    .begin_navigation_input_fence(&webview_label, &role_id, None)
+            })
+        {
+            Ok(input_epoch) => input_epoch,
+            Err(error) => {
+                emit_windows_document_navigation_error(
+                    &callback_app,
+                    "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
+                    "The Windows document request could not establish an input fence and was allowed to continue.",
+                    &role_id,
+                    &webview_label,
+                    &error.message,
+                );
+                return Ok(());
+            }
+        };
         // SAFETY: WebView2 supplied these event args to this callback, and the
         // callback is still executing on the owning UI thread.
         let deferral = match unsafe { args.GetDeferral() } {
@@ -177,21 +206,34 @@ fn register_windows_document_navigation_handler(
         let release_app = callback_app.clone();
         let release_role_id = role_id.clone();
         let release_webview_label = webview_label.clone();
+        let release_runtime = Arc::clone(&state.runtime);
         tauri::async_runtime::spawn(async move {
             let release = core
-                .invoke_async(CoreCommand::MacroReleaseRole {
+                .invoke_async(CoreCommand::MacroInputDrain {
                     role_id: release_role_id.clone(),
+                    input_epoch,
                 })
                 .await;
-            if let Err(error) = release {
-                emit_windows_document_navigation_error(
+            match release {
+                Ok(value) => {
+                    let current = serde_json::from_value::<MacroInputEpochRecord>(value)
+                        .is_ok_and(|record| record.current);
+                    if current {
+                        release_runtime.finish_navigation_input_drain(
+                            &release_webview_label,
+                            &release_role_id,
+                            input_epoch,
+                        );
+                    }
+                }
+                Err(error) => emit_windows_document_navigation_error(
                     &release_app,
-                    "SYSTEM_NAVIGATION_MACRO_RELEASE_FAILED",
-                    "Macro input could not be released before a Windows document request; the original request was allowed to continue.",
+                    "SYSTEM_NAVIGATION_INPUT_DRAIN_FAILED",
+                    "Macro input could not be drained before a Windows document request; automatic input remains fenced.",
                     &release_role_id,
                     &release_webview_label,
                     &error.to_string(),
-                );
+                ),
             }
             let scheduled_completed = Arc::clone(&completed);
             let completion_app = release_app.clone();

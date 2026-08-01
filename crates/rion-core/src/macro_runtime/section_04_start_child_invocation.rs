@@ -52,6 +52,12 @@ fn start_child_invocation(
         if inner.mutating_macro_ids.contains(macro_id) {
             return Err("called macro is being changed".to_owned());
         }
+        if roles.iter().any(|role_id| {
+            inner.stopping_role_ids.contains(role_id)
+                || inner.quiesced_role_ids.contains(role_id)
+        }) {
+            return Err(STOPPING_ROLE_MESSAGE.to_owned());
+        }
         if inner.invocations.len() >= MAX_ACTIVE_INVOCATIONS {
             return Err("too many macro invocations are active".to_owned());
         }
@@ -238,6 +244,24 @@ fn perform_actions_with_control(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut pending_actions = Vec::with_capacity(actions.len());
+    let action_metadata = {
+        let inner = shared
+            .inner
+            .lock()
+            .map_err(|_| "macro runtime lock poisoned".to_owned())?;
+        actions
+            .iter()
+            .map(|(role_id, _)| {
+                if !allow_cancelled && inner.quiesced_role_ids.contains(*role_id) {
+                    return Err(STOPPING_ROLE_MESSAGE.to_owned());
+                }
+                Ok((
+                    inner.input_epochs.get(*role_id).copied().unwrap_or_default(),
+                    if allow_cancelled { "cleanup" } else { "normal" },
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
     let requests = {
         let mut pending = shared
             .pending
@@ -248,7 +272,8 @@ fn perform_actions_with_control(
         }
         actions
             .into_iter()
-            .map(|(role_id, action)| {
+            .zip(action_metadata)
+            .map(|((role_id, action), (input_epoch, intent))| {
                 let request_number = shared.next_id.fetch_add(1, Ordering::Relaxed);
                 let request_id = format!("browser-action-{request_number}");
                 let (sender, receiver) = mpsc::sync_channel(1);
@@ -258,6 +283,8 @@ fn perform_actions_with_control(
                     request_id,
                     role_id: role_id.to_owned(),
                     origin: "macro".to_owned(),
+                    input_epoch,
+                    intent: intent.to_owned(),
                     scheduled_at_ms: epoch_millis(),
                     deadline_ms: epoch_millis()
                         .saturating_add(shared.action_timeout.as_millis() as u64),

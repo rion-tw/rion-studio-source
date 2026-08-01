@@ -316,8 +316,11 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       runtime.indexOf("fn allow_navigation_after_macro_release("),
       runtime.indexOf("fn begin_controlled_navigation(")
     );
-    expect(navigationPolicy).toContain("release_macros_for_unblocked_navigation(");
-    expect(navigationPolicy).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
+    expect(navigationPolicy).toContain("begin_navigation_input_fence(");
+    expect(navigationPolicy).toContain("CoreCommand::MacroInputFence {");
+    expect(navigationPolicy).toContain(".invoke_async(CoreCommand::MacroInputDrain");
+    expect(navigationPolicy).toContain("CoreCommand::MacroInputResume {");
+    expect(navigationPolicy).not.toContain("CoreCommand::MacroReleaseRole");
     expect(navigationPolicy).not.toContain("webview.navigate(url)");
     expect(navigationPolicy).not.toContain('"url"');
 
@@ -337,7 +340,8 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       "unsafe { core_webview.add_WebResourceRequested(&handler, &mut token) }"
     );
     expect(windowsDocumentHandler).toContain("retain_windows_document_navigation_deferral(deferral)");
-    expect(windowsDocumentHandler).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
+    expect(windowsDocumentHandler).toContain(".invoke_async(CoreCommand::MacroInputDrain");
+    expect(windowsDocumentHandler).toContain("current_navigation_input_epoch(");
     expect(windowsDocumentHandler).toContain("run_on_main_thread");
     expect(windowsDocumentHandler).not.toContain("navigate(");
     expect(runtime).toContain("WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS");

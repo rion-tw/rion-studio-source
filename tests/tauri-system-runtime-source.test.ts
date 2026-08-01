@@ -434,7 +434,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain(
       '#[cfg(any(windows, target_os = "macos"))]\n    fn reassert_shortcut_handoff_keys'
     );
-    expect(runtime).toContain("self.reassert_role_keys_in_lane(role_id, webview)");
+    expect(runtime).toContain("self.reassert_role_keys_in_lane(role_id, &context)");
     expect(runtime).not.toContain("reassert_tab_shortcut_modifiers");
     expect(quickMenu).toContain('#[cfg(any(target_os = "macos", test))]\n    Macos,');
     expect(quickMenu).toContain('#[cfg(any(target_os = "windows", test))]\n    Windows,');
@@ -633,7 +633,7 @@ it("acknowledges close isolation before coalesced restore persistence", async ()
     expect(runtime).toContain("SYSTEM_RUNTIME_PERSIST_FAILED");
   });
 
-it("releases role macro input when a tracked popup is destroyed", async () => {
+it("fences and drains role macro input when a tracked popup is destroyed", async () => {
     const [runtime, shell] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8")
@@ -644,9 +644,12 @@ it("releases role macro input when a tracked popup is destroyed", async () => {
     );
     expect(cleanup).toContain("state.popup_roles.remove(window_label)");
     expect(cleanup).toContain("tauri::async_runtime::spawn(async move");
-    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroReleaseRole");
-    expect(cleanup).toContain("CoreCommand::MacroReleaseRole {");
-    expect(cleanup).toContain("SYSTEM_POPUP_MACRO_RELEASE_FAILED");
+    expect(cleanup).toContain("advance_role_input_fence_local(role_id)");
+    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroInputFence");
+    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroInputDrain");
+    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroInputResume");
+    expect(cleanup).toContain("SYSTEM_POPUP_INPUT_FENCE_FAILED");
+    expect(cleanup).not.toContain("CoreCommand::MacroReleaseRole");
     expect(cleanup).toContain('"rion://shell-error"');
 
     const destroyed = shell.slice(

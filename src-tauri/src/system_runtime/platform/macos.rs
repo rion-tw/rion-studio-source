@@ -1,7 +1,11 @@
 // macos system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(target_os = "macos")]
-fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> RuntimeResult<()> {
+fn dispatch_key_effect(
+    webview: &Webview,
+    effect: &EmbeddedKeyEffectRecord,
+    context: &InputDispatchContext,
+) -> RuntimeResult<()> {
     use std::{ffi::CString, os::raw::c_char};
 
     unsafe extern "C" {
@@ -15,16 +19,17 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
     }
 
     let role_label = webview.label().to_owned();
-    let mut previous_role_label = MACOS_KEY_DISPATCH_STATE
+    let needs_settle = MACOS_KEY_DISPATCH_STATE
         .get_or_init(|| Mutex::new(None))
         .lock()
+        .map(|previous| macos_key_dispatch_needs_settle(previous.as_deref(), &role_label))
         .map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_TRUSTED_INPUT_FAILED",
                 "The macOS key dispatch lock was poisoned.",
             )
         })?;
-    if macos_key_dispatch_needs_settle(previous_role_label.as_deref(), &role_label) {
+    if needs_settle {
         // WKWebView forwards AppKit key events to the web-content process
         // asynchronously. Let the previous role consume its direct responder
         // dispatch before handing off to another role. Same-role sequences stay fast.
@@ -39,9 +44,15 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
     let key_down = effect.phase == "rawKeyDown";
     let modifier_flags = mac_modifier_flags(&effect.active_codes);
     let repeat = effect.auto_repeat;
+    let submission = NativeInputSubmissionGuard::new(context);
+    let callback_submission = submission.clone();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| {
+            if !callback_submission.claim() {
+                let _ = sender.send(None);
+                return;
+            }
             let succeeded = unsafe {
                 rion_wk_dispatch_key(
                     platform_webview.inner(),
@@ -51,22 +62,28 @@ fn dispatch_key_effect(webview: &Webview, effect: &EmbeddedKeyEffectRecord) -> R
                     repeat,
                 )
             };
-            let _ = sender.send(succeeded);
+            let _ = sender.send(Some(succeeded));
         })
         .map_err(RuntimeError::tauri)?;
-    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-        Ok(true) => {
-            *previous_role_label = Some(role_label);
+    match receiver.recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT)) {
+        Ok(Some(true)) => {
+            *MACOS_KEY_DISPATCH_STATE
+                .get_or_init(|| Mutex::new(None))
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_TRUSTED_INPUT_FAILED",
+                        "The macOS key dispatch lock was poisoned.",
+                    )
+                })? = Some(role_label);
             Ok(())
         }
-        Ok(false) => Err(RuntimeError::new(
+        Ok(Some(false)) => Err(RuntimeError::new(
             "SYSTEM_TRUSTED_INPUT_UNAVAILABLE",
             format!("WKWebView rejected the native {} event.", effect.code),
         )),
-        Err(_) => Err(RuntimeError::new(
-            "SYSTEM_TRUSTED_INPUT_TIMEOUT",
-            "WKWebView native key dispatch timed out.",
-        )),
+        Ok(None) => context.ensure_current(),
+        Err(_) => Err(submission.timeout_error()),
     }
 }
 
@@ -100,6 +117,7 @@ fn dispatch_mouse_effect(
     point: ClickPoint,
     button: &str,
     pressed: bool,
+    context: &InputDispatchContext,
 ) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_dispatch_mouse(
@@ -122,9 +140,15 @@ fn dispatch_mouse_effect(
             ));
         }
     };
+    let submission = NativeInputSubmissionGuard::new(context);
+    let callback_submission = submission.clone();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| {
+            if !callback_submission.claim() {
+                let _ = sender.send(None);
+                return;
+            }
             let succeeded = unsafe {
                 rion_wk_dispatch_mouse(
                     platform_webview.inner(),
@@ -134,19 +158,17 @@ fn dispatch_mouse_effect(
                     pressed,
                 )
             };
-            let _ = sender.send(succeeded);
+            let _ = sender.send(Some(succeeded));
         })
         .map_err(RuntimeError::tauri)?;
-    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(RuntimeError::new(
+    match receiver.recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT)) {
+        Ok(Some(true)) => Ok(()),
+        Ok(Some(false)) => Err(RuntimeError::new(
             "SYSTEM_TRUSTED_INPUT_UNAVAILABLE",
             "WKWebView rejected the native mouse event.",
         )),
-        Err(_) => Err(RuntimeError::new(
-            "SYSTEM_TRUSTED_INPUT_TIMEOUT",
-            "WKWebView native mouse dispatch timed out.",
-        )),
+        Ok(None) => context.ensure_current(),
+        Err(_) => Err(submission.timeout_error()),
     }
 }
 

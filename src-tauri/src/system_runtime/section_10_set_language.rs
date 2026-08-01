@@ -293,9 +293,10 @@ impl SystemRuntimeExecutor {
         };
         roles.sort_by(|left, right| left.0.cmp(&right.0));
         roles.dedup_by(|left, right| left.0 == right.0);
-        roles.iter().try_for_each(|(role_id, webview)| {
+        roles.iter().try_for_each(|(role_id, _webview)| {
             self.with_role_input_lane(role_id, || {
-                self.reassert_role_keys_in_lane(role_id, webview)
+                let context = self.current_input_context(role_id, "normal")?;
+                self.reassert_role_keys_in_lane(role_id, &context)
             })
         })
     }
@@ -315,8 +316,9 @@ impl SystemRuntimeExecutor {
             return Ok(false);
         };
         self.with_role_input_lane(role_id, || {
+            let context = self.current_input_context(role_id, "cleanup")?;
             for effect in shortcut_modifier_release_effects(&handoff.modifier_codes) {
-                dispatch_key_effect(&webview, &effect)?;
+                dispatch_key_effect(&webview, &effect, &context)?;
             }
             Ok(true)
         })

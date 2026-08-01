@@ -1,3 +1,5 @@
+NS_ASSUME_NONNULL_BEGIN
+
 - (BOOL)updateTitlebarButtonPositionsForFrameView:
     (nullable NSView *)frameView {
   if (!frameView) return NO;
@@ -72,7 +74,7 @@
   return @[ RionRuntimeToolbarSpacerIdentifier ];
 }
 
-- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar
+- (nullable NSToolbarItem *)toolbar:(NSToolbar *)toolbar
      itemForItemIdentifier:(NSToolbarItemIdentifier)itemIdentifier
  willBeInsertedIntoToolbar:(BOOL)flag {
   (void)toolbar;
@@ -669,3 +671,5 @@
   }
   [self updateTabScrollButtonState];
 }
+
+NS_ASSUME_NONNULL_END

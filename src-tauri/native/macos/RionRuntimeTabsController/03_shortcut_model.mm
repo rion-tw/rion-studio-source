@@ -1,3 +1,5 @@
+NS_ASSUME_NONNULL_BEGIN
+
 - (void)captureWindowedTrafficLightFrames;
 - (void)configureAccessoryForTitlebar;
 - (void)detachAccessoryController;
@@ -554,7 +556,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }
 }
 
-- (NSView *)hitTest:(NSPoint)point {
+- (nullable NSView *)hitTest:(NSPoint)point {
   NSView *hit = [super hitTest:point];
   if (hit == _moreButton && !_hideTabCloseButton &&
       _moreButton.alphaValue > 0.05) return hit;
@@ -677,3 +679,5 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   return NSMakePoint(MIN(1.0, MAX(0.0, _pointerDownInTab.x / width)),
                      MIN(1.0, MAX(0.0, _pointerDownInTab.y / height)));
 }
+
+NS_ASSUME_NONNULL_END

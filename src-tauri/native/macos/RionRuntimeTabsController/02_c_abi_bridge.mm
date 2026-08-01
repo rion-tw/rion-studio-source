@@ -1,4 +1,6 @@
-static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
+NS_ASSUME_NONNULL_BEGIN
+
+static BOOL RionInstallTitlebarWidgetInsetHook(NSView * _Nullable frameView) {
   if (!frameView) return NO;
   // AppKit's auxiliary fullscreen windows do not consistently expose this
   // private metric. Their native inset is the supported fallback, so skip an
@@ -51,7 +53,8 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 @interface RionRuntimeDraggableView : NSView
 @end
 
-static NSString *RionStringFromUTF8(const char *value) {
+static NSString * _Nullable RionStringFromUTF8(
+    const char * _Nullable value) {
   if (!value) return nil;
   return [NSString stringWithUTF8String:value];
 }
@@ -91,7 +94,7 @@ static void RionForwardRuntimeTabsAction(
                 cancelled ? cancelled.boolValue : false);
 }
 
-void *rion_runtime_tabs_create(
+void * _Nullable rion_runtime_tabs_create(
     void *rawWindow, const char *rawWindowIdentifier, void *context,
     RionRuntimeTabsCActionHandler actionHandler,
     RionRuntimeTabsCLayoutHandler layoutHandler) {
@@ -117,7 +120,7 @@ void *rion_runtime_tabs_create(
   }
 }
 
-void rion_runtime_tabs_destroy(void *rawController) {
+void rion_runtime_tabs_destroy(void * _Nullable rawController) {
   @autoreleasepool {
     if (!rawController) return;
     RionRuntimeTabsController *controller =
@@ -126,14 +129,16 @@ void rion_runtime_tabs_destroy(void *rawController) {
   }
 }
 
-void rion_runtime_tabs_prepare_fullscreen(void *rawController, bool fullscreen) {
+void rion_runtime_tabs_prepare_fullscreen(
+    void * _Nullable rawController, bool fullscreen) {
   if (rawController) {
     [(__bridge RionRuntimeTabsController *)rawController
         prepareForFullscreenTransition:fullscreen];
   }
 }
 
-void rion_runtime_tabs_set_fullscreen_policy(void *rawController, bool alwaysShow) {
+void rion_runtime_tabs_set_fullscreen_policy(
+    void * _Nullable rawController, bool alwaysShow) {
   if (rawController) {
     [(__bridge RionRuntimeTabsController *)rawController
         setAlwaysShowInFullScreen:alwaysShow];
@@ -144,14 +149,15 @@ bool rion_runtime_tabs_is_main_thread(void) {
   return [NSThread isMainThread];
 }
 
-void rion_runtime_tabs_set_reveal_locked(void *rawController, bool locked) {
+void rion_runtime_tabs_set_reveal_locked(
+    void * _Nullable rawController, bool locked) {
   if (rawController) {
     [(__bridge RionRuntimeTabsController *)rawController setRevealLocked:locked];
   }
 }
 
-void rion_runtime_tabs_set_window_name(void *rawController,
-                                       const char *windowName) {
+void rion_runtime_tabs_set_window_name(
+    void * _Nullable rawController, const char * _Nullable windowName) {
   @autoreleasepool {
     if (!rawController) return;
     [(__bridge RionRuntimeTabsController *)rawController
@@ -159,8 +165,9 @@ void rion_runtime_tabs_set_window_name(void *rawController,
   }
 }
 
-void rion_runtime_tabs_set_active(void *rawController,
-                                  const char *tabIdentifier) {
+void rion_runtime_tabs_set_active(
+    void * _Nullable rawController,
+    const char * _Nullable tabIdentifier) {
   @autoreleasepool {
     if (!rawController) return;
     RionRuntimeTabsController *controller =
@@ -169,9 +176,10 @@ void rion_runtime_tabs_set_active(void *rawController,
   }
 }
 
-void rion_runtime_tabs_ensure(void *rawController, const char *tabIdentifier,
+void rion_runtime_tabs_ensure(void * _Nullable rawController,
+                              const char *tabIdentifier,
                               const char *name, const char *type,
-                              const char *workspaceTemplate,
+                              const char * _Nullable workspaceTemplate,
                               const char *windowIdentifier) {
   @autoreleasepool {
     if (!rawController || !tabIdentifier || !name || !type ||
@@ -186,9 +194,10 @@ void rion_runtime_tabs_ensure(void *rawController, const char *tabIdentifier,
   }
 }
 
-void rion_runtime_tabs_reserve(void *rawController, const char *tabIdentifier,
+void rion_runtime_tabs_reserve(void * _Nullable rawController,
+                               const char *tabIdentifier,
                                const char *name, const char *type,
-                               const char *workspaceTemplate,
+                               const char * _Nullable workspaceTemplate,
                                const char *windowIdentifier) {
   @autoreleasepool {
     if (!rawController || !tabIdentifier || !name || !type ||
@@ -203,12 +212,12 @@ void rion_runtime_tabs_reserve(void *rawController, const char *tabIdentifier,
   }
 }
 
-void rion_runtime_tabs_replace(void *rawController,
+void rion_runtime_tabs_replace(void * _Nullable rawController,
                                const char *provisionalIdentifier,
                                const char *tabIdentifier, const char *name,
                                const char *type,
-                               const char *workspaceTemplate,
-                               const char *activeTabIdentifier) {
+                               const char * _Nullable workspaceTemplate,
+                               const char * _Nullable activeTabIdentifier) {
   @autoreleasepool {
     if (!rawController || !provisionalIdentifier || !tabIdentifier || !name ||
         !type) return;
@@ -224,8 +233,9 @@ void rion_runtime_tabs_replace(void *rawController,
   }
 }
 
-void rion_runtime_tabs_remove(void *rawController, const char *tabIdentifier,
-                              const char *activeTabIdentifier) {
+void rion_runtime_tabs_remove(
+    void * _Nullable rawController, const char *tabIdentifier,
+    const char * _Nullable activeTabIdentifier) {
   @autoreleasepool {
     if (!rawController || !tabIdentifier) return;
     RionRuntimeTabsController *controller =
@@ -235,7 +245,7 @@ void rion_runtime_tabs_remove(void *rawController, const char *tabIdentifier,
   }
 }
 
-void rion_runtime_tabs_reorder(void *rawController,
+void rion_runtime_tabs_reorder(void * _Nullable rawController,
                                const char *tabIdentifiersJSON) {
   @autoreleasepool {
     if (!rawController || !tabIdentifiersJSON) return;
@@ -259,7 +269,7 @@ void rion_runtime_tabs_reorder(void *rawController,
 }
 
 void rion_runtime_tabs_update_metadata(
-    void *rawController, const RionRuntimeTabInput *input,
+    void * _Nullable rawController, const RionRuntimeTabInput *input,
     bool alwaysHideTabCloseButton, const char *audioMutedLabel,
     const char *audioPlayingLabel, const char *closeLabel,
     const char *addLabel, const char *scrollLeftLabel,
@@ -295,7 +305,8 @@ void rion_runtime_tabs_update_metadata(
   }
 }
 
-RionRuntimeContentLayout rion_runtime_tabs_content_layout(void *rawController) {
+RionRuntimeContentLayout rion_runtime_tabs_content_layout(
+    void * _Nullable rawController) {
   if (!rawController) return (RionRuntimeContentLayout){0, 0, NO};
   return [(__bridge RionRuntimeTabsController *)rawController contentLayout];
 }
@@ -308,7 +319,7 @@ RionRuntimeContentLayout rion_runtime_tabs_content_layout(void *rawController) {
                       windowOffset:(NSPoint *)windowOffset;
 @end
 
-bool rion_runtime_tabs_control_row_contains(void *rawController,
+bool rion_runtime_tabs_control_row_contains(void * _Nullable rawController,
                                             double screenX,
                                             double screenY) {
   if (!rawController || !std::isfinite(screenX) || !std::isfinite(screenY)) {
@@ -318,7 +329,7 @@ bool rion_runtime_tabs_control_row_contains(void *rawController,
       controlRowContainsTopLeftScreenPoint:NSMakePoint(screenX, screenY)];
 }
 
-bool rion_runtime_tabs_drag_anchor(void *rawController,
+bool rion_runtime_tabs_drag_anchor(void * _Nullable rawController,
                                    const char *tabIdentifier,
                                    double grabRatioX,
                                    double grabRatioY,
@@ -678,3 +689,5 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
+
+NS_ASSUME_NONNULL_END

@@ -1,3 +1,5 @@
+NS_ASSUME_NONNULL_BEGIN
+
 - (nullable NSString *)stableTabIdentifierBeforePoint:(NSPoint)point
                                                inView:(NSView *)view
                                  draggedTabIdentifier:(NSString *)tabIdentifier
@@ -621,3 +623,5 @@
   [self updateTrafficLightObservation];
   [self scheduleContentLayoutNotification];
 }
+
+NS_ASSUME_NONNULL_END

@@ -1,3 +1,5 @@
+NS_ASSUME_NONNULL_BEGIN
+
 - (void)updateTabMetadata:(RionRuntimeTabModel *)tab
        hideTabCloseButton:(BOOL)hideTabCloseButton
                  addLabel:(NSString *)addLabel
@@ -599,3 +601,5 @@
   }
   return nil;
 }
+
+NS_ASSUME_NONNULL_END

@@ -1,5 +1,5 @@
 import feifeiIconUrl from "../assets/games/feifei-infinite-universe.png";
-import flyffIconUrl from "../assets/games/flyff-universe.png";
+import flyffIconUrl from "../assets/games/flyff-universe.webp";
 import feifeiCoverUrl from "../assets/games/feifei-infinite-universe-cover.webp";
 import flyffCoverUrl from "../assets/games/flyff-universe-cover.jpg";
 

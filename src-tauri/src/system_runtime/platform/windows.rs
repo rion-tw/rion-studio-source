@@ -2,3 +2,4 @@
 
 include!("windows/input_security.rs");
 include!("windows/lifecycle.rs");
+include!("windows/reparent.rs");

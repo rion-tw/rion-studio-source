@@ -6,3 +6,4 @@ include!("behavior_03_local_storage_sync_contract_rejects_unbounded_or_non_origi
 include!("behavior_04_native_launch_errors_keep_their_code_and_message_in_diagnostics.rs");
 include!("behavior_05_input_dispatch_compensation_is_net_state_and_submission_is_tristate.rs");
 include!("behavior_06_navigation_input_tickets_require_latest_epoch_drain_and_page_finish.rs");
+include!("behavior_07_windows_reparent_sync_uses_one_bounded_deadline.rs");

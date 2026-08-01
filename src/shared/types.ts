@@ -7,6 +7,7 @@ import type {
   BrowserFontRuntimePayloadRecord,
   BrowserPerformanceDiagnosticsRecord,
   BrowserPerformanceSettingsRecord,
+  BrowserProxySettingsRecord,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
   ChromeProfileImportResolutionRecord,
@@ -371,6 +372,8 @@ export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 export type BrowserFontSettings = BrowserFontSettingsRecord;
 
 export type BrowserPerformanceSettings = BrowserPerformanceSettingsRecord;
+
+export type BrowserProxySettings = BrowserProxySettingsRecord;
 
 export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 

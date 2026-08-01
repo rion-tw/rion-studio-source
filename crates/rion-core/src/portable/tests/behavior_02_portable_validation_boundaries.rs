@@ -92,7 +92,13 @@
                 .unwrap()
                 .remove("presetId");
             settings["performance"]["macosHighRefreshRate"] = json!(true);
-            source["preferences"] = json!({"gameBrowserSettings":settings});
+            source["preferences"] = json!({
+                "gameBrowserSettings": settings,
+                "browserProxySettings": {
+                    "mode": "custom",
+                    "custom": { "protocol": "http", "host": "127.0.0.1", "port": 8080 }
+                }
+            });
             let mut runtime = PortableRuntime::default();
             let preview = runtime
                 .preview(
@@ -101,7 +107,14 @@
                     empty_snapshot(),
                 )
                 .unwrap();
-            let browser_settings = preview.preferences.unwrap().game_browser_settings.unwrap();
+            let preferences = preview.preferences.unwrap();
+            assert!(
+                serde_json::to_value(&preferences)
+                    .unwrap()
+                    .get("browserProxySettings")
+                    .is_none()
+            );
+            let browser_settings = preferences.game_browser_settings.unwrap();
             assert!(
                 serde_json::to_value(&browser_settings)
                     .unwrap()

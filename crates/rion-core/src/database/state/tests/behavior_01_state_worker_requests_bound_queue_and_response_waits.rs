@@ -36,6 +36,45 @@ use std::fs;
     }
 
     #[test]
+    fn browser_proxy_settings_default_round_trip_and_repair_corruption() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        assert_eq!(
+            read_scalar(&connection, "browserProxySettings").unwrap(),
+            Some(serde_json::to_value(default_browser_proxy_settings()).unwrap())
+        );
+
+        let custom = json!({
+            "mode": "custom",
+            "custom": { "protocol": "socks5", "host": "::1", "port": 10090 }
+        });
+        replace_scalar(
+            &mut connection,
+            "browserProxySettings",
+            custom.clone(),
+        )
+        .unwrap();
+        let snapshot = read_snapshot(&connection).unwrap();
+        replace_snapshot(&mut connection, &snapshot).unwrap();
+        assert_eq!(
+            read_scalar(&connection, "browserProxySettings").unwrap(),
+            Some(custom)
+        );
+
+        connection
+            .execute(
+                "UPDATE settings SET payload_json='not-json' WHERE key='browserProxySettings'",
+                [],
+            )
+            .unwrap();
+        create_schema(&connection, false).unwrap();
+        assert_eq!(
+            read_scalar(&connection, "browserProxySettings").unwrap(),
+            Some(serde_json::to_value(default_browser_proxy_settings()).unwrap())
+        );
+    }
+
+    #[test]
     fn runtime_game_window_save_commits_only_the_complete_record() {
         let directory = tempdir().unwrap();
         let database_path = directory.path().join("rion-studio.sqlite3");

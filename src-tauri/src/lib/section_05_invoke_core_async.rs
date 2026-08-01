@@ -159,7 +159,8 @@ async fn export_diagnostics(
                 "systemVersion": std::env::consts::OS,
                 "displays": displays,
                 "gpuFeatureStatusRawJson": "{}",
-                "browserPerformance": state.runtime.last_browser_performance_diagnostics()
+                "browserPerformance": state.runtime.last_browser_performance_diagnostics(),
+                "browserProxy": state.runtime.browser_proxy_diagnostics()
             }
         }),
     )

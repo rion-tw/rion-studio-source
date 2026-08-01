@@ -74,10 +74,9 @@ const forbiddenTokens = [
   "ExternalSessionRecord",
   "RION_STUDIO_CHROME_PATH",
   "BrowserNetworkSettingsRecord",
-  "BrowserProxySettingsRecord",
-  "--proxy-server",
-  "proxyConfigurations",
   "proxy_url",
+  "session.setProxy",
+  "ignore-certificate-errors",
   "rion-runtime-audio://",
   "build:tauri:renderer",
   "dev:tauri",
@@ -87,6 +86,36 @@ const forbiddenTokens = [
   "native-chrome",
   "runtimeTabsChrome"
 ];
+const proxyTokenAllowlist = new Map([
+  ["BrowserProxySettingsRecord", new Set([
+    "crates/rion-core/src/app/section_01_event_queue_capacity.rs",
+    "crates/rion-core/src/app/section_02_invoke.rs",
+    "crates/rion-core/src/browser_proxy.rs",
+    "crates/rion-core/src/contract_generation/generate_index.rs",
+    "crates/rion-core/src/database/state/section_01_schema_version.rs",
+    "crates/rion-core/src/database/state/section_03_read_overlay_configuration.rs",
+    "crates/rion-core/src/lib.rs",
+    "crates/rion-core/src/model/section_02_core_command.rs",
+    "crates/rion-core/src/model/section_08_browser_proxy.rs",
+    "src-tauri/src/lib/section_01_activation.rs",
+    "src-tauri/src/lib/section_02_drop.rs",
+    "src-tauri/src/system_runtime/browser_proxy.rs",
+    "src-tauri/src/system_runtime/section_01_navigation_timeout.rs",
+    "src-tauri/src/system_runtime/section_06_is_saved_game_window.rs",
+    "src/shared/api.ts",
+    "src/shared/generated/BrowserProxySettingsRecord.ts",
+    "src/shared/generated/CoreCommand.ts",
+    "src/shared/generated/CoreCommandResultMap.ts",
+    "src/shared/generated/index.ts",
+    "src/shared/types.ts"
+  ])],
+  ["--proxy-server", new Set([
+    "crates/rion-platform/src/browser_proxy.rs"
+  ])],
+  ["proxyConfigurations", new Set([
+    "src-tauri/native/macos/RionWKWebViewProxy.m"
+  ])]
+]);
 const migrationOnlyTokens = new Map([
   ["cdnCompatibility", new Set([
     "crates/rion-core/src/database/state.rs"
@@ -351,6 +380,11 @@ function inspectSource(repositoryPath, source) {
   const findings = [];
   for (const token of forbiddenTokens) {
     if (source.includes(token)) findings.push(`${repositoryPath} contains ${token}`);
+  }
+  for (const [token, allowlist] of proxyTokenAllowlist) {
+    if (source.includes(token) && !allowlist.has(repositoryPath)) {
+      findings.push(`${repositoryPath} contains proxy token outside its approved module: ${token}`);
+    }
   }
   for (const [token, allowlist] of migrationOnlyTokens) {
     if (source.toLowerCase().includes(token.toLowerCase()) && !allowlist.has(repositoryPath)) {

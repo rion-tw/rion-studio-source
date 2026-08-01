@@ -118,6 +118,7 @@ impl AppCore {
                 "activeWorkspaces": browser_workspace_statuses,
                 "foregroundPerformance": snapshot.browser_performance,
             },
+            "browserProxy": snapshot.browser_proxy,
             "windowsGraphicsEvents": windows_graphics_events,
             "windowsGraphicsEventWindow": {
                 "since": graphics_since.to_rfc3339(),

@@ -520,6 +520,10 @@ fn core_command_refreshes_browser_fonts(command: &CoreCommand) -> bool {
     )
 }
 
+fn core_command_refreshes_browser_proxy(command: &CoreCommand) -> bool {
+    matches!(command, CoreCommand::BrowserProxySettingsReplace { .. })
+}
+
 fn overlay_request_activates_webview(payload: &Value) -> bool {
     payload.get("type").and_then(Value::as_str) == Some("activate")
 }
@@ -546,6 +550,7 @@ async fn rion_core_invoke(
     let legal_acceptance_changed = matches!(&command, CoreCommand::LegalAcceptanceAccept { .. });
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
+    let browser_proxy_changed = core_command_refreshes_browser_proxy(&command);
     let launch_preview = match &command {
         CoreCommand::BrowserRoleLaunch {
             role_id, target, ..
@@ -628,6 +633,16 @@ async fn rion_core_invoke(
     }
     if result.is_ok() && browser_fonts_changed {
         state.runtime.refresh_browser_fonts();
+    }
+    if browser_proxy_changed
+        && let Ok(value) = result.as_ref()
+    {
+        let settings = serde_json::from_value::<BrowserProxySettingsRecord>(value.clone())
+            .map_err(|error| shell_error("BROWSER_PROXY_APPLY_FAILED", error.to_string()))?;
+        state
+            .runtime
+            .update_browser_proxy_settings(settings)
+            .map_err(|message| shell_error("BROWSER_PROXY_APPLY_FAILED", message))?;
     }
     if result.is_ok() && legal_acceptance_changed {
         state.updates.mark_legal_accepted();

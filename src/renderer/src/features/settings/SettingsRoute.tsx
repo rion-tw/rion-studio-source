@@ -26,7 +26,7 @@ import { normalizeGameBrowserSettings, workspaceGapSizes } from "../../../../sha
 
 import { getLegalDocumentVersion, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 
-import type { AppUpdateStatus, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
+import type { AppUpdateStatus, BrowserProxySettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
 
 import { MacroSettingsSection } from "./MacroSettingsSection";
 
@@ -45,6 +45,7 @@ import { MacroBadgePositionSettingsRows, ReadOnlyValue, createPortableExportAvai
 import { PortableExportDialog, PortableImportDialog, formatPortableExportResult, formatPortableImportResult, formatUpdateStatus } from "./PortableSettingsDialogs";
 
 import { BrowserFontsSettingsRows } from "./BrowserFontsSettingsRows";
+import { NetworkAccelerationSettingsSection } from "./NetworkAccelerationSettingsSection";
 
 export interface PortableDataCounts {
   gameCount: number;
@@ -57,6 +58,7 @@ export interface PortableDataCounts {
 interface SettingsViewProps {
   games?: Game[];
   gameBrowserSettings: GameBrowserSettings;
+  browserProxySettings?: BrowserProxySettings;
   hasRunningRoles?: boolean;
   roles?: Role[];
   language: Language;
@@ -74,6 +76,7 @@ interface SettingsViewProps {
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   onGameBrowserSettingsPatch?: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
+  onBrowserProxySettingsChange?: (settings: BrowserProxySettings) => Promise<BrowserProxySettings>;
   onMacroSettingsChange: (settings: MacroSettings) => Promise<MacroSettings>;
   onRuntimeWindowPreferencesChange: (
     preferences: RuntimeWindowPreferences
@@ -98,6 +101,8 @@ function SettingsViewBase({
   activeSection,
   games = [],
   gameBrowserSettings,
+  browserProxySettings = { mode: "system" },
+  hasRunningRoles = false,
   roles = [],
   language,
   macroSettings,
@@ -114,6 +119,7 @@ function SettingsViewBase({
   onExportPortableData,
   onGameBrowserSettingsChange,
   onGameBrowserSettingsPatch,
+  onBrowserProxySettingsChange = async (settings) => settings,
   onMacroSettingsChange,
   onRuntimeWindowPreferencesChange,
   onLoadSystemFonts,
@@ -534,6 +540,16 @@ function SettingsViewBase({
             t={t}
             onError={onError}
             onSave={onMacroSettingsChange}
+          />
+        ) : null}
+
+        {activeSection === "network" ? (
+          <NetworkAccelerationSettingsSection
+            hasRunningRoles={hasRunningRoles}
+            settings={browserProxySettings}
+            t={t}
+            onError={onError}
+            onSave={onBrowserProxySettingsChange}
           />
         ) : null}
 

@@ -59,4 +59,25 @@ describe("system-only product gate", () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  it.each([
+    ["renderer raw proxy flag", 'export const argument = "--proxy-server=http://127.0.0.1:9";\n', "--proxy-server"],
+    ["Electron proxy API", "export const apply = session.setProxy;\n", "session.setProxy"],
+    ["unapproved native proxy property", "void apply(id store) { store.proxyConfigurations = nil; }\n", "proxyConfigurations"]
+  ])("rejects %s outside the approved proxy modules", async (_name, source, token) => {
+    const directory = await mkdtemp(join(tmpdir(), "rion-proxy-negative-"));
+    const fixture = join(directory, "proxy-fixture.ts");
+    try {
+      await writeFile(fixture, source);
+      await expect(execute(process.execPath, [
+        "scripts/verifySystemOnlyProduct.mjs",
+        "--probe",
+        fixture
+      ], { cwd: process.cwd() })).rejects.toMatchObject({
+        stderr: expect.stringContaining(token)
+      });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
 });

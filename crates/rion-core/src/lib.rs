@@ -2,6 +2,7 @@ mod app;
 mod bootstrap_settings;
 mod browser_action_effects;
 mod browser_operations;
+mod browser_proxy;
 mod browser_runtime;
 mod chrome_profile_import;
 mod database;
@@ -30,6 +31,10 @@ mod windows_graphics_events;
 
 pub use app::{AppCore, BrowserLaunchCompletionRecord};
 pub use bootstrap_settings::additional_browser_arguments;
+pub use browser_proxy::{
+    default_browser_proxy_settings, normalize_browser_proxy_settings,
+    validate_browser_proxy_settings,
+};
 pub use domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
@@ -40,8 +45,9 @@ pub use model::{
     BrowserFontSelectionRecord, BrowserFontSettingsRecord, BrowserHostKind, BrowserOperationLease,
     BrowserOperationRequest, BrowserPerformanceDiagnosticStatus,
     BrowserPerformanceDiagnosticsRecord, BrowserPerformanceSettingsRecord,
-    BrowserPerformanceSurfaceDiagnosticRecord, BrowserRoleStatusRecord, BrowserRuntimeCommand,
-    BrowserRuntimeResult, BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot,
+    BrowserPerformanceSurfaceDiagnosticRecord, BrowserProxyDiagnosticsRecord,
+    BrowserProxyEndpointRecord, BrowserProxySettingsRecord, BrowserRoleStatusRecord,
+    BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot,
     BrowserRuntimeTabRecord, BrowserRuntimeWindowRecord, BrowserRuntimeWorkspaceRecord,
     BrowserWorkspaceStatusRecord, BulkDeleteResultRecord, BulkDeleteSkippedItemRecord,
     ChromeProfileEntryRecord, ChromeProfileImportAuthStateRecord,

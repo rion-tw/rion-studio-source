@@ -28,7 +28,7 @@ import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
 
 import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
-
+import { useBrowserProxySettings } from "./features/settings/useBrowserProxySettings";
 import { localizeErrorMessage } from "./i18n";
 
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
@@ -51,6 +51,7 @@ export function App(): JSX.Element {
   const hasBridge = Boolean(window.rionStudio);
   useWindowsApplicationShortcuts(hasBridge);
   const legal = useLegalAcceptance(hasBridge);
+  const browserProxy = useBrowserProxySettings({ enabled: hasBridge && data.initialLoadState === "ready", onError: data.setError });
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const gameBrowserSettingsPatchQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
@@ -750,6 +751,8 @@ export function App(): JSX.Element {
                 <SettingsRoute
                   games={data.games}
                   gameBrowserSettings={gameBrowserSettings}
+                  hasRunningRoles={data.statuses.length > 0}
+                  {...browserProxy}
                   roles={data.roles}
                   language={preferences.language}
                   macroSettings={macroSettings}

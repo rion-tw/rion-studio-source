@@ -533,7 +533,7 @@ impl AppCore {
         })
     }
 
-    fn replace_scalar_state<T: serde::Serialize>(&self, key: &str, value: T) -> CoreResult<Value> {
+    pub(crate) fn replace_scalar_state<T: serde::Serialize>(&self, key: &str, value: T) -> CoreResult<Value> {
         let _guard = self.state_mutation_guard()?;
         self.replace_scalar_state_under_guard(key, value)
     }
@@ -614,7 +614,7 @@ impl AppCore {
             .filter(|acceptance| validate_legal_acceptance(acceptance).is_ok()))
     }
 
-    fn read_scalar_state<T: serde::de::DeserializeOwned>(
+    pub(crate) fn read_scalar_state<T: serde::de::DeserializeOwned>(
         &self,
         key: &str,
         missing_message: &str,

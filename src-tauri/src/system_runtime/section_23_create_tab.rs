@@ -11,6 +11,11 @@ impl SystemRuntimeExecutor {
                 "This tab did not resolve to the current platform System WebView.",
             ));
         }
+        let proxy_role_ids = tab
+            .roles
+            .iter()
+            .map(|role| role.role.id.clone())
+            .collect::<Vec<_>>();
         {
             let state = self.state()?;
             if state.tabs.contains_key(&tab.tab_id) {
@@ -39,6 +44,7 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
+        self.browser_proxy.prepare_roles(&proxy_role_ids)?;
         // Surface creation uses the observer's last confirmed LocalStorage snapshot. A live
         // JavaScript refresh can take up to thirty seconds on an unresponsive source page and
         // must never delay tab reservation or native controller attachment.
@@ -356,6 +362,15 @@ impl SystemRuntimeExecutor {
                         return Err(failure.error);
                     }
                 };
+                #[cfg(windows)]
+                {
+                    let snapshot = self.browser_proxy.snapshot_for_role(&role_id)?;
+                    self.browser_proxy.register_webview2_lifecycle(
+                        &paths.webview2,
+                        &snapshot,
+                        Arc::clone(&lifecycle),
+                    );
+                }
                 created_surfaces
                     .last_mut()
                     .expect("role surface was just recorded")

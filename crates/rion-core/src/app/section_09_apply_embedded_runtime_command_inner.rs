@@ -66,7 +66,11 @@ impl AppCore {
             })
             .map(|window| window.window_id.clone())
             .collect::<std::collections::HashSet<_>>();
-        if let Err(error) = self.sync_game_windows_from_runtime(&next, &removed_window_ids) {
+        if let Err(error) = self.sync_game_windows_from_runtime_transition(
+            &previous_snapshot,
+            &next,
+            &removed_window_ids,
+        ) {
             let _ = self.run_effect_plan(vec![effect_step(
                 "embedded-runtime-persistence-rollback",
                 compensation,
@@ -134,11 +138,37 @@ impl AppCore {
         snapshot: &crate::model::BrowserRuntimeSnapshot,
         removed_window_ids: &std::collections::HashSet<String>,
     ) -> CoreResult<()> {
+        self.sync_game_windows_from_runtime_with_previous(None, snapshot, removed_window_ids)
+    }
+
+    fn sync_game_windows_from_runtime_transition(
+        &self,
+        previous_snapshot: &crate::model::BrowserRuntimeSnapshot,
+        snapshot: &crate::model::BrowserRuntimeSnapshot,
+        removed_window_ids: &std::collections::HashSet<String>,
+    ) -> CoreResult<()> {
+        self.sync_game_windows_from_runtime_with_previous(
+            Some(previous_snapshot),
+            snapshot,
+            removed_window_ids,
+        )
+    }
+
+    fn sync_game_windows_from_runtime_with_previous(
+        &self,
+        previous_snapshot: Option<&crate::model::BrowserRuntimeSnapshot>,
+        snapshot: &crate::model::BrowserRuntimeSnapshot,
+        removed_window_ids: &std::collections::HashSet<String>,
+    ) -> CoreResult<()> {
         let _guard = self.state_mutation_guard()?;
         let game_windows =
             self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
-        let (game_windows, changed) =
-            self.project_game_windows_from_runtime(game_windows, snapshot, removed_window_ids);
+        let (game_windows, changed) = self.project_game_windows_from_runtime(
+            game_windows,
+            previous_snapshot,
+            snapshot,
+            removed_window_ids,
+        );
         if changed {
             self.mutate_state_under_guard(StateMutation::GameWindowsSync {
                 windows: game_windows,
@@ -150,6 +180,7 @@ impl AppCore {
     fn project_game_windows_from_runtime(
         &self,
         mut game_windows: Vec<StateGameWindowRecord>,
+        previous_snapshot: Option<&crate::model::BrowserRuntimeSnapshot>,
         snapshot: &crate::model::BrowserRuntimeSnapshot,
         _removed_window_ids: &std::collections::HashSet<String>,
     ) -> (Vec<StateGameWindowRecord>, bool) {
@@ -163,6 +194,18 @@ impl AppCore {
             .flat_map(|window| window.tabs.iter().cloned())
             .map(|tab| (tab.id.clone(), tab))
             .collect::<std::collections::HashMap<_, _>>();
+        let previous_live_tab_ids = previous_snapshot.map(|snapshot| {
+            snapshot
+                .tabs
+                .iter()
+                .map(|tab| tab.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        });
+        let live_tab_ids = snapshot
+            .tabs
+            .iter()
+            .map(|tab| tab.id.clone())
+            .collect::<std::collections::HashSet<_>>();
         let mut changed = false;
         for runtime_window in &snapshot.windows {
             let Some(game_window) = game_windows
@@ -171,7 +214,7 @@ impl AppCore {
             else {
                 continue;
             };
-            let tabs = runtime_window
+            let runtime_tabs = runtime_window
                 .tab_ids
                 .iter()
                 .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
@@ -192,12 +235,27 @@ impl AppCore {
                     }
                 })
                 .collect::<Vec<_>>();
+            let tabs = match previous_live_tab_ids.as_ref() {
+                Some(previous_live) => merge_runtime_tabs_with_saved(
+                    &game_window.tabs,
+                    runtime_tabs,
+                    previous_live,
+                    &live_tab_ids,
+                ),
+                None => runtime_tabs,
+            };
             game_window.tabs = tabs;
             game_window.active_tab_id = runtime_window
                 .active_tab_id
                 .as_ref()
                 .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
-                .cloned();
+                .cloned()
+                .or_else(|| {
+                    game_window
+                        .active_tab_id
+                        .clone()
+                        .filter(|active| game_window.tabs.iter().any(|tab| &tab.id == active))
+                });
             game_window.updated_at = chrono::Utc::now().to_rfc3339();
             changed = true;
         }
@@ -673,4 +731,59 @@ impl AppCore {
         self.browser_operations.complete(id)
     }
 
+}
+
+fn game_window_tabs_conflict(
+    saved: &GameWindowTabRecord,
+    runtime: &GameWindowTabRecord,
+) -> bool {
+    saved.id == runtime.id
+        || (saved.tab_type == runtime.tab_type && saved.source_id == runtime.source_id)
+        || saved
+            .role_ids
+            .iter()
+            .any(|role_id| runtime.role_ids.contains(role_id))
+}
+
+fn merge_runtime_tabs_with_saved(
+    saved_tabs: &[GameWindowTabRecord],
+    runtime_tabs: Vec<GameWindowTabRecord>,
+    previous_live_tab_ids: &std::collections::HashSet<String>,
+    live_tab_ids: &std::collections::HashSet<String>,
+) -> Vec<GameWindowTabRecord> {
+    let replaced_indices = saved_tabs
+        .iter()
+        .enumerate()
+        .filter(|(_, saved)| {
+            runtime_tabs
+                .iter()
+                .any(|runtime| game_window_tabs_conflict(saved, runtime))
+        })
+        .map(|(index, _)| index)
+        .collect::<std::collections::HashSet<_>>();
+    let first_replaced = replaced_indices.iter().copied().min();
+    let mut preserved = saved_tabs
+        .iter()
+        .enumerate()
+        .filter(|(index, tab)| {
+            !replaced_indices.contains(index)
+                && !previous_live_tab_ids.contains(&tab.id)
+                && !live_tab_ids.contains(&tab.id)
+        })
+        .map(|(index, tab)| (index, tab.clone()))
+        .collect::<Vec<_>>();
+    let insertion_index = first_replaced.map_or(preserved.len(), |replaced| {
+        preserved
+            .iter()
+            .take_while(|(index, _)| *index < replaced)
+            .count()
+    });
+    let mut tail = preserved.split_off(insertion_index);
+    let mut merged = preserved
+        .into_iter()
+        .map(|(_, tab)| tab)
+        .collect::<Vec<_>>();
+    merged.extend(runtime_tabs);
+    merged.extend(tail.drain(..).map(|(_, tab)| tab));
+    merged
 }

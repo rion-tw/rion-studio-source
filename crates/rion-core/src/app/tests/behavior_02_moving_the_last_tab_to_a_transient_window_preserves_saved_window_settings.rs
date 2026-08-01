@@ -22,6 +22,47 @@
             };
             let source_id = create_window("Source");
             let target_id = create_window("Target");
+            let dormant_tab_ids = [
+                uuid::Uuid::new_v4().to_string(),
+                uuid::Uuid::new_v4().to_string(),
+                uuid::Uuid::new_v4().to_string(),
+            ];
+            core.invoke(command(json!({
+                "type": "gameWindowUpdate",
+                "id": target_id,
+                "input": {
+                    "tabs": [{
+                        "id": dormant_tab_ids[0],
+                        "tabType": "role",
+                        "sourceId": "saved-role-a",
+                        "name": "Saved A",
+                        "roleIds": ["saved-role-a"],
+                        "hidden": false,
+                        "audioMuted": true,
+                        "roleViews": []
+                    }, {
+                        "id": dormant_tab_ids[2],
+                        "tabType": "role",
+                        "sourceId": "role-source",
+                        "name": "Saved duplicate",
+                        "roleIds": ["role-source"],
+                        "hidden": false,
+                        "audioMuted": false,
+                        "roleViews": []
+                    }, {
+                        "id": dormant_tab_ids[1],
+                        "tabType": "role",
+                        "sourceId": "saved-role-b",
+                        "name": "Saved B",
+                        "roleIds": ["saved-role-b"],
+                        "hidden": false,
+                        "audioMuted": false,
+                        "roleViews": []
+                    }],
+                    "activeTabId": dormant_tab_ids[0]
+                }
+            })))
+            .unwrap();
             let launch_target = |window_id: &str| EmbeddedLaunchTargetRecord {
                 window_id: window_id.to_owned(),
                 display_id: 1,
@@ -84,7 +125,19 @@
                 .iter()
                 .find(|window| window["id"] == target_id)
                 .unwrap();
-            assert_eq!(target["tabs"].as_array().unwrap().len(), 1, "{platform}");
+            let target_sources = target["tabs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tab| tab["sourceId"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                target_sources,
+                ["saved-role-a", "role-source", "saved-role-b"],
+                "{platform}"
+            );
+            assert_eq!(target["tabs"][1]["id"], tab_id, "{platform}");
+            assert_eq!(target["activeTabId"], tab_id, "{platform}");
             let runtime = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
             assert!(
                 runtime["windows"]
@@ -135,8 +188,14 @@
                 .iter()
                 .find(|window| window["id"] == target_id)
                 .unwrap();
-            assert!(
-                saved_target["tabs"].as_array().unwrap().is_empty(),
+            assert_eq!(
+                saved_target["tabs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tab| tab["sourceId"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                ["saved-role-a", "saved-role-b"],
                 "{platform}"
             );
             assert!(

@@ -256,8 +256,14 @@ describe("bulk selection UI", () => {
 
     const startButton = screen.getByRole("button", { name: "Start" });
     const nameLayout = startButton.closest("[data-macro-name-control]");
+    const runLayout = startButton.closest("[data-macro-run-control]");
     const nameButton = screen.getByText("Auto heal").closest("button")!;
     expect(nameLayout).not.toBeNull();
+    expect(nameLayout?.className).toContain("pl-9");
+    expect(runLayout?.className).toContain("absolute");
+    expect(runLayout?.className).toContain("inset-y-0");
+    expect(runLayout?.className).toContain("items-center");
+    expect(runLayout?.closest("td")?.className).toContain("relative");
     expect(startButton.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     const actionLayout = screen.getByRole("button", { name: "Macro actions" }).closest("[data-macro-actions-control]");
     expect(actionLayout?.className).toContain("absolute");

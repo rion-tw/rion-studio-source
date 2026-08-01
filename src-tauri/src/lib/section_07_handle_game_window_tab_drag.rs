@@ -4,6 +4,7 @@ pub(crate) async fn handle_game_window_tab_drag(
     source_window_id: &str,
     action: &Value,
 ) -> Result<bool, CoreErrorPayload> {
+    let deferred_native_commit = tab_drag_defers_native_mutations(cfg!(windows));
     let Some(action_type) = action["type"].as_str() else {
         return Ok(false);
     };
@@ -14,6 +15,7 @@ pub(crate) async fn handle_game_window_tab_drag(
             | "tabDragHover"
             | "tabDragDrop"
             | "tabDragEnd"
+            | "tabDragSourceEnd"
             | "tabDragCancel"
     ) {
         return Ok(false);
@@ -30,8 +32,15 @@ pub(crate) async fn handle_game_window_tab_drag(
     let action_point = matches!(
         action_type,
         "tabDragMove" | "tabDragHover" | "tabDragDrop" | "tabDragEnd"
+            | "tabDragSourceEnd"
     )
-    .then(|| drag_screen_point(app, action))
+    .then(|| {
+        drag_screen_point(
+            app,
+            action,
+            matches!(action_type, "tabDragEnd" | "tabDragSourceEnd"),
+        )
+    })
     .transpose()?;
     if let Some((screen_x, screen_y)) = action_point {
         record_latest_tab_drag_point(state, session_id, screen_x, screen_y)?;
@@ -60,7 +69,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                 .ok_or_else(|| {
                     shell_error("TAURI_TAB_DRAG_INVALID", "Runtime tab ID is required.")
                 })?;
-            let (screen_x, screen_y) = drag_screen_point(app, action)?;
+            let (screen_x, screen_y) = drag_screen_point(app, action, false)?;
             let runtime = state
                 .core
                 .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -123,10 +132,13 @@ pub(crate) async fn handle_game_window_tab_drag(
                 initial_anchor.unwrap_or((tab_width * grab_ratio_x, tab_height * grab_ratio_y)),
             )?;
             let title = tab["name"].as_str().unwrap_or("Rion Studio").to_owned();
-            if let Err(message) = state.runtime.preview_tab_drag_activation(tab_id) {
+            if !deferred_native_commit
+                && let Err(message) = state.runtime.preview_tab_drag_activation(tab_id)
+            {
                 return Err(shell_error("TAURI_TAB_DRAG_FAILED", message));
             }
-            if !single_tab
+            if !deferred_native_commit
+                && !single_tab
                 && let Err(message) = state
                     .runtime
                     .prepare_provisional_game_window(&target, &title)
@@ -146,32 +158,45 @@ pub(crate) async fn handle_game_window_tab_drag(
                 shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned.")
             })? = Some(GameWindowTabDragSession {
                 current_window_id: source_window_id.to_owned(),
+                drop_before_tab_id: None,
+                drop_window_id: None,
                 grab_ratio_x,
                 grab_ratio_y,
                 id: session_id.to_owned(),
                 latest_move_revision: 0,
                 latest_screen_x: screen_x,
                 latest_screen_y: screen_y,
+                native_changes_applied: false,
                 original_target: source.clone(),
-                phase: GameWindowTabDragPhase::Attached,
+                phase: if deferred_native_commit {
+                    GameWindowTabDragPhase::Previewing
+                } else {
+                    GameWindowTabDragPhase::Attached
+                },
                 processed_move_revision: 0,
                 provisional_window_id,
                 single_tab,
                 snapshots,
                 source_window_id: source_window_id.to_owned(),
+                source_cancelled: false,
+                source_drop_accepted: false,
+                source_end_received: false,
                 tab_height,
                 tab_id: tab_id.to_owned(),
                 tab_width,
                 target,
+                title,
                 window_anchor: initial_anchor,
                 window_was_moved: false,
             });
-            if single_tab {
+            if single_tab && !deferred_native_commit {
                 state.runtime.begin_tab_drag_window_motion(source_window_id);
             }
         }
         "tabDragMove" => {
-            if let Err(error) = process_tab_drag_motion(app, state, session_id, None, None) {
+            if !deferred_native_commit
+                && let Err(error) = process_tab_drag_motion(app, state, session_id, None, None)
+            {
                 return Err(abort_tab_drag_motion(state, session_id, error));
             }
         }
@@ -191,13 +216,15 @@ pub(crate) async fn handle_game_window_tab_drag(
                 drag_dimension(action, "tabWidth")?,
                 drag_dimension(action, "tabHeight")?,
             )?;
-            if let Err(error) = process_tab_drag_motion(
-                app,
-                state,
-                session_id,
-                Some(target_window_id),
-                action["beforeTabId"].as_str(),
-            ) {
+            if !deferred_native_commit
+                && let Err(error) = process_tab_drag_motion(
+                    app,
+                    state,
+                    session_id,
+                    Some(target_window_id),
+                    action["beforeTabId"].as_str(),
+                )
+            {
                 return Err(abort_tab_drag_motion(state, session_id, error));
             }
         }
@@ -211,43 +238,86 @@ pub(crate) async fn handle_game_window_tab_drag(
                         "Drop target window ID is required.",
                     )
                 })?;
-            if let Err(error) = process_tab_drag_motion(
-                app,
-                state,
-                session_id,
-                Some(target_window_id),
-                action["beforeTabId"].as_str(),
-            ) {
-                return Err(abort_tab_drag_motion(state, session_id, error));
-            }
-            mark_tab_drag_session_finished(state, session_id)?;
-            let Some(mut session) = take_tab_drag_session(state, session_id)? else {
-                return Ok(true);
-            };
-            session.phase = GameWindowTabDragPhase::Finishing;
-            if let Err(error) = commit_tab_drag_session(state, &session).await {
-                return Err(cancel_tab_drag_preserving_error(state, &session, error));
-            }
-        }
-        "tabDragEnd" => {
-            let cancelled = action["cancelled"].as_bool().unwrap_or(false);
-            if !cancelled
-                && let Err(error) = process_tab_drag_motion(app, state, session_id, None, None)
-            {
-                return Err(abort_tab_drag_motion(state, session_id, error));
-            }
-            mark_tab_drag_session_finished(state, session_id)?;
-            let Some(mut session) = take_tab_drag_session(state, session_id)? else {
-                return Ok(true);
-            };
-            if cancelled {
-                session.phase = GameWindowTabDragPhase::Cancelled;
-                cancel_tab_drag_session_recoverable(state, &session)?;
+            if deferred_native_commit {
+                let ready = record_windows_tab_drag_drop_intent(
+                    state,
+                    session_id,
+                    target_window_id,
+                    action["beforeTabId"].as_str(),
+                )?;
+                if ready {
+                    finish_windows_tab_drag_session(app, state, session_id).await?;
+                }
             } else {
+                if let Err(error) = process_tab_drag_motion(
+                    app,
+                    state,
+                    session_id,
+                    Some(target_window_id),
+                    action["beforeTabId"].as_str(),
+                ) {
+                    return Err(abort_tab_drag_motion(state, session_id, error));
+                }
+                mark_tab_drag_session_finished(state, session_id)?;
+                let Some(mut session) = take_tab_drag_session(state, session_id)? else {
+                    return Ok(true);
+                };
                 session.phase = GameWindowTabDragPhase::Finishing;
                 if let Err(error) = commit_tab_drag_session(state, &session).await {
                     return Err(cancel_tab_drag_preserving_error(state, &session, error));
                 }
+            }
+        }
+        "tabDragEnd" => {
+            let cancelled = action["cancelled"].as_bool().unwrap_or(false);
+            if deferred_native_commit {
+                record_windows_tab_drag_source_end(state, session_id, cancelled, false)?;
+                finish_windows_tab_drag_session(app, state, session_id).await?;
+            } else {
+                if !cancelled
+                    && let Err(error) =
+                        process_tab_drag_motion(app, state, session_id, None, None)
+                {
+                    return Err(abort_tab_drag_motion(state, session_id, error));
+                }
+                mark_tab_drag_session_finished(state, session_id)?;
+                let Some(mut session) = take_tab_drag_session(state, session_id)? else {
+                    return Ok(true);
+                };
+                if cancelled {
+                    session.phase = GameWindowTabDragPhase::Cancelled;
+                    cancel_tab_drag_session_recoverable(state, &session)?;
+                } else {
+                    session.phase = GameWindowTabDragPhase::Finishing;
+                    if let Err(error) = commit_tab_drag_session(state, &session).await {
+                        return Err(cancel_tab_drag_preserving_error(state, &session, error));
+                    }
+                }
+            }
+        }
+        "tabDragSourceEnd" => {
+            if !deferred_native_commit {
+                return Err(shell_error(
+                    "TAURI_TAB_DRAG_INVALID",
+                    "The source-end drag action is only valid for WebView2.",
+                ));
+            }
+            let cancelled = action["cancelled"].as_bool().ok_or_else(|| {
+                shell_error("TAURI_TAB_DRAG_INVALID", "Drag cancellation state is invalid.")
+            })?;
+            let drop_accepted = action["dropAccepted"].as_bool().ok_or_else(|| {
+                shell_error("TAURI_TAB_DRAG_INVALID", "Drag drop state is invalid.")
+            })?;
+            let ready = record_windows_tab_drag_source_end(
+                state,
+                session_id,
+                cancelled,
+                drop_accepted,
+            )?;
+            if ready {
+                finish_windows_tab_drag_session(app, state, session_id).await?;
+            } else {
+                schedule_windows_tab_drag_intent_timeout(app, session_id);
             }
         }
         "tabDragCancel" => {
@@ -261,6 +331,10 @@ pub(crate) async fn handle_game_window_tab_drag(
         _ => unreachable!(),
     }
     Ok(true)
+}
+
+fn tab_drag_defers_native_mutations(is_windows: bool) -> bool {
+    is_windows
 }
 
 fn drag_fraction(action: &Value, field: &str) -> Result<f64, CoreErrorPayload> {
@@ -475,11 +549,18 @@ fn float_tab_drag_session(
             .position_provisional_game_window(&target)
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     }
-    state
-        .runtime
-        .set_tab_drag_window_ignores_cursor(&floating_window_id, true)
-        .and_then(|_| state.runtime.show_tab_drag_window(&floating_window_id))
-        .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    if cfg!(windows) {
+        state
+            .runtime
+            .show_tab_drag_window(&floating_window_id)
+            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    } else {
+        state
+            .runtime
+            .set_tab_drag_window_ignores_cursor(&floating_window_id, true)
+            .and_then(|_| state.runtime.show_tab_drag_window(&floating_window_id))
+            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    }
     session.current_window_id = floating_window_id;
     session.phase = GameWindowTabDragPhase::Floating;
     session.target = target;
@@ -636,7 +717,11 @@ fn tab_drag_rollback_error(
     )
 }
 
-fn drag_screen_point(app: &AppHandle, action: &Value) -> Result<(f64, f64), CoreErrorPayload> {
+fn drag_screen_point(
+    app: &AppHandle,
+    action: &Value,
+    allow_native_cursor: bool,
+) -> Result<(f64, f64), CoreErrorPayload> {
     let screen_x = action["screenX"]
         .as_f64()
         .filter(|value| value.is_finite())
@@ -645,7 +730,7 @@ fn drag_screen_point(app: &AppHandle, action: &Value) -> Result<(f64, f64), Core
         .as_f64()
         .filter(|value| value.is_finite())
         .ok_or_else(|| shell_error("TAURI_TAB_DRAG_INVALID", "Drag screen Y is invalid."))?;
-    if cfg!(windows) {
+    if cfg!(windows) && allow_native_cursor {
         app.cursor_position()
             .map(|point| (point.x, point.y))
             .map_err(|error| shell_error("TAURI_TAB_DRAG_FAILED", error.to_string()))

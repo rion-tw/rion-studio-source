@@ -348,6 +348,17 @@ use super::*;
     }
 
     #[test]
+    fn windows_tab_drag_defers_native_topology_until_source_drag_ends() {
+        assert!(tab_drag_defers_native_mutations(true));
+        assert!(!tab_drag_defers_native_mutations(false));
+
+        assert!(!windows_tab_drag_terminal_ready(false, true, false));
+        assert!(windows_tab_drag_terminal_ready(false, true, true));
+        assert!(windows_tab_drag_terminal_ready(false, false, false));
+        assert!(windows_tab_drag_terminal_ready(true, true, false));
+    }
+
+    #[test]
     fn restore_tab_matching_is_idempotent_and_window_scoped() {
         let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
             "roles": [],

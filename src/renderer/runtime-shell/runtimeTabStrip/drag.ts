@@ -288,16 +288,17 @@ export const dispatchNextDragAction = (): void => {
   runtimeState.dragActionPending = true;
   void invoke("rion_runtime_tab_action", { action })
     .then(() => {
-      if (action.type === "tabDragDrop" || action.type === "tabDragEnd"
+      if (action.type === "tabDragSourceEnd" || action.type === "tabDragEnd"
         || action.type === "tabDragCancel") {
         completeTerminalDragAction(action.sessionId);
       }
     })
     .catch(() => {
-      if ((action.type === "tabDragDrop" || action.type === "tabDragEnd")
+      if ((action.type === "tabDragDrop" || action.type === "tabDragSourceEnd"
+        || action.type === "tabDragEnd")
         && !cancelledDragSessions.has(action.sessionId)) {
         cancelledDragSessions.add(action.sessionId);
-        dragActionQueue.unshift({ type: "tabDragCancel", sessionId: action.sessionId });
+        dispatch({ type: "tabDragCancel", sessionId: action.sessionId });
       }
     })
     .finally(() => {

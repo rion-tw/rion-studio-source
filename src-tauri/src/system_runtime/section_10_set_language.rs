@@ -622,6 +622,7 @@ impl SystemRuntimeExecutor {
         let (window, _) = self
             .ensure_display_host(target, title)
             .map_err(|error| error.message)?;
+        #[cfg(not(windows))]
         window
             .set_ignore_cursor_events(true)
             .map_err(|error| error.to_string())?;

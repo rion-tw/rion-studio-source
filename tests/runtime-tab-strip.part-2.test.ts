@@ -208,6 +208,11 @@ async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 4; index += 1) await Promise.resolve();
 }
 
+async function flushPostedDragAction(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushMicrotasks();
+}
+
 describe("Tauri-owned Windows runtime tab strip", () => {
 it("maps a vertical wheel and drag-edge movement into horizontal scrolling", async () => {
     const geometry = installScrollGeometry(200, 590);
@@ -355,6 +360,15 @@ it("patches drag metadata in place and defers native reorder projections until d
     document.querySelector("#tabs")?.dispatchEvent(drop);
     await flushMicrotasks();
 
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperties(dragEnd, {
+      dataTransfer: { value: { ...dataTransfer, dropEffect: "move" } },
+      screenX: { value: 1_100 },
+      screenY: { value: 240 }
+    });
+    original.dispatchEvent(dragEnd);
+    await flushPostedDragAction();
+
     expect(document.querySelector('[data-tab-id="tab-2"]')).toBe(original);
     expect(Array.from(document.querySelectorAll<HTMLElement>("#tabs button.tab"))
       .map((candidate) => candidate.dataset.tabId)).toEqual([
@@ -447,13 +461,12 @@ it("preserves native grab geometry on the one real HTML drag surface", async () 
     expect(dataTransfer.setDragImage).toHaveBeenCalledWith(
       expect.objectContaining({
         className: expect.stringContaining("drag-proxy"),
-        height: 1,
-        width: 1
+        textContent: expect.stringContaining("四人隊伍")
       }),
-      0,
-      0
+      50,
+      7
     );
-    expect(dataTransfer.setDragImage.mock.calls[0]?.[0]).toBeInstanceOf(HTMLCanvasElement);
+    expect(dataTransfer.setDragImage.mock.calls[0]?.[0]).toBeInstanceOf(HTMLButtonElement);
     const dragSurface = document.querySelector<HTMLElement>(".drag-surface")!;
     expect(dragSurface).toBe(tab);
     expect(dragSurface.classList.contains("active")).toBe(true);
@@ -500,6 +513,7 @@ it("preserves native grab geometry on the one real HTML drag surface", async () 
       screenY: { value: 240 }
     });
     tab.dispatchEvent(dragEnd);
+    await flushPostedDragAction();
     expect(document.querySelector(".drag-preview")).toBeNull();
     expect(document.querySelector(".drag-proxy")).toBeNull();
   });
@@ -593,7 +607,7 @@ it("selects an inactive tab as soon as its drag starts", async () => {
       screenY: { value: 100 }
     });
     tab.dispatchEvent(dragEnd);
-    await Promise.resolve();
+    await flushPostedDragAction();
   });
 
 it("cancels an active drag with Escape and removes its placeholder", async () => {
@@ -622,6 +636,7 @@ it("cancels an active drag with Escape and removes its placeholder", async () =>
       screenY: { value: 80 }
     });
     tab.dispatchEvent(dragEnd);
+    await flushPostedDragAction();
   });
 
 it("does not treat HTML drag pointer handoff as cancellation", async () => {
@@ -650,16 +665,47 @@ it("does not treat HTML drag pointer handoff as cancellation", async () => {
       screenY: { value: 340 }
     });
     tab.dispatchEvent(dragEnd);
-    await flushMicrotasks();
+    expect(invoke.mock.calls.some((call) => (
+      call as unknown as [string, { action: { type: string } }]
+    )[1].action.type === "tabDragSourceEnd")).toBe(false);
+    await flushPostedDragAction();
 
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: expect.objectContaining({
-        type: "tabDragEnd",
+        type: "tabDragSourceEnd",
         cancelled: false,
+        dropAccepted: false,
         screenX: 520,
         screenY: 340
       })
     });
+  });
+
+it("keeps the source tab recoverable while a cross-window drop is being committed", async () => {
+    const tab = document.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;
+    const dataTransfer = dragTransfer();
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 320 },
+      screenY: { value: 240 }
+    });
+    tab.dispatchEvent(dragStart);
+    document.body.dispatchEvent(new Event("dragleave", { bubbles: true }));
+    expect(tab.classList.contains("drag-surface-suspended")).toBe(true);
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperties(dragEnd, {
+      dataTransfer: { value: { ...dataTransfer, dropEffect: "move" } },
+      screenX: { value: 520 },
+      screenY: { value: 340 }
+    });
+    tab.dispatchEvent(dragEnd);
+    await flushPostedDragAction();
+
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBe(tab);
+    expect(tab.classList.contains("drag-surface")).toBe(false);
+    expect(tab.hasAttribute("aria-hidden")).toBe(false);
   });
 
 it("serializes drag lifecycle actions until the previous native action settles", async () => {
@@ -703,5 +749,13 @@ it("serializes drag lifecycle actions until the previous native action settles",
     const dragEnd = new Event("dragend", { bubbles: true });
     Object.defineProperty(dragEnd, "dataTransfer", { value: dataTransfer });
     tab.dispatchEvent(dragEnd);
+    await flushPostedDragAction();
+    expect(invoke).toHaveBeenCalledTimes(3);
+    expect(invoke).toHaveBeenNthCalledWith(3, "rion_runtime_tab_action", {
+      action: expect.objectContaining({
+        type: "tabDragSourceEnd",
+        dropAccepted: true
+      })
+    });
   });
 });

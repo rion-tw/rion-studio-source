@@ -5,21 +5,32 @@ import { useNavigate, useParams } from "react-router";
 import type {
   DisplayInfo,
   DisplayTarget,
+  EmbeddedRuntimeState,
+  Game,
   GameWindow,
   GameWindowPlacement,
-  PixelBounds
+  LaunchWorkspace,
+  PixelBounds,
+  Role
 } from "../../../../shared/types";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { FormField, Surface } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
+import { GameWindowContentPicker } from "./GameWindowContentPicker";
+import { GameWindowTabsPanel } from "./GameWindowTabsPanel";
 
 interface GameWindowEditorRouteProps {
   displays: DisplayInfo[];
   gameWindows: GameWindow[];
+  games: Game[];
   isSaving: boolean;
+  onError: (error: unknown) => void;
+  roles: Role[];
+  runtime: EmbeddedRuntimeState;
   t: Translator;
+  workspaces: LaunchWorkspace[];
   onSave: (input: {
     id?: string;
     name: string;
@@ -63,15 +74,22 @@ export default function GameWindowEditorRoute(props: GameWindowEditorRouteProps)
       />
     );
   }
-  return <GameWindowEditor key={id ?? "new"} {...props} initial={initial} />;
+  return <GameWindowEditor key={id ?? "new"} {...props} initial={initial} selected={selected} />;
 }
 
 function GameWindowEditor({
   displays,
   initial,
   isSaving,
+  onError,
+  roles,
+  runtime,
   t,
-  onSave
+  onSave,
+  selected,
+  games,
+  gameWindows,
+  workspaces
 }: GameWindowEditorRouteProps & {
   initial: {
     id?: string;
@@ -79,10 +97,12 @@ function GameWindowEditor({
     targetDisplay: DisplayTarget;
     placement: GameWindowPlacement;
   };
+  selected?: GameWindow;
 }): JSX.Element {
   const navigate = useNavigate();
   const initialRef = useRef(initial);
   const [form, setForm] = useState(initial);
+  const [addOpen, setAddOpen] = useState(false);
   const isDirty = JSON.stringify(initialRef.current) !== JSON.stringify(form);
   const allowNavigation = useUnsavedChangesGuard(isDirty, useMemo(() => ({
     title: t("confirm.unsaved.title"),
@@ -98,7 +118,7 @@ function GameWindowEditor({
     const saved = await onSave(form);
     if (saved) {
       allowNavigation();
-      navigate("/game-windows", { replace: true });
+      navigate(form.id ? "/game-windows" : `/game-windows/${saved.id}/edit`, { replace: true });
     }
   }
 
@@ -162,6 +182,40 @@ function GameWindowEditor({
           </Select>
         </FormField>
       </Surface>
+      {selected ? (
+        <Surface className="p-4">
+          <GameWindowTabsPanel
+            gameWindow={selected}
+            gameWindows={gameWindows}
+            runtime={runtime}
+            showHeader
+            t={t}
+            onAdd={() => setAddOpen(true)}
+            onError={onError}
+          />
+        </Surface>
+      ) : (
+        <Surface className="grid min-h-28 place-items-center px-4 py-5 text-center" variant="inset">
+          <div>
+            <p className="text-control font-semibold">{t("gameWindows.tabs.createFirstTitle")}</p>
+            <p className="mt-1 text-caption text-muted-foreground">{t("gameWindows.tabs.createFirstDescription")}</p>
+          </div>
+        </Surface>
+      )}
+      {selected && addOpen ? (
+        <GameWindowContentPicker
+          gameWindows={gameWindows}
+          games={games}
+          open
+          roles={roles}
+          runtime={runtime}
+          t={t}
+          targetWindow={selected}
+          workspaces={workspaces}
+          onClose={() => setAddOpen(false)}
+          onError={onError}
+        />
+      ) : null}
     </EditorPage>
   );
 }

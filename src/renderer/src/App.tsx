@@ -672,9 +672,9 @@ export function App(): JSX.Element {
               element={hasBridge ? (
                 <GameWindowsRoute
                   displays={data.displays}
-                  gameWindows={data.gameWindows}
-                  runtime={data.embeddedRuntime}
-                  t={preferences.t}
+                  gameWindows={data.gameWindows} games={data.games}
+                  runtime={data.embeddedRuntime} roles={data.roles}
+                  t={preferences.t} workspaces={data.workspaces}
                   onEdit={navigateToEditGameWindow}
                   onError={data.setError}
                   onNew={navigateToNewGameWindow}
@@ -686,9 +686,11 @@ export function App(): JSX.Element {
               element={hasBridge ? (
                 <GameWindowEditorRoute
                   displays={data.displays}
-                  gameWindows={data.gameWindows}
+                  gameWindows={data.gameWindows} games={data.games}
                   isSaving={isSavingGameWindow}
+                  onError={data.setError} roles={data.roles} runtime={data.embeddedRuntime}
                   t={preferences.t}
+                  workspaces={data.workspaces}
                   onSave={saveGameWindow}
                 />
               ) : <BridgeUnavailable t={preferences.t} />}
@@ -698,9 +700,11 @@ export function App(): JSX.Element {
               element={hasBridge ? (
                 <GameWindowEditorRoute
                   displays={data.displays}
-                  gameWindows={data.gameWindows}
+                  gameWindows={data.gameWindows} games={data.games}
                   isSaving={isSavingGameWindow}
+                  onError={data.setError} roles={data.roles} runtime={data.embeddedRuntime}
                   t={preferences.t}
+                  workspaces={data.workspaces}
                   onSave={saveGameWindow}
                 />
               ) : <BridgeUnavailable t={preferences.t} />}

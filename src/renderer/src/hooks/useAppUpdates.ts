@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppUpdateStatus } from "../../../shared/types";
+import { useGuardedApplicationAction } from "../components/applicationQuitGuardRegistry";
 
 interface UseAppUpdatesOptions {
   enabled: boolean;
@@ -21,6 +22,7 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
   const [appVersion, setAppVersion] = useState("");
   const [status, setStatus] = useState<AppUpdateStatus | null>(null);
   const checkInFlightRef = useRef(false);
+  const requestGuardedAction = useGuardedApplicationAction();
 
   useEffect(() => {
     if (!enabled) {
@@ -84,11 +86,11 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
     }
 
     try {
-      await window.rionStudio.installDownloadedUpdate();
+      await requestGuardedAction(() => window.rionStudio.installDownloadedUpdate());
     } catch (error) {
       onError(error);
     }
-  }, [enabled, onError]);
+  }, [enabled, onError, requestGuardedAction]);
 
   const openUpdateDownload = useCallback(async () => {
     if (!enabled) {

@@ -64,15 +64,29 @@ describe("useAppUpdates", () => {
 
     expect(checkForUpdates).toHaveBeenCalledTimes(2);
   });
+
+  it("delegates installation to the verified native update", async () => {
+    const installDownloadedUpdate = vi.fn().mockResolvedValue(undefined);
+    installBridge(vi.fn().mockResolvedValue(idleStatus), installDownloadedUpdate);
+    const { result } = renderHook(() => useAppUpdates({ enabled: true, onError: vi.fn() }));
+
+    await act(() => result.current.installDownloadedUpdate());
+
+    expect(installDownloadedUpdate).toHaveBeenCalledOnce();
+  });
 });
 
-function installBridge(checkForUpdates: () => Promise<AppUpdateStatus>): void {
+function installBridge(
+  checkForUpdates: () => Promise<AppUpdateStatus>,
+  installDownloadedUpdate = vi.fn().mockResolvedValue(undefined)
+): void {
   Object.defineProperty(window, "rionStudio", {
     configurable: true,
     value: {
       checkForUpdates,
       getAppVersion: vi.fn().mockResolvedValue("1.0.0"),
       getUpdateStatus: vi.fn().mockResolvedValue(idleStatus),
+      installDownloadedUpdate,
       onUpdateStatusChanged: vi.fn(() => vi.fn())
     } as unknown as RionStudioApi
   });

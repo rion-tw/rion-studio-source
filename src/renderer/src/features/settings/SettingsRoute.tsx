@@ -145,7 +145,8 @@ function SettingsViewBase({
   const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
     useState(false);
   const isMacOS = document.documentElement.dataset.platform === "mac";
-  const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
+  const canCheckForUpdates =
+    Boolean(updateStatus?.isPackaged) && !isUpdateBusy && updateStatus?.state !== "downloaded";
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
   const canOpenUpdateDownload =

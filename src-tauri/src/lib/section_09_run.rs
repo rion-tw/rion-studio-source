@@ -113,11 +113,18 @@ pub fn run() {
                 .prime(&app.handle().clone(), "en")
                 .map_err(std::io::Error::other)?;
             let quick_menu = quick_menu::create(&app.handle().clone())?;
+            let legal_accepted = core
+                .invoke(CoreCommand::LegalAcceptanceStatus)
+                .ok()
+                .and_then(|status| status["isAccepted"].as_bool())
+                .unwrap_or(false);
             let updates = Arc::new(update_manager::UpdateManager::new(
                 app.handle().clone(),
                 app.package_info().version.to_string(),
                 &user_data_dir,
+                legal_accepted,
             ));
+            updates.start_automatic_checks();
             let launch_intents = runtime_tab_menu::LaunchIntentDispatcher::start(
                 app.handle().clone(),
                 Arc::clone(&core),
@@ -312,7 +319,7 @@ pub fn run() {
                 tab_drag: Mutex::new(None),
                 tab_drag_finished: Mutex::new(VecDeque::new()),
                 tab_drag_lane: tokio::sync::Mutex::new(()),
-                updates,
+                updates: Arc::clone(&updates),
             });
             if let Some(state) = app.try_state::<CoreState>() {
                 let _ = state.quick_menu_refresh.request(
@@ -431,6 +438,9 @@ pub fn run() {
                         }
                         return;
                     };
+                    if matches!(event, tauri::WindowEvent::Focused(true)) {
+                        state.updates.notify_foregrounded();
+                    }
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } if label == "main" => {
                             api.prevent_close();

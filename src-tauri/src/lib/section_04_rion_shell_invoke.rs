@@ -19,6 +19,7 @@ async fn rion_shell_invoke(
     match operation.as_str() {
         "rendererReady" => {
             startup.mark_renderer_ready();
+            state.updates.mark_renderer_ready();
             window
                 .show()
                 .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
@@ -754,7 +755,7 @@ async fn rion_shell_invoke(
         "updateStatus" => Ok(state.updates.status()),
         "checkForUpdates" => {
             let updates = Arc::clone(&state.updates);
-            Ok(updates.check().await)
+            Ok(updates.check_manual().await)
         }
         "setAutoUpdateEnabled" => {
             let enabled = args.first().and_then(Value::as_bool).ok_or_else(|| {
@@ -774,15 +775,13 @@ async fn rion_shell_invoke(
             .map(|()| Value::Null)
             .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error)),
         "installDownloadedUpdate" => {
-            state
-                .runtime
-                .persist_restore_session(true)
+            prepare_application_update_install(&state)
                 .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
             state
                 .updates
                 .install_downloaded()
                 .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))?;
-            state.application_exit_guard.permit();
+            prepare_application_update_exit(&app);
             app.restart();
         }
         "consumePendingMacroPageRequest" => Ok(state

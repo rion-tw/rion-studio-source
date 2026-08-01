@@ -19,7 +19,12 @@ async fn rion_overlay_request(
             "The overlay request exceeds the allowed size.",
         ));
     }
-    if overlay_request_activates_webview(&payload) {
+    if overlay_request_activates_webview(&payload)
+        && state
+            .runtime
+            .overlay_webview_is_selected(webview.label(), &role_id)
+            .map_err(|message| shell_error("OVERLAY_WEBVIEW_FOCUS_STATE_FAILED", message))?
+    {
         webview.set_focus().map_err(|error| {
             shell_error(
                 "OVERLAY_WEBVIEW_FOCUS_FAILED",

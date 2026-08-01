@@ -257,6 +257,54 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Overlay WebView is not associated with a running role.".to_owned())
     }
 
+    pub fn overlay_webview_is_selected(
+        &self,
+        webview_label: &str,
+        role_id: &str,
+    ) -> Result<bool, String> {
+        let target = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            if state.popup_roles.get(webview_label).map(String::as_str) == Some(role_id) {
+                return Ok(true);
+            }
+            let Some(tab_id) = state.role_tabs.get(role_id) else {
+                return Ok(false);
+            };
+            let Some(tab) = state.tabs.get(tab_id) else {
+                return Ok(false);
+            };
+            let owns_surface = tab.roles.get(role_id).is_some_and(|surface| {
+                surface.webview.label() == webview_label
+                    && !state.close_coordinator.closing_roles.contains(role_id)
+                    && !state
+                        .close_coordinator
+                        .closing_webviews
+                        .contains(webview_label)
+            });
+            if !owns_surface {
+                return Ok(false);
+            }
+            (tab.window_id.clone(), tab_id.clone())
+        };
+        let selected_tab_id = self
+            .presentation
+            .existing(&target.0)
+            .and_then(|presentation| {
+                presentation
+                    .lock()
+                    .ok()
+                    .and_then(|window| window.selected_tab_id.clone())
+            });
+        Ok(overlay_focus_target_is_selected(
+            false,
+            Some(target.1.as_str()),
+            selected_tab_id.as_deref(),
+        ))
+    }
+
     pub fn mark_overlay_ready(&self, webview_label: &str, capability: &str) -> Result<(), String> {
         self.authorize_overlay_request(webview_label, capability)?;
         let inserted = self
@@ -659,4 +707,12 @@ impl SystemRuntimeExecutor {
         );
     }
 
+}
+
+fn overlay_focus_target_is_selected(
+    popup: bool,
+    tab_id: Option<&str>,
+    selected_tab_id: Option<&str>,
+) -> bool {
+    popup || tab_id.is_some_and(|tab_id| Some(tab_id) == selected_tab_id)
 }

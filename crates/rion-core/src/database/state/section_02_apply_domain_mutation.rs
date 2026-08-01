@@ -399,19 +399,30 @@ fn apply_domain_mutation(
                 }
                 Ok(json!({ "deleted": deleted }))
             }
-            StateMutation::GameWindowsSync { windows } => {
-                validate_game_window_collection(&windows)?;
-                transaction
-                    .execute("DELETE FROM game_windows", [])
-                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-                insert_game_windows(
-                    &transaction,
-                    &windows
+            StateMutation::GameWindowsRuntimeSync { windows } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let mut updates = Vec::new();
+                for window in windows {
+                    let Some(ordinal) = game_windows
                         .iter()
-                        .map(json_value)
-                        .collect::<CoreResult<Vec<_>>>()?,
-                )?;
-                serde_json::to_value(windows)
+                        .position(|candidate| candidate.id == window.id)
+                    else {
+                        continue;
+                    };
+                    game_windows[ordinal] = window.clone();
+                    updates.push((ordinal, window));
+                }
+                validate_game_window_collection(&game_windows)?;
+                for (ordinal, window) in &updates {
+                    upsert_game_window(&transaction, &json_value(window)?, *ordinal)?;
+                }
+                serde_json::to_value(
+                    updates
+                        .into_iter()
+                        .map(|(_, window)| window)
+                        .collect::<Vec<_>>(),
+                )
             }
             StateMutation::MacroCreate(input) => {
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;

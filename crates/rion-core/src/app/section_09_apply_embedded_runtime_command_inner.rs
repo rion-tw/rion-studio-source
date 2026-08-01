@@ -163,14 +163,14 @@ impl AppCore {
         let _guard = self.state_mutation_guard()?;
         let game_windows =
             self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
-        let (game_windows, changed) = self.project_game_windows_from_runtime(
+        let game_windows = self.project_game_windows_from_runtime(
             game_windows,
             previous_snapshot,
             snapshot,
             removed_window_ids,
         );
-        if changed {
-            self.mutate_state_under_guard(StateMutation::GameWindowsSync {
+        if !game_windows.is_empty() {
+            self.mutate_state_under_guard(StateMutation::GameWindowsRuntimeSync {
                 windows: game_windows,
             })?;
         }
@@ -183,7 +183,7 @@ impl AppCore {
         previous_snapshot: Option<&crate::model::BrowserRuntimeSnapshot>,
         snapshot: &crate::model::BrowserRuntimeSnapshot,
         _removed_window_ids: &std::collections::HashSet<String>,
-    ) -> (Vec<StateGameWindowRecord>, bool) {
+    ) -> Vec<StateGameWindowRecord> {
         let closing_tabs = self
             .embedded_closing_tabs
             .lock()
@@ -206,7 +206,8 @@ impl AppCore {
             .iter()
             .map(|tab| tab.id.clone())
             .collect::<std::collections::HashSet<_>>();
-        let mut changed = false;
+        let no_previous_live_tabs = std::collections::HashSet::new();
+        let mut updates = Vec::new();
         for runtime_window in &snapshot.windows {
             let Some(game_window) = game_windows
                 .iter_mut()
@@ -235,17 +236,15 @@ impl AppCore {
                     }
                 })
                 .collect::<Vec<_>>();
-            let tabs = match previous_live_tab_ids.as_ref() {
-                Some(previous_live) => merge_runtime_tabs_with_saved(
-                    &game_window.tabs,
-                    runtime_tabs,
-                    previous_live,
-                    &live_tab_ids,
-                ),
-                None => runtime_tabs,
-            };
-            game_window.tabs = tabs;
-            game_window.active_tab_id = runtime_window
+            let tabs = merge_runtime_tabs_with_saved(
+                &game_window.tabs,
+                runtime_tabs,
+                previous_live_tab_ids
+                    .as_ref()
+                    .unwrap_or(&no_previous_live_tabs),
+                &live_tab_ids,
+            );
+            let active_tab_id = runtime_window
                 .active_tab_id
                 .as_ref()
                 .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
@@ -254,12 +253,17 @@ impl AppCore {
                     game_window
                         .active_tab_id
                         .clone()
-                        .filter(|active| game_window.tabs.iter().any(|tab| &tab.id == active))
+                        .filter(|active| tabs.iter().any(|tab| &tab.id == active))
                 });
+            if game_window.tabs == tabs && game_window.active_tab_id == active_tab_id {
+                continue;
+            }
+            game_window.tabs = tabs;
+            game_window.active_tab_id = active_tab_id;
             game_window.updated_at = chrono::Utc::now().to_rfc3339();
-            changed = true;
+            updates.push(game_window.clone());
         }
-        (game_windows, changed)
+        updates
     }
 
     fn publish_embedded_runtime_snapshot(
@@ -318,10 +322,11 @@ impl AppCore {
         &self,
         command: BrowserRuntimeCommand,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        self.invoke_browser_runtime(command)?;
-        let snapshot = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot;
+        // Presentation is previewed by the native shell before this commit runs. Serialize only
+        // the durable runtime mutation so a long topology transition cannot later replace the
+        // browser runtime with a clone that predates this selection.
+        let _sequence = self.embedded_runtime_sequence.acquire()?;
+        let snapshot = self.invoke_browser_runtime(command)?.snapshot;
         self.sync_game_windows_from_runtime(&snapshot, &std::collections::HashSet::new())?;
         Ok(snapshot)
     }

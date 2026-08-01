@@ -108,7 +108,7 @@ pub struct GameWindowPlacementRecord {
     pub presentation: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameWindowRoleViewRecord {
@@ -117,7 +117,7 @@ pub struct GameWindowRoleViewRecord {
     pub browser_zoom_percent: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameWindowTabRecord {
@@ -211,7 +211,7 @@ pub struct StateWorkspaceSlotRecord {
     pub rect: StateNormalizedRectRecord,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateNormalizedRectRecord {
     pub x: f64,

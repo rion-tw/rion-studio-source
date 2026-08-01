@@ -147,7 +147,7 @@ impl SystemRuntimeExecutor {
         abandoned: bool,
     ) {
         let handoff = self.take_shortcut_modifier_handoff(window_id, fallback_tab_id);
-        let reassertion = self.reassert_tab_shortcut_modifiers(&handoff.source_tab_id);
+        let reassertion = self.reassert_shortcut_handoff_keys(&handoff);
         let (phase, level, error) = match reassertion {
             Ok(()) if abandoned => ("abandoned", LogLevel::Debug, None),
             Ok(()) => ("completed", LogLevel::Debug, None),
@@ -200,7 +200,12 @@ impl SystemRuntimeExecutor {
     #[cfg(windows)]
     fn finish_windows_shortcut_modifier_handoff(&self, window_id: &str) {
         let handoff = self.take_shortcut_modifier_handoff(window_id, None);
-        let result = self.release_windows_shortcut_modifiers(&handoff);
+        let release = self.release_windows_shortcut_modifiers(&handoff);
+        let reassertion = self.reassert_shortcut_handoff_keys(&handoff);
+        let result = match (release, reassertion) {
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            (Ok(released), Ok(())) => Ok(released),
+        };
         let (phase, level, error) = match result {
             Ok(true) => ("completed", LogLevel::Debug, None),
             Ok(false) => ("abandoned", LogLevel::Debug, None),
@@ -253,24 +258,44 @@ impl SystemRuntimeExecutor {
             })
     }
 
-    #[cfg(target_os = "macos")]
-    fn reassert_tab_shortcut_modifiers(&self, tab_id: &str) -> RuntimeResult<()> {
-        if tab_id.is_empty() {
-            return Ok(());
+    #[cfg(any(windows, target_os = "macos"))]
+    fn reassert_shortcut_handoff_keys(
+        &self,
+        handoff: &RuntimeShortcutModifierHandoff,
+    ) -> RuntimeResult<()> {
+        let selected_tab_id = self
+            .presentation
+            .existing(&handoff.window_id)
+            .and_then(|presentation| {
+                presentation
+                    .lock()
+                    .ok()
+                    .and_then(|window| window.selected_tab_id.clone())
+            });
+        let mut tab_ids = vec![handoff.source_tab_id.as_str()];
+        if let Some(selected_tab_id) = selected_tab_id.as_deref()
+            && selected_tab_id != handoff.source_tab_id
+        {
+            tab_ids.push(selected_tab_id);
         }
-        let roles = {
+        let mut roles = {
             let state = self.state()?;
-            let Some(tab) = state.tabs.get(tab_id) else {
-                return Ok(());
-            };
-            tab.roles
-                .iter()
-                .map(|(role_id, surface)| (role_id.clone(), surface.webview.clone()))
+            tab_ids
+                .into_iter()
+                .filter(|tab_id| !tab_id.is_empty())
+                .filter_map(|tab_id| state.tabs.get(tab_id))
+                .flat_map(|tab| {
+                    tab.roles
+                        .iter()
+                        .map(|(role_id, surface)| (role_id.clone(), surface.webview.clone()))
+                })
                 .collect::<Vec<_>>()
         };
+        roles.sort_by(|left, right| left.0.cmp(&right.0));
+        roles.dedup_by(|left, right| left.0 == right.0);
         roles.iter().try_for_each(|(role_id, webview)| {
             self.with_role_input_lane(role_id, || {
-                self.reassert_role_shortcut_modifiers_in_lane(role_id, webview)
+                self.reassert_role_keys_in_lane(role_id, webview)
             })
         })
     }
@@ -290,24 +315,10 @@ impl SystemRuntimeExecutor {
             return Ok(false);
         };
         self.with_role_input_lane(role_id, || {
-            let mut first_error = None;
             for effect in shortcut_modifier_release_effects(&handoff.modifier_codes) {
-                if let Err(error) = dispatch_key_effect(&webview, &effect)
-                    && first_error.is_none()
-                {
-                    first_error = Some(error);
-                }
+                dispatch_key_effect(&webview, &effect)?;
             }
-            if let Err(error) = self.reassert_role_shortcut_modifiers_in_lane(role_id, &webview)
-                && first_error.is_none()
-            {
-                first_error = Some(error);
-            }
-            if let Some(error) = first_error {
-                Err(error)
-            } else {
-                Ok(true)
-            }
+            Ok(true)
         })
     }
 

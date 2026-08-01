@@ -183,7 +183,7 @@
     resolvedTheme: "light",
     statuses: []
   };
-  const pendingMacroActions = new Set();
+  const pendingMacroActions = new Map();
   const macroActionTails = new Map();
   let nextPressId = 1;
 

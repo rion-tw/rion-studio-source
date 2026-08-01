@@ -157,10 +157,26 @@
         assert_eq!(effects[1].code, "ControlRight");
         assert!(effects[1].active_codes.is_empty());
         assert!(effects.iter().all(|effect| !effect.suppress_shortcut));
-        assert!(is_tab_shortcut_modifier_code("ControlLeft"));
-        assert!(is_tab_shortcut_modifier_code("ShiftRight"));
-        assert!(!is_tab_shortcut_modifier_code("Digit8"));
-        assert!(!is_tab_shortcut_modifier_code("AltLeft"));
+    }
+
+    #[test]
+    fn overlay_focus_requires_the_requesting_tab_to_still_be_selected() {
+        assert!(overlay_focus_target_is_selected(
+            false,
+            Some("tab-a"),
+            Some("tab-a")
+        ));
+        assert!(!overlay_focus_target_is_selected(
+            false,
+            Some("tab-a"),
+            Some("tab-b")
+        ));
+        assert!(!overlay_focus_target_is_selected(
+            false,
+            Some("tab-a"),
+            None
+        ));
+        assert!(overlay_focus_target_is_selected(true, None, None));
     }
 
     #[cfg(target_os = "macos")]

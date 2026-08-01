@@ -29,7 +29,6 @@ use system_runtime::{RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor};
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
 const OVERLAY_REQUEST_MAX_BYTES: usize = 64 * 1024;
 const SHARED_DATA_DIRECTORY_NAME: &str = "Rion Studio";
-const LEGACY_DATA_DIRECTORY_NAME: &str = "rion-studio";
 const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {

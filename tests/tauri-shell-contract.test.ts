@@ -165,13 +165,12 @@ describe("Tauri shell contract guard", () => {
     expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');
   });
 
-  it("rejects the retired sibling data root before opening AppCore", async () => {
+  it("opens only the canonical data root and ignores the retired sibling", async () => {
     const shell = await readFile("src-tauri/src/lib.rs", "utf8");
-    expect(shell.indexOf("reject_retired_data_root(&data_parent)")).toBeLessThan(
-      shell.indexOf("AppCore::create_with_startup_backup(")
-    );
-    expect(shell).toContain('const LEGACY_DATA_DIRECTORY_NAME: &str = "rion-studio"');
     expect(shell).toContain('const SHARED_DATA_DIRECTORY_NAME: &str = "Rion Studio"');
+    expect(shell).toContain("AppCore::create_with_startup_backup(");
+    expect(shell).not.toContain("LEGACY_DATA_DIRECTORY_NAME");
+    expect(shell).not.toContain("reject_retired_data_root");
   });
 
   it("routes diagnostics exports through the asynchronous core dispatcher", async () => {

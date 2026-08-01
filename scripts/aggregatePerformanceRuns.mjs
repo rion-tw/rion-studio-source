@@ -4,10 +4,12 @@ import process from "node:process";
 
 import {
   aggregatePerformanceSummaries,
+  comparePerformanceNonRegression,
   comparePerformanceSummaries
 } from "./performanceGates.mjs";
 
 const options = parseArguments(process.argv.slice(2));
+const policy = performancePolicy(options.policy);
 const baselinePaths = paths(options.baseline, "--baseline");
 const candidatePaths = paths(options.candidate, "--candidate");
 const baselineRuns = await readRuns(baselinePaths);
@@ -15,12 +17,15 @@ const candidateRuns = await readRuns(candidatePaths);
 const metadata = assertComparableRuns([...baselineRuns, ...candidateRuns]);
 const baseline = aggregatePerformanceSummaries(baselineRuns.map((run) => run.summary));
 const candidate = aggregatePerformanceSummaries(candidateRuns.map((run) => run.summary));
-const comparison = comparePerformanceSummaries(candidate, baseline);
+const comparison = policy === "non-regression"
+  ? comparePerformanceNonRegression(candidate, baseline)
+  : comparePerformanceSummaries(candidate, baseline);
 const outputPath = resolve(options.output ??
   `performance-results/${new Date().toISOString().replaceAll(":", "-")}-${metadata.scenario}-comparison.json`);
 const report = {
   schemaVersion: 2,
   metadata,
+  policy,
   baseline,
   candidate,
   comparison,
@@ -73,4 +78,12 @@ function paths(raw, name) {
   const values = raw?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
   if (values.length !== 3) throw new Error(`${name} requires exactly three comma-separated files.`);
   return values;
+}
+
+function performancePolicy(raw) {
+  const policy = raw ?? "improvement";
+  if (policy !== "improvement" && policy !== "non-regression") {
+    throw new Error("--policy must be improvement or non-regression.");
+  }
+  return policy;
 }

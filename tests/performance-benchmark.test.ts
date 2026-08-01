@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregatePerformanceSummaries,
+  comparePerformanceNonRegression,
   comparePerformanceSummaries
 } from "../scripts/performanceGates.mjs";
 
@@ -210,5 +211,64 @@ describe("performance benchmark release gates", () => {
         medianTreeRssBytes: 1_000
       }
     ).passed).toBe(false);
+  });
+
+  it("accepts at most five percent regression in non-regression mode", () => {
+    const latency = (p95Ms: number) => ({
+      maxMs: p95Ms,
+      p50Ms: p95Ms,
+      p95Ms,
+      sampleCount: 3
+    });
+    const summary = (scale: number) => ({
+      medianNonRendererCpuPercent: 100 * scale,
+      medianNonRendererRssBytes: 1_000 * scale,
+      medianTreeCpuPercent: 100 * scale,
+      medianTreeRssBytes: 1_000 * scale,
+      nonRendererRssGrowthPercent: 5,
+      p95TreeCpuPercent: 200 * scale,
+      p95TreeRssBytes: 2_000 * scale,
+      runtimeTelemetry: {
+        ipcCommand: latency(10 * scale),
+        macroScheduleToDispatch: latency(10 * scale),
+        mainEventLoopDelay: latency(10 * scale),
+        rendererRaf: latency(10 * scale),
+        tabActivation: latency(10 * scale),
+        workspaceLaunch: latency(10 * scale)
+      }
+    });
+
+    const comparison = comparePerformanceNonRegression(summary(1.05), summary(1));
+    expect(comparison.passed).toBe(true);
+    expect(comparison.maximumRegressionPercent).toBe(5);
+    expect(comparison.gates.treeRssRegressionPercent).toBeCloseTo(5);
+    expect(comparePerformanceNonRegression(summary(1.051), summary(1)).passed).toBe(false);
+  });
+
+  it("requires core telemetry samples in non-regression mode", () => {
+    const latency = { maxMs: 1, p50Ms: 1, p95Ms: 1, sampleCount: 1 };
+    const summary = {
+      medianNonRendererCpuPercent: 1,
+      medianNonRendererRssBytes: 1,
+      medianTreeCpuPercent: 1,
+      medianTreeRssBytes: 1,
+      nonRendererRssGrowthPercent: 0,
+      runtimeTelemetry: {
+        ipcCommand: latency,
+        macroScheduleToDispatch: latency,
+        tabActivation: latency
+      }
+    };
+    const baseline = {
+      ...summary,
+      runtimeTelemetry: {
+        ...summary.runtimeTelemetry,
+        tabActivation: { ...latency, sampleCount: 0 }
+      }
+    };
+
+    const comparison = comparePerformanceNonRegression(summary, baseline);
+    expect(comparison.passed).toBe(false);
+    expect(comparison.missingTelemetryMetrics).toEqual(["tabActivation"]);
   });
 });

@@ -201,6 +201,9 @@ jobs:
             cp "${installer}.sig" candidate/Rion.Studio-win.exe.sig
           fi
 
+      - name: Verify release size reduction
+        run: pnpm run check:release-size -- candidate
+
       - name: Upload verified platform candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

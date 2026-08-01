@@ -149,17 +149,6 @@ fn shared_user_data_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<PathBu
         .map_err(|error| error.to_string())
 }
 
-fn reject_retired_data_root(data_parent: &std::path::Path) -> Result<(), rion_core::CoreError> {
-    let retired_root = data_parent.join(LEGACY_DATA_DIRECTORY_NAME);
-    if retired_root.exists() {
-        return Err(rion_core::CoreError::UnsupportedDataVersion(format!(
-            "retired application data was found at {}; move or upgrade it with a supported Rion Studio release before starting this version",
-            retired_root.display()
-        )));
-    }
-    Ok(())
-}
-
 fn error_payload(error: rion_core::CoreError) -> CoreErrorPayload {
     error.payload()
 }

@@ -28,10 +28,9 @@ The Rust core stores metadata in `rion-studio.sqlite3` below the canonical
 `Rion Studio` application-data directory (`~/Library/Application Support/Rion Studio`
 on macOS and `%APPDATA%\\Rion Studio` on Windows).
 
-Before AppCore starts, Rion Studio rejects a retired sibling directory named
-`rion-studio` with `CORE_DATA_VERSION_UNSUPPORTED`. It does not move, delete, or
-replace that data. Use a supported earlier release to upgrade it before starting
-the current application.
+The retired sibling directory named `rion-studio` is ignored. Rion Studio does not
+move, delete, or replace that data; it opens the canonical `Rion Studio` directory
+when present and creates a fresh canonical data root otherwise.
 
 Each role owns an isolated browser directory at:
 

@@ -50,13 +50,6 @@ pub fn run() {
             let user_data_dir = shared_user_data_dir(app)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let app_version = app.package_info().version.to_string();
-            if std::env::var_os("RION_STUDIO_USER_DATA_DIR").is_none() {
-                let data_parent = app
-                    .path()
-                    .data_dir()
-                    .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
-                reject_retired_data_root(&data_parent)?;
-            }
             let core = match AppCore::create_with_startup_backup(
                 AppCoreOptions {
                     app_version: app_version.clone(),

@@ -448,16 +448,21 @@ function MacrosRoute({
                         />
                       </div>
                     </td>
-                    <td className="max-w-[240px] px-4 py-2 align-middle">
-                      <div className="flex min-w-0 items-center gap-2" data-macro-name-control>
-                        <MacroRunButton
-                          macro={macro}
-                          runState={runState}
-                          t={t}
-                          onStartMacro={onStartMacro}
-                          onStopMacro={onStopMacro}
-                        />
-                        <div className="min-w-0 flex-1">
+                    <td className="relative max-w-[240px] px-4 py-2 align-middle">
+                      <div className="min-w-0 pl-9" data-macro-name-control>
+                        <div
+                          className="absolute inset-y-0 left-4 flex items-center"
+                          data-macro-run-control
+                        >
+                          <MacroRunButton
+                            macro={macro}
+                            runState={runState}
+                            t={t}
+                            onStartMacro={onStartMacro}
+                            onStopMacro={onStopMacro}
+                          />
+                        </div>
+                        <div className="min-w-0">
                           <button
                             className={cn(
                               "-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",

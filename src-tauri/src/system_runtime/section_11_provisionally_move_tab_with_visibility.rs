@@ -95,6 +95,46 @@ impl SystemRuntimeExecutor {
                 return Err(self.provisional_move_error(error.to_string(), rollback_errors));
             }
         }
+        #[cfg(windows)]
+        match synchronize_windows_reparented_surfaces(&surfaces, &target_window) {
+            Ok(outcome) => self.record_windows_reparent_sync_event(
+                "tab.reparent-synchronized",
+                "WebView2 surfaces synchronized with the target Game Window after reparenting.",
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                "provisional-move",
+                Ok(&outcome),
+                None,
+            ),
+            Err(failure) => {
+                self.record_windows_reparent_sync_event(
+                    "tab.reparent-sync-failed",
+                    "WebView2 surfaces could not synchronize with the target Game Window.",
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    "provisional-move",
+                    Err(&failure),
+                    None,
+                );
+                let rollback_errors = self.rollback_provisional_tab_move(
+                    tab_id,
+                    &source_window_id,
+                    target_window_id,
+                    &source_window,
+                    &target_window,
+                    &surfaces,
+                    surfaces.len(),
+                    false,
+                    &native_move,
+                    tab_was_visible,
+                    source_window_was_visible,
+                    target_window_was_visible,
+                );
+                return Err(self.provisional_move_error(failure.message, rollback_errors));
+            }
+        }
         let (source_is_empty, moved_surfaces) = {
             let mut state = match self.state.lock() {
                 Ok(state) => state,
@@ -371,6 +411,35 @@ impl SystemRuntimeExecutor {
             for surface in surfaces.iter().take(reparent_attempted).rev() {
                 if let Err(error) = surface.reparent(source_window) {
                     errors.push(format!("reparent {}: {error}", surface.label()));
+                }
+            }
+            #[cfg(windows)]
+            {
+                let rollback_surfaces = &surfaces[..reparent_attempted.min(surfaces.len())];
+                match synchronize_windows_reparented_surfaces(rollback_surfaces, source_window) {
+                    Ok(outcome) => self.record_windows_reparent_sync_event(
+                        "tab.reparent-sync-rolled-back",
+                        "WebView2 surfaces synchronized with their source Game Window during rollback.",
+                        tab_id,
+                        target_window_id,
+                        source_window_id,
+                        "provisional-rollback",
+                        Ok(&outcome),
+                        Some(errors.len()),
+                    ),
+                    Err(failure) => {
+                        errors.push(format!("reparent sync: {}", failure.message));
+                        self.record_windows_reparent_sync_event(
+                            "tab.reparent-sync-rolled-back",
+                            "WebView2 surfaces did not fully synchronize with their source Game Window during rollback.",
+                            tab_id,
+                            target_window_id,
+                            source_window_id,
+                            "provisional-rollback",
+                            Err(&failure),
+                            Some(errors.len()),
+                        );
+                    }
                 }
             }
         }

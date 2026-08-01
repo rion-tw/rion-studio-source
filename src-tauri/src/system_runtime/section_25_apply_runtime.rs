@@ -68,6 +68,11 @@ impl SystemRuntimeExecutor {
         let presentation_before = self.presentation.snapshot_states().map_err(|message| {
             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
         })?;
+        let visible_surface_labels = presentation_before
+            .values()
+            .flat_map(|state| state.surfaces(state.selected_tab_id.as_deref()))
+            .map(|surface| surface.label().to_owned())
+            .collect::<HashSet<_>>();
         let host_plan =
             resolve_runtime_tab_host_plan(&snapshot, &live_windows, focus_window_ids, focus_tab_id);
         let tab_updates = {
@@ -98,7 +103,7 @@ impl SystemRuntimeExecutor {
                 .collect::<Vec<_>>()
         };
 
-        let mut reparented_surfaces = Vec::<(Webview, Window)>::new();
+        let mut reparented_surfaces = Vec::<RuntimeReparentedSurface>::new();
         for update in &tab_updates {
             if update.moved {
                 let window = self.window_for_id(&update.window_id).ok_or_else(|| {
@@ -117,24 +122,74 @@ impl SystemRuntimeExecutor {
                         })?;
                 for surface in &update.surfaces {
                     if let Err(error) = surface.hide() {
-                        for (moved_surface, original_window) in reparented_surfaces.iter().rev() {
-                            let _ = moved_surface.reparent(original_window);
-                        }
+                        let rollback_errors =
+                            self.rollback_runtime_reparented_surfaces(&reparented_surfaces);
                         if let Some((window_id, created)) = &ensured_target_host {
                             self.remove_empty_display_host(window_id, *created);
                         }
-                        return Err(RuntimeError::tauri(error));
+                        return Err(self.runtime_reparent_failure(
+                            RuntimeError::tauri(error),
+                            rollback_errors,
+                        ));
                     }
+                    reparented_surfaces.push(RuntimeReparentedSurface {
+                        source_window: source_window.clone(),
+                        #[cfg(windows)]
+                        source_window_id: update.source_window_id.clone(),
+                        surface: surface.clone(),
+                        tab_id: update.tab_id.clone(),
+                        #[cfg(windows)]
+                        target_window_id: update.window_id.clone(),
+                        was_visible: visible_surface_labels.contains(surface.label()),
+                    });
                     if let Err(error) = surface.reparent(&window) {
-                        for (moved_surface, original_window) in reparented_surfaces.iter().rev() {
-                            let _ = moved_surface.reparent(original_window);
-                        }
+                        let rollback_errors =
+                            self.rollback_runtime_reparented_surfaces(&reparented_surfaces);
                         if let Some((window_id, created)) = &ensured_target_host {
                             self.remove_empty_display_host(window_id, *created);
                         }
-                        return Err(RuntimeError::tauri(error));
+                        return Err(self.runtime_reparent_failure(
+                            RuntimeError::tauri(error),
+                            rollback_errors,
+                        ));
                     }
-                    reparented_surfaces.push((surface.clone(), source_window.clone()));
+                }
+                #[cfg(windows)]
+                match synchronize_windows_reparented_surfaces(&update.surfaces, &window) {
+                    Ok(outcome) => self.record_windows_reparent_sync_event(
+                        "tab.reparent-synchronized",
+                        "WebView2 surfaces synchronized with the target Game Window after reparenting.",
+                        &update.tab_id,
+                        &update.source_window_id,
+                        &update.window_id,
+                        "topology-reconciled",
+                        Ok(&outcome),
+                        None,
+                    ),
+                    Err(failure) => {
+                        self.record_windows_reparent_sync_event(
+                            "tab.reparent-sync-failed",
+                            "WebView2 surfaces could not synchronize with the target Game Window.",
+                            &update.tab_id,
+                            &update.source_window_id,
+                            &update.window_id,
+                            "topology-reconciled",
+                            Err(&failure),
+                            None,
+                        );
+                        let rollback_errors =
+                            self.rollback_runtime_reparented_surfaces(&reparented_surfaces);
+                        if let Some((window_id, created)) = &ensured_target_host {
+                            self.remove_empty_display_host(window_id, *created);
+                        }
+                        return Err(self.runtime_reparent_failure(
+                            RuntimeError::new(
+                                "SYSTEM_WEBVIEW_REPARENT_SYNC_FAILED",
+                                failure.message,
+                            ),
+                            rollback_errors,
+                        ));
+                    }
                 }
             }
         }

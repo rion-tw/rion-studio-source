@@ -27,6 +27,7 @@ include!("system_runtime/section_21_refresh_local_storage_sync_metadata.rs");
 include!("system_runtime/section_22_with_native_creation_lane.rs");
 include!("system_runtime/section_23_create_tab.rs");
 include!("system_runtime/section_24_start_role_loads.rs");
+include!("system_runtime/section_25_reparent_rollback.rs");
 include!("system_runtime/section_25_apply_runtime.rs");
 include!("system_runtime/section_26_sync_native_tab_metadata.rs");
 include!("system_runtime/section_27_add_child_bounded.rs");

@@ -575,6 +575,7 @@ it("rolls back every provisional move stage and surfaces compensation errors", a
     );
     const hidePhase = move.indexOf("for surface in &surfaces");
     const reparentPhase = move.indexOf("for (index, surface) in surfaces.iter().enumerate()");
+    const reparentSyncPhase = move.indexOf("synchronize_windows_reparented_surfaces(");
     const stateCommit = move.indexOf("tab.window_id = target_window_id.to_owned()");
     const presentationCommit = move.indexOf("let selected_tabs_after_move");
     const nativeRelocation = move.indexOf(
@@ -583,7 +584,8 @@ it("rolls back every provisional move stage and surfaces compensation errors", a
     const revealPhase = move.indexOf("let reveal_result");
     expect(hidePhase).toBeGreaterThan(-1);
     expect(reparentPhase).toBeGreaterThan(hidePhase);
-    expect(stateCommit).toBeGreaterThan(reparentPhase);
+    expect(reparentSyncPhase).toBeGreaterThan(reparentPhase);
+    expect(stateCommit).toBeGreaterThan(reparentSyncPhase);
     expect(presentationCommit).toBeGreaterThan(stateCommit);
     expect(nativeRelocation).toBeGreaterThan(presentationCommit);
     expect(revealPhase).toBeGreaterThan(nativeRelocation);
@@ -601,6 +603,8 @@ it("rolls back every provisional move stage and surfaces compensation errors", a
     expect(rollback).toContain("self.relocate_native_tab_reservation(");
     expect(rollback).toContain('"native tab rollback: {}"');
     expect(rollback).toContain('"provisional-rollback"');
+    expect(rollback).toContain("synchronize_windows_reparented_surfaces(");
+    expect(rollback).toContain('"tab.reparent-sync-rolled-back"');
     expect(rollback).not.toMatch(/let _ = surface\.(hide|show|reparent)/);
     expect(runtime).toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
   });

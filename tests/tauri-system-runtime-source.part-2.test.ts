@@ -85,6 +85,15 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(nativeMacTabs).toContain("controller.update_metadata(");
     expect(nativeMacTabs).not.toContain("controller.update(");
     expect(applyRuntime).toContain("surface.reparent(&window)");
+    expect(applyRuntime).toContain("synchronize_windows_reparented_surfaces(");
+    expect(applyRuntime).toContain('"tab.reparent-synchronized"');
+    expect(applyRuntime).toContain('"tab.reparent-sync-failed"');
+    expect(applyRuntime.indexOf("surface.reparent(&window)")).toBeLessThan(
+      applyRuntime.indexOf("synchronize_windows_reparented_surfaces(")
+    );
+    expect(applyRuntime.indexOf("synchronize_windows_reparented_surfaces(")).toBeLessThan(
+      applyRuntime.indexOf("let (obsolete_window_ids, moved_registry_surfaces)")
+    );
     expect(applyRuntime).toContain("move_tab_with_activation(");
     expect(applyRuntime).toContain("relocate_native_tab_reservation(");
     expect(applyRuntime).toContain("try_ensure_native_tab(");
@@ -106,6 +115,20 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("&setup_stage,");
     expect(runtime).toContain("record_presentation_event_with_error(");
     expect(runtime).toContain("completion.error.as_ref()");
+    expect(runtime).toContain("WINDOWS_REPARENT_SYNC_TIMEOUT");
+    expect(runtime).toContain("controller.ParentWindow(&mut controller_parent)");
+    expect(runtime).toContain("GetAncestor(controller_parent, GA_ROOT)");
+    expect(runtime).toContain("controller.NotifyParentWindowPositionChanged()");
+    expect(runtime).not.toContain("controller.SetParentWindow(");
+    const reparentRollback = runtime.slice(
+      runtime.indexOf("fn rollback_runtime_reparented_surfaces("),
+      runtime.indexOf("fn runtime_reparent_failure(")
+    );
+    expect(reparentRollback).toContain("moved.surface.reparent(&moved.source_window)");
+    expect(reparentRollback).toContain("synchronize_windows_reparented_surfaces(");
+    expect(reparentRollback).toContain("self.layout_runtime_tab(&moved.tab_id)");
+    expect(reparentRollback).toContain("moved.surface.show()");
+    expect(reparentRollback).toContain("self.health.mark_unhealthy()");
 
     const closeRuntimeWindow = runtime.slice(
       runtime.indexOf("pub(crate) fn begin_window_close_requested("),

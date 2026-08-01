@@ -43,7 +43,7 @@ use crate::{
         GameBrowserSettingsRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
         MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
-        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        MacroInputEpochRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
         OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
         RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
         StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
@@ -369,6 +369,7 @@ pub struct AppCore {
         RwLock<std::collections::HashMap<String, crate::model::SystemWebViewIssueReason>>,
     embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
+    embedded_selection_revisions: Mutex<std::collections::HashMap<String, u64>>,
     instance_lock: Mutex<Option<File>>,
     macro_runtime: Arc<MacroRuntime>,
     log_capture: Mutex<crate::log_capture::LogCaptureRuntime>,
@@ -522,6 +523,7 @@ impl AppCore {
             embedded_runtime_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
             ),
+            embedded_selection_revisions: Mutex::new(std::collections::HashMap::new()),
             embedded_window_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
             ),

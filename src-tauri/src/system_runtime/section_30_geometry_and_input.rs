@@ -436,6 +436,14 @@ struct ClickPoint {
     y: i64,
 }
 
+struct ClickActionDispatch<'a> {
+    anchor: Option<&'a str>,
+    unit: &'a str,
+    x: f64,
+    y: f64,
+    button: &'a str,
+}
+
 fn resolve_modifier_codes(modifiers: &[String], macos: bool) -> RuntimeResult<Vec<String>> {
     let mut result = Vec::new();
     for modifier in modifiers {

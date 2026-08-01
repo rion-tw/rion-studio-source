@@ -119,6 +119,8 @@ impl SystemRuntimeExecutor {
             resolved_theme: Mutex::new("light".to_owned()),
             last_performance_diagnostics: Mutex::new(None),
             launch_effect_sender: OnceLock::new(),
+            input_effect_sender: OnceLock::new(),
+            input_effect_lanes: Mutex::new(HashMap::new()),
             last_critical_activity: Mutex::new(Instant::now()),
             input_dispatch_lanes: Mutex::new(HashMap::new()),
             local_storage_sync_lane: Mutex::new(()),
@@ -261,7 +263,86 @@ impl SystemRuntimeExecutor {
                 })
                 .map_err(|error| error.to_string())?;
         }
+
+        let (input_sender, input_receiver) = mpsc::sync_channel(128);
+        self.input_effect_sender
+            .set(input_sender)
+            .map_err(|_| "The browser input effect executor was already started.".to_owned())?;
+        let runtime = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("rion-native-input-dispatch".to_owned())
+            .spawn(move || {
+                while let Ok(work) = input_receiver.recv() {
+                    let Some(runtime) = runtime.upgrade() else {
+                        return;
+                    };
+                    runtime.dispatch_role_input_work(work);
+                }
+            })
+            .map_err(|error| error.to_string())?;
         Ok(())
+    }
+
+    fn dispatch_role_input_work(self: &Arc<Self>, work: ConcurrentRuntimeWork) {
+        let role_id = match &work.effect.action {
+            CoreEffectAction::BrowserAction { request } => request.role_id.clone(),
+            _ => {
+                self.reject_input_work(work, "A non-input effect entered the role input lane.");
+                return;
+            }
+        };
+        let sender = self.input_effect_lanes.lock().ok().and_then(|mut lanes| {
+            if let Some(sender) = lanes.get(&role_id) {
+                return Some(sender.clone());
+            }
+            let (sender, receiver) = mpsc::sync_channel::<ConcurrentRuntimeWork>(32);
+            let runtime = Arc::downgrade(self);
+            let sequence = ROLE_INPUT_WORKER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            if std::thread::Builder::new()
+                .name(format!("rion-native-role-input-{sequence}"))
+                .spawn(move || {
+                    while let Ok(work) = receiver.recv() {
+                        let Some(runtime) = runtime.upgrade() else {
+                            return;
+                        };
+                        runtime.execute_effect_work(
+                            work.action_name,
+                            work.effect,
+                            work.presentation_revision,
+                            work.persist_runtime,
+                        );
+                    }
+                })
+                .is_err()
+            {
+                return None;
+            }
+            lanes.insert(role_id.clone(), sender.clone());
+            Some(sender)
+        });
+        let Some(sender) = sender else {
+            self.reject_input_work(work, "The per-role input executor could not be started.");
+            return;
+        };
+        if let Err(error) = sender.try_send(work) {
+            let work = match error {
+                mpsc::TrySendError::Full(work) | mpsc::TrySendError::Disconnected(work) => work,
+            };
+            self.reject_input_work(work, "The per-role input queue is full or stopped.");
+        }
+    }
+
+    fn reject_input_work(&self, work: ConcurrentRuntimeWork, message: &str) {
+        let _ = self.core.dispatch_core_effect_results(vec![CoreEffectResult {
+            effect_id: work.effect.effect_id,
+            operation_id: work.effect.operation_id,
+            ok: false,
+            value_json: None,
+            error: Some(rion_core::CoreErrorPayload {
+                code: "SYSTEM_TRUSTED_INPUT_QUEUE_UNAVAILABLE".to_owned(),
+                message: message.to_owned(),
+            }),
+        }]);
     }
 
     pub fn enqueue_effect(
@@ -273,12 +354,16 @@ impl SystemRuntimeExecutor {
         let presentation_revision = self.presentation.current_revision();
         if is_surface_close_effect(&effect.action)
             || is_independent_tab_launch_effect(&effect.action)
+            || is_browser_action_effect(&effect.action)
         {
+            let input_effect = is_browser_action_effect(&effect.action);
             self.mark_critical_activity();
             let effect_id = effect.effect_id.clone();
             let operation_id = effect.operation_id.clone();
             let sender = if is_surface_close_effect(&effect.action) {
                 self.close_effect_sender.get()
+            } else if is_browser_action_effect(&effect.action) {
+                self.input_effect_sender.get()
             } else {
                 self.launch_effect_sender.get()
             };
@@ -299,6 +384,17 @@ impl SystemRuntimeExecutor {
                         })
                 });
             return enqueue.or_else(|error| {
+                    let (code, message) = if input_effect {
+                        (
+                            "SYSTEM_TRUSTED_INPUT_QUEUE_UNAVAILABLE",
+                            "The native input dispatcher could not accept work",
+                        )
+                    } else {
+                        (
+                            "SYSTEM_SURFACE_CLOSE_WORKER_FAILED",
+                            "The native surface close or launch worker could not accept work",
+                        )
+                    };
                     self.core
                         .dispatch_core_effect_results(vec![CoreEffectResult {
                             effect_id,
@@ -306,10 +402,8 @@ impl SystemRuntimeExecutor {
                             ok: false,
                             value_json: None,
                             error: Some(rion_core::CoreErrorPayload {
-                                code: "SYSTEM_SURFACE_CLOSE_WORKER_FAILED".to_owned(),
-                                message: format!(
-                                    "The native surface close or launch worker could not accept work: {error}"
-                                ),
+                                code: code.to_owned(),
+                                message: format!("{message}: {error}"),
                             }),
                         }])
                         .map(|_| ())

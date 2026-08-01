@@ -20,6 +20,7 @@ import type { LayoutRect } from "./LayoutRect";
 import type { LogPageRecord } from "./LogPageRecord";
 import type { LogStorageStatusRecord } from "./LogStorageStatusRecord";
 import type { MacroOverlayViewModelRecord } from "./MacroOverlayViewModelRecord";
+import type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
 import type { MacroRunStatus } from "./MacroRunStatus";
 import type { MacroSettingsRecord } from "./MacroSettingsRecord";
 import type { OperationCancelResultRecord } from "./OperationCancelResultRecord";
@@ -116,6 +117,9 @@ type TypedCoreCommandResultMap = {
   portableApply: PortableImportResultRecord;
   macroStart: MacroRunStatus[];
   macroPress: MacroRunStatus[];
+  macroInputFence: MacroInputEpochRecord;
+  macroInputDrain: MacroInputEpochRecord;
+  macroInputResume: MacroInputEpochRecord;
   macroStatuses: MacroRunStatus[];
   layoutResolve: WorkspaceLayoutOutput;
   layoutNormalizeRects: LayoutRect[];
@@ -133,6 +137,7 @@ type TypedCoreCommandResultMap = {
   embeddedSystemSurfaceRecovered: BrowserRoleStatusRecord[];
   embeddedWindowsShow: BrowserRuntimeSnapshot;
   embeddedTabActivate: BrowserRuntimeSnapshot;
+  embeddedTabActivateConditional: BrowserRuntimeSnapshot;
   embeddedTabActivateAdjacent: BrowserRuntimeSnapshot;
   embeddedTabHide: BrowserRuntimeSnapshot;
   embeddedTabReorder: BrowserRuntimeSnapshot;

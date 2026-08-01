@@ -266,6 +266,9 @@ impl MacroRuntime {
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
             inner.stopping_role_ids.insert(role_id.to_owned());
+            inner.quiesced_role_ids.insert(role_id.to_owned());
+            let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+            *epoch = epoch.saturating_add(1);
             inner
                 .invocations
                 .values()
@@ -280,7 +283,69 @@ impl MacroRuntime {
     pub fn allow_role_after_launch(&self, role_id: &str) {
         if let Ok(mut inner) = self.shared.inner.lock() {
             inner.stopping_role_ids.remove(role_id);
+            inner.quiesced_role_ids.remove(role_id);
+            let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+            *epoch = epoch.saturating_add(1);
         }
+    }
+
+    pub fn fence_role_input(&self, role_id: &str) -> CoreResult<u64> {
+        let (epoch, controls) = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            inner.quiesced_role_ids.insert(role_id.to_owned());
+            let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+            *epoch = epoch.saturating_add(1);
+            let current = *epoch;
+            let controls = inner
+                .invocations
+                .values()
+                .filter(|control| control.role_ids.contains(role_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            (current, controls)
+        };
+        controls.iter().for_each(|control| cancel_control(control));
+        Ok(epoch)
+    }
+
+    pub fn drain_role_input(&self, role_id: &str, input_epoch: u64) -> CoreResult<bool> {
+        let controls = {
+            let inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            if inner.input_epochs.get(role_id).copied().unwrap_or_default() != input_epoch {
+                return Ok(false);
+            }
+            inner
+                .invocations
+                .values()
+                .filter(|control| control.role_ids.contains(role_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        cancel_and_wait_all(&controls)?;
+        Ok(self.shared.inner.lock().is_ok_and(|inner| {
+            inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch
+        }))
+    }
+
+    pub fn resume_role_input(&self, role_id: &str, input_epoch: u64) -> CoreResult<bool> {
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let current = inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch;
+        if current && !inner.stopping_role_ids.contains(role_id) {
+            inner.quiesced_role_ids.remove(role_id);
+        }
+        Ok(current)
     }
 
     pub fn release_role(&self, role_id: &str) -> CoreResult<()> {
@@ -456,6 +521,8 @@ impl MacroRuntime {
             inner.early_releases.clear();
             inner.mutation_leases.clear();
             inner.mutating_macro_ids.clear();
+            inner.input_epochs.clear();
+            inner.quiesced_role_ids.clear();
             inner.stopping_role_ids.clear();
             inner.statuses.clear();
         }
@@ -539,9 +606,10 @@ impl MacroRuntime {
                     message: "The macro is being changed and cannot be started.".to_owned(),
                 });
             }
-            if roles
-                .iter()
-                .any(|role_id| inner.stopping_role_ids.contains(role_id))
+            if roles.iter().any(|role_id| {
+                inner.stopping_role_ids.contains(role_id)
+                    || inner.quiesced_role_ids.contains(role_id)
+            })
             {
                 return Err(CoreError::Domain {
                     code: "MACRO_ROLE_STOPPING",

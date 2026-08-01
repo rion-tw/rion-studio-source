@@ -601,10 +601,12 @@ impl AppCore {
                 self.macro_runtime.stop_role(&role_id)?;
                 Ok(json!({ "stopped": true }))
             }
-            CoreCommand::MacroReleaseRole { role_id } => {
-                self.macro_runtime.release_role(&role_id)?;
-                Ok(json!({ "released": true }))
-            }
+            CoreCommand::MacroReleaseRole { role_id } => self.release_macro_role(role_id),
+            CoreCommand::MacroInputFence { role_id } => self.macro_input_fence(role_id),
+            CoreCommand::MacroInputDrain { role_id, input_epoch } =>
+                self.macro_input_drain(role_id, input_epoch),
+            CoreCommand::MacroInputResume { role_id, input_epoch } =>
+                self.macro_input_resume(role_id, input_epoch),
             CoreCommand::MacroStatuses => serde_json::to_value(self.macro_runtime.statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::OperationCancel { operation_id } => {
@@ -680,6 +682,11 @@ impl AppCore {
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::EmbeddedTabActivateConditional {
+                tab_id,
+                window_id,
+                selection_revision,
+            } => self.conditional_embedded_tab_activation(tab_id, window_id, selection_revision),
             CoreCommand::EmbeddedTabActivateAdjacent {
                 window_id,
                 direction,

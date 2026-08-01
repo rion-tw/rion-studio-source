@@ -10,3 +10,4 @@ include!("behavior_05_failed_embedded_stop_keeps_the_close_intent_and_stopping_p
 include!(
     "behavior_06_authoritative_events_leave_core_threads_before_waiting_for_queue_capacity.rs"
 );
+include!("behavior_07_conditional_tab_activation_noops_after_cross_window_move.rs");

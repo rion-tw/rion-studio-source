@@ -306,6 +306,68 @@ fn call_system_devtools(webview: &Webview, method: &str, params: &Value) -> Runt
 }
 
 #[cfg(windows)]
+fn call_system_input_devtools(
+    webview: &Webview,
+    method: &str,
+    params: &Value,
+    context: &InputDispatchContext,
+) -> RuntimeResult<String> {
+    use webview2_com::{
+        CallDevToolsProtocolMethodCompletedHandler, Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    };
+    use windows::core::HSTRING;
+
+    context.ensure_current()?;
+    let method = HSTRING::from(method);
+    let params = HSTRING::from(serde_json::to_string(params).map_err(|error| {
+        RuntimeError::new("BROWSER_DEBUGGER_PARAMS_INVALID", error.to_string())
+    })?);
+    let submission = NativeInputSubmissionGuard::new(context);
+    let callback_submission = submission.clone();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let request_sender = sender.clone();
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            if !callback_submission.claim() {
+                let _ = request_sender.send(None);
+                return;
+            }
+            let completion_sender = request_sender.clone();
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                move |status, value| {
+                    let _ = completion_sender.send(Some(
+                        status.map(|()| value).map_err(|error| error.to_string()),
+                    ));
+                    Ok(())
+                },
+            ));
+            let result = platform_webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core: ICoreWebView2| {
+                    core.CallDevToolsProtocolMethod(&method, &params, &handler)
+                });
+            if let Err(error) = result {
+                let _ = request_sender.send(Some(Err(error.to_string())));
+            }
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT)) {
+        Ok(Some(result)) => {
+            result.map_err(|message| RuntimeError::new("BROWSER_DEBUGGER_FAILED", message))
+        }
+        Ok(None) => {
+            context.ensure_current()?;
+            Err(RuntimeError::new(
+                "BROWSER_ACTION_STALE",
+                "Browser action was rejected before WebView2 input submission.",
+            ))
+        }
+        Err(_) => Err(submission.timeout_error()),
+    }
+}
+
+#[cfg(windows)]
 fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
     use windows::core::Interface;

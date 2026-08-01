@@ -362,6 +362,22 @@ pub enum CoreCommand {
         #[ts(rename = "roleId")]
         role_id: String,
     },
+    MacroInputFence {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    MacroInputDrain {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "inputEpoch")]
+        input_epoch: u64,
+    },
+    MacroInputResume {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "inputEpoch")]
+        input_epoch: u64,
+    },
     MacroStatuses,
     OperationCancel {
         #[ts(rename = "operationId")]
@@ -415,6 +431,14 @@ pub enum CoreCommand {
     EmbeddedTabActivate {
         #[ts(rename = "tabId")]
         tab_id: String,
+    },
+    EmbeddedTabActivateConditional {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "windowId")]
+        window_id: String,
+        #[ts(type = "number", rename = "selectionRevision")]
+        selection_revision: u64,
     },
     EmbeddedTabActivateAdjacent {
         #[ts(rename = "windowId")]

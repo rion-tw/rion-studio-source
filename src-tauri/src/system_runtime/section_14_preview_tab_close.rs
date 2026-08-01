@@ -220,16 +220,23 @@ impl SystemRuntimeExecutor {
         );
     }
 
-    pub(crate) fn tab_selection_is_desired(&self, window_id: &str, tab_id: &str) -> bool {
+    pub(crate) fn tab_selection_revision(&self, window_id: &str, tab_id: &str) -> Option<u64> {
         self.presentation
             .existing(window_id)
             .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .map(|window| window.selected_tab_id.as_deref() == Some(tab_id))
+                presentation.lock().ok().and_then(|window| {
+                    (window.selected_tab_id.as_deref() == Some(tab_id)).then_some(window.revision)
+                })
             })
-            .unwrap_or(false)
+    }
+
+    pub(crate) fn tab_selection_is_desired(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        selection_revision: u64,
+    ) -> bool {
+        self.tab_selection_revision(window_id, tab_id) == Some(selection_revision)
     }
 
     fn snapshot_with_native_tab_locations(

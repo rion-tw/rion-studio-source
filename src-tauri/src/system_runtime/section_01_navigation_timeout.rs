@@ -25,6 +25,7 @@ use rion_core::{
     GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
+    MacroInputEpochRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
@@ -74,6 +75,7 @@ static POPUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn point_in_runtime_tab_control_row(

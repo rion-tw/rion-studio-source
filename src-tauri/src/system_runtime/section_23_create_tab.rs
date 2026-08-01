@@ -244,12 +244,21 @@ impl SystemRuntimeExecutor {
                 let callback_navigation = Arc::clone(&navigation);
                 let role_label =
                     runtime_label("game-role", &format!("{role_id}:generation-{generation}"));
+                let navigation_app = self.app.clone();
+                let navigation_label = role_label.clone();
                 let paths = role_session_paths(&self.user_data_dir, &role_id)?;
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
                 let (builder, high_refresh_rate_status) =
                     self.role_webview_builder(role_label, &paths, &role_id)?;
                 let mut builder = builder.on_page_load(move |_webview, payload| {
                     callback_navigation.page_event(payload.event(), payload.url());
+                    if payload.event() == PageLoadEvent::Finished
+                        && let Some(state) = navigation_app.try_state::<crate::CoreState>()
+                    {
+                        state
+                            .runtime
+                            .finish_navigation_page(&navigation_label, payload.url());
+                    }
                 });
                 if let Some(config) = sync_config.as_ref() {
                     builder = builder.initialization_script_for_all_frames(
@@ -388,6 +397,7 @@ impl SystemRuntimeExecutor {
                         },
                     );
                 }
+                self.set_role_input_surface(&role_id, generation, true, true)?;
                 let selected = self
                     .presentation
                     .existing(&target.window_id)

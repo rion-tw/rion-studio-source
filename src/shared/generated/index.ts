@@ -2,6 +2,7 @@
 export type { BrowserActionRequest } from "./BrowserActionRequest";
 export type { BrowserAction } from "./BrowserAction";
 export type { BrowserActionResult } from "./BrowserActionResult";
+export type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
 export type { BrowserOperationLease } from "./BrowserOperationLease";
 export type { BrowserOperationRequest } from "./BrowserOperationRequest";
 export type { BrowserEngineResolutionRecord } from "./BrowserEngineResolutionRecord";

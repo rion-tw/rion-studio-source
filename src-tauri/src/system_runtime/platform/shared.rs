@@ -1,17 +1,133 @@
 // shared system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
-fn compensated_key_effect(effect: &EmbeddedKeyEffectRecord) -> EmbeddedKeyEffectRecord {
-    EmbeddedKeyEffectRecord {
-        phase: if effect.phase == "rawKeyDown" {
-            "keyUp".to_owned()
-        } else {
-            "rawKeyDown".to_owned()
-        },
-        code: effect.code.clone(),
-        active_codes_before: effect.active_codes.clone(),
-        active_codes: effect.active_codes_before.clone(),
-        auto_repeat: false,
-        suppress_shortcut: effect.suppress_shortcut,
+fn key_prefix_compensation(
+    effects: &[EmbeddedKeyEffectRecord],
+) -> Vec<EmbeddedKeyEffectRecord> {
+    let Some(first) = effects.first() else {
+        return Vec::new();
+    };
+    let initial = first
+        .active_codes_before
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let current = effects
+        .last()
+        .map(|effect| effect.active_codes.iter().cloned().collect::<HashSet<_>>())
+        .unwrap_or_default();
+    let mut active = current.clone();
+    let mut releases = current.difference(&initial).cloned().collect::<Vec<_>>();
+    releases.sort_by_key(|code| (is_modifier_input_code(code), code.clone()));
+    let mut presses = initial.difference(&current).cloned().collect::<Vec<_>>();
+    presses.sort_by_key(|code| (!is_modifier_input_code(code), code.clone()));
+    let mut compensation = Vec::with_capacity(releases.len() + presses.len());
+    for code in releases {
+        let before = sorted_input_codes(&active);
+        active.remove(&code);
+        compensation.push(EmbeddedKeyEffectRecord {
+            phase: "keyUp".to_owned(),
+            code: code.clone(),
+            active_codes_before: before,
+            active_codes: sorted_input_codes(&active),
+            auto_repeat: false,
+            suppress_shortcut: !is_modifier_input_code(&code),
+        });
+    }
+    for code in presses {
+        let before = sorted_input_codes(&active);
+        active.insert(code.clone());
+        compensation.push(EmbeddedKeyEffectRecord {
+            phase: "rawKeyDown".to_owned(),
+            code: code.clone(),
+            active_codes_before: before,
+            active_codes: sorted_input_codes(&active),
+            auto_repeat: false,
+            suppress_shortcut: !is_modifier_input_code(&code),
+        });
+    }
+    compensation
+}
+
+fn release_reasserted_key_effects(
+    effects: &[EmbeddedKeyEffectRecord],
+) -> Vec<EmbeddedKeyEffectRecord> {
+    let mut active = effects
+        .iter()
+        .map(|effect| effect.code.clone())
+        .collect::<HashSet<_>>();
+    let mut codes = active.iter().cloned().collect::<Vec<_>>();
+    codes.sort_by_key(|code| (is_modifier_input_code(code), code.clone()));
+    codes
+        .into_iter()
+        .map(|code| {
+            let before = sorted_input_codes(&active);
+            active.remove(&code);
+            EmbeddedKeyEffectRecord {
+                phase: "keyUp".to_owned(),
+                code: code.clone(),
+                active_codes_before: before,
+                active_codes: sorted_input_codes(&active),
+                auto_repeat: false,
+                suppress_shortcut: !is_modifier_input_code(&code),
+            }
+        })
+        .collect()
+}
+
+fn sorted_input_codes(codes: &HashSet<String>) -> Vec<String> {
+    let mut codes = codes.iter().cloned().collect::<Vec<_>>();
+    codes.sort();
+    codes
+}
+
+fn is_modifier_input_code(code: &str) -> bool {
+    matches!(
+        code,
+        "AltLeft"
+            | "AltRight"
+            | "ControlLeft"
+            | "ControlRight"
+            | "MetaLeft"
+            | "MetaRight"
+            | "ShiftLeft"
+            | "ShiftRight"
+    )
+}
+
+struct MouseInputSequenceError {
+    action: RuntimeError,
+    cleanup: Option<RuntimeError>,
+    down_confirmed: bool,
+}
+
+fn dispatch_mouse_input_sequence(
+    context: &InputDispatchContext,
+    mut cleanup_context: impl FnMut() -> InputDispatchContext,
+    mut dispatch: impl FnMut(bool, &InputDispatchContext) -> RuntimeResult<()>,
+) -> Result<(), Box<MouseInputSequenceError>> {
+    match dispatch(true, context) {
+        Ok(()) => {
+            let cleanup = cleanup_context();
+            dispatch(false, &cleanup).map_err(|action| Box::new(MouseInputSequenceError {
+                action,
+                cleanup: None,
+                down_confirmed: true,
+            }))
+        }
+        Err(action) if action.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
+            let cleanup = cleanup_context();
+            let cleanup_error = dispatch(false, &cleanup).err();
+            Err(Box::new(MouseInputSequenceError {
+                action,
+                cleanup: cleanup_error,
+                down_confirmed: false,
+            }))
+        }
+        Err(action) => Err(Box::new(MouseInputSequenceError {
+            action,
+            cleanup: None,
+            down_confirmed: false,
+        })),
     }
 }
 

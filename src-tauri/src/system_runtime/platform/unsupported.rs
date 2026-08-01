@@ -1,7 +1,11 @@
 // unsupported system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn dispatch_key_effect(_webview: &Webview, _effect: &EmbeddedKeyEffectRecord) -> RuntimeResult<()> {
+fn dispatch_key_effect(
+    _webview: &Webview,
+    _effect: &EmbeddedKeyEffectRecord,
+    _context: &InputDispatchContext,
+) -> RuntimeResult<()> {
     Err(RuntimeError::new(
         "SYSTEM_TRUSTED_INPUT_UNAVAILABLE",
         "Trusted System WebView input is unavailable on this platform.",
@@ -14,6 +18,7 @@ fn dispatch_mouse_effect(
     _point: ClickPoint,
     _button: &str,
     _pressed: bool,
+    _context: &InputDispatchContext,
 ) -> RuntimeResult<()> {
     Err(RuntimeError::new(
         "SYSTEM_TRUSTED_INPUT_UNAVAILABLE",

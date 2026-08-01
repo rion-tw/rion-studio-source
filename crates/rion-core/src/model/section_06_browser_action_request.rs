@@ -7,10 +7,24 @@ pub struct BrowserActionRequest {
     #[ts(type = "\"macro\"")]
     pub origin: String,
     #[ts(type = "number")]
+    pub input_epoch: u64,
+    #[ts(type = "\"normal\" | \"cleanup\"")]
+    pub intent: String,
+    #[ts(type = "number")]
     pub scheduled_at_ms: u64,
     #[ts(type = "number")]
     pub deadline_ms: u64,
     pub action: BrowserAction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroInputEpochRecord {
+    pub role_id: String,
+    #[ts(type = "number")]
+    pub input_epoch: u64,
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

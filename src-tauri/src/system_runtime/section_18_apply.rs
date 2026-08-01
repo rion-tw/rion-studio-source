@@ -573,20 +573,50 @@ impl SystemRuntimeExecutor {
         context.ensure_current()?;
         let point = resolve_click_point(click.anchor, click.unit, click.x, click.y, viewport)?;
         let button = validate_mouse_button(click.button)?;
-        self.record_macro_click_resolution(role_id, click, viewport, point, context);
-        if let Err(error) = dispatch_mouse_input_sequence(
+        self.record_macro_click_resolution(
+            role_id,
+            webview.label(),
+            click,
+            viewport,
+            point,
+            context,
+        );
+        match dispatch_mouse_click_sequence(
+            &webview,
+            viewport,
+            point,
+            button,
             context,
             || self.cleanup_input_context(context),
-            |pressed, context| {
-                dispatch_mouse_effect(&webview, viewport, point, button, pressed, context)
-            },
         ) {
-            if let Some(cleanup_error) = error.cleanup.as_ref() {
-                self.quarantine_role_input(role_id, cleanup_error);
-            } else if error.down_confirmed {
-                self.quarantine_role_input(role_id, &error.action);
+            Ok(diagnostics) => {
+                self.record_macro_click_submission(
+                    role_id,
+                    webview.label(),
+                    context,
+                    diagnostics,
+                    true,
+                    None,
+                    None,
+                );
             }
-            return Err(error.action);
+            Err(error) => {
+                self.record_macro_click_submission(
+                    role_id,
+                    webview.label(),
+                    context,
+                    error.diagnostics,
+                    error.down_confirmed,
+                    Some(error.action.code),
+                    error.cleanup.as_ref().map(|cleanup| cleanup.code),
+                );
+                if let Some(cleanup_error) = error.cleanup.as_ref() {
+                    self.quarantine_role_input(role_id, cleanup_error);
+                } else if error.down_confirmed {
+                    self.quarantine_role_input(role_id, &error.action);
+                }
+                return Err(error.action);
+            }
         }
         Ok(())
     }

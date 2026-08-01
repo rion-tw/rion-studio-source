@@ -46,6 +46,26 @@ fn dispatch_mouse_effect(
 }
 
 #[cfg(windows)]
+fn dispatch_mouse_click_sequence(
+    webview: &Webview,
+    viewport: ViewportSize,
+    point: ClickPoint,
+    button: &str,
+    context: &InputDispatchContext,
+    cleanup_context: impl FnMut() -> InputDispatchContext,
+) -> Result<MouseInputDispatchDiagnostics, Box<MouseInputSequenceError>> {
+    dispatch_mouse_input_sequence(
+        context,
+        cleanup_context,
+        MouseInputDispatchDiagnostics::default(),
+        || {},
+        |pressed, context| {
+            dispatch_mouse_effect(webview, viewport, point, button, pressed, context)
+        },
+    )
+}
+
+#[cfg(windows)]
 fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{

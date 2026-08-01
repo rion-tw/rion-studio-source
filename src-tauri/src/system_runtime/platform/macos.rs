@@ -178,6 +178,31 @@ fn dispatch_mouse_effect(
 }
 
 #[cfg(target_os = "macos")]
+fn dispatch_mouse_click_sequence(
+    webview: &Webview,
+    viewport: ViewportSize,
+    point: ClickPoint,
+    button: &str,
+    context: &InputDispatchContext,
+    cleanup_context: impl FnMut() -> InputDispatchContext,
+) -> Result<MouseInputDispatchDiagnostics, Box<MouseInputSequenceError>> {
+    dispatch_coordinated_mouse_input_sequence(
+        MACOS_MOUSE_DISPATCH_STATE.get_or_init(|| Mutex::new(None)),
+        webview.label(),
+        MouseInputDispatchPolicy {
+            handoff_interval: MACOS_MOUSE_DISPATCH_SETTLE_INTERVAL,
+            press_interval: MACOS_MOUSE_PRESS_INTERVAL,
+        },
+        context,
+        cleanup_context,
+        std::thread::sleep,
+        |pressed, context| {
+            dispatch_mouse_effect(webview, viewport, point, button, pressed, context)
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
 fn prepare_platform_role_webview_builder(
     app: &AppHandle,
     builder: WebviewBuilder<tauri::Wry>,

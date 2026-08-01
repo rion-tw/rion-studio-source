@@ -27,7 +27,7 @@ pub struct QuickMenu {
 
 #[cfg(target_os = "windows")]
 pub fn create(app: &AppHandle) -> Result<QuickMenu, String> {
-    let menu = windows_menu(app, &starter_spec("en"))?;
+    let menu = windows_menu(app, &starter_spec("en", QuickMenuPlatform::Windows))?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -55,7 +55,7 @@ pub fn create(app: &AppHandle) -> Result<QuickMenu, String> {
 
 #[cfg(target_os = "macos")]
 pub fn create(_app: &AppHandle) -> Result<QuickMenu, String> {
-    crate::quick_menu_macos::install(&[])?;
+    crate::quick_menu_macos::install(&starter_spec("en", QuickMenuPlatform::Macos))?;
     Ok(QuickMenu {})
 }
 
@@ -290,14 +290,14 @@ pub(crate) enum MenuEntry {
     Separator,
 }
 
-#[cfg(target_os = "windows")]
-fn starter_spec(language: &str) -> Vec<MenuEntry> {
+fn starter_spec(language: &str, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
     let labels = labels(language);
-    vec![
-        item("open-app", labels.open, true),
-        MenuEntry::Separator,
-        item("quit-app", labels.quit, true),
-    ]
+    let mut entries = vec![item("open-app", labels.open, true)];
+    if platform.is_windows() {
+        entries.push(MenuEntry::Separator);
+        entries.push(item("quit-app", labels.quit, true));
+    }
+    entries
 }
 
 fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
@@ -400,13 +400,11 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
         window_items.push(item("no-windows", labels.no_windows, false));
     }
 
-    let mut entries = Vec::new();
-    if platform.is_windows() {
-        entries.push(item("open-app", labels.open, true));
-    }
+    let mut entries = vec![item("open-app", labels.open, true)];
     if !legal_accepted {
         entries.push(item("review-terms", labels.review_terms, true));
     }
+    entries.push(MenuEntry::Separator);
     entries.push(MenuEntry::Submenu {
         text: labels.roles.to_owned(),
         items: role_items,

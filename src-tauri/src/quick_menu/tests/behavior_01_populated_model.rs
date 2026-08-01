@@ -108,14 +108,31 @@ use super::*;
     }
 
     #[test]
-    fn platform_specs_keep_open_and_quit_windows_only() {
+    fn starter_specs_expose_open_before_the_first_model_refresh() {
+        let macos = starter_spec("en", QuickMenuPlatform::Macos);
+        let windows = starter_spec("en", QuickMenuPlatform::Windows);
+
+        assert_item(macos.first().unwrap(), "Open Rion Studio", true);
+        assert_eq!(macos.len(), 1);
+        assert_item(windows.first().unwrap(), "Open Rion Studio", true);
+        assert!(matches!(windows.get(1), Some(MenuEntry::Separator)));
+        assert!(root_item(&windows, "quit-app").is_some());
+    }
+
+    #[test]
+    fn platform_specs_keep_open_everywhere_and_quit_windows_only() {
         let model = populated_model("en", true);
         let windows = menu_spec(&model, QuickMenuPlatform::Windows);
         let macos = menu_spec(&model, QuickMenuPlatform::Macos);
 
-        assert!(root_item(&windows, "open-app").is_some());
+        for entries in [&windows, &macos] {
+            assert!(matches!(
+                entries.first(),
+                Some(MenuEntry::Item { id, .. }) if id == "open-app"
+            ));
+            assert!(matches!(entries.get(1), Some(MenuEntry::Separator)));
+        }
         assert!(root_item(&windows, "quit-app").is_some());
-        assert!(root_item(&macos, "open-app").is_none());
         assert!(root_item(&macos, "quit-app").is_none());
     }
 
@@ -245,16 +262,41 @@ use super::*;
     }
 
     #[test]
-    fn four_supported_languages_keep_submenu_labels() {
+    fn four_supported_languages_keep_open_and_submenu_labels() {
         let cases = [
-            ("en", "Roles", "Workspaces", "Windows"),
-            ("zh-TW", "角色", "工作區", "視窗"),
-            ("zh-CN", "角色", "工作区", "窗口"),
-            ("ja", "ロール", "ワークスペース", "ウインドウ"),
+            (
+                "en",
+                "Open Rion Studio",
+                "Roles",
+                "Workspaces",
+                "Windows",
+            ),
+            (
+                "zh-TW",
+                "開啟 Rion Studio",
+                "角色",
+                "工作區",
+                "視窗",
+            ),
+            (
+                "zh-CN",
+                "打开 Rion Studio",
+                "角色",
+                "工作区",
+                "窗口",
+            ),
+            (
+                "ja",
+                "Rion Studio を開く",
+                "ロール",
+                "ワークスペース",
+                "ウインドウ",
+            ),
         ];
 
-        for (language, roles, workspaces, windows) in cases {
+        for (language, open, roles, workspaces, windows) in cases {
             let labels = labels(language);
+            assert_eq!(labels.open, open);
             assert_eq!(labels.roles, roles);
             assert_eq!(labels.workspaces, workspaces);
             assert_eq!(labels.windows, windows);

@@ -11,9 +11,16 @@ thread_local! {
 }
 
 unsafe extern "C" {
+    fn rion_dock_menu_activate_application() -> bool;
     fn rion_dock_menu_set_menu(menu: *mut std::ffi::c_void) -> bool;
     #[cfg(test)]
     fn rion_dock_menu_adapter_self_test() -> bool;
+}
+
+pub fn activate_application() -> bool {
+    // SAFETY: Quick Menu events are delivered on AppKit's main thread; the native adapter rejects
+    // calls from any other thread before touching NSApplication.
+    unsafe { rion_dock_menu_activate_application() }
 }
 
 pub fn install(entries: &[MenuEntry]) -> Result<(), String> {

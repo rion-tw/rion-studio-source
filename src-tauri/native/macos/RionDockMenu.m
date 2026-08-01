@@ -4,6 +4,16 @@
 
 static __strong NSMenu *RionDockMenu = nil;
 
+bool rion_dock_menu_activate_application(void) {
+    if (![NSThread isMainThread]) {
+        return false;
+    }
+
+    [NSApp unhide:nil];
+    [NSApp activate];
+    return true;
+}
+
 static NSMenu *RionApplicationDockMenu(id self, SEL command, NSApplication *application) {
     (void)self;
     (void)command;

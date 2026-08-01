@@ -9,11 +9,13 @@ import type {
   LogStorageStatus,
   Role
 } from "../../../../shared/types";
+import { CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY } from "../../app/constants";
 import { useConfirmation } from "../../components/confirmation";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Surface } from "../../components/ui/patterns";
+import { Switch } from "../../components/ui/switch";
 import type { Translator } from "../../i18n";
 
 const ALL = "all";
@@ -35,6 +37,9 @@ export function DiagnosticsSettingsSection({
   const [level, setLevel] = useState<LogLevel | typeof ALL>(ALL);
   const [source, setSource] = useState<LogSource | typeof ALL>(ALL);
   const [live, setLive] = useState(true);
+  const [clearLogsAfterExport, setClearLogsAfterExport] = useState(
+    () => localStorage.getItem(CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY) !== "false"
+  );
   const [busy, setBusy] = useState(false);
   const [performanceBusy, setPerformanceBusy] = useState(false);
   const [performance, setPerformance] = useState<BrowserPerformanceDiagnostics | null>(null);
@@ -80,6 +85,20 @@ export function DiagnosticsSettingsSection({
       confirmLabel: t("settings.logsClear"), cancelLabel: t("confirm.cancel"), tone: "destructive"
     });
     if (approved) await run(() => window.rionStudio.clearLogs());
+  }
+
+  async function exportDiagnostics(): Promise<void> {
+    await run(async () => {
+      const result = await window.rionStudio.exportDiagnostics();
+      if (result && clearLogsAfterExport) {
+        await window.rionStudio.clearLogs();
+      }
+    });
+  }
+
+  function updateClearLogsAfterExport(enabled: boolean): void {
+    setClearLogsAfterExport(enabled);
+    localStorage.setItem(CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY, String(enabled));
   }
 
   async function loadMore(): Promise<void> {
@@ -145,9 +164,21 @@ export function DiagnosticsSettingsSection({
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" disabled={busy} onClick={() => void window.rionStudio.revealLogs().catch(onError)}><ExternalLink size={14} />{t("settings.logsOpenFolder")}</Button>
-              <Button variant="outline" disabled={busy} onClick={() => void run(() => window.rionStudio.exportDiagnostics())}><Download size={14} />{t("settings.logsExport")}</Button>
+              <Button variant="outline" disabled={busy} onClick={() => void exportDiagnostics()}><Download size={14} />{t("settings.logsExport")}</Button>
               <Button variant="outline" disabled={busy} onClick={() => void clearLogs()}><Trash2 size={14} />{t("settings.logsClear")}</Button>
             </div>
+          </div>
+          <div className="settings-row glass-divider flex items-center justify-between gap-3 border-b px-4 py-3">
+            <div>
+              <p className="text-body font-semibold text-foreground">{t("settings.logsClearAfterExport")}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsClearAfterExportDescription")}</p>
+            </div>
+            <Switch
+              aria-label={t("settings.logsClearAfterExport")}
+              checked={clearLogsAfterExport}
+              disabled={busy}
+              onCheckedChange={updateClearLogsAfterExport}
+            />
           </div>
           <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

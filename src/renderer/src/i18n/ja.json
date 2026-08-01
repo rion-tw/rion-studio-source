@@ -1012,6 +1012,8 @@
   "settings.performanceDiagnosticsFindingIncomplete": "ページ測定は完了しましたが、ディスプレイ更新レートまたは安定した rAF レートを取得できませんでした。",
   "settings.performanceDiagnosticsFindingBelowRefresh": "{hz} Hz ディスプレイで {fps} FPS を観測しました。フォーカスと表示状態は正常なため、ページ負荷、コンポジター／GPU 負荷、またはエンジン制限を確認してください。",
   "settings.performanceDiagnosticsFindingNearRefresh": "rAF タイミングはディスプレイ更新レートに近く、この測定では明確なフォアグラウンド FPS 上限は見られません。",
+  "settings.logsClearAfterExport": "診断バンドルの書き出し後にログを消去",
+  "settings.logsClearAfterExportDescription": "診断バンドルの作成に成功した後、ローカルログを消去します。書き出したバンドルには現在のログが保持されます。",
   "common.close": "閉じる",
   "games.form.localStorageSyncKeys": "ローカルデータ同期",
   "games.form.localStorageSyncKeysDescription": "ロール間でミラーする localStorage キーを 1 行に 1 つ指定します。値はここにもエクスポートにも含まれません。",

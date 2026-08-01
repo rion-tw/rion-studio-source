@@ -1012,6 +1012,8 @@
   "settings.performanceDiagnosticsFindingIncomplete": "已完成页面采样，但无法取得显示器刷新率或稳定的 rAF 更新率。",
   "settings.performanceDiagnosticsFindingBelowRefresh": "在 {hz} Hz 显示器上测得 {fps} FPS。焦点与可见状态正常，下一步应检查页面负载、合成器／GPU 负载或引擎限制。",
   "settings.performanceDiagnosticsFindingNearRefresh": "rAF 时序接近显示器刷新率；本次采样没有明显的前台帧率上限。",
+  "settings.logsClearAfterExport": "导出诊断包时清除日志",
+  "settings.logsClearAfterExportDescription": "成功创建诊断包后清除本地日志；导出的诊断包仍会保留当前日志副本。",
   "common.close": "关闭",
   "games.form.localStorageSyncKeys": "同步本地数据",
   "games.form.localStorageSyncKeysDescription": "角色间只会镜像这些 localStorage key。每行一个 key；值不会显示在此处，也不会进入导出文件。",

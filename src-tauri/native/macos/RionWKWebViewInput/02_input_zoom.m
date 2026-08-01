@@ -303,10 +303,27 @@ bool rion_wk_dispatch_key(void * _Nullable rawWebView,
   }
 }
 
-bool rion_wk_dispatch_mouse(void * _Nullable rawWebView, double x, double y,
-                            int button, bool mouseDown) {
+static NSPoint RionWKViewPointForDOMPoint(
+    NSRect bounds, BOOL flipped, double viewportWidth, double viewportHeight,
+    double x, double y) {
+  CGFloat scaleX = NSWidth(bounds) / viewportWidth;
+  CGFloat scaleY = NSHeight(bounds) / viewportHeight;
+  NSPoint point = NSMakePoint(NSMinX(bounds) + x * scaleX, y * scaleY);
+  if (!flipped) {
+    point.y = NSMaxY(bounds) - point.y;
+  } else {
+    point.y = NSMinY(bounds) + point.y;
+  }
+  return point;
+}
+
+bool rion_wk_dispatch_mouse(void * _Nullable rawWebView,
+                            double viewportWidth, double viewportHeight,
+                            double x, double y, int button, bool mouseDown) {
   @autoreleasepool {
-    if (!rawWebView || !isfinite(x) || !isfinite(y) || button < 0 || button > 2) {
+    if (!rawWebView || !isfinite(viewportWidth) || viewportWidth <= 0 ||
+        !isfinite(viewportHeight) || viewportHeight <= 0 ||
+        !isfinite(x) || !isfinite(y) || button < 0 || button > 2) {
       return false;
     }
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
@@ -317,16 +334,12 @@ bool rion_wk_dispatch_mouse(void * _Nullable rawWebView, double x, double y,
     // the parent window's contentLayoutRect here would add the titlebar inset a
     // second time (and can yield a negative clientY while the host is hidden).
     NSRect viewportBounds = webView.bounds;
-    NSPoint viewPoint = NSMakePoint(NSMinX(viewportBounds) + x, y);
     // BrowserAction coordinates use the DOM convention (origin at top-left).
     // AppKit views normally use a bottom-left origin, while a subclass may opt
     // into flipped coordinates. Normalize only when the concrete WKWebView is
     // not already flipped so the same semantic point reaches both variants.
-    if (!webView.isFlipped) {
-      viewPoint.y = NSMaxY(viewportBounds) - y;
-    } else {
-      viewPoint.y = NSMinY(viewportBounds) + y;
-    }
+    NSPoint viewPoint = RionWKViewPointForDOMPoint(
+        viewportBounds, webView.isFlipped, viewportWidth, viewportHeight, x, y);
     NSPoint windowPoint = [webView convertPoint:viewPoint toView:nil];
     NSEventType type;
     if (button == 0) type = mouseDown ? NSEventTypeLeftMouseDown : NSEventTypeLeftMouseUp;
@@ -354,6 +367,18 @@ bool rion_wk_dispatch_mouse(void * _Nullable rawWebView, double x, double y,
     return RionRestoreFirstResponder(
         (id<RionFirstResponderHost>)window, preservedResponder, webView);
   }
+}
+
+bool rion_wk_mouse_coordinate_self_test(void) {
+  NSRect bounds = NSMakeRect(0, 0, 640, 680);
+  NSPoint flipped = RionWKViewPointForDOMPoint(
+      bounds, true, 1280, 1360, 1068, 310);
+  NSPoint unflipped = RionWKViewPointForDOMPoint(
+      bounds, false, 1280, 1360, 1068, 310);
+  return fabs(flipped.x - 534) < 0.001 &&
+      fabs(flipped.y - 155) < 0.001 &&
+      fabs(unflipped.x - 534) < 0.001 &&
+      fabs(unflipped.y - 525) < 0.001;
 }
 
 @interface RionInputResponderFixture : NSView

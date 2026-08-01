@@ -20,6 +20,7 @@ include!("system_runtime/section_15_schedule_window_placement_persistence.rs");
 include!("system_runtime/section_16_forget_popup.rs");
 include!("system_runtime/section_17_rebuild_role_surface.rs");
 include!("system_runtime/section_18_apply.rs");
+include!("system_runtime/section_18_input_diagnostics.rs");
 include!("system_runtime/section_19_webview_builder.rs");
 include!("system_runtime/section_20_verify_role_authentication.rs");
 include!("system_runtime/section_21_refresh_local_storage_sync_metadata.rs");

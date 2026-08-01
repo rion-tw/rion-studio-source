@@ -114,6 +114,7 @@ fn mac_modifier_flags(active_codes: &[String]) -> u64 {
 #[cfg(target_os = "macos")]
 fn dispatch_mouse_effect(
     webview: &Webview,
+    viewport: ViewportSize,
     point: ClickPoint,
     button: &str,
     pressed: bool,
@@ -122,6 +123,8 @@ fn dispatch_mouse_effect(
     unsafe extern "C" {
         fn rion_wk_dispatch_mouse(
             webview: *mut std::ffi::c_void,
+            viewport_width: f64,
+            viewport_height: f64,
             x: f64,
             y: f64,
             button: i32,
@@ -152,6 +155,8 @@ fn dispatch_mouse_effect(
             let succeeded = unsafe {
                 rion_wk_dispatch_mouse(
                     platform_webview.inner(),
+                    viewport.width,
+                    viewport.height,
                     point.x as f64,
                     point.y as f64,
                     button,

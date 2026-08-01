@@ -24,6 +24,7 @@ fn dispatch_key_effect(
 #[cfg(windows)]
 fn dispatch_mouse_effect(
     webview: &Webview,
+    _viewport: ViewportSize,
     point: ClickPoint,
     button: &str,
     pressed: bool,

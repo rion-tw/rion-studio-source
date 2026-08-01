@@ -658,4 +658,19 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     );
     expect(destroyed).toContain("state.runtime.forget_popup(&label)");
   });
+
+  it("keeps macro focus as a fenced readiness check without changing game focus", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const start = runtime.indexOf("BrowserAction::Focus => {");
+    const focus = runtime.slice(start, runtime.indexOf("BrowserAction::Key {", start));
+
+    expect(start).toBeGreaterThan(-1);
+    expect(focus).toContain("role_webview_for_input(&role_id, &context)");
+    expect(focus).not.toContain("evaluate_webview");
+    expect(focus).not.toContain("window.focus");
+    expect(focus).not.toContain("set_focus");
+  });
 });

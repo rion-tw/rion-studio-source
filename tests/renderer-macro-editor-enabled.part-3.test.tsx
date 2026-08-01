@@ -321,6 +321,87 @@ it("applies the copied anchor when pasting a measured pixel coordinate", async (
     })));
   });
 
+it("recalculates percent offsets from the pasted measurement after repeated anchor changes", async () => {
+    const { onSave } = renderClickStepEditor({
+      id: "click",
+      type: "click",
+      xPercent: 10,
+      yPercent: 20
+    });
+    const xInput = screen.getByRole("spinbutton", { name: "X offset" });
+    fireEvent.paste(xInput, {
+      clipboardData: {
+        getData: () => "X: 100px (9.77%), Y: 700px (91.15%), Anchor: bottom-right, Viewport: 1024x768px"
+      }
+    });
+    fireEvent.paste(xInput, {
+      clipboardData: { getData: () => "X: 123px, Y: 456px" }
+    });
+
+    selectClickAnchor("Center");
+    expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("-40.23");
+    expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("41.15");
+
+    selectClickAnchor("Top left");
+    expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("9.77");
+    expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("91.15");
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", xPercent: 9.77, yPercent: 91.15 }]
+    })));
+  });
+
+it("recalculates pixel offsets from the pasted viewport after changing the anchor", async () => {
+    const { onSave } = renderClickStepEditor({
+      id: "click",
+      type: "click",
+      unit: "px",
+      xPx: 10,
+      yPx: 20
+    });
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "Y offset" }), {
+      clipboardData: {
+        getData: () => "X: 100px (9.77%), Y: 700px (91.15%), Viewport: 1024x768px"
+      }
+    });
+
+    selectClickAnchor("Center");
+    expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("-412");
+    expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("316");
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", unit: "px", anchor: "center", xPx: -412, yPx: 316 }]
+    })));
+  });
+
+it("stops rebasing from the pasted measurement after a manual coordinate edit", async () => {
+    const { onSave } = renderClickStepEditor({
+      id: "click",
+      type: "click",
+      xPercent: 10,
+      yPercent: 20
+    });
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "X offset" }), {
+      clipboardData: {
+        getData: () => "X: 100px (9.77%), Y: 700px (91.15%), Anchor: bottom-right, Viewport: 1024x768px"
+      }
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "X offset" }), {
+      target: { value: "-80" }
+    });
+
+    selectClickAnchor("Center");
+    expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("-80");
+    expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("-8.85");
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", anchor: "center", xPercent: -80, yPercent: -8.85 }]
+    })));
+  });
+
 it("leaves click fields unchanged for malformed coordinate paste", () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", xPercent: 10, yPercent: 20 }]
@@ -445,6 +526,37 @@ function _getKeyStepRecordButton(): HTMLElement {
     throw new Error("Key-step record button was not found.");
   }
   return button;
+}
+
+function renderClickStepEditor(step: Macro["steps"][number]): { onSave: ReturnType<typeof vi.fn> } {
+  const selectedMacro = macro({ steps: [step] });
+  const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+    ...selectedMacro,
+    ...form,
+    updatedAt: "2026-07-16T00:00:00.000Z"
+  }));
+  const router = createMemoryRouter([
+    {
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={onSave}
+      />
+    },
+    { path: "/macros", element: <div>Macro list</div> }
+  ], { initialEntries: ["/macros/macro-1/edit"] });
+
+  render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+  return { onSave };
+}
+
+function selectClickAnchor(name: string): void {
+  fireEvent.click(screen.getByRole("combobox", { name: "Coordinate anchor" }));
+  fireEvent.click(screen.getByRole("option", { name }));
 }
 
 function game(): Game {

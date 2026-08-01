@@ -15,6 +15,7 @@ fn dispatch_key_effect(
 #[cfg(not(any(windows, target_os = "macos")))]
 fn dispatch_mouse_effect(
     _webview: &Webview,
+    _viewport: ViewportSize,
     _point: ClickPoint,
     _button: &str,
     _pressed: bool,

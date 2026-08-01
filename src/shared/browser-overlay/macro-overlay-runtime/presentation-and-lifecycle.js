@@ -498,36 +498,46 @@
     }
   }
 
-  function runAction(action, macroId, details, queueBehindPending) {
+  function runAction(action, macroId, details, queueBehindPending, bypassPendingTail = false) {
     if (!queueBehindPending && pendingMacroActions.has(macroId)) {
       return;
     }
 
-    pendingMacroActions.add(macroId);
-    const previous = macroActionTails.get(macroId) ?? Promise.resolve();
+    pendingMacroActions.set(macroId, (pendingMacroActions.get(macroId) ?? 0) + 1);
+    const requestVersion = ++state.requestVersion;
+    const previous = bypassPendingTail
+      ? Promise.resolve()
+      : macroActionTails.get(macroId) ?? Promise.resolve();
     const actionPromise = previous.catch(() => undefined).then(async () => {
-      const requestVersion = ++state.requestVersion;
       try {
         const nextState = await binding({ type: action, macroId, ...details });
+        if (requestVersion !== state.requestVersion) {
+          return;
+        }
         if (disposeIfDetached(nextState)) {
           return;
         }
-        if (requestVersion === state.requestVersion) {
-          applyState(nextState);
-          updatePresentation();
-        }
+        applyState(nextState);
+        updatePresentation();
       } catch (error) {
         console.warn("Unable to run Rion Studio macro.", error);
       }
     });
-    macroActionTails.set(macroId, actionPromise);
+    if (!bypassPendingTail) {
+      macroActionTails.set(macroId, actionPromise);
+    }
     void actionPromise.finally(() => {
       if (macroActionTails.get(macroId) === actionPromise) {
         macroActionTails.delete(macroId);
+      }
+      const remaining = (pendingMacroActions.get(macroId) ?? 1) - 1;
+      if (remaining <= 0) {
         pendingMacroActions.delete(macroId);
-        if (pendingMacroActions.size === 0) {
-          void refresh();
-        }
+      } else {
+        pendingMacroActions.set(macroId, remaining);
+      }
+      if (pendingMacroActions.size === 0 && !isDisposed) {
+        void refresh();
       }
     });
   }
@@ -657,7 +667,7 @@
       runAction("release", macroId, {
         pressId: active.pressId,
         releaseMode: "complete_first_iteration"
-      }, true);
+      }, true, true);
     });
   }
 
@@ -667,7 +677,7 @@
       runAction("release", macroId, {
         pressId: active.pressId,
         releaseMode: "immediate"
-      }, true);
+      }, true, true);
     });
   }
 

@@ -480,14 +480,6 @@ impl SystemRuntimeExecutor {
         self.reassert_role_keys_matching_in_lane(role_id, webview, |_| true)
     }
 
-    fn reassert_role_shortcut_modifiers_in_lane(
-        &self,
-        role_id: &str,
-        webview: &Webview,
-    ) -> RuntimeResult<()> {
-        self.reassert_role_keys_matching_in_lane(role_id, webview, is_tab_shortcut_modifier_code)
-    }
-
     fn reassert_role_keys_matching_in_lane(
         &self,
         role_id: &str,

@@ -147,7 +147,7 @@ pub(crate) enum StateMutation {
         id: String,
         updated_at: String,
     },
-    GameWindowsSync {
+    GameWindowsRuntimeSync {
         windows: Vec<StateGameWindowRecord>,
     },
     MacroCreate(MacroCreateInputRecord),
@@ -197,7 +197,7 @@ impl StateMutation {
             | Self::GameWindowReorder { .. }
             | Self::GameWindowDelete { .. }
             | Self::GameWindowDeleteIfUnchanged { .. }
-            | Self::GameWindowsSync { .. } => vec![GameWindows],
+            | Self::GameWindowsRuntimeSync { .. } => vec![GameWindows],
             Self::MacroCreate(_)
             | Self::MacroUpdate { .. }
             | Self::MacroDelete { .. }

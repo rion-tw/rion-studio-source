@@ -199,13 +199,6 @@ fn shortcut_modifier_release_effects(modifier_codes: &[String]) -> Vec<EmbeddedK
         .collect()
 }
 
-fn is_tab_shortcut_modifier_code(code: &str) -> bool {
-    matches!(
-        code,
-        "ControlLeft" | "ControlRight" | "ShiftLeft" | "ShiftRight"
-    )
-}
-
 #[cfg(any(windows, test))]
 fn windows_role_zoom_action(
     virtual_key: u32,

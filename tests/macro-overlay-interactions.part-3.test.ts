@@ -394,6 +394,79 @@ it("pairs while-held shortcuts with one press and release while consuming auto-r
     }));
   });
 
+it("sends keyup release before a slow while-held press resolves", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const requests: string[] = [];
+    let resolvePress: ((value: unknown) => void) | undefined;
+    const binding = vi.fn((request: unknown) => {
+      if (!isRecord(request) || request.type === "list") {
+        return Promise.resolve({ macros: [heldMacro], statuses: [] });
+      }
+      requests.push(String(request.type));
+      if (request.type === "press") {
+        return new Promise((resolve) => {
+          resolvePress = resolve;
+        });
+      }
+      return Promise.resolve({ macros: [heldMacro], statuses: [] });
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(requests).toEqual(["press"]));
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+
+    await vi.waitFor(() => expect(requests).toEqual(["press", "release"]));
+    expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      releaseMode: "complete_first_iteration"
+    }));
+    resolvePress?.({ macros: [heldMacro], statuses: [runningStatus()] });
+    await vi.waitFor(() => expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "list"
+    ).length).toBeGreaterThan(1));
+    expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull();
+  });
+
+it("sends blur release before a slow while-held press resolves", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const requests: string[] = [];
+    let resolvePress: ((value: unknown) => void) | undefined;
+    const binding = vi.fn((request: unknown) => {
+      if (!isRecord(request) || request.type === "list" || request.type === "game-input-context") {
+        return Promise.resolve({ macros: [heldMacro], statuses: [] });
+      }
+      requests.push(String(request.type));
+      if (request.type === "press") {
+        return new Promise((resolve) => {
+          resolvePress = resolve;
+        });
+      }
+      return Promise.resolve({ macros: [heldMacro], statuses: [] });
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(requests).toEqual(["press"]));
+    window.dispatchEvent(new window.Event("blur"));
+
+    await vi.waitFor(() => expect(requests).toEqual(["press", "release"]));
+    expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      releaseMode: "immediate"
+    }));
+    resolvePress?.({ macros: [heldMacro], statuses: [runningStatus()] });
+  });
+
 it("does not release a physical held shortcut for a suppressed synthetic keyup", async () => {
     createGameSurface(document);
     const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };

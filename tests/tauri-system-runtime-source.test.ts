@@ -432,8 +432,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("release_windows_shortcut_modifiers");
     expect(runtime).toContain("windows_shortcut_modifier_codes");
     expect(runtime).toContain(
-      '#[cfg(target_os = "macos")]\n    fn reassert_tab_shortcut_modifiers'
+      '#[cfg(any(windows, target_os = "macos"))]\n    fn reassert_shortcut_handoff_keys'
     );
+    expect(runtime).toContain("self.reassert_role_keys_in_lane(role_id, webview)");
+    expect(runtime).not.toContain("reassert_tab_shortcut_modifiers");
     expect(quickMenu).toContain('#[cfg(any(target_os = "macos", test))]\n    Macos,');
     expect(quickMenu).toContain('#[cfg(any(target_os = "windows", test))]\n    Windows,');
     expect(quickMenu.match(/platform\.is_windows\(\)/g)).toHaveLength(2);

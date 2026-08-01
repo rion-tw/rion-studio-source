@@ -129,15 +129,18 @@ describe("shell-neutral macro overlay runtime", () => {
       trigger: { alt: false, code: "KeyH", ctrl: false, meta: false, shift: false }
     }];
     const requests: OverlayRequest[] = [];
-    let activeActions = 0;
-    let maximumActiveActions = 0;
+    let activeToggleActions = 0;
+    let maximumActiveToggleActions = 0;
     const binding = vi.fn(async (request: OverlayRequest) => {
       requests.push(request);
-      if (["toggle", "press", "release"].includes(request.type)) {
-        activeActions += 1;
-        maximumActiveActions = Math.max(maximumActiveActions, activeActions);
+      if (request.type === "toggle") {
+        activeToggleActions += 1;
+        maximumActiveToggleActions = Math.max(
+          maximumActiveToggleActions,
+          activeToggleActions
+        );
         await Promise.resolve();
-        activeActions -= 1;
+        activeToggleActions -= 1;
       }
       return {
         language: "zh-TW",
@@ -220,7 +223,7 @@ describe("shell-neutral macro overlay runtime", () => {
     await vi.waitFor(() => expect(
       requests.filter((request) => request.type === "toggle" && request.macroId === "toggle")
     ).toHaveLength(20));
-    expect(maximumActiveActions).toBe(1);
+    expect(maximumActiveToggleActions).toBe(1);
 
     const runtimeShortcut = new KeyboardEvent("keydown", {
       bubbles: true,

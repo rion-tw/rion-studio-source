@@ -1076,6 +1076,8 @@
   "settings.logsClear": "清除日誌",
   "settings.logsClearTitle": "要清除應用程式日誌嗎？",
   "settings.logsClearDescription": "現有本機日誌紀錄將被移除，系統會新增一筆日誌記錄這次清除操作。",
+  "settings.logsClearAfterExport": "匯出診斷包時清除日誌",
+  "settings.logsClearAfterExportDescription": "成功建立診斷包後清除本機日誌；匯出的診斷包仍會保留目前的日誌副本。",
   "settings.logsLevel": "記錄等級",
   "settings.logsLevelDescription": "記錄等級會儲存，並在 Rion Studio 重新啟動後還原。",
   "settings.logsViewer": "日誌檢視器",

@@ -1143,6 +1143,8 @@
   "settings.logsClear": "Clear logs",
   "settings.logsClearTitle": "Clear application logs?",
   "settings.logsClearDescription": "Existing local log history will be removed. A new entry will record that logs were cleared.",
+  "settings.logsClearAfterExport": "Clear logs after exporting diagnostics",
+  "settings.logsClearAfterExportDescription": "After the diagnostic bundle is saved successfully, remove the local log history. The exported bundle keeps a copy of the current logs.",
   "settings.logsLevel": "Recording level",
   "settings.logsLevelDescription": "Your recording level is saved and restored when Rion Studio restarts.",
   "settings.logsViewer": "Log viewer",

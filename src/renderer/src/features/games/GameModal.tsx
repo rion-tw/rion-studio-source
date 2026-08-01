@@ -7,6 +7,7 @@ import { getGameCoverUrl, getGameIconUrl } from "../../app/gamePresentation";
 import type { GameFormState } from "../../app/types";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
@@ -14,6 +15,10 @@ import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import type { Game } from "../../../../shared/types";
 import { parseLocalStorageSyncKeys } from "./localStorageSyncKeys";
+import {
+  FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS,
+  FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS
+} from "./localStorageSyncSelectors";
 import { createGameCoverImageDataUrl } from "./gameCover";
 
 interface GameEditorRouteProps {
@@ -52,6 +57,7 @@ function GameEditor({
   const [localStorageKeysText, setLocalStorageKeysText] = useState(
     initialForm.localStorageSyncKeys.join("\n")
   );
+  const usesFlyffSelectors = form.builtinKey === "flyff-universe";
   const guard = useUnsavedChangesGuard(!areEditorFormsEqual(initialRef.current, form), useMemo(() => ({
     title: t("confirm.unsaved.title"), description: t("confirm.unsaved.description"), cancelLabel: t("confirm.unsaved.continue"), confirmLabel: t("confirm.unsaved.discard"), tone: "destructive" as const
   }), [t]), isSaving);
@@ -93,24 +99,61 @@ function GameEditor({
           <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
         </Surface>
         <Surface className="grid gap-3 p-4" variant="inset">
-          <FieldHeader title={t("games.form.localStorageSyncKeys")} description={t("games.form.localStorageSyncKeysDescription")} />
-          <FormField htmlFor="game-local-storage-sync-keys" label={t("games.form.localStorageSyncKeysLabel")}>
-            <Textarea
-              id="game-local-storage-sync-keys"
-              rows={4}
-              spellCheck={false}
-              placeholder={t("games.form.localStorageSyncKeysPlaceholder")}
-              value={localStorageKeysText}
-              onChange={(event) => {
-                setLocalStorageKeysText(event.target.value);
-                setForm({
-                  ...form,
-                  localStorageSyncKeys: parseLocalStorageSyncKeys(event.target.value)
-                });
-              }}
-            />
-          </FormField>
-          {!keysValid ? <p className="text-xs text-destructive">{t("games.form.localStorageSyncKeysInvalid")}</p> : null}
+          <FieldHeader
+            title={t("games.form.localStorageSyncKeys")}
+            description={t(usesFlyffSelectors
+              ? "games.form.localStorageSyncSelectorsDescription"
+              : "games.form.localStorageSyncKeysDescription")}
+          />
+          {usesFlyffSelectors ? (
+            <div className="grid gap-3">
+              {FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS.map((group) => (
+                <fieldset key={group.id} className="grid gap-2 rounded-lg border border-border/70 p-3 sm:grid-cols-2">
+                  <legend className="px-1 text-xs font-medium text-muted-foreground">{t(group.labelKey)}</legend>
+                  {group.options.map((option) => (
+                    <label key={option.id} className="flex cursor-pointer items-center gap-2 rounded-md bg-background/45 px-3 py-2 text-sm">
+                      <Checkbox
+                        checked={form.localStorageSyncSelectors.includes(option.id)}
+                        onCheckedChange={(checked) => {
+                          const selected = new Set(form.localStorageSyncSelectors);
+                          if (checked === true) selected.add(option.id);
+                          else selected.delete(option.id);
+                          setForm({
+                            ...form,
+                            localStorageSyncSelectors: FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS
+                              .map((candidate) => candidate.id)
+                              .filter((id) => selected.has(id))
+                          });
+                        }}
+                      />
+                      <span>{t(option.labelKey)}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+              <p className="text-xs leading-5 text-muted-foreground">{t("games.form.localStorageSyncSelectorsSafety")}</p>
+            </div>
+          ) : (
+            <>
+              <FormField htmlFor="game-local-storage-sync-keys" label={t("games.form.localStorageSyncKeysLabel")}>
+                <Textarea
+                  id="game-local-storage-sync-keys"
+                  rows={4}
+                  spellCheck={false}
+                  placeholder={t("games.form.localStorageSyncKeysPlaceholder")}
+                  value={localStorageKeysText}
+                  onChange={(event) => {
+                    setLocalStorageKeysText(event.target.value);
+                    setForm({
+                      ...form,
+                      localStorageSyncKeys: parseLocalStorageSyncKeys(event.target.value)
+                    });
+                  }}
+                />
+              </FormField>
+              {!keysValid ? <p className="text-xs text-destructive">{t("games.form.localStorageSyncKeysInvalid")}</p> : null}
+            </>
+          )}
         </Surface>
       </div>
       <div className="grid gap-4">

@@ -56,6 +56,24 @@
             .is_err()
         );
         assert!(normalize_local_storage_sync_keys(vec!["界".repeat(86)]).is_err());
+        assert_eq!(
+            normalize_game_local_storage_sync_keys(
+                Some("flyff-universe"),
+                vec!["game_client_settings".to_owned()],
+            )
+            .unwrap_err()
+            .code(),
+            "GAME_LOCAL_STORAGE_SYNC_KEY_UNSAFE"
+        );
+        assert_eq!(
+            normalize_game_local_storage_sync_keys(
+                Some("flyff-universe"),
+                vec!["game_client_sessions".to_owned()],
+            )
+            .unwrap_err()
+            .code(),
+            "GAME_LOCAL_STORAGE_SYNC_KEY_UNSAFE"
+        );
 
         let mut games = vec![game_record(json!({
             "id":"builtin-flyff-universe","source":"builtin",
@@ -65,7 +83,11 @@
             "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
         }))];
         let reset = reset_builtin_game(&mut games, "builtin-flyff-universe").unwrap();
-        assert_eq!(reset.local_storage_sync_keys, ["game_client_settings"]);
+        assert!(reset.local_storage_sync_keys.is_empty());
+        assert_eq!(
+            reset.local_storage_sync_selectors,
+            FLYFF_LOCAL_STORAGE_SYNC_SELECTORS
+        );
     }
 
     #[test]

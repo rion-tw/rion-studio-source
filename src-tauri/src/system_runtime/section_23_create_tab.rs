@@ -230,9 +230,11 @@ impl SystemRuntimeExecutor {
                     role.local_storage_sync
                         .as_ref()
                         .map(|sync| LocalStorageRuntimeConfig {
+                            codec: sync.codec.clone(),
                             dependent_role_ids: sync.dependent_role_ids.clone(),
                             generation: 1,
                             keys: sync.keys.clone(),
+                            selectors: sync.selectors.clone(),
                             origin: sync.origin.clone(),
                             source_role_id: sync
                                 .source
@@ -269,6 +271,8 @@ impl SystemRuntimeExecutor {
                             source_role_id,
                             &config.origin,
                             &config.keys,
+                            &config.selectors,
+                            config.codec.as_deref(),
                         )?;
                         builder = builder.initialization_script_for_all_frames(
                             &local_storage_sync_apply_script(&snapshot)?,

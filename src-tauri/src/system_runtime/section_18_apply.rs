@@ -10,12 +10,16 @@ impl SystemRuntimeExecutor {
                 source_launch_url,
                 origin,
                 keys,
+                selectors,
+                codec,
             } => {
                 self.refresh_local_storage_sync_source(
                     &source_role_id,
                     &source_launch_url,
                     &origin,
                     &keys,
+                    &selectors,
+                    codec.as_deref(),
                 )?;
                 Ok(None)
             }
@@ -95,6 +99,8 @@ impl SystemRuntimeExecutor {
                 role_id,
                 origin,
                 local_storage_sync_keys,
+                local_storage_sync_selectors,
+                local_storage_sync_codec,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
             } => {
@@ -107,6 +113,8 @@ impl SystemRuntimeExecutor {
                     &role_id,
                     &origin,
                     &local_storage_sync_keys,
+                    &local_storage_sync_selectors,
+                    local_storage_sync_codec.as_deref(),
                 )?;
                 Ok(None)
             }

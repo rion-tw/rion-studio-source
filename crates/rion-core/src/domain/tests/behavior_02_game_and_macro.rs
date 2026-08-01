@@ -14,6 +14,7 @@
                 icon_image_data_url: None,
                 cover_image_data_url: None,
                 local_storage_sync_keys: Vec::new(),
+                local_storage_sync_selectors: Vec::new(),
             };
             let mut games = Vec::new();
             let result = create_game(&mut games, input);

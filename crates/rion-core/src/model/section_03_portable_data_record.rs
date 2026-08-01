@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "11")]
+    #[ts(type = "12")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -154,6 +154,8 @@ pub struct GameCreateRequest {
     pub default_launch_url: String,
     #[serde(default)]
     pub local_storage_sync_keys: Vec<String>,
+    #[serde(default)]
+    pub local_storage_sync_selectors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -175,6 +177,9 @@ pub struct GameUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub local_storage_sync_keys: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub local_storage_sync_selectors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -352,6 +357,8 @@ pub struct GameCreateInputRecord {
     pub cover_image_data_url: Option<String>,
     #[serde(default)]
     pub local_storage_sync_keys: Vec<String>,
+    #[serde(default)]
+    pub local_storage_sync_selectors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -377,6 +384,9 @@ pub struct GameUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub local_storage_sync_keys: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub local_storage_sync_selectors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

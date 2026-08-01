@@ -11,3 +11,4 @@ include!(
     "behavior_06_authoritative_events_leave_core_threads_before_waiting_for_queue_capacity.rs"
 );
 include!("behavior_07_conditional_tab_activation_noops_after_cross_window_move.rs");
+include!("behavior_08_local_storage_binding_keeps_running_surface.rs");

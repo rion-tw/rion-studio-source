@@ -160,8 +160,35 @@ use super::*;
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         };
-        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":12");
+        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":13");
         assert!(normalize(&future).is_err());
+    }
+
+    #[test]
+    fn v11_flyff_whole_value_sync_migrates_to_v12_safe_selectors() {
+        let mut source = fixture_value(11);
+        source["games"] = json!([{
+            "id":"builtin-flyff-universe",
+            "source":"builtin",
+            "builtinKey":"flyff-universe",
+            "name":"Flyff Universe",
+            "defaultLaunchUrl":"https://universe.flyff.com/play",
+            "localStorageSyncKeys":["custom-safe-key", "game_client_sessions", "game_client_settings"],
+            "localStorageSyncSelectors":[]
+        }]);
+        source["roles"][0]["gameId"] = json!("builtin-flyff-universe");
+
+        let migrated = normalize(&source.to_string()).unwrap();
+
+        assert_eq!(migrated["schemaVersion"], 12);
+        assert_eq!(
+            migrated["games"][0]["localStorageSyncKeys"],
+            json!(["custom-safe-key"])
+        );
+        assert_eq!(
+            migrated["games"][0]["localStorageSyncSelectors"],
+            json!(crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS)
+        );
     }
 
     fn empty_snapshot() -> CoreStateSnapshotRecord {
@@ -473,7 +500,7 @@ use super::*;
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 11);
+            assert_eq!(exported.schema_version, 12);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);

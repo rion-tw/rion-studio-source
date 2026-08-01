@@ -15,7 +15,8 @@ describe("Tauri bridge listener startup", () => {
     expect(gameCreateInput({
       name: "Flyff",
       defaultLaunchUrl: "https://example.test/play",
-      localStorageSyncKeys: ["game_client_settings"]
+      localStorageSyncKeys: ["game_client_settings"],
+      localStorageSyncSelectors: []
     })).toMatchObject({ localStorageSyncKeys: ["game_client_settings"] });
     expect(roleUpdateInput({ localStorageSourceRoleId: null })).toMatchObject({
       setLocalStorageSourceRoleId: true

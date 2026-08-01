@@ -24,7 +24,9 @@ use tauri::{
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use activation::ActivationServer;
-use system_runtime::{RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor};
+use system_runtime::{
+    LocalStorageSyncChangeRequest, RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor,
+};
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
 const OVERLAY_REQUEST_MAX_BYTES: usize = 64 * 1024;

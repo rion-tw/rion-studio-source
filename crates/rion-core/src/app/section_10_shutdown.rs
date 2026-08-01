@@ -167,7 +167,12 @@ fn local_storage_sync_role_effect(
             code: "GAME_NOT_FOUND",
             message: "Game not found.".to_owned(),
         })?;
-    if game.local_storage_sync_keys.is_empty() {
+    let codec = (game.builtin_key.as_deref() == Some("flyff-universe"))
+        .then(|| "flyff-client-settings-v7".to_owned());
+    if game.local_storage_sync_keys.is_empty()
+        && game.local_storage_sync_selectors.is_empty()
+        && codec.is_none()
+    {
         return Ok(None);
     }
     let origin = crate::domain::launch_origin(&role.launch_url)?;
@@ -198,6 +203,8 @@ fn local_storage_sync_role_effect(
     Ok(Some(crate::model::LocalStorageSyncRoleEffectRecord {
         origin,
         keys: game.local_storage_sync_keys.clone(),
+        selectors: game.local_storage_sync_selectors.clone(),
+        codec,
         source,
         dependent_role_ids,
     }))

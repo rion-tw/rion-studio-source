@@ -156,6 +156,10 @@ function RoleForm({
   });
   const gameChanged = Boolean(selectedRole && selectedRole.gameId !== form.gameId);
   const selectedGame = games.find((game) => game.id === form.gameId);
+  const managedLocalStorage = [
+    ...(selectedGame?.localStorageSyncKeys ?? []),
+    ...(selectedGame?.localStorageSyncSelectors ?? [])
+  ];
   const formOrigin = safeLaunchOrigin(form.launchUrl);
   const dependentRoles = selectedRole
     ? roles.filter((role) => role.localStorageSourceRoleId === selectedRole.id)
@@ -167,7 +171,7 @@ function RoleForm({
     && formOrigin !== undefined
     && safeLaunchOrigin(role.launchUrl) === formOrigin
   );
-  const bindingDisabled = !selectedGame?.localStorageSyncKeys.length
+  const bindingDisabled = managedLocalStorage.length === 0
     || dependentRoles.length > 0
     || eligibleSourceRoles.length === 0;
 
@@ -270,12 +274,12 @@ function RoleForm({
               {form.localStorageSourceRoleId ? (
                 <div className="rounded-md bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
                   <p>{t("roleForm.localStorageDirection").replace("{source}", eligibleSourceRoles.find((role) => role.id === form.localStorageSourceRoleId)?.name ?? t("roleForm.localStorageUnknownSource"))}</p>
-                  <p className="break-all">{t("roleForm.localStorageManagedKeys").replace("{keys}", selectedGame?.localStorageSyncKeys.join(", ") ?? "")}</p>
+                  <p className="break-all">{t("roleForm.localStorageManagedKeys").replace("{keys}", managedLocalStorage.join(", "))}</p>
                 </div>
               ) : null}
-              {!selectedGame?.localStorageSyncKeys.length ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageNoKeys")}</p> : null}
+              {managedLocalStorage.length === 0 ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageNoKeys")}</p> : null}
               {dependentRoles.length > 0 ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageHasDependents").replace("{names}", dependentRoles.map((role) => role.name).join(", "))}</p> : null}
-              {selectedGame?.localStorageSyncKeys.length && dependentRoles.length === 0 && eligibleSourceRoles.length === 0 ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageNoSources")}</p> : null}
+              {managedLocalStorage.length > 0 && dependentRoles.length === 0 && eligibleSourceRoles.length === 0 ? <p className="text-xs text-muted-foreground">{t("roleForm.localStorageNoSources")}</p> : null}
             </Surface>
 
             {selectedRole ? (

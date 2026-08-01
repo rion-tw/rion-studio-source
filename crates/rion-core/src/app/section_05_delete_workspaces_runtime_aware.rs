@@ -397,6 +397,10 @@ impl AppCore {
                     role_id: role_id.clone(),
                     origin: local_storage_sync_origin,
                     local_storage_sync_keys: game.local_storage_sync_keys,
+                    local_storage_sync_selectors: game.local_storage_sync_selectors,
+                    local_storage_sync_codec: (game.builtin_key.as_deref()
+                        == Some("flyff-universe"))
+                    .then(|| "flyff-client-settings-v7".to_owned()),
                     webview2_user_data_dir: role_paths.webview2_user_data_dir,
                     webkit_data_store_identifier: role_paths.webkit_data_store_identifier,
                 },

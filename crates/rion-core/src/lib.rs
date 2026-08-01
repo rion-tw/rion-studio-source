@@ -30,6 +30,7 @@ mod windows_graphics_events;
 
 pub use app::{AppCore, BrowserLaunchCompletionRecord};
 pub use bootstrap_settings::additional_browser_arguments;
+pub use domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
 pub use model::{

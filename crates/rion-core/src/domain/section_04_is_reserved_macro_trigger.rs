@@ -159,27 +159,30 @@ fn ensure_game_exists(games: &[StateGameRecord], game_id: &str) -> CoreResult<()
     }
 }
 
-fn builtin_definition(
-    id: &str,
-) -> Option<(
-    &'static str,
-    &'static str,
-    &'static str,
-    &'static [&'static str],
-)> {
+struct BuiltinGameDefinition {
+    key: &'static str,
+    name: &'static str,
+    default_launch_url: &'static str,
+    local_storage_sync_keys: &'static [&'static str],
+    local_storage_sync_selectors: &'static [&'static str],
+}
+
+fn builtin_definition(id: &str) -> Option<BuiltinGameDefinition> {
     match id {
-        "builtin-flyff-universe" => Some((
-            "flyff-universe",
-            "Flyff Universe",
-            DEFAULT_LAUNCH_URL,
-            &[FLYFF_LOCAL_STORAGE_SYNC_KEY],
-        )),
-        "builtin-feifei-infinite-universe" => Some((
-            "feifei-infinite-universe",
-            "飞飞：无限宇宙",
-            "https://ffcli.ruiwoo.cn",
-            &[],
-        )),
+        "builtin-flyff-universe" => Some(BuiltinGameDefinition {
+            key: "flyff-universe",
+            name: "Flyff Universe",
+            default_launch_url: DEFAULT_LAUNCH_URL,
+            local_storage_sync_keys: &[],
+            local_storage_sync_selectors: &FLYFF_LOCAL_STORAGE_SYNC_SELECTORS,
+        }),
+        "builtin-feifei-infinite-universe" => Some(BuiltinGameDefinition {
+            key: "feifei-infinite-universe",
+            name: "飞飞：无限宇宙",
+            default_launch_url: "https://ffcli.ruiwoo.cn",
+            local_storage_sync_keys: &[],
+            local_storage_sync_selectors: &[],
+        }),
         _ => None,
     }
 }
@@ -199,6 +202,53 @@ pub fn normalize_local_storage_sync_keys(values: Vec<String>) -> CoreResult<Vec<
             return Err(domain(
                 "GAME_LOCAL_STORAGE_SYNC_KEY_INVALID",
                 "localStorage sync keys must be between 1 and 256 UTF-8 bytes.",
+            ));
+        }
+        if seen.insert(value.clone()) {
+            normalized.push(value);
+        }
+    }
+    Ok(normalized)
+}
+
+pub fn normalize_game_local_storage_sync_keys(
+    builtin_key: Option<&str>,
+    values: Vec<String>,
+) -> CoreResult<Vec<String>> {
+    let values = normalize_local_storage_sync_keys(values)?;
+    if builtin_key == Some("flyff-universe")
+        && values.iter().any(|value| {
+            matches!(
+                value.as_str(),
+                FLYFF_LOCAL_STORAGE_SYNC_KEY | FLYFF_LOCAL_STORAGE_SESSION_KEY
+            )
+        })
+    {
+        return Err(domain(
+            "GAME_LOCAL_STORAGE_SYNC_KEY_UNSAFE",
+            "Flyff settings and session identity cannot be synchronized as whole values.",
+        ));
+    }
+    Ok(values)
+}
+
+pub fn normalize_local_storage_sync_selectors(
+    builtin_key: Option<&str>,
+    values: Vec<String>,
+) -> CoreResult<Vec<String>> {
+    let allowed = if builtin_key == Some("flyff-universe") {
+        FLYFF_LOCAL_STORAGE_SYNC_SELECTORS.as_slice()
+    } else {
+        &[]
+    };
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::with_capacity(values.len());
+    for value in values {
+        let value = value.trim().to_owned();
+        if !allowed.contains(&value.as_str()) {
+            return Err(domain(
+                "GAME_LOCAL_STORAGE_SYNC_SELECTOR_INVALID",
+                "The localStorage synchronization field is not available for this game.",
             ));
         }
         if seen.insert(value.clone()) {

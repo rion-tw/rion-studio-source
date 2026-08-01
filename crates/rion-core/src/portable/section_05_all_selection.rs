@@ -138,6 +138,7 @@ fn portable_game(game: &StateGameRecord) -> PortableGameRecord {
         cover_image_data_url: game.cover_image_data_url.clone(),
         default_launch_url: game.default_launch_url.clone(),
         local_storage_sync_keys: game.local_storage_sync_keys.clone(),
+        local_storage_sync_selectors: game.local_storage_sync_selectors.clone(),
     }
 }
 

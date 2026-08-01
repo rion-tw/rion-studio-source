@@ -3,24 +3,51 @@
         assert!(
             validate_local_storage_sync_contract(
                 "https://example.test",
-                &["game_client_settings".to_owned()]
+                &["game_client_settings".to_owned()],
+                &[],
+                None
             )
             .is_ok()
         );
         assert!(
             validate_local_storage_sync_contract(
                 "https://example.test/path",
-                &["game_client_settings".to_owned()]
+                &["game_client_settings".to_owned()],
+                &[],
+                None
             )
             .is_err()
         );
         assert!(
             validate_local_storage_sync_contract(
                 "https://example.test",
-                &vec!["key".to_owned(); 33]
+                &vec!["key".to_owned(); 33],
+                &[],
+                None
             )
             .is_err()
         );
+        assert!(validate_local_storage_sync_contract(
+            "https://example.test",
+            &["game_client_settings".to_owned()],
+            &["game_client_settings.audio".to_owned()],
+            Some("flyff-client-settings-v7")
+        )
+        .is_err());
+        assert!(validate_local_storage_sync_contract(
+            "https://example.test",
+            &["game_client_sessions".to_owned()],
+            &["game_client_settings.audio".to_owned()],
+            Some("flyff-client-settings-v7")
+        )
+        .is_err());
+        assert!(validate_local_storage_sync_contract(
+            "https://example.test",
+            &[],
+            &[],
+            Some("flyff-client-settings-v7")
+        )
+        .is_ok());
     }
 
     #[test]

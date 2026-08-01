@@ -40,8 +40,9 @@ pub fn preflight_supported_data(user_data_dir: &Path) -> CoreResult<()> {
     if !state_path.is_file() {
         if let Some(marker) = retired_marker {
             return Err(CoreError::UnsupportedDataVersion(format!(
-                "retired metadata was found at {}; only SQLite schema 19 or 20 is supported",
-                marker.display()
+                "retired metadata was found at {}; only SQLite schemas 19 through {} are supported",
+                marker.display(),
+                state::SCHEMA_VERSION
             )));
         }
         return Ok(());
@@ -69,9 +70,10 @@ pub fn preflight_supported_data(user_data_dir: &Path) -> CoreResult<()> {
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?
         .unwrap_or(0);
-    if !matches!(version, 19 | 20) {
+    if !matches!(version, 19 | 20 | state::SCHEMA_VERSION) {
         return Err(CoreError::UnsupportedDataVersion(format!(
-            "SQLite schema {version} is unsupported; only schema 19 or 20 is accepted"
+            "SQLite schema {version} is unsupported; expected 19, 20, or {}",
+            state::SCHEMA_VERSION
         )));
     }
     Ok(())
@@ -264,7 +266,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_fresh_schema_twenty_databases() {
+    fn creates_fresh_schema_twenty_one_databases() {
         let directory = tempdir().unwrap();
         let paths = bootstrap_databases(directory.path()).unwrap();
 
@@ -278,7 +280,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            20
+            21
         );
     }
 

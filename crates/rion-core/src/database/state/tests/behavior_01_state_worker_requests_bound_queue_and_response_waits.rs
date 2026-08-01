@@ -412,6 +412,7 @@ use std::fs;
                 icon_image_data_url: None,
                 cover_image_data_url: None,
                 local_storage_sync_keys: Vec::new(),
+                local_storage_sync_selectors: Vec::new(),
             }),
         )
         .unwrap();

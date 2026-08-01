@@ -18,6 +18,8 @@ pub struct StateGameRecord {
     pub default_launch_url: String,
     #[serde(default)]
     pub local_storage_sync_keys: Vec<String>,
+    #[serde(default)]
+    pub local_storage_sync_selectors: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }

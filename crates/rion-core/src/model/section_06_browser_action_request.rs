@@ -128,11 +128,19 @@ pub enum CoreEffectAction {
         source_launch_url: String,
         origin: String,
         keys: Vec<String>,
+        selectors: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        codec: Option<String>,
     },
     RoleBrowserDataClearSession {
         role_id: String,
         origin: String,
         local_storage_sync_keys: Vec<String>,
+        local_storage_sync_selectors: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        local_storage_sync_codec: Option<String>,
         webview2_user_data_dir: String,
         webkit_data_store_identifier: String,
     },
@@ -325,6 +333,11 @@ pub struct LocalStorageSyncSourceEffectRecord {
 pub struct LocalStorageSyncRoleEffectRecord {
     pub origin: String,
     pub keys: Vec<String>,
+    #[serde(default)]
+    pub selectors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub codec: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub source: Option<LocalStorageSyncSourceEffectRecord>,

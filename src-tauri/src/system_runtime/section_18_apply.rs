@@ -268,53 +268,74 @@ impl SystemRuntimeExecutor {
                 "Browser action intent is invalid.",
             ));
         }
-        let context = self.input_dispatch_context(&request)?;
+        let started = Instant::now();
+        let diagnostic = browser_action_diagnostic_context(&request.action);
+        let request_id = request.request_id.clone();
         let role_id = request.role_id.clone();
-        self.with_input_context_lane(&context, || match request.action {
-            BrowserAction::Focus => self
-                .role_webview_for_input(&role_id, &context)
-                .map(|_| None),
-            BrowserAction::Key {
-                phase,
-                key,
-                code,
-                modifiers,
-                owner_id,
-                suppress_overlay_shortcut: _,
-            } => {
-                let code = code.filter(|value| !value.is_empty()).unwrap_or(key);
-                self.dispatch_key_action_in_lane(
-                    &role_id,
-                    &phase,
-                    &code,
-                    &modifiers,
-                    &owner_id,
-                    &context,
-                )?;
-                Ok(None)
-            }
-            BrowserAction::Click {
-                anchor,
-                unit,
-                x,
-                y,
-                button,
-            } => {
-                let click = ClickActionDispatch {
-                    anchor: anchor.as_deref(),
-                    unit: &unit,
+        let input_epoch = request.input_epoch;
+        let intent = request.intent.clone();
+        let scheduled_at_ms = request.scheduled_at_ms;
+        let deadline_ms = request.deadline_ms;
+        let result = (|| {
+            let context = self.input_dispatch_context(&request)?;
+            self.with_input_context_lane(&context, || match request.action {
+                BrowserAction::Focus => {
+                    // Native key and mouse delivery targets the role WebView directly. Focus is
+                    // therefore a fenced readiness check, not permission to blur the game canvas
+                    // or replace the foreground role's AppKit first responder.
+                    self.role_webview_for_input(&role_id, &context)
+                        .map(|_| None)
+                }
+                BrowserAction::Key {
+                    phase,
+                    key,
+                    code,
+                    modifiers,
+                    owner_id,
+                    suppress_overlay_shortcut: _,
+                } => {
+                    let code = code.filter(|value| !value.is_empty()).unwrap_or(key);
+                    self.dispatch_key_action_in_lane(
+                        &role_id,
+                        &phase,
+                        &code,
+                        &modifiers,
+                        &owner_id,
+                        &context,
+                    )?;
+                    Ok(None)
+                }
+                BrowserAction::Click {
+                    anchor,
+                    unit,
                     x,
                     y,
-                    button: &button,
-                };
-                self.dispatch_click_action_in_lane(
-                    &role_id,
-                    &click,
-                    &context,
-                )?;
-                Ok(None)
-            }
-        })
+                    button,
+                } => {
+                    let click = ClickActionDispatch {
+                        anchor: anchor.as_deref(),
+                        unit: &unit,
+                        x,
+                        y,
+                        button: &button,
+                    };
+                    self.dispatch_click_action_in_lane(&role_id, &click, &context)?;
+                    Ok(None)
+                }
+            })
+        })();
+        self.record_macro_browser_action_result(
+            &request_id,
+            &role_id,
+            input_epoch,
+            &intent,
+            scheduled_at_ms,
+            deadline_ms,
+            diagnostic,
+            started,
+            &result,
+        );
+        result
     }
 
     fn dispatch_key_action_in_lane(
@@ -574,10 +595,13 @@ impl SystemRuntimeExecutor {
         context.ensure_current()?;
         let point = resolve_click_point(click.anchor, click.unit, click.x, click.y, viewport)?;
         let button = validate_mouse_button(click.button)?;
+        self.record_macro_click_resolution(role_id, click, viewport, point, context);
         if let Err(error) = dispatch_mouse_input_sequence(
             context,
             || self.cleanup_input_context(context),
-            |pressed, context| dispatch_mouse_effect(&webview, point, button, pressed, context),
+            |pressed, context| {
+                dispatch_mouse_effect(&webview, viewport, point, button, pressed, context)
+            },
         ) {
             if let Some(cleanup_error) = error.cleanup.as_ref() {
                 self.quarantine_role_input(role_id, cleanup_error);

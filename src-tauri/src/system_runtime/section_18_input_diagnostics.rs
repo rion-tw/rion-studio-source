@@ -1,0 +1,160 @@
+impl SystemRuntimeExecutor {
+    #[allow(clippy::too_many_arguments)]
+    fn record_macro_browser_action_result(
+        &self,
+        request_id: &str,
+        role_id: &str,
+        input_epoch: u64,
+        intent: &str,
+        scheduled_at_ms: u64,
+        deadline_ms: u64,
+        diagnostic: Value,
+        started: Instant,
+        result: &RuntimeResult<Option<String>>,
+    ) {
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let lane = self
+            .input_dispatch_lanes
+            .lock()
+            .ok()
+            .and_then(|lanes| lanes.get(role_id).cloned());
+        let mut context = diagnostic.as_object().cloned().unwrap_or_default();
+        context.insert("requestId".to_owned(), Value::String(request_id.to_owned()));
+        context.insert("roleId".to_owned(), Value::String(role_id.to_owned()));
+        context.insert("inputEpoch".to_owned(), Value::from(input_epoch));
+        context.insert("intent".to_owned(), Value::String(intent.to_owned()));
+        context.insert(
+            "scheduledAgeMs".to_owned(),
+            Value::from(now_ms.saturating_sub(scheduled_at_ms)),
+        );
+        context.insert(
+            "deadlineRemainingMs".to_owned(),
+            Value::from(deadline_ms.saturating_sub(now_ms)),
+        );
+        context.insert(
+            "elapsedMs".to_owned(),
+            Value::from(started.elapsed().as_millis().min(u64::MAX as u128) as u64),
+        );
+        context.insert(
+            "runtimeEpoch".to_owned(),
+            lane.as_ref()
+                .map(|lane| Value::from(lane.epoch.load(Ordering::Acquire)))
+                .unwrap_or(Value::Null),
+        );
+        context.insert(
+            "runtimeSurfaceGeneration".to_owned(),
+            lane.as_ref()
+                .map(|lane| Value::from(lane.surface_generation.load(Ordering::Acquire)))
+                .unwrap_or(Value::Null),
+        );
+        context.insert(
+            "normalInputEnabled".to_owned(),
+            lane.as_ref()
+                .map(|lane| Value::from(lane.normal_enabled.load(Ordering::Acquire)))
+                .unwrap_or(Value::Null),
+        );
+        let error = result.as_ref().err();
+        let core = Arc::clone(&self.core);
+        let entry = LogCaptureRecord {
+            level: if error.is_some() {
+                LogLevel::Warn
+            } else {
+                LogLevel::Debug
+            },
+            source: LogSource::Macro,
+            event: if error.is_some() {
+                "input.browser-action-failed".to_owned()
+            } else {
+                "input.browser-action-completed".to_owned()
+            },
+            message: if error.is_some() {
+                "A macro browser action failed before native completion.".to_owned()
+            } else {
+                "A macro browser action completed through the native input adapter.".to_owned()
+            },
+            context_raw_json: serde_json::to_string(&Value::Object(context)).ok(),
+            error: error.map(|error| log_error_details(error.code, &error.message)),
+        };
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![entry],
+                })
+                .await;
+        });
+    }
+
+    fn record_macro_click_resolution(
+        &self,
+        role_id: &str,
+        click: &ClickActionDispatch<'_>,
+        viewport: ViewportSize,
+        point: ClickPoint,
+        context: &InputDispatchContext,
+    ) {
+        let core = Arc::clone(&self.core);
+        let diagnostic = json!({
+            "anchor": click.anchor,
+            "button": click.button,
+            "inputEpoch": context.input_epoch,
+            "intent": context.intent,
+            "normalInputEnabled": context.lane.normal_enabled.load(Ordering::Acquire),
+            "pointX": point.x,
+            "pointY": point.y,
+            "roleId": role_id,
+            "runtimeEpoch": context.lane.epoch.load(Ordering::Acquire),
+            "runtimeSurfaceGeneration": context.lane.surface_generation.load(Ordering::Acquire),
+            "unit": click.unit,
+            "viewportHeight": viewport.height,
+            "viewportWidth": viewport.width,
+            "x": click.x,
+            "y": click.y,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Debug,
+                        source: LogSource::Macro,
+                        event: "input.click-resolved".to_owned(),
+                        message: "A macro click was resolved within the DOM viewport.".to_owned(),
+                        context_raw_json: serde_json::to_string(&diagnostic).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+}
+
+fn browser_action_diagnostic_context(action: &BrowserAction) -> Value {
+    match action {
+        BrowserAction::Focus => json!({ "action": "focus" }),
+        BrowserAction::Key {
+            phase,
+            key,
+            code,
+            modifiers,
+            ..
+        } => json!({
+            "action": "key",
+            "code": code.as_deref().unwrap_or(key),
+            "modifierCount": modifiers.len(),
+            "phase": phase,
+        }),
+        BrowserAction::Click {
+            anchor,
+            unit,
+            x,
+            y,
+            button,
+        } => json!({
+            "action": "click",
+            "anchor": anchor,
+            "button": button,
+            "unit": unit,
+            "x": x,
+            "y": y,
+        }),
+    }
+}

@@ -1,23 +1,14 @@
 import { AlertCircle } from "lucide-react";
-
 import { Suspense, type JSX, useCallback, useEffect, useRef, useState } from "react";
-
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
-
 import { AppSidebar } from "./components/AppSidebar";
-
+import { UpdateReadyBanner } from "./components/UpdateReadyBanner";
 import { Surface } from "./components/ui/patterns";
-
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
-
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
-
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
-
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
-
 import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
-
 import { shouldShowUpdateBadge } from "./app/statusUtils";
 
 import { useAppData } from "./hooks/useAppData";
@@ -508,6 +499,11 @@ export function App(): JSX.Element {
       )}
 
       <main className="app-content relative min-w-0 flex-1 overflow-hidden">
+        <UpdateReadyBanner
+          status={updates.status}
+          t={preferences.t}
+          onInstall={updates.installDownloadedUpdate}
+        />
         {data.error !== null ? (
           <Surface
             className="pointer-events-none absolute bottom-5 left-1/2 z-[var(--layer-toast)] flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-destructive/30 px-4 py-3 text-body text-destructive md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"

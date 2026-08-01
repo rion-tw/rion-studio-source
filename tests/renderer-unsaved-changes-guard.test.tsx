@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import { ApplicationQuitGuardProvider } from "../src/renderer/src/components/ApplicationQuitGuard";
+import { useGuardedApplicationAction } from "../src/renderer/src/components/applicationQuitGuardRegistry";
 import { useUnsavedChangesGuard } from "../src/renderer/src/hooks/useUnsavedChangesGuard";
 
 const confirmationOptions = {
@@ -149,17 +150,71 @@ describe("useUnsavedChangesGuard", () => {
 
     expect(bridge.confirmApplicationQuit).toHaveBeenCalledOnce();
   });
+
+  it("installs an update immediately when the editor is clean", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: false });
+
+    await user.click(screen.getByRole("button", { name: "Install update" }));
+
+    expect(bridge.installDownloadedUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a downloaded update pending when the user continues editing", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: true });
+
+    await user.click(screen.getByRole("button", { name: "Install update" }));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+
+    expect(bridge.installDownloadedUpdate).not.toHaveBeenCalled();
+  });
+
+  it("installs a downloaded update after unsaved changes are discarded", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: true });
+
+    await user.click(screen.getByRole("button", { name: "Install update" }));
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+
+    expect(bridge.installDownloadedUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("waits for an active save before installing a downloaded update", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: true, locked: true });
+
+    await user.click(screen.getByRole("button", { name: "Install update" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(bridge.installDownloadedUpdate).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Finish saving" }));
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+
+    expect(bridge.installDownloadedUpdate).toHaveBeenCalledOnce();
+  });
 });
 
 function GuardHarness({ dirty, locked = false }: { dirty: boolean; locked?: boolean }): JSX.Element {
   const navigate = useNavigate();
   const [isLocked, setIsLocked] = useState(locked);
+  const requestGuardedAction = useGuardedApplicationAction();
   useUnsavedChangesGuard(dirty, confirmationOptions, isLocked);
 
   return (
     <div>
       <span>Editor</span>
       <button type="button" onClick={() => navigate("/next")}>Leave editor</button>
+      <button
+        type="button"
+        onClick={() => void requestGuardedAction(() => window.rionStudio.installDownloadedUpdate())}
+      >
+        Install update
+      </button>
       {isLocked ? (
         <button type="button" onClick={() => setIsLocked(false)}>Finish saving</button>
       ) : null}
@@ -205,16 +260,19 @@ function dispatchBeforeUnload(): Event {
 
 function installBridge(): {
   confirmApplicationQuit: ReturnType<typeof vi.fn>;
+  installDownloadedUpdate: ReturnType<typeof vi.fn>;
   requestApplicationQuit: () => void;
   requestCurrentWindowClose: ReturnType<typeof vi.fn>;
 } {
   let applicationQuitRequested: (() => void) | null = null;
   const confirmApplicationQuit = vi.fn().mockResolvedValue(undefined);
+  const installDownloadedUpdate = vi.fn().mockResolvedValue(undefined);
   const requestCurrentWindowClose = vi.fn();
   Object.defineProperty(window, "rionStudio", {
     configurable: true,
     value: {
       confirmApplicationQuit,
+      installDownloadedUpdate,
       onApplicationQuitRequested: (callback: () => void) => {
         applicationQuitRequested = callback;
         return () => {
@@ -226,6 +284,7 @@ function installBridge(): {
   });
   return {
     confirmApplicationQuit,
+    installDownloadedUpdate,
     requestApplicationQuit: () => applicationQuitRequested?.(),
     requestCurrentWindowClose
   };

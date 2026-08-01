@@ -543,6 +543,7 @@ async fn rion_core_invoke(
         CoreCommand::RuntimeThemeSet { theme } => Some(theme.clone()),
         _ => None,
     };
+    let legal_acceptance_changed = matches!(&command, CoreCommand::LegalAcceptanceAccept { .. });
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
     let launch_preview = match &command {
@@ -627,6 +628,9 @@ async fn rion_core_invoke(
     }
     if result.is_ok() && browser_fonts_changed {
         state.runtime.refresh_browser_fonts();
+    }
+    if result.is_ok() && legal_acceptance_changed {
+        state.updates.mark_legal_accepted();
     }
     result
 }

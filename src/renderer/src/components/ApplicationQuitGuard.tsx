@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState
 } from "react";
@@ -11,12 +12,20 @@ import { useConfirmation } from "./confirmation";
 import {
   ApplicationQuitGuardContext,
   type ApplicationQuitBlocker,
+  type RequestGuardedApplicationAction,
   type UpdateApplicationQuitBlocker
 } from "./applicationQuitGuardRegistry";
 
+interface PendingGuardedAction {
+  action: () => Promise<void>;
+  promise: Promise<boolean>;
+  reject: (error: unknown) => void;
+  resolve: (confirmed: boolean) => void;
+}
+
 export function ApplicationQuitGuardProvider({ children }: { children: ReactNode }): JSX.Element {
   const blockersRef = useRef(new Map<symbol, ApplicationQuitBlocker>());
-  const quitRequestedRef = useRef(false);
+  const pendingActionRef = useRef<PendingGuardedAction | null>(null);
   const promptingRef = useRef(false);
   const [revision, setRevision] = useState(0);
   const confirm = useConfirmation();
@@ -30,6 +39,22 @@ export function ApplicationQuitGuardProvider({ children }: { children: ReactNode
     setRevision((current) => current + 1);
   }, []);
 
+  const requestAction = useCallback<RequestGuardedApplicationAction>((action) => {
+    const pending = pendingActionRef.current;
+    if (pending) {
+      return pending.promise;
+    }
+    let resolve!: (confirmed: boolean) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<boolean>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    pendingActionRef.current = { action, promise, reject, resolve };
+    setRevision((current) => current + 1);
+    return promise;
+  }, []);
+
   useEffect(() => {
     const api = window.rionStudio;
     if (!api?.onApplicationQuitRequested) {
@@ -37,13 +62,13 @@ export function ApplicationQuitGuardProvider({ children }: { children: ReactNode
     }
 
     return api.onApplicationQuitRequested(() => {
-      quitRequestedRef.current = true;
-      setRevision((current) => current + 1);
+      void requestAction(() => window.rionStudio.confirmApplicationQuit()).catch(() => undefined);
     });
-  }, []);
+  }, [requestAction]);
 
   useEffect(() => {
-    if (!quitRequestedRef.current || promptingRef.current) {
+    const pending = pendingActionRef.current;
+    if (!pending || promptingRef.current) {
       return;
     }
 
@@ -54,27 +79,34 @@ export function ApplicationQuitGuardProvider({ children }: { children: ReactNode
 
     const dirtyBlocker = blockers.find((blocker) => blocker.enabled);
     if (!dirtyBlocker) {
-      quitRequestedRef.current = false;
-      void window.rionStudio.confirmApplicationQuit();
+      pendingActionRef.current = null;
+      void pending.action().then(() => pending.resolve(true), pending.reject);
       return;
     }
 
     promptingRef.current = true;
     void confirm(dirtyBlocker.options)
       .then((confirmed) => {
-        quitRequestedRef.current = false;
-        if (confirmed) {
-          return window.rionStudio.confirmApplicationQuit();
+        pendingActionRef.current = null;
+        if (!confirmed) {
+          pending.resolve(false);
+          return undefined;
         }
-        return undefined;
+        return pending.action().then(() => pending.resolve(true), pending.reject);
+      }, (error: unknown) => {
+        pendingActionRef.current = null;
+        pending.reject(error);
       })
       .finally(() => {
         promptingRef.current = false;
+        setRevision((current) => current + 1);
       });
   }, [confirm, revision]);
 
+  const value = useMemo(() => ({ requestAction, updateBlocker }), [requestAction, updateBlocker]);
+
   return (
-    <ApplicationQuitGuardContext.Provider value={updateBlocker}>
+    <ApplicationQuitGuardContext.Provider value={value}>
       {children}
     </ApplicationQuitGuardContext.Provider>
   );

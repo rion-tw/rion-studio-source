@@ -74,6 +74,20 @@ struct CoreState {
     updates: Arc<update_manager::UpdateManager>,
 }
 
+pub(crate) fn prepare_application_update_exit(app: &AppHandle) {
+    if let Some(state) = app.try_state::<CoreState>() {
+        state.application_exit_guard.permit();
+        state.runtime.close_all();
+        state.core.shutdown();
+    }
+}
+
+fn prepare_application_update_install(state: &CoreState) -> Result<(), String> {
+    state.runtime.persist_all_game_window_placements()?;
+    state.runtime.persist_restore_session(true)?;
+    Ok(())
+}
+
 const TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150);
 const TAB_SELECTION_COMMIT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const TAB_SELECTION_COMMIT_RETRY_DELAY: Duration = Duration::from_millis(300);

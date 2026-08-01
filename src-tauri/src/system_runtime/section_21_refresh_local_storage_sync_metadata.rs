@@ -588,6 +588,7 @@ impl SystemRuntimeExecutor {
                 runtime_label("game-tab-strip", &host_id),
                 WebviewUrl::App("runtime-tabs.html".into()),
             )
+            .disable_drag_drop_handler()
             .initialization_script(WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT),
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(target.bounds.width.max(1) as f64, WINDOWS_TAB_STRIP_HEIGHT),

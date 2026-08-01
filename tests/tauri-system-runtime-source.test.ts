@@ -199,6 +199,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(activationPreview).toContain("request_provisional_tab_presentation");
     expect(activationPreview).toContain("selected_tab_id");
     expect(activationPreview).toContain("dispatch_native_presentation");
+    expect(activationPreview).toContain("NativePresentationFocus::ContentOnly");
+    expect(activationPreview).not.toContain("NativePresentationFocus::WindowAndContent");
     expect(activationPreview).not.toContain("BrowserRuntimeSnapshot");
     expect(activationPreview).not.toContain("presentation_lane");
     const closePreview = runtime.slice(
@@ -208,6 +210,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(closePreview).toContain("window_state.remove_tab(");
     expect(closePreview).toContain("successor_tab_after_close(");
     expect(closePreview).toContain("dispatch_native_presentation(");
+    expect(closePreview).toContain("NativePresentationFocus::ContentOnly");
     expect(closePreview).toContain("request_preview_surface_isolation(isolation_surfaces)");
     expect(closePreview.indexOf("dispatch_native_presentation(")).toBeLessThan(
       closePreview.indexOf("request_preview_surface_isolation(isolation_surfaces)")
@@ -222,7 +225,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(destroyEffect.indexOf("prepare_destroy_tab_presentation")).toBeLessThan(
       destroyEffect.indexOf("self.destroy_tab(&tab_id)?")
     );
-    expect(destroyEffect).toContain('"tab.close-successor-preflight-failed"');
+    expect(runtime).toContain('"tab.close-successor-preflight-failed"');
+    expect(runtime).toContain('"preflightMode": preflight_mode');
+    expect(runtime).toContain('"waitedTabId": waited_tab_id');
     expect(runtime).toContain("struct WindowPresentationState {");
     expect(runtime).toContain("struct LatestOnlyPresentationQueue<T>");
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");

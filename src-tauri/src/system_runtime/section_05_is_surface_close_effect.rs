@@ -196,15 +196,21 @@ fn native_presentation_mutation_plan(
     next_surface_identities: &HashSet<(String, u64)>,
     previous_window_visibility: Option<bool>,
     window_visibility: Option<bool>,
-    focus: bool,
+    focus: NativePresentationFocus,
 ) -> NativePresentationMutationPlan {
     let presentation_changed =
         previous_tab_id != next_tab_id || previous_surface_identities != next_surface_identities;
+    let focus_allowed = window_visibility != Some(false);
+    let apply_content_focus = focus_allowed && focus.focuses_content();
+    let apply_window_focus = focus_allowed && focus.focuses_window();
     NativePresentationMutationPlan {
-        apply_focus: focus && presentation_changed && window_visibility != Some(false),
+        apply_content_focus,
+        apply_window_focus,
         presentation_changed,
         requires_ui_thread: presentation_changed
-            || window_visibility.is_some_and(|visible| Some(visible) != previous_window_visibility),
+            || window_visibility.is_some_and(|visible| Some(visible) != previous_window_visibility)
+            || apply_content_focus
+            || apply_window_focus,
     }
 }
 
@@ -385,7 +391,7 @@ fn apply_native_presentation_batch(
         let mut focus_applied = false;
         let mut window_focus_applied = false;
         let window_focus_started_at = Instant::now();
-        if mutation_plan.apply_focus && matches!(window.is_focused(), Ok(false)) {
+        if mutation_plan.apply_window_focus && matches!(window.is_focused(), Ok(false)) {
             match window.set_focus() {
                 Ok(()) => window_focus_applied = true,
                 Err(error) => visibility_errors.push(error.to_string()),
@@ -396,7 +402,7 @@ fn apply_native_presentation_batch(
             .as_millis()
             .min(u64::MAX as u128) as u64;
         let webview_focus_started_at = Instant::now();
-        if mutation_plan.apply_focus
+        if mutation_plan.apply_content_focus
             && let Some(webview) = active_webview
         {
             match webview.set_focus() {
@@ -494,6 +500,7 @@ fn capture_presentation_batch_events(
         "firstRevision": first_revision,
         "firstRequestAgeMs": batch.first_requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
         "focusApplied": outcome.focus_applied,
+        "focusMode": request.focus.diagnostic_name(),
         "hideMs": outcome.hide_ms,
         "hiddenSurfaceCount": outcome.hidden_surface_count,
         "mainQueueWaitMs": outcome.main_queue_wait_ms,

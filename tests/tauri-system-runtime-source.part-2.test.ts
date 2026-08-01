@@ -35,6 +35,15 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("SW_SHOWNOACTIVATE");
     expect(runtime).not.toContain("surface-host-main-thread-flush");
     expect(runtime).toContain("WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT");
+    const displayHost = runtime.slice(
+      runtime.indexOf("fn ensure_display_host("),
+      runtime.indexOf("fn register_runtime_launcher_window(")
+    );
+    const windowsTabStripBuilder = displayHost.slice(
+      displayHost.indexOf('runtime_label("game-tab-strip"'),
+      displayHost.indexOf("let mut state = self.state()?")
+    );
+    expect(windowsTabStripBuilder).toContain(".disable_drag_drop_handler()");
     expect(runtime).toContain("run_serial_runtime_work_loop");
     expect(runtime).toContain("SYSTEM_WEBVIEW_CREATION_STALLED");
     expect(runtime).toContain("PermissionRequestedEventHandler");
@@ -50,6 +59,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain('internals.invoke("rion_runtime_audio_state", { audible })');
     expect(runtime).toContain("set_webview_audible");
     expect(shell).toContain("rion_runtime_audio_state");
+    expect(shell).toContain('"tab.drag-started"');
 
     const applyRuntime = runtime.slice(
       runtime.indexOf("fn apply_runtime("),
@@ -82,6 +92,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime).toContain("let projected_native_tab_window_ids = snapshot");
     expect(applyRuntime).toContain("resolved_runtime_window_selection(");
     expect(applyRuntime).toContain("dispatch_native_presentation(");
+    expect(applyRuntime).toContain("NativePresentationFocus::WindowAndContent");
     expect(applyRuntime).toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");
     expect(applyRuntime).toContain("self.presentation.remove(&window_id)");
     expect(applyRuntime).not.toContain("visibility_mutations");

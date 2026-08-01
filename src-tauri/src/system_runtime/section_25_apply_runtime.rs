@@ -591,8 +591,13 @@ impl SystemRuntimeExecutor {
             let Some(window) = self.window_for_id(&window_id) else {
                 continue;
             };
-            let focus = focus_tab_id == next.selected_tab_id.as_deref()
-                && previous.revision <= presentation_revision;
+            let focus = if focus_tab_id == next.selected_tab_id.as_deref()
+                && previous.revision <= presentation_revision
+            {
+                NativePresentationFocus::WindowAndContent
+            } else {
+                NativePresentationFocus::None
+            };
             self.apply_native_active_style(
                 &window_id,
                 next.selected_tab_id.as_deref(),

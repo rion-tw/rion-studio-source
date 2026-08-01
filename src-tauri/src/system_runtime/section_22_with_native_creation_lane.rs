@@ -146,7 +146,7 @@ impl SystemRuntimeExecutor {
             Vec::new(),
             None,
             Some(true),
-            false,
+            NativePresentationFocus::None,
         );
         self.record_presentation_event(
             LogLevel::Debug,
@@ -198,7 +198,11 @@ impl SystemRuntimeExecutor {
             next_tab_id.as_deref(),
         );
         if let Some(tab_id) = next_tab_id {
-            let _ = self.request_tab_presentation(&tab_id, false, "launch-preview-cancelled");
+            let _ = self.request_tab_presentation(
+                &tab_id,
+                NativePresentationFocus::None,
+                "launch-preview-cancelled",
+            );
         }
         self.remove_empty_display_host(&provisional.window_id, provisional.host_created);
     }
@@ -580,7 +584,11 @@ impl SystemRuntimeExecutor {
             next_tab_id.as_deref(),
         );
         if let Some(tab_id) = next_tab_id {
-            let _ = self.request_tab_presentation(tab_id.as_str(), false, "launch-preview-closed");
+            let _ = self.request_tab_presentation(
+                tab_id.as_str(),
+                NativePresentationFocus::None,
+                "launch-preview-closed",
+            );
         }
         true
     }

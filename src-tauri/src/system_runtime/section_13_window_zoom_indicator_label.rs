@@ -293,12 +293,20 @@ impl SystemRuntimeExecutor {
             "pointer"
         };
         if let Some(window_id) =
-            self.request_provisional_tab_presentation(&resolved_tab_id, true, trigger)?
+            self.request_provisional_tab_presentation(
+                &resolved_tab_id,
+                NativePresentationFocus::ContentOnly,
+                trigger,
+            )?
         {
             return Ok((window_id, true, resolved_tab_id));
         }
-        self.request_tab_presentation(&resolved_tab_id, true, trigger)
-            .map(|window_id| (window_id, false, resolved_tab_id))
+        self.request_tab_presentation(
+            &resolved_tab_id,
+            NativePresentationFocus::ContentOnly,
+            trigger,
+        )
+        .map(|(window_id, _)| (window_id, false, resolved_tab_id))
     }
 
     fn reconcile_presentation_tab_owner(
@@ -332,7 +340,7 @@ impl SystemRuntimeExecutor {
     fn request_provisional_tab_presentation(
         &self,
         tab_id: &str,
-        focus: bool,
+        focus: NativePresentationFocus,
         trigger: &'static str,
     ) -> Result<Option<String>, String> {
         let requested_at = Instant::now();
@@ -394,9 +402,9 @@ impl SystemRuntimeExecutor {
     fn request_tab_presentation(
         &self,
         tab_id: &str,
-        focus: bool,
+        focus: NativePresentationFocus,
         trigger: &'static str,
-    ) -> Result<String, String> {
+    ) -> Result<(String, u64), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
         let (window_id, window) = {
@@ -459,7 +467,7 @@ impl SystemRuntimeExecutor {
             None,
             focus,
         );
-        Ok(window_id)
+        Ok((window_id, revision))
     }
 
     fn reconcile_window_presentation(
@@ -523,7 +531,7 @@ impl SystemRuntimeExecutor {
             next_surfaces,
             active_webview,
             None,
-            false,
+            NativePresentationFocus::None,
         );
         Ok(())
     }
@@ -554,10 +562,18 @@ impl SystemRuntimeExecutor {
         };
         let target_id = candidates[target_index].clone();
         let provisional = self
-            .request_provisional_tab_presentation(&target_id, true, "shortcut")?
+            .request_provisional_tab_presentation(
+                &target_id,
+                NativePresentationFocus::ContentOnly,
+                "shortcut",
+            )?
             .is_some();
         if !provisional {
-            self.request_tab_presentation(&target_id, true, "shortcut")?;
+            self.request_tab_presentation(
+                &target_id,
+                NativePresentationFocus::ContentOnly,
+                "shortcut",
+            )?;
         }
         Ok((target_id, provisional))
     }

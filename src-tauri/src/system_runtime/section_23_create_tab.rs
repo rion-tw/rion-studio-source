@@ -196,7 +196,7 @@ impl SystemRuntimeExecutor {
             Vec::new(),
             None,
             Some(true),
-            false,
+            NativePresentationFocus::None,
         );
         self.wait_for_presentation_paint_barrier(&target.window_id, reservation_revision);
         let window_zoom_factor = self
@@ -441,7 +441,11 @@ impl SystemRuntimeExecutor {
                     launch_started,
                 );
                 if selected.1 {
-                    let _ = self.request_tab_presentation(&tab.tab_id, false, "surface-attached");
+                    let _ = self.request_tab_presentation(
+                        &tab.tab_id,
+                        NativePresentationFocus::None,
+                        "surface-attached",
+                    );
                 } else {
                     webview.hide().map_err(RuntimeError::tauri)?;
                 }
@@ -662,7 +666,11 @@ impl SystemRuntimeExecutor {
                     next_tab_id = selection.selected_tab_id.clone();
                 }
                 if let Some(next_tab_id) = next_tab_id.as_deref() {
-                    let _ = self.request_tab_presentation(next_tab_id, false, "launch-failed");
+                    let _ = self.request_tab_presentation(
+                        next_tab_id,
+                        NativePresentationFocus::None,
+                        "launch-failed",
+                    );
                 }
                 self.remove_native_tab_reservation(
                     &target.window_id,
@@ -682,7 +690,11 @@ impl SystemRuntimeExecutor {
                         })
                     });
             if remains_selected {
-                let _ = self.request_tab_presentation(&created_tab_id, false, "surface-attached");
+                let _ = self.request_tab_presentation(
+                    &created_tab_id,
+                    NativePresentationFocus::None,
+                    "surface-attached",
+                );
             }
         }
         result

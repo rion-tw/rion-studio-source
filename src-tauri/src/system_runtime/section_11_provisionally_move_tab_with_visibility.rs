@@ -251,7 +251,11 @@ impl SystemRuntimeExecutor {
         let source_presentation_result = if let Some(source_active_tab_id) =
             native_move.source_active_after_move.as_deref()
         {
-            self.request_tab_presentation(source_active_tab_id, false, "provisional-move-source")
+            self.request_tab_presentation(
+                source_active_tab_id,
+                NativePresentationFocus::None,
+                "provisional-move-source",
+            )
                 .map(|_| ())
         } else {
             self.apply_native_active_style(

@@ -158,7 +158,11 @@ impl SystemRuntimeExecutor {
                     .is_some_and(|selection| selection.selected_tab_id.as_deref() == Some(tab_id))
             })
         {
-            let _ = self.request_tab_presentation(tab_id, false, "optional-dividers-attached");
+            let _ = self.request_tab_presentation(
+                tab_id,
+                NativePresentationFocus::None,
+                "optional-dividers-attached",
+            );
         }
         Ok(())
     }

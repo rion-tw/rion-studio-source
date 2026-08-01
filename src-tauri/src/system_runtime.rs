@@ -30,6 +30,7 @@ include!("system_runtime/section_24_start_role_loads.rs");
 include!("system_runtime/section_25_apply_runtime.rs");
 include!("system_runtime/section_26_sync_native_tab_metadata.rs");
 include!("system_runtime/section_27_add_child_bounded.rs");
+include!("system_runtime/section_27_prepare_destroy_tab_presentation.rs");
 include!("system_runtime/section_28_set_role_audio_muted.rs");
 include!("system_runtime/section_29_session_storage.rs");
 include!("system_runtime/section_30_geometry_and_input.rs");

@@ -464,7 +464,11 @@ impl SystemRuntimeExecutor {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
         if surface_bound.1 {
-            let _ = self.request_tab_presentation(&tab_id, false, "surface-recovered");
+            let _ = self.request_tab_presentation(
+                &tab_id,
+                NativePresentationFocus::None,
+                "surface-recovered",
+            );
         } else {
             let _ = replacement_webview.hide();
         }

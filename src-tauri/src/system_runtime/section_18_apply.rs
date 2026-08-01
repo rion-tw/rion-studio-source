@@ -67,39 +67,9 @@ impl SystemRuntimeExecutor {
                         0,
                     );
                 } else {
-                    let window_id = self
-                        .state()
-                        .ok()
-                        .and_then(|state| {
-                            state
-                                .tabs
-                                .get(&tab_id)
-                                .map(|tab| tab.window_id.clone())
-                                .or_else(|| {
-                                    next_active_tab_id.as_deref().and_then(|next_tab_id| {
-                                        state.tabs.get(next_tab_id).map(|tab| tab.window_id.clone())
-                                    })
-                                })
-                        })
-                        .unwrap_or_default();
-                    if let Err(error) = self
+                    let _ = self
                         .prepare_destroy_tab_presentation(&tab_id, next_active_tab_id.as_deref())
-                    {
-                        self.record_presentation_event_with_error(
-                            LogLevel::Warn,
-                            "tab.close-successor-preflight-failed",
-                            "The close successor could not be presented before native teardown.",
-                            &window_id,
-                            next_active_tab_id.as_deref().or(Some(tab_id.as_str())),
-                            presentation_revision,
-                            "close-effect-preflight",
-                            0,
-                            Some(&rion_core::CoreErrorPayload {
-                                code: error.code.to_owned(),
-                                message: error.message.clone(),
-                            }),
-                        );
-                    }
+                        .ok();
                     self.destroy_tab(&tab_id)?;
                 }
                 Ok(None)

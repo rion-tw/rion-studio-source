@@ -537,11 +537,65 @@ struct SurfacePresentationOwner {
     window_id: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ClosePreflightPlan {
+    ReusePreview {
+        revision: u64,
+        selected_tab_id: Option<String>,
+    },
+    PresentSuccessor {
+        tab_id: String,
+    },
+    HideWindow,
+}
+
+fn close_preflight_plan(
+    closing_tab_present: bool,
+    preview_revision: u64,
+    preview_selected_tab_id: Option<String>,
+    fallback_successor_tab_id: Option<String>,
+) -> ClosePreflightPlan {
+    if !closing_tab_present && preview_revision > 0 {
+        return ClosePreflightPlan::ReusePreview {
+            revision: preview_revision,
+            selected_tab_id: preview_selected_tab_id,
+        };
+    }
+    fallback_successor_tab_id.map_or(ClosePreflightPlan::HideWindow, |tab_id| {
+        ClosePreflightPlan::PresentSuccessor { tab_id }
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativePresentationFocus {
+    None,
+    ContentOnly,
+    WindowAndContent,
+}
+
+impl NativePresentationFocus {
+    fn focuses_content(self) -> bool {
+        matches!(self, Self::ContentOnly | Self::WindowAndContent)
+    }
+
+    fn focuses_window(self) -> bool {
+        matches!(self, Self::WindowAndContent)
+    }
+
+    fn diagnostic_name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::ContentOnly => "content-only",
+            Self::WindowAndContent => "window-and-content",
+        }
+    }
+}
+
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
     coordinator: Arc<Mutex<WindowPresentationState>>,
     core: Arc<AppCore>,
-    focus: bool,
+    focus: NativePresentationFocus,
     next_surface_identities: HashSet<(String, u64)>,
     next_surfaces: Vec<Webview>,
     observed_previous_tab_id: Option<String>,
@@ -583,7 +637,8 @@ struct NativePresentationOutcome {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativePresentationMutationPlan {
-    apply_focus: bool,
+    apply_content_focus: bool,
+    apply_window_focus: bool,
     presentation_changed: bool,
     requires_ui_thread: bool,
 }

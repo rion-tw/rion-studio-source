@@ -154,41 +154,52 @@ pub(crate) async fn handle_game_window_tab_drag(
             }
             let mut snapshots = HashMap::new();
             snapshots.insert(source_window_id.to_owned(), source_snapshot);
-            *state.tab_drag.lock().map_err(|_| {
-                shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned.")
-            })? = Some(GameWindowTabDragSession {
-                current_window_id: source_window_id.to_owned(),
-                drop_before_tab_id: None,
-                drop_window_id: None,
-                grab_ratio_x,
-                grab_ratio_y,
-                id: session_id.to_owned(),
-                latest_move_revision: 0,
-                latest_screen_x: screen_x,
-                latest_screen_y: screen_y,
-                native_changes_applied: false,
-                original_target: source.clone(),
-                phase: if deferred_native_commit {
-                    GameWindowTabDragPhase::Previewing
-                } else {
-                    GameWindowTabDragPhase::Attached
-                },
-                processed_move_revision: 0,
-                provisional_window_id,
-                single_tab,
-                snapshots,
-                source_window_id: source_window_id.to_owned(),
-                source_cancelled: false,
-                source_drop_accepted: false,
-                source_end_received: false,
-                tab_height,
-                tab_id: tab_id.to_owned(),
-                tab_width,
-                target,
-                title,
-                window_anchor: initial_anchor,
-                window_was_moved: false,
-            });
+            {
+                let mut active_drag = state.tab_drag.lock().map_err(|_| {
+                    shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned.")
+                })?;
+                *active_drag = Some(GameWindowTabDragSession {
+                    current_window_id: source_window_id.to_owned(),
+                    drop_before_tab_id: None,
+                    drop_window_id: None,
+                    grab_ratio_x,
+                    grab_ratio_y,
+                    id: session_id.to_owned(),
+                    latest_move_revision: 0,
+                    latest_screen_x: screen_x,
+                    latest_screen_y: screen_y,
+                    native_changes_applied: false,
+                    original_target: source.clone(),
+                    phase: if deferred_native_commit {
+                        GameWindowTabDragPhase::Previewing
+                    } else {
+                        GameWindowTabDragPhase::Attached
+                    },
+                    processed_move_revision: 0,
+                    provisional_window_id,
+                    single_tab,
+                    snapshots,
+                    source_window_id: source_window_id.to_owned(),
+                    source_cancelled: false,
+                    source_drop_accepted: false,
+                    source_end_received: false,
+                    tab_height,
+                    tab_id: tab_id.to_owned(),
+                    tab_width,
+                    target,
+                    title,
+                    window_anchor: initial_anchor,
+                    window_was_moved: false,
+                });
+                if let Some(session) = active_drag.as_ref() {
+                    record_tab_drag_lifecycle(
+                        state,
+                        session,
+                        "tab.drag-started",
+                        "The runtime tab drag reached Rust and created its native session.",
+                    );
+                }
+            }
             if single_tab && !deferred_native_commit {
                 state.runtime.begin_tab_drag_window_motion(source_window_id);
             }

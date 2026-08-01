@@ -517,7 +517,7 @@ impl SystemRuntimeExecutor {
         next_surfaces: Vec<Webview>,
         active_webview: Option<Webview>,
         window_visibility: Option<bool>,
-        focus: bool,
+        focus: NativePresentationFocus,
     ) {
         let Ok(presentation) = self.presentation.coordinator(&window_id) else {
             self.record_presentation_event(

@@ -399,7 +399,11 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn preview_tab_drag_activation(&self, tab_id: &str) -> Result<(), String> {
-        self.request_tab_presentation(tab_id, false, "tab-drag-preview")
+        self.request_tab_presentation(
+            tab_id,
+            NativePresentationFocus::None,
+            "tab-drag-preview",
+        )
             .map(|_| ())
     }
 
@@ -467,7 +471,11 @@ impl SystemRuntimeExecutor {
         self.reorder_native_tabs(&snapshot.window_id, &present_order)
             .map_err(|error| error.message)?;
         if let Some(active_tab_id) = active_tab_id {
-            let _ = self.request_tab_presentation(&active_tab_id, false, "tab-drag-rollback")?;
+            let _ = self.request_tab_presentation(
+                &active_tab_id,
+                NativePresentationFocus::None,
+                "tab-drag-rollback",
+            )?;
         } else {
             self.apply_native_active_style(
                 &snapshot.window_id,

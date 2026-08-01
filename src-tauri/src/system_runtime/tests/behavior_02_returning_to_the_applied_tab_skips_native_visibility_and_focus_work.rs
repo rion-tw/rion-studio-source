@@ -1,5 +1,5 @@
 #[test]
-    fn returning_to_the_applied_tab_skips_native_visibility_and_focus_work() {
+    fn presentation_focus_policy_separates_content_from_parent_window_activation() {
         let tab = Some("tab-a".to_owned());
         let labels = HashSet::from(["surface-a:7".to_owned(), "divider-a:8".to_owned()]);
         assert!(!native_presentation_changed(&tab, &tab, &labels, &labels));
@@ -26,10 +26,24 @@
             &identities,
             None,
             None,
-            true,
+            NativePresentationFocus::None,
         );
         assert!(!no_op.requires_ui_thread);
-        assert!(!no_op.apply_focus);
+        assert!(!no_op.apply_content_focus);
+        assert!(!no_op.apply_window_focus);
+
+        let tab_strip_focus = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &identities,
+            None,
+            None,
+            NativePresentationFocus::ContentOnly,
+        );
+        assert!(tab_strip_focus.requires_ui_thread);
+        assert!(tab_strip_focus.apply_content_focus);
+        assert!(!tab_strip_focus.apply_window_focus);
 
         let replacement_identities = HashSet::from([("surface-a".to_owned(), 8)]);
         let replacement = native_presentation_mutation_plan(
@@ -39,11 +53,24 @@
             &replacement_identities,
             None,
             None,
-            true,
+            NativePresentationFocus::ContentOnly,
         );
         assert!(replacement.requires_ui_thread);
         assert!(replacement.presentation_changed);
-        assert!(replacement.apply_focus);
+        assert!(replacement.apply_content_focus);
+        assert!(!replacement.apply_window_focus);
+
+        let external_reveal = native_presentation_mutation_plan(
+            &tab,
+            &Some("tab-b".to_owned()),
+            &identities,
+            &replacement_identities,
+            None,
+            Some(true),
+            NativePresentationFocus::WindowAndContent,
+        );
+        assert!(external_reveal.apply_content_focus);
+        assert!(external_reveal.apply_window_focus);
 
         let hide_window = native_presentation_mutation_plan(
             &tab,
@@ -52,10 +79,11 @@
             &identities,
             Some(true),
             Some(false),
-            true,
+            NativePresentationFocus::WindowAndContent,
         );
         assert!(hide_window.requires_ui_thread);
-        assert!(!hide_window.apply_focus);
+        assert!(!hide_window.apply_content_focus);
+        assert!(!hide_window.apply_window_focus);
 
         let visibility_no_op = native_presentation_mutation_plan(
             &tab,
@@ -64,9 +92,40 @@
             &identities,
             Some(false),
             Some(false),
-            false,
+            NativePresentationFocus::None,
         );
         assert!(!visibility_no_op.requires_ui_thread);
+    }
+
+    #[test]
+    fn rapid_close_preflight_reuses_the_latest_optimistic_preview_revision() {
+        assert_eq!(
+            close_preflight_plan(
+                false,
+                42,
+                Some("tab-after-latest-close".to_owned()),
+                Some("stale-core-successor".to_owned()),
+            ),
+            ClosePreflightPlan::ReusePreview {
+                revision: 42,
+                selected_tab_id: Some("tab-after-latest-close".to_owned()),
+            }
+        );
+        assert_eq!(
+            close_preflight_plan(
+                true,
+                41,
+                Some("closing-tab".to_owned()),
+                Some("validated-successor".to_owned()),
+            ),
+            ClosePreflightPlan::PresentSuccessor {
+                tab_id: "validated-successor".to_owned(),
+            }
+        );
+        assert_eq!(
+            close_preflight_plan(true, 41, Some("closing-tab".to_owned()), None),
+            ClosePreflightPlan::HideWindow
+        );
     }
 
     #[test]

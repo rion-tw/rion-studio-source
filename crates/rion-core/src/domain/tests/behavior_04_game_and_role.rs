@@ -10,6 +10,7 @@
                     icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
                     local_storage_sync_keys: Vec::new(),
+                    local_storage_sync_selectors: Vec::new(),
                 },
             )
             .unwrap();
@@ -22,6 +23,7 @@
                         icon_image_data_url: None,
                         cover_image_data_url: None,
                         local_storage_sync_keys: Vec::new(),
+                        local_storage_sync_selectors: Vec::new(),
                     }
                 )
                 .unwrap_err()
@@ -37,6 +39,7 @@
                         icon_image_data_url: None,
                         cover_image_data_url: None,
                         local_storage_sync_keys: Vec::new(),
+                        local_storage_sync_selectors: Vec::new(),
                     }
                 )
                 .is_err()
@@ -50,6 +53,7 @@
                         icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
                         cover_image_data_url: None,
                         local_storage_sync_keys: Vec::new(),
+                        local_storage_sync_selectors: Vec::new(),
                     }
                 )
                 .is_err()

@@ -210,6 +210,7 @@ function game(overrides: Partial<Game>): Game {
     name: "Game",
     defaultLaunchUrl: "https://example.test/play",
     localStorageSyncKeys: [],
+    localStorageSyncSelectors: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides

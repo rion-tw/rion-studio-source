@@ -1,5 +1,6 @@
 import type {
   AppThemeMode as SharedAppThemeMode,
+  Game,
   GameSource,
   LaunchWorkspaceSlot,
   MacroActivationMode,
@@ -31,11 +32,13 @@ export interface WorkspaceFormState {
 export interface GameFormState {
   id?: string;
   source: GameSource;
+  builtinKey?: Game["builtinKey"];
   name: string;
   iconImageDataUrl?: string;
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   localStorageSyncKeys: string[];
+  localStorageSyncSelectors: string[];
 }
 
 export interface MacroFormState {

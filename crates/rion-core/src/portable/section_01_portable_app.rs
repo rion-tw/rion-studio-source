@@ -33,7 +33,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 11;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 12;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -46,6 +46,7 @@ struct BuiltinGame {
     name: &'static str,
     launch_url: &'static str,
     local_storage_sync_keys: &'static [&'static str],
+    local_storage_sync_selectors: &'static [&'static str],
 }
 
 const BUILTIN_GAMES: &[BuiltinGame] = &[
@@ -54,7 +55,8 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
         key: "flyff-universe",
         name: "Flyff Universe",
         launch_url: "https://universe.flyff.com/play",
-        local_storage_sync_keys: &["game_client_settings"],
+        local_storage_sync_keys: &[],
+        local_storage_sync_selectors: &crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS,
     },
     BuiltinGame {
         id: "builtin-feifei-infinite-universe",
@@ -62,6 +64,7 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
         name: "飞飞：无限宇宙",
         launch_url: "https://ffcli.ruiwoo.cn",
         local_storage_sync_keys: &[],
+        local_storage_sync_selectors: &[],
     },
 ];
 
@@ -90,9 +93,9 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
                 "portable schema must be exactly {PORTABLE_SCHEMA_VERSION}"
             ))
         })?;
-    if schema != PORTABLE_SCHEMA_VERSION {
+    if !matches!(schema, 11 | PORTABLE_SCHEMA_VERSION) {
         return Err(CoreError::UnsupportedDataVersion(format!(
-            "portable schema {schema} is unsupported; expected {PORTABLE_SCHEMA_VERSION}"
+            "portable schema {schema} is unsupported; expected 11 or {PORTABLE_SCHEMA_VERSION}"
         )));
     }
     let mut roles = normalize_array(object, "roles", normalize_role)?;
@@ -189,7 +192,7 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
             "game",
         )?)?),
     );
-    let local_storage_sync_keys = source
+    let mut local_storage_sync_keys = source
         .get("localStorageSyncKeys")
         .and_then(Value::as_array)
         .map(|values| {
@@ -216,10 +219,60 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
                 })
                 .unwrap_or_default()
         });
+    let migrated_flyff_key = builtin_key.as_deref() == Some("flyff-universe")
+        && local_storage_sync_keys
+            .iter()
+            .any(|key| key == "game_client_settings");
+    if builtin_key.as_deref() == Some("flyff-universe") {
+        local_storage_sync_keys.retain(|key| {
+            !matches!(key.as_str(), "game_client_settings" | "game_client_sessions")
+        });
+    }
+    let local_storage_sync_selectors = if migrated_flyff_key {
+        crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect()
+    } else {
+        source
+            .get("localStorageSyncSelectors")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .map(|value| {
+                        value.as_str().map(str::to_owned).ok_or_else(|| {
+                            invalid("portable localStorage sync selector is invalid")
+                        })
+                    })
+                    .collect::<CoreResult<Vec<_>>>()
+            })
+            .transpose()?
+            .unwrap_or_else(|| {
+                builtin_key
+                    .as_deref()
+                    .and_then(builtin_by_key)
+                    .map(|game| {
+                        game.local_storage_sync_selectors
+                            .iter()
+                            .map(|value| (*value).to_owned())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
+    };
     game.insert(
         "localStorageSyncKeys".to_owned(),
-        json!(crate::domain::normalize_local_storage_sync_keys(
-            local_storage_sync_keys
+        json!(crate::domain::normalize_game_local_storage_sync_keys(
+            builtin_key.as_deref(),
+            local_storage_sync_keys,
+        )?),
+    );
+    game.insert(
+        "localStorageSyncSelectors".to_owned(),
+        json!(crate::domain::normalize_local_storage_sync_selectors(
+            builtin_key.as_deref(),
+            local_storage_sync_selectors,
         )?),
     );
     if source.get("inferred").and_then(Value::as_bool) == Some(true) {
@@ -343,7 +396,8 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                     "builtinKey": builtin.key,
                     "name": builtin.name,
                     "defaultLaunchUrl": builtin.launch_url,
-                    "localStorageSyncKeys": builtin.local_storage_sync_keys
+                    "localStorageSyncKeys": builtin.local_storage_sync_keys,
+                    "localStorageSyncSelectors": builtin.local_storage_sync_selectors
                 }));
                 game_ids.insert(builtin.id.to_owned());
                 game_by_url.insert(launch_url.clone(), builtin.id.to_owned());
@@ -362,7 +416,8 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                 "source": "custom",
                 "name": name,
                 "defaultLaunchUrl": launch_url,
-                "localStorageSyncKeys": []
+                "localStorageSyncKeys": [],
+                "localStorageSyncSelectors": []
             }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());

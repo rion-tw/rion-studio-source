@@ -74,14 +74,11 @@ async fn rion_runtime_audio_state(
 async fn rion_local_storage_sync_changed(
     webview: Webview,
     state: State<'_, CoreState>,
-    token: String,
-    generation: u64,
-    sequence: u64,
-    entries: Vec<(String, Option<String>)>,
+    request: LocalStorageSyncChangeRequest,
 ) -> Result<(), CoreErrorPayload> {
     state
         .runtime
-        .local_storage_sync_changed(webview.label(), &token, generation, sequence, entries)
+        .local_storage_sync_changed(webview.label(), request)
         .map_err(|message| shell_error("TAURI_LOCAL_STORAGE_SYNC_REJECTED", message))
 }
 

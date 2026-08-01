@@ -6,4 +6,4 @@ import type { PortableMacroRecord } from "./PortableMacroRecord";
 import type { PortablePreferencesRecord } from "./PortablePreferencesRecord";
 import type { PortableRoleRecord } from "./PortableRoleRecord";
 
-export type PortableDataRecord = { app: "Rion Studio", schemaVersion: 11, exportedAt: string, appVersion: string, games: Array<PortableGameRecord>, roles: Array<PortableRoleRecord>, launchWorkspaces: Array<PortableLaunchWorkspaceRecord>, gameWindows: Array<PortableGameWindowRecord>, macros: Array<PortableMacroRecord>, preferences?: PortablePreferencesRecord, };
+export type PortableDataRecord = { app: "Rion Studio", schemaVersion: 12, exportedAt: string, appVersion: string, games: Array<PortableGameRecord>, roles: Array<PortableRoleRecord>, launchWorkspaces: Array<PortableLaunchWorkspaceRecord>, gameWindows: Array<PortableGameWindowRecord>, macros: Array<PortableMacroRecord>, preferences?: PortablePreferencesRecord, };

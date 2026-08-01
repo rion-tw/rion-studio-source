@@ -77,7 +77,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=20;
+                "DELETE FROM schema_migrations WHERE version=21;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  INSERT INTO legacy_session_restores(id) VALUES ('retired');
@@ -94,7 +94,7 @@
                     0
                 ))
                 .unwrap(),
-            20
+            21
         );
         assert_eq!(
             connection
@@ -124,7 +124,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=20;
+                "DELETE FROM schema_migrations WHERE version=21;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  CREATE TRIGGER reject_schema_twenty BEFORE INSERT ON schema_migrations
@@ -151,6 +151,59 @@
                 )
                 .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn schema_twenty_migrates_flyff_whole_value_sync_to_safe_selectors() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let payload = connection
+            .query_row(
+                "SELECT payload_json FROM games WHERE id='builtin-flyff-universe'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        let mut value: Value = serde_json::from_str(&payload).unwrap();
+        value["localStorageSyncKeys"] =
+            json!(["custom-safe-key", "game_client_sessions", "game_client_settings"]);
+        value["localStorageSyncSelectors"] = json!([]);
+        connection
+            .execute(
+                "UPDATE games SET payload_json=?1 WHERE id='builtin-flyff-universe'",
+                [serde_json::to_string(&value).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM schema_migrations WHERE version=21;
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (20, 'current');",
+            )
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let payload = connection
+            .query_row(
+                "SELECT payload_json FROM games WHERE id='builtin-flyff-universe'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        let migrated: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(migrated["localStorageSyncKeys"], json!(["custom-safe-key"]));
+        assert_eq!(
+            migrated["localStorageSyncSelectors"],
+            json!(crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS)
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            21
         );
     }
 

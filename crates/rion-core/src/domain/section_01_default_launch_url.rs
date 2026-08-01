@@ -30,6 +30,17 @@ const MAX_ROLE_COVER_DATA_URL_LENGTH: usize = 1_500_000;
 const MAX_LOCAL_STORAGE_SYNC_KEYS: usize = 32;
 const MAX_LOCAL_STORAGE_SYNC_KEY_BYTES: usize = 256;
 const FLYFF_LOCAL_STORAGE_SYNC_KEY: &str = "game_client_settings";
+const FLYFF_LOCAL_STORAGE_SESSION_KEY: &str = "game_client_sessions";
+pub const FLYFF_LOCAL_STORAGE_SYNC_SELECTORS: [&str; 8] = [
+    "game_client_settings.audio",
+    "game_client_settings.gameplay",
+    "game_client_settings.graphics",
+    "game_client_settings.ui",
+    "game_client_settings.video",
+    "game_client_settings.layout.windows",
+    "game_client_settings.layout.hotbars",
+    "game_client_settings.input.bindings",
+];
 
 pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
     GameBrowserSettingsRecord {
@@ -256,7 +267,14 @@ pub fn create_game(
             "GAME_COVER_INVALID",
         )?,
         default_launch_url: normalize_http_url(&input.default_launch_url, "GAME_URL_INVALID")?,
-        local_storage_sync_keys: normalize_local_storage_sync_keys(input.local_storage_sync_keys)?,
+        local_storage_sync_keys: normalize_game_local_storage_sync_keys(
+            None,
+            input.local_storage_sync_keys,
+        )?,
+        local_storage_sync_selectors: normalize_local_storage_sync_selectors(
+            None,
+            input.local_storage_sync_selectors,
+        )?,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -323,9 +341,18 @@ pub fn update_game(
         },
         local_storage_sync_keys: input
             .local_storage_sync_keys
-            .map(normalize_local_storage_sync_keys)
+            .map(|values| {
+                normalize_game_local_storage_sync_keys(current.builtin_key.as_deref(), values)
+            })
             .transpose()?
             .unwrap_or_else(|| current.local_storage_sync_keys.clone()),
+        local_storage_sync_selectors: input
+            .local_storage_sync_selectors
+            .map(|values| {
+                normalize_local_storage_sync_selectors(current.builtin_key.as_deref(), values)
+            })
+            .transpose()?
+            .unwrap_or_else(|| current.local_storage_sync_selectors.clone()),
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
@@ -338,9 +365,8 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         .iter_mut()
         .find(|game| game.id == id)
         .ok_or_else(|| domain("GAME_NOT_BUILTIN", "Only built-in games can be reset."))?;
-    let (builtin_key, name, default_launch_url, local_storage_sync_keys) =
-        builtin_definition(id)
-            .ok_or_else(|| domain("GAME_NOT_BUILTIN", "Only built-in games can be reset."))?;
+    let definition = builtin_definition(id)
+        .ok_or_else(|| domain("GAME_NOT_BUILTIN", "Only built-in games can be reset."))?;
     if game.source != "builtin" {
         return Err(domain(
             "GAME_NOT_BUILTIN",
@@ -350,12 +376,18 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
     *game = StateGameRecord {
         id: id.to_owned(),
         source: "builtin".to_owned(),
-        builtin_key: Some(builtin_key.to_owned()),
-        name: name.to_owned(),
+        builtin_key: Some(definition.key.to_owned()),
+        name: definition.name.to_owned(),
         icon_image_data_url: None,
         cover_image_data_url: None,
-        default_launch_url: default_launch_url.to_owned(),
-        local_storage_sync_keys: local_storage_sync_keys
+        default_launch_url: definition.default_launch_url.to_owned(),
+        local_storage_sync_keys: definition
+            .local_storage_sync_keys
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        local_storage_sync_selectors: definition
+            .local_storage_sync_selectors
             .iter()
             .map(|value| (*value).to_owned())
             .collect(),
@@ -439,7 +471,10 @@ pub fn create_role(
         && games
             .iter()
             .find(|game| game.id == role.game_id)
-            .is_none_or(|game| game.local_storage_sync_keys.is_empty())
+            .is_none_or(|game| {
+                game.local_storage_sync_keys.is_empty()
+                    && game.local_storage_sync_selectors.is_empty()
+            })
     {
         return Err(domain(
             "ROLE_LOCAL_STORAGE_KEYS_REQUIRED",
@@ -539,7 +574,10 @@ pub fn update_role(
         && games
             .iter()
             .find(|game| game.id == role.game_id)
-            .is_none_or(|game| game.local_storage_sync_keys.is_empty())
+            .is_none_or(|game| {
+                game.local_storage_sync_keys.is_empty()
+                    && game.local_storage_sync_selectors.is_empty()
+            })
     {
         return Err(domain(
             "ROLE_LOCAL_STORAGE_KEYS_REQUIRED",

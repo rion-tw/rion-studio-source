@@ -82,6 +82,7 @@ export function gameCreateInput(input: CreateGameInput): Extract<
     name: input.name,
     defaultLaunchUrl: input.defaultLaunchUrl,
     localStorageSyncKeys: input.localStorageSyncKeys,
+    localStorageSyncSelectors: input.localStorageSyncSelectors,
     ...(typeof input.iconImageDataUrl === "string"
       ? { iconImageDataUrl: input.iconImageDataUrl }
       : {}),
@@ -103,6 +104,9 @@ function gameUpdateInput(input: UpdateGameInput): Extract<
     ...(input.localStorageSyncKeys === undefined
       ? {}
       : { localStorageSyncKeys: input.localStorageSyncKeys }),
+    ...(input.localStorageSyncSelectors === undefined
+      ? {}
+      : { localStorageSyncSelectors: input.localStorageSyncSelectors }),
     ...(typeof input.iconImageDataUrl === "string"
       ? { iconImageDataUrl: input.iconImageDataUrl }
       : {}),

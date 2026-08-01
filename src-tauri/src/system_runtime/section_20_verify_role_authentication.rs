@@ -345,6 +345,8 @@ impl SystemRuntimeExecutor {
         source_launch_url: &str,
         origin: &str,
         keys: &[String],
+        selectors: &[String],
+        codec: Option<&str>,
     ) -> RuntimeResult<()> {
         let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
             RuntimeError::new(
@@ -352,7 +354,7 @@ impl SystemRuntimeExecutor {
                 "The localStorage synchronization lifecycle lane is unavailable.",
             )
         })?;
-        validate_local_storage_sync_contract(origin, keys)?;
+        validate_local_storage_sync_contract(origin, keys, selectors, codec)?;
         let live = {
             let state = self.state()?;
             state
@@ -362,16 +364,25 @@ impl SystemRuntimeExecutor {
                 .and_then(|tab| tab.roles.get(source_role_id))
                 .map(|surface| surface.webview.clone())
         };
-        let entries = if let Some(webview) = live {
+        let snapshot = if let Some(webview) = live {
             require_exact_local_storage_sync_origin(&webview, origin)?;
-            read_scoped_local_storage_entries(&webview, keys)?
+            let (entries, selector_entries) =
+                read_scoped_local_storage_snapshot(&webview, keys, selectors, codec)?;
+            PersistedLocalStorageSyncSnapshot {
+                codec: codec.map(str::to_owned),
+                schema_version: 2,
+                source_role_id: source_role_id.to_owned(),
+                origin: origin.to_owned(),
+                entries,
+                selector_entries,
+            }
         } else if let Ok(snapshot) =
-            self.load_local_storage_sync_snapshot(source_role_id, origin, keys)
+            self.load_local_storage_sync_snapshot(source_role_id, origin, keys, selectors, codec)
         {
             // A stopped source may still have a native storage write in flight. The
             // encrypted observer snapshot is updated before dependents are allowed
             // to observe a value, so prefer it over rereading the just-closed store.
-            snapshot.entries
+            snapshot
         } else {
             let launch = checked_web_url(source_launch_url)?;
             if launch.origin().ascii_serialization() != origin {
@@ -391,20 +402,24 @@ impl SystemRuntimeExecutor {
                     RuntimeError::new("LOCAL_STORAGE_SYNC_SNAPSHOT_LOAD_FAILED", message)
                 })?;
                 require_exact_local_storage_sync_origin(&webview, origin)?;
-                read_scoped_local_storage_entries(&webview, keys)
+                read_scoped_local_storage_snapshot(&webview, keys, selectors, codec)
             })();
             let cleanup = self.close_hidden_surface(source_role_id, window, webview, &lifecycle);
             match (result, cleanup) {
-                (Ok(entries), Ok(())) => entries,
+                (Ok((entries, selector_entries)), Ok(())) => {
+                    PersistedLocalStorageSyncSnapshot {
+                        codec: codec.map(str::to_owned),
+                        schema_version: 2,
+                        source_role_id: source_role_id.to_owned(),
+                        origin: origin.to_owned(),
+                        entries,
+                        selector_entries,
+                    }
+                }
                 (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
             }
         };
-        self.persist_local_storage_sync_snapshot(PersistedLocalStorageSyncSnapshot {
-            schema_version: 1,
-            source_role_id: source_role_id.to_owned(),
-            origin: origin.to_owned(),
-            entries,
-        })
+        self.persist_local_storage_sync_snapshot(snapshot)
     }
 
     fn persist_local_storage_sync_snapshot(
@@ -440,13 +455,17 @@ impl SystemRuntimeExecutor {
         })?;
         let temporary = directory.join(format!(".local-storage-sync-{}.tmp", uuid::Uuid::new_v4()));
         fs::write(&temporary, protected).map_err(RuntimeError::io)?;
-        let destination = directory.join("local-storage-sync-v1.enc");
+        let destination = directory.join("local-storage-sync-v2.enc");
         if let Err(error) = rion_platform::atomic_replace_file(&temporary, &destination) {
             let _ = fs::remove_file(&temporary);
             return Err(RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_CACHE_WRITE_FAILED",
                 error.to_string(),
             ));
+        }
+        let legacy = directory.join("local-storage-sync-v1.enc");
+        if legacy.is_file() {
+            let _ = fs::remove_file(legacy);
         }
         Ok(())
     }
@@ -456,8 +475,10 @@ impl SystemRuntimeExecutor {
         source_role_id: &str,
         origin: &str,
         keys: &[String],
+        selectors: &[String],
+        codec: Option<&str>,
     ) -> RuntimeResult<PersistedLocalStorageSyncSnapshot> {
-        validate_local_storage_sync_contract(origin, keys)?;
+        validate_local_storage_sync_contract(origin, keys, selectors, codec)?;
         role_session_paths(&self.user_data_dir, source_role_id)?;
         let path = self
             .user_data_dir
@@ -465,7 +486,7 @@ impl SystemRuntimeExecutor {
             .join(source_role_id)
             .join("browser")
             .join("system")
-            .join("local-storage-sync-v1.enc");
+            .join("local-storage-sync-v2.enc");
         let protected = fs::read(path).map_err(|_| {
             RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_CACHE_UNAVAILABLE",
@@ -497,26 +518,32 @@ impl SystemRuntimeExecutor {
             .iter()
             .map(|(key, _)| key.as_str())
             .collect::<Vec<_>>();
-        if snapshot.schema_version != 1
+        let snapshot_selectors = snapshot
+            .selector_entries
+            .iter()
+            .map(|(selector, _)| selector.as_str())
+            .collect::<Vec<_>>();
+        if snapshot.schema_version != 2
             || snapshot.source_role_id != source_role_id
             || snapshot.origin != origin
+            || snapshot.codec.as_deref() != codec
             || snapshot_keys != keys.iter().map(String::as_str).collect::<Vec<_>>()
+            || snapshot_selectors
+                != selectors.iter().map(String::as_str).collect::<Vec<_>>()
         {
             return Err(RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_CACHE_INVALID",
                 "The encrypted localStorage synchronization snapshot does not match its binding.",
             ));
         }
+        validate_flyff_selector_entries(selectors, &snapshot.selector_entries)?;
         Ok(snapshot)
     }
 
     pub fn local_storage_sync_changed(
         &self,
         webview_label: &str,
-        token: &str,
-        generation: u64,
-        sequence: u64,
-        entries: Vec<(String, Option<String>)>,
+        request: LocalStorageSyncChangeRequest,
     ) -> Result<(), String> {
         let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
             "The localStorage synchronization lifecycle lane is unavailable.".to_owned()
@@ -538,18 +565,33 @@ impl SystemRuntimeExecutor {
             })?;
             (config, surface.webview.clone())
         };
-        if config.token != token || config.generation != generation {
+        if config.token != request.token || config.generation != request.generation {
             return Err("The localStorage synchronization capability is invalid.".to_owned());
         }
         require_exact_local_storage_sync_origin(&webview, &config.origin)
             .map_err(|error| error.message)?;
-        if entries.len() != config.keys.len()
-            || entries
+        if request.entries.len() != config.keys.len()
+            || request
+                .entries
                 .iter()
                 .zip(&config.keys)
                 .any(|((key, _), expected)| key != expected)
         {
             return Err("The localStorage synchronization key set is invalid.".to_owned());
+        }
+        validate_flyff_selector_entries(&config.selectors, &request.selector_entries)
+            .map_err(|error| error.message)?;
+        if request.diagnostic_code.as_deref().is_some_and(|code| {
+            !matches!(
+                code,
+                "FLYFF_SETTINGS_INVALID"
+                    | "FLYFF_SESSION_MISSING"
+                    | "FLYFF_SESSION_INVALID"
+                    | "FLYFF_SESSION_AMBIGUOUS"
+                    | "FLYFF_IDENTITY_REPAIRED"
+            )
+        }) {
+            return Err("The localStorage synchronization diagnostic is invalid.".to_owned());
         }
         {
             let mut state = self.state().map_err(|error| error.message)?;
@@ -570,20 +612,34 @@ impl SystemRuntimeExecutor {
             if !surface
                 .local_storage_sync
                 .as_ref()
-                .is_some_and(|config| config.token == token && config.generation == generation)
+                .is_some_and(|config| {
+                    config.token == request.token && config.generation == request.generation
+                })
             {
                 return Err("The localStorage synchronization capability is stale.".to_owned());
             }
             if !accept_local_storage_sync_sequence(
                 &mut surface.local_storage_sync_sequence,
-                sequence,
+                request.sequence,
             ) {
+                return Ok(());
+            }
+        }
+        if let Some(code) = request.diagnostic_code.as_deref() {
+            self.record_local_storage_sync_diagnostic(&role_id, &config, code);
+            if code == "FLYFF_SETTINGS_INVALID" {
                 return Ok(());
             }
         }
         if let Some(source_role_id) = config.source_role_id.as_deref() {
             let snapshot = self
-                .load_local_storage_sync_snapshot(source_role_id, &config.origin, &config.keys)
+                .load_local_storage_sync_snapshot(
+                    source_role_id,
+                    &config.origin,
+                    &config.keys,
+                    &config.selectors,
+                    config.codec.as_deref(),
+                )
                 .map_err(|error| error.message)?;
             webview
                 .eval(local_storage_sync_apply_script(&snapshot).map_err(|error| error.message)?)
@@ -594,15 +650,60 @@ impl SystemRuntimeExecutor {
             return Ok(());
         }
         let snapshot = PersistedLocalStorageSyncSnapshot {
-            schema_version: 1,
+            codec: config.codec.clone(),
+            schema_version: 2,
             source_role_id: role_id.clone(),
             origin: config.origin.clone(),
-            entries,
+            entries: request.entries,
+            selector_entries: request.selector_entries,
         };
         self.persist_local_storage_sync_snapshot(snapshot.clone())
             .map_err(|error| error.message)?;
         self.apply_local_storage_sync_to_running_dependents(&role_id, &snapshot)
             .map_err(|error| error.message)
+    }
+
+    fn record_local_storage_sync_diagnostic(
+        &self,
+        role_id: &str,
+        config: &LocalStorageRuntimeConfig,
+        code: &str,
+    ) {
+        let (level, event, message) = if code == "FLYFF_IDENTITY_REPAIRED" {
+            (
+                LogLevel::Info,
+                "local-storage-sync.flyff-identity-repaired",
+                "Flyff settings identity was repaired from the role's own session.",
+            )
+        } else {
+            (
+                LogLevel::Warn,
+                "local-storage-sync.flyff-validation-failed",
+                "Flyff localStorage synchronization failed closed.",
+            )
+        };
+        let context = json!({
+            "code": code,
+            "generation": config.generation,
+            "isSource": config.source_role_id.is_none(),
+            "roleId": role_id,
+            "selectorCount": config.selectors.len(),
+        });
+        let core = Arc::clone(&self.core);
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level,
+                        source: LogSource::Browser,
+                        event: event.to_owned(),
+                        message: message.to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
     }
 
 }

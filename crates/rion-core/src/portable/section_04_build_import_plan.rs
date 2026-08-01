@@ -134,7 +134,10 @@ fn build_import_plan(
                 .games
                 .iter()
                 .find(|game| game.id == candidate.game_id)
-                .is_some_and(|game| !game.local_storage_sync_keys.is_empty());
+                .is_some_and(|game| {
+                    !game.local_storage_sync_keys.is_empty()
+                        || !game.local_storage_sync_selectors.is_empty()
+                });
             if !has_managed_keys
                 || crate::domain::validate_role_local_storage_binding(&candidate, &snapshot.roles)
                     .is_err()

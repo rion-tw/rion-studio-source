@@ -42,7 +42,8 @@ export class MemoryStateRepository {
           builtinKey: "flyff-universe",
           name: "Flyff Universe",
           defaultLaunchUrl: "https://universe.flyff.com/play",
-          localStorageSyncKeys: ["game_client_settings"],
+          localStorageSyncKeys: [],
+          localStorageSyncSelectors: ["game_client_settings.layout.windows"],
           createdAt: timestamp,
           updatedAt: timestamp
         },
@@ -53,6 +54,7 @@ export class MemoryStateRepository {
           name: "飞飞：无限宇宙",
           defaultLaunchUrl: "https://ffcli.ruiwoo.cn/",
           localStorageSyncKeys: [],
+          localStorageSyncSelectors: [],
           createdAt: timestamp,
           updatedAt: timestamp
         }
@@ -168,6 +170,7 @@ export class MemoryStateRepository {
       name: input.name.trim(),
       defaultLaunchUrl: new URL(input.defaultLaunchUrl).toString(),
       localStorageSyncKeys: input.localStorageSyncKeys,
+      localStorageSyncSelectors: input.localStorageSyncSelectors,
       ...(typeof input.iconImageDataUrl === "string" && input.iconImageDataUrl
         ? { iconImageDataUrl: input.iconImageDataUrl }
         : {}),
@@ -204,6 +207,9 @@ export class MemoryStateRepository {
       ...(input.localStorageSyncKeys === undefined
         ? {}
         : { localStorageSyncKeys: input.localStorageSyncKeys }),
+      ...(input.localStorageSyncSelectors === undefined
+        ? {}
+        : { localStorageSyncSelectors: input.localStorageSyncSelectors }),
       updatedAt: new Date().toISOString()
     };
     games[index] = game;

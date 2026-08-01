@@ -149,6 +149,8 @@ impl SystemRuntimeExecutor {
                     source_role_id,
                     &config.origin,
                     &config.keys,
+                    &config.selectors,
+                    config.codec.as_deref(),
                 )?;
                 builder = builder.initialization_script_for_all_frames(
                     &local_storage_sync_apply_script(&snapshot)?,

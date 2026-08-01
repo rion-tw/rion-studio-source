@@ -295,12 +295,31 @@ fn surface_failure_action(
 
 #[derive(Clone, PartialEq, Eq)]
 struct LocalStorageRuntimeConfig {
+    codec: Option<String>,
     dependent_role_ids: Vec<String>,
     generation: u64,
     keys: Vec<String>,
+    selectors: Vec<String>,
     origin: String,
     source_role_id: Option<String>,
     token: String,
+}
+
+type LocalStorageSyncEntry = (String, Option<String>);
+type LocalStorageSyncSnapshotEntries = (
+    Vec<LocalStorageSyncEntry>,
+    Vec<LocalStorageSyncEntry>,
+);
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocalStorageSyncChangeRequest {
+    token: String,
+    generation: u64,
+    sequence: u64,
+    entries: Vec<LocalStorageSyncEntry>,
+    selector_entries: Vec<LocalStorageSyncEntry>,
+    diagnostic_code: Option<String>,
 }
 
 struct LocalStorageMetadataUpdate {
@@ -316,10 +335,13 @@ struct LocalStorageMetadataUpdate {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedLocalStorageSyncSnapshot {
+    codec: Option<String>,
     schema_version: u8,
     source_role_id: String,
     origin: String,
     entries: Vec<(String, Option<String>)>,
+    #[serde(default)]
+    selector_entries: Vec<(String, Option<String>)>,
 }
 
 struct RuntimeTab {

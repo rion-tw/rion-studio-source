@@ -25,7 +25,12 @@ impl SystemRuntimeExecutor {
                     let previous = surface.local_storage_sync.clone();
                     let next = roles_by_id.get(role_id.as_str()).and_then(|role| {
                         let game = games_by_id.get(role.game_id.as_str())?;
-                        if game.local_storage_sync_keys.is_empty() {
+                        let codec = (game.builtin_key.as_deref() == Some("flyff-universe"))
+                            .then(|| "flyff-client-settings-v7".to_owned());
+                        if game.local_storage_sync_keys.is_empty()
+                            && game.local_storage_sync_selectors.is_empty()
+                            && codec.is_none()
+                        {
                             return None;
                         }
                         let origin = checked_web_url(&role.launch_url)
@@ -40,6 +45,7 @@ impl SystemRuntimeExecutor {
                             .as_ref()
                             .map_or(1, |config| config.generation.saturating_add(1));
                         Some(LocalStorageRuntimeConfig {
+                            codec,
                             dependent_role_ids: roles
                                 .iter()
                                 .filter(|candidate| {
@@ -50,6 +56,7 @@ impl SystemRuntimeExecutor {
                                 .collect(),
                             generation,
                             keys: game.local_storage_sync_keys.clone(),
+                            selectors: game.local_storage_sync_selectors.clone(),
                             origin,
                             source_role_id: role.local_storage_source_role_id.clone(),
                             token,
@@ -101,20 +108,34 @@ impl SystemRuntimeExecutor {
             {
                 require_exact_local_storage_sync_origin(&webview, &config.origin)
                     .map_err(|error| error.message)?;
-                let previous_entries = read_scoped_local_storage_entries(&webview, &config.keys)
+                let (previous_entries, previous_selector_entries) =
+                    read_scoped_local_storage_snapshot(
+                        &webview,
+                        &config.keys,
+                        &config.selectors,
+                        config.codec.as_deref(),
+                    )
                     .map_err(|error| error.message)?;
                 let snapshot = self
-                    .load_local_storage_sync_snapshot(source_role_id, &config.origin, &config.keys)
+                    .load_local_storage_sync_snapshot(
+                        source_role_id,
+                        &config.origin,
+                        &config.keys,
+                        &config.selectors,
+                        config.codec.as_deref(),
+                    )
                     .map_err(|error| error.message)?;
                 apply_scripts.push(
                     local_storage_sync_apply_script(&snapshot).map_err(|error| error.message)?,
                 );
                 rollback_scripts.push(
                     local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
-                        schema_version: 1,
+                        codec: config.codec.clone(),
+                        schema_version: 2,
                         source_role_id: role_id.clone(),
                         origin: config.origin.clone(),
                         entries: previous_entries,
+                        selector_entries: previous_selector_entries,
                     })
                     .map_err(|error| error.message)?,
                 );
@@ -229,6 +250,8 @@ impl SystemRuntimeExecutor {
         source_role_id: &str,
         origin: &str,
         keys: &[String],
+        selectors: &[String],
+        codec: Option<&str>,
     ) -> RuntimeResult<()> {
         let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
             RuntimeError::new(
@@ -236,15 +259,20 @@ impl SystemRuntimeExecutor {
                 "The localStorage synchronization lifecycle lane is unavailable.",
             )
         })?;
-        if keys.is_empty() {
+        if keys.is_empty() && selectors.is_empty() {
             return Ok(());
         }
-        validate_local_storage_sync_contract(origin, keys)?;
+        validate_local_storage_sync_contract(origin, keys, selectors, codec)?;
         let snapshot = PersistedLocalStorageSyncSnapshot {
-            schema_version: 1,
+            codec: codec.map(str::to_owned),
+            schema_version: 2,
             source_role_id: source_role_id.to_owned(),
             origin: origin.to_owned(),
             entries: keys.iter().map(|key| (key.clone(), None)).collect(),
+            selector_entries: selectors
+                .iter()
+                .map(|selector| (selector.clone(), None))
+                .collect(),
         };
         self.persist_local_storage_sync_snapshot(snapshot.clone())?;
         self.apply_local_storage_sync_to_running_dependents(source_role_id, &snapshot)

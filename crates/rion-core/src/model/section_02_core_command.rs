@@ -620,6 +620,8 @@ pub struct PortableGameRecord {
     pub default_launch_url: String,
     #[serde(default)]
     pub local_storage_sync_keys: Vec<String>,
+    #[serde(default)]
+    pub local_storage_sync_selectors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

@@ -37,7 +37,8 @@ export function createNewGameForm(): GameFormState {
     source: "custom",
     name: "",
     defaultLaunchUrl: "https://",
-    localStorageSyncKeys: []
+    localStorageSyncKeys: [],
+    localStorageSyncSelectors: []
   };
 }
 
@@ -45,11 +46,13 @@ export function createGameFormState(game: Game): GameFormState {
   return {
     id: game.id,
     source: game.source,
+    builtinKey: game.builtinKey,
     name: game.name,
     iconImageDataUrl: game.iconImageDataUrl,
     coverImageDataUrl: game.coverImageDataUrl,
     defaultLaunchUrl: game.defaultLaunchUrl,
-    localStorageSyncKeys: game.localStorageSyncKeys
+    localStorageSyncKeys: game.localStorageSyncKeys,
+    localStorageSyncSelectors: game.localStorageSyncSelectors
   };
 }
 

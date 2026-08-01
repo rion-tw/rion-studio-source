@@ -477,7 +477,6 @@ impl AppCore {
             }
             if candidate.game_id != current.game_id
                 || candidate.launch_url != current.launch_url
-                || candidate.local_storage_source_role_id != current.local_storage_source_role_id
             {
                 core.stop_embedded_role_under_active_lease(&id)?;
             }
@@ -519,6 +518,9 @@ impl AppCore {
                 source_launch_url: source.launch_url.clone(),
                 origin: crate::domain::launch_origin(&source.launch_url)?,
                 keys: game.local_storage_sync_keys,
+                selectors: game.local_storage_sync_selectors,
+                codec: (game.builtin_key.as_deref() == Some("flyff-universe"))
+                    .then(|| "flyff-client-settings-v7".to_owned()),
             },
             Duration::from_secs(45),
             None,

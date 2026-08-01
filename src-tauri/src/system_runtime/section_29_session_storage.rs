@@ -318,164 +318,6 @@ fn local_storage_document_start_script(
     ))
 }
 
-fn validate_local_storage_sync_contract(origin: &str, keys: &[String]) -> RuntimeResult<()> {
-    let parsed = checked_web_url(origin)?;
-    if parsed.origin().ascii_serialization() != origin
-        || keys.is_empty()
-        || keys.len() > 32
-        || keys.iter().collect::<HashSet<_>>().len() != keys.len()
-        || keys
-            .iter()
-            .any(|key| key.is_empty() || key.len() > 256 || key.trim() != key)
-    {
-        return Err(RuntimeError::new(
-            "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
-            "The localStorage synchronization contract is invalid.",
-        ));
-    }
-    Ok(())
-}
-
-fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> RuntimeResult<String> {
-    validate_local_storage_sync_contract(&config.origin, &config.keys)?;
-    let token = serde_json::to_string(&config.token).map_err(|_| {
-        RuntimeError::new(
-            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
-            "The localStorage synchronization observer could not be encoded.",
-        )
-    })?;
-    let origin = serde_json::to_string(&config.origin).map_err(|_| {
-        RuntimeError::new(
-            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
-            "The localStorage synchronization observer could not be encoded.",
-        )
-    })?;
-    let keys = serde_json::to_string(&config.keys).map_err(|_| {
-        RuntimeError::new(
-            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
-            "The localStorage synchronization observer could not be encoded.",
-        )
-    })?;
-    let is_source = config.source_role_id.is_none();
-    let generation = config.generation;
-    Ok(format!(
-        r#"(() => {{
-  if (globalThis.top !== globalThis || globalThis.__rionLocalStorageSyncObserver) return;
-  const state = {{ token: {token}, origin: {origin}, keys: {keys}, generation: {generation}, disabled: false, inFlight: null, lastError: null, nextSequence: 1, previous: null, queued: null, timer: 0 }};
-  const capture = () => state.keys.map((key) => [key, localStorage.getItem(key)]);
-  function schedule() {{
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = setTimeout(publish, 100);
-  }}
-  function dispatch(item) {{
-    if (item.generation !== state.generation) return;
-    const internals = globalThis.__TAURI_INTERNALS__;
-    if (!internals || typeof internals.invoke !== "function") {{
-      state.queued = item;
-      schedule();
-      return;
-    }}
-    const request = {{ ...item, sequence: state.nextSequence++, token: state.token }};
-    state.inFlight = request;
-    void internals.invoke("rion_local_storage_sync_changed", {{
-      token: request.token,
-      generation: request.generation,
-      sequence: request.sequence,
-      entries: request.entries
-    }}).then(
-      () => {{
-        if (request.generation === state.generation) {{
-          state.lastError = null;
-          state.previous = request.serialized;
-        }}
-      }},
-      (error) => {{
-        if (request.generation === state.generation) state.lastError = String(error);
-      }}
-    ).then(() => {{
-      if (state.inFlight !== request) return;
-      state.inFlight = null;
-      if (request.generation !== state.generation) {{
-        schedule();
-        return;
-      }}
-      const queued = state.queued;
-      state.queued = null;
-      if (queued && queued.serialized !== state.previous) dispatch(queued);
-      else schedule();
-    }});
-  }}
-  function publish() {{
-    state.timer = 0;
-    if (location.origin !== state.origin) return;
-    const entries = capture();
-    const serialized = JSON.stringify(entries);
-    const item = {{ entries, generation: state.generation, serialized }};
-    if (state.inFlight) {{
-      state.queued = serialized === state.inFlight.serialized ? null : item;
-      return;
-    }}
-    if (serialized === state.previous) return;
-    dispatch(item);
-  }}
-  for (const name of ["storage", "pageshow", "visibilitychange"]) addEventListener(name, schedule, true);
-  setInterval(schedule, 250);
-  if ({is_source}) {{
-    const storagePrototype = globalThis.Storage?.prototype;
-    if (storagePrototype) {{
-      const setItem = storagePrototype.setItem;
-      const removeItem = storagePrototype.removeItem;
-      const clear = storagePrototype.clear;
-      storagePrototype.setItem = function (key, value) {{
-        const result = setItem.call(this, key, value);
-        if (this === localStorage) publish();
-        return result;
-      }};
-      storagePrototype.removeItem = function (key) {{
-        const result = removeItem.call(this, key);
-        if (this === localStorage) publish();
-        return result;
-      }};
-      storagePrototype.clear = function () {{
-        const result = clear.call(this);
-        if (this === localStorage) publish();
-        return result;
-      }};
-    }}
-  }}
-  globalThis.__rionLocalStorageSyncObserver = Object.freeze({{
-    configure(next) {{
-      if (!next || (next.token !== state.token && !state.disabled)) return false;
-      state.token = next.token;
-      state.origin = next.origin;
-      state.keys = [...next.keys];
-      state.generation = next.generation;
-      state.disabled = false;
-      state.nextSequence = 1;
-      state.queued = null;
-      state.previous = null;
-      schedule();
-      return true;
-    }},
-    disable(expectedToken) {{
-      if (expectedToken !== state.token) return false;
-      if (state.timer) clearTimeout(state.timer);
-      state.timer = 0;
-      state.generation += 1;
-      state.disabled = true;
-      state.origin = "null";
-      state.keys = [];
-      state.queued = null;
-      state.previous = null;
-      return true;
-    }},
-    snapshot() {{ return {{ hasPrevious: state.previous !== null, lastError: state.lastError, pending: state.inFlight !== null || state.queued !== null }}; }}
-  }});
-  schedule();
-}})();"#,
-    ))
-}
-
 fn local_storage_sync_configure_script(
     config: &LocalStorageRuntimeConfig,
 ) -> RuntimeResult<String> {
@@ -485,6 +327,7 @@ fn local_storage_sync_configure_script(
         "generation": config.generation,
         "origin": config.origin,
         "keys": config.keys,
+        "selectors": config.selectors,
     }))
     .map_err(|_| {
         RuntimeError::new(
@@ -533,9 +376,43 @@ fn local_storage_sync_apply_script(
             "The localStorage synchronization bootstrap could not be encoded.",
         )
     })?;
+    let selectors = snapshot
+        .selector_entries
+        .iter()
+        .map(|(selector, _)| selector.clone())
+        .collect::<Vec<_>>();
+    let keys = snapshot
+        .entries
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    validate_local_storage_sync_contract(
+        &snapshot.origin,
+        &keys,
+        &selectors,
+        snapshot.codec.as_deref(),
+    )?;
+    validate_flyff_selector_entries(&selectors, &snapshot.selector_entries)?;
+    let selector_entries = serde_json::to_string(&snapshot.selector_entries).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization fields could not be encoded.",
+        )
+    })?;
+    let selectors_json = serde_json::to_string(&selectors).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
+            "The localStorage synchronization selectors could not be encoded.",
+        )
+    })?;
+    let flyff_codec = flyff_local_storage_codec_script(&selectors, snapshot.codec.as_deref())?;
     Ok(format!(
         r#"(() => {{
   if (globalThis.top !== globalThis || location.origin !== {origin}) return;
+  {flyff_codec}
+  const selectors = {selectors_json};
+  repairFlyffIdentity(selectors);
+  if (!applyFlyffFields(selectors, {selector_entries})) return;
   for (const [key, value] of {entries}) {{
     if (value === null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
@@ -544,20 +421,29 @@ fn local_storage_sync_apply_script(
     ))
 }
 
-fn read_scoped_local_storage_entries(
+fn read_scoped_local_storage_snapshot(
     webview: &Webview,
     keys: &[String],
-) -> RuntimeResult<Vec<(String, Option<String>)>> {
+    selectors: &[String],
+    codec: Option<&str>,
+) -> RuntimeResult<LocalStorageSyncSnapshotEntries> {
     let keys_json = serde_json::to_string(keys).map_err(|_| {
         RuntimeError::new(
             "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
             "The localStorage synchronization key set could not be encoded.",
         )
     })?;
+    let selectors_json = serde_json::to_string(selectors).map_err(|_| {
+        RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+            "The localStorage synchronization selectors could not be encoded.",
+        )
+    })?;
+    let flyff_codec = flyff_local_storage_codec_script(selectors, codec)?;
     let value = evaluate_json_value(
         webview,
         &format!(
-            "(() => {{ const keys = {keys_json}; return {{ values: keys.map((key) => [key, localStorage.getItem(key)]) }}; }})()"
+            "(() => {{ {flyff_codec} const keys = {keys_json}; const selectors = {selectors_json}; repairFlyffIdentity(selectors); const selectorValues = captureFlyffFields(selectors); if (selectorValues === null) return {{ error: 'FLYFF_SETTINGS_INVALID' }}; return {{ values: keys.map((key) => [key, localStorage.getItem(key)]), selectorValues }}; }})()"
         ),
     )?;
     let values = value
@@ -575,7 +461,7 @@ fn read_scoped_local_storage_entries(
             "The System WebView returned an incomplete localStorage synchronization snapshot.",
         ));
     }
-    values
+    let entries = values
         .iter()
         .zip(keys)
         .map(|(entry, expected)| {
@@ -603,7 +489,48 @@ fn read_scoped_local_storage_entries(
             };
             Ok((expected.clone(), value))
         })
-        .collect()
+        .collect::<RuntimeResult<Vec<_>>>()?;
+    let selector_values = value
+        .get("selectorValues")
+        .and_then(Value::as_array)
+        .filter(|values| values.len() == selectors.len())
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                "The System WebView returned invalid localStorage synchronization fields.",
+            )
+        })?;
+    let selector_entries = selector_values
+        .iter()
+        .zip(selectors)
+        .map(|(entry, selector)| {
+            let pair = entry.as_array().filter(|pair| pair.len() == 2).ok_or_else(|| {
+                RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                    "The System WebView returned a malformed localStorage synchronization field.",
+                )
+            })?;
+            if pair[0].as_str() != Some(selector) {
+                return Err(RuntimeError::new(
+                    "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                    "The System WebView returned an unexpected localStorage synchronization field.",
+                ));
+            }
+            let field = if pair[1].is_null() {
+                None
+            } else {
+                Some(pair[1].as_str().ok_or_else(|| {
+                    RuntimeError::new(
+                        "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+                        "The System WebView returned a non-string localStorage synchronization field.",
+                    )
+                })?.to_owned())
+            };
+            Ok((selector.clone(), field))
+        })
+        .collect::<RuntimeResult<Vec<_>>>()?;
+    validate_flyff_selector_entries(selectors, &selector_entries)?;
+    Ok((entries, selector_entries))
 }
 
 fn require_exact_local_storage_sync_origin(webview: &Webview, expected: &str) -> RuntimeResult<()> {

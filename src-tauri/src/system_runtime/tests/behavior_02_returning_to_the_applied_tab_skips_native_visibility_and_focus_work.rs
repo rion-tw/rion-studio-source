@@ -661,9 +661,11 @@
     #[test]
     fn local_storage_sync_scripts_are_top_frame_origin_scoped_and_mirror_deletions() {
         let config = LocalStorageRuntimeConfig {
+            codec: None,
             dependent_role_ids: vec!["follower".to_owned()],
             generation: 1,
             keys: vec!["game_client_settings".to_owned()],
+            selectors: Vec::new(),
             origin: "https://example.test".to_owned(),
             source_role_id: None,
             token: "capability".to_owned(),
@@ -694,13 +696,15 @@
         );
 
         let script = local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
-            schema_version: 1,
+            codec: None,
+            schema_version: 2,
             source_role_id: "source".to_owned(),
             origin: "https://example.test".to_owned(),
             entries: vec![
                 ("game_client_settings".to_owned(), Some("{}".to_owned())),
                 ("removed".to_owned(), None),
             ],
+            selector_entries: Vec::new(),
         })
         .unwrap();
         assert!(script.contains("globalThis.top !== globalThis"));

@@ -1,11 +1,11 @@
 import type { TranslationKey } from "../../i18n";
 
-export interface LocalStorageSyncSelectorOption {
+interface LocalStorageSyncSelectorOption {
   id: string;
   labelKey: TranslationKey;
 }
 
-export interface LocalStorageSyncSelectorGroup {
+interface LocalStorageSyncSelectorGroup {
   id: string;
   labelKey: TranslationKey;
   options: LocalStorageSyncSelectorOption[];

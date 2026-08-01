@@ -30,16 +30,25 @@ fn main() {
         cc::Build::new()
             .file("native/macos/RionWKWebViewInput.m")
             .flag("-fobjc-arc")
+            .flag("-Werror=nullability-completeness")
+            .flag("-Werror=nullability")
+            .flag("-Werror=nonnull")
             .compile("rion_wkwebview_input");
         cc::Build::new()
             .file("native/macos/RionDockMenu.m")
             .flag("-fobjc-arc")
+            .flag("-Werror=nullability-completeness")
+            .flag("-Werror=nullability")
+            .flag("-Werror=nonnull")
             .compile("rion_dock_menu");
         cc::Build::new()
             .cpp(true)
             .file("native/macos/RionRuntimeTabsController.mm")
             .flag("-fobjc-arc")
             .flag("-std=c++17")
+            .flag("-Werror=nullability-completeness")
+            .flag("-Werror=nullability")
+            .flag("-Werror=nonnull")
             .compile("rion_runtime_tabs");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=WebKit");

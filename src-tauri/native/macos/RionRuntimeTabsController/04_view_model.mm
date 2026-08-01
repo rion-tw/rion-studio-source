@@ -1,3 +1,5 @@
+NS_ASSUME_NONNULL_BEGIN
+
 @end
 
 @implementation RionRuntimeAddButton {
@@ -657,3 +659,5 @@
   [invocation invoke];
   return YES;
 }
+
+NS_ASSUME_NONNULL_END

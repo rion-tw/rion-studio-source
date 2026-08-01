@@ -1,5 +1,8 @@
-static void RionDenyMediaCapture(id delegate, SEL selector, WKWebView *webView,
-                                 WKSecurityOrigin *origin, WKFrameInfo *frame,
+NS_ASSUME_NONNULL_BEGIN
+
+static void RionDenyMediaCapture(
+    id delegate, SEL selector, WKWebView * _Nullable webView,
+    WKSecurityOrigin * _Nullable origin, WKFrameInfo * _Nullable frame,
                                  WKMediaCaptureType captureType,
                                  void (^decisionHandler)(WKPermissionDecision)) {
   (void)delegate;
@@ -27,7 +30,8 @@ static BOOL RionInstallDelegateMethod(Class delegateClass, SEL selector, IMP imp
   return class_addMethod(delegateClass, selector, implementation, types);
 }
 
-static BOOL RionInstallSecurityPolicyOnDelegate(id<WKUIDelegate> delegate) {
+static BOOL RionInstallSecurityPolicyOnDelegate(
+    id<WKUIDelegate> _Nullable delegate) {
   if (!delegate) return NO;
   Class delegateClass = object_getClass(delegate);
   if (!delegateClass) return NO;
@@ -50,7 +54,7 @@ static BOOL RionInstallSecurityPolicyOnDelegate(id<WKUIDelegate> delegate) {
   return alert && confirm && prompt && permission;
 }
 
-bool rion_wk_install_security_policy(void *rawWebView) {
+bool rion_wk_install_security_policy(void * _Nullable rawWebView) {
   @autoreleasepool {
     if (!rawWebView) return false;
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
@@ -86,7 +90,8 @@ bool rion_wk_security_policy_self_test(void) {
         class_getMethodImplementation(object_getClass(delegate), permissionSelector);
     if (permissionImplementation != (IMP)RionDenyMediaCapture) return false;
     __block WKPermissionDecision decision = WKPermissionDecisionPrompt;
-    ((void (*)(id, SEL, WKWebView *, WKSecurityOrigin *, WKFrameInfo *,
+    ((void (*)(id, SEL, WKWebView * _Nullable,
+               WKSecurityOrigin * _Nullable, WKFrameInfo * _Nullable,
                WKMediaCaptureType, void (^)(WKPermissionDecision)))permissionImplementation)(
         delegate, permissionSelector, nil, nil, nil, WKMediaCaptureTypeCamera,
         ^(WKPermissionDecision value) { decision = value; });
@@ -100,7 +105,7 @@ bool rion_wk_security_policy_self_test(void) {
   }
 }
 
-static NSNumber *RionVirtualKeyCode(NSString *code) {
+static NSNumber * _Nullable RionVirtualKeyCode(NSString *code) {
   static NSDictionary<NSString *, NSNumber *> *codes;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
@@ -143,7 +148,7 @@ static NSString *RionFunctionCharacter(unichar value) {
   return [NSString stringWithCharacters:&value length:1];
 }
 
-static NSString *RionBaseCharacter(NSString *code) {
+static NSString * _Nullable RionBaseCharacter(NSString *code) {
   if ([code hasPrefix:@"Key"] && code.length == 4) {
     return [code substringFromIndex:3].lowercaseString;
   }
@@ -189,7 +194,7 @@ static NSString *RionShiftedCharacter(NSString *code, NSString *base) {
   return shifted[code] ?: base;
 }
 
-static NSView *RionWKContentView(NSView *root) {
+static NSView * _Nullable RionWKContentView(NSView *root) {
   for (NSView *subview in root.subviews) {
     if ([NSStringFromClass(subview.class) containsString:@"WKContentView"]) {
       return subview;
@@ -205,13 +210,14 @@ static NSView *RionWKContentView(NSView *root) {
 - (BOOL)makeFirstResponder:(nullable NSResponder *)responder;
 @end
 
-static BOOL RionResponderBelongsToView(NSResponder *responder, NSView *root) {
+static BOOL RionResponderBelongsToView(
+    NSResponder * _Nullable responder, NSView *root) {
   if (![responder isKindOfClass:NSView.class]) return false;
   NSView *view = (NSView *)responder;
   return view == root || [view isDescendantOf:root];
 }
 
-static NSResponder *RionKeyResponder(WKWebView *webView) {
+static NSResponder * _Nullable RionKeyResponder(WKWebView *webView) {
   NSWindow *window = webView.window;
   if (!window) return nil;
   NSResponder *candidate = window.firstResponder;
@@ -222,7 +228,8 @@ static NSResponder *RionKeyResponder(WKWebView *webView) {
 }
 
 static BOOL RionRestoreFirstResponder(
-    id<RionFirstResponderHost> host, NSResponder *preservedResponder,
+    id<RionFirstResponderHost> host,
+    NSResponder * _Nullable preservedResponder,
     NSView *dispatchTarget) {
   NSResponder *current = host.firstResponder;
   if (current == preservedResponder) return true;
@@ -248,7 +255,8 @@ static void RionDispatchKeyEvent(NSResponder *responder, NSEvent *event,
   }
 }
 
-bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
+bool rion_wk_dispatch_key(void * _Nullable rawWebView,
+                          const char * _Nullable rawCode,
                           bool keyDown, uint64_t rawFlags, bool repeat) {
   @autoreleasepool {
     if (!rawWebView || !rawCode) return false;
@@ -295,7 +303,7 @@ bool rion_wk_dispatch_key(void *rawWebView, const char *rawCode,
   }
 }
 
-bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
+bool rion_wk_dispatch_mouse(void * _Nullable rawWebView, double x, double y,
                             int button, bool mouseDown) {
   @autoreleasepool {
     if (!rawWebView || !isfinite(x) || !isfinite(y) || button < 0 || button > 2) {
@@ -365,10 +373,10 @@ bool rion_wk_dispatch_mouse(void *rawWebView, double x, double y,
 @end
 
 @implementation RionFirstResponderHostFixture
-- (NSResponder *)firstResponder {
+- (nullable NSResponder *)firstResponder {
   return self.responder;
 }
-- (BOOL)makeFirstResponder:(NSResponder *)responder {
+- (BOOL)makeFirstResponder:(nullable NSResponder *)responder {
   self.responder = responder;
   self.focusChangeCount += 1;
   return true;
@@ -413,3 +421,5 @@ bool rion_wk_background_input_focus_self_test(void) {
         host.focusChangeCount == 1;
   }
 }
+
+NS_ASSUME_NONNULL_END

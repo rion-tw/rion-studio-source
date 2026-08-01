@@ -37,6 +37,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
+
 concurrency:
   group: tauri-candidate-${{ inputs.tag }}
   cancel-in-progress: false
@@ -294,14 +297,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download --repo "${GITHUB_REPOSITORY}" --pattern Rion.Studio-mac.dmg --dir previous
+        run: gh release download --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern Rion.Studio-mac.dmg --dir previous
 
       - name: Download previous Windows Tauri release
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download --repo $env:GITHUB_REPOSITORY --pattern Rion.Studio-win.exe --dir previous
+        run: gh release download --repo $env:PUBLIC_RELEASE_REPOSITORY --pattern Rion.Studio-win.exe --dir previous
 
       - name: Verify macOS manual replacement preserves shared data
         if: runner.os == 'macOS'

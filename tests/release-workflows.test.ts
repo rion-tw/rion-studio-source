@@ -197,10 +197,23 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
     expect(workflow).toContain("Rion.Studio-win.exe.sig");
     expect(workflow).toContain("upgrade-compatibility:");
+    expect(workflow).toContain("PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio");
     expect(workflow).toContain("Verify macOS manual replacement preserves shared data");
     expect(workflow).toContain("Verify Windows clean install and previous Tauri in-place upgrade");
     expect(workflow).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
     expect(upgrade).toContain("timeout-minutes: 10");
+    expect(upgrade).toContain(
+      'gh release download --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
+    );
+    expect(upgrade).toContain(
+      "gh release download --repo $env:PUBLIC_RELEASE_REPOSITORY --pattern Rion.Studio-win.exe"
+    );
+    expect(upgrade).not.toContain(
+      'gh release download --repo "${GITHUB_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
+    );
+    expect(upgrade).not.toContain(
+      "gh release download --repo $env:GITHUB_REPOSITORY --pattern Rion.Studio-win.exe"
+    );
     expect(upgrade).toContain("function Invoke-BoundedProcess");
     expect(upgrade).toContain("$process.WaitForExit($TimeoutSeconds * 1000)");
     expect(upgrade).toContain("$process.Kill($true)");

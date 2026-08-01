@@ -1,7 +1,253 @@
+fn record_windows_tab_drag_drop_intent(
+    state: &CoreState,
+    session_id: &str,
+    target_window_id: &str,
+    before_tab_id: Option<&str>,
+) -> Result<bool, CoreErrorPayload> {
+    let target = state
+        .runtime
+        .tab_drag_window_snapshot(target_window_id)
+        .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
+    if let Some(before_tab_id) = before_tab_id
+        && !target.tab_ids.iter().any(|tab_id| tab_id == before_tab_id)
+    {
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "The drop insertion tab is outside the target Game Window.",
+        ));
+    }
+    let mut current = state
+        .tab_drag
+        .lock()
+        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
+    let session = current
+        .as_mut()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale."))?;
+    session.drop_window_id = Some(target_window_id.to_owned());
+    session.drop_before_tab_id = before_tab_id
+        .filter(|before_tab_id| *before_tab_id != session.tab_id)
+        .map(str::to_owned);
+    Ok(session.source_end_received && session.source_drop_accepted)
+}
+
+fn record_windows_tab_drag_source_end(
+    state: &CoreState,
+    session_id: &str,
+    cancelled: bool,
+    drop_accepted: bool,
+) -> Result<bool, CoreErrorPayload> {
+    let mut current = state
+        .tab_drag
+        .lock()
+        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
+    let session = current
+        .as_mut()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale."))?;
+    session.source_cancelled = cancelled;
+    session.source_drop_accepted = drop_accepted;
+    session.source_end_received = true;
+    let ready = windows_tab_drag_terminal_ready(
+        cancelled,
+        drop_accepted,
+        session.drop_window_id.is_some(),
+    );
+    if !ready {
+        session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
+    }
+    Ok(ready)
+}
+
+fn windows_tab_drag_terminal_ready(
+    cancelled: bool,
+    drop_accepted: bool,
+    has_drop_intent: bool,
+) -> bool {
+    cancelled || !drop_accepted || has_drop_intent
+}
+
+async fn finish_windows_tab_drag_session(
+    app: &AppHandle,
+    state: &CoreState,
+    session_id: &str,
+) -> Result<(), CoreErrorPayload> {
+    mark_tab_drag_session_finished(state, session_id)?;
+    let Some(mut session) = take_tab_drag_session(state, session_id)? else {
+        return Ok(());
+    };
+    if session.source_cancelled {
+        record_tab_drag_lifecycle(
+            state,
+            &session,
+            "tab.drag-cancelled",
+            "The WebView2 tab drag ended without applying native topology changes.",
+        );
+        session.phase = GameWindowTabDragPhase::Cancelled;
+        return cancel_tab_drag_session_recoverable(state, &session);
+    }
+    if session.source_drop_accepted && session.drop_window_id.is_none() {
+        reopen_tab_drag_session(state, &session);
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_STALE",
+            "The accepted drop target did not report its destination.",
+        ));
+    }
+    session.phase = GameWindowTabDragPhase::Finishing;
+    record_tab_drag_lifecycle(
+        state,
+        &session,
+        "tab.drag-native-commit-started",
+        "The WebView2 OLE drag ended; native tab topology commit is starting.",
+    );
+    if let Err(error) = apply_windows_tab_drag_destination(app, state, &mut session) {
+        record_tab_drag_lifecycle(
+            state,
+            &session,
+            "tab.drag-native-commit-failed",
+            "The native tab topology commit failed and rollback was requested.",
+        );
+        return Err(cancel_tab_drag_preserving_error(state, &session, error));
+    }
+    if let Err(error) = commit_tab_drag_session(state, &session).await {
+        record_tab_drag_lifecycle(
+            state,
+            &session,
+            "tab.drag-core-commit-failed",
+            "The durable tab move failed and native rollback was requested.",
+        );
+        return Err(cancel_tab_drag_preserving_error(state, &session, error));
+    }
+    record_tab_drag_lifecycle(
+        state,
+        &session,
+        "tab.drag-committed",
+        "The deferred WebView2 tab drag committed successfully.",
+    );
+    Ok(())
+}
+
+fn record_tab_drag_lifecycle(
+    state: &CoreState,
+    session: &GameWindowTabDragSession,
+    event: &'static str,
+    message: &'static str,
+) {
+    let core = Arc::clone(&state.core);
+    let context_raw_json = serde_json::to_string(&json!({
+        "dropAccepted": session.source_drop_accepted,
+        "nativeChangesApplied": session.native_changes_applied,
+        "sessionId": session.id,
+        "singleTab": session.single_tab,
+        "sourceWindowId": session.source_window_id,
+        "tabId": session.tab_id,
+        "targetWindowId": session.drop_window_id,
+    }))
+    .ok();
+    tauri::async_runtime::spawn(async move {
+        let _ = core
+            .invoke_async(CoreCommand::LogsCapture {
+                entries: vec![LogCaptureRecord {
+                    level: LogLevel::Debug,
+                    source: LogSource::Browser,
+                    event: event.to_owned(),
+                    message: message.to_owned(),
+                    context_raw_json,
+                    error: None,
+                }],
+            })
+            .await;
+    });
+}
+
+fn apply_windows_tab_drag_destination(
+    app: &AppHandle,
+    state: &CoreState,
+    session: &mut GameWindowTabDragSession,
+) -> Result<(), CoreErrorPayload> {
+    session.native_changes_applied = true;
+    if let Some(target_window_id) = session.drop_window_id.clone() {
+        let before_tab_id = session.drop_before_tab_id.clone();
+        return attach_tab_drag_session(
+            state,
+            session,
+            &target_window_id,
+            before_tab_id.as_deref(),
+        );
+    }
+
+    if session.single_tab {
+        state
+            .runtime
+            .begin_tab_drag_window_motion(&session.source_window_id);
+    } else {
+        let anchor = session.window_anchor.unwrap_or((
+            session.tab_width * session.grab_ratio_x,
+            session.tab_height * session.grab_ratio_y,
+        ));
+        let target = tab_drag_target_for_screen(
+            app,
+            &session.original_target,
+            &session.provisional_window_id,
+            session.latest_screen_x,
+            session.latest_screen_y,
+            anchor,
+        )?;
+        session.target = target.clone();
+        state
+            .runtime
+            .prepare_provisional_game_window(&target, &session.title)
+            .and_then(|_| state.runtime.position_provisional_game_window(&target))
+            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    }
+    float_tab_drag_session(
+        app,
+        state,
+        session,
+        session.latest_screen_x,
+        session.latest_screen_y,
+    )
+}
+
+fn schedule_windows_tab_drag_intent_timeout(app: &AppHandle, session_id: &str) {
+    let app = app.clone();
+    let session_id = session_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let state = app.state::<CoreState>();
+        let _lane = state.tab_drag_lane.lock().await;
+        let timed_out = state
+            .tab_drag
+            .lock()
+            .ok()
+            .and_then(|current| current.as_ref().cloned())
+            .is_some_and(|session| {
+                session.id == session_id
+                    && session.source_end_received
+                    && session.source_drop_accepted
+                    && session.drop_window_id.is_none()
+            });
+        if !timed_out {
+            return;
+        }
+        eprintln!(
+            "Runtime tab drag {session_id} cancelled because its accepted WebView2 drop intent was not delivered."
+        );
+        let _ = mark_tab_drag_session_finished(&state, &session_id);
+        if let Ok(Some(mut session)) = take_tab_drag_session(&state, &session_id) {
+            session.phase = GameWindowTabDragPhase::Cancelled;
+            let _ = cancel_tab_drag_session_recoverable(&state, &session);
+        }
+    });
+}
+
 fn cancel_tab_drag_session(
     state: &CoreState,
     session: &GameWindowTabDragSession,
 ) -> Result<(), CoreErrorPayload> {
+    if cfg!(windows) && !session.native_changes_applied {
+        return Ok(());
+    }
     let mut errors = Vec::new();
     if session.single_tab {
         if state.runtime.tab_window_id(&session.tab_id).as_deref()

@@ -63,6 +63,7 @@ export const scrollRightButton = document.querySelector<HTMLButtonElement>("#scr
 export const runtimeState = {
   current: undefined as RuntimeTabStripState | undefined,
   draggingTabId: undefined as string | undefined,
+  dragOriginActiveTabId: undefined as string | undefined,
   dragSessionId: undefined as string | undefined,
   dragCancelled: false,
   dragMoveFrame: undefined as number | undefined,
@@ -206,7 +207,7 @@ export const dispatch = (action: RuntimeTabAction): void => {
   if (action.type.startsWith("tabDrag")) {
     const isMotion = action.type === "tabDragMove" || action.type === "tabDragHover";
     if (isMotion && terminalDragSessions.has(action.sessionId)) return;
-    if (action.type === "tabDragDrop" || action.type === "tabDragEnd"
+    if (action.type === "tabDragSourceEnd" || action.type === "tabDragEnd"
       || action.type === "tabDragCancel") {
       rememberTerminalDragSession(action.sessionId);
     }
@@ -215,7 +216,7 @@ export const dispatch = (action: RuntimeTabAction): void => {
     if (isMotion && queuedIsMotion && action.sessionId === queued.sessionId) {
       dragActionQueue[dragActionQueue.length - 1] = action;
     } else {
-      if ((action.type === "tabDragDrop" || action.type === "tabDragEnd")
+      if ((action.type === "tabDragSourceEnd" || action.type === "tabDragEnd")
         && dragActionQueue.length > 0) {
         for (let index = dragActionQueue.length - 1; index >= 0; index -= 1) {
           const pending = dragActionQueue[index];
@@ -306,6 +307,7 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
   button.addEventListener("dragstart", (event) => {
     clearDropIndicator();
     clearDragVisual({ mode: "restore" });
+    runtimeState.dragOriginActiveTabId = runtimeState.activeTabId;
     optimisticallyActivateTab(tabId);
     runtimeState.draggingTabId = tabId;
     runtimeState.dragSessionId = crypto.randomUUID();
@@ -322,7 +324,7 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
       tabHeight,
       grabRatioX
     };
-    installTransparentDragImage(event.dataTransfer);
+    installDragImage(event.dataTransfer, button, payload, grabRatioY);
     beginDragVisual(payload, button, event.clientX);
     event.dataTransfer?.setData("text/rion-runtime-tab", JSON.stringify(payload));
     dispatch({
@@ -357,26 +359,36 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
       cancelAnimationFrame(runtimeState.dragMoveFrame);
       runtimeState.dragMoveFrame = undefined;
     }
-    if (runtimeState.dragSessionId && event.dataTransfer?.dropEffect !== "move") {
+    if (runtimeState.dragSessionId) {
       const terminalPoint = runtimeState.pendingDragPoint ?? (
         event.screenX !== 0 || event.screenY !== 0
           ? { screenX: event.screenX, screenY: event.screenY }
           : runtimeState.lastDragPoint
       ) ?? { screenX: event.screenX, screenY: event.screenY };
-      dispatch({
-        type: "tabDragEnd",
+      const sourceEndAction: RuntimeTabAction = {
+        type: "tabDragSourceEnd",
         sessionId: runtimeState.dragSessionId,
         cancelled: runtimeState.dragCancelled,
+        dropAccepted: event.dataTransfer?.dropEffect === "move",
         ...terminalPoint
-      });
+      };
+      // WebView2 implements HTML drag through a nested OLE loop. Posting the
+      // terminal action guarantees native topology changes cannot run from the
+      // dragend callback itself.
+      setTimeout(() => dispatch(sourceEndAction), 0);
     }
-    clearDragVisual({ mode: runtimeState.dragCancelled ? "restore" : "settle" });
+    clearDragVisual({
+      mode: runtimeState.dragCancelled || runtimeState.dragVisualState?.suspended
+        ? "restore"
+        : "settle"
+    });
     clearDragProxy();
     if (endingSessionId && !runtimeState.dragCancelled && !localDropSessions.has(endingSessionId)) {
       flushPendingRuntimeTabOrder();
     }
     if (endingSessionId) localDropSessions.delete(endingSessionId);
     runtimeState.draggingTabId = undefined;
+    runtimeState.dragOriginActiveTabId = undefined;
     runtimeState.dragSessionId = undefined;
     runtimeState.pendingDragPoint = undefined;
     runtimeState.lastDragPoint = undefined;
@@ -417,21 +429,28 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
   });
 }
 
-function installTransparentDragImage(dataTransfer: DataTransfer | null): void {
+function installDragImage(
+  dataTransfer: DataTransfer | null,
+  button: HTMLButtonElement,
+  payload: RuntimeTabDragPayload,
+  grabRatioY: number
+): void {
   clearDragProxy();
   if (!dataTransfer || typeof dataTransfer.setDragImage !== "function") return;
-  // Chromium falls back to the source element when the custom drag image is fully
-  // transparent or outside the viewport. Keep a drawable 1px canvas in the viewport;
-  // its tokenized 1% alpha background is imperceptible but prevents WebView2 from
-  // briefly painting the default cloned-tab ghost.
-  const proxy = document.createElement("canvas");
-  proxy.className = "drag-proxy";
+  const proxy = button.cloneNode(true) as HTMLButtonElement;
+  proxy.removeAttribute("id");
+  proxy.className = "tab active drag-proxy";
   proxy.ariaHidden = "true";
-  proxy.width = 1;
-  proxy.height = 1;
+  proxy.draggable = false;
+  proxy.style.width = `${payload.tabWidth}px`;
+  proxy.style.height = `${payload.tabHeight}px`;
   document.body.append(proxy);
   proxy.getBoundingClientRect();
-  dataTransfer.setDragImage(proxy, 0, 0);
+  dataTransfer.setDragImage(
+    proxy,
+    Math.round(payload.tabWidth * payload.grabRatioX),
+    Math.round(payload.tabHeight * grabRatioY)
+  );
   runtimeState.dragProxyElement = proxy;
 }
 

@@ -59,6 +59,14 @@ export type RuntimeTabAction =
       screenX: number;
       screenY: number;
     }
+  | {
+      type: "tabDragSourceEnd";
+      sessionId: string;
+      cancelled: boolean;
+      dropAccepted: boolean;
+      screenX: number;
+      screenY: number;
+    }
   | { type: "tabDragCancel"; sessionId: string }
   | { type: "reorder"; tabId: string; beforeTabId?: string }
   | { type: "openLauncher" }
@@ -145,6 +153,14 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
       typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
       Object.keys(action).length === 5;
+  }
+  if (action.type === "tabDragSourceEnd") {
+    return typeof action.sessionId === "string" && action.sessionId.length > 0 &&
+      typeof action.cancelled === "boolean" &&
+      typeof action.dropAccepted === "boolean" &&
+      typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
+      typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
+      Object.keys(action).length === 6;
   }
   if (action.type === "tabDragCancel") {
     return typeof action.sessionId === "string" && action.sessionId.length > 0 &&

@@ -13,9 +13,9 @@ use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
-    GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, MacroRunStatus,
-    StateCollection, StateGameRecord, StateGameWindowRecord, StatePixelBoundsRecord,
-    StateResolutionRecord, StateRoleRecord,
+    GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogCaptureRecord,
+    LogLevel, LogSource, MacroRunStatus, StateCollection, StateGameRecord, StateGameWindowRecord,
+    StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -245,6 +245,8 @@ impl ApplicationExitGuard {
 
 #[derive(Clone)]
 enum GameWindowTabDragPhase {
+    Previewing,
+    AwaitingDropIntent,
     Attached,
     Floating,
     Finishing,
@@ -254,12 +256,15 @@ enum GameWindowTabDragPhase {
 #[derive(Clone)]
 struct GameWindowTabDragSession {
     current_window_id: String,
+    drop_before_tab_id: Option<String>,
+    drop_window_id: Option<String>,
     grab_ratio_x: f64,
     grab_ratio_y: f64,
     id: String,
     latest_move_revision: u64,
     latest_screen_x: f64,
     latest_screen_y: f64,
+    native_changes_applied: bool,
     original_target: EmbeddedLaunchTargetRecord,
     phase: GameWindowTabDragPhase,
     processed_move_revision: u64,
@@ -267,10 +272,14 @@ struct GameWindowTabDragSession {
     single_tab: bool,
     snapshots: HashMap<String, RuntimeTabDragWindowSnapshot>,
     source_window_id: String,
+    source_cancelled: bool,
+    source_drop_accepted: bool,
+    source_end_received: bool,
     tab_height: f64,
     tab_id: String,
     tab_width: f64,
     target: EmbeddedLaunchTargetRecord,
+    title: String,
     window_anchor: Option<(f64, f64)>,
     window_was_moved: bool,
 }

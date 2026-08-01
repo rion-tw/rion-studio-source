@@ -376,6 +376,9 @@ function cancelActiveTabDrag(): void {
   clearDragVisual({ mode: "restore" });
   clearDragProxy();
   stopEdgeScroll();
+  if (runtimeState.dragOriginActiveTabId) {
+    optimisticallyActivateTab(runtimeState.dragOriginActiveTabId);
+  }
   if (runtimeState.dragSessionId) dispatch({ type: "tabDragCancel", sessionId: runtimeState.dragSessionId });
 }
 

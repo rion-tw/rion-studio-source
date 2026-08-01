@@ -17,7 +17,7 @@ export type RequestGuardedApplicationAction = (
   action: () => Promise<void>
 ) => Promise<boolean>;
 
-export interface ApplicationQuitGuardApi {
+interface ApplicationQuitGuardApi {
   requestAction: RequestGuardedApplicationAction;
   updateBlocker: UpdateApplicationQuitBlocker;
 }

@@ -3,6 +3,12 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod browser_proxy;
+pub use browser_proxy::{
+    BROWSER_PROXY_PREFLIGHT_TIMEOUT, BrowserProxyEndpoint, BrowserProxyPreflight,
+    BrowserProxyProtocol, browser_proxy_fingerprint, preflight_browser_proxy,
+    webview2_browser_arguments,
+};
 mod filesystem;
 pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
 mod chrome_profile;

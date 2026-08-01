@@ -12,6 +12,7 @@ import type {
   BrowserFontRuntimePayload,
   BrowserFontSettings,
   BrowserPerformanceDiagnostics,
+  BrowserProxySettings,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportProgress,
@@ -146,6 +147,8 @@ export interface RionStudioApi {
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   patchGameBrowserSettings: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
+  getBrowserProxySettings: () => Promise<BrowserProxySettings>;
+  updateBrowserProxySettings: (settings: BrowserProxySettings) => Promise<BrowserProxySettings>;
   listBrowserFontCatalog: () => Promise<BrowserFontCatalogEntry[]>;
   installBrowserFont: (catalogId: string) => Promise<BrowserFontInstallResult>;
   installGoogleFont: (family: string) => Promise<BrowserFontInstallResult>;

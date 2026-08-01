@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileJson, Info, Keyboard, Palette, ScrollText, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Download, FileJson, Info, Keyboard, Network, Palette, ScrollText, type LucideIcon } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -17,6 +17,7 @@ interface SettingsSidebarProps {
 
 const generalSectionItems = [
   { icon: Palette, labelKey: "settings.interface", value: "interface" },
+  { icon: Network, labelKey: "settings.network", value: "network" },
   { icon: Keyboard, labelKey: "settings.macros", value: "macros" },
   { icon: FileJson, labelKey: "settings.data", value: "data" }
 ] as const satisfies ReadonlyArray<{

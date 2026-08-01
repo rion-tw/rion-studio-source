@@ -12,6 +12,7 @@ export const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey>
   data: "settings.data",
   interface: "settings.interface",
   macros: "settings.macros",
+  network: "settings.network",
   updates: "settings.updates",
   diagnostics: "settings.diagnostics"
 };
@@ -21,6 +22,7 @@ export const settingsSectionDescriptionKeys: Record<SettingsSectionId, Translati
   data: "settings.dataDescription",
   interface: "settings.interfaceDescription",
   macros: "settings.macrosDescription",
+  network: "settings.networkDescription",
   updates: "settings.updatesDescription",
   diagnostics: "settings.diagnosticsDescription"
 };

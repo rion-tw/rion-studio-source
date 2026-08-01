@@ -2,8 +2,8 @@ import type { LegalDocumentVersions } from "./types";
 
 export const CURRENT_LEGAL_DOCUMENT_VERSIONS = {
   fairUse: "2026-07-26",
-  privacy: "2026-07-31",
-  terms: "2026-07-26"
+  privacy: "2026-08-02",
+  terms: "2026-08-02"
 } as const satisfies LegalDocumentVersions;
 
 export function getLegalDocumentVersion(

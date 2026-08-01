@@ -11,8 +11,8 @@ use crate::{
 pub fn current_versions() -> LegalDocumentVersionsRecord {
     LegalDocumentVersionsRecord {
         fair_use: "2026-07-26".to_owned(),
-        privacy: "2026-07-31".to_owned(),
-        terms: "2026-07-26".to_owned(),
+        privacy: "2026-08-02".to_owned(),
+        terms: "2026-08-02".to_owned(),
     }
 }
 
@@ -65,11 +65,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn advances_only_the_privacy_notice_for_google_font_previews() {
+    fn advances_terms_and_privacy_for_local_role_proxy_routing() {
         let versions = current_versions();
         assert_eq!(versions.fair_use, "2026-07-26");
-        assert_eq!(versions.privacy, "2026-07-31");
-        assert_eq!(versions.terms, "2026-07-26");
+        assert_eq!(versions.privacy, "2026-08-02");
+        assert_eq!(versions.terms, "2026-08-02");
     }
 
     fn versions() -> LegalDocumentVersionsRecord {

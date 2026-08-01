@@ -17,12 +17,18 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<GameBrowserSettingsRecord>(value)
                     .map_err(|error| error.to_string())
             })?;
+        let browser_proxy_settings = core
+            .invoke(CoreCommand::BrowserProxySettingsGet)
+            .map_err(|error| error.to_string())
+            .and_then(|value| {
+                serde_json::from_value::<BrowserProxySettingsRecord>(value)
+                    .map_err(|error| error.to_string())
+            })?;
         #[cfg(windows)]
-        let additional_browser_arguments = rion_core::additional_browser_arguments(
+        let base_browser_arguments = rion_core::additional_browser_arguments(
             rion_platform::Platform::Windows,
             "msWebOOUI,msPdfOOUI,msSmartScreenProtection",
-        )
-        .join(" ");
+        );
         let runtime_indicator_script = runtime_indicator_document_start_script()?;
         let document_start_script = [
             SYSTEM_RUNTIME_INIT_SCRIPT.to_owned(),
@@ -103,10 +109,11 @@ impl SystemRuntimeExecutor {
 
         Ok(Self {
             app,
+            browser_proxy: BrowserProxyController::new(browser_proxy_settings),
             close_effect_sender: OnceLock::new(),
             configuration: RuntimeWebViewConfiguration {
                 #[cfg(windows)]
-                additional_browser_arguments,
+                base_browser_arguments,
                 document_start_script,
                 macos_high_refresh_rate: settings.performance.macos_high_refresh_rate,
                 overlay_document_start_script_template,

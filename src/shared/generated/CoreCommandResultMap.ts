@@ -4,6 +4,7 @@ import type { BrowserFontCatalogEntryRecord } from "./BrowserFontCatalogEntryRec
 import type { BrowserFontInstallResultRecord } from "./BrowserFontInstallResultRecord";
 import type { BrowserFontRuntimePayloadRecord } from "./BrowserFontRuntimePayloadRecord";
 import type { BrowserRuntimeSnapshot } from "./BrowserRuntimeSnapshot";
+import type { BrowserProxySettingsRecord } from "./BrowserProxySettingsRecord";
 import type { BrowserWorkspaceStatusRecord } from "./BrowserWorkspaceStatusRecord";
 import type { BulkDeleteResultRecord } from "./BulkDeleteResultRecord";
 import type { ChromeProfileImportPreviewRecord } from "./ChromeProfileImportPreviewRecord";
@@ -96,6 +97,8 @@ type TypedCoreCommandResultMap = {
   gameBrowserSettingsGet: GameBrowserSettingsRecord;
   gameBrowserSettingsReplace: GameBrowserSettingsRecord;
   gameBrowserSettingsPatch: GameBrowserSettingsRecord;
+  browserProxySettingsGet: BrowserProxySettingsRecord;
+  browserProxySettingsReplace: BrowserProxySettingsRecord;
   browserFontCatalogList: BrowserFontCatalogEntryRecord[];
   browserFontPackInstall: BrowserFontInstallResultRecord;
   browserFontFamilyInstall: BrowserFontInstallResultRecord;

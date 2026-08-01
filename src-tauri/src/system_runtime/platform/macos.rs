@@ -208,53 +208,129 @@ fn prepare_platform_role_webview_builder(
     builder: WebviewBuilder<tauri::Wry>,
     data_store_identifier: [u8; 16],
     enabled: bool,
-) -> (WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus) {
-    if !enabled {
-        return (builder, HighRefreshRateDiagnosticStatus::Disabled);
-    }
+    proxy_endpoint: Option<&rion_platform::BrowserProxyEndpoint>,
+) -> RuntimeResult<(WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus)> {
+    let (configuration, status) = create_macos_role_webview_configuration(
+        app,
+        data_store_identifier,
+        enabled,
+        proxy_endpoint,
+    )?;
+    Ok((builder.with_webview_configuration(configuration), status))
+}
+
+#[cfg(target_os = "macos")]
+fn create_macos_role_webview_configuration(
+    app: &AppHandle,
+    data_store_identifier: [u8; 16],
+    high_refresh_rate_enabled: bool,
+    proxy_endpoint: Option<&rion_platform::BrowserProxyEndpoint>,
+) -> RuntimeResult<(Retained<WKWebViewConfiguration>, HighRefreshRateDiagnosticStatus)> {
+    use std::ffi::CString;
 
     unsafe extern "C" {
         fn rion_wk_create_role_configuration(
             data_store_identifier_bytes: *const u8,
             high_refresh_rate_status: *mut i32,
         ) -> *mut std::ffi::c_void;
+        fn rion_wk_create_role_network_configuration(
+            data_store_identifier_bytes: *const u8,
+        ) -> *mut std::ffi::c_void;
+        fn rion_wk_apply_proxy(
+            configuration: *mut std::ffi::c_void,
+            protocol: *const std::os::raw::c_char,
+            host: *const std::os::raw::c_char,
+            port: u16,
+        ) -> bool;
     }
 
+    let endpoint = proxy_endpoint.cloned();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let scheduling = app.run_on_main_thread(move || {
-        let mut raw_status = 2_i32;
-        let raw_configuration = unsafe {
-            rion_wk_create_role_configuration(data_store_identifier.as_ptr(), &mut raw_status)
+        let mut raw_status = if high_refresh_rate_enabled { 2_i32 } else { 3_i32 };
+        let mut raw_configuration = if high_refresh_rate_enabled {
+            unsafe {
+                rion_wk_create_role_configuration(data_store_identifier.as_ptr(), &mut raw_status)
+            }
+        } else {
+            unsafe { rion_wk_create_role_network_configuration(data_store_identifier.as_ptr()) }
+        };
+        if raw_configuration.is_null() && high_refresh_rate_enabled {
+            raw_configuration = unsafe {
+                rion_wk_create_role_network_configuration(data_store_identifier.as_ptr())
+            };
+        }
+        let applied = if raw_configuration.is_null() {
+            false
+        } else if let Some(endpoint) = endpoint.as_ref() {
+            let protocol = CString::new(endpoint.protocol.as_str()).ok();
+            let host = CString::new(endpoint.host.to_string()).ok();
+            match (protocol, host) {
+                (Some(protocol), Some(host)) => unsafe {
+                    rion_wk_apply_proxy(
+                        raw_configuration,
+                        protocol.as_ptr(),
+                        host.as_ptr(),
+                        endpoint.port,
+                    )
+                },
+                _ => false,
+            }
+        } else {
+            unsafe {
+                rion_wk_apply_proxy(
+                    raw_configuration,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                )
+            }
         };
         let raw_configuration = raw_configuration as usize;
-        if sender.send((raw_configuration, raw_status)).is_err() && raw_configuration != 0 {
+        if sender.send((raw_configuration, raw_status, applied)).is_err()
+            && raw_configuration != 0
+        {
             let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
             drop(unsafe { Retained::from_raw(raw_configuration) });
         }
     });
-    let (builder, outcome) = if scheduling.is_err() {
-        (builder, HighRefreshRateDiagnosticStatus::ScheduleFailed)
-    } else {
-        match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-            Ok((raw_configuration, raw_status)) => {
-                let status = decode_macos_high_refresh_rate_status(raw_status);
-                if raw_configuration == 0 {
-                    (builder, HighRefreshRateDiagnosticStatus::Failed)
-                } else {
-                    let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
-                    let configuration = unsafe { Retained::from_raw(raw_configuration) }
-                        .expect("native WKWebView configuration pointer was non-null");
-                    (builder.with_webview_configuration(configuration), status)
-                }
-            }
-            Err(_) => (builder, HighRefreshRateDiagnosticStatus::Timeout),
+    if scheduling.is_err() {
+        return Err(RuntimeError::new(
+            "BROWSER_PROXY_APPLY_FAILED",
+            "The WKWebView proxy configuration could not be scheduled.",
+        ));
+    }
+    let (raw_configuration, raw_status, applied) = receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "BROWSER_PROXY_APPLY_FAILED",
+                "The WKWebView proxy configuration timed out.",
+            )
+        })?;
+    if raw_configuration == 0 || !applied {
+        if raw_configuration != 0 {
+            let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
+            drop(unsafe { Retained::from_raw(raw_configuration) });
         }
+        return Err(RuntimeError::new(
+            "BROWSER_PROXY_APPLY_FAILED",
+            "WKWebView rejected the role proxy configuration.",
+        ));
+    }
+    let outcome = if high_refresh_rate_enabled {
+        decode_macos_high_refresh_rate_status(raw_status)
+    } else {
+        HighRefreshRateDiagnosticStatus::Disabled
     };
     eprintln!(
         "System WebView macOS high refresh rate: status={}.",
         high_refresh_rate_status_label(outcome)
     );
-    (builder, outcome)
+    let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
+    let configuration = unsafe { Retained::from_raw(raw_configuration) }
+        .expect("native WKWebView configuration pointer was non-null");
+    Ok((configuration, outcome))
 }
 
 #[cfg(target_os = "macos")]

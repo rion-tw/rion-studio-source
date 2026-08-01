@@ -146,7 +146,7 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()))?
             }
             CoreCommand::DiagnosticsExport { path, snapshot } => {
-                serde_json::to_value(self.export_diagnostics(path, snapshot).await?)
+                serde_json::to_value(self.export_diagnostics(path, *snapshot).await?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::OverlayRequest {

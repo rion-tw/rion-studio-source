@@ -479,7 +479,7 @@ struct PersistedSessionBackup {
 
 struct RuntimeWebViewConfiguration {
     #[cfg(windows)]
-    additional_browser_arguments: String,
+    base_browser_arguments: Vec<String>,
     document_start_script: String,
     macos_high_refresh_rate: bool,
     overlay_document_start_script_template: String,
@@ -705,6 +705,7 @@ impl NativeInputSubmissionGuard {
 
 pub struct SystemRuntimeExecutor {
     app: AppHandle,
+    browser_proxy: BrowserProxyController,
     close_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
     configuration: RuntimeWebViewConfiguration,
     core: Arc<AppCore>,

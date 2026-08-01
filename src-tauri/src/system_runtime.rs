@@ -6,6 +6,7 @@ include!("system_runtime/section_01_navigation_timeout.rs");
 include!("system_runtime/section_02_windows_surface_identity_matches.rs");
 include!("system_runtime/section_03_start.rs");
 include!("system_runtime/section_04_next_revision.rs");
+include!("system_runtime/browser_proxy.rs");
 include!("system_runtime/section_05_is_surface_close_effect.rs");
 include!("system_runtime/section_06_is_saved_game_window.rs");
 include!("system_runtime/section_07_hydrate_tab_dividers.rs");

@@ -17,7 +17,8 @@ use tokio::sync::watch;
 use rion_core::{
     AppCore, BrowserAction, BrowserActionRequest, BrowserLaunchCompletionRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
-    BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
+    BrowserPerformanceSurfaceDiagnosticRecord, BrowserProxyDiagnosticsRecord,
+    BrowserProxySettingsRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreCommand, CoreEffectAction, CoreEffectRequest, CoreEffectResult, DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
     EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
@@ -642,7 +643,7 @@ impl SurfaceLifecycleTracker {
         })
     }
 
-    #[cfg(all(windows, test))]
+    #[cfg(windows)]
     fn wait_for_browser_process_exit(&self, timeout: Duration) -> bool {
         self.wait_for(timeout, |release| release.browser_process_exited)
     }

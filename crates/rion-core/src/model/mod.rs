@@ -9,3 +9,4 @@ include!("section_04_state_game_record.rs");
 include!("section_05_game_browser_settings_record.rs");
 include!("section_06_browser_action_request.rs");
 include!("section_07_macro_overlay_start_summary_record.rs");
+include!("section_08_browser_proxy.rs");

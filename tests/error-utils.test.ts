@@ -1,9 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { isPersistentRuntimeError } from "../src/renderer/src/app/errorUtils";
-import { loadTranslations, localizeErrorMessage } from "../src/renderer/src/i18n";
+import { isPersistentRuntimeError, toMessage } from "../src/renderer/src/app/errorUtils";
+import {
+  languages,
+  loadTranslations,
+  localizeErrorMessage,
+  type TranslationKey
+} from "../src/renderer/src/i18n";
 
 describe("renderer error localization", () => {
+  it("localizes every browser proxy error code in all supported languages", async () => {
+    const keys = {
+      BROWSER_PROXY_INVALID_CONFIGURATION: "error.browserProxyInvalidConfiguration",
+      BROWSER_PROXY_UNAVAILABLE: "error.browserProxyUnavailable",
+      BROWSER_PROXY_APPLY_FAILED: "error.browserProxyApplyFailed",
+      BROWSER_PROXY_RESTART_REQUIRED: "error.browserProxyRestartRequired"
+    } as const;
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, key] of Object.entries(keys) as Array<[string, TranslationKey]>) {
+        expect(toMessage({ code, message: "unlocalized" }, language, t)).toBe(translations[key]);
+      }
+    }
+  });
+
   it("localizes hidden browser helper launch failures", () => {
     expect(localizeErrorMessage("Unable to start the hidden Rion Studio browser helper.", "en")).toBe(
       "Unable to start the hidden browser helper."

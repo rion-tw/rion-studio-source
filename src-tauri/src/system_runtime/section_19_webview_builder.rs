@@ -4,6 +4,7 @@ impl SystemRuntimeExecutor {
         label: String,
         paths: &SessionPaths,
         role_id: Option<&str>,
+        proxy_snapshot: Option<Arc<BrowserProxyLaunchSnapshot>>,
     ) -> RuntimeResult<WebviewBuilder<tauri::Wry>> {
         let blank = "about:blank"
             .parse()
@@ -13,8 +14,14 @@ impl SystemRuntimeExecutor {
         let popup_webview2_data_directory = paths.webview2.clone();
         let popup_webkit_data_store_identifier = paths.webkit_identifier;
         #[cfg(windows)]
-        let popup_additional_browser_arguments =
-            self.configuration.additional_browser_arguments.clone();
+        let additional_browser_arguments = rion_platform::webview2_browser_arguments(
+            &self.configuration.base_browser_arguments,
+            proxy_snapshot.as_ref().and_then(|snapshot| snapshot.endpoint.as_ref()),
+        )
+        .map_err(|error| RuntimeError::new("BROWSER_PROXY_APPLY_FAILED", error.to_string()))?;
+        #[cfg(windows)]
+        let popup_additional_browser_arguments = additional_browser_arguments.clone();
+        let popup_proxy_snapshot = proxy_snapshot.clone();
         let popup_base_document_start_script = self.configuration.document_start_script.clone();
         let overlay_document_start_script = role_id
             .map(|_| self.overlay_document_start_script_for_label(&label))
@@ -131,8 +138,43 @@ impl SystemRuntimeExecutor {
                     )
                 });
                 #[cfg(target_os = "macos")]
-                let popup_builder =
-                    popup_builder.background_throttling(BackgroundThrottlingPolicy::Throttle);
+                let popup_builder = {
+                    let popup_builder = popup_builder
+                        .background_throttling(BackgroundThrottlingPolicy::Throttle);
+                    let endpoint = popup_proxy_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.endpoint.as_ref());
+                    match create_macos_role_webview_configuration(
+                        &popup_app,
+                        popup_webkit_data_store_identifier,
+                        false,
+                        endpoint,
+                    ) {
+                        Ok((configuration, _)) => {
+                            popup_builder.with_webview_configuration(configuration)
+                        }
+                        Err(error) => {
+                            if let Some(snapshot) = popup_proxy_snapshot.as_ref()
+                                && let Some(state) = popup_app.try_state::<crate::CoreState>()
+                            {
+                                state
+                                    .runtime
+                                    .browser_proxy
+                                    .record_apply_failure(snapshot, error.code);
+                            }
+                            let _ = popup_app.emit(
+                                "rion://shell-error",
+                                json!({
+                                    "code": error.code,
+                                    "message": error.message,
+                                    "roleId": role_id,
+                                    "url": url
+                                }),
+                            );
+                            return NewWindowResponse::Deny;
+                        }
+                    }
+                };
                 #[cfg(windows)]
                 let popup_builder =
                     popup_builder.additional_browser_args(&popup_additional_browser_arguments);
@@ -200,6 +242,16 @@ impl SystemRuntimeExecutor {
                                     return NewWindowResponse::Deny;
                                 }
                             };
+                        #[cfg(windows)]
+                        if let Some(snapshot) = popup_proxy_snapshot.as_ref()
+                            && let Some(state) = popup_app.try_state::<crate::CoreState>()
+                        {
+                            state.runtime.browser_proxy.register_webview2_lifecycle(
+                                &popup_webview2_data_directory,
+                                snapshot,
+                                Arc::clone(&lifecycle),
+                            );
+                        }
                         if let Err(error) = install_process_failure_monitor(
                             window.as_ref(),
                             popup_app.clone(),
@@ -308,8 +360,7 @@ impl SystemRuntimeExecutor {
         }
         #[cfg(windows)]
         {
-            builder =
-                builder.additional_browser_args(&self.configuration.additional_browser_arguments);
+            builder = builder.additional_browser_args(&additional_browser_arguments);
         }
         Ok(builder)
     }
@@ -320,13 +371,44 @@ impl SystemRuntimeExecutor {
         paths: &SessionPaths,
         role_id: &str,
     ) -> RuntimeResult<(WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus)> {
-        let builder = self.webview_builder(label, paths, Some(role_id))?;
-        Ok(prepare_platform_role_webview_builder(
+        let snapshot = self.browser_proxy.snapshot_for_role(role_id)?;
+        #[cfg(windows)]
+        self.browser_proxy
+            .ensure_webview2_environment(&paths.webview2, &snapshot)?;
+        let builder = self.webview_builder(label, paths, Some(role_id), Some(Arc::clone(&snapshot)))?;
+        let (builder, status) = prepare_platform_role_webview_builder(
             &self.app,
             builder,
             paths.webkit_identifier,
             self.configuration.macos_high_refresh_rate,
-        ))
+            snapshot.endpoint.as_ref(),
+        )
+        .inspect_err(|error| self.browser_proxy.record_apply_failure(&snapshot, error.code))?;
+        self.browser_proxy.record_apply_success(&snapshot);
+        Ok((builder, status))
+    }
+
+    fn role_store_webview_builder(
+        &self,
+        label: String,
+        paths: &SessionPaths,
+        role_id: &str,
+    ) -> RuntimeResult<WebviewBuilder<tauri::Wry>> {
+        let snapshot = self.browser_proxy.snapshot_for_role(role_id)?;
+        #[cfg(windows)]
+        self.browser_proxy
+            .ensure_webview2_environment(&paths.webview2, &snapshot)?;
+        let builder = self.webview_builder(label, paths, None, Some(Arc::clone(&snapshot)))?;
+        let (builder, _) = prepare_platform_role_webview_builder(
+            &self.app,
+            builder,
+            paths.webkit_identifier,
+            false,
+            snapshot.endpoint.as_ref(),
+        )
+        .inspect_err(|error| self.browser_proxy.record_apply_failure(&snapshot, error.code))?;
+        self.browser_proxy.record_apply_success(&snapshot);
+        Ok(builder)
     }
 
     fn clear_role_browser_data(
@@ -365,10 +447,10 @@ impl SystemRuntimeExecutor {
         let webview = self
             .add_child_bounded(
                 &window,
-                self.webview_builder(
+                self.role_store_webview_builder(
                     runtime_label("browser-data-clear-webview", role_id),
                     &paths,
-                    None,
+                    role_id,
                 )?,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1.0, 1.0),
@@ -385,6 +467,15 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
+        #[cfg(windows)]
+        {
+            let snapshot = self.browser_proxy.snapshot_for_role(role_id)?;
+            self.browser_proxy.register_webview2_lifecycle(
+                &paths.webview2,
+                &snapshot,
+                Arc::clone(&lifecycle),
+            );
+        }
         let result = webview
             .clear_all_browsing_data()
             .map_err(RuntimeError::tauri);

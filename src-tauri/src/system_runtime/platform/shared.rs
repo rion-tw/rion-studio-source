@@ -336,8 +336,9 @@ fn prepare_platform_role_webview_builder(
     builder: WebviewBuilder<tauri::Wry>,
     _data_store_identifier: [u8; 16],
     _enabled: bool,
-) -> (WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus) {
-    (builder, HighRefreshRateDiagnosticStatus::NotApplicable)
+    _proxy_endpoint: Option<&rion_platform::BrowserProxyEndpoint>,
+) -> RuntimeResult<(WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus)> {
+    Ok((builder, HighRefreshRateDiagnosticStatus::NotApplicable))
 }
 
 #[cfg(any(target_os = "macos", test))]

@@ -175,6 +175,10 @@ pub enum CoreCommand {
     GameBrowserSettingsPatch {
         patch: GameBrowserSettingsPatchRecord,
     },
+    BrowserProxySettingsGet,
+    BrowserProxySettingsReplace {
+        settings: BrowserProxySettingsRecord,
+    },
     BrowserFontCatalogList,
     BrowserFontPackInstall {
         #[ts(rename = "catalogId")]
@@ -312,7 +316,7 @@ pub enum CoreCommand {
     },
     DiagnosticsExport {
         path: String,
-        snapshot: ApplicationDiagnosticsSnapshotRecord,
+        snapshot: Box<ApplicationDiagnosticsSnapshotRecord>,
     },
     TelemetryRecord {
         sample: TelemetrySampleRecord,

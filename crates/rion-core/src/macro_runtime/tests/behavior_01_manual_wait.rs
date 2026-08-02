@@ -421,7 +421,100 @@ use std::sync::mpsc;
     }
 
     #[test]
-    fn applies_startup_timing_once_and_captures_settings_per_start() {
+    fn two_role_loop_without_a_shortcut_holds_each_key_for_the_configured_duration() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Key {
+            id: "left".to_owned(),
+            code: "ArrowLeft".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: Some("Left".to_owned()),
+        }]);
+        start.macros[0].role_ids.push("r2".to_owned());
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
+        start.active_role_ids.push("r2".to_owned());
+        start.settings = MacroRuntimeSettings {
+            startup_delay_ms: 100,
+            key_hold_ms: 30,
+            post_input_delay_ms: 30,
+            default_loop_delay_ms: 1_000,
+        };
+
+        let (statuses, focus) = start_and_ack_focus(&runtime, &receiver, start);
+        assert_eq!(focus.len(), 2);
+        assert_eq!(statuses.len(), 2);
+
+        let startups = vec![next_wait(&waits), next_wait(&waits)];
+        assert_waits_for_roles(&startups, 100, &["r1", "r2"]);
+        for startup in startups {
+            startup.release.send(()).unwrap();
+        }
+
+        let holds = next_browser_action_count(&receiver, 2);
+        assert_key_actions_for_roles(&holds, "ArrowLeft", "hold", &["r1", "r2"]);
+        runtime.dispatch_results(success_results(holds)).unwrap();
+
+        let key_holds = vec![next_wait(&waits), next_wait(&waits)];
+        assert_waits_for_roles(&key_holds, 30, &["r1", "r2"]);
+        assert_no_browser_actions(&receiver, Duration::from_millis(25));
+        for key_hold in key_holds {
+            key_hold.release.send(()).unwrap();
+        }
+
+        let releases = next_browser_action_count(&receiver, 2);
+        assert_key_actions_for_roles(&releases, "ArrowLeft", "release", &["r1", "r2"]);
+        runtime.dispatch_results(success_results(releases)).unwrap();
+
+        let post_inputs = vec![next_wait(&waits), next_wait(&waits)];
+        assert_waits_for_roles(&post_inputs, 30, &["r1", "r2"]);
+        for post_input in post_inputs {
+            post_input.release.send(()).unwrap();
+        }
+
+        let loop_waits = vec![next_wait(&waits), next_wait(&waits)];
+        assert_waits_for_roles(&loop_waits, 1_000, &["r1", "r2"]);
+        runtime.stop_macro("m1").unwrap();
+        drop(loop_waits);
+        assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    fn assert_waits_for_roles(waits: &[ManualWait], duration_ms: u32, expected_roles: &[&str]) {
+        assert!(waits.iter().all(|wait| wait.duration_ms == duration_ms));
+        let mut roles = waits
+            .iter()
+            .map(|wait| wait.role_id.as_str())
+            .collect::<Vec<_>>();
+        roles.sort_unstable();
+        assert_eq!(roles, expected_roles);
+    }
+
+    fn assert_key_actions_for_roles(
+        actions: &[BrowserActionRequest],
+        expected_code: &str,
+        expected_phase: &str,
+        expected_roles: &[&str],
+    ) {
+        assert!(actions.iter().all(|action| matches!(
+            action.action,
+            BrowserAction::Key {
+                ref code,
+                ref phase,
+                ..
+            } if code.as_deref() == Some(expected_code) && phase == expected_phase
+        )));
+        let mut roles = actions
+            .iter()
+            .map(|action| action.role_id.as_str())
+            .collect::<Vec<_>>();
+        roles.sort_unstable();
+        assert_eq!(roles, expected_roles);
+    }
+
+    #[test]
+    fn applies_timing_without_shortcuts_and_captures_settings_per_start() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -433,13 +526,6 @@ use std::sync::mpsc;
             action: Some("tap".to_owned()),
             label: None,
         }]);
-        first.macros[0].trigger = Some(crate::model::MacroTrigger {
-            code: "KeyQ".to_owned(),
-            ctrl: false,
-            alt: false,
-            shift: false,
-            meta: false,
-        });
         first.settings = MacroRuntimeSettings {
             startup_delay_ms: 100,
             key_hold_ms: 30,
@@ -455,13 +541,6 @@ use std::sync::mpsc;
             action: Some("tap".to_owned()),
             label: None,
         }]);
-        second.macros[0].trigger = Some(crate::model::MacroTrigger {
-            code: "KeyQ".to_owned(),
-            ctrl: false,
-            alt: false,
-            shift: false,
-            meta: false,
-        });
         second.settings = MacroRuntimeSettings {
             startup_delay_ms: 0,
             key_hold_ms: 80,
@@ -480,7 +559,7 @@ use std::sync::mpsc;
     }
 
     #[test]
-    fn omits_implicit_timing_but_keeps_explicit_delays_without_a_shortcut() {
+    fn combines_reliable_timing_with_explicit_delays_without_a_shortcut() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -514,6 +593,10 @@ use std::sync::mpsc;
         };
         let _ = start_and_ack_focus(&runtime, &receiver, start);
 
+        let startup = next_wait(&waits);
+        assert_eq!((startup.role_id.as_str(), startup.duration_ms), ("r1", 500));
+        startup.release.send(()).unwrap();
+
         for expected in [("KeyA", "hold"), ("KeyA", "release")] {
             let action = next_browser_actions(&receiver);
             assert!(matches!(
@@ -525,6 +608,12 @@ use std::sync::mpsc;
                 } if code.as_deref() == Some(expected.0) && phase == expected.1
             ));
             runtime.dispatch_results(success_results(action)).unwrap();
+            let implicit = next_wait(&waits);
+            assert_eq!(
+                implicit.duration_ms,
+                if expected.1 == "hold" { 400 } else { 300 }
+            );
+            implicit.release.send(()).unwrap();
         }
         let explicit = next_wait(&waits);
         assert_eq!(explicit.role_id, "r1");
@@ -541,6 +630,12 @@ use std::sync::mpsc;
                 } if code.as_deref() == Some(expected.0) && phase == expected.1
             ));
             runtime.dispatch_results(success_results(action)).unwrap();
+            let implicit = next_wait(&waits);
+            assert_eq!(
+                implicit.duration_ms,
+                if expected.1 == "hold" { 400 } else { 300 }
+            );
+            implicit.release.send(()).unwrap();
         }
         let loop_wait = next_wait(&waits);
         {
@@ -548,7 +643,10 @@ use std::sync::mpsc;
             assert!(waits.try_recv().is_err());
         };
         {
-            assert_eq!((explicit.duration_ms, loop_wait.duration_ms), (100, 50));
+            assert_eq!(
+                (startup.duration_ms, explicit.duration_ms, loop_wait.duration_ms),
+                (500, 100, 50)
+            );
         };
         runtime.stop_macro("m1").unwrap();
     }

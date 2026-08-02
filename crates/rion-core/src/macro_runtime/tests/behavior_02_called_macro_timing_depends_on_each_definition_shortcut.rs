@@ -1,5 +1,5 @@
 #[test]
-    fn called_macro_timing_depends_on_each_definition_shortcut() {
+    fn synchronous_macro_timing_does_not_depend_on_definition_shortcuts() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -18,13 +18,6 @@
                 call_mode: Some("wait".to_owned()),
             },
         ]);
-        start.macros[0].trigger = Some(crate::model::MacroTrigger {
-            code: "KeyQ".to_owned(),
-            ctrl: false,
-            alt: false,
-            shift: false,
-            meta: false,
-        });
         start.settings = MacroRuntimeSettings {
             startup_delay_ms: 100,
             key_hold_ms: 30,
@@ -60,13 +53,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Grandchild".to_owned(),
             role_ids: vec!["r3".to_owned()],
-            trigger: Some(crate::model::MacroTrigger {
-                code: "KeyG".to_owned(),
-                ctrl: false,
-                alt: false,
-                shift: false,
-                meta: false,
-            }),
+            trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Key {
                 id: "grandchild-key".to_owned(),
@@ -105,6 +92,9 @@
         runtime
             .dispatch_results(success_results(child_focus))
             .unwrap();
+        let child_startup = next_wait(&waits);
+        timed_waits.push(child_startup.duration_ms);
+        child_startup.release.send(()).unwrap();
         for expected_phase in ["hold", "release"] {
             let action = next_browser_actions(&receiver);
             assert!(matches!(
@@ -116,7 +106,9 @@
                 } if code.as_deref() == Some("KeyB") && phase == expected_phase
             ));
             runtime.dispatch_results(success_results(action)).unwrap();
-            assert!(waits.try_recv().is_err(), "untimed child introduced a wait");
+            let wait = next_wait(&waits);
+            timed_waits.push(wait.duration_ms);
+            wait.release.send(()).unwrap();
         }
 
         let grandchild_focus = next_browser_actions(&receiver);
@@ -142,8 +134,89 @@
             wait.release.send(()).unwrap();
         }
         {
-            assert_eq!(timed_waits, [100, 30, 30, 100, 30, 30]);
+            assert_eq!(
+                timed_waits,
+                [100, 30, 30, 100, 30, 30, 100, 30, 30]
+            );
         };
+    }
+
+    #[test]
+    fn triggered_macro_timing_does_not_depend_on_definition_shortcuts() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![
+            MacroStepDefinition::Macro {
+                id: "trigger-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("trigger".to_owned()),
+            },
+            MacroStepDefinition::Delay {
+                id: "keep-parent-running".to_owned(),
+                ms: 60_000,
+            },
+        ]);
+        start.settings = MacroRuntimeSettings {
+            startup_delay_ms: 100,
+            key_hold_ms: 30,
+            post_input_delay_ms: 30,
+            default_loop_delay_ms: 0,
+        };
+        start.macros.push(MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Key {
+                id: "child-key".to_owned(),
+                code: "KeyB".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }],
+        });
+        start.active_role_ids.push("r2".to_owned());
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+
+        let parent_startup = next_wait(&waits);
+        assert_eq!((parent_startup.role_id.as_str(), parent_startup.duration_ms), ("r1", 100));
+        parent_startup.release.send(()).unwrap();
+
+        let parent_wait = next_wait(&waits);
+        assert_eq!((parent_wait.role_id.as_str(), parent_wait.duration_ms), ("r1", 60_000));
+        let child_focus = next_browser_actions(&receiver);
+        assert!(matches!(child_focus[0].action, BrowserAction::Focus));
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+
+        let child_startup = next_wait(&waits);
+        assert_eq!((child_startup.role_id.as_str(), child_startup.duration_ms), ("r2", 100));
+        child_startup.release.send(()).unwrap();
+        for expected_phase in ["hold", "release"] {
+            let action = next_browser_actions(&receiver);
+            assert!(matches!(
+                action[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some("KeyB") && phase == expected_phase
+            ));
+            runtime.dispatch_results(success_results(action)).unwrap();
+            let timing = next_wait(&waits);
+            assert_eq!((timing.role_id.as_str(), timing.duration_ms), ("r2", 30));
+            timing.release.send(()).unwrap();
+        }
+
+        runtime.stop_macro("m1").unwrap();
+        drop(parent_wait);
+        runtime.stop_macro("child").unwrap();
     }
 
     #[test]

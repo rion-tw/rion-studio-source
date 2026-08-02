@@ -52,11 +52,17 @@ fn start_child_invocation(
         if inner.mutating_macro_ids.contains(macro_id) {
             return Err("called macro is being changed".to_owned());
         }
-        if roles.iter().any(|role_id| {
-            inner.stopping_role_ids.contains(role_id)
-                || inner.quiesced_role_ids.contains(role_id)
-        }) {
+        if roles
+            .iter()
+            .any(|role_id| inner.stopping_role_ids.contains(role_id))
+        {
             return Err(STOPPING_ROLE_MESSAGE.to_owned());
+        }
+        if roles
+            .iter()
+            .any(|role_id| inner.quiesced_role_ids.contains(role_id))
+        {
+            return Err(INPUT_FENCED_ROLE_MESSAGE.to_owned());
         }
         if inner.invocations.len() >= MAX_ACTIVE_INVOCATIONS {
             return Err("too many macro invocations are active".to_owned());
@@ -252,8 +258,11 @@ fn perform_actions_with_control(
         actions
             .iter()
             .map(|(role_id, _)| {
-                if !allow_cancelled && inner.quiesced_role_ids.contains(*role_id) {
+                if !allow_cancelled && inner.stopping_role_ids.contains(*role_id) {
                     return Err(STOPPING_ROLE_MESSAGE.to_owned());
+                }
+                if !allow_cancelled && inner.quiesced_role_ids.contains(*role_id) {
+                    return Err(INPUT_FENCED_ROLE_MESSAGE.to_owned());
                 }
                 Ok((
                     inner.input_epochs.get(*role_id).copied().unwrap_or_default(),

@@ -988,6 +988,8 @@
   "error.portableRoleNameConflict": "Multiple roles share a name in the same game. Rename or remove duplicates before importing.",
   "error.portableMacroDependencyInvalid": "Imported macro dependencies are invalid.",
   "error.macroAlreadyRunning": "Macro is already running for this role.",
+  "error.macroRoleStopping": "An assigned role is stopping and cannot accept new input.",
+  "error.macroRoleInputFenced": "An assigned role is reloading. Rion Studio is automatically recovering input.",
   "error.macroNotAssigned": "Macro is not assigned to this role.",
   "error.macroRoleNotRunning": "Launch this role before running a macro.",
   "error.macroNoRunnableRoles": "Launch at least one assigned role before running a macro.",

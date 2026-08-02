@@ -26,6 +26,23 @@ describe("renderer error localization", () => {
     }
   });
 
+  it("separates stopping roles from temporary input fences in every language", async () => {
+    const keys = {
+      MACRO_ROLE_STOPPING: "error.macroRoleStopping",
+      MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced"
+    } as const;
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, key] of Object.entries(keys) as Array<[string, TranslationKey]>) {
+        expect(toMessage({ code, message: "English fallback" }, language, t)).toBe(
+          translations[key]
+        );
+      }
+    }
+  });
+
   it("localizes hidden browser helper launch failures", () => {
     expect(localizeErrorMessage("Unable to start the hidden Rion Studio browser helper.", "en")).toBe(
       "Unable to start the hidden browser helper."

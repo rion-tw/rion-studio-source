@@ -27,6 +27,34 @@ fn recent_runtime_failures_are_bounded_and_newest_first() {
 }
 
 #[test]
+fn recent_input_fence_history_keeps_forty_privacy_safe_events() {
+    let mut diagnostics = RuntimeDiagnosticsState::default();
+    for index in 0..45 {
+        diagnostics.push_input_fence_event(SystemRuntimeInputFenceEventRecord {
+            captured_at: "2026-08-02T00:00:00Z".to_owned(),
+            role_id: "role-a".to_owned(),
+            input_epoch: index,
+            event: "page-finished".to_owned(),
+            reason: "navigation".to_owned(),
+            elapsed_ms: index,
+            surface_generation: Some(3),
+            drained: true,
+            pending_page_finish_count: 0,
+            recovery_scheduled: false,
+        });
+    }
+
+    let events = diagnostics.input_fence_events_newest_first();
+    assert_eq!(events.len(), RECENT_INPUT_FENCE_EVENT_CAPACITY);
+    assert_eq!(events.first().map(|event| event.input_epoch), Some(44));
+    assert_eq!(events.last().map(|event| event.input_epoch), Some(5));
+    let json = serde_json::to_string(&events).unwrap();
+    for forbidden in ["url", "webviewLabel", "token", "pageContent"] {
+        assert!(!json.contains(forbidden));
+    }
+}
+
+#[test]
 fn effect_acknowledgement_outcomes_have_stable_classifications() {
     for (field, expected_status, expected_code) in [
         ("accepted", "accepted", None),
@@ -90,4 +118,20 @@ fn diagnostic_surface_closing_policy_matches_lifecycle_boundaries() {
     ] {
         assert!(!diagnostic_surface_is_closing(phase));
     }
+}
+
+#[test]
+fn input_fence_diagnostics_classify_core_and_native_orphans() {
+    assert_eq!(
+        diagnostic_input_fence_state(None, false, false, true),
+        ("orphaned-core", true)
+    );
+    assert_eq!(
+        diagnostic_input_fence_state(None, true, false, false),
+        ("orphaned-native", true)
+    );
+    assert_eq!(
+        diagnostic_input_fence_state(None, true, true, true),
+        ("waiting-page-finish", false)
+    );
 }

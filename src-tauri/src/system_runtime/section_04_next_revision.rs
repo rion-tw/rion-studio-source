@@ -394,6 +394,8 @@ struct RuntimeState {
     launch_phases: HashMap<String, LaunchPhase>,
     launch_attempt_generations: HashMap<String, String>,
     navigation_input_fences: HashMap<String, NavigationInputFence>,
+    role_input_fences: HashMap<String, RoleInputFence>,
+    last_completed_document_ids: HashMap<String, String>,
     pending_macro_page_request: Option<Value>,
     close_previews: HashMap<String, CloseTransaction>,
     completed_failed_launch_cleanups: HashSet<(String, String)>,
@@ -421,15 +423,6 @@ struct RuntimeState {
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
-}
-
-#[derive(Clone)]
-struct NavigationInputFence {
-    role_id: String,
-    input_epoch: u64,
-    expected_url: Option<String>,
-    drained: bool,
-    page_finished: bool,
 }
 
 #[derive(Clone)]

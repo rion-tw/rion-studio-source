@@ -6,8 +6,8 @@ export function toMessage(error: unknown, language: Language, t: Translator): st
   }
 
   if (isErrorLike(error)) {
-    const proxyErrorKey = browserProxyErrorKey(error.code);
-    if (proxyErrorKey) return t(proxyErrorKey);
+    const errorKey = localizedErrorKey(error.code);
+    if (errorKey) return t(errorKey);
     return localizeErrorMessage(error.message, language);
   }
 
@@ -41,12 +41,14 @@ function isSurfaceReleaseMessage(message: string): boolean {
   );
 }
 
-function browserProxyErrorKey(code: unknown) {
+function localizedErrorKey(code: unknown) {
   const keys = {
     BROWSER_PROXY_INVALID_CONFIGURATION: "error.browserProxyInvalidConfiguration",
     BROWSER_PROXY_UNAVAILABLE: "error.browserProxyUnavailable",
     BROWSER_PROXY_APPLY_FAILED: "error.browserProxyApplyFailed",
-    BROWSER_PROXY_RESTART_REQUIRED: "error.browserProxyRestartRequired"
+    BROWSER_PROXY_RESTART_REQUIRED: "error.browserProxyRestartRequired",
+    MACRO_ROLE_STOPPING: "error.macroRoleStopping",
+    MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced"
   } as const;
   return typeof code === "string" ? keys[code as keyof typeof keys] : undefined;
 }

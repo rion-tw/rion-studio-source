@@ -116,14 +116,14 @@ impl SystemRuntimeExecutor {
             &paths,
             role_id,
         )?;
-        let builder = builder.on_page_load(move |_webview, payload| {
+        let builder = builder.on_page_load(move |webview, payload| {
             callback_navigation.page_event(payload.event(), payload.url());
             if payload.event() == PageLoadEvent::Finished
                 && let Some(state) = navigation_app.try_state::<crate::CoreState>()
             {
                 state
                     .runtime
-                    .finish_navigation_page(&navigation_label, payload.url());
+                    .finish_navigation_page(&webview, payload.url());
             }
         });
         let bounds = role_bounds_for_content(runtime_window_content_metrics(&window)?, &rect);

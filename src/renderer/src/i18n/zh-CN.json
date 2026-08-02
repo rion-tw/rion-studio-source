@@ -953,6 +953,8 @@
   "error.portableNameConflict": "无法创建唯一的导入名称。",
   "error.portableRoleNameConflict": "同一游戏中有多个角色使用相同名称。请先重命名或移除重复项目，再导入。",
   "error.portableMacroDependencyInvalid": "导入的宏依赖关系无效。", "error.macroAlreadyRunning": "此角色已在执行该宏。",
+  "error.macroRoleStopping": "指定的角色正在停止，暂时无法接收新输入。",
+  "error.macroRoleInputFenced": "指定的角色正在重新加载页面，Rion Studio 正在自动恢复输入。",
   "error.macroNotAssigned": "此宏未分配給该角色。",
   "error.macroRoleNotRunning": "请先启动此角色再执行宏。",
   "error.macroNoRunnableRoles": "请先启动至少一个分配角色再执行宏。",

@@ -290,7 +290,7 @@ impl SystemRuntimeExecutor {
             }
         }
         self.advance_role_input_fence_local(role_id)?;
-        self.discard_role_navigation_input_fences(role_id);
+        self.discard_role_navigation_input_fences(role_id, "role-closed");
         let result = self.destroy_marked_role(role_id, None);
         if let Ok(mut state) = self.state.lock() {
             state.close_coordinator.closing_roles.remove(role_id);
@@ -492,7 +492,7 @@ impl SystemRuntimeExecutor {
         }
         for role_id in &role_ids {
             self.advance_role_input_fence_local(role_id)?;
-            self.discard_role_navigation_input_fences(role_id);
+            self.discard_role_navigation_input_fences(role_id, "workspace-closed");
         }
         let result = (|| -> RuntimeResult<()> {
             // A workspace's game surfaces are independent native controllers. Isolate

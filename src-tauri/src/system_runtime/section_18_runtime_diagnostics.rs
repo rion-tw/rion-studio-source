@@ -1,8 +1,10 @@
 const RECENT_RUNTIME_FAILURE_CAPACITY: usize = 20;
+const RECENT_INPUT_FENCE_EVENT_CAPACITY: usize = 40;
 
 #[derive(Default)]
 struct RuntimeDiagnosticsState {
     recent_failures: VecDeque<SystemRuntimeFailureRecord>,
+    recent_input_fence_events: VecDeque<SystemRuntimeInputFenceEventRecord>,
 }
 
 impl RuntimeDiagnosticsState {
@@ -15,6 +17,21 @@ impl RuntimeDiagnosticsState {
 
     fn failures_newest_first(&self) -> Vec<SystemRuntimeFailureRecord> {
         self.recent_failures.iter().rev().cloned().collect()
+    }
+
+    fn push_input_fence_event(&mut self, event: SystemRuntimeInputFenceEventRecord) {
+        while self.recent_input_fence_events.len() >= RECENT_INPUT_FENCE_EVENT_CAPACITY {
+            self.recent_input_fence_events.pop_front();
+        }
+        self.recent_input_fence_events.push_back(event);
+    }
+
+    fn input_fence_events_newest_first(&self) -> Vec<SystemRuntimeInputFenceEventRecord> {
+        self.recent_input_fence_events
+            .iter()
+            .rev()
+            .cloned()
+            .collect()
     }
 }
 
@@ -66,6 +83,31 @@ fn diagnostic_surface_is_closing(phase: ManagedSurfacePhase) -> bool {
             | ManagedSurfacePhase::Releasing
             | ManagedSurfacePhase::Retired
     )
+}
+
+fn diagnostic_input_fence_state(
+    fence: Option<&RoleInputFence>,
+    native_disabled: bool,
+    core_stopping: bool,
+    core_quiesced: bool,
+) -> (&'static str, bool) {
+    let orphaned_core = core_quiesced && fence.is_none() && !native_disabled;
+    let orphaned_native = (fence.is_some() || native_disabled) && !core_quiesced && !core_stopping;
+    if orphaned_core {
+        ("orphaned-core", true)
+    } else if orphaned_native {
+        ("orphaned-native", true)
+    } else if fence.is_some_and(|fence| fence.recovery_scheduled) {
+        ("recovering", false)
+    } else if fence.is_some_and(|fence| fence.reconciling) {
+        ("reconciling", false)
+    } else if fence.is_some_and(|fence| fence.resuming) {
+        ("resuming", false)
+    } else if fence.is_some_and(|fence| !fence.drained) {
+        ("draining", false)
+    } else {
+        ("waiting-page-finish", false)
+    }
 }
 
 impl SystemRuntimeExecutor {
@@ -182,8 +224,38 @@ impl SystemRuntimeExecutor {
     }
 
 
-    pub fn system_runtime_diagnostics(&self) -> SystemRuntimeDiagnosticsRecord {
+    pub fn system_runtime_diagnostics(
+        &self,
+        core_input: Option<MacroInputDiagnosticsRecord>,
+    ) -> SystemRuntimeDiagnosticsRecord {
         let mut collection_error_codes = Vec::new();
+        if core_input.is_none() {
+            collection_error_codes.push("CORE_INPUT_DIAGNOSTICS_UNAVAILABLE".to_owned());
+        }
+        let core_input_roles = core_input
+            .unwrap_or(MacroInputDiagnosticsRecord { roles: Vec::new() })
+            .roles
+            .into_iter()
+            .map(|role| (role.role_id.clone(), role))
+            .collect::<HashMap<_, _>>();
+        let native_input_lanes = match self.input_dispatch_lanes.lock() {
+            Ok(lanes) => lanes
+                .iter()
+                .map(|(role_id, lane)| {
+                    (
+                        role_id.clone(),
+                        (
+                            lane.epoch.load(Ordering::Acquire),
+                            lane.normal_enabled.load(Ordering::Acquire),
+                        ),
+                    )
+                })
+                .collect::<HashMap<_, _>>(),
+            Err(_) => {
+                collection_error_codes.push("SYSTEM_INPUT_LANE_LOCK_POISONED".to_owned());
+                HashMap::new()
+            }
+        };
         let mut record = SystemRuntimeDiagnosticsRecord {
             platform: current_runtime_platform().to_owned(),
             healthy: self.health.is_healthy(),
@@ -203,6 +275,8 @@ impl SystemRuntimeExecutor {
             quarantined_role_count: None,
             recovering_role_count: None,
             active_input_fence_count: None,
+            active_input_fences: Vec::new(),
+            recent_input_fence_events: Vec::new(),
             retryable_failed_launch_count: None,
             failed_launch_count: None,
             active_native_creation_count: None,
@@ -263,8 +337,84 @@ impl SystemRuntimeExecutor {
                 ));
                 record.recovering_role_count =
                     Some(runtime_diagnostic_count(state.recovering_roles.len()));
-                record.active_input_fence_count =
-                    Some(runtime_diagnostic_count(state.navigation_input_fences.len()));
+                let mut active_role_ids = state
+                    .role_input_fences
+                    .keys()
+                    .cloned()
+                    .collect::<HashSet<_>>();
+                active_role_ids.extend(core_input_roles.iter().filter_map(|(role_id, role)| {
+                    (role.stopping || role.quiesced).then_some(role_id.clone())
+                }));
+                active_role_ids.extend(native_input_lanes.iter().filter_map(
+                    |(role_id, (_, normal_enabled))| (!normal_enabled).then_some(role_id.clone()),
+                ));
+                let mut active_role_ids = active_role_ids.into_iter().collect::<Vec<_>>();
+                active_role_ids.sort();
+                record.active_input_fences = active_role_ids
+                    .into_iter()
+                    .map(|role_id| {
+                        let fence = state.role_input_fences.get(&role_id);
+                        let core_role = core_input_roles.get(&role_id);
+                        let core_stopping = core_role.is_some_and(|role| role.stopping);
+                        let core_quiesced = core_role.is_some_and(|role| role.quiesced);
+                        let native_lane = native_input_lanes.get(&role_id).copied();
+                        let native_disabled = native_lane.is_some_and(|(_, enabled)| !enabled);
+                        let (state_name, inconsistent) = diagnostic_input_fence_state(
+                            fence,
+                            native_disabled,
+                            core_stopping,
+                            core_quiesced,
+                        );
+                        if inconsistent {
+                            collection_error_codes
+                                .push("SYSTEM_INPUT_FENCE_STATE_MISMATCH".to_owned());
+                        }
+                        let input_epoch = fence
+                            .map(|fence| fence.input_epoch)
+                            .or_else(|| core_role.map(|role| role.input_epoch))
+                            .or_else(|| native_lane.map(|lane| lane.0))
+                            .unwrap_or_default();
+                        let pending_page_finish_count = state
+                            .navigation_input_fences
+                            .values()
+                            .filter(|ticket| {
+                                ticket.role_id == role_id
+                                    && ticket.input_epoch == input_epoch
+                                    && !ticket.page_finished
+                            })
+                            .count();
+                        SystemRuntimeInputFenceRecord {
+                            role_id,
+                            input_epoch,
+                            reason: fence
+                                .map(|fence| fence.reason.clone())
+                                .unwrap_or_else(|| "state-mismatch".to_owned()),
+                            state: state_name.to_owned(),
+                            age_ms: fence
+                                .map(|fence| {
+                                    fence
+                                        .started_at
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u64::MAX as u128) as u64
+                                })
+                                .unwrap_or_default(),
+                            core_stopping,
+                            core_quiesced,
+                            native_input_enabled: native_lane.map(|lane| lane.1),
+                            drained: fence.is_some_and(|fence| fence.drained),
+                            pending_page_finish_count: runtime_diagnostic_count(
+                                pending_page_finish_count,
+                            ),
+                            surface_generation: fence.map(|fence| fence.surface_generation),
+                            recovery_scheduled: fence
+                                .is_some_and(|fence| fence.recovery_scheduled),
+                        }
+                    })
+                    .collect();
+                record.active_input_fence_count = Some(runtime_diagnostic_count(
+                    record.active_input_fences.len(),
+                ));
                 record.retryable_failed_launch_count = Some(runtime_diagnostic_count(
                     state.retryable_failed_launches.len(),
                 ));
@@ -281,7 +431,11 @@ impl SystemRuntimeExecutor {
                 .push("SYSTEM_RUNTIME_CREATION_LOCK_POISONED".to_owned()),
         }
         match self.diagnostics.lock() {
-            Ok(diagnostics) => record.recent_failures = diagnostics.failures_newest_first(),
+            Ok(diagnostics) => {
+                record.recent_failures = diagnostics.failures_newest_first();
+                record.recent_input_fence_events =
+                    diagnostics.input_fence_events_newest_first();
+            }
             Err(_) => collection_error_codes
                 .push("SYSTEM_RUNTIME_DIAGNOSTICS_LOCK_POISONED".to_owned()),
         }

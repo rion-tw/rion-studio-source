@@ -248,19 +248,18 @@ impl SystemRuntimeExecutor {
                 let role_label =
                     runtime_label("game-role", &format!("{role_id}:generation-{generation}"));
                 let navigation_app = self.app.clone();
-                let navigation_label = role_label.clone();
                 let paths = role_session_paths(&self.user_data_dir, &role_id)?;
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
                 let (builder, high_refresh_rate_status) =
                     self.role_webview_builder(role_label, &paths, &role_id)?;
-                let builder = builder.on_page_load(move |_webview, payload| {
+                let builder = builder.on_page_load(move |webview, payload| {
                     callback_navigation.page_event(payload.event(), payload.url());
                     if payload.event() == PageLoadEvent::Finished
                         && let Some(state) = navigation_app.try_state::<crate::CoreState>()
                     {
                         state
                             .runtime
-                            .finish_navigation_page(&navigation_label, payload.url());
+                            .finish_navigation_page(&webview, payload.url());
                     }
                 });
                 // The normalized role rectangle is sufficient for the first frame. Exact gap,

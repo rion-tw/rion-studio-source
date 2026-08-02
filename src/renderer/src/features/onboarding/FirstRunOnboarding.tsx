@@ -439,5 +439,3 @@ function StepIndicator({ step, t }: { step: OnboardingStep; t: Translator }): JS
     {labels.map((label, index) => <li key={label} className={cn("flex items-center gap-2 text-xs font-semibold", index <= activeIndex ? "text-foreground" : "text-muted-foreground")}><span className={cn("grid size-6 place-items-center rounded-full border", index < activeIndex ? "border-success/40 bg-success/15 text-success" : index === activeIndex ? "border-activity/45 bg-activity/15 text-activity" : "border-border/55")}>{index < activeIndex ? <Check size={13} /> : index + 1}</span><span className="hidden lg:inline">{label}</span>{index < labels.length - 1 ? <span className="h-px w-5 bg-border/60" /> : null}</li>)}
   </ol>;
 }
-
-export default FirstRunOnboarding;

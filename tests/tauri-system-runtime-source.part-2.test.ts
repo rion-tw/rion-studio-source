@@ -71,7 +71,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).not.toContain('runtime_label("game-tab", &tab.tab_id)');
     const windowsTabStrip = runtime.slice(
       runtime.indexOf("fn sync_windows_tab_metadata("),
-      runtime.indexOf("fn windows_tab_strip_height(")
+      runtime.indexOf("fn close_surface_and_wait(")
     );
     expect(windowsTabStrip).toContain("__rionUpdateRuntimeTabMetadataBatch");
     expect(windowsTabStrip).not.toContain("__rionApplyRuntimeTabState");
@@ -82,8 +82,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       runtime.indexOf("fn sync_windows_tab_metadata(")
     );
     expect(nativeMacTabs).not.toContain("resolved_theme");
-    expect(nativeMacTabs).toContain("controller.update_metadata(");
-    expect(nativeMacTabs).not.toContain("controller.update(");
+    expect(nativeMacTabs).toContain(".update_metadata(");
+    expect(nativeMacTabs).not.toContain(".update(");
     expect(applyRuntime).toContain("surface.reparent(&window)");
     expect(applyRuntime).toContain("synchronize_windows_reparented_surfaces(");
     expect(applyRuntime).toContain('"tab.reparent-synchronized"');
@@ -109,12 +109,17 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime).not.toContain("surface.show()");
     expect(applyRuntime).toContain("surface.hide()");
     expect(applyRuntime).toContain("runtime_host_should_receive_window_focus(");
-    expect(applyRuntime).toContain("update.window.unminimize()");
-    expect(applyRuntime).toContain("update.window.set_focus()");
+    expect(applyRuntime).toContain("self.request_window_contract_presentation(");
+    expect(applyRuntime).toContain("NativeWindowMode::from_presentation(");
+    expect(applyRuntime).not.toContain("update.window.unminimize()");
+    expect(applyRuntime).not.toContain("update.window.set_focus()");
     expect(runtime).toContain("self.record_runtime_stage_failure(");
     expect(runtime).toContain("&setup_stage,");
     expect(runtime).toContain("record_presentation_event_with_error(");
     expect(runtime).toContain("completion.error.as_ref()");
+    expect(runtime).toContain('"windowsTabChromeAcknowledged"');
+    expect(runtime).toContain('"WINDOWS_TAB_CHROME_ACK_TIMEOUT"');
+    expect(runtime).toContain('"WINDOWS_TAB_CHROME_ACK_WORKER_FAILED"');
     expect(runtime).toContain("WINDOWS_REPARENT_SYNC_TIMEOUT");
     expect(runtime).toContain("controller.ParentWindow(&mut controller_parent)");
     expect(runtime).toContain("GetAncestor(controller_parent, GA_ROOT)");
@@ -194,9 +199,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     );
     const compatibilityWait = roleLoading.slice(roleLoading.indexOf("fn load_roles("));
     expect(compatibilityWait.indexOf("finish_controlled_navigations")).toBeGreaterThan(
-      compatibilityWait.indexOf(".wait()")
+      compatibilityWait.indexOf("wait_operation(operation)")
     );
-    expect(runtime).toContain("navigation.wait_async().await");
+    expect(runtime).toContain(".wait_operation_async(operation)");
 
     const reloadTab = runtime.slice(
       runtime.indexOf("pub fn reload_tab("),

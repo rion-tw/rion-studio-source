@@ -1,6 +1,11 @@
 impl SystemRuntimeExecutor {
     #[cfg(target_os = "macos")]
     fn sync_native_tab_metadata(&self, snapshot: &BrowserRuntimeSnapshot) {
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Metadata,
+            "syncNativeTabMetadata",
+            PLATFORM_CALLBACK_TIMEOUT,
+        );
         let preferences = crate::runtime_tabs_macos::runtime_window_preferences(&self.core);
         let language = self
             .language
@@ -101,18 +106,40 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let mut failure_count = 0_usize;
         for (controller, presentation_hides_close, tab) in updates {
-            let _ = controller.update_metadata(
+            if controller
+                .update_metadata(
                 tab,
                 preferences.always_show_toolbar_in_full_screen,
                 preferences.always_hide_tab_close_button || presentation_hides_close,
                 &language,
-            );
+            )
+                .is_err()
+            {
+                failure_count = failure_count.saturating_add(1);
+            }
         }
+        let receipt = if failure_count == 0 {
+            NativeOperationReceipt::applied(operation, "tabMetadataSynchronized")
+        } else {
+            NativeOperationReceipt::with_status(
+                operation,
+                "tabMetadataPartiallySynchronized",
+                NativeOperationStatus::Degraded,
+                Some("NATIVE_TAB_METADATA_PARTIAL"),
+            )
+        };
+        self.record_native_operation_receipt(receipt);
     }
 
     #[cfg(windows)]
     fn sync_windows_tab_metadata(&self, snapshot: &BrowserRuntimeSnapshot) {
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Metadata,
+            "syncNativeTabMetadata",
+            PLATFORM_CALLBACK_TIMEOUT,
+        );
         let language = self
             .language
             .lock()
@@ -229,30 +256,32 @@ impl SystemRuntimeExecutor {
                 batches
             },
         );
+        let mut failure_count = 0_usize;
         for (_, (webview, metadata)) in batches {
             let Ok(metadata) = serde_json::to_string(&metadata) else {
+                failure_count = failure_count.saturating_add(1);
                 continue;
             };
-            let _ = webview.eval(format!(
-                "window.__rionUpdateRuntimeTabMetadataBatch?.({metadata});"
-            ));
+            if webview
+                .eval(format!(
+                    "window.__rionUpdateRuntimeTabMetadataBatch?.({metadata});"
+                ))
+                .is_err()
+            {
+                failure_count = failure_count.saturating_add(1);
+            }
         }
-    }
-
-    #[cfg(windows)]
-    fn windows_tab_strip_height(&self, window: &Window, toolbar_revealed: bool) -> f64 {
-        let fullscreen = window.is_fullscreen().unwrap_or(false);
-        let always_show = self
-            .core
-            .invoke(CoreCommand::RuntimeWindowPreferencesGet)
-            .ok()
-            .and_then(|value| value["alwaysShowToolbarInFullScreen"].as_bool())
-            .unwrap_or(false);
-        if fullscreen && !always_show && !toolbar_revealed {
-            2.0
+        let receipt = if failure_count == 0 {
+            NativeOperationReceipt::applied(operation, "tabMetadataSynchronized")
         } else {
-            WINDOWS_TAB_STRIP_HEIGHT
-        }
+            NativeOperationReceipt::with_status(
+                operation,
+                "tabMetadataPartiallySynchronized",
+                NativeOperationStatus::Degraded,
+                Some("NATIVE_TAB_METADATA_PARTIAL"),
+            )
+        };
+        self.record_native_operation_receipt(receipt);
     }
 
     fn close_surface_and_wait(
@@ -483,99 +512,133 @@ impl SystemRuntimeExecutor {
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
         let surface = self.managed_surface(instance_id)?;
-        match surface.phase {
-            ManagedSurfacePhase::Isolated
-            | ManagedSurfacePhase::Releasing
-            | ManagedSurfacePhase::Released => return Ok(()),
-            ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => {
-                return self.wait_for_managed_surface_isolation(instance_id, &surface);
-            }
-            ManagedSurfacePhase::Live
-            | ManagedSurfacePhase::Provisional
-            | ManagedSurfacePhase::Quarantined
-            | ManagedSurfacePhase::Retired => {}
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::SurfaceLifecycle,
+            "closeManagedSurface",
+            SURFACE_RECLAMATION_TIMEOUT,
+        )
+        .with_surface_generation(surface.generation)
+        .with_window(&surface.window_id);
+        if let Some(role_id) = surface.role_id.as_ref() {
+            operation = operation.with_role(role_id);
         }
-        let native_lifecycle_guard = surface.native_lifecycle_lane.lock().map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
-                "The native surface lifecycle lane is unavailable.",
-            )
-        })?;
-        let (surface, owns_close) = {
-            let mut state = self.state()?;
-            let surface = state.surface_registry.get_mut(instance_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "SYSTEM_SURFACE_REGISTRY_MISSING",
-                    "The native surface registry entry is missing.",
-                )
-            })?;
-            let owns_close = match surface.phase {
+        if let Some(tab_id) = surface.tab_id.as_ref() {
+            operation = operation.with_tab(tab_id);
+        }
+        let result = (|| {
+            match surface.phase {
                 ManagedSurfacePhase::Isolated
                 | ManagedSurfacePhase::Releasing
                 | ManagedSurfacePhase::Released => return Ok(()),
-                ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => false,
+                ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => {
+                    return self.wait_for_managed_surface_isolation(instance_id, &surface);
+                }
                 ManagedSurfacePhase::Live
                 | ManagedSurfacePhase::Provisional
                 | ManagedSurfacePhase::Quarantined
-                | ManagedSurfacePhase::Retired => {
-                    surface.phase = ManagedSurfacePhase::CloseRequested;
-                    surface.close_started_at = Some(Instant::now());
-                    true
-                }
+                | ManagedSurfacePhase::Retired => {}
+            }
+            let native_lifecycle_guard = surface.native_lifecycle_lane.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
+                    "The native surface lifecycle lane is unavailable.",
+                )
+            })?;
+            let (surface, owns_close) = {
+                let mut state = self.state()?;
+                let surface = state.surface_registry.get_mut(instance_id).ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_REGISTRY_MISSING",
+                        "The native surface registry entry is missing.",
+                    )
+                })?;
+                let owns_close = match surface.phase {
+                    ManagedSurfacePhase::Isolated
+                    | ManagedSurfacePhase::Releasing
+                    | ManagedSurfacePhase::Released => return Ok(()),
+                    ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => false,
+                    ManagedSurfacePhase::Live
+                    | ManagedSurfacePhase::Provisional
+                    | ManagedSurfacePhase::Quarantined
+                    | ManagedSurfacePhase::Retired => {
+                        surface.phase = ManagedSurfacePhase::CloseRequested;
+                        surface.close_started_at = Some(Instant::now());
+                        true
+                    }
+                };
+                (surface.clone(), owns_close)
             };
-            (surface.clone(), owns_close)
+            if !owns_close {
+                drop(native_lifecycle_guard);
+                return self.wait_for_managed_surface_isolation(instance_id, &surface);
+            }
+            self.record_surface_event(
+                LogLevel::Debug,
+                "surface.phase",
+                "Native surface phase changed.",
+                &surface,
+            );
+            self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolating)?;
+            self.record_surface_event(
+                LogLevel::Info,
+                "surface.close-requested",
+                "Native surface close requested.",
+                &surface,
+            );
+            let close_result =
+                self.close_surface_and_wait(&surface.webview, &surface.lifecycle, lifecycle_id);
+            match close_result {
+                Ok(outcome) => {
+                    self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
+                    if outcome.released {
+                        self.remove_managed_surface(instance_id)?;
+                    } else {
+                        let retired = self.retire_managed_surface(instance_id)?;
+                        self.schedule_surface_reclamation(retired, true);
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    if let Ok(mut state) = self.state.lock() {
+                        if let Some(current) = state.surface_registry.get_mut(instance_id) {
+                            current.phase = ManagedSurfacePhase::Quarantined;
+                        }
+                        if let Some(role_id) = surface.role_id.as_ref() {
+                            state
+                                .close_coordinator
+                                .quarantined_roles
+                                .insert(role_id.clone());
+                        }
+                    }
+                    self.record_surface_event(
+                        LogLevel::Error,
+                        "surface.close-unverified",
+                        "Native surface close could not be verified.",
+                        &surface,
+                    );
+                    Err(RuntimeError::new(error.code, error.message))
+                }
+            }
+        })();
+        let receipt = match result.as_ref() {
+            Ok(()) => NativeOperationReceipt::applied(operation, "surfaceIsolated"),
+            Err(error) if error.code == "SYSTEM_SURFACE_RELEASE_UNVERIFIED" => {
+                NativeOperationReceipt::with_status(
+                    operation,
+                    "surfaceIsolationUnverified",
+                    NativeOperationStatus::Indeterminate,
+                    Some(error.code),
+                )
+            }
+            Err(error) => NativeOperationReceipt::with_status(
+                operation,
+                "surfaceIsolationFailed",
+                NativeOperationStatus::Failed,
+                Some(error.code),
+            ),
         };
-        if !owns_close {
-            drop(native_lifecycle_guard);
-            return self.wait_for_managed_surface_isolation(instance_id, &surface);
-        }
-        self.record_surface_event(
-            LogLevel::Debug,
-            "surface.phase",
-            "Native surface phase changed.",
-            &surface,
-        );
-        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolating)?;
-        self.record_surface_event(
-            LogLevel::Info,
-            "surface.close-requested",
-            "Native surface close requested.",
-            &surface,
-        );
-        let result =
-            self.close_surface_and_wait(&surface.webview, &surface.lifecycle, lifecycle_id);
-        match result {
-            Ok(outcome) => {
-                self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
-                if outcome.released {
-                    self.remove_managed_surface(instance_id)?;
-                } else {
-                    let retired = self.retire_managed_surface(instance_id)?;
-                    self.schedule_surface_reclamation(retired, true);
-                }
-                Ok(())
-            }
-            Err(error) => {
-                if let Ok(mut state) = self.state.lock() {
-                    if let Some(current) = state.surface_registry.get_mut(instance_id) {
-                        current.phase = ManagedSurfacePhase::Quarantined;
-                    }
-                    if let Some(role_id) = surface.role_id.as_ref() {
-                        state
-                            .close_coordinator
-                            .quarantined_roles
-                            .insert(role_id.clone());
-                    }
-                }
-                self.record_surface_event(
-                    LogLevel::Error,
-                    "surface.close-unverified",
-                    "Native surface close could not be verified.",
-                    &surface,
-                );
-                Err(RuntimeError::new(error.code, error.message))
-            }
-        }
+        self.record_native_operation_receipt(receipt);
+        result
     }
 
     fn wait_for_managed_surface_isolation(

@@ -45,12 +45,30 @@ impl SystemRuntimeExecutor {
                     })
             })
             .on_new_window(move |url, features| {
-                let Some(role_id) = popup_role_id.as_ref() else {
-                    return NewWindowResponse::Deny;
-                };
-                if !matches!(url.scheme(), "about" | "http" | "https") {
+                let decision = popup_contract_decision(popup_role_id.is_some(), url.scheme());
+                if decision != PopupContractDecision::Create {
+                    if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                        let stage = match decision {
+                            PopupContractDecision::DenyMissingOwner => {
+                                "popupDeniedMissingOwner"
+                            }
+                            PopupContractDecision::DenyUnsupportedScheme => {
+                                "popupDeniedUnsupportedScheme"
+                            }
+                            PopupContractDecision::Create => unreachable!(),
+                        };
+                        state.runtime.record_popup_contract_outcome(
+                            popup_role_id.as_deref(),
+                            stage,
+                            NativeOperationStatus::Applied,
+                            None,
+                        );
+                    }
                     return NewWindowResponse::Deny;
                 }
+                let role_id = popup_role_id
+                    .as_ref()
+                    .expect("popup contract requires a role owner");
                 let sequence = POPUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let label = runtime_label("game-role-popup", &format!("{role_id}:{sequence}"));
                 let overlay_document_start_script =
@@ -150,6 +168,12 @@ impl SystemRuntimeExecutor {
                             let _ = window.close();
                             if let Some(state) = popup_app.try_state::<crate::CoreState>() {
                                 state.runtime.revoke_overlay_capability(&label);
+                                state.runtime.record_popup_contract_outcome(
+                                    Some(role_id),
+                                    "popupSecurityFailed",
+                                    NativeOperationStatus::Failed,
+                                    Some(error.code),
+                                );
                             }
                             let _ = popup_app.emit(
                                 "rion://shell-error",
@@ -276,6 +300,12 @@ impl SystemRuntimeExecutor {
                     Err(error) => {
                         if let Some(state) = popup_app.try_state::<crate::CoreState>() {
                             state.runtime.revoke_overlay_capability(&label);
+                            state.runtime.record_popup_contract_outcome(
+                                Some(role_id),
+                                "popupCreationFailed",
+                                NativeOperationStatus::Failed,
+                                Some("SYSTEM_POPUP_CREATE_FAILED"),
+                            );
                         }
                         let _ = popup_app.emit(
                             "rion://shell-error",

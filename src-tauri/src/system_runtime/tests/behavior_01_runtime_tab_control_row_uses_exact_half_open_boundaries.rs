@@ -660,14 +660,15 @@ use super::*;
     fn native_window_actor_bounds_and_coalesces_pending_presentation_work() {
         let mut queue = LatestOnlyPresentationQueue::default();
         for revision in 1..=20 {
-            queue.replace(revision);
+            let replaced = queue.replace(revision);
+            assert_eq!(replaced, (revision > 1).then_some(revision - 1));
         }
         assert_eq!(queue.begin_latest(), Some(20));
         assert!(queue.in_flight);
         assert!(queue.pending.is_none());
 
         for revision in 21..=40 {
-            queue.replace(revision);
+            let _ = queue.replace(revision);
         }
         assert_eq!(queue.begin_latest(), None);
         assert_eq!(queue.pending, Some(40));

@@ -1,5 +1,5 @@
 impl SystemRuntimeExecutor {
-    fn apply_runtime(
+    fn apply_runtime_inner(
         &self,
         snapshot: BrowserRuntimeSnapshot,
         target: Option<EmbeddedLaunchTargetRecord>,
@@ -22,12 +22,14 @@ impl SystemRuntimeExecutor {
             target_window_id: String,
         }
         struct HostUpdate {
+            active_tab_id: Option<String>,
             focus_window: bool,
             presentation: String,
             reveal: bool,
             retain_visibility: bool,
             title: Option<String>,
             window: Window,
+            window_id: String,
         }
 
         let ensured_target_host = if let Some(target) = target.as_ref() {
@@ -672,6 +674,7 @@ impl SystemRuntimeExecutor {
                 next_surfaces.first().cloned(),
                 None,
                 focus,
+                None,
             );
         }
 
@@ -709,6 +712,7 @@ impl SystemRuntimeExecutor {
                         game_window_names.get(window_id).map(String::as_str),
                     ));
                     HostUpdate {
+                        active_tab_id: active_tab.map(str::to_owned),
                         focus_window: runtime_host_should_receive_window_focus(
                             focus_window_ids.contains(window_id),
                             active_tab.is_some(),
@@ -719,6 +723,7 @@ impl SystemRuntimeExecutor {
                             .is_some_and(|presentation| presentation.host_visibility),
                         title,
                         window: host.window.clone(),
+                        window_id: window_id.clone(),
                     }
                 })
                 .collect::<Vec<_>>()
@@ -733,29 +738,18 @@ impl SystemRuntimeExecutor {
                 update.retain_visibility,
                 currently_visible,
             );
-            if visible && !currently_visible {
-                update.window.show().map_err(RuntimeError::tauri)?;
-            } else if !visible && currently_visible {
-                update.window.hide().map_err(RuntimeError::tauri)?;
-            }
-            if update.focus_window && update.window.is_minimized().unwrap_or(false) {
-                update.window.unminimize().map_err(RuntimeError::tauri)?;
-            }
-            match update.presentation.as_str() {
-                "fullscreen" if !update.window.is_fullscreen().unwrap_or(false) => {
-                    update
-                        .window
-                        .set_fullscreen(true)
-                        .map_err(RuntimeError::tauri)?;
-                }
-                "maximized" if !update.window.is_maximized().unwrap_or(false) => {
-                    update.window.maximize().map_err(RuntimeError::tauri)?;
-                }
-                _ => {}
-            }
-            if update.focus_window {
-                update.window.set_focus().map_err(RuntimeError::tauri)?;
-            }
+            self.request_window_contract_presentation(
+                &update.window_id,
+                update.active_tab_id.as_deref(),
+                Some(visible),
+                if update.focus_window {
+                    NativePresentationFocus::WindowAndContent
+                } else {
+                    NativePresentationFocus::None
+                },
+                NativeWindowMode::from_presentation(&update.presentation),
+                "apply-runtime-host",
+            )?;
         }
         let obsolete_hosts = {
             let mut state = self.state()?;

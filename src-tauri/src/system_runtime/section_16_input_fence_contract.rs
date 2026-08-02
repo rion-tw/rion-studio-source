@@ -1,0 +1,144 @@
+fn update_navigation_input_fences(
+    tickets: &mut HashMap<String, NavigationInputFence>,
+    webview_label: &str,
+    role_id: &str,
+    input_epoch: u64,
+    surface_generation: u64,
+    baseline_document_id: Option<String>,
+) {
+    for ticket in tickets
+        .values_mut()
+        .filter(|ticket| ticket.role_id == role_id)
+    {
+        ticket.input_epoch = input_epoch;
+    }
+    tickets.insert(
+        webview_label.to_owned(),
+        NavigationInputFence {
+            role_id: role_id.to_owned(),
+            input_epoch,
+            surface_generation,
+            baseline_document_id,
+            page_finished: false,
+        },
+    );
+}
+
+fn claim_input_fence_recovery(
+    fences: &mut HashMap<String, RoleInputFence>,
+    role_id: &str,
+    input_epoch: u64,
+) -> Option<u64> {
+    let fence = fences.get_mut(role_id)?;
+    if fence.input_epoch != input_epoch || fence.recovery_scheduled {
+        return None;
+    }
+    fence.recovery_scheduled = true;
+    fence.reconciling = false;
+    fence.resuming = false;
+    Some(fence.surface_generation)
+}
+
+fn mark_navigation_page_finished(
+    tickets: &mut HashMap<String, NavigationInputFence>,
+    webview_label: &str,
+    scheme: &str,
+) -> Option<(String, u64)> {
+    if !matches!(scheme, "http" | "https") {
+        return None;
+    }
+    let ticket = tickets.get_mut(webview_label)?;
+    ticket.page_finished = true;
+    Some((ticket.role_id.clone(), ticket.input_epoch))
+}
+
+fn navigation_input_is_ready(
+    fences: &HashMap<String, RoleInputFence>,
+    tickets: &HashMap<String, NavigationInputFence>,
+    role_id: &str,
+    input_epoch: u64,
+) -> bool {
+    let Some(fence) = fences.get(role_id).filter(|fence| {
+        fence.input_epoch == input_epoch && fence.drained && !fence.recovery_scheduled
+    }) else {
+        return false;
+    };
+    tickets
+        .values()
+        .filter(|ticket| ticket.role_id == role_id)
+        .all(|ticket| {
+            ticket.input_epoch == fence.input_epoch
+                && ticket.surface_generation == fence.surface_generation
+                && ticket.page_finished
+        })
+}
+
+fn claim_navigation_input_resume(
+    fences: &mut HashMap<String, RoleInputFence>,
+    tickets: &HashMap<String, NavigationInputFence>,
+    role_id: &str,
+    input_epoch: u64,
+) -> bool {
+    if !navigation_input_is_ready(fences, tickets, role_id, input_epoch) {
+        return false;
+    }
+    let Some(fence) = fences.get_mut(role_id) else {
+        return false;
+    };
+    if fence.resuming {
+        return false;
+    }
+    fence.resuming = true;
+    true
+}
+
+fn read_document_instance(webview: &Webview) -> RuntimeResult<DocumentInstanceReadback> {
+    let raw = evaluate_system_webview(
+        webview,
+        r#"JSON.stringify({
+  documentId: typeof globalThis.__rionStudioDocumentInstanceId === "string"
+    ? globalThis.__rionStudioDocumentInstanceId
+    : null,
+  readyState: document.readyState,
+  protocol: location.protocol
+})"#,
+    )?;
+    let value = serde_json::from_str::<Value>(&raw).map_err(|error| {
+        RuntimeError::new(
+            "SYSTEM_INPUT_FENCE_READBACK_INVALID",
+            format!("System WebView returned invalid input-fence readback JSON: {error}"),
+        )
+    })?;
+    let value = if let Some(nested) = value.as_str() {
+        serde_json::from_str::<Value>(nested).map_err(|error| {
+            RuntimeError::new(
+                "SYSTEM_INPUT_FENCE_READBACK_INVALID",
+                format!("System WebView returned invalid nested input-fence readback JSON: {error}"),
+            )
+        })?
+    } else {
+        value
+    };
+    serde_json::from_value(value).map_err(|error| {
+        RuntimeError::new(
+            "SYSTEM_INPUT_FENCE_READBACK_INVALID",
+            format!("System WebView returned an invalid input-fence readback: {error}"),
+        )
+    })
+}
+
+fn document_instance_proves_completed_navigation(
+    readback: &DocumentInstanceReadback,
+    baseline_document_id: Option<&str>,
+) -> bool {
+    let Some(document_id) = readback
+        .document_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    baseline_document_id.is_some_and(|baseline| baseline != document_id)
+        && readback.ready_state == "complete"
+        && matches!(readback.protocol.as_str(), "http:" | "https:")
+}

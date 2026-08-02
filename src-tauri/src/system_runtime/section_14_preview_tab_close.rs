@@ -122,6 +122,7 @@ impl SystemRuntimeExecutor {
             active_webview,
             next_tab_id.is_none().then_some(false),
             NativePresentationFocus::ContentOnly,
+            None,
         );
         self.request_preview_surface_isolation(isolation_surfaces);
         Ok(RuntimeTabCloseIntent {

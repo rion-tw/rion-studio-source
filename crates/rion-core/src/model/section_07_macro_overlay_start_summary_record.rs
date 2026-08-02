@@ -76,6 +76,7 @@ mod command_tests {
                 "displays": [],
                 "gpuFeatureStatusRawJson": "{}",
                 "nativeRuntime": {
+                    "contractVersion": 2,
                     "platform": "macos",
                     "healthy": true,
                     "snapshotComplete": true,

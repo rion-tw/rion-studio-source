@@ -400,6 +400,53 @@ impl SystemRuntimeExecutor {
         webview_label: &str,
         action: &str,
     ) -> Result<u32, String> {
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Zoom,
+            "zoomRole",
+            PLATFORM_CALLBACK_TIMEOUT,
+        );
+        if let Ok(role_id) = self.role_id_for_webview(webview_label) {
+            operation = operation.with_role(&role_id);
+            operation.surface_generation = self.surface_generation_for_role(&role_id);
+            if let Ok(state) = self.state()
+                && let Some(tab_id) = state.role_tabs.get(&role_id)
+                && let Some(tab) = state.tabs.get(tab_id)
+            {
+                operation.tab_id = Some(tab_id.clone());
+                operation.window_id = Some(tab.window_id.clone());
+            }
+        }
+        let result = self.apply_role_zoom_for_webview(webview_label, action);
+        let receipt = match result.as_ref() {
+            Ok(_) => NativeOperationReceipt::applied(operation, "roleZoomApplied"),
+            Err(message)
+                if message
+                    .to_ascii_lowercase()
+                    .contains("compensation also failed") =>
+            {
+                NativeOperationReceipt::with_status(
+                    operation,
+                    "roleZoomRollbackFailed",
+                    NativeOperationStatus::Indeterminate,
+                    Some("SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED"),
+                )
+            }
+            Err(_) => NativeOperationReceipt::with_status(
+                operation,
+                "roleZoomFailed",
+                NativeOperationStatus::Failed,
+                Some("TAURI_RUNTIME_ZOOM_FAILED"),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result
+    }
+
+    fn apply_role_zoom_for_webview(
+        self: &Arc<Self>,
+        webview_label: &str,
+        action: &str,
+    ) -> Result<u32, String> {
         if !matches!(action, "in" | "out" | "reset") {
             return Err("Role zoom action is invalid.".to_owned());
         }

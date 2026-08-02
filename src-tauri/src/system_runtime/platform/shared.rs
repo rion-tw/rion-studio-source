@@ -523,4 +523,5 @@ pub(crate) struct RuntimeError {
     pub(crate) code: &'static str,
     diagnostic: Option<RuntimeErrorDiagnostic>,
     pub(crate) message: String,
+    rollback_error_count: Option<u32>,
 }

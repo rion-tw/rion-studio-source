@@ -147,6 +147,7 @@ impl SystemRuntimeExecutor {
             None,
             Some(true),
             NativePresentationFocus::WindowAndContent,
+            None,
         );
         self.record_presentation_event(
             LogLevel::Debug,

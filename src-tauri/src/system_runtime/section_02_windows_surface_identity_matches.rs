@@ -196,6 +196,7 @@ fn reversible_fanout_runtime_error(
                 failure.rollback_errors.join("; ")
             ),
         )
+        .with_rollback_error_count(failure.rollback_errors.len())
     }
 }
 
@@ -533,39 +534,15 @@ fn close_preflight_plan(
     })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativePresentationFocus {
-    None,
-    ContentOnly,
-    WindowAndContent,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativePresentationStatus {
-    Applied,
-    Superseded,
-    Degraded,
-    Failed,
-}
-
-impl NativePresentationStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Applied => "applied",
-            Self::Superseded => "superseded",
-            Self::Degraded => "degraded",
-            Self::Failed => "failed",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativePresentationPlan {
     focus: NativePresentationFocus,
+    operation: NativeOperationContext,
     revision: u64,
     surface_identities: HashSet<(String, u64)>,
     tab_id: Option<String>,
     window_id: String,
+    window_mode: Option<NativeWindowMode>,
     window_visibility: Option<bool>,
 }
 
@@ -573,6 +550,7 @@ struct NativePresentationPlan {
 struct NativePresentationReceipt {
     applied_revision: Option<u64>,
     focused: Option<bool>,
+    operation: NativeOperationReceipt,
     status: NativePresentationStatus,
     surface_identities: HashSet<(String, u64)>,
     visible: Option<bool>,
@@ -586,18 +564,36 @@ impl NativePresentationReceipt {
             .zip(outcome.window_visible_after)
             .is_some_and(|(expected, actual)| expected != actual)
             || (plan.focus.focuses_window() && outcome.window_focused_after == Some(false));
+        let deadline_exceeded = plan.operation.remaining().is_zero();
         let status = if !outcome.visibility_errors.is_empty() {
             NativePresentationStatus::Failed
         } else if !outcome.applied {
             NativePresentationStatus::Superseded
-        } else if native_truth_mismatch {
+        } else if native_truth_mismatch || deadline_exceeded {
             NativePresentationStatus::Degraded
         } else {
             NativePresentationStatus::Applied
         };
+        let operation_stage = if plan.window_mode.is_some() {
+            "nativePresentationModeSubmitted"
+        } else {
+            "nativePresentation"
+        };
         Self {
             applied_revision: outcome.applied.then_some(plan.revision),
             focused: outcome.window_focused_after,
+            operation: NativeOperationReceipt::with_status(
+                plan.operation.clone(),
+                operation_stage,
+                status,
+                if !outcome.visibility_errors.is_empty() {
+                    Some("NATIVE_PRESENTATION_FAILED")
+                } else if deadline_exceeded {
+                    Some("NATIVE_PRESENTATION_DEADLINE_EXCEEDED")
+                } else {
+                    None
+                },
+            ),
             status,
             surface_identities: plan.surface_identities.clone(),
             visible: outcome.window_visible_after,
@@ -642,24 +638,6 @@ impl NativePresentationAdapter for TauriNativePresentationAdapter {
     }
 }
 
-impl NativePresentationFocus {
-    fn focuses_content(self) -> bool {
-        matches!(self, Self::ContentOnly | Self::WindowAndContent)
-    }
-
-    fn focuses_window(self) -> bool {
-        matches!(self, Self::WindowAndContent)
-    }
-
-    fn diagnostic_name(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::ContentOnly => "content-only",
-            Self::WindowAndContent => "window-and-content",
-        }
-    }
-}
-
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
     coordinator: Arc<Mutex<WindowPresentationState>>,
@@ -677,6 +655,7 @@ struct NativePresentationRequest {
     trigger: &'static str,
     window: Window,
     window_id: String,
+    window_mode: Option<NativeWindowMode>,
     window_visibility: Option<bool>,
 }
 
@@ -684,10 +663,26 @@ impl NativePresentationRequest {
     fn plan(&self) -> NativePresentationPlan {
         NativePresentationPlan {
             focus: self.focus,
+            operation: {
+                let mut context = NativeOperationContext::new_at_for_platform(
+                    NativeOperationSubsystem::Presentation,
+                    self.trigger,
+                    PLATFORM_CALLBACK_TIMEOUT,
+                    current_runtime_platform(),
+                    self.requested_at,
+                )
+                .with_revision(self.revision)
+                .with_window(self.window_id.clone());
+                if let Some(tab_id) = self.tab_id.as_ref() {
+                    context = context.with_tab(tab_id.clone());
+                }
+                context
+            },
             revision: self.revision,
             surface_identities: self.next_surface_identities.clone(),
             tab_id: self.tab_id.clone(),
             window_id: self.window_id.clone(),
+            window_mode: self.window_mode,
             window_visibility: self.window_visibility,
         }
     }
@@ -744,8 +739,8 @@ impl<T> Default for LatestOnlyPresentationQueue<T> {
 }
 
 impl<T> LatestOnlyPresentationQueue<T> {
-    fn replace(&mut self, value: T) {
-        self.pending = Some(value);
+    fn replace(&mut self, value: T) -> Option<T> {
+        self.pending.replace(value)
     }
 
     fn begin_latest(&mut self) -> Option<T> {
@@ -770,11 +765,21 @@ struct NativeWindowActorState {
     applied_tab_id: Option<String>,
     applied_window_visibility: Option<bool>,
     last_receipt: Option<NativePresentationReceipt>,
+    recent_operation_receipts: VecDeque<NativeOperationReceipt>,
     burst_first_requested_at: Option<Instant>,
     burst_first_revision: u64,
     burst_request_count: u32,
     requests: LatestOnlyPresentationQueue<NativePresentationRequest>,
     stopped: bool,
+}
+
+impl NativeWindowActorState {
+    fn push_operation_receipt(&mut self, receipt: NativeOperationReceipt) {
+        while self.recent_operation_receipts.len() >= RECENT_NATIVE_OPERATION_CAPACITY {
+            self.recent_operation_receipts.pop_front();
+        }
+        self.recent_operation_receipts.push_back(receipt);
+    }
 }
 
 struct NativeWindowActor {

@@ -1,6 +1,7 @@
 fn test_role_input_fence(input_epoch: u64, surface_generation: u64) -> RoleInputFence {
     RoleInputFence {
         input_epoch,
+        navigation_operation: None,
         reason: "navigation".to_owned(),
         started_at: Instant::now(),
         drained: false,

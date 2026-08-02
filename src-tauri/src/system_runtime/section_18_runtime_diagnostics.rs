@@ -5,6 +5,7 @@ const RECENT_INPUT_FENCE_EVENT_CAPACITY: usize = 40;
 struct RuntimeDiagnosticsState {
     recent_failures: VecDeque<SystemRuntimeFailureRecord>,
     recent_input_fence_events: VecDeque<SystemRuntimeInputFenceEventRecord>,
+    recent_operations: VecDeque<SystemRuntimeOperationSummaryRecord>,
 }
 
 impl RuntimeDiagnosticsState {
@@ -32,6 +33,27 @@ impl RuntimeDiagnosticsState {
             .rev()
             .cloned()
             .collect()
+    }
+
+    fn push_operation(&mut self, operation: SystemRuntimeOperationSummaryRecord) {
+        if operation.subsystem == "metadata"
+            && operation.status == "applied"
+            && self.recent_operations.back().is_some_and(|previous| {
+                previous.subsystem == operation.subsystem
+                    && previous.status == operation.status
+                    && previous.stage == operation.stage
+            })
+        {
+            self.recent_operations.pop_back();
+        }
+        while self.recent_operations.len() >= RECENT_NATIVE_OPERATION_CAPACITY {
+            self.recent_operations.pop_front();
+        }
+        self.recent_operations.push_back(operation);
+    }
+
+    fn operations_newest_first(&self) -> Vec<SystemRuntimeOperationSummaryRecord> {
+        self.recent_operations.iter().rev().cloned().collect()
     }
 }
 
@@ -111,6 +133,13 @@ fn diagnostic_input_fence_state(
 }
 
 impl SystemRuntimeExecutor {
+    fn record_native_operation_receipt(&self, receipt: NativeOperationReceipt) {
+        let summary = receipt.summary();
+        if let Ok(mut diagnostics) = self.diagnostics.lock() {
+            diagnostics.push_operation(summary);
+        }
+    }
+
     fn remember_runtime_failure(&self, failure: SystemRuntimeFailureRecord) {
         if let Ok(mut diagnostics) = self.diagnostics.lock() {
             diagnostics.push_failure(failure);
@@ -257,6 +286,7 @@ impl SystemRuntimeExecutor {
             }
         };
         let mut record = SystemRuntimeDiagnosticsRecord {
+            contract_version: SYSTEM_RUNTIME_CONTRACT_VERSION,
             platform: current_runtime_platform().to_owned(),
             healthy: self.health.is_healthy(),
             snapshot_complete: true,
@@ -282,6 +312,10 @@ impl SystemRuntimeExecutor {
             active_native_creation_count: None,
             native_creation_limit: runtime_diagnostic_count(self.native_creation_slots.limit),
             recent_failures: Vec::new(),
+            recent_operations: Vec::new(),
+            capability_evidence: self.capability_evidence(),
+            active_lifecycle_operation_count: None,
+            active_navigation_operation_count: None,
         };
         match self.state.lock() {
             Ok(state) => {
@@ -315,6 +349,23 @@ impl SystemRuntimeExecutor {
                 ));
                 record.managed_surface_count =
                     Some(runtime_diagnostic_count(state.surface_registry.len()));
+                record.active_lifecycle_operation_count = Some(runtime_diagnostic_count(
+                    surfaces
+                        .iter()
+                        .filter(|surface| diagnostic_surface_is_closing(surface.phase))
+                        .count(),
+                ));
+                record.active_navigation_operation_count = Some(runtime_diagnostic_count(
+                    role_surfaces
+                        .iter()
+                        .filter(|surface| surface.navigation.operation_active())
+                        .count()
+                        + state
+                            .role_input_fences
+                            .values()
+                            .filter(|fence| fence.navigation_operation.is_some())
+                            .count(),
+                ));
                 record.retired_surface_count =
                     Some(runtime_diagnostic_count(state.retired_surface_registry.len()));
                 record.closing_surface_count = Some(runtime_diagnostic_count(
@@ -435,10 +486,18 @@ impl SystemRuntimeExecutor {
                 record.recent_failures = diagnostics.failures_newest_first();
                 record.recent_input_fence_events =
                     diagnostics.input_fence_events_newest_first();
+                record.recent_operations = diagnostics.operations_newest_first();
             }
             Err(_) => collection_error_codes
                 .push("SYSTEM_RUNTIME_DIAGNOSTICS_LOCK_POISONED".to_owned()),
         }
+        record
+            .recent_operations
+            .extend(self.presentation.recent_operation_summaries());
+        record
+            .recent_operations
+            .sort_by(|left, right| right.captured_at.cmp(&left.captured_at));
+        record.recent_operations.truncate(RECENT_NATIVE_OPERATION_CAPACITY);
         record.snapshot_complete = collection_error_codes.is_empty();
         record.collection_error_codes = collection_error_codes;
         record

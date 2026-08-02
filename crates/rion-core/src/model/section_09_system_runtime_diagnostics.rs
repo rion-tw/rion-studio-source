@@ -33,6 +33,64 @@ pub struct SystemRuntimeFailureRecord {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct SystemRuntimeOperationSummaryRecord {
+    pub captured_at: String,
+    #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
+    pub platform: String,
+    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\"")]
+    pub subsystem: String,
+    #[ts(type = "\"applied\" | \"superseded\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
+    pub status: String,
+    pub stage: String,
+    #[ts(type = "\"stateCommit\" | \"nativeSubmission\" | \"nativeAcknowledgement\" | \"pageFinished\" | \"inputReady\" | \"policyDecision\" | \"runtimeProbe\"")]
+    pub completion_scope: String,
+    pub operation_id: String,
+    pub trigger: String,
+    #[ts(type = "number")]
+    pub elapsed_ms: u64,
+    #[ts(type = "number")]
+    pub timeout_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub surface_generation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub window_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rollback_error_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EngineCapabilityEvidenceRecord {
+    pub capability: String,
+    pub status: EngineCapabilityStatus,
+    pub contract_version: u32,
+    pub probe_result: String,
+    pub policy_mode: String,
+    pub evidence_stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroInputRoleDiagnosticRecord {
     pub role_id: String,
     #[ts(type = "number")]
@@ -96,6 +154,7 @@ pub struct SystemRuntimeInputFenceEventRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct SystemRuntimeDiagnosticsRecord {
+    pub contract_version: u32,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
     pub healthy: bool,
@@ -158,4 +217,14 @@ pub struct SystemRuntimeDiagnosticsRecord {
     pub active_native_creation_count: Option<u32>,
     pub native_creation_limit: u32,
     pub recent_failures: Vec<SystemRuntimeFailureRecord>,
+    #[serde(default)]
+    pub recent_operations: Vec<SystemRuntimeOperationSummaryRecord>,
+    #[serde(default)]
+    pub capability_evidence: Vec<EngineCapabilityEvidenceRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_lifecycle_operation_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_navigation_operation_count: Option<u32>,
 }

@@ -498,16 +498,48 @@ impl SystemRuntimeExecutor {
         tauri::async_runtime::spawn(async move {
             let role_ids = pending
                 .iter()
-                .map(|(role_id, _, _)| role_id.clone())
+                .map(|pending| pending.role_id.clone())
                 .collect::<Vec<_>>();
-            let mut navigation_error = None;
-            for (role_id, _, navigation) in &pending {
-                if let Err(message) = navigation.wait_async().await {
-                    navigation_error = Some(message);
-                    break;
+            let mut navigation_error: Option<(&'static str, String)> = None;
+            for pending_navigation in &pending {
+                if navigation_error.is_some() {
+                    if let Some(operation) = pending_navigation.operation.clone() {
+                        pending_navigation.navigation.reset();
+                        runtime.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "navigationBatchAborted",
+                                NativeOperationStatus::Superseded,
+                                Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+                            ),
+                        );
+                    }
+                    continue;
+                }
+                if let Some(operation) = pending_navigation.operation.clone() {
+                    let receipt = pending_navigation
+                        .navigation
+                        .wait_operation_async(operation)
+                        .await;
+                    let status = receipt.status;
+                    let failure_code = receipt.failure_code.clone();
+                    runtime.record_native_operation_receipt(receipt);
+                    if status != NativeOperationStatus::Applied {
+                        navigation_error = Some((
+                            if status == NativeOperationStatus::Superseded {
+                                "SYSTEM_NAVIGATION_SUPERSEDED"
+                            } else {
+                                "TAURI_NAVIGATION_FAILED"
+                            },
+                            failure_code.unwrap_or_else(|| {
+                                "System WebView navigation did not complete.".to_owned()
+                            }),
+                        ));
+                        continue;
+                    }
                 }
                 runtime.record_runtime_stage(
-                    format!("page-finished:{role_id}"),
+                    format!("page-finished:{}", pending_navigation.role_id),
                     "completed",
                     started,
                 );
@@ -516,13 +548,14 @@ impl SystemRuntimeExecutor {
             let completion = tauri::async_runtime::spawn_blocking(move || {
                 let controlled_labels = pending
                     .iter()
-                    .map(|(_, surface, _)| surface.label().to_owned())
+                    .map(|pending| pending.surface.label().to_owned())
                     .collect::<Vec<_>>();
-                let result = if let Some(message) = navigation_error {
-                    Err(RuntimeError::new("TAURI_NAVIGATION_FAILED", message))
+                let result = if let Some((code, message)) = navigation_error {
+                    Err(RuntimeError::new(code, message))
                 } else {
-                    pending.iter().try_for_each(|(role_id, surface, _)| {
-                        runtime_for_completion.reassert_role_keys(role_id, surface)
+                    pending.iter().try_for_each(|pending| {
+                        runtime_for_completion
+                            .reassert_role_keys(&pending.role_id, &pending.surface)
                     })
                 };
                 runtime_for_completion.finish_controlled_navigations(&controlled_labels);
@@ -609,9 +642,11 @@ impl SystemRuntimeExecutor {
             rion_platform::Platform::Windows
         };
         let probe = rion_platform::probe_system_webview(platform);
-        let available = probe.available && probe.audio_mute_available;
-        let macro_input_available = available && probe.macro_input_available;
-        SystemWebViewRuntimeRegistrationRecord {
+        let runtime_available = probe.available;
+        let audio_mute_available = runtime_available && probe.audio_mute_available;
+        let available = runtime_available && audio_mute_available;
+        let macro_input_available = runtime_available && probe.macro_input_available;
+        let registration = SystemWebViewRuntimeRegistrationRecord {
             platform: if cfg!(target_os = "macos") {
                 "macos".to_owned()
             } else {
@@ -625,34 +660,58 @@ impl SystemRuntimeExecutor {
             adapter_version: format!("tauri-wry-{}", env!("CARGO_PKG_VERSION")),
             available,
             capability_snapshot: EngineCapabilitySnapshotRecord {
-                navigation: supported_if(available),
-                persistent_session: supported_if(available),
+                navigation: supported_if(runtime_available),
+                persistent_session: supported_if(runtime_available),
                 trusted_input: supported_if(macro_input_available),
                 background_input: supported_if(macro_input_available),
-                frame_evaluation: if available {
+                frame_evaluation: if runtime_available {
                     EngineCapabilityStatus::Degraded
                 } else {
                     EngineCapabilityStatus::Disabled
                 },
-                popup: degraded_if(available),
-                audio_mute: supported_if(available),
-                custom_fonts: degraded_if(available),
+                popup: degraded_if(runtime_available),
+                audio_mute: supported_if(audio_mute_available),
+                custom_fonts: degraded_if(runtime_available),
                 downloads: EngineCapabilityStatus::Disabled,
-                file_upload: supported_if(available),
-                permissions: if available {
+                file_upload: supported_if(runtime_available),
+                permissions: if runtime_available {
                     EngineCapabilityStatus::Degraded
                 } else {
                     EngineCapabilityStatus::Disabled
                 },
-                dialogs: supported_if(available),
-                certificate_handling: supported_if(available),
+                dialogs: supported_if(runtime_available),
+                certificate_handling: supported_if(runtime_available),
             },
             failure_reason: (!available).then_some(if cfg!(target_os = "macos") {
                 rion_core::SystemWebViewIssueReason::WebkitSpiUnavailable
             } else {
                 rion_core::SystemWebViewIssueReason::RuntimeCreationFailed
             }),
-        }
+        };
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Capability,
+            "systemWebViewProbe",
+            PLATFORM_CALLBACK_TIMEOUT,
+        );
+        let receipt = if available && macro_input_available {
+            NativeOperationReceipt::applied(operation, "capabilityProbe")
+        } else if available {
+            NativeOperationReceipt::with_status(
+                operation,
+                "capabilityProbe",
+                NativeOperationStatus::Degraded,
+                Some("SYSTEM_WEBVIEW_MACRO_INPUT_UNAVAILABLE"),
+            )
+        } else {
+            NativeOperationReceipt::with_status(
+                operation,
+                "capabilityProbe",
+                NativeOperationStatus::Failed,
+                Some("SYSTEM_WEBVIEW_RUNTIME_UNAVAILABLE"),
+            )
+        };
+        self.record_native_operation_receipt(receipt);
+        registration
     }
 
     pub(crate) fn mark_unhealthy_after_failed_compensation(&self) {

@@ -208,6 +208,7 @@ impl SystemRuntimeExecutor {
             None,
             Some(true),
             NativePresentationFocus::None,
+            None,
         );
         self.wait_for_presentation_paint_barrier(&target.window_id, reservation_revision);
         let window_zoom_factor = self

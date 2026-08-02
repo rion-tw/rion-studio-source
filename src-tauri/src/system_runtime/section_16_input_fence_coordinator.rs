@@ -128,6 +128,21 @@ impl SystemRuntimeExecutor {
         Ok(epoch)
     }
 
+    #[cfg(windows)]
+    fn current_navigation_input_epoch(
+        &self,
+        webview_label: &str,
+        role_id: &str,
+    ) -> Option<u64> {
+        self.state.lock().ok().and_then(|state| {
+            state
+                .navigation_input_fences
+                .get(webview_label)
+                .filter(|ticket| ticket.role_id == role_id)
+                .map(|ticket| ticket.input_epoch)
+        })
+    }
+
     fn finish_navigation_input_drain(&self, role_id: &str, input_epoch: u64) {
         let current = self.state.lock().is_ok_and(|mut state| {
             let Some(fence) = state.role_input_fences.get_mut(role_id) else {

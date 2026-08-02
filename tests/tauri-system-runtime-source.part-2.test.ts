@@ -351,6 +351,10 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       runtime.indexOf("fn update_navigation_input_fences(")
     );
     expect(navigationPolicy).toContain("begin_navigation_input_fence(");
+    expect(navigationPolicy).toContain("fn current_navigation_input_epoch(");
+    expect(navigationPolicy).toContain(
+      "fn finish_navigation_input_drain(&self, role_id: &str, input_epoch: u64)"
+    );
     expect(navigationPolicy).toContain("CoreCommand::MacroInputFence {");
     expect(navigationPolicy).toContain(".invoke_async(CoreCommand::MacroInputDrain");
     expect(navigationPolicy).toContain("CoreCommand::MacroInputResume {");
@@ -377,6 +381,9 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(windowsDocumentHandler).toContain("retain_windows_document_navigation_deferral(deferral)");
     expect(windowsDocumentHandler).toContain(".invoke_async(CoreCommand::MacroInputDrain");
     expect(windowsDocumentHandler).toContain("current_navigation_input_epoch(");
+    expect(windowsDocumentHandler).toMatch(
+      /finish_navigation_input_drain\(\s*&release_role_id,\s*input_epoch,?\s*\)/
+    );
     expect(windowsDocumentHandler).toContain("run_on_main_thread");
     expect(windowsDocumentHandler).not.toContain("navigate(");
     expect(runtime).toContain("WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS");

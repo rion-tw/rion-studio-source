@@ -115,6 +115,9 @@
         });
         start.active_role_ids.push("r2".to_owned());
         let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let parent_startup = next_wait(&waits);
+        assert_eq!(parent_startup.duration_ms, 0);
+        parent_startup.release.send(()).unwrap();
         let mut child_holds = 0;
         for iteration in 0..2 {
             for expected in ["focus", "hold", "release"] {
@@ -126,10 +129,23 @@
                     }
                     _ => false,
                 });
+                if expected == "focus" {
+                    runtime.dispatch_results(success_results(action)).unwrap();
+                    let child_startup = next_wait(&waits);
+                    assert_eq!(child_startup.duration_ms, 0);
+                    child_startup.release.send(()).unwrap();
+                    continue;
+                }
                 if expected == "hold" {
                     child_holds += 1;
                 }
                 runtime.dispatch_results(success_results(action)).unwrap();
+                let child_timing = next_wait(&waits);
+                assert_eq!(
+                    child_timing.duration_ms,
+                    if expected == "hold" { 1 } else { 0 }
+                );
+                child_timing.release.send(()).unwrap();
             }
             let loop_wait = next_wait(&waits);
             assert_eq!(loop_wait.duration_ms, 1);
@@ -364,12 +380,19 @@
             label: None,
         }];
         let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let parent_startup = next_wait(&waits);
+        assert_eq!(parent_startup.duration_ms, 0);
+        parent_startup.release.send(()).unwrap();
         let parent_wait = next_wait(&waits);
         assert_eq!(parent_wait.role_id, "r1");
+        assert_eq!(parent_wait.duration_ms, 60_000);
         let child_focus = next_browser_actions(&receiver);
         runtime
             .dispatch_results(success_results(child_focus))
             .unwrap();
+        let child_startup = next_wait(&waits);
+        assert_eq!((child_startup.role_id.as_str(), child_startup.duration_ms), ("r2", 0));
+        child_startup.release.send(()).unwrap();
         let child_hold = next_browser_actions(&receiver);
         runtime
             .dispatch_results(vec![BrowserActionResult {

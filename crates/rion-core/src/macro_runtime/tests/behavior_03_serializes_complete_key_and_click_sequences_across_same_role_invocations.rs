@@ -58,6 +58,9 @@
             .dispatch_results(success_results(second_focus))
             .unwrap();
         second_start.join().unwrap();
+        let second_startup = next_wait(&waits);
+        assert_eq!(second_startup.duration_ms, 0);
+        second_startup.release.send(()).unwrap();
         {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
         };
@@ -69,6 +72,9 @@
         let click = next_browser_actions(&receiver);
         assert!(matches!(click[0].action, BrowserAction::Click { .. }));
         runtime.dispatch_results(success_results(click)).unwrap();
+        let click_post_input = next_wait(&waits);
+        assert_eq!(click_post_input.duration_ms, 0);
+        click_post_input.release.send(()).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         while !runtime.statuses().unwrap().is_empty() {
             assert!(std::time::Instant::now() < deadline);
@@ -128,6 +134,9 @@
             .dispatch_results(success_results(second_focus))
             .unwrap();
         second_start.join().unwrap();
+        let second_startup = next_wait(&waits);
+        assert_eq!(second_startup.duration_ms, 0);
+        second_startup.release.send(()).unwrap();
         {
             assert_no_browser_actions(&receiver, Duration::from_millis(25));
         };
@@ -151,10 +160,16 @@
         runtime
             .dispatch_results(success_results(second_hold))
             .unwrap();
+        let second_key_hold = next_wait(&waits);
+        assert_eq!(second_key_hold.duration_ms, 1);
+        second_key_hold.release.send(()).unwrap();
         let second_release = next_browser_actions(&receiver);
         runtime
             .dispatch_results(success_results(second_release))
             .unwrap();
+        let second_post_input = next_wait(&waits);
+        assert_eq!(second_post_input.duration_ms, 0);
+        second_post_input.release.send(()).unwrap();
     }
 
     #[test]
@@ -174,8 +189,14 @@
                 label: None,
             }]),
         );
+        let held_startup = next_wait(&waits);
+        assert_eq!(held_startup.duration_ms, 0);
+        held_startup.release.send(()).unwrap();
         let held = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(held)).unwrap();
+        let held_post_input = next_wait(&waits);
+        assert_eq!(held_post_input.duration_ms, 0);
+        held_post_input.release.send(()).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         while runtime.statuses().unwrap()[0].iteration.unwrap_or_default() == 0 {
             assert!(std::time::Instant::now() < deadline);

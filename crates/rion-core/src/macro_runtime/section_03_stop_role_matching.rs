@@ -71,7 +71,6 @@ fn execute_macro(
     if !root {
         add_running_statuses(shared, context, macro_id, &roles);
     }
-    let applies_timing = definition.trigger.is_some();
     let execution = (|| {
         if !root {
             perform_actions(
@@ -101,7 +100,6 @@ fn execute_macro(
                             &roles,
                             ancestry,
                             single_iteration,
-                            applies_timing,
                         );
                         if result.is_err() && !context.control.cancelled.load(Ordering::Acquire) {
                             if let Ok(mut failed_role_id) = context.control.failed_role_id.lock()
@@ -145,7 +143,6 @@ fn execute_macro(
     execution
 }
 
-#[allow(clippy::too_many_arguments)]
 fn execute_macro_role(
     shared: &Arc<Shared>,
     context: &ExecutionContext,
@@ -154,14 +151,11 @@ fn execute_macro_role(
     invocation_role_ids: &[String],
     ancestry: Vec<String>,
     single_iteration: bool,
-    applies_timing: bool,
 ) -> Result<(), String> {
     let mut held_keys = Vec::new();
     let role_ids = [role_id.to_owned()];
     let execution = (|| {
-        if applies_timing {
-            wait_cancelable_for_role(context, role_id, context.settings.startup_delay_ms)?;
-        }
+        wait_cancelable_for_role(context, role_id, context.settings.startup_delay_ms)?;
         let mut iteration = 0_u32;
         loop {
             check_role_cancelled(context, role_id)?;
@@ -177,7 +171,6 @@ fn execute_macro_role(
                     iteration,
                     &ancestry,
                     &mut held_keys,
-                    applies_timing,
                 )?;
             }
             iteration = iteration.saturating_add(1);
@@ -226,7 +219,6 @@ fn execute_step(
     iteration: u32,
     ancestry: &[String],
     held_keys: &mut Vec<HeldKey>,
-    applies_timing: bool,
 ) -> Result<(), String> {
     let role_id = roles
         .first()
@@ -339,11 +331,8 @@ fn execute_step(
                 }
             }
             if !hold_until_stop {
-                let timing_result = if applies_timing {
-                    wait_cancelable_for_role(context, role_id, context.settings.key_hold_ms)
-                } else {
-                    Ok(())
-                };
+                let timing_result =
+                    wait_cancelable_for_role(context, role_id, context.settings.key_hold_ms);
                 let release_result = perform_actions(
                     shared,
                     context,
@@ -370,11 +359,7 @@ fn execute_step(
                 timing_result?;
                 release_result?;
             }
-            if applies_timing {
-                wait_cancelable_for_role(context, role_id, context.settings.post_input_delay_ms)
-            } else {
-                Ok(())
-            }
+            wait_cancelable_for_role(context, role_id, context.settings.post_input_delay_ms)
         }
         MacroStepDefinition::Click {
             id,
@@ -418,11 +403,7 @@ fn execute_step(
             for role_id in roles {
                 mark_click(shared, context, &definition.id, role_id, id);
             }
-            if applies_timing {
-                wait_cancelable_for_role(context, role_id, context.settings.post_input_delay_ms)
-            } else {
-                Ok(())
-            }
+            wait_cancelable_for_role(context, role_id, context.settings.post_input_delay_ms)
         }
         MacroStepDefinition::Delay { ms, .. } => wait_cancelable_for_role(context, role_id, *ms),
         MacroStepDefinition::Macro {

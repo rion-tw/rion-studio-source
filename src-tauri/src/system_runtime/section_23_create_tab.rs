@@ -289,6 +289,7 @@ impl SystemRuntimeExecutor {
                         .and_then(|sync| sync.source.as_ref())
                     {
                         let snapshot = self.load_or_rebuild_local_storage_sync_snapshot(
+                            &role_id,
                             &source.role_id,
                             &source.launch_url,
                             &config.origin,

@@ -3,5 +3,6 @@ import type { BrowserPerformanceDiagnosticsRecord } from "./BrowserPerformanceDi
 import type { BrowserProxyDiagnosticsRecord } from "./BrowserProxyDiagnosticsRecord";
 import type { DiagnosticDisplayRecord } from "./DiagnosticDisplayRecord";
 import type { ResolvedBrowserEngine } from "./ResolvedBrowserEngine";
+import type { SystemRuntimeDiagnosticsRecord } from "./SystemRuntimeDiagnosticsRecord";
 
-export type ApplicationDiagnosticsSnapshotRecord = { applicationName: string, applicationVersion: string, buildCommit?: string, packaged: boolean, engine: ResolvedBrowserEngine, engineVersion: string, shell: string, shellVersion: string, locale: string, systemVersion: string, displays: Array<DiagnosticDisplayRecord>, gpuFeatureStatusRawJson: string, gpuInfoRawJson?: string, browserPerformance?: BrowserPerformanceDiagnosticsRecord, browserProxy?: BrowserProxyDiagnosticsRecord, };
+export type ApplicationDiagnosticsSnapshotRecord = { applicationName: string, applicationVersion: string, buildCommit?: string, packaged: boolean, engine: ResolvedBrowserEngine, engineVersion: string, shell: string, shellVersion: string, locale: string, systemVersion: string, displays: Array<DiagnosticDisplayRecord>, gpuFeatureStatusRawJson: string, gpuInfoRawJson?: string, browserPerformance?: BrowserPerformanceDiagnosticsRecord, browserProxy?: BrowserProxyDiagnosticsRecord, nativeRuntime: SystemRuntimeDiagnosticsRecord, };

@@ -227,6 +227,7 @@ impl SystemRuntimeExecutor {
             return;
         }
         let effect_id = effect.effect_id.clone();
+        let operation_id = effect.operation_id.clone();
         let close_effect = is_surface_close_effect(&effect.action);
         let started = Instant::now();
         let scope = native_effect_scope(&effect);
@@ -259,7 +260,19 @@ impl SystemRuntimeExecutor {
             // restore-session durability is coalesced on one background worker.
             match self.core.dispatch_core_effect_results(vec![result]) {
                 Ok(report) => {
-                    let accepted = report.accepted.iter().any(|id| id == &effect_id);
+                    let acknowledgement_status =
+                        effect_acknowledgement_status(&report, &effect_id);
+                    let accepted = acknowledgement_status == "accepted";
+                    self.record_effect_outcome_failures(
+                        action_name,
+                        &effect_id,
+                        &operation_id,
+                        error_payload.as_ref(),
+                        acknowledgement_status,
+                        started.elapsed(),
+                        persist_runtime,
+                        &scope,
+                    );
                     self.record_close_effect_completion(
                         action_name,
                         &effect_id,
@@ -277,13 +290,23 @@ impl SystemRuntimeExecutor {
                     }
                 }
                 Err(error) => {
-                    let error_payload = error.payload();
+                    let dispatch_error_payload = error.payload();
+                    self.record_effect_outcome_failures(
+                        action_name,
+                        &effect_id,
+                        &operation_id,
+                        error_payload.as_ref(),
+                        "dispatchFailed",
+                        started.elapsed(),
+                        persist_runtime,
+                        &scope,
+                    );
                     self.record_close_effect_completion(
                         action_name,
                         &effect_id,
                         succeeded,
                         false,
-                        Some(&error_payload),
+                        Some(&dispatch_error_payload),
                         started.elapsed(),
                     );
                 }
@@ -295,14 +318,27 @@ impl SystemRuntimeExecutor {
             .flatten();
         let result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
         let succeeded = result.ok;
+        let error_payload = result.error.clone();
         eprintln!(
             "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
             started.elapsed().as_millis()
         );
-        if self.core.dispatch_core_effect_results(vec![result]).is_ok()
-            && succeeded
-            && persist_runtime
-        {
+        let dispatch = self.core.dispatch_core_effect_results(vec![result]);
+        let acknowledgement_status = dispatch
+            .as_ref()
+            .map(|report| effect_acknowledgement_status(report, &effect_id))
+            .unwrap_or("dispatchFailed");
+        self.record_effect_outcome_failures(
+            action_name,
+            &effect_id,
+            &operation_id,
+            error_payload.as_ref(),
+            acknowledgement_status,
+            started.elapsed(),
+            persist_runtime,
+            &scope,
+        );
+        if dispatch.is_ok() && succeeded && persist_runtime {
             self.publish_projection();
         }
     }
@@ -420,6 +456,7 @@ impl SystemRuntimeExecutor {
     ) {
         let effect_id = effect.effect_id.clone();
         let operation_id = effect.operation_id.clone();
+        let scope = native_effect_scope(&effect);
         let started = Instant::now();
         let roles = match effect.action {
             CoreEffectAction::EmbeddedLoadRoles { roles } => roles,
@@ -428,17 +465,32 @@ impl SystemRuntimeExecutor {
         let pending = match self.start_role_loads(roles) {
             Ok(pending) => pending,
             Err(error) => {
+                let error_payload = rion_core::CoreErrorPayload {
+                    code: error.code.to_owned(),
+                    message: error.message,
+                };
                 let result = CoreEffectResult {
-                    effect_id,
-                    operation_id,
+                    effect_id: effect_id.clone(),
+                    operation_id: operation_id.clone(),
                     ok: false,
                     value_json: None,
-                    error: Some(rion_core::CoreErrorPayload {
-                        code: error.code.to_owned(),
-                        message: error.message,
-                    }),
+                    error: Some(error_payload.clone()),
                 };
-                let _ = self.core.dispatch_core_effect_results(vec![result]);
+                let dispatch = self.core.dispatch_core_effect_results(vec![result]);
+                let acknowledgement_status = dispatch
+                    .as_ref()
+                    .map(|report| effect_acknowledgement_status(report, &effect_id))
+                    .unwrap_or("dispatchFailed");
+                self.record_effect_outcome_failures(
+                    action_name,
+                    &effect_id,
+                    &operation_id,
+                    Some(&error_payload),
+                    acknowledgement_status,
+                    started.elapsed(),
+                    persist_runtime,
+                    &scope,
+                );
                 return;
             }
         };
@@ -485,15 +537,15 @@ impl SystemRuntimeExecutor {
             });
             let mut result = match completion {
                 Ok(()) => CoreEffectResult {
-                    effect_id,
-                    operation_id,
+                    effect_id: effect_id.clone(),
+                    operation_id: operation_id.clone(),
                     ok: true,
                     value_json: None,
                     error: None,
                 },
                 Err(error) => CoreEffectResult {
-                    effect_id,
-                    operation_id,
+                    effect_id: effect_id.clone(),
+                    operation_id: operation_id.clone(),
                     ok: false,
                     value_json: None,
                     error: Some(rion_core::CoreErrorPayload {
@@ -524,17 +576,27 @@ impl SystemRuntimeExecutor {
                 .flatten();
             result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
             let succeeded = result.ok;
+            let error_payload = result.error.clone();
             eprintln!(
                 "System WebView effect: {action_name} completed asynchronously (ok={succeeded}, elapsedMs={}).",
                 started.elapsed().as_millis()
             );
-            if runtime
-                .core
-                .dispatch_core_effect_results(vec![result])
-                .is_ok()
-                && succeeded
-                && persist_runtime
-            {
+            let dispatch = runtime.core.dispatch_core_effect_results(vec![result]);
+            let acknowledgement_status = dispatch
+                .as_ref()
+                .map(|report| effect_acknowledgement_status(report, &effect_id))
+                .unwrap_or("dispatchFailed");
+            runtime.record_effect_outcome_failures(
+                action_name,
+                &effect_id,
+                &operation_id,
+                error_payload.as_ref(),
+                acknowledgement_status,
+                started.elapsed(),
+                persist_runtime,
+                &scope,
+            );
+            if dispatch.is_ok() && succeeded && persist_runtime {
                 runtime.publish_projection();
             }
         });

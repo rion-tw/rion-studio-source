@@ -1,7 +1,7 @@
 #[cfg(windows)]
 use std::cell::RefCell;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -19,7 +19,8 @@ use rion_core::{
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
     BrowserPerformanceSurfaceDiagnosticRecord, BrowserProxyDiagnosticsRecord,
     BrowserProxySettingsRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
-    CoreCommand, CoreEffectAction, CoreEffectRequest, CoreEffectResult, DisplayTargetRecord,
+    CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
+    DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
     EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
     EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
@@ -30,7 +31,8 @@ use rion_core::{
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
-    StateWebGraphicsRecord, SystemWebViewRuntimeRegistrationRecord,
+    StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
+    SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };

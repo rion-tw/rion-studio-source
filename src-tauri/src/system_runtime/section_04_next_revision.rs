@@ -713,6 +713,7 @@ pub struct SystemRuntimeExecutor {
     core: Arc<AppCore>,
     critical_activity_sequence: AtomicU64,
     effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
+    diagnostics: Mutex<RuntimeDiagnosticsState>,
     health: RuntimeHealth,
     language: Mutex<String>,
     resolved_theme: Mutex<String>,

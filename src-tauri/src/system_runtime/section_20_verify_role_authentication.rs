@@ -371,8 +371,32 @@ impl SystemRuntimeExecutor {
             selectors,
             codec,
             true,
-        )?;
+        )
+        .inspect_err(|error| {
+            self.record_local_storage_sync_failure(
+                "sourceRefresh",
+                "snapshotCapture",
+                error.code,
+                Some(source_role_id),
+                None,
+                None,
+                0,
+                false,
+            );
+        })?;
         self.persist_local_storage_sync_snapshot(snapshot)
+            .inspect_err(|error| {
+                self.record_local_storage_sync_failure(
+                    "sourceRefresh",
+                    "snapshotPersist",
+                    error.code,
+                    Some(source_role_id),
+                    None,
+                    None,
+                    0,
+                    false,
+                );
+            })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -583,128 +607,6 @@ impl SystemRuntimeExecutor {
         Ok(snapshot)
     }
 
-    pub fn local_storage_sync_changed(
-        &self,
-        webview_label: &str,
-        request: LocalStorageSyncChangeRequest,
-    ) -> Result<(), String> {
-        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
-            "The localStorage synchronization lifecycle lane is unavailable.".to_owned()
-        })?;
-        let role_id = self.role_id_for_webview(webview_label)?;
-        let (config, webview) = {
-            let state = self.state().map_err(|error| error.message)?;
-            let tab_id = state
-                .role_tabs
-                .get(&role_id)
-                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
-            let surface = state
-                .tabs
-                .get(tab_id)
-                .and_then(|tab| tab.roles.get(&role_id))
-                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
-            let config = surface.local_storage_sync.clone().ok_or_else(|| {
-                "This role has no localStorage synchronization capability.".to_owned()
-            })?;
-            (config, surface.webview.clone())
-        };
-        if config.token != request.token || config.generation != request.generation {
-            return Err("The localStorage synchronization capability is invalid.".to_owned());
-        }
-        require_exact_local_storage_sync_origin(&webview, &config.origin)
-            .map_err(|error| error.message)?;
-        if request.entries.len() != config.keys.len()
-            || request
-                .entries
-                .iter()
-                .zip(&config.keys)
-                .any(|((key, _), expected)| key != expected)
-        {
-            return Err("The localStorage synchronization key set is invalid.".to_owned());
-        }
-        validate_local_storage_sync_selector_entries(
-            config.codec.as_deref(),
-            &config.selectors,
-            &request.selector_entries,
-        )
-            .map_err(|error| error.message)?;
-        if request.diagnostic_code.as_deref().is_some_and(|code| {
-            !local_storage_sync_diagnostic_is_valid(config.codec.as_deref(), code)
-        }) {
-            return Err("The localStorage synchronization diagnostic is invalid.".to_owned());
-        }
-        {
-            let mut state = self.state().map_err(|error| error.message)?;
-            let tab_id = state
-                .role_tabs
-                .get(&role_id)
-                .cloned()
-                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
-            let surface = state
-                .tabs
-                .get_mut(&tab_id)
-                .and_then(|tab| tab.roles.get_mut(&role_id))
-                .filter(|surface| surface.webview.label() == webview_label)
-                .ok_or_else(|| {
-                    "Runtime role generation changed during localStorage synchronization."
-                        .to_owned()
-                })?;
-            if !surface
-                .local_storage_sync
-                .as_ref()
-                .is_some_and(|config| {
-                    config.token == request.token && config.generation == request.generation
-                })
-            {
-                return Err("The localStorage synchronization capability is stale.".to_owned());
-            }
-            if !accept_local_storage_sync_sequence(
-                &mut surface.local_storage_sync_sequence,
-                request.sequence,
-            ) {
-                return Ok(());
-            }
-        }
-        if let Some(code) = request.diagnostic_code.as_deref() {
-            self.record_local_storage_sync_diagnostic(&role_id, &config, code);
-            if matches!(
-                code,
-                "FLYFF_SETTINGS_INVALID" | "FLYFF_CHINA_SETTINGS_INVALID"
-            ) {
-                return Ok(());
-            }
-        }
-        if let Some(source_role_id) = config.source_role_id.as_deref() {
-            let snapshot = self
-                .load_local_storage_sync_snapshot(
-                    source_role_id,
-                    &config.origin,
-                    &config.keys,
-                    &config.selectors,
-                    config.codec.as_deref(),
-                )
-                .map_err(|error| error.message)?;
-            webview
-                .eval(local_storage_sync_apply_script(&snapshot).map_err(|error| error.message)?)
-                .map_err(|error| error.to_string())?;
-            return Ok(());
-        }
-        if config.dependent_role_ids.is_empty() {
-            return Ok(());
-        }
-        let snapshot = PersistedLocalStorageSyncSnapshot {
-            codec: config.codec.clone(),
-            schema_version: 2,
-            source_role_id: role_id.clone(),
-            origin: config.origin.clone(),
-            entries: request.entries,
-            selector_entries: request.selector_entries,
-        };
-        self.persist_local_storage_sync_snapshot(snapshot.clone())
-            .map_err(|error| error.message)?;
-        self.apply_local_storage_sync_to_running_dependents(&role_id, &snapshot)
-            .map_err(|error| error.message)
-    }
 
     fn record_local_storage_sync_diagnostic(
         &self,

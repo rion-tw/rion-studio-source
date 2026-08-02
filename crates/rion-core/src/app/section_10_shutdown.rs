@@ -118,6 +118,7 @@ impl AppCore {
                 "activeRoles": browser_role_statuses,
                 "activeWorkspaces": browser_workspace_statuses,
                 "foregroundPerformance": snapshot.browser_performance,
+                "nativeRuntime": snapshot.native_runtime,
             },
             "browserProxy": snapshot.browser_proxy,
             "windowsGraphicsEvents": windows_graphics_events,

@@ -577,6 +577,7 @@ fn apply_native_presentation_batch(
 fn capture_presentation_batch_events(
     batch: &NativePresentationBatch,
     outcome: &NativePresentationOutcome,
+    receipt: &NativePresentationReceipt,
 ) {
     let request = &batch.request;
     let elapsed_ms = request
@@ -605,6 +606,9 @@ fn capture_presentation_batch_events(
         "preCloseTransition": request.trigger.contains("close"),
         "requestCount": batch.request_count,
         "revision": request.revision,
+        "receiptAppliedRevision": receipt.applied_revision,
+        "receiptStatus": receipt.status.as_str(),
+        "receiptSurfaceCount": receipt.surface_identities.len(),
         "showMs": outcome.show_ms,
         "shownSurfaceCount": outcome.shown_surface_count,
         "tabId": request.tab_id,

@@ -86,7 +86,9 @@ impl NativeWindowActor {
                             )
                         })
                         .unwrap_or_default();
-                    let outcome = apply_native_presentation_batch(
+                    let plan = batch.request.plan();
+                    let (outcome, receipt) = TauriNativePresentationAdapter.apply(
+                        &plan,
                         &batch.request,
                         &previous.0,
                         &previous.1,
@@ -109,6 +111,7 @@ impl NativeWindowActor {
                             state.applied_window_visibility = Some(window_visibility);
                         }
                     }
+                    state.last_receipt = Some(receipt.clone());
                     state.requests.finish();
                     let has_pending = state.requests.pending.is_some();
                     if let Ok(mut coordinator) = batch.request.coordinator.lock() {
@@ -121,7 +124,7 @@ impl NativeWindowActor {
                     }
                     changed.notify_one();
                     drop(state);
-                    capture_presentation_batch_events(&batch, &outcome);
+                    capture_presentation_batch_events(&batch, &outcome, &receipt);
                 }
             })
             .map_err(|error| error.to_string())?;

@@ -112,6 +112,23 @@ async fn rion_runtime_tab_action(
                 "Runtime tab actions are restricted to the local tab-strip WebView.",
             )
         })?;
+    #[cfg(windows)]
+    if action.get("type").and_then(Value::as_str) == Some("presentationApplied") {
+        let revision = action
+            .get("revision")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_CHROME_ACK_INVALID",
+                    "The runtime tab chrome acknowledgement revision is invalid.",
+                )
+            })?;
+        state
+            .runtime
+            .acknowledge_tab_chrome_presentation(webview.label(), revision)
+            .map_err(|message| shell_error("TAURI_RUNTIME_CHROME_ACK_INVALID", message))?;
+        return Ok(());
+    }
     match runtime_tab_menu::handle_scoped_action(&app, &state, window_id, action).await {
         Ok(()) => Ok(()),
         Err(message) => {

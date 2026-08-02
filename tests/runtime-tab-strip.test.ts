@@ -209,6 +209,43 @@ async function _flushMicrotasks(): Promise<void> {
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
+it("acknowledges a tab chrome revision only after applying its mutation", () => {
+    const mutation = vi.fn(() => {
+      document.body.dataset.appliedRevision = "41";
+    });
+
+    window.__rionApplyRuntimeTabChromeMutation?.(41, mutation);
+
+    expect(mutation).toHaveBeenCalledOnce();
+    expect(document.body.dataset.appliedRevision).toBe("41");
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "presentationApplied", revision: 41 }
+    });
+  });
+
+it("defers tab chrome acknowledgement until the strip is ready", () => {
+    window.__rionRuntimeTabChromeReady = false;
+    window.__rionPendingRuntimeTabChromeMutations = [];
+    const mutation = vi.fn();
+
+    window.__rionApplyRuntimeTabChromeMutation?.(42, mutation);
+
+    expect(mutation).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    expect(window.__rionPendingRuntimeTabChromeMutations).toHaveLength(1);
+
+    window.__rionRuntimeTabChromeReady = true;
+    for (const pending of window.__rionPendingRuntimeTabChromeMutations ?? []) {
+      window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);
+    }
+    window.__rionPendingRuntimeTabChromeMutations = [];
+
+    expect(mutation).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "presentationApplied", revision: 42 }
+    });
+  });
+
 it("projects the resolved app theme onto an already-open tab document", () => {
     window.__rionApplyRuntimeTabState?.({ ...state, resolvedTheme: "dark" });
 

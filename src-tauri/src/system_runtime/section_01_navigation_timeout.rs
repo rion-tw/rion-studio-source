@@ -63,6 +63,8 @@ const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);
 const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
+#[cfg(windows)]
+const WINDOWS_TAB_CHROME_ACK_TIMEOUT: Duration = Duration::from_secs(2);
 const OPTIONAL_HYDRATION_IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
@@ -85,6 +87,8 @@ static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(windows)]
+static WINDOWS_TAB_CHROME_REVISION: AtomicU64 = AtomicU64::new(1);
 
 fn point_in_runtime_tab_control_row(
     left: f64,
@@ -379,6 +383,20 @@ const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
 #[cfg(windows)]
 const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
 (() => {
+  globalThis.__rionPendingRuntimeTabChromeMutations ??= [];
+  globalThis.__rionRuntimeTabChromeReady ??= false;
+  globalThis.__rionApplyRuntimeTabChromeMutation ??= (revision, mutation) => {
+    if (!globalThis.__rionRuntimeTabChromeReady) {
+      globalThis.__rionPendingRuntimeTabChromeMutations.push({ mutation, revision });
+      return;
+    }
+    mutation();
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== "function") return;
+    void internals.invoke("rion_runtime_tab_action", {
+      action: { type: "presentationApplied", revision }
+    }).catch(() => undefined);
+  };
   globalThis.__rionPendingRuntimeTabOrder ??= [];
   globalThis.__rionPendingRuntimeTabEnsures ??= [];
   globalThis.__rionPendingRuntimeTabs ??= [];

@@ -19,14 +19,23 @@ import type { RuntimeTabDragPayload } from "./runtimeTabStrip/entry";
 declare global {
   interface Window {
     __rionApplyRuntimeTabState?: (state: RuntimeTabStripState) => void;
+    __rionApplyRuntimeTabChromeMutation?: (
+      revision: number,
+      mutation: () => void
+    ) => void;
     __rionEnsureRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionPendingRuntimeTabOrder?: string[];
     __rionPendingRuntimeTabEnsures?: ProvisionalRuntimeTab[];
+    __rionPendingRuntimeTabChromeMutations?: Array<{
+      mutation: () => void;
+      revision: number;
+    }>;
     __rionPendingRuntimeTabs?: ProvisionalRuntimeTab[];
     __rionRemoveRuntimeTab?: (tabId: string, nextTabId?: string) => void;
     __rionReorderRuntimeTabs?: (tabIds: string[]) => void;
     __rionReserveRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionSetActiveRuntimeTab?: (tabId?: string) => void;
+    __rionRuntimeTabChromeReady?: boolean;
     __rionUpdateRuntimeTabMetadata?: (tab: RuntimeTabMetadata) => void;
     __rionUpdateRuntimeTabMetadataBatch?: (tabs: RuntimeTabMetadata[]) => void;
   }

@@ -9,6 +9,7 @@ describe("settings navigation", () => {
     expect(readSettingsSection("data")).toBe("data");
     expect(readSettingsSection("updates")).toBe("updates");
     expect(readSettingsSection("about-legal")).toBe("aboutLegal");
+    expect(readSettingsSection("network")).toBe("interface");
     expect(readSettingsSection("unknown")).toBe("interface");
     expect(readSettingsSection(null)).toBe("interface");
   });

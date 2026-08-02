@@ -34,6 +34,7 @@ describe("system-only product gate", () => {
     expect(gate).toContain("ExternalChrome");
     expect(gate).toContain("ChromeProfileImport");
     expect(gate).toContain("proxy_url");
+    expect(gate).toContain("BrowserProxySettingsRecord");
     expect(gate).toContain("CoreEffectAction still exposes");
   });
 
@@ -64,7 +65,7 @@ describe("system-only product gate", () => {
     ["renderer raw proxy flag", 'export const argument = "--proxy-server=http://127.0.0.1:9";\n', "--proxy-server"],
     ["Electron proxy API", "export const apply = session.setProxy;\n", "session.setProxy"],
     ["unapproved native proxy property", "void apply(id store) { store.proxyConfigurations = nil; }\n", "proxyConfigurations"]
-  ])("rejects %s outside the approved proxy modules", async (_name, source, token) => {
+  ])("rejects retired %s anywhere", async (_name, source, token) => {
     const directory = await mkdtemp(join(tmpdir(), "rion-proxy-negative-"));
     const fixture = join(directory, "proxy-fixture.ts");
     try {

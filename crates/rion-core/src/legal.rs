@@ -65,7 +65,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn advances_terms_and_privacy_for_local_role_proxy_routing() {
+    fn reports_current_legal_document_versions() {
         let versions = current_versions();
         assert_eq!(versions.fair_use, "2026-07-26");
         assert_eq!(versions.privacy, "2026-08-02");

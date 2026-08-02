@@ -24,7 +24,7 @@ Rion Studio stores isolated browser profiles on your device. These profiles may 
 
 ## 6. Network features
 
-Update checks communicate with GitHub Releases. Role System WebViews use the operating system's network by default; you may configure a local HTTP or SOCKS5 accelerator proxy for role traffic only. Updates, browser-font previews, and the main interface do not use that route. A third-party accelerator may observe the traffic it handles. These services and settings are outside the Rion Studio project's control and do not guarantee availability, privacy, integrity, or regional access.
+Update checks communicate with GitHub Releases, and System WebViews follow the operating system's network settings. These services and settings are outside the Rion Studio project's control and do not guarantee availability, privacy, integrity, or regional access.
 
 ## 7. Availability and changes
 

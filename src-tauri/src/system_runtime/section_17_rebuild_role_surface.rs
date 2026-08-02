@@ -141,15 +141,6 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
-        #[cfg(windows)]
-        {
-            let snapshot = self.browser_proxy.snapshot_for_role(role_id)?;
-            self.browser_proxy.register_webview2_lifecycle(
-                &paths.webview2,
-                &snapshot,
-                Arc::clone(&lifecycle),
-            );
-        }
         let replacement_instance_id = match self.register_managed_surface(
             &webview,
             &lifecycle,

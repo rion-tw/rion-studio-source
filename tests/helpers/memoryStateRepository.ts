@@ -4,7 +4,6 @@ import type {
   Game,
   GameBrowserSettings,
   GameBrowserSettingsPatch,
-  BrowserProxySettings,
   LaunchWorkspace,
   Macro,
   MacroSettings,
@@ -33,8 +32,6 @@ type CoreStateSnapshot = CoreStateSnapshotRecord;
 type CoreStateKey = keyof CoreStateSnapshot;
 
 export class MemoryStateRepository {
-  private browserProxySettings: BrowserProxySettings = { mode: "system" };
-
   constructor(private state: Partial<CoreStateSnapshot> = {}) {
     if (state.games === undefined) {
       const timestamp = "2026-01-01T00:00:00.000Z";
@@ -91,17 +88,6 @@ export class MemoryStateRepository {
 
   replaceGameBrowserSettings(settings: GameBrowserSettings): Promise<GameBrowserSettings> {
     return this.replace("gameBrowserSettings", settings) as Promise<GameBrowserSettings>;
-  }
-
-  async getBrowserProxySettings(): Promise<BrowserProxySettings> {
-    return structuredClone(this.browserProxySettings);
-  }
-
-  async replaceBrowserProxySettings(
-    settings: BrowserProxySettings
-  ): Promise<BrowserProxySettings> {
-    this.browserProxySettings = structuredClone(settings);
-    return structuredClone(this.browserProxySettings);
   }
 
   patchGameBrowserSettings(patch: GameBrowserSettingsPatch): Promise<GameBrowserSettings> {
@@ -578,12 +564,6 @@ export class MemoryStateRepository {
         break;
       case "gameBrowserSettingsPatch":
         result = await this.patchGameBrowserSettings(command.patch);
-        break;
-      case "browserProxySettingsGet":
-        result = await this.getBrowserProxySettings();
-        break;
-      case "browserProxySettingsReplace":
-        result = await this.replaceBrowserProxySettings(command.settings);
         break;
       case "macroSettingsGet":
         result = await this.getMacroSettings();

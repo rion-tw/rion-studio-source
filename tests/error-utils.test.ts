@@ -9,23 +9,6 @@ import {
 } from "../src/renderer/src/i18n";
 
 describe("renderer error localization", () => {
-  it("localizes every browser proxy error code in all supported languages", async () => {
-    const keys = {
-      BROWSER_PROXY_INVALID_CONFIGURATION: "error.browserProxyInvalidConfiguration",
-      BROWSER_PROXY_UNAVAILABLE: "error.browserProxyUnavailable",
-      BROWSER_PROXY_APPLY_FAILED: "error.browserProxyApplyFailed",
-      BROWSER_PROXY_RESTART_REQUIRED: "error.browserProxyRestartRequired"
-    } as const;
-
-    for (const language of languages) {
-      const translations = await loadTranslations(language);
-      const t = (key: TranslationKey) => translations[key];
-      for (const [code, key] of Object.entries(keys) as Array<[string, TranslationKey]>) {
-        expect(toMessage({ code, message: "unlocalized" }, language, t)).toBe(translations[key]);
-      }
-    }
-  });
-
   it("separates stopping roles from temporary input fences in every language", async () => {
     const keys = {
       MACRO_ROLE_STOPPING: "error.macroRoleStopping",

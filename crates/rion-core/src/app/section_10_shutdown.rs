@@ -120,7 +120,6 @@ impl AppCore {
                 "foregroundPerformance": snapshot.browser_performance,
                 "nativeRuntime": snapshot.native_runtime,
             },
-            "browserProxy": snapshot.browser_proxy,
             "windowsGraphicsEvents": windows_graphics_events,
             "windowsGraphicsEventWindow": {
                 "since": graphics_since.to_rfc3339(),

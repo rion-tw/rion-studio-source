@@ -43,10 +43,6 @@ function isSurfaceReleaseMessage(message: string): boolean {
 
 function localizedErrorKey(code: unknown) {
   const keys = {
-    BROWSER_PROXY_INVALID_CONFIGURATION: "error.browserProxyInvalidConfiguration",
-    BROWSER_PROXY_UNAVAILABLE: "error.browserProxyUnavailable",
-    BROWSER_PROXY_APPLY_FAILED: "error.browserProxyApplyFailed",
-    BROWSER_PROXY_RESTART_REQUIRED: "error.browserProxyRestartRequired",
     MACRO_ROLE_STOPPING: "error.macroRoleStopping",
     MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced"
   } as const;

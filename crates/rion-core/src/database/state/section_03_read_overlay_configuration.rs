@@ -228,7 +228,6 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         seed_builtin_games(connection)?;
         repair_required_settings(connection)?;
     }
-    repair_browser_proxy_settings(connection)?;
     repair_optional_log_level(connection)?;
     Ok(())
 }
@@ -353,30 +352,6 @@ fn repair_required_settings(connection: &Connection) -> CoreResult<()> {
     Ok(())
 }
 
-fn repair_browser_proxy_settings(connection: &Connection) -> CoreResult<()> {
-    let settings = connection
-        .query_row(
-            "SELECT payload_json FROM settings WHERE key='browserProxySettings'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
-        .and_then(|payload| serde_json::from_str::<BrowserProxySettingsRecord>(&payload).ok())
-        .and_then(|settings| normalize_browser_proxy_settings(settings).ok())
-        .unwrap_or_else(default_browser_proxy_settings);
-    let payload = serde_json::to_string(&settings)
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    connection
-        .execute(
-            "INSERT INTO settings(key, payload_json) VALUES ('browserProxySettings', ?1)
-             ON CONFLICT(key) DO UPDATE SET payload_json=excluded.payload_json",
-            params![payload],
-        )
-        .map(|_| ())
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))
-}
-
 pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
     let mut object = Map::new();
     object.insert("games".to_owned(), read_payloads(connection, "games")?);
@@ -428,7 +403,6 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
     } else if matches!(
         key,
         "gameBrowserSettings"
-            | "browserProxySettings"
             | "macroSettings"
             | "runtimeWindowPreferences"
             | "runtimeRestoreSession"
@@ -540,7 +514,6 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
     if !matches!(
         key,
         "gameBrowserSettings"
-            | "browserProxySettings"
             | "macroSettings"
             | "runtimeWindowPreferences"
             | "runtimeRestoreSession"
@@ -621,7 +594,6 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
     insert_macros(transaction, array_field(object, "macros")?)?;
     for key in [
         "gameBrowserSettings",
-        "browserProxySettings",
         "macroSettings",
         "runtimeWindowPreferences",
         "runtimeRestoreSession",

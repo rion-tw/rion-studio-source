@@ -121,7 +121,6 @@ function renderSettings(
       <ConfirmationProvider>
         <SettingsView
           gameBrowserSettings={gameBrowserSettings}
-          hasRunningRoles={false}
           language="zh-TW"
           macroSettings={DEFAULT_MACRO_SETTINGS}
           onApplyPortableImport={async () => {

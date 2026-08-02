@@ -124,10 +124,6 @@ vi.mock("../src/renderer/src/hooks/useAppUpdates", () => ({
 vi.mock("../src/renderer/src/hooks/useWindowsApplicationShortcuts", () => ({
   useWindowsApplicationShortcuts: vi.fn()
 }));
-vi.mock("../src/renderer/src/features/settings/useBrowserProxySettings", () => ({
-  useBrowserProxySettings: () => ({})
-}));
-
 beforeEach(() => {
   state.legalAccepted = false;
   state.onboardingVisible = true;

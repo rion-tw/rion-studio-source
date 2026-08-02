@@ -584,9 +584,6 @@ pub struct ApplicationDiagnosticsSnapshotRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_performance: Option<BrowserPerformanceDiagnosticsRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_proxy: Option<BrowserProxyDiagnosticsRecord>,
     pub native_runtime: SystemRuntimeDiagnosticsRecord,
 }
 

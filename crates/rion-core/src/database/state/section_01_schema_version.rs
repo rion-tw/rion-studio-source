@@ -12,7 +12,6 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::database::{join_worker_if_finished, portable_recovery};
-use crate::browser_proxy::{default_browser_proxy_settings, normalize_browser_proxy_settings};
 use crate::domain::{
     assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
     create_macro, create_role, create_workspace, default_game_browser_settings,
@@ -26,7 +25,7 @@ use crate::domain::{
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
-    BrowserProxySettingsRecord, GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
+    GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
     GameWindowCreateInputRecord, GameWindowSaveRuntimeInputRecord, GameWindowUpdateInputRecord,
     LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
     MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,

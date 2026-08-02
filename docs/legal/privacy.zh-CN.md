@@ -21,7 +21,7 @@ Rion Studio 不会刻意要求你提供密码，也不另建密码数据库。�
 - 目标网站及身份验证服务会收到普通浏览器请求，并依其自身政策处理数据。
 - 封装版本会向 GitHub Releases 检查更新；GitHub 可能取得 IP 地址、App 版本、平台信息及普通请求元数据。
 - 当你打开浏览器字体自定义时，画面中可见的 Google Fonts 示例会从 Google Fonts 加载预览 CSS 与子集字体文件；Google 可能取得 IP 地址、用户代理及普通请求元数据。应用字体仍使用 Rion Studio 已验证的本地缓存，游戏页面不会加载这些预览。
-- 系统网络为默认值。若选择 Custom，只有角色所属的系统 WebView 会使用本地保存的 HTTP 或 SOCKS5 代理 endpoint；更新下载、浏览器字体预览和主界面不会使用该路由，endpoint 也不会加入 portable 导出。第三方加速器可能观察由其处理的角色流量。
+- 系统 WebView 沿用操作系统的网络设置；Rion Studio 不会加入或保存 App 专用的网络路由。
 
 ## 5. 便携式导出与导入
 

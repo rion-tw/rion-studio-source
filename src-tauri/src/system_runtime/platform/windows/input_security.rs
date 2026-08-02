@@ -241,7 +241,6 @@ fn register_windows_document_navigation_handler(
                         .is_ok_and(|record| record.current);
                     if current {
                         release_runtime.finish_navigation_input_drain(
-                            &release_webview_label,
                             &release_role_id,
                             input_epoch,
                         );

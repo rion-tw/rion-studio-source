@@ -146,7 +146,7 @@ impl SystemRuntimeExecutor {
             Vec::new(),
             None,
             Some(true),
-            NativePresentationFocus::None,
+            NativePresentationFocus::WindowAndContent,
         );
         self.record_presentation_event(
             LogLevel::Debug,

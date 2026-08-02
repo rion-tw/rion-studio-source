@@ -191,18 +191,28 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("selected_tab_id: Option<String>");
     expect(runtime).toContain("surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>");
     expect(runtime).not.toContain("runtime_tab.visible");
-    const activationPreview = runtime.slice(
+    const activationInfrastructure = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_activation("),
       runtime.indexOf("pub(crate) fn preview_tab_close(")
     );
-    expect(activationPreview).toContain("request_tab_presentation");
-    expect(activationPreview).toContain("request_provisional_tab_presentation");
-    expect(activationPreview).toContain("selected_tab_id");
-    expect(activationPreview).toContain("dispatch_native_presentation");
-    expect(activationPreview).toContain("NativePresentationFocus::ContentOnly");
-    expect(activationPreview).not.toContain("NativePresentationFocus::WindowAndContent");
-    expect(activationPreview).not.toContain("BrowserRuntimeSnapshot");
-    expect(activationPreview).not.toContain("presentation_lane");
+    expect(activationInfrastructure).toContain("request_tab_presentation");
+    expect(activationInfrastructure).toContain("request_provisional_tab_presentation");
+    expect(activationInfrastructure).toContain("selected_tab_id");
+    expect(activationInfrastructure).toContain("dispatch_native_presentation");
+    expect(activationInfrastructure).not.toContain("BrowserRuntimeSnapshot");
+    expect(activationInfrastructure).not.toContain("presentation_lane");
+    const pointerActivation = runtime.slice(
+      runtime.indexOf("pub(crate) fn preview_tab_activation("),
+      runtime.indexOf("pub(crate) fn preview_launcher_tab_activation(")
+    );
+    expect(pointerActivation).toContain("NativePresentationFocus::ContentOnly");
+    expect(pointerActivation).not.toContain("NativePresentationFocus::WindowAndContent");
+    const launcherActivation = runtime.slice(
+      runtime.indexOf("pub(crate) fn preview_launcher_tab_activation("),
+      runtime.indexOf("fn reconcile_presentation_tab_owner(")
+    );
+    expect(launcherActivation).toContain("NativePresentationFocus::WindowAndContent");
+    expect(launcherActivation).toContain("Some(true)");
     const closePreview = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_close("),
       runtime.indexOf("pub(crate) fn reconcile_tab_activation(")

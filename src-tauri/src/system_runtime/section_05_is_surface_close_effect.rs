@@ -214,6 +214,13 @@ fn native_presentation_mutation_plan(
     }
 }
 
+fn native_window_restore_required(
+    apply_window_focus: bool,
+    window_was_minimized: Option<bool>,
+) -> bool {
+    apply_window_focus && window_was_minimized == Some(true)
+}
+
 fn presentation_owner_identities(
     surfaces: &[Webview],
     revisions: &HashMap<String, u64>,
@@ -272,9 +279,13 @@ fn apply_native_presentation_batch(
             show_ms: 0,
             visibility_errors: Vec::new(),
             webview_focus_ms: 0,
+            window_focused_after: None,
             window_focus_applied: false,
             window_focus_ms: 0,
+            window_restore_applied: false,
+            window_visible_after: None,
             window_visibility_ms: 0,
+            window_was_minimized: None,
         };
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -309,9 +320,13 @@ fn apply_native_presentation_batch(
                 show_ms: 0,
                 visibility_errors: Vec::new(),
                 webview_focus_ms: 0,
+                window_focused_after: None,
                 window_focus_applied: false,
                 window_focus_ms: 0,
+                window_restore_applied: false,
+                window_visible_after: None,
                 window_visibility_ms: 0,
+                window_was_minimized: None,
             });
             return;
         }
@@ -369,6 +384,21 @@ fn apply_native_presentation_batch(
         }
         let show_ms = show_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
 
+        let window_was_minimized = mutation_plan
+            .apply_window_focus
+            .then(|| window.is_minimized().ok())
+            .flatten();
+        let mut window_restore_applied = false;
+        if native_window_restore_required(
+            mutation_plan.apply_window_focus,
+            window_was_minimized,
+        ) {
+            match window.unminimize() {
+                Ok(()) => window_restore_applied = true,
+                Err(error) => visibility_errors.push(error.to_string()),
+            }
+        }
+
         let window_visibility_started_at = Instant::now();
         if let Some(visible) = window_visibility {
             if visible {
@@ -414,6 +444,8 @@ fn apply_native_presentation_batch(
             .elapsed()
             .as_millis()
             .min(u64::MAX as u128) as u64;
+        let window_focused_after = window.is_focused().ok();
+        let window_visible_after = window.is_visible().ok();
         let _ = sender.send(NativePresentationOutcome {
             applied: true,
             focus_applied,
@@ -426,9 +458,13 @@ fn apply_native_presentation_batch(
             show_ms,
             visibility_errors,
             webview_focus_ms,
+            window_focused_after,
             window_focus_applied,
             window_focus_ms,
+            window_restore_applied,
+            window_visible_after,
             window_visibility_ms,
+            window_was_minimized,
         });
     });
     if let Err(error) = scheduling {
@@ -448,9 +484,13 @@ fn apply_native_presentation_batch(
             show_ms: 0,
             visibility_errors: vec![error.to_string()],
             webview_focus_ms: 0,
+            window_focused_after: None,
             window_focus_applied: false,
             window_focus_ms: 0,
+            window_restore_applied: false,
+            window_visible_after: None,
             window_visibility_ms: 0,
+            window_was_minimized: None,
         };
     }
     receiver
@@ -473,9 +513,13 @@ fn apply_native_presentation_batch(
                 "The native presentation callback was disconnected.".to_owned(),
             ],
             webview_focus_ms: 0,
+            window_focused_after: None,
             window_focus_applied: false,
             window_focus_ms: 0,
+            window_restore_applied: false,
+            window_visible_after: None,
             window_visibility_ms: 0,
+            window_was_minimized: None,
         })
 }
 
@@ -517,9 +561,13 @@ fn capture_presentation_batch_events(
         "visibilityErrorCount": outcome.visibility_errors.len(),
         "webViewFocusMs": outcome.webview_focus_ms,
         "windowId": request.window_id,
+        "windowFocusedAfter": outcome.window_focused_after,
         "windowFocusApplied": outcome.window_focus_applied,
         "windowFocusMs": outcome.window_focus_ms,
+        "windowRestoreApplied": outcome.window_restore_applied,
+        "windowVisibleAfter": outcome.window_visible_after,
         "windowVisibilityMs": outcome.window_visibility_ms,
+        "windowWasMinimized": outcome.window_was_minimized,
     });
     let completion_event = if !outcome.visibility_errors.is_empty() {
         "native.presentation-failed"

@@ -12,7 +12,7 @@ export interface FirstRunOnboardingProgress {
   roleId?: string;
 }
 
-export type FirstRunOnboardingRecord =
+type FirstRunOnboardingRecord =
   | FirstRunOnboardingProgress
   | { version: 1; state: "completed" | "skipped" };
 

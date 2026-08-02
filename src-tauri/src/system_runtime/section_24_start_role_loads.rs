@@ -174,6 +174,9 @@ impl SystemRuntimeExecutor {
                 role_surface.zoom_mode = "fixed".to_owned();
             }
         }
+        if window.is_minimized().map_err(RuntimeError::tauri)? {
+            window.unminimize().map_err(RuntimeError::tauri)?;
+        }
         window.show().map_err(RuntimeError::tauri)?;
         window.set_focus().map_err(RuntimeError::tauri)?;
         webview.set_focus().map_err(RuntimeError::tauri)

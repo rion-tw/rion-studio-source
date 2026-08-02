@@ -72,6 +72,30 @@
         assert!(external_reveal.apply_content_focus);
         assert!(external_reveal.apply_window_focus);
 
+        let external_reactivate = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &identities,
+            Some(false),
+            Some(true),
+            NativePresentationFocus::WindowAndContent,
+        );
+        assert!(external_reactivate.requires_ui_thread);
+        assert!(!external_reactivate.presentation_changed);
+        assert!(external_reactivate.apply_content_focus);
+        assert!(external_reactivate.apply_window_focus);
+        assert!(native_window_restore_required(
+            external_reactivate.apply_window_focus,
+            Some(true)
+        ));
+        assert!(!native_window_restore_required(
+            tab_strip_focus.apply_window_focus,
+            Some(true)
+        ));
+        assert!(!native_window_restore_required(true, Some(false)));
+        assert!(!native_window_restore_required(true, None));
+
         let hide_window = native_presentation_mutation_plan(
             &tab,
             &tab,

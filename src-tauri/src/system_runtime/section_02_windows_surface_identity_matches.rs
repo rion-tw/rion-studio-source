@@ -652,9 +652,13 @@ struct NativePresentationOutcome {
     show_ms: u64,
     visibility_errors: Vec<String>,
     webview_focus_ms: u64,
+    window_focused_after: Option<bool>,
     window_focus_applied: bool,
     window_focus_ms: u64,
+    window_restore_applied: bool,
+    window_visible_after: Option<bool>,
     window_visibility_ms: u64,
+    window_was_minimized: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

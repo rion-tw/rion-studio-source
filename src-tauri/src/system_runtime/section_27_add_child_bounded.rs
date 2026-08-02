@@ -1,3 +1,10 @@
+fn surface_host_initialization_should_restore_hidden(
+    initialized_for_operation: bool,
+    desired_host_visibility: Option<bool>,
+) -> bool {
+    initialized_for_operation && desired_host_visibility == Some(false)
+}
+
 impl SystemRuntimeExecutor {
     fn add_child_bounded(
         &self,

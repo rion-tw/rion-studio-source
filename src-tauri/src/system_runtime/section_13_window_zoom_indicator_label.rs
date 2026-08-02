@@ -283,28 +283,57 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         native_style_applied: bool,
     ) -> Result<(String, bool, String), String> {
-        let resolved_tab_id = self
-            .presentation
-            .resolve_tab_alias(tab_id)
-            .unwrap_or_else(|| tab_id.to_owned());
         let trigger = if native_style_applied {
             "native-pointer"
         } else {
             "pointer"
         };
+        self.preview_tab_activation_with_focus(
+            tab_id,
+            NativePresentationFocus::ContentOnly,
+            trigger,
+            None,
+        )
+    }
+
+    pub(crate) fn preview_launcher_tab_activation(
+        &self,
+        tab_id: &str,
+    ) -> Result<(String, bool, String), String> {
+        self.preview_tab_activation_with_focus(
+            tab_id,
+            NativePresentationFocus::WindowAndContent,
+            "launcher-external",
+            Some(true),
+        )
+    }
+
+    fn preview_tab_activation_with_focus(
+        &self,
+        tab_id: &str,
+        focus: NativePresentationFocus,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
+    ) -> Result<(String, bool, String), String> {
+        let resolved_tab_id = self
+            .presentation
+            .resolve_tab_alias(tab_id)
+            .unwrap_or_else(|| tab_id.to_owned());
         if let Some(window_id) =
             self.request_provisional_tab_presentation(
                 &resolved_tab_id,
-                NativePresentationFocus::ContentOnly,
+                focus,
                 trigger,
+                window_visibility,
             )?
         {
             return Ok((window_id, true, resolved_tab_id));
         }
-        self.request_tab_presentation(
+        self.request_tab_presentation_with_window_visibility(
             &resolved_tab_id,
-            NativePresentationFocus::ContentOnly,
+            focus,
             trigger,
+            window_visibility,
         )
         .map(|(window_id, _)| (window_id, false, resolved_tab_id))
     }
@@ -342,6 +371,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         focus: NativePresentationFocus,
         trigger: &'static str,
+        window_visibility: Option<bool>,
     ) -> Result<Option<String>, String> {
         let requested_at = Instant::now();
         let (window_id, window) = {
@@ -393,7 +423,7 @@ impl SystemRuntimeExecutor {
             previous_surfaces,
             Vec::new(),
             None,
-            None,
+            window_visibility,
             focus,
         );
         Ok(Some(window_id))
@@ -404,6 +434,16 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         focus: NativePresentationFocus,
         trigger: &'static str,
+    ) -> Result<(String, u64), String> {
+        self.request_tab_presentation_with_window_visibility(tab_id, focus, trigger, None)
+    }
+
+    fn request_tab_presentation_with_window_visibility(
+        &self,
+        tab_id: &str,
+        focus: NativePresentationFocus,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
     ) -> Result<(String, u64), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
@@ -464,7 +504,7 @@ impl SystemRuntimeExecutor {
             previous_surfaces,
             next_surfaces,
             active_webview,
-            None,
+            window_visibility,
             focus,
         );
         Ok((window_id, revision))
@@ -566,6 +606,7 @@ impl SystemRuntimeExecutor {
                 &target_id,
                 NativePresentationFocus::ContentOnly,
                 "shortcut",
+                None,
             )?
             .is_some();
         if !provisional {

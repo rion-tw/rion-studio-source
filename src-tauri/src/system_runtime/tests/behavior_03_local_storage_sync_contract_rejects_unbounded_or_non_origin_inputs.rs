@@ -706,6 +706,28 @@
     }
 
     #[test]
+    fn initialized_surface_hosts_follow_explicit_visibility_ownership() {
+        for platform in ["macos", "windows"] {
+            assert!(!surface_host_initialization_should_restore_hidden(
+                true,
+                Some(true)
+            ), "{platform}");
+            assert!(surface_host_initialization_should_restore_hidden(
+                true,
+                Some(false)
+            ), "{platform}");
+            assert!(!surface_host_initialization_should_restore_hidden(
+                true,
+                None
+            ), "{platform}");
+            assert!(!surface_host_initialization_should_restore_hidden(
+                false,
+                Some(false)
+            ), "{platform}");
+        }
+    }
+
+    #[test]
     fn empty_runtime_hosts_honor_explicit_focus_requests_on_macos_and_windows() {
         for (platform, focus_requested, has_active_tab, expected) in [
             ("macos", true, false, true),

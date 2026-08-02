@@ -563,7 +563,14 @@ impl SystemRuntimeExecutor {
                     })
                     .map_err(RuntimeError::tauri)?;
             }
-            self.finish_surface_host_initialization(&window, host_created, &target.window_id)?;
+            self.finish_surface_host_initialization(
+                &window,
+                surface_host_initialization_should_restore_hidden(
+                    host_created,
+                    Some(launch_preview.is_some()),
+                ),
+                &target.window_id,
+            )?;
             self.set_launch_phase(&tab.tab_id, LaunchPhase::Navigating);
             Ok(())
         })();

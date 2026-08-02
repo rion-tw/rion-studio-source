@@ -54,6 +54,30 @@ use super::*;
     }
 
     #[test]
+    fn shell_launch_result_resolves_the_matching_source_type_and_window() {
+        let runtime = json!({
+            "tabs": [
+                { "sourceId": "shared", "tabType": "role", "roleIds": ["shared"], "windowId": "role-window" },
+                { "sourceId": "shared", "tabType": "workspace", "roleIds": ["workspace-role"], "windowId": "workspace-window" }
+            ]
+        });
+
+        assert_eq!(
+            launched_source_window_id(&runtime, "shared", "role").as_deref(),
+            Some("role-window")
+        );
+        assert_eq!(
+            launched_source_window_id(&runtime, "shared", "workspace").as_deref(),
+            Some("workspace-window")
+        );
+        assert_eq!(
+            launched_source_window_id(&runtime, "workspace-role", "role").as_deref(),
+            Some("workspace-window")
+        );
+        assert_eq!(launched_source_window_id(&runtime, "missing", "role"), None);
+    }
+
+    #[test]
     fn platform_name_matches_the_build_target() {
         #[cfg(target_os = "macos")]
         assert_eq!(platform_name().unwrap(), "darwin");

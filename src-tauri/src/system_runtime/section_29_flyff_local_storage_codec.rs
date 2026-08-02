@@ -123,12 +123,6 @@ fn flyff_local_storage_codec_script(
     Ok(format!(
         r#"const flyffCodecEnabled = {enabled};
   const flyffSelectorLines = Object.freeze({selector_lines});
-  const flyffInteger = (value) => typeof value === "string" && /^-?\d+$/.test(value) && value.length <= 20;
-  const flyffIntegerList = (value, exactLength) => {{
-    if (typeof value !== "string" || value.length > 16384 || !/^-?\d+(?: +-?\d+)*$/.test(value)) return null;
-    const tokens = value.split(/ +/);
-    return (exactLength === null || tokens.length === exactLength) ? tokens : null;
-  }};
   const parseFlyffLengthPrefixed = (line, maximumBytes) => {{
     if (typeof line !== "string" || line.length > maximumBytes + 32) return null;
     const separator = line.indexOf(" ");
@@ -138,28 +132,6 @@ fn flyff_local_storage_codec_script(
     const payload = line.slice(separator + 1);
     const size = Number(sizeText);
     return size <= maximumBytes && new TextEncoder().encode(payload).length === size ? payload : null;
-  }};
-  const validFlyffLayout = (payload) => {{
-    if (payload === "") return true;
-    if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)(?: +-?(?:\d+(?:\.\d*)?|\.\d+))* *$/.test(payload)) return false;
-    const tokens = payload.trim().split(/ +/);
-    const blocks = payload.trim().split(/ {{2,}}/);
-    return tokens.length <= 4096 && blocks.length <= 128 && blocks.every((block) => block.split(/ +/).length <= 256);
-  }};
-  const validFlyffBindings = (line) => {{
-    const tokens = flyffIntegerList(line, null);
-    if (!tokens) return false;
-    let offset = 0;
-    const count = Number(tokens[offset++]);
-    if (!Number.isSafeInteger(count) || count < 0 || count > 256) return false;
-    for (let index = 0; index < count; index += 1) {{
-      if (offset + 2 > tokens.length) return false;
-      offset += 1;
-      const bindingCount = Number(tokens[offset++]);
-      if (!Number.isSafeInteger(bindingCount) || bindingCount < 0 || bindingCount > 32 || offset + bindingCount > tokens.length) return false;
-      offset += bindingCount;
-    }}
-    return offset === tokens.length;
   }};
   const parseFlyffSettings = (value) => {{
     if (typeof value !== "string" || value.length > 1048576 || value.includes("\r")) return null;
@@ -173,17 +145,7 @@ fn flyff_local_storage_codec_script(
     const layout = parseFlyffLengthPrefixed(lines[8], 65536);
     const opaque = parseFlyffLengthPrefixed(lines[47], 4096);
     if (identity === null || (identity !== "" && !/^[A-Za-z0-9_-]{{40}}$/.test(identity))
-      || layout === null || !validFlyffLayout(layout) || opaque === null
-      || !validFlyffBindings(lines[43]) || !flyffIntegerList(lines[50], 4)) return null;
-    const scalarLines = [
-      ...Array.from({{ length: 34 }}, (_, index) => index + 9),
-      44, 45, 46, 48, 49,
-      ...Array.from({{ length: 22 }}, (_, index) => index + 51),
-      78,
-      ...Array.from({{ length: 17 }}, (_, index) => index + 80)
-    ];
-    if (scalarLines.some((index) => !flyffInteger(lines[index]))) return null;
-    if ([73, 74, 75, 76, 77, 79].some((index) => !flyffIntegerList(lines[index], 3))) return null;
+      || layout === null || opaque === null) return null;
     return {{ lines, trailingNewline }};
   }};
   const encodeFlyffSettings = (parsed) => parsed.lines.join("\n") + (parsed.trailingNewline ? "\n" : "");
@@ -288,69 +250,6 @@ mod flyff_codec_reference {
         Ok(payload)
     }
 
-    fn integers(line: &str, exact_length: Option<usize>) -> RuntimeResult<Vec<i64>> {
-        if line.is_empty() || line.len() > 16_384 || line.contains("  ") {
-            return Err(invalid());
-        }
-        let values = line
-            .split(' ')
-            .map(|value| value.parse::<i64>().map_err(|_| invalid()))
-            .collect::<RuntimeResult<Vec<_>>>()?;
-        if exact_length.is_some_and(|length| values.len() != length) {
-            return Err(invalid());
-        }
-        Ok(values)
-    }
-
-    fn validate_layout(payload: &str) -> RuntimeResult<()> {
-        if payload.is_empty() {
-            return Ok(());
-        }
-        let tokens = payload
-            .split(' ')
-            .filter(|token| !token.is_empty())
-            .collect::<Vec<_>>();
-        let blocks = payload.split("  ").collect::<Vec<_>>();
-        if tokens.len() > 4_096
-            || blocks.len() > 128
-            || blocks
-                .iter()
-                .any(|block| block.split_whitespace().count() > 256)
-            || tokens
-                .iter()
-                .any(|token| token.parse::<f64>().is_err())
-        {
-            return Err(invalid());
-        }
-        Ok(())
-    }
-
-    fn validate_bindings(line: &str) -> RuntimeResult<()> {
-        let values = integers(line, None)?;
-        let count = usize::try_from(*values.first().ok_or_else(invalid)?)
-            .map_err(|_| invalid())?;
-        if count > 256 {
-            return Err(invalid());
-        }
-        let mut offset = 1;
-        for _ in 0..count {
-            if offset + 2 > values.len() {
-                return Err(invalid());
-            }
-            offset += 1;
-            let binding_count = usize::try_from(values[offset]).map_err(|_| invalid())?;
-            offset += 1;
-            if binding_count > 32 || offset + binding_count > values.len() {
-                return Err(invalid());
-            }
-            offset += binding_count;
-        }
-        if offset != values.len() {
-            return Err(invalid());
-        }
-        Ok(())
-    }
-
     pub(super) fn parse(value: &str) -> RuntimeResult<Settings> {
         if value.len() > 1_048_576 || value.contains('\r') {
             return Err(invalid());
@@ -378,21 +277,8 @@ mod flyff_codec_reference {
         {
             return Err(invalid());
         }
-        validate_layout(length_prefixed(&lines[8], 65_536)?)?;
+        length_prefixed(&lines[8], 65_536)?;
         length_prefixed(&lines[47], 4_096)?;
-        validate_bindings(&lines[43])?;
-        integers(&lines[50], Some(4))?;
-        let scalar_lines = (9..43)
-            .chain([44, 45, 46, 48, 49])
-            .chain(51..73)
-            .chain([78])
-            .chain(80..97);
-        for index in scalar_lines {
-            integers(&lines[index], Some(1))?;
-        }
-        for index in [73, 74, 75, 76, 77, 79] {
-            integers(&lines[index], Some(3))?;
-        }
         Ok(Settings {
             lines,
             trailing_newline,
@@ -556,20 +442,20 @@ mod flyff_codec_reference {
         Ok(Some(settings.encode()))
     }
 
-    pub(super) fn fixture(identity: &str, marker: i64) -> String {
+    pub(super) fn fixture(identity: &str, marker: &str) -> String {
         let mut lines = vec!["0".to_owned(); FLYFF_SETTINGS_LINE_COUNT];
         lines[1] = "7".to_owned();
         lines[3] = "25".to_owned();
         lines[4] = format!("40 {identity}");
         let layout = format!("1 2  3 {marker}");
         lines[8] = format!("{} {layout}", layout.len());
-        lines[43] = "2 12 0 58 1 33".to_owned();
+        lines[43] = "future-bindings-format".to_owned();
         lines[47] = "14 test-client-v7".to_owned();
-        lines[50] = "0 2 8 7".to_owned();
+        lines[50] = "future-hotbars-format".to_owned();
         for index in [73, 74, 75, 76, 77, 79] {
             lines[index] = "1 2 3".to_owned();
         }
-        lines[55] = marker.to_string();
+        lines[55] = marker.to_owned();
         format!("{}\n", lines.join("\n"))
     }
 

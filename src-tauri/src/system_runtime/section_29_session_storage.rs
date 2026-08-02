@@ -450,6 +450,7 @@ fn read_scoped_local_storage_snapshot(
             "(() => {{ {codec_script} const keys = {keys_json}; const selectors = {selectors_json}; repairLocalStorageCodecIdentity(selectors); const selectorValues = captureLocalStorageCodecFields(selectors); if (selectorValues === null) return {{ error: localStorageCodecSettingsInvalidCode }}; return {{ values: keys.map((key) => [key, localStorage.getItem(key)]), selectorValues }}; }})()"
         ),
     )?;
+    reject_local_storage_sync_snapshot_codec_error(&value, codec)?;
     let values = value
         .get("values")
         .and_then(Value::as_array)
@@ -535,6 +536,35 @@ fn read_scoped_local_storage_snapshot(
         .collect::<RuntimeResult<Vec<_>>>()?;
     validate_local_storage_sync_selector_entries(codec, selectors, &selector_entries)?;
     Ok((entries, selector_entries))
+}
+
+fn reject_local_storage_sync_snapshot_codec_error(
+    value: &Value,
+    codec: Option<&str>,
+) -> RuntimeResult<()> {
+    let Some(error) = value.get("error") else {
+        return Ok(());
+    };
+    match (codec, error.as_str()) {
+        (
+            Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC),
+            Some("FLYFF_SETTINGS_INVALID"),
+        ) => Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_FLYFF_SETTINGS_INVALID",
+            "The Flyff settings stored in this role are missing or use an unsupported format. Open the role and save its game settings, then try again.",
+        )),
+        (
+            Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC),
+            Some("FLYFF_CHINA_SETTINGS_INVALID"),
+        ) => Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_FLYFF_CHINA_SETTINGS_INVALID",
+            "The Flyff China settings stored in this role are missing or use an unsupported format. Open the role and save its game settings, then try again.",
+        )),
+        _ => Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID",
+            "The System WebView returned an invalid localStorage synchronization snapshot.",
+        )),
+    }
 }
 
 fn require_exact_local_storage_sync_origin(webview: &Webview, expected: &str) -> RuntimeResult<()> {

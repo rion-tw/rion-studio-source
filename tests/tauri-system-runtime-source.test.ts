@@ -235,7 +235,13 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(destroyEffect.indexOf("prepare_destroy_tab_presentation")).toBeLessThan(
       destroyEffect.indexOf("self.destroy_tab(&tab_id)?")
     );
-    expect(runtime).toContain('"tab.close-successor-preflight-failed"');
+    expect(runtime).toContain('"tab.close-successor-preflight-scheduled"');
+    const closePreflight = runtime.slice(
+      runtime.indexOf("fn prepare_destroy_tab_presentation("),
+      runtime.indexOf("fn record_close_preflight_event(")
+    );
+    expect(closePreflight).not.toContain("wait_until_applied");
+    expect(closePreflight).not.toContain("Duration::from_secs(1)");
     expect(runtime).toContain('"preflightMode": preflight_mode');
     expect(runtime).toContain('"waitedTabId": waited_tab_id');
     expect(runtime).toContain("struct WindowPresentationState {");
@@ -691,5 +697,47 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(focus).not.toContain("evaluate_webview");
     expect(focus).not.toContain("window.focus");
     expect(focus).not.toContain("set_focus");
+  });
+
+  it("rebuilds missing v2 localStorage snapshots before allowing a safe fallback", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    const rebuild = runtime.slice(
+      runtime.indexOf("fn load_or_rebuild_local_storage_sync_snapshot("),
+      runtime.indexOf("fn record_local_storage_sync_cache_rebuild_skipped(")
+    );
+    expect(rebuild).toContain('"LOCAL_STORAGE_SYNC_CACHE_UNAVAILABLE"');
+    expect(rebuild).toContain('"LOCAL_STORAGE_SYNC_CACHE_INVALID"');
+    expect(rebuild.indexOf("capture_local_storage_sync_source_snapshot(")).toBeLessThan(
+      rebuild.indexOf("persist_local_storage_sync_snapshot(snapshot.clone())")
+    );
+    const persist = runtime.slice(
+      runtime.indexOf("fn persist_local_storage_sync_snapshot("),
+      runtime.indexOf("fn load_local_storage_sync_snapshot(")
+    );
+    expect(persist.indexOf("atomic_replace_file")).toBeLessThan(
+      persist.indexOf('local-storage-sync-v1.enc')
+    );
+  });
+
+  it("fences cleanup by launch generation and poisons health only when release is unverified", async () => {
+    const runtime = await readFile(
+      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
+      "utf8"
+    );
+    expect(runtime).toContain("launch_attempt_generations");
+    expect(runtime).toContain("attempt_generation");
+    expect(runtime).toContain("The destroy request belonged to a stale launch attempt.");
+
+    const boundedCreate = runtime.slice(
+      runtime.indexOf("fn add_child_bounded("),
+      runtime.indexOf("fn prepare_surface_parent_for_creation(")
+    );
+    expect(boundedCreate.indexOf("recv_timeout(SURFACE_RECLAMATION_TIMEOUT)")).toBeLessThan(
+      boundedCreate.indexOf("self.health.mark_unhealthy()")
+    );
+    expect(boundedCreate).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
   });
 });

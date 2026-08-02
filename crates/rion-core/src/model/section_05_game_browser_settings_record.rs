@@ -566,6 +566,9 @@ pub struct BrowserPerformanceDiagnosticsRecord {
 pub struct ApplicationDiagnosticsSnapshotRecord {
     pub application_name: String,
     pub application_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub build_commit: Option<String>,
     pub packaged: bool,
     pub engine: ResolvedBrowserEngine,
     pub engine_version: String,

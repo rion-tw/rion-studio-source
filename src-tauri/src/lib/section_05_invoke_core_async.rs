@@ -150,6 +150,7 @@ async fn export_diagnostics(
             "snapshot": {
                 "applicationName": app.package_info().name,
                 "applicationVersion": app.package_info().version.to_string(),
+                "buildCommit": option_env!("RION_STUDIO_BUILD_COMMIT").unwrap_or("unknown"),
                 "packaged": !cfg!(debug_assertions),
                 "engine": versions["engine"].clone(),
                 "engineVersion": versions["engineVersion"].clone(),

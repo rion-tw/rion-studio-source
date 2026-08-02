@@ -398,6 +398,7 @@
         assert!(is_surface_close_effect(
             &CoreEffectAction::EmbeddedDestroyTab {
                 tab_id: "tab-a".to_owned(),
+                attempt_generation: None,
                 next_active_tab_id: None
             }
         ));

@@ -1,8 +1,47 @@
+fn git_output(args: &[&str]) -> Option<String> {
+    std::process::Command::new("git")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn is_full_git_commit(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn main() {
+    println!("cargo:rerun-if-env-changed=RION_STUDIO_BUILD_COMMIT");
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_ENDPOINT");
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
     println!("cargo:rerun-if-changed=windows-test-manifest.rc");
+    if let Some(git_head_path) = git_output(&["rev-parse", "--git-path", "HEAD"]) {
+        println!("cargo:rerun-if-changed={git_head_path}");
+    }
+    if let Some(git_reference) = git_output(&["symbolic-ref", "-q", "HEAD"])
+        && let Some(git_reference_path) =
+            git_output(&["rev-parse", "--git-path", git_reference.as_str()])
+    {
+        println!("cargo:rerun-if-changed={git_reference_path}");
+    }
+    let build_commit = std::env::var("RION_STUDIO_BUILD_COMMIT")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| git_output(&["rev-parse", "HEAD"]))
+        .filter(|value| is_full_git_commit(value))
+        .unwrap_or_else(|| {
+            if std::env::var("PROFILE").as_deref() == Ok("release") {
+                panic!(
+                    "release builds require a full Git commit in RION_STUDIO_BUILD_COMMIT or the checkout metadata"
+                );
+            }
+            "unknown".to_owned()
+        });
+    println!("cargo:rustc-env=RION_STUDIO_BUILD_COMMIT={build_commit}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         embed_resource::compile_for_everything("windows-test-manifest.rc", embed_resource::NONE)
             .manifest_required()

@@ -92,3 +92,23 @@ fn conditional_tab_activation_noops_after_the_tab_moves_to_another_window() {
         core.shutdown();
     }
 }
+
+#[test]
+fn runtime_projection_rejects_transient_invalid_role_membership() {
+    let tab_id = uuid::Uuid::new_v4().to_string();
+    let tab = GameWindowTabRecord {
+        id: tab_id,
+        tab_type: "role".to_owned(),
+        source_id: "role-source".to_owned(),
+        name: "Role".to_owned(),
+        role_ids: vec!["role-source".to_owned(), "role-stale".to_owned()],
+        hidden: false,
+        audio_muted: false,
+        role_views: Vec::new(),
+    };
+    assert!(!runtime_game_window_tab_is_valid(&tab));
+    assert!(runtime_game_window_tab_is_valid(&GameWindowTabRecord {
+        role_ids: vec!["role-source".to_owned()],
+        ..tab
+    }));
+}

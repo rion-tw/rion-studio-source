@@ -93,3 +93,20 @@ impl AppCore {
         Ok(snapshot)
     }
 }
+
+fn runtime_game_window_tab_is_valid(tab: &GameWindowTabRecord) -> bool {
+    uuid::Uuid::parse_str(tab.id.trim()).is_ok()
+        && matches!(tab.tab_type.as_str(), "role" | "workspace")
+        && !tab.source_id.trim().is_empty()
+        && tab.source_id.len() <= 128
+        && (tab.tab_type != "role" || tab.role_ids == [tab.source_id.clone()])
+        && tab.role_ids.iter().all(|role_id| {
+            !role_id.trim().is_empty() && role_id.len() <= 128
+        })
+        && tab
+            .role_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            == tab.role_ids.len()
+}

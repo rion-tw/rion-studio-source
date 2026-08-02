@@ -24,6 +24,7 @@ include!("system_runtime/section_18_apply.rs");
 include!("system_runtime/section_18_input_diagnostics.rs");
 include!("system_runtime/section_19_webview_builder.rs");
 include!("system_runtime/section_20_verify_role_authentication.rs");
+include!("system_runtime/section_20_local_storage_sync_cache.rs");
 include!("system_runtime/section_21_refresh_local_storage_sync_metadata.rs");
 include!("system_runtime/section_22_with_native_creation_lane.rs");
 include!("system_runtime/section_23_create_tab.rs");

@@ -111,6 +111,15 @@ fn capture_presentation_event(
             context.insert("nativeCode".to_owned(), Value::String(native_code));
         }
     }
+    if let Some(error) = error.as_ref()
+        && let Some(context) = context.as_object_mut()
+        && error.name != "CORE_OPERATION_COMPENSATION_FAILED"
+    {
+        context.insert(
+            "rootCauseCode".to_owned(),
+            Value::String(error.name.clone()),
+        );
+    }
     tauri::async_runtime::spawn(async move {
         let _ = core
             .invoke_async(CoreCommand::LogsCapture {
@@ -142,6 +151,10 @@ fn current_runtime_platform() -> &'static str {
     } else {
         "other"
     }
+}
+
+fn native_creation_limit(platform: &str) -> usize {
+    if platform == "windows" { 1 } else { 2 }
 }
 
 fn automatic_role_setup_retry_allowed(

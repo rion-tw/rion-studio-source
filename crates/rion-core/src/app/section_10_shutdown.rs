@@ -81,6 +81,7 @@ impl AppCore {
         let diagnostics = json!({
             "generatedAt": captured_at.to_rfc3339(),
             "application": {
+                "buildCommit": snapshot.build_commit,
                 "name": snapshot.application_name,
                 "version": snapshot.application_version,
                 "packaged": snapshot.packaged,
@@ -346,6 +347,7 @@ fn effect_step(
             },
             action,
             timeout,
+            compensate_on_rejected_result: true,
         },
         compensation: compensation.map(|action| crate::operation_actor::OperationEffect {
             target: CoreEffectTarget {
@@ -354,6 +356,7 @@ fn effect_step(
             },
             action,
             timeout: Duration::from_secs(15),
+            compensate_on_rejected_result: true,
         }),
     }
 }

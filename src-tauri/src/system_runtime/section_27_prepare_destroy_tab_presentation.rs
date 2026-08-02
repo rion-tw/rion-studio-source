@@ -143,42 +143,22 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
-        let applied = self
-            .presentation
-            .actor(&window_id)
-            .ok()
-            .is_some_and(|actor| actor.wait_until_applied(revision, Duration::from_secs(1)));
-        if applied {
-            self.record_close_preflight_event(
-                true,
-                &window_id,
-                tab_id,
-                waited_tab_id.as_deref(),
-                revision,
-                preflight_mode,
-                focus,
-                started.elapsed(),
-                None,
-            );
-            Ok(())
-        } else {
-            let error = RuntimeError::new(
-                "TAURI_RUNTIME_VISIBILITY_FAILED",
-                "The pre-close native presentation did not settle within one second.",
-            );
-            self.record_close_preflight_event(
-                false,
-                &window_id,
-                tab_id,
-                waited_tab_id.as_deref(),
-                revision,
-                preflight_mode,
-                focus,
-                started.elapsed(),
-                Some(&error),
-            );
-            Err(error)
-        }
+        // Native presentation is a latest-only queue. Waiting here serializes every close
+        // behind the UI thread and turns a close burst into one second per tab. Teardown is
+        // already fenced by exact surface identity, so queue the latest successor and let the
+        // presentation actor coalesce stale revisions while cleanup continues.
+        self.record_close_preflight_event(
+            true,
+            &window_id,
+            tab_id,
+            waited_tab_id.as_deref(),
+            revision,
+            preflight_mode,
+            focus,
+            started.elapsed(),
+            None,
+        );
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -219,12 +199,12 @@ impl SystemRuntimeExecutor {
                         },
                         source: LogSource::Browser,
                         event: if applied {
-                            "tab.close-successor-preflight-completed".to_owned()
+                            "tab.close-successor-preflight-scheduled".to_owned()
                         } else {
                             "tab.close-successor-preflight-failed".to_owned()
                         },
                         message: if applied {
-                            "The close successor presentation settled before native teardown."
+                            "The close successor presentation was queued before native teardown."
                                 .to_owned()
                         } else {
                             "The close successor could not be presented before native teardown."

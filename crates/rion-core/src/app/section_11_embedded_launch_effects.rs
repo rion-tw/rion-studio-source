@@ -1,9 +1,11 @@
 fn embedded_launch_effects(
     tab_id: &str,
-    tab: EmbeddedTabEffectRecord,
+    mut tab: EmbeddedTabEffectRecord,
     roles: &[StateRoleRecord],
     _runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
 ) -> Vec<crate::operation_actor::OperationStep> {
+    let attempt_generation = uuid::Uuid::new_v4().to_string();
+    tab.attempt_generation = Some(attempt_generation.clone());
     let zoom_factors = tab
         .roles
         .iter()
@@ -14,15 +16,24 @@ fn embedded_launch_effects(
         .iter()
         .map(|role| (role.role.id.clone(), role.resolved_engine))
         .collect::<std::collections::HashMap<_, _>>();
-    let mut steps = vec![effect_step(
+    let mut create_step = effect_step(
         tab_id,
         CoreEffectAction::EmbeddedCreateTab { tab: Box::new(tab) },
-        Duration::from_secs(15),
+        // Native creation owns its own bounded callbacks and verified cleanup. Keep the Core
+        // deadline above a multi-role Windows setup so the actor never abandons a still-running
+        // create transaction and races it with destroy compensation.
+        Duration::from_secs(120),
         Some(CoreEffectAction::EmbeddedDestroyTab {
             tab_id: tab_id.to_owned(),
+            attempt_generation: Some(attempt_generation),
             next_active_tab_id: None,
         }),
-    )];
+    );
+    // A failed create transaction performs and verifies its own cleanup. Register native
+    // destroy only after the create acknowledgement commits, so a provisional or never-created
+    // tab cannot be destroyed by operation compensation.
+    create_step.effect.compensate_on_rejected_result = false;
+    let mut steps = vec![create_step];
     steps.push(effect_step(
         tab_id,
         CoreEffectAction::EmbeddedLoadRoles {

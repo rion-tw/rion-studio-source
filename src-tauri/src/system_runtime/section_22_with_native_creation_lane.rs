@@ -563,6 +563,11 @@ impl SystemRuntimeExecutor {
                 "{}:{}",
                 provisional.tab_type, provisional.source_id
             ));
+            state
+                .completed_failed_launch_cleanups
+                .retain(|(tab_id, _)| tab_id != &provisional.id);
+            state.retryable_failed_launches.remove(&provisional.id);
+            state.launch_attempt_generations.remove(&provisional.id);
         }
         let mut next_tab_id = None;
         if let Some(presentation) = self.presentation.existing(&provisional.window_id)

@@ -132,7 +132,9 @@ impl SystemRuntimeExecutor {
             input_dispatch_lanes: Mutex::new(HashMap::new()),
             local_storage_sync_lane: Mutex::new(()),
             native_creation_lanes: Mutex::new(HashMap::new()),
-            native_creation_slots: NativeCreationGate::new(2),
+            native_creation_slots: NativeCreationGate::new(native_creation_limit(
+                current_runtime_platform(),
+            )),
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
             prewarm_state: AtomicU8::new(0),

@@ -4,4 +4,4 @@ import type { BrowserProxyDiagnosticsRecord } from "./BrowserProxyDiagnosticsRec
 import type { DiagnosticDisplayRecord } from "./DiagnosticDisplayRecord";
 import type { ResolvedBrowserEngine } from "./ResolvedBrowserEngine";
 
-export type ApplicationDiagnosticsSnapshotRecord = { applicationName: string, applicationVersion: string, packaged: boolean, engine: ResolvedBrowserEngine, engineVersion: string, shell: string, shellVersion: string, locale: string, systemVersion: string, displays: Array<DiagnosticDisplayRecord>, gpuFeatureStatusRawJson: string, gpuInfoRawJson?: string, browserPerformance?: BrowserPerformanceDiagnosticsRecord, browserProxy?: BrowserProxyDiagnosticsRecord, };
+export type ApplicationDiagnosticsSnapshotRecord = { applicationName: string, applicationVersion: string, buildCommit?: string, packaged: boolean, engine: ResolvedBrowserEngine, engineVersion: string, shell: string, shellVersion: string, locale: string, systemVersion: string, displays: Array<DiagnosticDisplayRecord>, gpuFeatureStatusRawJson: string, gpuInfoRawJson?: string, browserPerformance?: BrowserPerformanceDiagnosticsRecord, browserProxy?: BrowserProxyDiagnosticsRecord, };

@@ -216,11 +216,29 @@ fn runtime_host_should_receive_window_focus(focus_requested: bool, has_active_ta
     focus_requested && !has_active_tab
 }
 
-fn consume_completed_failed_launch_cleanup(state: &mut RuntimeState, tab_id: &str) -> bool {
-    state
-        .completed_failed_launch_cleanups
-        .remove(tab_id)
-        .is_some()
+fn failed_launch_cleanup_has_completed(
+    state: &RuntimeState,
+    tab_id: &str,
+    attempt_generation: Option<&str>,
+) -> bool {
+    attempt_generation.is_some_and(|generation| {
+        state
+            .completed_failed_launch_cleanups
+            .contains(&(tab_id.to_owned(), generation.to_owned()))
+    })
+}
+
+fn launch_attempt_is_current(
+    state: &RuntimeState,
+    tab_id: &str,
+    attempt_generation: Option<&str>,
+) -> bool {
+    attempt_generation.is_none_or(|generation| {
+        state
+            .launch_attempt_generations
+            .get(tab_id)
+            .is_some_and(|current| current == generation)
+    })
 }
 
 fn log_error_details(code: &str, message: &str) -> LogErrorDetails {

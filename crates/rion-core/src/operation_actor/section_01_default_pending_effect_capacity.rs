@@ -30,6 +30,7 @@ pub struct OperationEffect {
     pub target: CoreEffectTarget,
     pub action: CoreEffectAction,
     pub timeout: Duration,
+    pub compensate_on_rejected_result: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -406,6 +407,7 @@ fn run_operation(
             });
             break;
         }
+        let compensate_on_rejected_result = step.effect.compensate_on_rejected_result;
         match execute_effect(&runtime, Arc::clone(&actor), &operation_id, step.effect) {
             Ok(result) if result.ok => {
                 results.push(result);
@@ -414,7 +416,9 @@ fn run_operation(
                 }
             }
             Ok(result) => {
-                if let Some(compensation) = step.compensation {
+                if compensate_on_rejected_result
+                    && let Some(compensation) = step.compensation
+                {
                     compensations.push(compensation);
                 }
                 failure = result.error.clone().or_else(|| {
@@ -427,6 +431,8 @@ fn run_operation(
                 break;
             }
             Err(error) => {
+                // A transport timeout has indeterminate commit status, so retain the
+                // compensation even for effects that explicitly rejected their own result.
                 if let Some(compensation) = step.compensation {
                     compensations.push(compensation);
                 }

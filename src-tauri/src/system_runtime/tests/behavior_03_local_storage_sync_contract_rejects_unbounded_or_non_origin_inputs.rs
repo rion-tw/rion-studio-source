@@ -340,6 +340,34 @@
     }
 
     #[test]
+    fn windows_serializes_native_creation_while_macos_keeps_two_slots() {
+        assert_eq!(native_creation_limit("windows"), 1);
+        assert_eq!(native_creation_limit("macos"), 2);
+
+        let gate = Arc::new(NativeCreationGate::new(native_creation_limit("windows")));
+        let active = Arc::new(AtomicU64::new(0));
+        let maximum = Arc::new(AtomicU64::new(0));
+        let roles = (0..29)
+            .map(|_| {
+                let gate = Arc::clone(&gate);
+                let active = Arc::clone(&active);
+                let maximum = Arc::clone(&maximum);
+                std::thread::spawn(move || {
+                    let _permit = gate.acquire().unwrap();
+                    let current = active.fetch_add(1, Ordering::AcqRel) + 1;
+                    maximum.fetch_max(current, Ordering::AcqRel);
+                    std::thread::yield_now();
+                    active.fetch_sub(1, Ordering::AcqRel);
+                })
+            })
+            .collect::<Vec<_>>();
+        for role in roles {
+            role.join().unwrap();
+        }
+        assert_eq!(maximum.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
     fn session_transfer_scripts_are_document_start_origin_scoped_and_json_escaped() {
         let entries = vec![rion_core::LocalStorageEntryRecord {
             key: "token\"</script>".to_owned(),
@@ -743,24 +771,4 @@
                 "{platform}: focus={focus_requested}, activeTab={has_active_tab}"
             );
         }
-    }
-
-    #[test]
-    fn failed_launch_cleanup_tombstones_are_consumed_exactly_once() {
-        let mut state = RuntimeState::default();
-        state
-            .completed_failed_launch_cleanups
-            .insert("tab-failed".to_owned(), Instant::now());
-        assert!(consume_completed_failed_launch_cleanup(
-            &mut state,
-            "tab-failed"
-        ));
-        assert!(!consume_completed_failed_launch_cleanup(
-            &mut state,
-            "tab-failed"
-        ));
-        assert!(!consume_completed_failed_launch_cleanup(
-            &mut state,
-            "tab-unknown"
-        ));
     }

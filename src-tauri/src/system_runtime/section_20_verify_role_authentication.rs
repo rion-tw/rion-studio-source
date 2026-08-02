@@ -363,6 +363,29 @@ impl SystemRuntimeExecutor {
                 "The localStorage synchronization lifecycle lane is unavailable.",
             )
         })?;
+        let snapshot = self.capture_local_storage_sync_source_snapshot(
+            source_role_id,
+            source_launch_url,
+            origin,
+            keys,
+            selectors,
+            codec,
+            true,
+        )?;
+        self.persist_local_storage_sync_snapshot(snapshot)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn capture_local_storage_sync_source_snapshot(
+        &self,
+        source_role_id: &str,
+        source_launch_url: &str,
+        origin: &str,
+        keys: &[String],
+        selectors: &[String],
+        codec: Option<&str>,
+        allow_cached_snapshot: bool,
+    ) -> RuntimeResult<PersistedLocalStorageSyncSnapshot> {
         validate_local_storage_sync_contract(origin, keys, selectors, codec)?;
         let live = {
             let state = self.state()?;
@@ -385,7 +408,8 @@ impl SystemRuntimeExecutor {
                 entries,
                 selector_entries,
             }
-        } else if let Ok(snapshot) =
+        } else if allow_cached_snapshot
+            && let Ok(snapshot) =
             self.load_local_storage_sync_snapshot(source_role_id, origin, keys, selectors, codec)
         {
             // A stopped source may still have a native storage write in flight. The
@@ -403,7 +427,9 @@ impl SystemRuntimeExecutor {
             let paths = role_session_paths(&self.user_data_dir, source_role_id)?;
             fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
             let (window, webview, navigation, lifecycle) =
-                self.create_session_transfer_surface(source_role_id, &paths, None)?;
+                self.with_native_creation_lane(source_role_id, || {
+                    self.create_session_transfer_surface(source_role_id, &paths, None)
+                })?;
             let result = (|| {
                 navigation.reset();
                 webview.navigate(launch).map_err(RuntimeError::tauri)?;
@@ -425,10 +451,14 @@ impl SystemRuntimeExecutor {
                         selector_entries,
                     }
                 }
-                (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+                (Err(error), Ok(())) => return Err(error),
+                (_, Err(error)) => {
+                    self.health.mark_unhealthy();
+                    return Err(error);
+                }
             }
         };
-        self.persist_local_storage_sync_snapshot(snapshot)
+        Ok(snapshot)
     }
 
     fn persist_local_storage_sync_snapshot(
@@ -682,6 +712,20 @@ impl SystemRuntimeExecutor {
         config: &LocalStorageRuntimeConfig,
         code: &str,
     ) {
+        let should_record = self.state.lock().ok().is_none_or(|mut state| {
+            let key = (role_id.to_owned(), code.to_owned());
+            if state.local_storage_sync_diagnostics.get(&key) == Some(&config.generation) {
+                false
+            } else {
+                state
+                    .local_storage_sync_diagnostics
+                    .insert(key, config.generation);
+                true
+            }
+        });
+        if !should_record {
+            return;
+        }
         let (level, event, message) = match code {
             "FLYFF_IDENTITY_REPAIRED" => (
                 LogLevel::Info,

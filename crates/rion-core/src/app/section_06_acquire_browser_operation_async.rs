@@ -603,6 +603,7 @@ impl AppCore {
 
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
+            attempt_generation: None,
             source_id: role.id.clone(),
             name: role.name.clone(),
             workspace_id: None,

@@ -16,6 +16,7 @@ use std::sync::mpsc;
             target: target(),
             action,
             timeout: Duration::from_secs(1),
+            compensate_on_rejected_result: true,
         }
     }
 
@@ -176,6 +177,88 @@ use std::sync::mpsc;
         assert_eq!(
             outcome.error.as_ref().map(|error| error.code.as_str()),
             Some("TEST_EFFECT_FAILED")
+        );
+        assert_eq!(outcome.compensation_results.len(), 1);
+        assert!(outcome.compensation_failures.is_empty());
+    }
+
+    #[test]
+    fn does_not_compensate_an_effect_that_never_committed() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start(OperationPlan {
+                steps: vec![OperationStep {
+                    effect: OperationEffect {
+                        compensate_on_rejected_result: false,
+                        ..effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: Some(1.2),
+                        })
+                    },
+                    compensation: Some(effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: Some(1.0),
+                    })),
+                }],
+            })
+            .unwrap();
+        let failed = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor
+            .dispatch_results(vec![failed_result(
+                failed.effect_id,
+                failed.operation_id,
+                "SYSTEM_ROLE_SETUP_TIMEOUT",
+                "setup timed out",
+            )])
+            .unwrap();
+
+        assert!(effects.recv_timeout(Duration::from_millis(25)).is_err());
+        let outcome = handle.outcome.blocking_recv().unwrap();
+        assert_eq!(
+            outcome.error.as_ref().map(|error| error.code.as_str()),
+            Some("SYSTEM_ROLE_SETUP_TIMEOUT")
+        );
+        assert!(outcome.compensation_results.is_empty());
+        assert!(outcome.compensation_failures.is_empty());
+    }
+
+    #[test]
+    fn compensates_an_indeterminate_timeout_even_when_rejection_is_self_cleaning() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start(OperationPlan {
+                steps: vec![OperationStep {
+                    effect: OperationEffect {
+                        timeout: Duration::from_millis(10),
+                        compensate_on_rejected_result: false,
+                        ..effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: Some(1.2),
+                        })
+                    },
+                    compensation: Some(effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: Some(1.0),
+                    })),
+                }],
+            })
+            .unwrap();
+        let _timed_out = effects.recv_timeout(Duration::from_secs(1)).unwrap();
+        let compensation = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor
+            .dispatch_results(vec![success(&compensation)])
+            .unwrap();
+
+        let outcome = handle.outcome.blocking_recv().unwrap();
+        assert_eq!(
+            outcome.error.as_ref().map(|error| error.code.as_str()),
+            Some("CORE_EFFECT_TIMEOUT")
         );
         assert_eq!(outcome.compensation_results.len(), 1);
         assert!(outcome.compensation_failures.is_empty());

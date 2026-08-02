@@ -641,6 +641,9 @@ async function initializeApplication(): Promise<void> {
         await notifyWorkspacesChanged();
       }
     },
+    persistRoleZoom: async (roleId, browserZoomPercent) => {
+      await roleStore.updateRole(roleId, { browserZoomPercent });
+    },
     handleRuntimeTabAction: (runtimeWindow, displayId, action) => {
       dispatchRuntimeTabAction(runtimeWindow, displayId, action);
     },

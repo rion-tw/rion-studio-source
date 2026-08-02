@@ -1288,6 +1288,10 @@ fn build_import_plan(
                     .cover_image_data_url
                     .as_ref()
                     .and(role.cover_image_dominant_color.clone());
+                updated.browser_zoom_percent = crate::domain::normalize_role_zoom_percent(
+                    role.browser_zoom_percent,
+                    updated.browser_zoom_percent,
+                )?;
                 updated.updated_at = timestamp.clone();
                 if role_equivalent(&existing, &updated)? {
                     operations.roles.unchanged += 1;
@@ -1308,6 +1312,10 @@ fn build_import_plan(
                         .cover_image_data_url
                         .as_ref()
                         .and(role.cover_image_dominant_color.clone()),
+                    browser_zoom_percent: crate::domain::normalize_role_zoom_percent(
+                        role.browser_zoom_percent,
+                        100.0,
+                    )?,
                     created_at: timestamp.clone(),
                     updated_at: timestamp.clone(),
                 };
@@ -1894,6 +1902,7 @@ fn portable_role(role: &StateRoleRecord) -> PortableRoleRecord {
         notes: role.notes.clone(),
         cover_image_data_url: role.cover_image_data_url.clone(),
         cover_image_dominant_color: role.cover_image_dominant_color.clone(),
+        browser_zoom_percent: Some(role.browser_zoom_percent),
     }
 }
 

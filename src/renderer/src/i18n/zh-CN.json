@@ -670,6 +670,8 @@
   "roleForm.launchUrl.custom": "自定义",
   "roleForm.launchUrl.customUrl": "自定义网址",
   "roleForm.launchUrl.customPlaceholder": "https://example.com/play",
+  "roleForm.browserZoom": "浏览器缩放",
+  "roleForm.browserZoomDescription": "此角色单独启动时生效。在浏览器窗口内调整的缩放会自动记住，与工作区缩放互不影响。",
   "roleForm.cover": "封面图片",
   "roleForm.coverDescription": "選填，会作为角色卡片背景。",
   "roleForm.coverReplace": "更换",

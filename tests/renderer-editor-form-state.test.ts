@@ -95,6 +95,14 @@ describe("editor form state", () => {
     b.steps[0] = { ...firstStep, code: "F3" };
     expect(areEditorFormsEqual(a, b)).toBe(false);
   });
+
+  it("handles role form browserZoomPercent defaults and copies", () => {
+    const newForm = createNewRoleForm(undefined);
+    expect(newForm.browserZoomPercent).toBe(100);
+
+    const savedForm = createRoleFormState(role({ browserZoomPercent: 150 }));
+    expect(savedForm.browserZoomPercent).toBe(150);
+  });
 });
 
 function role(overrides: Partial<Role> = {}): Role {
@@ -104,6 +112,7 @@ function role(overrides: Partial<Role> = {}): Role {
     name: "Main",
     launchUrl: "https://example.com/game",
     notes: "Ready",
+    browserZoomPercent: 100,
     createdAt: "2026-07-14T00:00:00.000Z",
     updatedAt: "2026-07-14T00:00:00.000Z",
     ...overrides

@@ -2828,6 +2828,7 @@ mod tests {
                 notes: None,
                 cover_image_data_url: None,
                 cover_image_dominant_color: None,
+            browser_zoom_percent: None,
             }),
         )
         .unwrap();

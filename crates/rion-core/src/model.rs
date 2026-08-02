@@ -704,6 +704,9 @@ pub struct PortableRoleRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_dominant_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1038,6 +1041,9 @@ pub struct RoleCreateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub cover_image_dominant_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1062,6 +1068,9 @@ pub struct RoleUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub cover_image_dominant_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1261,6 +1270,9 @@ pub struct RoleCreateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_dominant_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -1289,6 +1301,9 @@ pub struct RoleUpdateInputRecord {
     pub cover_image_dominant_color: Option<String>,
     #[serde(default)]
     pub set_cover_image_dominant_color: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1578,8 +1593,14 @@ pub struct StateRoleRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "string")]
     pub cover_image_dominant_color: Option<String>,
+    #[serde(default = "default_role_browser_zoom_percent")]
+    pub browser_zoom_percent: f64,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn default_role_browser_zoom_percent() -> f64 {
+    100.0
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

@@ -59,4 +59,15 @@ describe("RoleStore Rust adapter", () => {
       { id: second.id }, { id: first.id }
     ]);
   });
+
+  it("persists browserZoomPercent through create and update", async () => {
+    const role = await store.createRole({ gameId: "builtin-flyff-universe", name: "Zoomed", browserZoomPercent: 150 });
+    expect(role.browserZoomPercent).toBe(150);
+
+    const updated = await store.updateRole(role.id, { browserZoomPercent: 90 });
+    expect(updated.browserZoomPercent).toBe(90);
+
+    const fetched = await store.getRole(role.id);
+    expect(fetched.browserZoomPercent).toBe(90);
+  });
 });

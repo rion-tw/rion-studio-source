@@ -25,6 +25,7 @@ const role: Role = {
   name: "Role 1",
   launchUrl: "https://example.com/play",
   notes: "",
+  browserZoomPercent: 100,
   createdAt: "2026-07-24T00:00:00.000Z",
   updatedAt: "2026-07-24T00:00:00.000Z"
 };

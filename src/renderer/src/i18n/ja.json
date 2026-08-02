@@ -670,6 +670,8 @@
   "roleForm.launchUrl.custom": "カスタム",
   "roleForm.launchUrl.customUrl": "カスタムURL",
   "roleForm.launchUrl.customPlaceholder": "https://example.com/play",
+  "roleForm.browserZoom": "ブラウザズーム",
+  "roleForm.browserZoomDescription": "このロールを単独で起動するときに適用されます。ブラウザウィンドウ内で調整したズームは自動的に記憶され、ワークスペースのズームとは別に管理されます。",
   "roleForm.cover": "カバー画像",
   "roleForm.coverDescription": "Optional image used as the role card background.",
   "roleForm.coverReplace": "置換",

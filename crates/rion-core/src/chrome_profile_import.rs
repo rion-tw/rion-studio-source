@@ -262,6 +262,9 @@ impl ChromeProfileImportRuntime {
                         .and_then(|role| role.cover_image_data_url.clone()),
                     cover_image_dominant_color: existing
                         .and_then(|role| role.cover_image_dominant_color.clone()),
+                    browser_zoom_percent: existing
+                        .map(|role| role.browser_zoom_percent)
+                        .unwrap_or(100.0),
                     created_at: existing
                         .map(|role| role.created_at.clone())
                         .unwrap_or_else(|| timestamp.clone()),

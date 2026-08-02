@@ -62,6 +62,7 @@ describe("Chrome profile import flow", () => {
     const importResult = {
       roles: [{
         browserSessionSource: "chrome-profile" as const,
+        browserZoomPercent: 100,
         createdAt: "2026-07-10T00:00:00.000Z",
         gameId: game.id,
         id: "role-1",

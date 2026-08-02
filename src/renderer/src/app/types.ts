@@ -20,6 +20,7 @@ export interface RoleFormState {
   notes: string;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
+  browserZoomPercent: number;
 }
 
 export interface WorkspaceFormState {

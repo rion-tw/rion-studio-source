@@ -22,6 +22,14 @@ use crate::{
 
 const ACTION_QUEUE_CAPACITY: usize = 128;
 const EFFECT_OPERATION_PREFIX: &str = "browser-action:";
+/// Upper bound on concurrently in-flight foreground action batches.
+///
+/// Foreground batches are spawned onto the IO runtime so that a slow CDP
+/// round-trip for one batch does not block every subsequent batch (which
+/// previously caused the macro runtime 10 s action timeout to fire when
+/// multiple roles cycled keys rapidly).  The semaphore keeps a ceiling on
+/// resource usage while still allowing healthy parallelism.
+const MAX_CONCURRENT_FOREGROUND_BATCHES: usize = 32;
 
 type EventSink = Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>;
 
@@ -66,6 +74,8 @@ impl BrowserActionEffectRuntime {
                 if ready_sender.send(Ok(())).is_err() {
                     return;
                 }
+                let foreground_semaphore =
+                    Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_FOREGROUND_BATCHES));
                 loop {
                     crossbeam_channel::select! {
                         recv(control_receiver) -> _ => break,
@@ -75,14 +85,26 @@ impl BrowserActionEffectRuntime {
                                 .into_iter()
                                 .partition(|action| action.origin == "external_health");
                             if !foreground_actions.is_empty() {
-                                dispatch_batch(
-                                    foreground_actions,
-                                    &events,
-                                    &external,
-                                    &health,
-                                    &macros,
-                                    &io_runtime,
-                                );
+                                let events = Arc::clone(&events);
+                                let external = Arc::clone(&external);
+                                let health = Arc::clone(&health);
+                                let macros = Arc::clone(&macros);
+                                let semaphore = Arc::clone(&foreground_semaphore);
+                                io_runtime.spawn(async move {
+                                    // Acquire a permit so we never accumulate
+                                    // unbounded in-flight batches.  If all
+                                    // permits are taken the batch waits here
+                                    // (cheap async wait) instead of blocking
+                                    // the dispatch thread.
+                                    let _permit = semaphore.acquire_owned().await;
+                                    dispatch_batch_async(
+                                        foreground_actions,
+                                        &events,
+                                        &external,
+                                        &health,
+                                        &macros,
+                                    ).await;
+                                });
                             }
                             if !health_actions.is_empty() {
                                 let events = Arc::clone(&events);
@@ -162,6 +184,7 @@ pub fn result_as_browser_action(result: CoreEffectResult) -> Option<BrowserActio
     })
 }
 
+#[cfg(test)]
 fn dispatch_batch(
     batch: Vec<BrowserActionRequest>,
     events: &EventSink,
@@ -419,6 +442,95 @@ mod tests {
                 if effects.iter().any(|effect| effect.effect_id == "macro")
         )));
         assert!(!external_responded.load(Ordering::Acquire));
+
+        runtime.shutdown();
+        health.lock().unwrap().shutdown();
+        external.shutdown();
+    }
+
+    #[test]
+    fn concurrent_foreground_batches_do_not_block_each_other() {
+        // Two external roles with slow CDP responses.  With the old
+        // sequential dispatch the second batch would wait for the first
+        // to finish; with concurrent spawn both complete in roughly the
+        // same wall-clock time as a single batch.
+        let first_responded = Arc::new(AtomicBool::new(false));
+        let second_responded = Arc::new(AtomicBool::new(false));
+        let external = Arc::new(ExternalAutomationRuntime::new("win32".to_owned()));
+        external
+            .register(
+                "role-a".to_owned(),
+                Arc::new(crate::ExternalChromeCdpSession::test_session(
+                    Duration::from_millis(200),
+                    Arc::clone(&first_responded),
+                )),
+            )
+            .unwrap();
+        external
+            .register(
+                "role-b".to_owned(),
+                Arc::new(crate::ExternalChromeCdpSession::test_session(
+                    Duration::from_millis(200),
+                    Arc::clone(&second_responded),
+                )),
+            )
+            .unwrap();
+        let health = Arc::new(Mutex::new(
+            ExternalHealthRuntime::new(Arc::new(|_| {})).unwrap(),
+        ));
+        let macros = Arc::new(MacroRuntime::new(Arc::new(|_| {})));
+        let (action_sender, action_receiver) = action_queue();
+        let runtime = BrowserActionEffectRuntime::start(
+            action_receiver,
+            Arc::new(|_| {}),
+            Arc::clone(&external),
+            Arc::clone(&health),
+            Arc::clone(&macros),
+        )
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        action_sender
+            .send(vec![BrowserActionRequest {
+                request_id: "a".to_owned(),
+                role_id: "role-a".to_owned(),
+                origin: "macro".to_owned(),
+                scheduled_at_ms: 0,
+                deadline_ms: u64::MAX,
+                action: BrowserAction::Focus,
+            }])
+            .unwrap();
+        action_sender
+            .send(vec![BrowserActionRequest {
+                request_id: "b".to_owned(),
+                role_id: "role-b".to_owned(),
+                origin: "macro".to_owned(),
+                scheduled_at_ms: 0,
+                deadline_ms: u64::MAX,
+                action: BrowserAction::Focus,
+            }])
+            .unwrap();
+
+        // Wait for both to respond.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !(first_responded.load(Ordering::Acquire)
+            && second_responded.load(Ordering::Acquire))
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "concurrent batches did not complete in time"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // If batches were sequential this would take >= 400 ms.  With
+        // concurrency it should be ~200 ms.  Allow generous slack for CI.
+        crate::v1_case!("macro-concurrent-batches", {
+            assert!(
+                start.elapsed() < Duration::from_millis(380),
+                "batches appear to run sequentially: {:?}",
+                start.elapsed()
+            );
+        });
 
         runtime.shutdown();
         health.lock().unwrap().shutdown();

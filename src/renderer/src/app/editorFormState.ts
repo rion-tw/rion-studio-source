@@ -14,7 +14,8 @@ export function createNewRoleForm(game?: Game): RoleFormState {
     gameId: game?.id ?? "",
     name: "",
     launchUrl: game?.defaultLaunchUrl ?? DEFAULT_LAUNCH_URL,
-    notes: ""
+    notes: "",
+    browserZoomPercent: 100
   };
 }
 
@@ -26,7 +27,8 @@ export function createRoleFormState(role: Role): RoleFormState {
     launchUrl: role.launchUrl,
     notes: role.notes,
     coverImageDataUrl: role.coverImageDataUrl,
-    coverImageDominantColor: role.coverImageDominantColor
+    coverImageDominantColor: role.coverImageDominantColor,
+    browserZoomPercent: role.browserZoomPercent
   };
 }
 

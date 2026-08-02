@@ -164,6 +164,28 @@ impl SystemRuntimeExecutor {
             if !failure.rollback_errors.is_empty() {
                 self.health.mark_unhealthy();
             }
+            self.record_local_storage_sync_failure(
+                "metadataRefresh",
+                "metadataApply",
+                "LOCAL_STORAGE_SYNC_METADATA_REFRESH_FAILED",
+                None,
+                None,
+                None,
+                0,
+                false,
+            );
+            if !failure.rollback_errors.is_empty() {
+                self.record_local_storage_sync_failure(
+                    "metadataRefresh",
+                    "metadataRollback",
+                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+                    None,
+                    None,
+                    None,
+                    failure.rollback_errors.len(),
+                    false,
+                );
+            }
             return Err(reversible_fanout_runtime_error(
                 "LOCAL_STORAGE_SYNC_METADATA_REFRESH_FAILED",
                 "Refreshing localStorage synchronization metadata",
@@ -188,8 +210,28 @@ impl SystemRuntimeExecutor {
             let rollback_errors = rollback_reversible_fanout(&updates, |_, update| {
                 evaluate_local_storage_metadata_scripts(&update.webview, &update.rollback_scripts)
             });
+            self.record_local_storage_sync_failure(
+                "metadataRefresh",
+                "metadataCommit",
+                "LOCAL_STORAGE_SYNC_METADATA_STALE",
+                None,
+                None,
+                None,
+                0,
+                false,
+            );
             if !rollback_errors.is_empty() {
                 self.health.mark_unhealthy();
+                self.record_local_storage_sync_failure(
+                    "metadataRefresh",
+                    "metadataRollback",
+                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+                    None,
+                    None,
+                    None,
+                    rollback_errors.len(),
+                    false,
+                );
             }
             return Err(if rollback_errors.is_empty() {
                 "Runtime roles changed before localStorage synchronization metadata could be committed."
@@ -276,8 +318,32 @@ impl SystemRuntimeExecutor {
                 .map(|selector| (selector.clone(), None))
                 .collect(),
         };
-        self.persist_local_storage_sync_snapshot(snapshot.clone())?;
+        self.persist_local_storage_sync_snapshot(snapshot.clone())
+            .inspect_err(|error| {
+                self.record_local_storage_sync_failure(
+                    "sourceClear",
+                    "snapshotPersist",
+                    error.code,
+                    Some(source_role_id),
+                    None,
+                    None,
+                    0,
+                    false,
+                );
+            })?;
         self.apply_local_storage_sync_to_running_dependents(source_role_id, &snapshot)
+            .inspect_err(|error| {
+                self.record_local_storage_sync_failure(
+                    "sourceClear",
+                    "dependentFanout",
+                    error.code,
+                    Some(source_role_id),
+                    None,
+                    None,
+                    0,
+                    false,
+                );
+            })
     }
 
     fn resolve_runtime_layout(

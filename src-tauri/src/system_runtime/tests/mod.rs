@@ -10,3 +10,4 @@ include!("behavior_07_windows_reparent_sync_uses_one_bounded_deadline.rs");
 include!("behavior_08_flyff_local_storage_sync_preserves_identity.rs");
 include!("behavior_09_flyff_china_local_storage_sync_preserves_identity.rs");
 include!("behavior_10_failed_launch_cleanup_and_sync_cache_recovery.rs");
+include!("behavior_11_runtime_diagnostics_are_bounded_and_classified.rs");

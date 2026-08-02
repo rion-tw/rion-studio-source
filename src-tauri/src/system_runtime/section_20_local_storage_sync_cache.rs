@@ -1,6 +1,8 @@
 impl SystemRuntimeExecutor {
+    #[allow(clippy::too_many_arguments)]
     fn load_or_rebuild_local_storage_sync_snapshot(
         &self,
+        dependent_role_id: &str,
         source_role_id: &str,
         source_launch_url: &str,
         origin: &str,
@@ -38,11 +40,47 @@ impl SystemRuntimeExecutor {
                     selectors,
                     codec,
                     false,
-                )?;
-                self.persist_local_storage_sync_snapshot(snapshot.clone())?;
+                )
+                .inspect_err(|error| {
+                    self.record_local_storage_sync_failure(
+                        "dependentLaunch",
+                        "cacheRebuildCapture",
+                        error.code,
+                        Some(dependent_role_id),
+                        Some(source_role_id),
+                        None,
+                        0,
+                        false,
+                    );
+                })?;
+                self.persist_local_storage_sync_snapshot(snapshot.clone())
+                    .inspect_err(|error| {
+                        self.record_local_storage_sync_failure(
+                            "dependentLaunch",
+                            "cachePersist",
+                            error.code,
+                            Some(dependent_role_id),
+                            Some(source_role_id),
+                            None,
+                            0,
+                            false,
+                        );
+                    })?;
                 Ok(snapshot)
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                self.record_local_storage_sync_failure(
+                    "dependentLaunch",
+                    "cacheLoad",
+                    error.code,
+                    Some(dependent_role_id),
+                    Some(source_role_id),
+                    None,
+                    0,
+                    false,
+                );
+                Err(error)
+            }
         }
     }
 

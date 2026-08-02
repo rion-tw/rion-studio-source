@@ -121,6 +121,7 @@ impl SystemRuntimeExecutor {
             core,
             critical_activity_sequence: AtomicU64::new(0),
             effect_sender: OnceLock::new(),
+            diagnostics: Mutex::new(RuntimeDiagnosticsState::default()),
             health: RuntimeHealth::new(),
             language: Mutex::new("en".to_owned()),
             resolved_theme: Mutex::new("light".to_owned()),

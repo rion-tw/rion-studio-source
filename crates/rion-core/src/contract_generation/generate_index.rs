@@ -66,6 +66,8 @@ fn export_bindings_index() {
                 "export type { DiagnosticDisplayRecord } from \"./DiagnosticDisplayRecord\";\n",
                 "export type { DiagnosticExportResultRecord } from \"./DiagnosticExportResultRecord\";\n",
                 "export type { ApplicationDiagnosticsSnapshotRecord } from \"./ApplicationDiagnosticsSnapshotRecord\";\n",
+                "export type { SystemRuntimeDiagnosticsRecord } from \"./SystemRuntimeDiagnosticsRecord\";\n",
+                "export type { SystemRuntimeFailureRecord } from \"./SystemRuntimeFailureRecord\";\n",
                 "export type { DisplayFingerprintRecord } from \"./DisplayFingerprintRecord\";\n",
                 "export type { DisplayInfoRecord } from \"./DisplayInfoRecord\";\n",
                 "export type { DisplayTargetRecord } from \"./DisplayTargetRecord\";\n",

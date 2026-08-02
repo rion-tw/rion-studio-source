@@ -74,12 +74,26 @@ mod command_tests {
                 "locale": "en",
                 "systemVersion": "macos",
                 "displays": [],
-                "gpuFeatureStatusRawJson": "{}"
+                "gpuFeatureStatusRawJson": "{}",
+                "nativeRuntime": {
+                    "platform": "macos",
+                    "healthy": true,
+                    "snapshotComplete": true,
+                    "collectionErrorCodes": [],
+                    "nativeCreationLimit": 2,
+                    "recentFailures": []
+                }
             }
         }))
         .unwrap();
 
         assert!(command.requires_async_dispatch());
+        assert!(matches!(
+            command,
+            CoreCommand::DiagnosticsExport { snapshot, .. }
+                if snapshot.native_runtime.healthy
+                    && snapshot.native_runtime.snapshot_complete
+        ));
     }
 
     #[test]

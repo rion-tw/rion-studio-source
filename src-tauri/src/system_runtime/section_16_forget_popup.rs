@@ -1,6 +1,6 @@
 impl SystemRuntimeExecutor {
     pub(crate) fn forget_popup(&self, window_label: &str) {
-        let (role_id, released_surfaces, role_already_fenced) = {
+        let (role_id, released_surfaces, role_closing, active_epoch) = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
@@ -14,9 +14,17 @@ impl SystemRuntimeExecutor {
                 .map(|surface| (surface.instance_id.clone(), Arc::clone(&surface.lifecycle)))
                 .collect::<Vec<_>>();
             let role_id = state.popup_roles.remove(window_label);
-            let role_already_fenced = role_id.as_ref().is_some_and(|role_id| {
+            let role_closing = role_id.as_ref().is_some_and(|role_id| {
                 state.close_coordinator.closing_roles.contains(role_id)
-                    || state.recovering_roles.contains(role_id)
+                    || state.close_coordinator.quarantined_roles.contains(role_id)
+            });
+            state.navigation_input_fences.remove(window_label);
+            state.last_completed_document_ids.remove(window_label);
+            let active_epoch = role_id.as_ref().and_then(|role_id| {
+                state
+                    .role_input_fences
+                    .get(role_id)
+                    .map(|fence| fence.input_epoch)
             });
             state.audible_webviews.remove(window_label);
             state.overlay_capabilities.remove(window_label);
@@ -24,7 +32,7 @@ impl SystemRuntimeExecutor {
                 .close_coordinator
                 .closing_webviews
                 .remove(window_label);
-            (role_id, released_surfaces, role_already_fenced)
+            (role_id, released_surfaces, role_closing, active_epoch)
         };
         let platform = if cfg!(windows) {
             "windows"
@@ -44,8 +52,10 @@ impl SystemRuntimeExecutor {
         let Some(role_id) = role_id else {
             return;
         };
-        if role_already_fenced {
-            self.discard_role_navigation_input_fences(&role_id);
+        if role_closing {
+            self.discard_role_navigation_input_fences(&role_id, "role-closing");
+        } else if let Some(input_epoch) = active_epoch {
+            self.try_resume_navigation_input(&role_id, input_epoch);
         } else if let Err(error) = self.fence_closed_popup_input(window_label, &role_id) {
             self.emit_navigation_input_error(
                 "SYSTEM_POPUP_INPUT_FENCE_FAILED",
@@ -79,12 +89,41 @@ impl SystemRuntimeExecutor {
                         &role_id,
                         &window_label,
                     );
+                    state.runtime.record_input_fence_event_with_reason(
+                        &role_id,
+                        local_epoch,
+                        "recovery-scheduled",
+                        "popup-close-core-fence-failed",
+                        LogLevel::Warn,
+                    );
+                    if let Some(generation) = state.runtime.surface_generation_for_role(&role_id) {
+                        state.runtime.schedule_surface_recovery(
+                            role_id.clone(),
+                            "popup-close-input-fence-failed".to_owned(),
+                            generation,
+                        );
+                    }
                 }
                 return;
             };
-            let epoch = fenced.input_epoch.max(local_epoch);
             if let Some(state) = app.try_state::<crate::CoreState>() {
-                let _ = state.runtime.set_role_input_fence(&role_id, epoch);
+                if state
+                    .runtime
+                    .install_role_input_fence(&role_id, fenced.input_epoch, "popup-close", None)
+                    .is_err()
+                {
+                    if let Some(generation) = state.runtime.surface_generation_for_role(&role_id) {
+                        state.runtime.schedule_surface_recovery(
+                            role_id.clone(),
+                            "popup-close-native-fence-failed".to_owned(),
+                            generation,
+                        );
+                    }
+                    return;
+                }
+                state
+                    .runtime
+                    .record_input_fence_event(&role_id, fenced.input_epoch, "started");
             }
             let drained = core
                 .invoke_async(CoreCommand::MacroInputDrain {
@@ -95,223 +134,13 @@ impl SystemRuntimeExecutor {
                 .ok()
                 .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
                 .is_some_and(|record| record.current);
-            if !drained {
-                return;
-            }
-            let resumed = core
-                .invoke_async(CoreCommand::MacroInputResume {
-                    role_id: role_id.clone(),
-                    input_epoch: fenced.input_epoch,
-                })
-                .await
-                .ok()
-                .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
-                .is_some_and(|record| record.current);
-            if resumed
-                && let Some(state) = app.try_state::<crate::CoreState>()
-            {
-                let _ = state.runtime.resume_role_input(&role_id, fenced.input_epoch);
+            if drained && let Some(state) = app.try_state::<crate::CoreState>() {
+                state
+                    .runtime
+                    .finish_navigation_input_drain(&role_id, fenced.input_epoch);
             }
         });
         Ok(())
-    }
-
-    fn allow_navigation_after_macro_release(
-        &self,
-        webview_label: &str,
-        role_id: &str,
-        url: &Url,
-    ) -> bool {
-        if !matches!(url.scheme(), "about" | "http" | "https") {
-            return false;
-        }
-        if should_release_macros_for_navigation(url) {
-            let controlled = self.state.lock().is_ok_and(|state| {
-                state.controlled_navigation_webviews.contains(webview_label)
-            });
-            if !controlled
-                && let Err(error) = self.begin_navigation_input_fence(
-                    webview_label,
-                    role_id,
-                    Some(url.as_str()),
-                )
-            {
-                self.emit_navigation_input_error(
-                    "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
-                    &error.message,
-                    role_id,
-                    webview_label,
-                );
-                return false;
-            }
-        }
-        true
-    }
-
-    fn begin_navigation_input_fence(
-        &self,
-        webview_label: &str,
-        role_id: &str,
-        expected_url: Option<&str>,
-    ) -> RuntimeResult<u64> {
-        let epoch = serde_json::from_value::<MacroInputEpochRecord>(
-            self.core
-                .invoke(CoreCommand::MacroInputFence {
-                    role_id: role_id.to_owned(),
-                })
-                .map_err(RuntimeError::core)?,
-        )
-        .map_err(|error| RuntimeError::new("SYSTEM_NAVIGATION_INPUT_FENCE_FAILED", error.to_string()))?
-        .input_epoch;
-        self.set_role_input_fence(role_id, epoch)?;
-        {
-            let mut state = self.state()?;
-            update_navigation_input_fences(
-                &mut state.navigation_input_fences,
-                webview_label,
-                role_id,
-                epoch,
-                expected_url,
-            );
-        }
-        let app = self.app.clone();
-        let core = Arc::clone(&self.core);
-        let role_id = role_id.to_owned();
-        let webview_label = webview_label.to_owned();
-        tauri::async_runtime::spawn(async move {
-            match core
-                .invoke_async(CoreCommand::MacroInputDrain {
-                    role_id: role_id.clone(),
-                    input_epoch: epoch,
-                })
-                .await
-            {
-                Ok(_) => {
-                    if let Some(state) = app.try_state::<crate::CoreState>() {
-                        state.runtime.finish_navigation_input_drain(
-                            &webview_label,
-                            &role_id,
-                            epoch,
-                        );
-                    }
-                }
-                Err(error) => {
-                    if let Some(state) = app.try_state::<crate::CoreState>() {
-                        state.runtime.emit_navigation_input_error(
-                            "SYSTEM_NAVIGATION_INPUT_DRAIN_FAILED",
-                            &error.to_string(),
-                            &role_id,
-                            &webview_label,
-                        );
-                    }
-                }
-            }
-        });
-        Ok(epoch)
-    }
-
-    fn current_navigation_input_epoch(
-        &self,
-        webview_label: &str,
-        role_id: &str,
-    ) -> Option<u64> {
-        self.state.lock().ok().and_then(|state| {
-            state
-                .navigation_input_fences
-                .get(webview_label)
-                .filter(|ticket| ticket.role_id == role_id)
-                .map(|ticket| ticket.input_epoch)
-        })
-    }
-
-    fn finish_navigation_input_drain(
-        &self,
-        webview_label: &str,
-        role_id: &str,
-        input_epoch: u64,
-    ) {
-        let current = self.current_navigation_input_epoch(webview_label, role_id);
-        if current != Some(input_epoch) {
-            return;
-        }
-        if let Ok(mut state) = self.state.lock() {
-            mark_navigation_input_drained(
-                &mut state.navigation_input_fences,
-                role_id,
-                input_epoch,
-            );
-        }
-        self.try_resume_navigation_input(role_id, input_epoch);
-    }
-
-    fn finish_navigation_page(&self, webview_label: &str, url: &Url) {
-        let ticket = self.state.lock().ok().and_then(|mut state| {
-            mark_navigation_page_finished(
-                &mut state.navigation_input_fences,
-                webview_label,
-                url.as_str(),
-            )
-        });
-        if let Some((role_id, input_epoch)) = ticket {
-            self.try_resume_navigation_input(&role_id, input_epoch);
-        }
-    }
-
-    fn try_resume_navigation_input(&self, role_id: &str, input_epoch: u64) {
-        let ready = self.state.lock().is_ok_and(|mut state| {
-            if !navigation_input_is_ready(
-                &state.navigation_input_fences,
-                role_id,
-                input_epoch,
-            ) {
-                return false;
-            }
-            state
-                .navigation_input_fences
-                .retain(|_, ticket| ticket.role_id != role_id);
-            true
-        });
-        if !ready {
-            return;
-        }
-        let resumed = self
-            .core
-            .invoke(CoreCommand::MacroInputResume {
-                role_id: role_id.to_owned(),
-                input_epoch,
-            })
-            .ok()
-            .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
-            .is_some_and(|record| record.current);
-        if resumed {
-            let _ = self.resume_role_input(role_id, input_epoch);
-        }
-    }
-
-    fn emit_navigation_input_error(
-        &self,
-        code: &str,
-        message: &str,
-        role_id: &str,
-        webview_label: &str,
-    ) {
-        let _ = self.app.emit(
-            "rion://shell-error",
-            json!({
-                "code": code,
-                "message": message,
-                "roleId": role_id,
-                "webviewLabel": webview_label
-            }),
-        );
-    }
-
-    fn discard_role_navigation_input_fences(&self, role_id: &str) {
-        if let Ok(mut state) = self.state.lock() {
-            state
-                .navigation_input_fences
-                .retain(|_, ticket| ticket.role_id != role_id);
-        }
     }
 
     #[cfg(windows)]
@@ -411,21 +240,24 @@ impl SystemRuntimeExecutor {
         role_id: String,
         reason: String,
         generation: u64,
-    ) {
+    ) -> bool {
         if !self.health.is_healthy() {
-            return;
+            return false;
         }
         let allowed = {
             let Ok(mut state) = self.state.lock() else {
-                return;
+                return false;
             };
             if state.close_coordinator.closing_roles.contains(&role_id)
                 || state.close_coordinator.quarantined_roles.contains(&role_id)
             {
-                return;
+                return false;
+            }
+            if state.recovering_roles.contains(&role_id) {
+                return true;
             }
             let Some(tab_id) = state.role_tabs.get(&role_id) else {
-                return;
+                return false;
             };
             let Some(surface_generation) = state
                 .tabs
@@ -433,7 +265,7 @@ impl SystemRuntimeExecutor {
                 .and_then(|tab| tab.roles.get(&role_id))
                 .map(|surface| surface.generation)
             else {
-                return;
+                return false;
             };
             if !claim_surface_recovery(
                 surface_generation,
@@ -441,7 +273,7 @@ impl SystemRuntimeExecutor {
                 &mut state.recovering_roles,
                 &role_id,
             ) {
-                return;
+                return false;
             }
             let now = Instant::now();
             let budget = state
@@ -475,6 +307,9 @@ impl SystemRuntimeExecutor {
                     "reason": reason
                 }),
             );
+            false
+        } else {
+            true
         }
     }
 
@@ -509,7 +344,12 @@ impl SystemRuntimeExecutor {
             }
             return;
         };
-        if let Err(error) = self.set_role_input_fence(&role_id, recovery_epoch) {
+        if let Err(error) = self.install_role_input_fence(
+            &role_id,
+            recovery_epoch,
+            "surface-recovery",
+            None,
+        ) {
             self.emit_navigation_input_error(
                 "SYSTEM_SURFACE_RECOVERY_INPUT_FENCE_FAILED",
                 &error.message,
@@ -521,6 +361,7 @@ impl SystemRuntimeExecutor {
             }
             return;
         }
+        self.record_input_fence_event(&role_id, recovery_epoch, "started");
         let drained = self
             .core
             .invoke(CoreCommand::MacroInputDrain {
@@ -542,6 +383,14 @@ impl SystemRuntimeExecutor {
             }
             return;
         }
+        if let Ok(mut state) = self.state.lock()
+            && let Some(fence) = state.role_input_fences.get_mut(&role_id)
+            && fence.input_epoch == recovery_epoch
+        {
+            fence.drained = true;
+            fence.recovery_scheduled = true;
+        }
+        self.record_input_fence_event(&role_id, recovery_epoch, "drained");
         self.clear_role_keys(&role_id);
         let _ = self.core.invoke(CoreCommand::EmbeddedSystemSurfaceFailed {
             role_id: role_id.clone(),
@@ -557,27 +406,42 @@ impl SystemRuntimeExecutor {
         };
         match result {
             Ok(()) => {
+                let replacement_generation = self.surface_generation_for_role(&role_id);
+                if let Ok(mut state) = self.state.lock()
+                    && let Some(fence) = state.role_input_fences.get_mut(&role_id)
+                    && fence.input_epoch == recovery_epoch
+                {
+                    if let Some(generation) = replacement_generation {
+                        fence.surface_generation = generation;
+                    }
+                    fence.drained = true;
+                    fence.recovery_scheduled = false;
+                    fence.reconciling = false;
+                    fence.resuming = false;
+                    state
+                        .navigation_input_fences
+                        .retain(|_, ticket| ticket.role_id != role_id);
+                }
                 let recovered = self
                     .core
                     .invoke(CoreCommand::EmbeddedSystemSurfaceRecovered {
                         role_id: role_id.clone(),
                     })
                     .is_ok();
-                let resumed = recovered
-                    && self
-                        .core
-                        .invoke(CoreCommand::MacroInputResume {
-                            role_id: role_id.clone(),
-                            input_epoch: recovery_epoch,
-                        })
-                        .ok()
-                        .and_then(|value| {
-                            serde_json::from_value::<MacroInputEpochRecord>(value).ok()
-                        })
-                        .is_some_and(|record| record.current);
-                if resumed {
-                    let _ = self.resume_role_input(&role_id, recovery_epoch);
-                } else {
+                if recovered {
+                    self.try_resume_navigation_input(&role_id, recovery_epoch);
+                }
+                let resumed = self.state.lock().ok().is_some_and(|state| {
+                    !state.role_input_fences.contains_key(&role_id)
+                });
+                if !recovered || !resumed {
+                    self.record_input_fence_event_with_reason(
+                        &role_id,
+                        recovery_epoch,
+                        "recovery-failed",
+                        "input-resume-unconfirmed",
+                        LogLevel::Warn,
+                    );
                     self.emit_navigation_input_error(
                         "SYSTEM_SURFACE_RECOVERY_INPUT_RESUME_FAILED",
                         "The recovered page remains visible, but automatic input is disabled until the role restarts.",
@@ -588,6 +452,13 @@ impl SystemRuntimeExecutor {
                 self.publish_projection();
             }
             Err(error) => {
+                self.record_input_fence_event_with_reason(
+                    &role_id,
+                    recovery_epoch,
+                    "recovery-failed",
+                    error.code,
+                    LogLevel::Warn,
+                );
                 let _ = self.app.emit(
                     "rion://shell-error",
                     json!({
@@ -604,75 +475,4 @@ impl SystemRuntimeExecutor {
         }
     }
 
-}
-
-fn update_navigation_input_fences(
-    tickets: &mut HashMap<String, NavigationInputFence>,
-    webview_label: &str,
-    role_id: &str,
-    input_epoch: u64,
-    expected_url: Option<&str>,
-) {
-    for ticket in tickets
-        .values_mut()
-        .filter(|ticket| ticket.role_id == role_id)
-    {
-        ticket.input_epoch = input_epoch;
-        ticket.drained = false;
-    }
-    tickets.insert(
-        webview_label.to_owned(),
-        NavigationInputFence {
-            role_id: role_id.to_owned(),
-            input_epoch,
-            expected_url: expected_url.map(str::to_owned),
-            drained: false,
-            page_finished: false,
-        },
-    );
-}
-
-fn mark_navigation_input_drained(
-    tickets: &mut HashMap<String, NavigationInputFence>,
-    role_id: &str,
-    input_epoch: u64,
-) {
-    for ticket in tickets
-        .values_mut()
-        .filter(|ticket| ticket.role_id == role_id && ticket.input_epoch == input_epoch)
-    {
-        ticket.drained = true;
-    }
-}
-
-fn mark_navigation_page_finished(
-    tickets: &mut HashMap<String, NavigationInputFence>,
-    webview_label: &str,
-    url: &str,
-) -> Option<(String, u64)> {
-    let ticket = tickets.get_mut(webview_label)?;
-    if ticket
-        .expected_url
-        .as_deref()
-        .is_some_and(|expected| expected != url)
-    {
-        return None;
-    }
-    ticket.page_finished = true;
-    Some((ticket.role_id.clone(), ticket.input_epoch))
-}
-
-fn navigation_input_is_ready(
-    tickets: &HashMap<String, NavigationInputFence>,
-    role_id: &str,
-    input_epoch: u64,
-) -> bool {
-    let mut role_tickets = tickets
-        .values()
-        .filter(|ticket| ticket.role_id == role_id)
-        .peekable();
-    role_tickets.peek().is_some()
-        && role_tickets.all(|ticket| {
-            ticket.input_epoch == input_epoch && ticket.drained && ticket.page_finished
-        })
 }

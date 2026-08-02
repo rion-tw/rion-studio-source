@@ -3,6 +3,8 @@ export type { BrowserActionRequest } from "./BrowserActionRequest";
 export type { BrowserAction } from "./BrowserAction";
 export type { BrowserActionResult } from "./BrowserActionResult";
 export type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
+export type { MacroInputDiagnosticsRecord } from "./MacroInputDiagnosticsRecord";
+export type { MacroInputRoleDiagnosticRecord } from "./MacroInputRoleDiagnosticRecord";
 export type { BrowserOperationLease } from "./BrowserOperationLease";
 export type { BrowserOperationRequest } from "./BrowserOperationRequest";
 export type { BrowserEngineResolutionRecord } from "./BrowserEngineResolutionRecord";
@@ -57,6 +59,8 @@ export type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecor
 export type { ApplicationDiagnosticsSnapshotRecord } from "./ApplicationDiagnosticsSnapshotRecord";
 export type { SystemRuntimeDiagnosticsRecord } from "./SystemRuntimeDiagnosticsRecord";
 export type { SystemRuntimeFailureRecord } from "./SystemRuntimeFailureRecord";
+export type { SystemRuntimeInputFenceEventRecord } from "./SystemRuntimeInputFenceEventRecord";
+export type { SystemRuntimeInputFenceRecord } from "./SystemRuntimeInputFenceRecord";
 export type { DisplayFingerprintRecord } from "./DisplayFingerprintRecord";
 export type { DisplayInfoRecord } from "./DisplayInfoRecord";
 export type { DisplayTargetRecord } from "./DisplayTargetRecord";

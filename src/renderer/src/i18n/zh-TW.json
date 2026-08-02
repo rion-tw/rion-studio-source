@@ -984,6 +984,8 @@
   "error.portableRoleNameConflict": "同一款遊戲有多個角色使用相同名稱。請先重新命名或移除重複項目，再匯入。",
   "error.portableMacroDependencyInvalid": "匯入的巨集依賴關係無效。",
   "error.macroAlreadyRunning": "此角色已在執行該巨集。",
+  "error.macroRoleStopping": "指派的角色正在停止，暫時無法接收新的輸入。",
+  "error.macroRoleInputFenced": "指派的角色正在重新載入頁面，Rion Studio 正在自動復原輸入。",
   "error.macroNotAssigned": "此巨集未指派給該角色。",
   "error.macroRoleNotRunning": "請先啟動此角色再執行巨集。",
   "error.macroNoRunnableRoles": "請先啟動至少一個指派角色再執行巨集。",

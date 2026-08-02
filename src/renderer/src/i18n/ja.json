@@ -953,6 +953,8 @@
   "error.portableNameConflict": "一意なインポート名を作成できません。",
   "error.portableRoleNameConflict": "同じゲームで複数のロールが同じ名前を使用しています。名前を変更または重複を削除してからインポートしてください。",
   "error.portableMacroDependencyInvalid": "インポートするマクロの依存関係が無効です。", "error.macroAlreadyRunning": "このロールではマクロが既に実行中です。",
+  "error.macroRoleStopping": "割り当てられたロールは停止中のため、新しい入力を受け付けられません。",
+  "error.macroRoleInputFenced": "割り当てられたロールのページを再読み込み中です。Rion Studio が入力を自動復旧しています。",
   "error.macroNotAssigned": "Macro is not assigned to this role.",
   "error.macroRoleNotRunning": "マクロを実行する前にこのロールを起動してください。",
   "error.macroNoRunnableRoles": "マクロを実行する前に、割り当てられたロールを1つ以上起動してください。",

@@ -27,11 +27,12 @@ use rion_core::{
     GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
-    MacroInputEpochRecord,
+    MacroInputDiagnosticsRecord, MacroInputEpochRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
+    SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -146,6 +147,16 @@ const BROWSER_FONTS_RUNTIME_SOURCE: &str =
 const BROWSER_FONTS_REFRESH_SOURCE: &str = "void globalThis.__rionStudioBrowserFonts?.refresh?.()";
 const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
 (() => {
+  if (!Object.prototype.hasOwnProperty.call(globalThis, "__rionStudioDocumentInstanceId")) {
+    const documentId = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    Object.defineProperty(globalThis, "__rionStudioDocumentInstanceId", {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: documentId
+    });
+  }
   Object.defineProperty(globalThis, "__rionSystemWebView", {
     configurable: false,
     enumerable: false,

@@ -1,4 +1,8 @@
 impl AppCore {
+    pub fn macro_input_diagnostics(&self) -> CoreResult<MacroInputDiagnosticsRecord> {
+        self.macro_runtime.input_diagnostics()
+    }
+
     fn release_macro_role(&self, role_id: String) -> CoreResult<Value> {
         self.macro_runtime.release_role(&role_id)?;
         Ok(json!({ "released": true }))

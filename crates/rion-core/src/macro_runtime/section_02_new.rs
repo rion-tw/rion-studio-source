@@ -342,10 +342,35 @@ impl MacroRuntime {
             .lock()
             .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
         let current = inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch;
-        if current && !inner.stopping_role_ids.contains(role_id) {
-            inner.quiesced_role_ids.remove(role_id);
-        }
-        Ok(current)
+        Ok(current
+            && !inner.stopping_role_ids.contains(role_id)
+            && inner.quiesced_role_ids.remove(role_id))
+    }
+
+    pub fn input_diagnostics(&self) -> CoreResult<MacroInputDiagnosticsRecord> {
+        let inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let mut role_ids = inner.input_epochs.keys().cloned().collect::<HashSet<_>>();
+        role_ids.extend(inner.stopping_role_ids.iter().cloned());
+        role_ids.extend(inner.quiesced_role_ids.iter().cloned());
+        let mut roles = role_ids
+            .into_iter()
+            .map(|role_id| MacroInputRoleDiagnosticRecord {
+                input_epoch: inner
+                    .input_epochs
+                    .get(&role_id)
+                    .copied()
+                    .unwrap_or_default(),
+                stopping: inner.stopping_role_ids.contains(&role_id),
+                quiesced: inner.quiesced_role_ids.contains(&role_id),
+                role_id,
+            })
+            .collect::<Vec<_>>();
+        roles.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+        Ok(MacroInputDiagnosticsRecord { roles })
     }
 
     pub fn release_role(&self, role_id: &str) -> CoreResult<()> {
@@ -606,14 +631,22 @@ impl MacroRuntime {
                     message: "The macro is being changed and cannot be started.".to_owned(),
                 });
             }
-            if roles.iter().any(|role_id| {
-                inner.stopping_role_ids.contains(role_id)
-                    || inner.quiesced_role_ids.contains(role_id)
-            })
+            if roles
+                .iter()
+                .any(|role_id| inner.stopping_role_ids.contains(role_id))
             {
                 return Err(CoreError::Domain {
                     code: "MACRO_ROLE_STOPPING",
                     message: STOPPING_ROLE_MESSAGE.to_owned(),
+                });
+            }
+            if roles
+                .iter()
+                .any(|role_id| inner.quiesced_role_ids.contains(role_id))
+            {
+                return Err(CoreError::Domain {
+                    code: "MACRO_ROLE_INPUT_FENCED",
+                    message: INPUT_FENCED_ROLE_MESSAGE.to_owned(),
                 });
             }
             if inner.invocations.len() >= MAX_ACTIVE_INVOCATIONS {

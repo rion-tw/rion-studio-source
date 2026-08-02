@@ -15,8 +15,9 @@ use crate::{
     error::{CoreError, CoreResult},
     model::{
         BrowserAction, BrowserActionRequest, BrowserActionResult, CoreEvent, MacroDefinition,
-        MacroLastClick, MacroPressRequest, MacroReleaseRequest, MacroRepeat, MacroRunStatus,
-        MacroRuntimeSettings, MacroStartRequest, MacroStepDefinition,
+        MacroInputDiagnosticsRecord, MacroInputRoleDiagnosticRecord, MacroLastClick,
+        MacroPressRequest, MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings,
+        MacroStartRequest, MacroStepDefinition,
     },
 };
 
@@ -32,6 +33,8 @@ const DISABLED_MACRO_MESSAGE: &str = "Enable this macro before running it.";
 const UNAVAILABLE_ROLE_MESSAGE: &str = "Launch at least one assigned role before running a macro.";
 const STOPPING_ROLE_MESSAGE: &str =
     "A role assigned to this macro is stopping and cannot accept new input.";
+const INPUT_FENCED_ROLE_MESSAGE: &str =
+    "A role assigned to this macro is reloading and cannot accept new input yet.";
 
 type EventSink = Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>;
 type Waiter = Arc<dyn Fn(&Arc<InvocationControl>, &str, u32) -> Result<(), String> + Send + Sync>;

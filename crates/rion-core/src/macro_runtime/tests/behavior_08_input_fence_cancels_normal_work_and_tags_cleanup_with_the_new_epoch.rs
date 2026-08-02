@@ -49,9 +49,29 @@ fn input_fence_cancels_normal_work_and_tags_cleanup_with_the_new_epoch() {
     assert!(draining.join().unwrap());
 
     let error = runtime.start(request(Vec::new())).unwrap_err();
-    assert_eq!(error.code(), "MACRO_ROLE_STOPPING");
+    assert_eq!(error.code(), "MACRO_ROLE_INPUT_FENCED");
     assert!(runtime.resume_role_input("r1", input_epoch).unwrap());
+    assert!(!runtime.resume_role_input("r1", input_epoch).unwrap());
     assert!(!runtime
+        .shared
+        .inner
+        .lock()
+        .unwrap()
+        .quiesced_role_ids
+        .contains("r1"));
+}
+
+#[test]
+fn stopping_role_cannot_report_a_successful_input_resume() {
+    let runtime = MacroRuntime::new(Arc::new(|_| {}));
+    runtime.request_stop_role("r1").unwrap();
+    let diagnostic = runtime.input_diagnostics().unwrap();
+    let role = diagnostic.roles.first().unwrap();
+
+    assert!(role.stopping);
+    assert!(role.quiesced);
+    assert!(!runtime.resume_role_input("r1", role.input_epoch).unwrap());
+    assert!(runtime
         .shared
         .inner
         .lock()

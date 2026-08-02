@@ -133,10 +133,10 @@ export function useRoleWorkflow({
     }
   }
 
-  async function handleLaunch(roleId: string): Promise<void> {
+  async function handleLaunch(roleId: string): Promise<RoleStatus | undefined> {
     const finishBusy = beginBusy(roleId);
     if (!finishBusy) {
-      return;
+      return undefined;
     }
 
     const reportError = beginErrorOperation();
@@ -147,12 +147,13 @@ export function useRoleWorkflow({
       if (!status) {
         const nextStatuses = await window.rionStudio.listRoleStatuses();
         setStatuses(nextStatuses);
-        return;
+        return nextStatuses.find((item) => item.roleId === roleId);
       }
       setStatuses((current) => mergeStatus(current, status));
       if (status.notice) {
         setNotice?.(status.notice);
       }
+      return status;
     } catch (launchError) {
       reportError(launchError);
       try {
@@ -165,6 +166,7 @@ export function useRoleWorkflow({
       } catch (recoveryError) {
         reportError(recoveryError);
       }
+      return undefined;
     } finally {
       finishBusy();
     }

@@ -5,6 +5,7 @@ export const THEME_STORAGE_KEY = "rion-studio-theme";
 export const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 export const CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY =
   "rion-studio-clear-logs-after-diagnostics-export";
+export const FIRST_RUN_ONBOARDING_STORAGE_KEY = "rion-studio-onboarding-v1";
 
 export const themeModes: ThemeMode[] = ["system", "light", "dark"];
 

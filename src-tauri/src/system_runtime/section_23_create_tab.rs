@@ -1,6 +1,10 @@
 impl SystemRuntimeExecutor {
     fn create_tab(&self, tab: EmbeddedTabEffectRecord) -> RuntimeResult<()> {
         let launch_started = Instant::now();
+        let attempt_generation = tab
+            .attempt_generation
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         if tab
             .roles
             .iter()
@@ -81,6 +85,13 @@ impl SystemRuntimeExecutor {
         let reservation_revision = self.presentation.next_revision();
         {
             let mut state = self.state()?;
+            state
+                .completed_failed_launch_cleanups
+                .retain(|(tab_id, _)| tab_id != &created_tab_id);
+            state.retryable_failed_launches.remove(&created_tab_id);
+            state
+                .launch_attempt_generations
+                .insert(created_tab_id.clone(), attempt_generation.clone());
             state.tabs.insert(
                 created_tab_id.clone(),
                 RuntimeTab {
@@ -272,17 +283,38 @@ impl SystemRuntimeExecutor {
                     builder = builder.initialization_script_for_all_frames(
                         &local_storage_sync_observer_script(config)?,
                     );
-                    if let Some(source_role_id) = config.source_role_id.as_deref() {
-                        let snapshot = self.load_local_storage_sync_snapshot(
-                            source_role_id,
+                    if let Some(source) = role
+                        .local_storage_sync
+                        .as_ref()
+                        .and_then(|sync| sync.source.as_ref())
+                    {
+                        let snapshot = self.load_or_rebuild_local_storage_sync_snapshot(
+                            &source.role_id,
+                            &source.launch_url,
                             &config.origin,
                             &config.keys,
                             &config.selectors,
                             config.codec.as_deref(),
-                        )?;
-                        builder = builder.initialization_script_for_all_frames(
-                            &local_storage_sync_apply_script(&snapshot)?,
                         );
+                        match snapshot {
+                            Ok(snapshot) => {
+                                builder = builder.initialization_script_for_all_frames(
+                                    &local_storage_sync_apply_script(&snapshot)?,
+                                );
+                            }
+                            Err(error)
+                                if local_storage_sync_launch_can_continue_without_snapshot(
+                                    &error,
+                                ) =>
+                            {
+                                self.record_local_storage_sync_cache_rebuild_skipped(
+                                    &role_id,
+                                    &source.role_id,
+                                    &error,
+                                );
+                            }
+                            Err(error) => return Err(error),
+                        }
                     }
                 }
                 // The normalized role rectangle is sufficient for the first frame. Exact gap,
@@ -579,7 +611,12 @@ impl SystemRuntimeExecutor {
                 .as_ref()
                 .err()
                 .and_then(|error| error.diagnostic.clone());
-            if let Some(presentation) = self.presentation.existing(&target.window_id)
+            let attempt_was_current = self.state.lock().ok().is_some_and(|state| {
+                state.launch_attempt_generations.get(&created_tab_id)
+                    == Some(&attempt_generation)
+            });
+            if attempt_was_current
+                && let Some(presentation) = self.presentation.existing(&target.window_id)
                 && let Ok(mut presentation) = presentation.lock()
             {
                 presentation.update_phase(&created_tab_id, TabPresentationPhase::Failed);
@@ -606,23 +643,10 @@ impl SystemRuntimeExecutor {
                             .map(|_| ())
                     }
                 } else {
-                    let close_message = webview.close().err().map(|error| error.to_string());
                     if cfg!(windows) {
-                        Err(RuntimeError::new(
-                            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                            close_message.map_or_else(
-                                || {
-                                    "The failed WebView2 controller closed without a lifecycle tracker, so release could not be verified. Restart Rion Studio before retrying."
-                                        .to_owned()
-                                },
-                                |message| {
-                                    format!(
-                                        "The failed WebView2 controller could not be closed or verified: {message}. Restart Rion Studio before retrying."
-                                    )
-                                },
-                            ),
-                        ))
+                        self.close_untracked_failed_launch_surface_and_wait(&webview, &surface_id)
                     } else {
+                        let _ = webview.close();
                         Ok(())
                     }
                 };
@@ -631,33 +655,41 @@ impl SystemRuntimeExecutor {
                 }
             }
             if let Ok(mut state) = self.state.lock() {
-                state.tabs.remove(&created_tab_id);
-                state.launch_phases.remove(&created_tab_id);
-                state
-                    .role_tabs
-                    .retain(|_, tab_id| tab_id != &created_tab_id);
-                if cleanup_error.is_none() {
+                let attempt_is_current = state
+                    .launch_attempt_generations
+                    .get(&created_tab_id)
+                    == Some(&attempt_generation);
+                if attempt_is_current {
+                    state.tabs.remove(&created_tab_id);
+                    state.launch_phases.remove(&created_tab_id);
+                    state
+                        .role_tabs
+                        .retain(|_, tab_id| tab_id != &created_tab_id);
+                }
+                if cleanup_error.is_none() && attempt_is_current {
                     state
                         .completed_failed_launch_cleanups
-                        .retain(|_, completed_at| {
-                            completed_at.elapsed() <= FAILED_LAUNCH_CLEANUP_RETENTION
-                        });
+                        .insert((created_tab_id.clone(), attempt_generation.clone()));
                     state
-                        .completed_failed_launch_cleanups
-                        .insert(created_tab_id.clone(), Instant::now());
-                } else {
+                        .retryable_failed_launches
+                        .insert(created_tab_id.clone());
+                } else if cleanup_error.is_some() {
                     state.recovery_required = true;
                     state
                         .close_coordinator
                         .quarantined_roles
                         .extend(failed_role_ids);
                 }
-                if let Some(diagnostic) = failed_launch_diagnostic {
+                if attempt_is_current
+                    && let Some(diagnostic) = failed_launch_diagnostic
+                {
                     state
                         .failed_launch_diagnostics
                         .insert(created_tab_id.clone(), diagnostic);
                 }
-                if let Some(preview) = launch_preview.as_ref() {
+                if attempt_is_current
+                    && let Some(preview) = launch_preview.as_ref()
+                {
                     state.provisional_launches.insert(
                         format!("{tab_type}:{}", tab.source_id),
                         ProvisionalLaunch {
@@ -676,7 +708,11 @@ impl SystemRuntimeExecutor {
                 self.health.mark_unhealthy();
                 result = Err(error);
             }
-            if launch_preview.is_none() {
+            let attempt_still_current = self.state.lock().ok().is_some_and(|state| {
+                state.launch_attempt_generations.get(&created_tab_id)
+                    == Some(&attempt_generation)
+            });
+            if launch_preview.is_none() && attempt_still_current {
                 let mut next_tab_id = None;
                 if let Some(presentation) = self.presentation.existing(&target.window_id)
                     && let Ok(mut selection) = presentation.lock()

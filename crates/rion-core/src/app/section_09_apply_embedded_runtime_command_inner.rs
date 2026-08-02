@@ -235,6 +235,7 @@ impl AppCore {
                             .unwrap_or_default(),
                     }
                 })
+                .filter(runtime_game_window_tab_is_valid)
                 .collect::<Vec<_>>();
             let tabs = merge_runtime_tabs_with_saved(
                 &game_window.tabs,
@@ -248,6 +249,7 @@ impl AppCore {
                 .active_tab_id
                 .as_ref()
                 .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
+                .filter(|tab_id| tabs.iter().any(|tab| &tab.id == *tab_id))
                 .cloned()
                 .or_else(|| {
                     game_window

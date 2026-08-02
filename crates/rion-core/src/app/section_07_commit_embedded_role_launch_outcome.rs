@@ -35,6 +35,7 @@ impl AppCore {
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
+                    attempt_generation: None,
                     next_active_tab_id: None,
                 },
                 Duration::from_secs(15),
@@ -302,6 +303,7 @@ impl AppCore {
             .collect::<CoreResult<Vec<_>>>()?;
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
+            attempt_generation: None,
             source_id: workspace.id.clone(),
             name: workspace.name.clone(),
             workspace_id: Some(workspace.id.clone()),
@@ -420,6 +422,7 @@ impl AppCore {
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
+                    attempt_generation: None,
                     next_active_tab_id: None,
                 },
                 Duration::from_secs(15),
@@ -524,6 +527,7 @@ impl AppCore {
                         .insert(tab_id.clone());
                     CoreEffectAction::EmbeddedDestroyTab {
                         tab_id: tab_id.clone(),
+                        attempt_generation: None,
                         next_active_tab_id,
                     }
                 } else {

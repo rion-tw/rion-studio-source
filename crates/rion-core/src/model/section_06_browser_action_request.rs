@@ -201,6 +201,9 @@ pub enum CoreEffectAction {
     EmbeddedDestroyTab {
         tab_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        attempt_generation: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         next_active_tab_id: Option<String>,
     },
     EmbeddedApplyRuntime {
@@ -360,6 +363,9 @@ pub struct EmbeddedRoleLoadEffectRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedTabEffectRecord {
     pub tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub attempt_generation: Option<String>,
     pub source_id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

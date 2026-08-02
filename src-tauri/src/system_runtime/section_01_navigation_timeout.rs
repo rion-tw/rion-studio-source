@@ -64,7 +64,6 @@ const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 const OPTIONAL_HYDRATION_IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
-const FAILED_LAUNCH_CLEANUP_RETENTION: Duration = Duration::from_secs(60);
 const WINDOWS_ROLE_SETUP_RETRY_DELAY: Duration = Duration::from_millis(500);
 const LOCAL_STORAGE_SYNC_MAX_BYTES: usize = 10 * 1024 * 1024;
 #[cfg(target_os = "macos")]

@@ -9,3 +9,4 @@ include!("behavior_06_navigation_input_tickets_require_latest_epoch_drain_and_pa
 include!("behavior_07_windows_reparent_sync_uses_one_bounded_deadline.rs");
 include!("behavior_08_flyff_local_storage_sync_preserves_identity.rs");
 include!("behavior_09_flyff_china_local_storage_sync_preserves_identity.rs");
+include!("behavior_10_failed_launch_cleanup_and_sync_cache_recovery.rs");

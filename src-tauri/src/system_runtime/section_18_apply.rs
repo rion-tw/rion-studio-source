@@ -49,21 +49,37 @@ impl SystemRuntimeExecutor {
             }
             CoreEffectAction::EmbeddedDestroyTab {
                 tab_id,
+                attempt_generation,
                 next_active_tab_id,
             } => {
-                let completed_failed_launch_cleanup = {
+                let (attempt_is_current, completed_failed_launch_cleanup, runtime_tab_exists) = {
                     let mut state = self.state()?;
-                    let completed = consume_completed_failed_launch_cleanup(&mut state, &tab_id);
+                    let attempt_is_current = launch_attempt_is_current(
+                        &state,
+                        &tab_id,
+                        attempt_generation.as_deref(),
+                    );
+                    let completed = failed_launch_cleanup_has_completed(
+                        &state,
+                        &tab_id,
+                        attempt_generation.as_deref(),
+                    );
                     if completed {
                         state.retryable_failed_launches.insert(tab_id.clone());
                     }
-                    completed
+                    (attempt_is_current, completed, state.tabs.contains_key(&tab_id))
                 };
-                if completed_failed_launch_cleanup {
+                if !attempt_is_current || completed_failed_launch_cleanup || !runtime_tab_exists {
                     self.record_presentation_event(
                         LogLevel::Debug,
                         "tab.launch-cleanup-compensation-noop",
-                        "A failed launch had already completed verified native cleanup.",
+                        if !attempt_is_current {
+                            "The destroy request belonged to a stale launch attempt."
+                        } else if completed_failed_launch_cleanup {
+                            "A failed launch had already completed verified native cleanup."
+                        } else {
+                            "The runtime tab was already absent, so native destroy was idempotent."
+                        },
                         "",
                         Some(&tab_id),
                         presentation_revision,
@@ -75,6 +91,9 @@ impl SystemRuntimeExecutor {
                         .prepare_destroy_tab_presentation(&tab_id, next_active_tab_id.as_deref())
                         .ok();
                     self.destroy_tab(&tab_id)?;
+                    if let Ok(mut state) = self.state.lock() {
+                        state.launch_attempt_generations.remove(&tab_id);
+                    }
                 }
                 Ok(None)
             }

@@ -67,6 +67,23 @@ fn local_storage_sync_diagnostic_is_valid(codec: Option<&str>, code: &str) -> bo
     }
 }
 
+fn local_storage_sync_launch_can_continue_without_snapshot(error: &RuntimeError) -> bool {
+    matches!(
+        error.code,
+        "LOCAL_STORAGE_SYNC_CACHE_UNAVAILABLE"
+            | "LOCAL_STORAGE_SYNC_CACHE_INVALID"
+            | "LOCAL_STORAGE_SYNC_CACHE_TOO_LARGE"
+            | "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID"
+            | "LOCAL_STORAGE_SYNC_SNAPSHOT_LOAD_FAILED"
+            | "LOCAL_STORAGE_SYNC_FLYFF_SETTINGS_INVALID"
+            | "LOCAL_STORAGE_SYNC_FLYFF_CHINA_SETTINGS_INVALID"
+            | "SYSTEM_ROLE_SETUP_FAILED"
+            | "SYSTEM_ROLE_SETUP_TIMEOUT"
+            | "SYSTEM_WEBVIEW_CREATION_STALLED"
+            | "TAURI_RUNTIME_FAILED"
+    )
+}
+
 fn validate_local_storage_sync_contract(
     origin: &str,
     keys: &[String],

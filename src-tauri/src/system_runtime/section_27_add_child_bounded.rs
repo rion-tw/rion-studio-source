@@ -59,13 +59,12 @@ impl SystemRuntimeExecutor {
             }
             Err(error) => {
                 self.record_runtime_stage(stage, "failed", started);
-                self.health.mark_unhealthy();
                 let failure_kind = match error {
                     mpsc::RecvTimeoutError::Timeout => "creation-timeout",
                     mpsc::RecvTimeoutError::Disconnected => "creation-worker-disconnected",
                 };
                 let message = format!(
-                    "The System WebView surface {lifecycle_id} did not finish native creation within {}ms. Restart Rion Studio before launching another browser role.",
+                    "The System WebView surface {lifecycle_id} did not finish native creation within {}ms. Its late result will be closed before another attempt uses it.",
                     PLATFORM_CALLBACK_TIMEOUT.as_millis()
                 );
                 let _ = self.app.emit(
@@ -78,6 +77,25 @@ impl SystemRuntimeExecutor {
                         "windowId": window.label()
                     }),
                 );
+                let cleanup = match receiver.recv_timeout(SURFACE_RECLAMATION_TIMEOUT) {
+                    Ok(Ok(stale_webview)) => self
+                        .close_untracked_failed_launch_surface_and_wait(
+                            &stale_webview,
+                            lifecycle_id,
+                        ),
+                    Ok(Err(_)) => Ok(()),
+                    Err(_) => Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "The timed-out native WebView creation did not settle before the cleanup deadline. Restart Rion Studio before retrying.",
+                    )),
+                };
+                let restore =
+                    self.finish_surface_host_initialization(window, restore_parent, lifecycle_id);
+                if let Err(cleanup_error) = cleanup {
+                    self.health.mark_unhealthy();
+                    return Err(cleanup_error);
+                }
+                restore?;
                 Err(RuntimeError::new(
                     "SYSTEM_WEBVIEW_CREATION_STALLED",
                     message,
@@ -143,13 +161,12 @@ impl SystemRuntimeExecutor {
             }
             Err(error) => {
                 self.record_runtime_stage(stage, "failed", started);
-                self.health.mark_unhealthy();
                 let failure_kind = match error {
                     mpsc::RecvTimeoutError::Timeout => "window-creation-timeout",
                     mpsc::RecvTimeoutError::Disconnected => "window-creation-worker-disconnected",
                 };
                 let message = format!(
-                    "The native host window {lifecycle_id} did not finish creation within {}ms. Restart Rion Studio before launching another browser role.",
+                    "The native host window {lifecycle_id} did not finish creation within {}ms. Its late result will be closed before another attempt uses it.",
                     PLATFORM_CALLBACK_TIMEOUT.as_millis()
                 );
                 let _ = self.app.emit(
@@ -161,6 +178,21 @@ impl SystemRuntimeExecutor {
                         "windowId": lifecycle_id
                     }),
                 );
+                let cleanup = match receiver.recv_timeout(SURFACE_RECLAMATION_TIMEOUT) {
+                    Ok(Ok(stale_window)) => self.close_untracked_failed_launch_window_and_wait(
+                        &stale_window,
+                        lifecycle_id,
+                    ),
+                    Ok(Err(_)) => Ok(()),
+                    Err(_) => Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "The timed-out native host window creation did not settle before the cleanup deadline. Restart Rion Studio before retrying.",
+                    )),
+                };
+                if let Err(cleanup_error) = cleanup {
+                    self.health.mark_unhealthy();
+                    return Err(cleanup_error);
+                }
                 Err(RuntimeError::new(
                     "SYSTEM_WEBVIEW_CREATION_STALLED",
                     message,
@@ -188,7 +220,6 @@ impl SystemRuntimeExecutor {
             self.record_runtime_stage(&stage, "started", started);
             if let Err(error) = set_windows_surface_host_initialization_visibility(window, true) {
                 self.record_runtime_stage(stage, "failed", started);
-                self.health.mark_unhealthy();
                 return Err(error);
             }
             self.record_runtime_stage(stage, "completed", started);
@@ -221,7 +252,6 @@ impl SystemRuntimeExecutor {
             self.record_runtime_stage(&stage, "started", started);
             if let Err(error) = set_windows_surface_host_initialization_visibility(window, false) {
                 self.record_runtime_stage(stage, "failed", started);
-                self.health.mark_unhealthy();
                 return Err(error);
             }
             self.record_runtime_stage(stage, "completed", started);

@@ -90,6 +90,7 @@ impl AppCore {
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
+                    attempt_generation: None,
                     next_active_tab_id,
                 },
                 Duration::from_secs(12),
@@ -495,12 +496,40 @@ impl AppCore {
         }
         let outcome = outcome?;
         if !outcome.compensation_failures.is_empty() {
-            let compensation_codes = outcome
+            let compensation_code_values = outcome
                 .compensation_failures
                 .iter()
-                .map(|failure| failure.error.code.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
+                .map(|failure| failure.error.code.clone())
+                .collect::<Vec<_>>();
+            let compensation_codes = compensation_code_values.join(", ");
+            let root_cause_code = outcome.error.as_ref().map(|error| error.code.clone());
+            let _ = self.invoke(CoreCommand::LogsCapture {
+                entries: vec![LogCaptureRecord {
+                    level: LogLevel::Error,
+                    source: crate::model::LogSource::Main,
+                    event: "operation.compensation-failed".to_owned(),
+                    message: "A native operation failed and its compensation did not complete."
+                        .to_owned(),
+                    context_raw_json: serde_json::to_string(&json!({
+                        "compensationCode": compensation_code_values,
+                        "operationId": operation_id,
+                        "rootCauseCode": root_cause_code,
+                        "roleIds": role_ids,
+                    }))
+                    .ok(),
+                    error: outcome
+                        .error
+                        .as_ref()
+                        .map(|error| {
+                            crate::model::LogErrorDetails {
+                                name: error.code.clone(),
+                                message: error.message.clone(),
+                                stack: None,
+                                cause: None,
+                            }
+                        }),
+                }],
+            });
             let journal_error = self
                 .record_operation_compensation_failure(&outcome, role_ids)
                 .err()

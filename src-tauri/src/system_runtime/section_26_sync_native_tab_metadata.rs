@@ -405,6 +405,78 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn close_untracked_failed_launch_surface_and_wait(
+        &self,
+        webview: &Webview,
+        role_id: &str,
+    ) -> RuntimeResult<()> {
+        let label = webview.label().to_owned();
+        let close_error = webview.close().err().map(|error| error.to_string());
+        let started = Instant::now();
+        let deadline = started + SURFACE_RECLAMATION_TIMEOUT;
+        while Instant::now() < deadline {
+            if self.app.get_webview(&label).is_none() {
+                self.record_runtime_stage(
+                    format!("untracked-surface-release-verified:{role_id}"),
+                    "completed",
+                    started,
+                );
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        Err(RuntimeError::new(
+            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+            close_error.map_or_else(
+                || {
+                    "The failed WebView2 controller did not disappear before the cleanup deadline. Restart Rion Studio before retrying."
+                        .to_owned()
+                },
+                |message| {
+                    format!(
+                        "The failed WebView2 controller could not be closed or verified: {message}. Restart Rion Studio before retrying."
+                    )
+                },
+            ),
+        ))
+    }
+
+    fn close_untracked_failed_launch_window_and_wait(
+        &self,
+        window: &Window,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<()> {
+        let label = window.label().to_owned();
+        let close_error = window.close().err().map(|error| error.to_string());
+        let started = Instant::now();
+        let deadline = started + SURFACE_RECLAMATION_TIMEOUT;
+        while Instant::now() < deadline {
+            if self.app.get_window(&label).is_none() {
+                self.record_runtime_stage(
+                    format!("untracked-window-release-verified:{lifecycle_id}"),
+                    "completed",
+                    started,
+                );
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        Err(RuntimeError::new(
+            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+            close_error.map_or_else(
+                || {
+                    "The failed native host window did not disappear before the cleanup deadline. Restart Rion Studio before retrying."
+                        .to_owned()
+                },
+                |message| {
+                    format!(
+                        "The failed native host window could not be closed or verified: {message}. Restart Rion Studio before retrying."
+                    )
+                },
+            ),
+        ))
+    }
+
     fn close_managed_surface_and_wait(
         &self,
         instance_id: &str,

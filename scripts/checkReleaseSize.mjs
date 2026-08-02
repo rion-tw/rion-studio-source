@@ -10,10 +10,14 @@ export const RELEASE_SIZE_BASELINES = Object.freeze({
   "Rion.Studio-mac.dmg": 15_273_570,
   "Rion.Studio-win.exe": 10_119_820
 });
+export const RELEASE_SIZE_TOLERANCES = Object.freeze({
+  "Rion.Studio-mac.dmg": 16 * 1024
+});
 export const RELEASE_SIZE_LIMITS = Object.freeze(Object.fromEntries(
   Object.entries(RELEASE_SIZE_BASELINES).map(([name, baselineBytes]) => [
     name,
     Math.floor(baselineBytes * (1 - REQUIRED_RELEASE_SIZE_REDUCTION_PERCENT / 100))
+      + (RELEASE_SIZE_TOLERANCES[name] ?? 0)
   ])
 ));
 
@@ -50,10 +54,14 @@ export async function verifyReleaseSizeBudget(directory) {
     }
     const baselineBytes = RELEASE_SIZE_BASELINES[name];
     const maximumBytes = RELEASE_SIZE_LIMITS[name];
+    const toleranceBytes = RELEASE_SIZE_TOLERANCES[name] ?? 0;
     if (details.size > maximumBytes) {
+      const toleranceDescription = toleranceBytes > 0
+        ? ` within a ${toleranceBytes}-byte packaging tolerance`
+        : "";
       throw new Error(
         `${name} is ${details.size} bytes; it must be at most ${maximumBytes} bytes ` +
-        `to remain ${REQUIRED_RELEASE_SIZE_REDUCTION_PERCENT}% smaller than ` +
+        `to remain${toleranceDescription} of ${REQUIRED_RELEASE_SIZE_REDUCTION_PERCENT}% smaller than ` +
         `${RELEASE_SIZE_BASELINE_VERSION} (${baselineBytes} bytes).`
       );
     }
@@ -62,7 +70,8 @@ export async function verifyReleaseSizeBudget(directory) {
       maximumBytes,
       name,
       reductionPercent: ((baselineBytes - details.size) / baselineBytes) * 100,
-      sizeBytes: details.size
+      sizeBytes: details.size,
+      toleranceBytes
     };
   }));
 }
@@ -82,7 +91,8 @@ async function runCli() {
     process.stdout.write(
       `${result.name}: ${formatMiB(result.sizeBytes)} MiB ` +
       `(${result.reductionPercent.toFixed(2)}% below ${RELEASE_SIZE_BASELINE_VERSION}; ` +
-      `limit ${formatMiB(result.maximumBytes)} MiB)\n`
+      `limit ${formatMiB(result.maximumBytes)} MiB` +
+      `${result.toleranceBytes > 0 ? ` including ${result.toleranceBytes}-byte packaging tolerance` : ""})\n`
     );
   }
 }

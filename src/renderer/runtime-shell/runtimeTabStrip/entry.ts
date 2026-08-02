@@ -1,4 +1,6 @@
 // Focused implementation extracted from runtimeTabStrip.ts.
+import { invoke } from "@tauri-apps/api/core";
+
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import { applicationShortcutForKeyEvent } from "../../../shared/applicationShortcuts";
@@ -383,6 +385,18 @@ function cancelActiveTabDrag(): void {
 }
 
 export function installRuntimeTabStrip(): void {
+  window.__rionApplyRuntimeTabChromeMutation = (revision, mutation) => {
+    if (!window.__rionRuntimeTabChromeReady) {
+      window.__rionPendingRuntimeTabChromeMutations ??= [];
+      window.__rionPendingRuntimeTabChromeMutations.push({ mutation, revision });
+      return;
+    }
+    mutation();
+    void invoke("rion_runtime_tab_action", {
+      action: { type: "presentationApplied", revision }
+    }).catch(() => undefined);
+  };
+
   window.__rionApplyRuntimeTabState = render;
 
   window.__rionEnsureRuntimeTab = (tab) => {
@@ -501,6 +515,14 @@ export function installRuntimeTabStrip(): void {
   window.__rionUpdateRuntimeTabMetadataBatch = (tabs) => {
     for (const tab of tabs) window.__rionUpdateRuntimeTabMetadata?.(tab);
   };
+
+  window.__rionRuntimeTabChromeReady = true;
+
+  for (const pending of window.__rionPendingRuntimeTabChromeMutations ?? []) {
+    window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);
+  }
+
+  window.__rionPendingRuntimeTabChromeMutations = [];
 
   for (const tab of window.__rionPendingRuntimeTabEnsures ?? []) {
     window.__rionEnsureRuntimeTab(tab);

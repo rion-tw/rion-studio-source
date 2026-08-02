@@ -490,6 +490,10 @@ struct PresentationRegistry {
     next_revision: AtomicU64,
     next_surface_owner_revision: AtomicU64,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
+    #[cfg(windows)]
+    tab_chrome_acknowledgements: Mutex<HashMap<String, u64>>,
+    #[cfg(windows)]
+    tab_chrome_changed: Condvar,
     windows: Mutex<HashMap<String, Arc<Mutex<WindowPresentationState>>>>,
 }
 
@@ -536,6 +540,108 @@ enum NativePresentationFocus {
     WindowAndContent,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativePresentationStatus {
+    Applied,
+    Superseded,
+    Degraded,
+    Failed,
+}
+
+impl NativePresentationStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::Superseded => "superseded",
+            Self::Degraded => "degraded",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NativePresentationPlan {
+    focus: NativePresentationFocus,
+    revision: u64,
+    surface_identities: HashSet<(String, u64)>,
+    tab_id: Option<String>,
+    window_id: String,
+    window_visibility: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NativePresentationReceipt {
+    applied_revision: Option<u64>,
+    focused: Option<bool>,
+    status: NativePresentationStatus,
+    surface_identities: HashSet<(String, u64)>,
+    visible: Option<bool>,
+    window_id: String,
+}
+
+impl NativePresentationReceipt {
+    fn from_outcome(plan: &NativePresentationPlan, outcome: &NativePresentationOutcome) -> Self {
+        let native_truth_mismatch = plan
+            .window_visibility
+            .zip(outcome.window_visible_after)
+            .is_some_and(|(expected, actual)| expected != actual)
+            || (plan.focus.focuses_window() && outcome.window_focused_after == Some(false));
+        let status = if !outcome.visibility_errors.is_empty() {
+            NativePresentationStatus::Failed
+        } else if !outcome.applied {
+            NativePresentationStatus::Superseded
+        } else if native_truth_mismatch {
+            NativePresentationStatus::Degraded
+        } else {
+            NativePresentationStatus::Applied
+        };
+        Self {
+            applied_revision: outcome.applied.then_some(plan.revision),
+            focused: outcome.window_focused_after,
+            status,
+            surface_identities: plan.surface_identities.clone(),
+            visible: outcome.window_visible_after,
+            window_id: plan.window_id.clone(),
+        }
+    }
+}
+
+trait NativePresentationAdapter {
+    fn apply(
+        &self,
+        plan: &NativePresentationPlan,
+        request: &NativePresentationRequest,
+        previous_tab_id: &Option<String>,
+        previous_surface_identities: &HashSet<(String, u64)>,
+        previous_surfaces: Vec<Webview>,
+        previous_window_visibility: Option<bool>,
+    ) -> (NativePresentationOutcome, NativePresentationReceipt);
+}
+
+struct TauriNativePresentationAdapter;
+
+impl NativePresentationAdapter for TauriNativePresentationAdapter {
+    fn apply(
+        &self,
+        plan: &NativePresentationPlan,
+        request: &NativePresentationRequest,
+        previous_tab_id: &Option<String>,
+        previous_surface_identities: &HashSet<(String, u64)>,
+        previous_surfaces: Vec<Webview>,
+        previous_window_visibility: Option<bool>,
+    ) -> (NativePresentationOutcome, NativePresentationReceipt) {
+        let outcome = apply_native_presentation_batch(
+            request,
+            previous_tab_id,
+            previous_surface_identities,
+            previous_surfaces,
+            previous_window_visibility,
+        );
+        let receipt = NativePresentationReceipt::from_outcome(plan, &outcome);
+        (outcome, receipt)
+    }
+}
+
 impl NativePresentationFocus {
     fn focuses_content(self) -> bool {
         matches!(self, Self::ContentOnly | Self::WindowAndContent)
@@ -572,6 +678,19 @@ struct NativePresentationRequest {
     window: Window,
     window_id: String,
     window_visibility: Option<bool>,
+}
+
+impl NativePresentationRequest {
+    fn plan(&self) -> NativePresentationPlan {
+        NativePresentationPlan {
+            focus: self.focus,
+            revision: self.revision,
+            surface_identities: self.next_surface_identities.clone(),
+            tab_id: self.tab_id.clone(),
+            window_id: self.window_id.clone(),
+            window_visibility: self.window_visibility,
+        }
+    }
 }
 
 struct NativePresentationBatch {
@@ -650,6 +769,7 @@ struct NativeWindowActorState {
     applied_surfaces: Vec<Webview>,
     applied_tab_id: Option<String>,
     applied_window_visibility: Option<bool>,
+    last_receipt: Option<NativePresentationReceipt>,
     burst_first_requested_at: Option<Instant>,
     burst_first_revision: u64,
     burst_request_count: u32,

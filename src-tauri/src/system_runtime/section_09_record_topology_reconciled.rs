@@ -1,4 +1,84 @@
 impl SystemRuntimeExecutor {
+    #[cfg(windows)]
+    fn dispatch_windows_tab_chrome_mutation(
+        &self,
+        tab_strip: &Webview,
+        mutation: String,
+        operation: &'static str,
+    ) -> RuntimeResult<u64> {
+        let revision = WINDOWS_TAB_CHROME_REVISION.fetch_add(1, Ordering::AcqRel);
+        tab_strip
+            .eval(format!(
+                "globalThis.__rionApplyRuntimeTabChromeMutation?.({revision}, () => {{ {mutation} }});"
+            ))
+            .map_err(RuntimeError::tauri)?;
+
+        let presentation = Arc::clone(&self.presentation);
+        let core = Arc::clone(&self.core);
+        let webview_label = tab_strip.label().to_owned();
+        let _ = std::thread::Builder::new()
+            .name(format!("rion-tab-chrome-ack-{revision}"))
+            .spawn(move || {
+                let applied = presentation.wait_for_tab_chrome_acknowledgement(
+                    &webview_label,
+                    revision,
+                    WINDOWS_TAB_CHROME_ACK_TIMEOUT,
+                );
+                let context = json!({
+                    "operation": operation,
+                    "platform": "windows",
+                    "revision": revision,
+                    "status": if applied { "applied" } else { "failed" },
+                    "webviewLabel": webview_label,
+                });
+                tauri::async_runtime::spawn(async move {
+                    let _ = core
+                        .invoke_async(CoreCommand::LogsCapture {
+                            entries: vec![LogCaptureRecord {
+                                level: if applied { LogLevel::Debug } else { LogLevel::Warn },
+                                source: LogSource::Browser,
+                                event: if applied {
+                                    "native.tab-chrome-completed"
+                                } else {
+                                    "native.tab-chrome-failed"
+                                }
+                                .to_owned(),
+                                message: if applied {
+                                    "The Windows tab chrome acknowledged the native presentation revision."
+                                } else {
+                                    "The Windows tab chrome did not acknowledge the native presentation revision before its deadline."
+                                }
+                                .to_owned(),
+                                context_raw_json: serde_json::to_string(&context).ok(),
+                                error: (!applied).then(|| LogErrorDetails {
+                                    name: "WINDOWS_TAB_CHROME_ACK_TIMEOUT".to_owned(),
+                                    message: "The Windows tab chrome acknowledgement timed out."
+                                        .to_owned(),
+                                    stack: None,
+                                    cause: None,
+                                }),
+                            }],
+                        })
+                        .await;
+                });
+            });
+        Ok(revision)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn acknowledge_tab_chrome_presentation(
+        &self,
+        webview_label: &str,
+        revision: u64,
+    ) -> Result<(), String> {
+        if revision == 0 || self.tab_strip_window_for_webview(webview_label).is_none() {
+            return Err("The Windows tab chrome acknowledgement is invalid.".to_owned());
+        }
+        self.presentation
+            .acknowledge_tab_chrome(webview_label, revision);
+        Ok(())
+    }
+
     fn record_topology_reconciled(
         &self,
         tab_id: &str,
@@ -66,9 +146,13 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "The WebView2 tab strip was not found.".to_owned())
             .and_then(|tab_strip| {
                 let tab_id = serde_json::to_string(&tab_id).map_err(|error| error.to_string())?;
-                tab_strip
-                    .eval(format!("window.__rionSetActiveRuntimeTab?.({tab_id});"))
-                    .map_err(|error| error.to_string())
+                self.dispatch_windows_tab_chrome_mutation(
+                    &tab_strip,
+                    format!("window.__rionSetActiveRuntimeTab?.({tab_id});"),
+                    "set-active",
+                )
+                .map(|_| ())
+                .map_err(|error| error.message)
             });
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: Result<(), String> = Ok(());
@@ -187,9 +271,12 @@ impl SystemRuntimeExecutor {
             .map_err(|error| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", error.to_string())
             })?;
-            tab_strip
-                .eval(format!("window.__rionReserveRuntimeTab?.({payload});"))
-                .map_err(RuntimeError::tauri)
+            self.dispatch_windows_tab_chrome_mutation(
+                &tab_strip,
+                format!("window.__rionReserveRuntimeTab?.({payload});"),
+                "reserve",
+            )
+            .map(|_| ())
         };
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: RuntimeResult<()> = Ok(());
@@ -244,9 +331,12 @@ impl SystemRuntimeExecutor {
             .map_err(|error| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", error.to_string())
             })?;
-            tab_strip
-                .eval(format!("window.__rionEnsureRuntimeTab?.({payload});"))
-                .map_err(RuntimeError::tauri)
+            self.dispatch_windows_tab_chrome_mutation(
+                &tab_strip,
+                format!("window.__rionEnsureRuntimeTab?.({payload});"),
+                "ensure",
+            )
+            .map(|_| ())
         };
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: RuntimeResult<()> = Ok(());
@@ -305,11 +395,12 @@ impl SystemRuntimeExecutor {
             let tab_id = serde_json::to_string(tab_id).unwrap_or_else(|_| "null".to_owned());
             let active_tab_id =
                 serde_json::to_string(&active_tab_id).unwrap_or_else(|_| "null".to_owned());
-            tab_strip
-                .eval(format!(
-                    "window.__rionRemoveRuntimeTab?.({tab_id}, {active_tab_id});"
-                ))
-                .map_err(RuntimeError::tauri)
+            self.dispatch_windows_tab_chrome_mutation(
+                &tab_strip,
+                format!("window.__rionRemoveRuntimeTab?.({tab_id}, {active_tab_id});"),
+                "remove",
+            )
+            .map(|_| ())
         };
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: RuntimeResult<()> = Ok(());
@@ -404,9 +495,12 @@ impl SystemRuntimeExecutor {
                 })?;
             let tab_ids = serde_json::to_string(tab_ids)
                 .map_err(|error| RuntimeError::tauri(error.to_string()))?;
-            tab_strip
-                .eval(format!("window.__rionReorderRuntimeTabs?.({tab_ids});"))
-                .map_err(RuntimeError::tauri)
+            self.dispatch_windows_tab_chrome_mutation(
+                &tab_strip,
+                format!("window.__rionReorderRuntimeTabs?.({tab_ids});"),
+                "reorder",
+            )
+            .map(|_| ())
         };
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: RuntimeResult<()> = Ok(());
@@ -474,11 +568,14 @@ impl SystemRuntimeExecutor {
                 "workspaceTemplate": workspace_template,
             }))
             .map_err(|error| RuntimeError::tauri(error.to_string()))?;
-            tab_strip
-                .eval(format!(
+            self.dispatch_windows_tab_chrome_mutation(
+                &tab_strip,
+                format!(
                     "window.__rionRemoveRuntimeTab?.({provisional_id}, null); window.__rionReserveRuntimeTab?.({payload}); window.__rionSetActiveRuntimeTab?.({active_tab_id});"
-                ))
-                .map_err(RuntimeError::tauri)
+                ),
+                "replace-reservation",
+            )
+            .map(|_| ())
         };
         #[cfg(not(any(windows, target_os = "macos")))]
         let result: RuntimeResult<()> = Ok(());

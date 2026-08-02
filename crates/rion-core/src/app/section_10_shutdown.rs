@@ -168,8 +168,10 @@ fn local_storage_sync_role_effect(
             code: "GAME_NOT_FOUND",
             message: "Game not found.".to_owned(),
         })?;
-    let codec = (game.builtin_key.as_deref() == Some("flyff-universe"))
-        .then(|| "flyff-client-settings-v7".to_owned());
+    let codec = crate::domain::local_storage_sync_codec_for_builtin_key(
+        game.builtin_key.as_deref(),
+    )
+    .map(str::to_owned);
     if game.local_storage_sync_keys.is_empty()
         && game.local_storage_sync_selectors.is_empty()
         && codec.is_none()

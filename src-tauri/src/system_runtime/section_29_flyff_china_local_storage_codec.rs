@@ -1,8 +1,8 @@
-const FLYFF_SETTINGS_KEY: &str = "game_client_settings";
-const FLYFF_SESSIONS_KEY: &str = "game_client_sessions";
-const FLYFF_SETTINGS_LINE_COUNT: usize = 97;
+const FLYFF_CHINA_SETTINGS_KEY: &str = "game_client_settings";
+const FLYFF_CHINA_SESSIONS_KEY: &str = "game_client_sessions";
+const FLYFF_CHINA_SETTINGS_LINE_COUNT: usize = 97;
 
-fn flyff_selector_line_indices(selector: &str) -> Option<Vec<usize>> {
+fn flyff_china_selector_line_indices(selector: &str) -> Option<Vec<usize>> {
     let lines = match selector {
         "game_client_settings.audio" => vec![55, 56, 57, 58, 59],
         "game_client_settings.gameplay" => (9..27).collect(),
@@ -21,26 +21,26 @@ fn flyff_selector_line_indices(selector: &str) -> Option<Vec<usize>> {
     Some(lines)
 }
 
-fn validate_flyff_selectors(selectors: &[String]) -> RuntimeResult<()> {
+fn validate_flyff_china_selectors(selectors: &[String]) -> RuntimeResult<()> {
     let mut claimed = HashSet::new();
     for selector in selectors {
-        let Some(lines) = flyff_selector_line_indices(selector) else {
+        let Some(lines) = flyff_china_selector_line_indices(selector) else {
             return Err(RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_SELECTOR_INVALID",
-                "The Flyff localStorage synchronization selector is invalid.",
+                "The Flyff China localStorage synchronization selector is invalid.",
             ));
         };
         if !lines.into_iter().all(|line| claimed.insert(line)) {
             return Err(RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_SELECTOR_OVERLAP",
-                "The Flyff localStorage synchronization selectors overlap.",
+                "The Flyff China localStorage synchronization selectors overlap.",
             ));
         }
     }
     Ok(())
 }
 
-fn validate_flyff_selector_entries(
+fn validate_flyff_china_selector_entries(
     selectors: &[String],
     entries: &[(String, Option<String>)],
 ) -> RuntimeResult<()> {
@@ -52,7 +52,7 @@ fn validate_flyff_selector_entries(
     {
         return Err(RuntimeError::new(
             "LOCAL_STORAGE_SYNC_SELECTOR_SET_INVALID",
-            "The Flyff localStorage synchronization field set is invalid.",
+            "The Flyff China localStorage synchronization field set is invalid.",
         ));
     }
     for (selector, value) in entries {
@@ -62,19 +62,19 @@ fn validate_flyff_selector_entries(
         if value.len() > LOCAL_STORAGE_SYNC_MAX_BYTES {
             return Err(RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_SELECTOR_VALUE_INVALID",
-                "A Flyff localStorage synchronization field is too large.",
+                "A Flyff China localStorage synchronization field is too large.",
             ));
         }
-        let expected = flyff_selector_line_indices(selector).ok_or_else(|| {
+        let expected = flyff_china_selector_line_indices(selector).ok_or_else(|| {
             RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_SELECTOR_INVALID",
-                "The Flyff localStorage synchronization selector is invalid.",
+                "The Flyff China localStorage synchronization selector is invalid.",
             )
         })?;
         let decoded: Vec<(usize, String)> = serde_json::from_str(value).map_err(|_| {
             RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_SELECTOR_VALUE_INVALID",
-                "A Flyff localStorage synchronization field is invalid.",
+                "A Flyff China localStorage synchronization field is invalid.",
             )
         })?;
         if decoded.len() != expected.len()
@@ -87,28 +87,28 @@ fn validate_flyff_selector_entries(
         {
             return Err(RuntimeError::new(
                 "LOCAL_STORAGE_SYNC_SELECTOR_VALUE_INVALID",
-                "A Flyff localStorage synchronization field is invalid.",
+                "A Flyff China localStorage synchronization field is invalid.",
             ));
         }
     }
     Ok(())
 }
 
-fn flyff_local_storage_codec_script(
+fn flyff_china_local_storage_codec_script(
     selectors: &[String],
     codec: Option<&str>,
 ) -> RuntimeResult<String> {
-    validate_flyff_selectors(selectors)?;
-    let enabled = codec == Some("flyff-client-settings-v7");
+    validate_flyff_china_selectors(selectors)?;
+    let enabled = codec == Some("flyff-china-client-settings");
     let selector_lines = selectors
         .iter()
         .map(|selector| {
             Ok((
                 selector.clone(),
-                flyff_selector_line_indices(selector).ok_or_else(|| {
+                flyff_china_selector_line_indices(selector).ok_or_else(|| {
                     RuntimeError::new(
                         "LOCAL_STORAGE_SYNC_SELECTOR_INVALID",
-                        "The Flyff localStorage synchronization selector is invalid.",
+                        "The Flyff China localStorage synchronization selector is invalid.",
                     )
                 })?,
             ))
@@ -117,19 +117,19 @@ fn flyff_local_storage_codec_script(
     let selector_lines = serde_json::to_string(&selector_lines).map_err(|_| {
         RuntimeError::new(
             "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
-            "The Flyff localStorage synchronization codec could not be encoded.",
+            "The Flyff China localStorage synchronization codec could not be encoded.",
         )
     })?;
     Ok(format!(
-        r#"const flyffCodecEnabled = {enabled};
-  const flyffSelectorLines = Object.freeze({selector_lines});
-  const flyffInteger = (value) => typeof value === "string" && /^-?\d+$/.test(value) && value.length <= 20;
-  const flyffIntegerList = (value, exactLength) => {{
+        r#"const flyff_chinaCodecEnabled = {enabled};
+  const flyff_chinaSelectorLines = Object.freeze({selector_lines});
+  const flyff_chinaInteger = (value) => typeof value === "string" && /^-?\d+$/.test(value) && value.length <= 20;
+  const flyff_chinaIntegerList = (value, exactLength) => {{
     if (typeof value !== "string" || value.length > 16384 || !/^-?\d+(?: +-?\d+)*$/.test(value)) return null;
     const tokens = value.split(/ +/);
     return (exactLength === null || tokens.length === exactLength) ? tokens : null;
   }};
-  const parseFlyffLengthPrefixed = (line, maximumBytes) => {{
+  const parseFlyffChinaLengthPrefixed = (line, maximumBytes) => {{
     if (typeof line !== "string" || line.length > maximumBytes + 32) return null;
     const separator = line.indexOf(" ");
     if (separator < 0) return line === "0" ? "" : null;
@@ -139,15 +139,15 @@ fn flyff_local_storage_codec_script(
     const size = Number(sizeText);
     return size <= maximumBytes && new TextEncoder().encode(payload).length === size ? payload : null;
   }};
-  const validFlyffLayout = (payload) => {{
+  const validFlyffChinaLayout = (payload) => {{
     if (payload === "") return true;
     if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)(?: +-?(?:\d+(?:\.\d*)?|\.\d+))* *$/.test(payload)) return false;
     const tokens = payload.trim().split(/ +/);
     const blocks = payload.trim().split(/ {{2,}}/);
     return tokens.length <= 4096 && blocks.length <= 128 && blocks.every((block) => block.split(/ +/).length <= 256);
   }};
-  const validFlyffBindings = (line) => {{
-    const tokens = flyffIntegerList(line, null);
+  const validFlyffChinaBindings = (line) => {{
+    const tokens = flyff_chinaIntegerList(line, null);
     if (!tokens) return false;
     let offset = 0;
     const count = Number(tokens[offset++]);
@@ -161,20 +161,20 @@ fn flyff_local_storage_codec_script(
     }}
     return offset === tokens.length;
   }};
-  const parseFlyffSettings = (value) => {{
+  const parseFlyffChinaSettings = (value) => {{
     if (typeof value !== "string" || value.length > 1048576 || value.includes("\r")) return null;
     const trailingNewline = value.endsWith("\n");
     const lines = value.split("\n");
     if (trailingNewline) lines.pop();
-    if (lines.length !== {FLYFF_SETTINGS_LINE_COUNT}
+    if (lines.length !== {FLYFF_CHINA_SETTINGS_LINE_COUNT}
       || lines[0] !== "0" || lines[1] !== "7" || lines[2] !== "0" || lines[3] !== "25"
       || lines[5] !== "0" || lines[6] !== "0" || lines[7] !== "0") return null;
-    const identity = parseFlyffLengthPrefixed(lines[4], 40);
-    const layout = parseFlyffLengthPrefixed(lines[8], 65536);
-    const opaque = parseFlyffLengthPrefixed(lines[47], 4096);
+    const identity = parseFlyffChinaLengthPrefixed(lines[4], 40);
+    const layout = parseFlyffChinaLengthPrefixed(lines[8], 65536);
+    const opaque = parseFlyffChinaLengthPrefixed(lines[47], 4096);
     if (identity === null || (identity !== "" && !/^[A-Za-z0-9_-]{{40}}$/.test(identity))
-      || layout === null || !validFlyffLayout(layout) || opaque === null
-      || !validFlyffBindings(lines[43]) || !flyffIntegerList(lines[50], 4)) return null;
+      || layout === null || !validFlyffChinaLayout(layout) || opaque === null
+      || !validFlyffChinaBindings(lines[43]) || !flyff_chinaIntegerList(lines[50], 4)) return null;
     const scalarLines = [
       ...Array.from({{ length: 34 }}, (_, index) => index + 9),
       44, 45, 46, 48, 49,
@@ -182,22 +182,22 @@ fn flyff_local_storage_codec_script(
       78,
       ...Array.from({{ length: 17 }}, (_, index) => index + 80)
     ];
-    if (scalarLines.some((index) => !flyffInteger(lines[index]))) return null;
-    if ([73, 74, 75, 76, 77, 79].some((index) => !flyffIntegerList(lines[index], 3))) return null;
+    if (scalarLines.some((index) => !flyff_chinaInteger(lines[index]))) return null;
+    if ([73, 74, 75, 76, 77, 79].some((index) => !flyff_chinaIntegerList(lines[index], 3))) return null;
     return {{ lines, trailingNewline }};
   }};
-  const encodeFlyffSettings = (parsed) => parsed.lines.join("\n") + (parsed.trailingNewline ? "\n" : "");
-  const captureFlyffFields = (selectors) => {{
+  const encodeFlyffChinaSettings = (parsed) => parsed.lines.join("\n") + (parsed.trailingNewline ? "\n" : "");
+  const captureFlyffChinaFields = (selectors) => {{
     if (!selectors.length) return [];
-    const parsed = parseFlyffSettings(localStorage.getItem("{FLYFF_SETTINGS_KEY}"));
+    const parsed = parseFlyffChinaSettings(localStorage.getItem("{FLYFF_CHINA_SETTINGS_KEY}"));
     if (!parsed) return null;
     return selectors.map((selector) => [selector, JSON.stringify(
-      flyffSelectorLines[selector].map((index) => [index, parsed.lines[index]])
+      flyff_chinaSelectorLines[selector].map((index) => [index, parsed.lines[index]])
     )]);
   }};
-  const applyFlyffFields = (selectors, entries) => {{
+  const applyFlyffChinaFields = (selectors, entries) => {{
     if (!selectors.length) return true;
-    const parsed = parseFlyffSettings(localStorage.getItem("{FLYFF_SETTINGS_KEY}"));
+    const parsed = parseFlyffChinaSettings(localStorage.getItem("{FLYFF_CHINA_SETTINGS_KEY}"));
     if (!parsed || !Array.isArray(entries) || entries.length !== selectors.length) return false;
     for (let offset = 0; offset < selectors.length; offset += 1) {{
       const selector = selectors[offset];
@@ -206,7 +206,7 @@ fn flyff_local_storage_codec_script(
       if (entry[1] === null) continue;
       let values;
       try {{ values = JSON.parse(entry[1]); }} catch {{ return false; }}
-      const expected = flyffSelectorLines[selector];
+      const expected = flyff_chinaSelectorLines[selector];
       if (!Array.isArray(values) || values.length !== expected.length) return false;
       for (let index = 0; index < expected.length; index += 1) {{
         const value = values[index];
@@ -214,10 +214,10 @@ fn flyff_local_storage_codec_script(
         parsed.lines[expected[index]] = value[1];
       }}
     }}
-    localStorage.setItem("{FLYFF_SETTINGS_KEY}", encodeFlyffSettings(parsed));
+    localStorage.setItem("{FLYFF_CHINA_SETTINGS_KEY}", encodeFlyffChinaSettings(parsed));
     return true;
   }};
-  const parseFlyffSessionIdentities = (value) => {{
+  const parseFlyffChinaSessionIdentities = (value) => {{
     if (typeof value !== "string" || value.length > 1048576 || value.includes("\r")) return null;
     const lines = value.endsWith("\n") ? value.slice(0, -1).split("\n") : value.split("\n");
     if (!/^\d+$/.test(lines[0])) return null;
@@ -232,36 +232,36 @@ fn flyff_local_storage_codec_script(
     }}
     return identities;
   }};
-  const repairFlyffIdentity = (selectors) => {{
-    if (!flyffCodecEnabled) return "disabled";
-    const parsed = parseFlyffSettings(localStorage.getItem("{FLYFF_SETTINGS_KEY}"));
-    const sessions = localStorage.getItem("{FLYFF_SESSIONS_KEY}");
+  const repairFlyffChinaIdentity = (selectors) => {{
+    if (!flyff_chinaCodecEnabled) return "disabled";
+    const parsed = parseFlyffChinaSettings(localStorage.getItem("{FLYFF_CHINA_SETTINGS_KEY}"));
+    const sessions = localStorage.getItem("{FLYFF_CHINA_SESSIONS_KEY}");
     if (!parsed) return "settings-invalid";
     if (typeof sessions !== "string" || sessions === "") return "session-missing";
-    const identities = parseFlyffSessionIdentities(sessions);
+    const identities = parseFlyffChinaSessionIdentities(sessions);
     if (!identities) return "session-invalid";
     if (identities.size !== 1) return identities.size === 0 ? "session-missing" : "session-ambiguous";
     const identity = identities.values().next().value;
     const expected = `40 ${{identity}}`;
     if (parsed.lines[4] === expected) return "ok";
     parsed.lines[4] = expected;
-    localStorage.setItem("{FLYFF_SETTINGS_KEY}", encodeFlyffSettings(parsed));
+    localStorage.setItem("{FLYFF_CHINA_SETTINGS_KEY}", encodeFlyffChinaSettings(parsed));
     return "repaired";
   }};
-  const captureLocalStorageCodecFields = captureFlyffFields;
-  const applyLocalStorageCodecFields = applyFlyffFields;
-  const repairLocalStorageCodecIdentity = repairFlyffIdentity;
-  const localStorageCodecSettingsInvalidCode = "FLYFF_SETTINGS_INVALID";
-  const localStorageCodecDiagnosticCode = (status) => status === "repaired" ? "FLYFF_IDENTITY_REPAIRED"
-    : status === "session-missing" ? "FLYFF_SESSION_MISSING"
-    : status === "session-invalid" ? "FLYFF_SESSION_INVALID"
-    : status === "session-ambiguous" ? "FLYFF_SESSION_AMBIGUOUS"
-    : status === "settings-invalid" ? "FLYFF_SETTINGS_INVALID" : null;"#,
+  const captureLocalStorageCodecFields = captureFlyffChinaFields;
+  const applyLocalStorageCodecFields = applyFlyffChinaFields;
+  const repairLocalStorageCodecIdentity = repairFlyffChinaIdentity;
+  const localStorageCodecSettingsInvalidCode = "FLYFF_CHINA_SETTINGS_INVALID";
+  const localStorageCodecDiagnosticCode = (status) => status === "repaired" ? "FLYFF_CHINA_IDENTITY_REPAIRED"
+    : status === "session-missing" ? "FLYFF_CHINA_SESSION_MISSING"
+    : status === "session-invalid" ? "FLYFF_CHINA_SESSION_INVALID"
+    : status === "session-ambiguous" ? "FLYFF_CHINA_SESSION_AMBIGUOUS"
+    : status === "settings-invalid" ? "FLYFF_CHINA_SETTINGS_INVALID" : null;"#,
     ))
 }
 
 #[cfg(test)]
-mod flyff_codec_reference {
+mod flyff_china_codec_reference {
     use super::*;
 
     pub(super) struct Settings {
@@ -271,8 +271,8 @@ mod flyff_codec_reference {
 
     fn invalid() -> RuntimeError {
         RuntimeError::new(
-            "LOCAL_STORAGE_SYNC_FLYFF_SETTINGS_INVALID",
-            "The Flyff client settings payload is invalid.",
+            "LOCAL_STORAGE_SYNC_FLYFF_CHINA_SETTINGS_INVALID",
+            "The Flyff China client settings payload is invalid.",
         )
     }
 
@@ -360,7 +360,7 @@ mod flyff_codec_reference {
         if trailing_newline {
             lines.pop();
         }
-        if lines.len() != FLYFF_SETTINGS_LINE_COUNT
+        if lines.len() != FLYFF_CHINA_SETTINGS_LINE_COUNT
             || lines[0] != "0"
             || lines[1] != "7"
             || lines[2] != "0"
@@ -416,11 +416,11 @@ mod flyff_codec_reference {
             &self,
             selectors: &[String],
         ) -> RuntimeResult<Vec<(String, Option<String>)>> {
-            validate_flyff_selectors(selectors)?;
+            validate_flyff_china_selectors(selectors)?;
             selectors
                 .iter()
                 .map(|selector| {
-                    let lines = flyff_selector_line_indices(selector).ok_or_else(invalid)?;
+                    let lines = flyff_china_selector_line_indices(selector).ok_or_else(invalid)?;
                     let value = lines
                         .into_iter()
                         .map(|index| (index, self.lines[index].clone()))
@@ -441,7 +441,7 @@ mod flyff_codec_reference {
                 .iter()
                 .map(|(selector, _)| selector.clone())
                 .collect::<Vec<_>>();
-            validate_flyff_selector_entries(&selectors, entries)?;
+            validate_flyff_china_selector_entries(&selectors, entries)?;
             let mut merged = self.lines.clone();
             for (_, value) in entries {
                 let Some(value) = value else {
@@ -495,8 +495,8 @@ mod flyff_codec_reference {
             .map_err(|_| invalid())?;
         if count == 0 || count > 32 {
             return Err(RuntimeError::new(
-                "LOCAL_STORAGE_SYNC_FLYFF_SESSION_MISSING",
-                "The Flyff session identity is missing.",
+                "LOCAL_STORAGE_SYNC_FLYFF_CHINA_SESSION_MISSING",
+                "The Flyff China session identity is missing.",
             ));
         }
         let mut identities = HashSet::new();
@@ -538,8 +538,8 @@ mod flyff_codec_reference {
         }
         if identities.len() != 1 {
             return Err(RuntimeError::new(
-                "LOCAL_STORAGE_SYNC_FLYFF_SESSION_AMBIGUOUS",
-                "The Flyff session contains multiple identities.",
+                "LOCAL_STORAGE_SYNC_FLYFF_CHINA_SESSION_AMBIGUOUS",
+                "The Flyff China session contains multiple identities.",
             ));
         }
         Ok(identities.into_iter().next().expect("one identity"))
@@ -557,7 +557,7 @@ mod flyff_codec_reference {
     }
 
     pub(super) fn fixture(identity: &str, marker: i64) -> String {
-        let mut lines = vec!["0".to_owned(); FLYFF_SETTINGS_LINE_COUNT];
+        let mut lines = vec!["0".to_owned(); FLYFF_CHINA_SETTINGS_LINE_COUNT];
         lines[1] = "7".to_owned();
         lines[3] = "25".to_owned();
         lines[4] = format!("40 {identity}");

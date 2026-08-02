@@ -67,6 +67,26 @@
         );
         assert_eq!(
             normalize_game_local_storage_sync_keys(
+                Some("feifei-infinite-universe"),
+                vec!["game_client_settings".to_owned()],
+            )
+            .unwrap_err()
+            .code(),
+            "GAME_LOCAL_STORAGE_SYNC_KEY_UNSAFE"
+        );
+        assert_eq!(
+            normalize_local_storage_sync_selectors(
+                Some("feifei-infinite-universe"),
+                FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS
+                    .iter()
+                    .map(|selector| (*selector).to_owned())
+                    .collect(),
+            )
+            .unwrap(),
+            FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS
+        );
+        assert_eq!(
+            normalize_game_local_storage_sync_keys(
                 Some("flyff-universe"),
                 vec!["game_client_sessions".to_owned()],
             )
@@ -87,6 +107,20 @@
         assert_eq!(
             reset.local_storage_sync_selectors,
             FLYFF_LOCAL_STORAGE_SYNC_SELECTORS
+        );
+
+        games.push(game_record(json!({
+            "id":"builtin-feifei-infinite-universe","source":"builtin",
+            "builtinKey":"feifei-infinite-universe","name":"飞飞：无限宇宙",
+            "defaultLaunchUrl":"https://override.test/play",
+            "localStorageSyncKeys":["custom"],
+            "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+        })));
+        let reset = reset_builtin_game(&mut games, "builtin-feifei-infinite-universe").unwrap();
+        assert!(reset.local_storage_sync_keys.is_empty());
+        assert_eq!(
+            reset.local_storage_sync_selectors,
+            FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS
         );
     }
 

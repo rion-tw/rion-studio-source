@@ -35,6 +35,7 @@ include!("system_runtime/section_27_add_child_bounded.rs");
 include!("system_runtime/section_27_prepare_destroy_tab_presentation.rs");
 include!("system_runtime/section_28_set_role_audio_muted.rs");
 include!("system_runtime/section_29_flyff_local_storage_codec.rs");
+include!("system_runtime/section_29_flyff_china_local_storage_codec.rs");
 include!("system_runtime/section_29_local_storage_sync.rs");
 include!("system_runtime/section_29_session_storage.rs");
 include!("system_runtime/section_30_geometry_and_input.rs");

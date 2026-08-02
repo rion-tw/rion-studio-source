@@ -70,9 +70,9 @@ pub fn preflight_supported_data(user_data_dir: &Path) -> CoreResult<()> {
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?
         .unwrap_or(0);
-    if !matches!(version, 19 | 20 | state::SCHEMA_VERSION) {
+    if !(19..=state::SCHEMA_VERSION).contains(&version) {
         return Err(CoreError::UnsupportedDataVersion(format!(
-            "SQLite schema {version} is unsupported; expected 19, 20, or {}",
+            "SQLite schema {version} is unsupported; expected 19 through {}",
             state::SCHEMA_VERSION
         )));
     }
@@ -266,7 +266,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_fresh_schema_twenty_one_databases() {
+    fn creates_fresh_schema_twenty_two_databases() {
         let directory = tempdir().unwrap();
         let paths = bootstrap_databases(directory.path()).unwrap();
 
@@ -280,7 +280,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            21
+            22
         );
     }
 

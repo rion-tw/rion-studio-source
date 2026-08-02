@@ -545,7 +545,11 @@ impl SystemRuntimeExecutor {
                 "The encrypted localStorage synchronization snapshot does not match its binding.",
             ));
         }
-        validate_flyff_selector_entries(selectors, &snapshot.selector_entries)?;
+        validate_local_storage_sync_selector_entries(
+            codec,
+            selectors,
+            &snapshot.selector_entries,
+        )?;
         Ok(snapshot)
     }
 
@@ -588,17 +592,14 @@ impl SystemRuntimeExecutor {
         {
             return Err("The localStorage synchronization key set is invalid.".to_owned());
         }
-        validate_flyff_selector_entries(&config.selectors, &request.selector_entries)
+        validate_local_storage_sync_selector_entries(
+            config.codec.as_deref(),
+            &config.selectors,
+            &request.selector_entries,
+        )
             .map_err(|error| error.message)?;
         if request.diagnostic_code.as_deref().is_some_and(|code| {
-            !matches!(
-                code,
-                "FLYFF_SETTINGS_INVALID"
-                    | "FLYFF_SESSION_MISSING"
-                    | "FLYFF_SESSION_INVALID"
-                    | "FLYFF_SESSION_AMBIGUOUS"
-                    | "FLYFF_IDENTITY_REPAIRED"
-            )
+            !local_storage_sync_diagnostic_is_valid(config.codec.as_deref(), code)
         }) {
             return Err("The localStorage synchronization diagnostic is invalid.".to_owned());
         }
@@ -636,7 +637,10 @@ impl SystemRuntimeExecutor {
         }
         if let Some(code) = request.diagnostic_code.as_deref() {
             self.record_local_storage_sync_diagnostic(&role_id, &config, code);
-            if code == "FLYFF_SETTINGS_INVALID" {
+            if matches!(
+                code,
+                "FLYFF_SETTINGS_INVALID" | "FLYFF_CHINA_SETTINGS_INVALID"
+            ) {
                 return Ok(());
             }
         }
@@ -678,18 +682,27 @@ impl SystemRuntimeExecutor {
         config: &LocalStorageRuntimeConfig,
         code: &str,
     ) {
-        let (level, event, message) = if code == "FLYFF_IDENTITY_REPAIRED" {
-            (
+        let (level, event, message) = match code {
+            "FLYFF_IDENTITY_REPAIRED" => (
                 LogLevel::Info,
                 "local-storage-sync.flyff-identity-repaired",
                 "Flyff settings identity was repaired from the role's own session.",
-            )
-        } else {
-            (
+            ),
+            "FLYFF_CHINA_IDENTITY_REPAIRED" => (
+                LogLevel::Info,
+                "local-storage-sync.flyff-china-identity-repaired",
+                "Flyff China settings identity was repaired from the role's own session.",
+            ),
+            code if code.starts_with("FLYFF_CHINA_") => (
+                LogLevel::Warn,
+                "local-storage-sync.flyff-china-validation-failed",
+                "Flyff China localStorage synchronization failed closed.",
+            ),
+            _ => (
                 LogLevel::Warn,
                 "local-storage-sync.flyff-validation-failed",
                 "Flyff localStorage synchronization failed closed.",
-            )
+            ),
         };
         let context = json!({
             "code": code,

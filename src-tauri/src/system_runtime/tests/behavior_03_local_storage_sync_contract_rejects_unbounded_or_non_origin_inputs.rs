@@ -41,13 +41,54 @@
             Some("flyff-client-settings-v7")
         )
         .is_err());
-        assert!(validate_local_storage_sync_contract(
-            "https://example.test",
-            &[],
-            &[],
-            Some("flyff-client-settings-v7")
-        )
-        .is_ok());
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://example.test",
+                &[],
+                &[],
+                Some("flyff-client-settings-v7")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://ffcli.ruiwoo.cn",
+                &[],
+                &["game_client_settings.audio".to_owned()],
+                Some("flyff-china-client-settings")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://ffcli.ruiwoo.cn",
+                &["game_client_sessions".to_owned()],
+                &[],
+                Some("flyff-china-client-settings")
+            )
+            .is_err()
+        );
+        assert!(
+            validate_local_storage_sync_contract(
+                "https://ffcli.ruiwoo.cn",
+                &[],
+                &["game_client_settings.audio".to_owned()],
+                Some("unknown-client-settings")
+            )
+            .is_err()
+        );
+        assert!(local_storage_sync_diagnostic_is_valid(
+            Some("flyff-client-settings-v7"),
+            "FLYFF_IDENTITY_REPAIRED"
+        ));
+        assert!(!local_storage_sync_diagnostic_is_valid(
+            Some("flyff-client-settings-v7"),
+            "FLYFF_CHINA_IDENTITY_REPAIRED"
+        ));
+        assert!(local_storage_sync_diagnostic_is_valid(
+            Some("flyff-china-client-settings"),
+            "FLYFF_CHINA_IDENTITY_REPAIRED"
+        ));
     }
 
     #[test]

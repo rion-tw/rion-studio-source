@@ -35,7 +35,11 @@ pub use browser_proxy::{
     default_browser_proxy_settings, normalize_browser_proxy_settings,
     validate_browser_proxy_settings,
 };
-pub use domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS;
+pub use domain::{
+    FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC, FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS,
+    FLYFF_LOCAL_STORAGE_SYNC_CODEC, FLYFF_LOCAL_STORAGE_SYNC_SELECTORS,
+    local_storage_sync_codec_for_builtin_key,
+};
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
 pub use model::{

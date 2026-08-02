@@ -8,3 +8,4 @@ include!("behavior_05_input_dispatch_compensation_is_net_state_and_submission_is
 include!("behavior_06_navigation_input_tickets_require_latest_epoch_drain_and_page_finish.rs");
 include!("behavior_07_windows_reparent_sync_uses_one_bounded_deadline.rs");
 include!("behavior_08_flyff_local_storage_sync_preserves_identity.rs");
+include!("behavior_09_flyff_china_local_storage_sync_preserves_identity.rs");

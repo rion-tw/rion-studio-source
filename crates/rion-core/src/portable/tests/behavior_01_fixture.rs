@@ -160,12 +160,12 @@ use super::*;
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         };
-        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":13");
+        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":14");
         assert!(normalize(&future).is_err());
     }
 
     #[test]
-    fn v11_flyff_whole_value_sync_migrates_to_v12_safe_selectors() {
+    fn v11_flyff_whole_value_sync_migrates_to_v13_safe_selectors() {
         let mut source = fixture_value(11);
         source["games"] = json!([{
             "id":"builtin-flyff-universe",
@@ -180,7 +180,7 @@ use super::*;
 
         let migrated = normalize(&source.to_string()).unwrap();
 
-        assert_eq!(migrated["schemaVersion"], 12);
+        assert_eq!(migrated["schemaVersion"], 13);
         assert_eq!(
             migrated["games"][0]["localStorageSyncKeys"],
             json!(["custom-safe-key"])
@@ -189,6 +189,54 @@ use super::*;
             migrated["games"][0]["localStorageSyncSelectors"],
             json!(crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS)
         );
+    }
+
+    #[test]
+    fn v11_and_v12_flyff_china_default_to_safe_selectors_and_remove_whole_values() {
+        for schema in [11, 12] {
+            let mut source = fixture_value(schema);
+            source["games"] = json!([{
+                "id":"builtin-feifei-infinite-universe",
+                "source":"builtin",
+                "builtinKey":"feifei-infinite-universe",
+                "name":"飞飞：无限宇宙",
+                "defaultLaunchUrl":"https://ffcli.ruiwoo.cn",
+                "localStorageSyncKeys":["custom-safe-key", "game_client_sessions", "game_client_settings"],
+                "localStorageSyncSelectors":[]
+            }]);
+            source["roles"][0]["gameId"] = json!("builtin-feifei-infinite-universe");
+
+            let migrated = normalize(&source.to_string()).unwrap();
+
+            assert_eq!(migrated["schemaVersion"], 13);
+            assert_eq!(
+                migrated["games"][0]["localStorageSyncKeys"],
+                json!(["custom-safe-key"])
+            );
+            assert_eq!(
+                migrated["games"][0]["localStorageSyncSelectors"],
+                json!(crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS)
+            );
+        }
+    }
+
+    #[test]
+    fn v13_flyff_china_preserves_explicitly_disabled_selectors() {
+        let mut source = fixture_value(13);
+        source["games"] = json!([{
+            "id":"builtin-feifei-infinite-universe",
+            "source":"builtin",
+            "builtinKey":"feifei-infinite-universe",
+            "name":"飞飞：无限宇宙",
+            "defaultLaunchUrl":"https://ffcli.ruiwoo.cn",
+            "localStorageSyncKeys":[],
+            "localStorageSyncSelectors":[]
+        }]);
+        source["roles"][0]["gameId"] = json!("builtin-feifei-infinite-universe");
+
+        let normalized = normalize(&source.to_string()).unwrap();
+
+        assert_eq!(normalized["games"][0]["localStorageSyncSelectors"], json!([]));
     }
 
     fn empty_snapshot() -> CoreStateSnapshotRecord {
@@ -500,7 +548,7 @@ use super::*;
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 12);
+            assert_eq!(exported.schema_version, 13);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);

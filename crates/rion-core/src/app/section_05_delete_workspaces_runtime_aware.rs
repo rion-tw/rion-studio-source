@@ -398,9 +398,11 @@ impl AppCore {
                     origin: local_storage_sync_origin,
                     local_storage_sync_keys: game.local_storage_sync_keys,
                     local_storage_sync_selectors: game.local_storage_sync_selectors,
-                    local_storage_sync_codec: (game.builtin_key.as_deref()
-                        == Some("flyff-universe"))
-                    .then(|| "flyff-client-settings-v7".to_owned()),
+                    local_storage_sync_codec:
+                        crate::domain::local_storage_sync_codec_for_builtin_key(
+                            game.builtin_key.as_deref(),
+                        )
+                        .map(str::to_owned),
                     webview2_user_data_dir: role_paths.webview2_user_data_dir,
                     webkit_data_store_identifier: role_paths.webkit_data_store_identifier,
                 },

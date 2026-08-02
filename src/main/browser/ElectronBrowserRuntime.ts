@@ -105,6 +105,7 @@ export type WorkspaceRoleZoomPersister = (
   roleId: string,
   browserZoomPercent: WorkspaceSlotBrowserZoomPercent
 ) => Promise<void>;
+export type RoleZoomPersister = (roleId: string, browserZoomPercent: number) => Promise<void>;
 export type NativeZoomPerformer = (
   action: NativeZoomShortcutAction,
   window: BaseWindow,
@@ -149,6 +150,7 @@ export interface ElectronBrowserRuntimeOptions {
   ) => void;
   performNativeZoom?: NativeZoomPerformer;
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
+  persistRoleZoom?: RoleZoomPersister;
   adaptiveZoomResolver: (
     viewportWidth: number,
     currentPercent?: WorkspaceBrowserZoomPercent
@@ -333,7 +335,6 @@ type EmbeddedCoreEffectAction = Extract<
   }
 >;
 
-const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS = 200;
 const RUNTIME_TAB_CHROME_HEIGHT = 40;
 const RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT = 2;
@@ -1069,7 +1070,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   }
 
   async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus | null> {
-    const zoomFactor = options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR;
     const target = options.target ?? this.getDefaultLaunchTarget();
     try {
       const [status] = await this.options.browserRuntimeState.invoke({
@@ -1079,7 +1079,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
           displayId: target.displayId,
           workArea: target.workArea
         },
-        zoomFactor
+        ...(options.zoomFactor !== undefined ? { zoomFactor: options.zoomFactor } : {})
       });
       return status ?? null;
     } catch (error) {
@@ -2665,7 +2665,10 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     session: BrowserSession,
     browserZoomPercent: WorkspaceSlotBrowserZoomPercent
   ): void {
-    if (!host.workspaceId || !this.options.persistWorkspaceRoleZoom) {
+    const workspaceId = host.workspaceId;
+    if (workspaceId) {
+      if (!this.options.persistWorkspaceRoleZoom) return;
+    } else if (!this.options.persistRoleZoom) {
       return;
     }
 
@@ -2674,13 +2677,19 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     }
     session.zoomPersistenceTimer = setTimeout(() => {
       session.zoomPersistenceTimer = undefined;
-      void this.options.persistWorkspaceRoleZoom?.(
-        host.workspaceId as string,
-        session.role.id,
-        browserZoomPercent
-      ).catch((error) => {
-        console.warn("Failed to persist workspace role browser zoom.", error);
-      });
+      if (workspaceId) {
+        void this.options.persistWorkspaceRoleZoom?.(
+          workspaceId,
+          session.role.id,
+          browserZoomPercent
+        ).catch((error) => {
+          console.warn("Failed to persist workspace role browser zoom.", error);
+        });
+      } else {
+        void this.options.persistRoleZoom?.(session.role.id, browserZoomPercent).catch((error) => {
+          console.warn("Failed to persist role browser zoom.", error);
+        });
+      }
     }, WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS);
   }
 

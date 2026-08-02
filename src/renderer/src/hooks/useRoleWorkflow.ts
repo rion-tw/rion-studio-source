@@ -90,7 +90,8 @@ export function useRoleWorkflow({
         launchUrl: form.launchUrl,
         notes: form.notes,
         coverImageDataUrl: form.coverImageDataUrl ?? null,
-        coverImageDominantColor: form.coverImageDominantColor ?? null
+        coverImageDominantColor: form.coverImageDominantColor ?? null,
+        browserZoomPercent: form.browserZoomPercent
       };
       const savedRole = form.id
         ? await window.rionStudio.updateRole(form.id, input)

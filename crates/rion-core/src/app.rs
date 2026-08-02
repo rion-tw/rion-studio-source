@@ -1129,12 +1129,14 @@ impl AppCore {
                 role_id,
                 target,
                 zoom_factor,
-            } => serde_json::to_value(self.launch_embedded_role(
-                &role_id,
-                target,
-                zoom_factor.unwrap_or(1.0),
-            )?)
-            .map_err(|error| CoreError::Internal(error.to_string())),
+            } => {
+                let zoom_factor = match zoom_factor {
+                    Some(value) => value,
+                    None => self.external_role(&role_id)?.browser_zoom_percent / 100.0,
+                };
+                serde_json::to_value(self.launch_embedded_role(&role_id, target, zoom_factor)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::EmbeddedWorkspaceLaunch {
                 workspace_id,
                 target,
@@ -1490,7 +1492,7 @@ impl AppCore {
                     &game.browser_launch_mode,
                     &settings.launch_mode,
                 );
-                let zoom_factor = zoom_factor.unwrap_or(1.0);
+                let zoom_factor = zoom_factor.unwrap_or(role.browser_zoom_percent / 100.0);
                 let statuses = match mode {
                     "external" => {
                         vec![

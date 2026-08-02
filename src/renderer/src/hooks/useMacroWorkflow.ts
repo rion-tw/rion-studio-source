@@ -163,7 +163,6 @@ export function useMacroWorkflow({
         trigger: null
       });
       setMacros((current) => [...current, copy]);
-      resetListState();
     } catch (copyError) {
       reportError(copyError);
     } finally {

@@ -220,6 +220,7 @@ export class MemoryStateRepository {
       ...(typeof input.coverImageDominantColor === "string" && input.coverImageDominantColor
         ? { coverImageDominantColor: input.coverImageDominantColor }
         : {}),
+      browserZoomPercent: input.browserZoomPercent ?? 100,
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -238,6 +239,7 @@ export class MemoryStateRepository {
       ...(input.name === undefined ? {} : { name: input.name.trim() }),
       ...(input.launchUrl === undefined ? {} : { launchUrl: new URL(input.launchUrl).toString() }),
       ...(input.notes === undefined ? {} : { notes: input.notes.trim() }),
+      ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),
       updatedAt: new Date().toISOString()
     };
     roles[index] = role;

@@ -11,7 +11,8 @@ export const emptyForm: RoleFormState = {
   gameId: "",
   name: "",
   launchUrl: DEFAULT_LAUNCH_URL,
-  notes: ""
+  notes: "",
+  browserZoomPercent: 100
 };
 
 export const themeLabelKeys: Record<ThemeMode, TranslationKey> = {

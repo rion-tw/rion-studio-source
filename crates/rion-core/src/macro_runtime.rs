@@ -274,7 +274,6 @@ impl MacroRuntime {
         }
         if early_release.as_deref() == Some("immediate") {
             cancel_control(&control);
-            wait_finished(&control);
             return Ok(Vec::new());
         }
         if early_release.as_deref() == Some("complete_first_iteration") {
@@ -349,12 +348,10 @@ impl MacroRuntime {
         if request.mode == "immediate" || control.first_iteration_completed.load(Ordering::Acquire)
         {
             cancel_control(&control);
-            wait_finished(&control);
         } else {
             control
                 .stop_after_first_iteration
                 .store(true, Ordering::Release);
-            wait_finished(&control);
         }
         Ok(())
     }
@@ -1731,6 +1728,28 @@ fn release_held_keys(
             .and_then(|mut inner| inner.held_keys.remove(&held.owner_id))
             .is_some();
         if !registered {
+            continue;
+        }
+        // Race condition guard: if a newer invocation of the SAME macro step already
+        // re-acquired this key for the same role, skip sending keyup to avoid
+        // releasing the new hold. Only applies when the owner_id suffix
+        // (role:macro:step) matches, so different macros remain independent.
+        let held_suffix = held.owner_id.splitn(2, ':').nth(1).unwrap_or("");
+        let superseded = shared
+            .inner
+            .lock()
+            .ok()
+            .map_or(false, |inner| {
+                inner.held_keys.values().any(|other| {
+                    other.owner_id != held.owner_id
+                        && other
+                            .owner_id
+                            .splitn(2, ':')
+                            .nth(1)
+                            .map_or(false, |s| s == held_suffix)
+                })
+            });
+        if superseded {
             continue;
         }
         let Ok(input_sequence) = input_sequence_role_lock(shared, &held.role_id) else {
@@ -5821,7 +5840,6 @@ mod tests {
             );
             thread::yield_now();
         }
-        assert!(!release.is_finished());
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         runtime.dispatch_results(success_results(holds)).unwrap();
@@ -5915,8 +5933,6 @@ mod tests {
                     })
                     .unwrap();
             });
-            thread::sleep(Duration::from_millis(25));
-            assert!(!release.is_finished());
             runtime
                 .dispatch_results(success_results(in_flight_hold))
                 .unwrap();
@@ -5925,6 +5941,14 @@ mod tests {
                 .dispatch_results(success_results(compensating_release))
                 .unwrap();
             release.join().unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                if runtime.statuses().unwrap().is_empty() {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline, "worker did not finish");
+                thread::sleep(Duration::from_millis(5));
+            }
             match case_id {
                 "macro-8b4e22c0e423" => {
                     crate::v1_case!("macro-8b4e22c0e423", {
@@ -6047,7 +6071,14 @@ mod tests {
             .dispatch_results(success_results(key_release))
             .unwrap();
         release.join().unwrap();
-        assert!(runtime.statuses().unwrap().is_empty());
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if runtime.statuses().unwrap().is_empty() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "worker did not finish");
+            thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]

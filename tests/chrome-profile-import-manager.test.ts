@@ -13,6 +13,7 @@ const role: Role = {
   launchUrl: "https://example.test/play",
   notes: "Imported from a local Chrome profile.",
   browserSessionSource: "chrome-profile",
+  browserZoomPercent: 100,
   createdAt: "2026-07-22T00:00:00Z",
   updatedAt: "2026-07-22T00:00:00Z"
 };

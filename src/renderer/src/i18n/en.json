@@ -709,6 +709,8 @@
   "roleForm.launchUrl.custom": "Custom",
   "roleForm.launchUrl.customUrl": "Custom URL",
   "roleForm.launchUrl.customPlaceholder": "https://example.com/play",
+  "roleForm.browserZoom": "Browser zoom",
+  "roleForm.browserZoomDescription": "Used when this role launches on its own. Zoom changed inside the browser window is remembered automatically and stays separate from workspace zoom.",
   "roleForm.cover": "Cover image",
   "roleForm.coverDescription": "Optional image used as the role card background.",
   "roleForm.coverReplace": "Replace",

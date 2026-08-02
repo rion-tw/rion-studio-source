@@ -254,6 +254,7 @@ pub fn create_role(
             None
         },
         cover_image_data_url: cover,
+        browser_zoom_percent: normalize_role_zoom_percent(input.browser_zoom_percent, 100.0)?,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -328,6 +329,10 @@ pub fn update_role(
         notes,
         cover_image_data_url: cover,
         cover_image_dominant_color: color,
+        browser_zoom_percent: normalize_role_zoom_percent(
+            input.browser_zoom_percent,
+            current.browser_zoom_percent,
+        )?,
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
@@ -1024,6 +1029,18 @@ fn normalize_workspace_slot_zoom(value: f64) -> CoreResult<f64> {
         Err(domain(
             "WORKSPACE_BROWSER_ZOOM_INVALID",
             "Launch workspace role browser zoom is invalid.",
+        ))
+    }
+}
+
+pub(crate) fn normalize_role_zoom_percent(value: Option<f64>, fallback: f64) -> CoreResult<f64> {
+    let value = value.unwrap_or(fallback);
+    if value.is_finite() && value.fract() == 0.0 && (25.0..=300.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(domain(
+            "ROLE_BROWSER_ZOOM_INVALID",
+            "Role browser zoom is invalid.",
         ))
     }
 }
@@ -3978,6 +3995,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -3998,6 +4016,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4011,6 +4030,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4028,6 +4048,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4063,6 +4084,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4092,6 +4114,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4106,6 +4129,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
+                    browser_zoom_percent: None,
                     }
                 )
                 .is_err()
@@ -4125,6 +4149,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
+                    browser_zoom_percent: None,
                     },
                 )
                 .unwrap();
@@ -4144,6 +4169,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4174,6 +4200,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_dominant_color: Some("#123456".to_owned()),
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4196,6 +4223,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4240,6 +4268,7 @@ mod tests {
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
+                browser_zoom_percent: None,
                 },
             )
             .unwrap();
@@ -4260,6 +4289,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: Some("https://example.test/cover.png".to_owned()),
                         cover_image_dominant_color: None,
+                    browser_zoom_percent: None,
                     }
                 )
                 .is_err()
@@ -4278,6 +4308,7 @@ mod tests {
                             "A".repeat(MAX_ROLE_COVER_DATA_URL_LENGTH)
                         )),
                         cover_image_dominant_color: None,
+                    browser_zoom_percent: None,
                     }
                 )
                 .is_err()
@@ -4297,6 +4328,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
+                    browser_zoom_percent: None,
                     }
                 )
                 .is_err()
@@ -4316,6 +4348,7 @@ mod tests {
                         notes: None,
                         cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                         cover_image_dominant_color: Some("red".to_owned()),
+                    browser_zoom_percent: None,
                     }
                 )
                 .is_err()

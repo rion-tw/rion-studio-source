@@ -44,6 +44,9 @@ export class RoleStore {
           : {}),
         ...(typeof input.coverImageDominantColor === "string"
           ? { coverImageDominantColor: input.coverImageDominantColor }
+          : {}),
+        ...(typeof input.browserZoomPercent === "number"
+          ? { browserZoomPercent: input.browserZoomPercent }
           : {})
       }
     });
@@ -65,7 +68,10 @@ export class RoleStore {
         ...(typeof input.coverImageDominantColor === "string"
           ? { coverImageDominantColor: input.coverImageDominantColor }
           : {}),
-        setCoverImageDominantColor: input.coverImageDominantColor !== undefined
+        setCoverImageDominantColor: input.coverImageDominantColor !== undefined,
+        ...(typeof input.browserZoomPercent === "number"
+          ? { browserZoomPercent: input.browserZoomPercent }
+          : {})
       }
     });
   }

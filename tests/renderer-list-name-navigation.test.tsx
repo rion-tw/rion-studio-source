@@ -253,6 +253,7 @@ function role(): Role {
     name: "Main role",
     launchUrl: "https://example.test/play",
     notes: "",
+    browserZoomPercent: 100,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"
   };

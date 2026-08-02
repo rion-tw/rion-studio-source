@@ -16,6 +16,14 @@ import type { Game, Role } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
 
+const ROLE_BROWSER_ZOOM_PERCENTS = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300];
+
+function roleBrowserZoomOptions(current: number): number[] {
+  return ROLE_BROWSER_ZOOM_PERCENTS.includes(current)
+    ? ROLE_BROWSER_ZOOM_PERCENTS
+    : [...ROLE_BROWSER_ZOOM_PERCENTS, current].sort((a, b) => a - b);
+}
+
 interface RoleEditorRouteProps {
   busyRoleIds?: ReadonlySet<string>;
   games: Game[];
@@ -213,6 +221,24 @@ function RoleForm({
                   description={t("roleForm.launchUrlDescription")}
                 >
                   <Input id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
+                </FormField>
+
+                <FormField
+                  htmlFor="role-browser-zoom"
+                  label={t("roleForm.browserZoom")}
+                  description={t("roleForm.browserZoomDescription")}
+                >
+                  <Select
+                    value={String(form.browserZoomPercent)}
+                    onValueChange={(value) => onChange((current) => ({ ...current, browserZoomPercent: Number(value) }))}
+                  >
+                    <SelectTrigger id="role-browser-zoom"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {roleBrowserZoomOptions(form.browserZoomPercent).map((zoomPercent) => (
+                        <SelectItem key={zoomPercent} value={String(zoomPercent)}>{zoomPercent}%</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </FormField>
               </FormGrid>
             </Surface>

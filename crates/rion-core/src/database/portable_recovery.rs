@@ -77,13 +77,13 @@ pub(super) fn load(user_data_dir: &Path) -> CoreResult<Option<RecoveryPlan>> {
         ("macros", "macros", "targetMacros"),
     ] {
         let key = if committed { target_key } else { original_key };
-        let value = object
+        let mut value = object
             .get(key)
             .filter(|value| value.is_array())
-            .ok_or_else(|| {
-                CoreError::Migration(format!("portable recovery requires array {key}"))
-            })?;
-        snapshot_fields.insert(snapshot_key.to_owned(), value.clone());
+            .ok_or_else(|| CoreError::Migration(format!("portable recovery requires array {key}")))?
+            .clone();
+        strip_retired_local_storage_sync(snapshot_key, &mut value);
+        snapshot_fields.insert(snapshot_key.to_owned(), value);
     }
     for (snapshot_key, original_key, target_key) in [
         (
@@ -111,6 +111,25 @@ pub(super) fn load(user_data_dir: &Path) -> CoreResult<Option<RecoveryPlan>> {
             created_role_ids
         },
     }))
+}
+
+fn strip_retired_local_storage_sync(collection: &str, value: &mut Value) {
+    let fields: &[&str] = match collection {
+        "games" => &["localStorageSyncKeys", "localStorageSyncSelectors"],
+        "roles" => &["localStorageSourceRoleId"],
+        _ => return,
+    };
+    let Some(records) = value.as_array_mut() else {
+        return;
+    };
+    for record in records {
+        let Some(record) = record.as_object_mut() else {
+            continue;
+        };
+        for field in fields {
+            record.remove(*field);
+        }
+    }
 }
 
 pub(super) fn finish(user_data_dir: &Path, remove_created_role_ids: &[String]) -> CoreResult<()> {
@@ -188,6 +207,30 @@ mod tests {
         assert_eq!(
             fs::read_to_string(directory.path().join(JOURNAL_FILE)).unwrap(),
             journal
+        );
+    }
+
+    #[test]
+    fn strips_retired_local_storage_sync_from_recovery_snapshots() {
+        let directory = tempdir().unwrap();
+        fs::write(
+            directory.path().join(JOURNAL_FILE),
+            r#"{"storageKind":"sqlite","phase":"prepared","workspaceFileSchemaVersion":7,"createdRoleIds":[],"games":[{"id":"game","localStorageSyncKeys":["key"],"unknown":true}],"roles":[{"id":"role","localStorageSourceRoleId":"source","unknown":true}],"workspaces":[],"macros":[]}"#,
+        )
+        .unwrap();
+
+        let plan = load(directory.path()).unwrap().unwrap();
+        assert_eq!(plan.snapshot_fields["games"][0]["unknown"], true);
+        assert!(
+            plan.snapshot_fields["games"][0]
+                .get("localStorageSyncKeys")
+                .is_none()
+        );
+        assert_eq!(plan.snapshot_fields["roles"][0]["unknown"], true);
+        assert!(
+            plan.snapshot_fields["roles"][0]
+                .get("localStorageSourceRoleId")
+                .is_none()
         );
     }
 }

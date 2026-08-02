@@ -450,8 +450,6 @@ use std::fs;
                 default_launch_url: "https://example.test/play".to_owned(),
                 icon_image_data_url: None,
                 cover_image_data_url: None,
-                local_storage_sync_keys: Vec::new(),
-                local_storage_sync_selectors: Vec::new(),
             }),
         )
         .unwrap();
@@ -487,7 +485,6 @@ use std::fs;
                 notes: None,
                 cover_image_data_url: None,
                 cover_image_dominant_color: None,
-                local_storage_source_role_id: None,
             }),
         )
         .unwrap();
@@ -637,7 +634,7 @@ use std::fs;
                     "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
                 },{
                     "id":"r2","gameId":"g1","name":"Follower","launchUrl":"https://example.test/play",
-                    "notes":"","localStorageSourceRoleId":"r1",
+                    "notes":"",
                     "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
                 }],
                 "launchWorkspaces":[{
@@ -678,7 +675,6 @@ use std::fs;
         let snapshot = read_snapshot(&connection).unwrap();
         assert_eq!(snapshot["roles"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["roles"][0]["id"], "r2");
-        assert!(snapshot["roles"][0]["localStorageSourceRoleId"].is_null());
         assert!(snapshot["launchWorkspaces"][0]["slots"][0]["roleId"].is_null());
         assert!(
             snapshot["macros"][0]["roleIds"]

@@ -16,10 +16,6 @@ pub struct StateGameRecord {
     #[ts(optional, type = "string")]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
-    #[serde(default)]
-    pub local_storage_sync_keys: Vec<String>,
-    #[serde(default)]
-    pub local_storage_sync_selectors: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -39,9 +35,6 @@ pub struct StateRoleRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "string")]
     pub cover_image_dominant_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_source_role_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

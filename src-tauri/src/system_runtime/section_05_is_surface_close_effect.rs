@@ -5,6 +5,44 @@ fn is_surface_close_effect(action: &CoreEffectAction) -> bool {
     )
 }
 
+const CLOSE_EFFECT_SHARD_COUNT: usize = 2;
+
+fn close_effect_shard_index(scope: &str, shard_count: usize) -> usize {
+    debug_assert!(shard_count > 0);
+    scope.bytes().fold(0_usize, |hash, byte| {
+        hash.wrapping_mul(31).wrapping_add(usize::from(byte))
+    }) % shard_count
+}
+
+fn close_effect_scope_key(
+    action: &CoreEffectAction,
+    resolved_role_tab_id: Option<&str>,
+) -> Option<String> {
+    match action {
+        CoreEffectAction::EmbeddedDestroyTab { tab_id, .. } => Some(tab_id.clone()),
+        CoreEffectAction::EmbeddedDestroyRole { role_id } => Some(
+            resolved_role_tab_id
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("retired-role:{role_id}")),
+        ),
+        _ => None,
+    }
+}
+
+impl SystemRuntimeExecutor {
+    fn close_effect_scope(&self, action: &CoreEffectAction) -> Option<String> {
+        let resolved_role_tab_id = match action {
+            CoreEffectAction::EmbeddedDestroyRole { role_id } => self
+                .state
+                .lock()
+                .ok()
+                .and_then(|state| state.role_tabs.get(role_id).cloned()),
+            _ => None,
+        };
+        close_effect_scope_key(action, resolved_role_tab_id.as_deref())
+    }
+}
+
 fn is_independent_tab_launch_effect(action: &CoreEffectAction) -> bool {
     matches!(
         action,

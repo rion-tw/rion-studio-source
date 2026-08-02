@@ -71,18 +71,6 @@ async fn rion_runtime_audio_state(
 }
 
 #[tauri::command]
-async fn rion_local_storage_sync_changed(
-    webview: Webview,
-    state: State<'_, CoreState>,
-    request: LocalStorageSyncChangeRequest,
-) -> Result<(), CoreErrorPayload> {
-    state
-        .runtime
-        .local_storage_sync_changed(webview.label(), request)
-        .map_err(|message| shell_error("TAURI_LOCAL_STORAGE_SYNC_REJECTED", message))
-}
-
-#[tauri::command]
 async fn rion_divider_pointer(
     app: AppHandle,
     webview: Webview,

@@ -433,6 +433,36 @@
     }
 
     #[test]
+    fn close_effect_shards_are_stable_for_a_tab_scope() {
+        let role_scope = close_effect_scope_key(
+            &CoreEffectAction::EmbeddedDestroyRole {
+                role_id: "role-a".to_owned(),
+            },
+            Some("tab-a"),
+        )
+        .unwrap();
+        let tab_scope = close_effect_scope_key(
+            &CoreEffectAction::EmbeddedDestroyTab {
+                tab_id: "tab-a".to_owned(),
+                attempt_generation: None,
+                next_active_tab_id: None,
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(role_scope, tab_scope);
+        let shard = close_effect_shard_index(&role_scope, CLOSE_EFFECT_SHARD_COUNT);
+        assert_eq!(
+            close_effect_shard_index(&tab_scope, CLOSE_EFFECT_SHARD_COUNT),
+            shard
+        );
+        assert_ne!(
+            close_effect_shard_index("tab-a", CLOSE_EFFECT_SHARD_COUNT),
+            close_effect_shard_index("tab-b", CLOSE_EFFECT_SHARD_COUNT)
+        );
+    }
+
+    #[test]
     fn windows_surface_close_mock_rejects_the_wrong_controller_or_process() {
         assert!(windows_surface_identity_matches(41, 41, 700, 700));
         assert!(!windows_surface_identity_matches(41, 42, 700, 700));
@@ -681,70 +711,4 @@
         assert!(auth_probe_path_matches("/profile/security", "/profile"));
         assert!(!auth_probe_path_matches("/profiles", "/profile"));
         assert!(auth_probe_path_matches("/", "/"));
-    }
-
-    #[test]
-    fn local_storage_sync_scripts_are_top_frame_origin_scoped_and_mirror_deletions() {
-        let config = LocalStorageRuntimeConfig {
-            codec: None,
-            dependent_role_ids: vec!["follower".to_owned()],
-            generation: 1,
-            keys: vec!["game_client_settings".to_owned()],
-            selectors: Vec::new(),
-            origin: "https://example.test".to_owned(),
-            source_role_id: None,
-            token: "capability".to_owned(),
-        };
-        let observer = local_storage_sync_observer_script(&config).unwrap();
-        assert!(observer.contains("globalThis.top !== globalThis"));
-        assert!(observer.contains("location.origin !== state.origin"));
-        assert!(observer.contains("rion_local_storage_sync_changed"));
-        assert!(observer.contains("state.inFlight = request"));
-        assert!(observer.contains("state.queued = serialized === state.inFlight.serialized"));
-        assert!(observer.contains("generation: request.generation"));
-        assert!(observer.contains("sequence: request.sequence"));
-        assert!(observer.contains("setInterval(schedule, 250)"));
-        assert!(observer.contains("setTimeout(publish, 100)"));
-        assert!(observer.contains("storagePrototype.setItem"));
-        assert!(observer.contains("storagePrototype.removeItem"));
-        assert!(observer.contains("storagePrototype.clear"));
-        assert!(observer.contains("disable(expectedToken)"));
-        assert!(observer.contains("state.keys = []"));
-
-        let configure = local_storage_sync_configure_script(&config).unwrap();
-        assert!(configure.contains("__rionLocalStorageSyncObserver?.configure?."));
-        assert!(configure.contains("\"generation\":1"));
-        let disable = local_storage_sync_disable_script("capability").unwrap();
-        assert_eq!(
-            disable,
-            "globalThis.__rionLocalStorageSyncObserver?.disable?.(\"capability\");"
-        );
-
-        let script = local_storage_sync_apply_script(&PersistedLocalStorageSyncSnapshot {
-            codec: None,
-            schema_version: 2,
-            source_role_id: "source".to_owned(),
-            origin: "https://example.test".to_owned(),
-            entries: vec![
-                ("game_client_settings".to_owned(), Some("{}".to_owned())),
-                ("removed".to_owned(), None),
-            ],
-            selector_entries: Vec::new(),
-        })
-        .unwrap();
-        assert!(script.contains("globalThis.top !== globalThis"));
-        assert!(script.contains("localStorage.removeItem(key)"));
-        assert!(script.contains("localStorage.setItem(key, value)"));
-        assert!(!script.contains("localStorage.clear()"));
-    }
-
-    #[test]
-    fn local_storage_sync_sequence_fences_duplicates_and_out_of_order_callbacks() {
-        let mut last_accepted = 0;
-        assert!(accept_local_storage_sync_sequence(&mut last_accepted, 2));
-        assert!(!accept_local_storage_sync_sequence(&mut last_accepted, 1));
-        assert!(!accept_local_storage_sync_sequence(&mut last_accepted, 2));
-        assert!(!accept_local_storage_sync_sequence(&mut last_accepted, 0));
-        assert!(accept_local_storage_sync_sequence(&mut last_accepted, 3));
-        assert_eq!(last_accepted, 3);
     }

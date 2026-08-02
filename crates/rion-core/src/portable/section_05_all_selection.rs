@@ -137,8 +137,6 @@ fn portable_game(game: &StateGameRecord) -> PortableGameRecord {
         icon_image_data_url: game.icon_image_data_url.clone(),
         cover_image_data_url: game.cover_image_data_url.clone(),
         default_launch_url: game.default_launch_url.clone(),
-        local_storage_sync_keys: game.local_storage_sync_keys.clone(),
-        local_storage_sync_selectors: game.local_storage_sync_selectors.clone(),
     }
 }
 
@@ -152,7 +150,6 @@ fn portable_role(role: &StateRoleRecord) -> PortableRoleRecord {
         notes: role.notes.clone(),
         cover_image_data_url: role.cover_image_data_url.clone(),
         cover_image_dominant_color: role.cover_image_dominant_color.clone(),
-        local_storage_source_role_id: role.local_storage_source_role_id.clone(),
     }
 }
 

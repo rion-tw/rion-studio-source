@@ -101,7 +101,6 @@ describe("first-run onboarding flow", () => {
     expect(onSave).toHaveBeenCalledWith({
       gameId: flyff.id,
       launchUrl: flyff.defaultLaunchUrl,
-      localStorageSourceRoleId: undefined,
       name: "Main",
       notes: ""
     });
@@ -208,8 +207,6 @@ function game(overrides: Partial<Game> = {}): Game {
     builtinKey: "flyff-universe",
     name: "Flyff Universe",
     defaultLaunchUrl: "https://universe.flyff.com/play",
-    localStorageSyncKeys: [],
-    localStorageSyncSelectors: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides

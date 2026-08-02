@@ -123,24 +123,8 @@ pub struct CoreEffectTarget {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreEffectAction {
-    LocalStorageSyncRefresh {
-        source_role_id: String,
-        source_launch_url: String,
-        origin: String,
-        keys: Vec<String>,
-        selectors: Vec<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        codec: Option<String>,
-    },
     RoleBrowserDataClearSession {
         role_id: String,
-        origin: String,
-        local_storage_sync_keys: Vec<String>,
-        local_storage_sync_selectors: Vec<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        local_storage_sync_codec: Option<String>,
         webview2_user_data_dir: String,
         webkit_data_store_identifier: String,
     },
@@ -312,40 +296,11 @@ pub struct EmbeddedLaunchTargetRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedRoleViewEffectRecord {
     pub role: StateRoleRecord,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync: Option<LocalStorageSyncRoleEffectRecord>,
     pub resolved_engine: ResolvedBrowserEngine,
     pub rect: StateNormalizedRectRecord,
     pub zoom_factor: f64,
     #[ts(type = "\"adaptive\" | \"fixed\"")]
     pub zoom_mode: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct LocalStorageSyncSourceEffectRecord {
-    pub role_id: String,
-    pub launch_url: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct LocalStorageSyncRoleEffectRecord {
-    pub origin: String,
-    pub keys: Vec<String>,
-    #[serde(default)]
-    pub selectors: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub codec: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source: Option<LocalStorageSyncSourceEffectRecord>,
-    #[serde(default)]
-    pub dependent_role_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

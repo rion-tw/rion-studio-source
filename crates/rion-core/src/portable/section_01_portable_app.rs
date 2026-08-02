@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     domain::{
         normalize_game_browser_settings, normalize_macro_settings, validate_game_browser_settings,
-        validate_macro_settings, validate_role_local_storage_binding,
+        validate_macro_settings,
     },
     error::{CoreError, CoreResult},
     layout::normalize_rect_edges,
@@ -33,7 +33,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 13;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 14;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -45,8 +45,6 @@ struct BuiltinGame {
     key: &'static str,
     name: &'static str,
     launch_url: &'static str,
-    local_storage_sync_keys: &'static [&'static str],
-    local_storage_sync_selectors: &'static [&'static str],
 }
 
 const BUILTIN_GAMES: &[BuiltinGame] = &[
@@ -55,16 +53,12 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
         key: "flyff-universe",
         name: "Flyff Universe",
         launch_url: "https://universe.flyff.com/play",
-        local_storage_sync_keys: &[],
-        local_storage_sync_selectors: &crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS,
     },
     BuiltinGame {
         id: "builtin-feifei-infinite-universe",
         key: "feifei-infinite-universe",
         name: "飞飞：无限宇宙",
         launch_url: "https://ffcli.ruiwoo.cn",
-        local_storage_sync_keys: &[],
-        local_storage_sync_selectors: &crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS,
     },
 ];
 
@@ -163,7 +157,7 @@ fn normalize_array(
         .collect()
 }
 
-fn normalize_game(value: &Value, portable_schema: u64) -> CoreResult<Value> {
+fn normalize_game(value: &Value, _portable_schema: u64) -> CoreResult<Value> {
     let source = object(value, "game")?;
     let id = required_string(source, "id", "game")?;
     let kind = required_string(source, "source", "game")?;
@@ -197,101 +191,6 @@ fn normalize_game(value: &Value, portable_schema: u64) -> CoreResult<Value> {
             "defaultLaunchUrl",
             "game",
         )?)?),
-    );
-    let mut local_storage_sync_keys = source
-        .get("localStorageSyncKeys")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .map(|value| {
-                    value
-                        .as_str()
-                        .map(str::to_owned)
-                        .ok_or_else(|| invalid("portable localStorage sync key is invalid"))
-                })
-                .collect::<CoreResult<Vec<_>>>()
-        })
-        .transpose()?
-        .unwrap_or_else(|| {
-            builtin_key
-                .as_deref()
-                .and_then(builtin_by_key)
-                .map(|game| {
-                    game.local_storage_sync_keys
-                        .iter()
-                        .map(|value| (*value).to_owned())
-                        .collect()
-                })
-                .unwrap_or_default()
-        });
-    let migrated_flyff_key = builtin_key.as_deref() == Some("flyff-universe")
-        && local_storage_sync_keys
-            .iter()
-            .any(|key| key == "game_client_settings");
-    let is_flyff_china = builtin_key.as_deref() == Some("feifei-infinite-universe");
-    if matches!(
-        builtin_key.as_deref(),
-        Some("flyff-universe" | "feifei-infinite-universe")
-    ) {
-        local_storage_sync_keys.retain(|key| {
-            !matches!(key.as_str(), "game_client_settings" | "game_client_sessions")
-        });
-    }
-    let imported_selectors = source
-        .get("localStorageSyncSelectors")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .map(|value| {
-                    value.as_str().map(str::to_owned).ok_or_else(|| {
-                        invalid("portable localStorage sync selector is invalid")
-                    })
-                })
-                .collect::<CoreResult<Vec<_>>>()
-        })
-        .transpose()?;
-    let legacy_flyff_china_default = portable_schema < PORTABLE_SCHEMA_VERSION
-        && is_flyff_china
-        && imported_selectors.as_ref().is_none_or(Vec::is_empty);
-    let local_storage_sync_selectors = if migrated_flyff_key {
-        crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect()
-    } else if legacy_flyff_china_default {
-        crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect()
-    } else {
-        imported_selectors.unwrap_or_else(|| {
-                builtin_key
-                    .as_deref()
-                    .and_then(builtin_by_key)
-                    .map(|game| {
-                        game.local_storage_sync_selectors
-                            .iter()
-                            .map(|value| (*value).to_owned())
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            })
-    };
-    game.insert(
-        "localStorageSyncKeys".to_owned(),
-        json!(crate::domain::normalize_game_local_storage_sync_keys(
-            builtin_key.as_deref(),
-            local_storage_sync_keys,
-        )?),
-    );
-    game.insert(
-        "localStorageSyncSelectors".to_owned(),
-        json!(crate::domain::normalize_local_storage_sync_selectors(
-            builtin_key.as_deref(),
-            local_storage_sync_selectors,
-        )?),
     );
     if source.get("inferred").and_then(Value::as_bool) == Some(true) {
         game.insert("inferred".to_owned(), Value::Bool(true));
@@ -334,9 +233,6 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
     copy_optional_image(source, &mut role, "coverImageDataUrl")?;
     if let Some(color) = optional_string(source.get("coverImageDominantColor")) {
         role.insert("coverImageDominantColor".to_owned(), json!(color));
-    }
-    if let Some(source_role_id) = optional_string(source.get("localStorageSourceRoleId")) {
-        role.insert("localStorageSourceRoleId".to_owned(), json!(source_role_id));
     }
     Ok(Value::Object(role))
 }
@@ -413,9 +309,7 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                     "source": "builtin",
                     "builtinKey": builtin.key,
                     "name": builtin.name,
-                    "defaultLaunchUrl": builtin.launch_url,
-                    "localStorageSyncKeys": builtin.local_storage_sync_keys,
-                    "localStorageSyncSelectors": builtin.local_storage_sync_selectors
+                    "defaultLaunchUrl": builtin.launch_url
                 }));
                 game_ids.insert(builtin.id.to_owned());
                 game_by_url.insert(launch_url.clone(), builtin.id.to_owned());
@@ -433,9 +327,7 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
                 "inferred": true,
                 "source": "custom",
                 "name": name,
-                "defaultLaunchUrl": launch_url,
-                "localStorageSyncKeys": [],
-                "localStorageSyncSelectors": []
+                "defaultLaunchUrl": launch_url
             }));
             game_ids.insert(id.clone());
             game_by_url.insert(launch_url.clone(), id.clone());

@@ -93,8 +93,6 @@ export type { LegalAcceptanceRecord } from "./LegalAcceptanceRecord";
 export type { LegalAcceptDocumentsInputRecord } from "./LegalAcceptDocumentsInputRecord";
 export type { LegalAcceptanceStatusRecord } from "./LegalAcceptanceStatusRecord";
 export type { LegalDocumentVersionsRecord } from "./LegalDocumentVersionsRecord";
-export type { LocalStorageSyncRoleEffectRecord } from "./LocalStorageSyncRoleEffectRecord";
-export type { LocalStorageSyncSourceEffectRecord } from "./LocalStorageSyncSourceEffectRecord";
 export type { LogEntry } from "./LogEntry";
 export type { LogErrorDetails } from "./LogErrorDetails";
 export type { LogCaptureRecord } from "./LogCaptureRecord";

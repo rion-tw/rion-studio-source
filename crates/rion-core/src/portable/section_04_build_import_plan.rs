@@ -58,7 +58,6 @@ fn build_import_plan(
                     .cover_image_data_url
                     .as_ref()
                     .and(role.cover_image_dominant_color.clone());
-                updated.local_storage_source_role_id = None;
                 updated.updated_at = timestamp.clone();
                 if role_equivalent(&existing, &updated)? {
                     operations.roles.unchanged += 1;
@@ -78,7 +77,6 @@ fn build_import_plan(
                         .cover_image_data_url
                         .as_ref()
                         .and(role.cover_image_dominant_color.clone()),
-                    local_storage_source_role_id: None,
                     created_at: timestamp.clone(),
                     updated_at: timestamp.clone(),
                 };
@@ -86,71 +84,6 @@ fn build_import_plan(
                 snapshot.roles.push(created);
                 operations.roles.create += 1;
             }
-        }
-
-        for role in &data.roles {
-            let Some(imported_source_id) = role.local_storage_source_role_id.as_deref() else {
-                continue;
-            };
-            let Some(target_id) = role_id_map.get(&role.id).cloned() else {
-                continue;
-            };
-            let Some(source_id) = role_id_map.get(imported_source_id).cloned() else {
-                warnings.push(warning(
-                    "ROLE_LOCAL_STORAGE_SOURCE_MISSING",
-                    Some(role.name.clone()),
-                    None,
-                    None,
-                ));
-                continue;
-            };
-            let portable_source_is_root = data
-                .roles
-                .iter()
-                .find(|candidate| candidate.id == imported_source_id)
-                .is_some_and(|candidate| candidate.local_storage_source_role_id.is_none());
-            let portable_target_has_dependents = data.roles.iter().any(|candidate| {
-                candidate.local_storage_source_role_id.as_deref() == Some(role.id.as_str())
-            });
-            if !portable_source_is_root || portable_target_has_dependents {
-                warnings.push(warning(
-                    "ROLE_LOCAL_STORAGE_BINDING_INVALID",
-                    Some(role.name.clone()),
-                    None,
-                    None,
-                ));
-                continue;
-            }
-            let Some(target_index) = snapshot
-                .roles
-                .iter()
-                .position(|candidate| candidate.id == target_id)
-            else {
-                continue;
-            };
-            let mut candidate = snapshot.roles[target_index].clone();
-            candidate.local_storage_source_role_id = Some(source_id);
-            let has_managed_keys = snapshot
-                .games
-                .iter()
-                .find(|game| game.id == candidate.game_id)
-                .is_some_and(|game| {
-                    !game.local_storage_sync_keys.is_empty()
-                        || !game.local_storage_sync_selectors.is_empty()
-                });
-            if !has_managed_keys
-                || crate::domain::validate_role_local_storage_binding(&candidate, &snapshot.roles)
-                    .is_err()
-            {
-                warnings.push(warning(
-                    "ROLE_LOCAL_STORAGE_BINDING_INVALID",
-                    Some(role.name.clone()),
-                    None,
-                    None,
-                ));
-                continue;
-            }
-            snapshot.roles[target_index] = candidate;
         }
     }
 

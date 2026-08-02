@@ -5,24 +5,6 @@ impl SystemRuntimeExecutor {
         presentation_revision: u64,
     ) -> RuntimeResult<Option<String>> {
         match effect.action {
-            CoreEffectAction::LocalStorageSyncRefresh {
-                source_role_id,
-                source_launch_url,
-                origin,
-                keys,
-                selectors,
-                codec,
-            } => {
-                self.refresh_local_storage_sync_source(
-                    &source_role_id,
-                    &source_launch_url,
-                    &origin,
-                    &keys,
-                    &selectors,
-                    codec.as_deref(),
-                )?;
-                Ok(None)
-            }
             CoreEffectAction::EmbeddedCreateTab { tab } => self.create_tab(*tab).map(|()| None),
             CoreEffectAction::EmbeddedConfigureRoleSessions { role_ids } => {
                 self.require_roles(&role_ids)?;
@@ -116,10 +98,6 @@ impl SystemRuntimeExecutor {
             }
             CoreEffectAction::RoleBrowserDataClearSession {
                 role_id,
-                origin,
-                local_storage_sync_keys,
-                local_storage_sync_selectors,
-                local_storage_sync_codec,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
             } => {
@@ -127,13 +105,6 @@ impl SystemRuntimeExecutor {
                     &role_id,
                     &webview2_user_data_dir,
                     &webkit_data_store_identifier,
-                )?;
-                self.local_storage_sync_source_cleared(
-                    &role_id,
-                    &origin,
-                    &local_storage_sync_keys,
-                    &local_storage_sync_selectors,
-                    local_storage_sync_codec.as_deref(),
                 )?;
                 Ok(None)
             }

@@ -67,7 +67,6 @@ const OPTIONAL_HYDRATION_IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);
 const WINDOWS_ROLE_SETUP_RETRY_DELAY: Duration = Duration::from_millis(500);
-const LOCAL_STORAGE_SYNC_MAX_BYTES: usize = 10 * 1024 * 1024;
 #[cfg(target_os = "macos")]
 const MACOS_KEY_DISPATCH_SETTLE_INTERVAL: Duration = Duration::from_millis(25);
 #[cfg(target_os = "macos")]
@@ -549,8 +548,6 @@ struct RoleSurface {
     generation: u64,
     high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
     lifecycle: Arc<SurfaceLifecycleTracker>,
-    local_storage_sync: Option<LocalStorageRuntimeConfig>,
-    local_storage_sync_sequence: u64,
     navigation: Arc<NavigationTracker>,
     rect: rion_core::StateNormalizedRectRecord,
     surface_instance_id: String,

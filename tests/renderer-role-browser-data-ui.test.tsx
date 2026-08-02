@@ -35,43 +35,9 @@ describe("role saved browser data controls", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     expect(screen.queryByText("Re-login")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Source role" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Clear saved data" }));
     expect(onClearBrowserData).toHaveBeenCalledWith(selectedRole);
-  });
-
-  it("lists only same-game same-origin root roles and saves a one-way binding", async () => {
-    const user = userEvent.setup();
-    const selectedRole = role();
-    const source = { ...role(), id: "source", name: "Source" };
-    const wrongOrigin = { ...role(), id: "other-origin", name: "Other origin", launchUrl: "https://other.test/play" };
-    const dependent = { ...role(), id: "dependent", name: "Dependent", localStorageSourceRoleId: source.id };
-    const managedGame = { ...game, localStorageSyncKeys: ["game_client_settings"] };
-    const onSave = vi.fn().mockResolvedValue(undefined);
-    const router = createMemoryRouter([{
-      path: "/roles/:id/edit",
-      element: <RoleEditorRoute
-        busyRoleIds={new Set()}
-        games={[managedGame]}
-        isSaving={false}
-        roles={[selectedRole, source, wrongOrigin, dependent]}
-        t={t}
-        onClearBrowserData={vi.fn()}
-        onError={vi.fn()}
-        onSave={onSave}
-      />
-    }], { initialEntries: [`/roles/${selectedRole.id}/edit`] });
-    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
-
-    await user.click(screen.getByRole("combobox", { name: "Source role" }));
-    expect(screen.getByRole("option", { name: "Source" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "Other origin" })).toBeNull();
-    expect(screen.queryByRole("option", { name: "Dependent" })).toBeNull();
-    await user.click(screen.getByRole("option", { name: "Source" }));
-    expect(screen.getByText("Sync direction: Source → this role")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      localStorageSourceRoleId: "source"
-    }));
   });
 });
 
@@ -96,8 +62,6 @@ const game: Game = {
   source: "custom",
   name: "Example",
   defaultLaunchUrl: "https://example.test/play",
-  localStorageSyncKeys: [],
-  localStorageSyncSelectors: [],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z"
 };

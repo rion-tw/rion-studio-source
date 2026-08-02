@@ -3,7 +3,7 @@
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct SystemRuntimeFailureRecord {
     pub captured_at: String,
-    #[ts(type = "\"effect\" | \"localStorageSync\"")]
+    #[ts(type = "\"effect\"")]
     pub subsystem: String,
     pub stage: String,
     pub code: String,
@@ -19,9 +19,6 @@ pub struct SystemRuntimeFailureRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub role_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_role_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub tab_id: Option<String>,
@@ -90,12 +87,6 @@ pub struct SystemRuntimeDiagnosticsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub failed_launch_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync_source_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync_dependent_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_native_creation_count: Option<u32>,

@@ -158,62 +158,6 @@ impl AppCore {
     }
 
 }
-fn local_storage_sync_role_effect(
-    role: &StateRoleRecord,
-    roles: &[StateRoleRecord],
-    games: &[StateGameRecord],
-) -> CoreResult<Option<crate::model::LocalStorageSyncRoleEffectRecord>> {
-    let game = games
-        .iter()
-        .find(|game| game.id == role.game_id)
-        .ok_or_else(|| CoreError::Domain {
-            code: "GAME_NOT_FOUND",
-            message: "Game not found.".to_owned(),
-        })?;
-    let codec = crate::domain::local_storage_sync_codec_for_builtin_key(
-        game.builtin_key.as_deref(),
-    )
-    .map(str::to_owned);
-    if game.local_storage_sync_keys.is_empty()
-        && game.local_storage_sync_selectors.is_empty()
-        && codec.is_none()
-    {
-        return Ok(None);
-    }
-    let origin = crate::domain::launch_origin(&role.launch_url)?;
-    let source = role
-        .local_storage_source_role_id
-        .as_deref()
-        .map(|source_id| {
-            roles
-                .iter()
-                .find(|candidate| candidate.id == source_id)
-                .map(|source| crate::model::LocalStorageSyncSourceEffectRecord {
-                    role_id: source.id.clone(),
-                    launch_url: source.launch_url.clone(),
-                })
-                .ok_or_else(|| CoreError::Domain {
-                    code: "ROLE_LOCAL_STORAGE_SOURCE_NOT_FOUND",
-                    message: "The localStorage source role was not found.".to_owned(),
-                })
-        })
-        .transpose()?;
-    let dependent_role_ids = roles
-        .iter()
-        .filter(|candidate| {
-            candidate.local_storage_source_role_id.as_deref() == Some(role.id.as_str())
-        })
-        .map(|candidate| candidate.id.clone())
-        .collect();
-    Ok(Some(crate::model::LocalStorageSyncRoleEffectRecord {
-        origin,
-        keys: game.local_storage_sync_keys.clone(),
-        selectors: game.local_storage_sync_selectors.clone(),
-        codec,
-        source,
-        dependent_role_ids,
-    }))
-}
 
 fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserRoleStatusRecord {
     crate::model::BrowserRoleStatusRecord {

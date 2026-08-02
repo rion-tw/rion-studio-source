@@ -8,7 +8,6 @@ fn diagnostic_failure(code: &str) -> SystemRuntimeFailureRecord {
         effect_id: Some(format!("effect-{code}")),
         operation_id: Some("operation-a".to_owned()),
         role_id: None,
-        source_role_id: None,
         tab_id: None,
         window_id: None,
         rollback_error_count: None,

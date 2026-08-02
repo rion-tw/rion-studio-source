@@ -151,7 +151,6 @@ export function FirstRunOnboarding({
     const savedRole = await onSave({
       gameId: selectedGame.id,
       launchUrl: selectedGame.defaultLaunchUrl,
-      localStorageSourceRoleId: undefined,
       name: roleName.trim(),
       notes: ""
     });

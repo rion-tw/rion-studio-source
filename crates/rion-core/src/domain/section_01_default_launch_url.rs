@@ -27,43 +27,6 @@ use crate::{
 const DEFAULT_LAUNCH_URL: &str = "https://universe.flyff.com/play";
 const MAX_IMAGE_DATA_URL_LENGTH: usize = 2_000_128;
 const MAX_ROLE_COVER_DATA_URL_LENGTH: usize = 1_500_000;
-const MAX_LOCAL_STORAGE_SYNC_KEYS: usize = 32;
-const MAX_LOCAL_STORAGE_SYNC_KEY_BYTES: usize = 256;
-const FLYFF_LOCAL_STORAGE_SYNC_KEY: &str = "game_client_settings";
-const FLYFF_LOCAL_STORAGE_SESSION_KEY: &str = "game_client_sessions";
-pub const FLYFF_LOCAL_STORAGE_SYNC_CODEC: &str = "flyff-client-settings-v7";
-pub const FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC: &str = "flyff-china-client-settings";
-pub const FLYFF_LOCAL_STORAGE_SYNC_SELECTORS: [&str; 8] = [
-    "game_client_settings.audio",
-    "game_client_settings.gameplay",
-    "game_client_settings.graphics",
-    "game_client_settings.ui",
-    "game_client_settings.video",
-    "game_client_settings.layout.windows",
-    "game_client_settings.layout.hotbars",
-    "game_client_settings.input.bindings",
-];
-pub const FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS: [&str; 8] = [
-    "game_client_settings.audio",
-    "game_client_settings.gameplay",
-    "game_client_settings.graphics",
-    "game_client_settings.ui",
-    "game_client_settings.video",
-    "game_client_settings.layout.windows",
-    "game_client_settings.layout.hotbars",
-    "game_client_settings.input.bindings",
-];
-
-pub fn local_storage_sync_codec_for_builtin_key(
-    builtin_key: Option<&str>,
-) -> Option<&'static str> {
-    match builtin_key {
-        Some("flyff-universe") => Some(FLYFF_LOCAL_STORAGE_SYNC_CODEC),
-        Some("feifei-infinite-universe") => Some(FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC),
-        _ => None,
-    }
-}
-
 pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
     GameBrowserSettingsRecord {
         fonts: default_browser_font_settings(),
@@ -289,14 +252,6 @@ pub fn create_game(
             "GAME_COVER_INVALID",
         )?,
         default_launch_url: normalize_http_url(&input.default_launch_url, "GAME_URL_INVALID")?,
-        local_storage_sync_keys: normalize_game_local_storage_sync_keys(
-            None,
-            input.local_storage_sync_keys,
-        )?,
-        local_storage_sync_selectors: normalize_local_storage_sync_selectors(
-            None,
-            input.local_storage_sync_selectors,
-        )?,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -361,20 +316,6 @@ pub fn update_game(
         } else {
             current.cover_image_data_url.clone()
         },
-        local_storage_sync_keys: input
-            .local_storage_sync_keys
-            .map(|values| {
-                normalize_game_local_storage_sync_keys(current.builtin_key.as_deref(), values)
-            })
-            .transpose()?
-            .unwrap_or_else(|| current.local_storage_sync_keys.clone()),
-        local_storage_sync_selectors: input
-            .local_storage_sync_selectors
-            .map(|values| {
-                normalize_local_storage_sync_selectors(current.builtin_key.as_deref(), values)
-            })
-            .transpose()?
-            .unwrap_or_else(|| current.local_storage_sync_selectors.clone()),
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
@@ -403,16 +344,6 @@ pub fn reset_builtin_game(games: &mut [StateGameRecord], id: &str) -> CoreResult
         icon_image_data_url: None,
         cover_image_data_url: None,
         default_launch_url: definition.default_launch_url.to_owned(),
-        local_storage_sync_keys: definition
-            .local_storage_sync_keys
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
-        local_storage_sync_selectors: definition
-            .local_storage_sync_selectors
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
         created_at: game.created_at.clone(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -480,30 +411,12 @@ pub fn create_role(
             None
         },
         cover_image_data_url: cover,
-        local_storage_source_role_id: normalize_local_storage_source_role_id(
-            input.local_storage_source_role_id,
-        )?,
         created_at: now.clone(),
         updated_at: now,
     };
     if role.notes.len() > 20_000 {
         return Err(domain("ROLE_NOTES_TOO_LONG", "Role notes are too long."));
     }
-    if role.local_storage_source_role_id.is_some()
-        && games
-            .iter()
-            .find(|game| game.id == role.game_id)
-            .is_none_or(|game| {
-                game.local_storage_sync_keys.is_empty()
-                    && game.local_storage_sync_selectors.is_empty()
-            })
-    {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_KEYS_REQUIRED",
-            "The game has no managed localStorage keys.",
-        ));
-    }
-    validate_role_local_storage_binding(&role, roles)?;
     roles.push(role.clone());
     Ok(role)
 }
@@ -572,41 +485,9 @@ pub fn update_role(
         notes,
         cover_image_data_url: cover,
         cover_image_dominant_color: color,
-        local_storage_source_role_id: if input.set_local_storage_source_role_id {
-            normalize_local_storage_source_role_id(input.local_storage_source_role_id)?
-        } else {
-            current.local_storage_source_role_id.clone()
-        },
         updated_at: chrono::Utc::now().to_rfc3339(),
         ..current
     };
-    if roles
-        .iter()
-        .any(|candidate| candidate.local_storage_source_role_id.as_deref() == Some(id))
-        && (role.game_id != roles[index].game_id
-            || launch_origin(&role.launch_url)? != launch_origin(&roles[index].launch_url)?)
-    {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_SOURCE_IN_USE",
-            "Unbind dependent roles before changing this source role's game or launch origin.",
-        ));
-    }
-    if role.local_storage_source_role_id != roles[index].local_storage_source_role_id
-        && role.local_storage_source_role_id.is_some()
-        && games
-            .iter()
-            .find(|game| game.id == role.game_id)
-            .is_none_or(|game| {
-                game.local_storage_sync_keys.is_empty()
-                    && game.local_storage_sync_selectors.is_empty()
-            })
-    {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_KEYS_REQUIRED",
-            "The game has no managed localStorage keys.",
-        ));
-    }
-    validate_role_local_storage_binding(&role, roles)?;
     roles[index] = role.clone();
     Ok(role)
 }

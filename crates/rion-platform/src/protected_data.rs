@@ -27,23 +27,6 @@ pub fn unprotect_session_transfer(
     }
 }
 
-/// Protects the bounded localStorage synchronization cache. This remains a
-/// purpose-specific API even where the operating system exposes the same
-/// per-user protection primitive (Keychain-backed AES-GCM or DPAPI).
-pub fn protect_local_storage_sync(
-    platform: Platform,
-    plaintext: &[u8],
-) -> Result<Vec<u8>, PlatformError> {
-    protect_session_transfer(platform, plaintext)
-}
-
-pub fn unprotect_local_storage_sync(
-    platform: Platform,
-    protected: &[u8],
-) -> Result<Vec<u8>, PlatformError> {
-    unprotect_session_transfer(platform, protected)
-}
-
 #[cfg(target_os = "macos")]
 fn mac_keychain_key() -> Result<[u8; 32], PlatformError> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::OsRng};
@@ -276,29 +259,5 @@ mod tests {
             Platform::Macos
         };
         assert!(protect_session_transfer(unavailable, b"secret").is_err());
-    }
-
-    #[test]
-    fn local_storage_sync_cache_is_protected_and_rejects_tampering() {
-        let platform = if cfg!(target_os = "macos") {
-            Platform::Macos
-        } else {
-            Platform::Windows
-        };
-        let plaintext = br#"{"game_client_settings":"private"}"#;
-        let Ok(mut protected) = protect_local_storage_sync(platform, plaintext) else {
-            // Sandboxed local test runners may not expose the login Keychain. The
-            // production call fails closed when the platform protection service
-            // is unavailable; portable runners cover the deterministic branches.
-            return;
-        };
-        assert_ne!(protected, plaintext);
-        assert_eq!(
-            unprotect_local_storage_sync(platform, &protected).unwrap(),
-            plaintext
-        );
-        let last = protected.last_mut().unwrap();
-        *last ^= 0x01;
-        assert!(unprotect_local_storage_sync(platform, &protected).is_err());
     }
 }

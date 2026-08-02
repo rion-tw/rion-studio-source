@@ -1,6 +1,5 @@
 use super::*;
     use std::sync::atomic::AtomicUsize;
-    use uuid::Uuid;
 
     #[test]
     fn runtime_tab_control_row_uses_exact_half_open_boundaries() {

@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "13")]
+    #[ts(type = "14")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -45,7 +45,7 @@ pub struct PortableImportOperationsRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct PortableImportWarningRecord {
     #[ts(
-        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"ROLE_LOCAL_STORAGE_SOURCE_MISSING\" | \"ROLE_LOCAL_STORAGE_BINDING_INVALID\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"GAME_WINDOW_NAME_RENAMED\" | \"GAME_WINDOW_TAB_DEPENDENCY_MISSING\" | \"GAME_WINDOW_TAB_ROLE_CONFLICT\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
+        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"LOCAL_STORAGE_SYNC_IGNORED\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"GAME_WINDOW_NAME_RENAMED\" | \"GAME_WINDOW_TAB_DEPENDENCY_MISSING\" | \"GAME_WINDOW_TAB_ROLE_CONFLICT\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
     )]
     pub code: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,10 +152,6 @@ pub struct GameCreateRequest {
     #[ts(optional = nullable)]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
-    #[serde(default)]
-    pub local_storage_sync_keys: Vec<String>,
-    #[serde(default)]
-    pub local_storage_sync_selectors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -174,12 +170,6 @@ pub struct GameUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub default_launch_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync_keys: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync_selectors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -200,9 +190,6 @@ pub struct RoleCreateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub cover_image_dominant_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_source_role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -227,9 +214,6 @@ pub struct RoleUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub cover_image_dominant_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
-    pub local_storage_source_role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -355,10 +339,6 @@ pub struct GameCreateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_data_url: Option<String>,
-    #[serde(default)]
-    pub local_storage_sync_keys: Vec<String>,
-    #[serde(default)]
-    pub local_storage_sync_selectors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -381,12 +361,6 @@ pub struct GameUpdateInputRecord {
     pub cover_image_data_url: Option<String>,
     #[serde(default)]
     pub set_cover_image_data_url: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync_keys: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_sync_selectors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -407,9 +381,6 @@ pub struct RoleCreateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_dominant_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_source_role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -438,11 +409,6 @@ pub struct RoleUpdateInputRecord {
     pub cover_image_dominant_color: Option<String>,
     #[serde(default)]
     pub set_cover_image_dominant_color: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_source_role_id: Option<String>,
-    #[serde(default)]
-    pub set_local_storage_source_role_id: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

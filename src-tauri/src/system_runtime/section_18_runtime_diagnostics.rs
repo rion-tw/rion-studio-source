@@ -98,7 +98,6 @@ impl SystemRuntimeExecutor {
             effect_id: Some(effect_id.to_owned()),
             operation_id: Some(operation_id.to_owned()),
             role_id: None,
-            source_role_id: None,
             tab_id: None,
             window_id: None,
             rollback_error_count: None,
@@ -182,80 +181,6 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn record_local_storage_sync_failure(
-        &self,
-        operation: &str,
-        stage: &str,
-        code: &str,
-        role_id: Option<&str>,
-        source_role_id: Option<&str>,
-        generation: Option<u64>,
-        rollback_error_count: usize,
-        deduplicate: bool,
-    ) {
-        if deduplicate
-            && let (Some(role_id), Some(generation)) = (role_id, generation)
-        {
-            let key = (role_id.to_owned(), format!("failure:{operation}:{stage}:{code}"));
-            let should_record = self.state.lock().ok().is_none_or(|mut state| {
-                if state.local_storage_sync_diagnostics.get(&key) == Some(&generation) {
-                    false
-                } else {
-                    state.local_storage_sync_diagnostics.insert(key, generation);
-                    true
-                }
-            });
-            if !should_record {
-                return;
-            }
-        }
-        let rollback_error_count = runtime_diagnostic_count(rollback_error_count);
-        self.remember_runtime_failure(SystemRuntimeFailureRecord {
-            captured_at: chrono::Utc::now().to_rfc3339(),
-            subsystem: "localStorageSync".to_owned(),
-            stage: stage.to_owned(),
-            code: code.to_owned(),
-            action: Some(operation.to_owned()),
-            effect_id: None,
-            operation_id: None,
-            role_id: role_id.map(str::to_owned),
-            source_role_id: source_role_id.map(str::to_owned),
-            tab_id: None,
-            window_id: None,
-            rollback_error_count: (rollback_error_count > 0).then_some(rollback_error_count),
-        });
-        let context = json!({
-            "errorCode": code,
-            "generation": generation,
-            "operation": operation,
-            "platform": current_runtime_platform(),
-            "roleId": role_id,
-            "rollbackErrorCount": rollback_error_count,
-            "runtimeHealthy": self.health.is_healthy(),
-            "sourceRoleId": source_role_id,
-            "stage": stage,
-        });
-        let core = Arc::clone(&self.core);
-        let error = log_error_details(
-            code,
-            "A localStorage synchronization operation failed.",
-        );
-        tauri::async_runtime::spawn(async move {
-            let _ = core
-                .invoke_async(CoreCommand::LogsCapture {
-                    entries: vec![LogCaptureRecord {
-                        level: LogLevel::Warn,
-                        source: LogSource::Browser,
-                        event: "local-storage-sync.operation-failed".to_owned(),
-                        message: "A localStorage synchronization operation failed.".to_owned(),
-                        context_raw_json: serde_json::to_string(&context).ok(),
-                        error: Some(error),
-                    }],
-                })
-                .await;
-        });
-    }
 
     pub fn system_runtime_diagnostics(&self) -> SystemRuntimeDiagnosticsRecord {
         let mut collection_error_codes = Vec::new();
@@ -280,8 +205,6 @@ impl SystemRuntimeExecutor {
             active_input_fence_count: None,
             retryable_failed_launch_count: None,
             failed_launch_count: None,
-            local_storage_sync_source_count: None,
-            local_storage_sync_dependent_count: None,
             active_native_creation_count: None,
             native_creation_limit: runtime_diagnostic_count(self.native_creation_slots.limit),
             recent_failures: Vec::new(),
@@ -347,28 +270,6 @@ impl SystemRuntimeExecutor {
                 ));
                 record.failed_launch_count =
                     Some(runtime_diagnostic_count(state.failed_launch_diagnostics.len()));
-                record.local_storage_sync_source_count = Some(runtime_diagnostic_count(
-                    role_surfaces
-                        .iter()
-                        .filter(|surface| {
-                            surface
-                                .local_storage_sync
-                                .as_ref()
-                                .is_some_and(|config| config.source_role_id.is_none())
-                        })
-                        .count(),
-                ));
-                record.local_storage_sync_dependent_count = Some(runtime_diagnostic_count(
-                    role_surfaces
-                        .iter()
-                        .filter(|surface| {
-                            surface
-                                .local_storage_sync
-                                .as_ref()
-                                .is_some_and(|config| config.source_role_id.is_some())
-                        })
-                        .count(),
-                ));
             }
             Err(_) => collection_error_codes.push("SYSTEM_RUNTIME_STATE_LOCK_POISONED".to_owned()),
         }

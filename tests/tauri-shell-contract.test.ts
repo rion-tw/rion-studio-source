@@ -151,10 +151,10 @@ describe("Tauri shell contract guard", () => {
       permissions: [
         "allow-rion-browser-font-payload",
         "allow-rion-overlay-request",
-        "allow-rion-local-storage-sync-changed",
         "allow-rion-runtime-audio-state"
       ]
     });
+    expect(roleCapability).not.toContain("local-storage-sync");
     expect(shell).toContain('"moveGameWindowTabToNewWindow"');
     expect(shell).toContain("struct WorkspaceConflictRollbackPlan");
     expect(shell).toContain("rollback_workspace_conflicts(");

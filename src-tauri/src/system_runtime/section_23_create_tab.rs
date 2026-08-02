@@ -243,22 +243,6 @@ impl SystemRuntimeExecutor {
             for role in &tab.roles {
                 let role_id = role.role.id.clone();
                 let generation = self.claim_surface_generation(&role_id)?;
-                let sync_config =
-                    role.local_storage_sync
-                        .as_ref()
-                        .map(|sync| LocalStorageRuntimeConfig {
-                            codec: sync.codec.clone(),
-                            dependent_role_ids: sync.dependent_role_ids.clone(),
-                            generation: 1,
-                            keys: sync.keys.clone(),
-                            selectors: sync.selectors.clone(),
-                            origin: sync.origin.clone(),
-                            source_role_id: sync
-                                .source
-                                .as_ref()
-                                .map(|source| source.role_id.clone()),
-                            token: uuid::Uuid::new_v4().to_string(),
-                        });
                 let navigation = Arc::new(NavigationTracker::default());
                 let callback_navigation = Arc::clone(&navigation);
                 let role_label =
@@ -269,7 +253,7 @@ impl SystemRuntimeExecutor {
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
                 let (builder, high_refresh_rate_status) =
                     self.role_webview_builder(role_label, &paths, &role_id)?;
-                let mut builder = builder.on_page_load(move |_webview, payload| {
+                let builder = builder.on_page_load(move |_webview, payload| {
                     callback_navigation.page_event(payload.event(), payload.url());
                     if payload.event() == PageLoadEvent::Finished
                         && let Some(state) = navigation_app.try_state::<crate::CoreState>()
@@ -279,45 +263,6 @@ impl SystemRuntimeExecutor {
                             .finish_navigation_page(&navigation_label, payload.url());
                     }
                 });
-                if let Some(config) = sync_config.as_ref() {
-                    builder = builder.initialization_script_for_all_frames(
-                        &local_storage_sync_observer_script(config)?,
-                    );
-                    if let Some(source) = role
-                        .local_storage_sync
-                        .as_ref()
-                        .and_then(|sync| sync.source.as_ref())
-                    {
-                        let snapshot = self.load_or_rebuild_local_storage_sync_snapshot(
-                            &role_id,
-                            &source.role_id,
-                            &source.launch_url,
-                            &config.origin,
-                            &config.keys,
-                            &config.selectors,
-                            config.codec.as_deref(),
-                        );
-                        match snapshot {
-                            Ok(snapshot) => {
-                                builder = builder.initialization_script_for_all_frames(
-                                    &local_storage_sync_apply_script(&snapshot)?,
-                                );
-                            }
-                            Err(error)
-                                if local_storage_sync_launch_can_continue_without_snapshot(
-                                    &error,
-                                ) =>
-                            {
-                                self.record_local_storage_sync_cache_rebuild_skipped(
-                                    &role_id,
-                                    &source.role_id,
-                                    &error,
-                                );
-                            }
-                            Err(error) => return Err(error),
-                        }
-                    }
-                }
                 // The normalized role rectangle is sufficient for the first frame. Exact gap,
                 // divider and adaptive-zoom layout runs after every role controller has attached,
                 // so Core layout work can no longer delay the first native game viewport.
@@ -438,8 +383,6 @@ impl SystemRuntimeExecutor {
                             generation,
                             high_refresh_rate_status,
                             lifecycle: Arc::clone(&lifecycle),
-                            local_storage_sync: sync_config,
-                            local_storage_sync_sequence: 0,
                             navigation: Arc::clone(&navigation),
                             rect: role.rect.clone(),
                             surface_instance_id: surface_instance_id.clone(),

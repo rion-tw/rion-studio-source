@@ -306,22 +306,12 @@ impl AppCore {
         let prepared = tokio::task::spawn_blocking(move || {
             core.stop_embedded_role_under_active_lease(&prepared_role_id)?;
             core.macro_runtime.stop_role(&prepared_role_id)?;
-            let role = core
-                .read_typed_state_collection::<StateRoleRecord>("roles")?
-                .into_iter()
-                .find(|role| role.id == prepared_role_id)
-                .ok_or_else(|| CoreError::Domain {
-                    code: "ROLE_NOT_FOUND",
-                    message: "Role not found.".to_owned(),
-                })?;
-            let game = core.state_game(&role.game_id)?;
-            let origin = crate::domain::launch_origin(&role.launch_url)?;
-            Ok::<_, CoreError>((game, origin))
+            Ok::<_, CoreError>(())
         })
         .await
         .map_err(|error| CoreError::Internal(error.to_string()))?;
-        let (game, local_storage_sync_origin) = match prepared {
-            Ok(value) => value,
+        match prepared {
+            Ok(()) => {}
             Err(error) => {
                 let _ = self.browser_operations.abort(&lease.id);
                 return Err(error);
@@ -395,14 +385,6 @@ impl AppCore {
                 &role_id,
                 CoreEffectAction::RoleBrowserDataClearSession {
                     role_id: role_id.clone(),
-                    origin: local_storage_sync_origin,
-                    local_storage_sync_keys: game.local_storage_sync_keys,
-                    local_storage_sync_selectors: game.local_storage_sync_selectors,
-                    local_storage_sync_codec:
-                        crate::domain::local_storage_sync_codec_for_builtin_key(
-                            game.builtin_key.as_deref(),
-                        )
-                        .map(str::to_owned),
                     webview2_user_data_dir: role_paths.webview2_user_data_dir,
                     webkit_data_store_identifier: role_paths.webkit_data_store_identifier,
                 },

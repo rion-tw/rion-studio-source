@@ -571,7 +571,6 @@ impl AppCore {
             "game browser settings are missing",
         )?;
         let game = self.state_game(&role.game_id)?;
-        let available_roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
         self.reset_system_launch_retry_state(std::slice::from_ref(&role))?;
         let resolution = self.resolve_role_browser_engine(&role, &game, &settings)?;
         require_system_resolution(&resolution)?;
@@ -612,11 +611,6 @@ impl AppCore {
             target,
             roles: vec![EmbeddedRoleViewEffectRecord {
                 role: role.clone(),
-                local_storage_sync: local_storage_sync_role_effect(
-                    &role,
-                    &available_roles,
-                    std::slice::from_ref(&game),
-                )?,
                 resolved_engine,
                 rect: full_window_rect(),
                 zoom_factor,

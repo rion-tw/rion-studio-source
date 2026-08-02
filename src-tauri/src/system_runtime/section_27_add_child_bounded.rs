@@ -268,12 +268,15 @@ impl SystemRuntimeExecutor {
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
         {
             let mut state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                    "Runtime role was not found.",
-                )
-            })?;
+            let Some(tab_id) = state.role_tabs.get(role_id) else {
+                if state.close_coordinator.quarantined_roles.contains(role_id) {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "The native role surface remains quarantined after a failed close.",
+                    ));
+                }
+                return Ok(());
+            };
             if state.close_coordinator.closing_tabs.contains(tab_id)
                 || !state
                     .close_coordinator

@@ -9,8 +9,6 @@
                     default_launch_url: "https://example.test/play".to_owned(),
                     icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
-                    local_storage_sync_keys: Vec::new(),
-                    local_storage_sync_selectors: Vec::new(),
                 },
             )
             .unwrap();
@@ -22,8 +20,6 @@
                         default_launch_url: "https://other.test/play".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
-                        local_storage_sync_keys: Vec::new(),
-                        local_storage_sync_selectors: Vec::new(),
                     }
                 )
                 .unwrap_err()
@@ -38,8 +34,6 @@
                         default_launch_url: "file:///tmp/game".to_owned(),
                         icon_image_data_url: None,
                         cover_image_data_url: None,
-                        local_storage_sync_keys: Vec::new(),
-                        local_storage_sync_selectors: Vec::new(),
                     }
                 )
                 .is_err()
@@ -52,8 +46,6 @@
                         default_launch_url: "https://image.test/play".to_owned(),
                         icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
                         cover_image_data_url: None,
-                        local_storage_sync_keys: Vec::new(),
-                        local_storage_sync_selectors: Vec::new(),
                     }
                 )
                 .is_err()
@@ -126,7 +118,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -147,7 +138,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -161,7 +151,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -179,7 +168,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -215,7 +203,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -245,7 +232,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -260,7 +246,6 @@
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
-                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -280,7 +265,6 @@
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
-                        local_storage_source_role_id: None,
                     },
                 )
                 .unwrap();
@@ -300,7 +284,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -331,7 +314,6 @@
                     notes: None,
                     cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                     cover_image_dominant_color: Some("#123456".to_owned()),
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -354,7 +336,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -399,7 +380,6 @@
                     notes: None,
                     cover_image_data_url: None,
                     cover_image_dominant_color: None,
-                    local_storage_source_role_id: None,
                 },
             )
             .unwrap();
@@ -420,7 +400,6 @@
                         notes: None,
                         cover_image_data_url: Some("https://example.test/cover.png".to_owned()),
                         cover_image_dominant_color: None,
-                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -439,7 +418,6 @@
                             "A".repeat(MAX_ROLE_COVER_DATA_URL_LENGTH)
                         )),
                         cover_image_dominant_color: None,
-                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -459,7 +437,6 @@
                         notes: None,
                         cover_image_data_url: None,
                         cover_image_dominant_color: None,
-                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()
@@ -479,7 +456,6 @@
                         notes: None,
                         cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
                         cover_image_dominant_color: Some("red".to_owned()),
-                        local_storage_source_role_id: None,
                     }
                 )
                 .is_err()

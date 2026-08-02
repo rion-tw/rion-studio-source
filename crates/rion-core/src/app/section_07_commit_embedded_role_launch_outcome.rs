@@ -231,8 +231,6 @@ impl AppCore {
             .into_iter()
             .map(|game| (game.id.clone(), game))
             .collect::<std::collections::HashMap<_, _>>();
-        let all_roles = available_roles.values().cloned().collect::<Vec<_>>();
-        let all_games = available_games.values().cloned().collect::<Vec<_>>();
         self.reset_system_launch_retry_state(&roles)?;
         let workspace_resolution =
             self.resolve_workspace_browser_engine(&roles, &available_games, &settings)?;
@@ -286,9 +284,6 @@ impl AppCore {
             })
             .map(|(slot, role)| {
                 Ok(EmbeddedRoleViewEffectRecord {
-                    local_storage_sync: local_storage_sync_role_effect(
-                        &role, &all_roles, &all_games,
-                    )?,
                     role,
                     resolved_engine: workspace_resolved_engine,
                     rect: slot.rect.clone(),

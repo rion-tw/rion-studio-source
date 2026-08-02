@@ -76,7 +76,9 @@ export function filterPortableImportWarnings(
   warnings: PortableImportWarning[],
   selection: PortableDataSelection
 ): PortableImportWarning[] {
-  return warnings.filter((warning) => selection[getPortableWarningSection(warning.code)]);
+  return warnings.filter((warning) => warning.code === "LOCAL_STORAGE_SYNC_IGNORED"
+    ? selection.games || selection.roles
+    : selection[getPortableWarningSection(warning.code)]);
 }
 
 function getPortableWarningSection(code: PortableImportWarningCode): PortableDataSection {

@@ -11,12 +11,6 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
-        let _local_storage_sync_guard = self.local_storage_sync_lane.lock().map_err(|_| {
-            RuntimeError::new(
-                "LOCAL_STORAGE_SYNC_LANE_POISONED",
-                "The localStorage synchronization lifecycle lane is unavailable.",
-            )
-        })?;
         let (
             tab_id,
             window_id,
@@ -26,7 +20,6 @@ impl SystemRuntimeExecutor {
             expected_generation,
             rect,
             current_url,
-            local_storage_sync,
             zoom_factor,
             zoom_mode,
             window_zoom_factor,
@@ -47,7 +40,6 @@ impl SystemRuntimeExecutor {
                 expected_generation,
                 rect,
                 current_url,
-                local_storage_sync,
                 zoom_factor,
                 zoom_mode,
                 audio_muted,
@@ -74,7 +66,6 @@ impl SystemRuntimeExecutor {
                     role.generation,
                     role.rect.clone(),
                     current_url,
-                    role.local_storage_sync.clone(),
                     role.zoom_factor,
                     role.zoom_mode.clone(),
                     tab.audio_muted,
@@ -104,7 +95,6 @@ impl SystemRuntimeExecutor {
                 expected_generation,
                 rect,
                 current_url,
-                local_storage_sync,
                 zoom_factor,
                 zoom_mode,
                 window_zoom_factor,
@@ -112,11 +102,6 @@ impl SystemRuntimeExecutor {
                 generation,
             )
         };
-        let local_storage_sync = local_storage_sync.map(|mut config| {
-            config.generation = config.generation.saturating_add(1);
-            config.token = uuid::Uuid::new_v4().to_string();
-            config
-        });
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let navigation_app = self.app.clone();
@@ -131,7 +116,7 @@ impl SystemRuntimeExecutor {
             &paths,
             role_id,
         )?;
-        let mut builder = builder.on_page_load(move |_webview, payload| {
+        let builder = builder.on_page_load(move |_webview, payload| {
             callback_navigation.page_event(payload.event(), payload.url());
             if payload.event() == PageLoadEvent::Finished
                 && let Some(state) = navigation_app.try_state::<crate::CoreState>()
@@ -141,22 +126,6 @@ impl SystemRuntimeExecutor {
                     .finish_navigation_page(&navigation_label, payload.url());
             }
         });
-        if let Some(config) = local_storage_sync.as_ref() {
-            builder = builder
-                .initialization_script_for_all_frames(&local_storage_sync_observer_script(config)?);
-            if let Some(source_role_id) = config.source_role_id.as_deref() {
-                let snapshot = self.load_local_storage_sync_snapshot(
-                    source_role_id,
-                    &config.origin,
-                    &config.keys,
-                    &config.selectors,
-                    config.codec.as_deref(),
-                )?;
-                builder = builder.initialization_script_for_all_frames(
-                    &local_storage_sync_apply_script(&snapshot)?,
-                );
-            }
-        }
         let bounds = role_bounds_for_content(runtime_window_content_metrics(&window)?, &rect);
         let webview = self.add_child_bounded(
             &window,
@@ -414,8 +383,6 @@ impl SystemRuntimeExecutor {
                     generation,
                     high_refresh_rate_status,
                     lifecycle,
-                    local_storage_sync,
-                    local_storage_sync_sequence: 0,
                     navigation,
                     rect,
                     surface_instance_id: replacement_instance_id.clone(),

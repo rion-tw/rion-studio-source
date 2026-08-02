@@ -117,13 +117,6 @@ fn apply_domain_mutation(
                         message: "Role not found.".to_owned(),
                     });
                 }
-                for (ordinal, role) in roles.iter_mut().enumerate() {
-                    if role.local_storage_source_role_id.as_deref() == Some(id.as_str()) {
-                        role.local_storage_source_role_id = None;
-                        role.updated_at = chrono::Utc::now().to_rfc3339();
-                        upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
-                    }
-                }
                 let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
                     &transaction,
                     "launchWorkspaces",
@@ -151,7 +144,7 @@ fn apply_domain_mutation(
             }
             StateMutation::RolesDelete { ids, operation_ids } => {
                 let requested = normalize_bulk_ids(ids)?;
-                let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+                let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
                 let existing_ids = roles
                     .iter()
                     .map(|role| role.id.as_str())
@@ -167,18 +160,6 @@ fn apply_domain_mutation(
                     .map(|id| bulk_skip(id.clone(), "not_found", Vec::new()))
                     .collect::<Vec<_>>();
                 let deleted = deleted_ids.iter().collect::<std::collections::HashSet<_>>();
-                for (ordinal, role) in roles.iter_mut().enumerate() {
-                    if role
-                        .local_storage_source_role_id
-                        .as_ref()
-                        .is_some_and(|source_id| deleted.contains(source_id))
-                        && !deleted.contains(&role.id)
-                    {
-                        role.local_storage_source_role_id = None;
-                        role.updated_at = chrono::Utc::now().to_rfc3339();
-                        upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
-                    }
-                }
                 let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
                     &transaction,
                     "launchWorkspaces",

@@ -14,8 +14,8 @@ use rion_core::{
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
     GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogCaptureRecord,
-    LogLevel, LogSource, MacroRunStatus, StateCollection, StateGameRecord, StateGameWindowRecord,
-    StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord,
+    LogLevel, LogSource, MacroRunStatus, StateCollection, StateGameWindowRecord,
+    StatePixelBoundsRecord, StateResolutionRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -24,9 +24,7 @@ use tauri::{
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use activation::ActivationServer;
-use system_runtime::{
-    LocalStorageSyncChangeRequest, RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor,
-};
+use system_runtime::{RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor};
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
 const OVERLAY_REQUEST_MAX_BYTES: usize = 64 * 1024;
@@ -35,7 +33,6 @@ const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     match action {
-        CoreEffectAction::LocalStorageSyncRefresh { .. } => "localStorageSyncRefresh",
         CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
         CoreEffectAction::ChromeProfileImportSnapshot { .. } => "chromeProfileImportSnapshot",
         CoreEffectAction::ChromeProfileImportApply { .. } => "chromeProfileImportApply",

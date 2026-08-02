@@ -7,7 +7,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import GameEditorRoute from "../src/renderer/src/features/games/GameModal";
-import { parseLocalStorageSyncKeys } from "../src/renderer/src/features/games/localStorageSyncKeys";
 import GamesRoute from "../src/renderer/src/features/games/GamesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
@@ -39,129 +38,6 @@ afterAll(() => {
 });
 
 describe("games cover UI", () => {
-  it("normalizes the compact one-key-per-line editor input", () => {
-    expect(parseLocalStorageSyncKeys(" game_client_settings \n audio\ngame_client_settings\n"))
-      .toEqual(["game_client_settings", "audio"]);
-  });
-
-  it("keeps newlines editable and saves the normalized localStorage key list", async () => {
-    const user = userEvent.setup();
-    const customGame = game({ id: "game-keys", name: "Keyed game" });
-    const onSave = vi.fn().mockResolvedValue(customGame);
-    const router = createMemoryRouter([{
-      path: "/games/:id/edit",
-      element: <ConfirmationProvider><GameEditorRoute
-        games={[customGame]}
-        isSaving={false}
-        t={t}
-        onError={vi.fn()}
-        onReset={vi.fn()}
-        onSave={onSave}
-      /></ConfirmationProvider>
-    }], { initialEntries: ["/games/game-keys/edit"] });
-    render(<RouterProvider router={router} />);
-
-    const editor = screen.getByLabelText("Managed keys") as HTMLTextAreaElement;
-    await user.type(editor, "game_client_settings{enter}audio");
-    expect(editor.value).toBe("game_client_settings\naudio");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      localStorageSyncKeys: ["game_client_settings", "audio"]
-    }));
-  });
-
-  it("edits Flyff through grouped safe selectors without exposing whole-value keys", async () => {
-    const user = userEvent.setup();
-    const selectors = [
-      "game_client_settings.audio",
-      "game_client_settings.gameplay",
-      "game_client_settings.graphics",
-      "game_client_settings.ui",
-      "game_client_settings.video",
-      "game_client_settings.layout.windows",
-      "game_client_settings.layout.hotbars",
-      "game_client_settings.input.bindings"
-    ];
-    const flyff = game({
-      id: "builtin-flyff-universe",
-      source: "builtin",
-      builtinKey: "flyff-universe",
-      name: "Flyff Universe",
-      localStorageSyncKeys: [],
-      localStorageSyncSelectors: selectors
-    });
-    const onSave = vi.fn().mockResolvedValue(flyff);
-    const router = createMemoryRouter([{
-      path: "/games/:id/edit",
-      element: <ConfirmationProvider><GameEditorRoute
-        games={[flyff]}
-        isSaving={false}
-        t={t}
-        onError={vi.fn()}
-        onReset={vi.fn()}
-        onSave={onSave}
-      /></ConfirmationProvider>
-    }], { initialEntries: ["/games/builtin-flyff-universe/edit"] });
-    render(<RouterProvider router={router} />);
-
-    expect(screen.getByText("Settings pages")).toBeTruthy();
-    expect(screen.getByText("Layout and controls")).toBeTruthy();
-    expect(screen.queryByLabelText("Managed keys")).toBeNull();
-    await user.click(screen.getByRole("checkbox", { name: "Audio settings" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      localStorageSyncKeys: [],
-      localStorageSyncSelectors: selectors.slice(1)
-    }));
-  });
-
-  it("edits Flyff China through its grouped safe selectors", async () => {
-    const user = userEvent.setup();
-    const selectors = [
-      "game_client_settings.audio",
-      "game_client_settings.gameplay",
-      "game_client_settings.graphics",
-      "game_client_settings.ui",
-      "game_client_settings.video",
-      "game_client_settings.layout.windows",
-      "game_client_settings.layout.hotbars",
-      "game_client_settings.input.bindings"
-    ];
-    const flyffChina = game({
-      id: "builtin-feifei-infinite-universe",
-      source: "builtin",
-      builtinKey: "feifei-infinite-universe",
-      name: "飞飞：无限宇宙",
-      defaultLaunchUrl: "https://ffcli.ruiwoo.cn",
-      localStorageSyncKeys: [],
-      localStorageSyncSelectors: selectors
-    });
-    const onSave = vi.fn().mockResolvedValue(flyffChina);
-    const router = createMemoryRouter([{
-      path: "/games/:id/edit",
-      element: <ConfirmationProvider><GameEditorRoute
-        games={[flyffChina]}
-        isSaving={false}
-        t={t}
-        onError={vi.fn()}
-        onReset={vi.fn()}
-        onSave={onSave}
-      /></ConfirmationProvider>
-    }], { initialEntries: ["/games/builtin-feifei-infinite-universe/edit"] });
-    render(<RouterProvider router={router} />);
-
-    expect(screen.getByText("Settings pages")).toBeTruthy();
-    expect(screen.queryByLabelText("Managed keys")).toBeNull();
-    await user.click(screen.getByRole("checkbox", { name: "Audio settings" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      localStorageSyncKeys: [],
-      localStorageSyncSelectors: selectors.slice(1)
-    }));
-  });
-
   it("renders a clean cover section and keeps card actions independent from navigation", async () => {
     const user = userEvent.setup();
     const covered = game({ id: "covered", name: "Covered", coverImageDataUrl: processedCover });
@@ -280,8 +156,6 @@ function game(overrides: Partial<Game> = {}): Game {
     source: "custom",
     name: "Game",
     defaultLaunchUrl: "https://example.test/play",
-    localStorageSyncKeys: [],
-    localStorageSyncSelectors: [],
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z",
     ...overrides

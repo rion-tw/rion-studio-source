@@ -622,10 +622,6 @@ pub struct PortableGameRecord {
     #[ts(optional)]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
-    #[serde(default)]
-    pub local_storage_sync_keys: Vec<String>,
-    #[serde(default)]
-    pub local_storage_sync_selectors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -648,9 +644,6 @@ pub struct PortableRoleRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cover_image_dominant_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub local_storage_source_role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

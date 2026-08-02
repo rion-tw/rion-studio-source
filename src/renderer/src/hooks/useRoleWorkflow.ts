@@ -94,16 +94,8 @@ export function useRoleWorkflow({
         coverImageDominantColor: form.coverImageDominantColor ?? null
       };
       const savedRole = form.id
-        ? await window.rionStudio.updateRole(form.id, {
-            ...input,
-            localStorageSourceRoleId: form.localStorageSourceRoleId ?? null
-          })
-        : await window.rionStudio.createRole({
-            ...input,
-            ...(form.localStorageSourceRoleId
-              ? { localStorageSourceRoleId: form.localStorageSourceRoleId }
-              : {})
-          });
+        ? await window.rionStudio.updateRole(form.id, input)
+        : await window.rionStudio.createRole(input);
 
       setRoles((current) => {
         if (form.id) {
@@ -117,10 +109,6 @@ export function useRoleWorkflow({
         setActiveFilter("all");
         setQuery("");
         listScrollTopRef.current = 0;
-      }
-
-      if (savedRole.localStorageSourceRoleId) {
-        setNotice?.(t("notice.localStorageSyncBound"));
       }
 
       return savedRole;

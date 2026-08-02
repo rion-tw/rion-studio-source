@@ -134,11 +134,14 @@ it("routes close around slow effects and keeps failed close intent committed", a
       enqueue.indexOf("self.effect_sender")
     );
     expect(enqueue).toContain("is_independent_tab_launch_effect(&effect.action)");
-    expect(enqueue).toContain("self.close_effect_sender.get()");
+    expect(enqueue).toContain("self.close_effect_senders.get()");
+    expect(enqueue).toContain("self.close_effect_scope(&effect.action)");
+    expect(enqueue).toContain("close_effect_shard_index(&scope, senders.len())");
     expect(enqueue).toContain("self.launch_effect_sender.get()");
     expect(enqueue).toContain(".try_send(ConcurrentRuntimeWork");
     expect(enqueue).not.toContain("std::thread::Builder::new()");
-    expect(runtime).toContain("for index in 0..2");
+    expect(runtime).toContain("for index in 0..CLOSE_EFFECT_SHARD_COUNT");
+    expect(runtime).toContain("resolved_role_tab_id");
     expect(runtime).toContain("for index in 0..4");
     expect(runtime).toContain('name(format!("rion-native-close-{index}"))');
     expect(runtime).toContain('name(format!("rion-native-launch-{index}"))');
@@ -699,27 +702,20 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(focus).not.toContain("set_focus");
   });
 
-  it("rebuilds missing v2 localStorage snapshots before allowing a safe fallback", async () => {
+  it("does not retain the retired role-to-role local storage subsystem", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
     );
-    const rebuild = runtime.slice(
-      runtime.indexOf("fn load_or_rebuild_local_storage_sync_snapshot("),
-      runtime.indexOf("fn record_local_storage_sync_cache_rebuild_skipped(")
-    );
-    expect(rebuild).toContain('"LOCAL_STORAGE_SYNC_CACHE_UNAVAILABLE"');
-    expect(rebuild).toContain('"LOCAL_STORAGE_SYNC_CACHE_INVALID"');
-    expect(rebuild.indexOf("capture_local_storage_sync_source_snapshot(")).toBeLessThan(
-      rebuild.indexOf("persist_local_storage_sync_snapshot(snapshot.clone())")
-    );
-    const persist = runtime.slice(
-      runtime.indexOf("fn persist_local_storage_sync_snapshot("),
-      runtime.indexOf("fn load_local_storage_sync_snapshot(")
-    );
-    expect(persist.indexOf("atomic_replace_file")).toBeLessThan(
-      persist.indexOf('local-storage-sync-v1.enc')
-    );
+    for (const retired of [
+      "rion_local_storage_sync_changed",
+      "LocalStorageRuntimeConfig",
+      "FLYFF_SETTINGS_INVALID",
+      "local-storage-sync-v1.enc",
+      "local-storage-sync-v2.enc"
+    ]) {
+      expect(runtime).not.toContain(retired);
+    }
   });
 
   it("fences cleanup by launch generation and poisons health only when release is unverified", async () => {

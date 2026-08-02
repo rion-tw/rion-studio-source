@@ -163,8 +163,6 @@ struct BuiltinGameDefinition {
     key: &'static str,
     name: &'static str,
     default_launch_url: &'static str,
-    local_storage_sync_keys: &'static [&'static str],
-    local_storage_sync_selectors: &'static [&'static str],
 }
 
 fn builtin_definition(id: &str) -> Option<BuiltinGameDefinition> {
@@ -173,177 +171,14 @@ fn builtin_definition(id: &str) -> Option<BuiltinGameDefinition> {
             key: "flyff-universe",
             name: "Flyff Universe",
             default_launch_url: DEFAULT_LAUNCH_URL,
-            local_storage_sync_keys: &[],
-            local_storage_sync_selectors: &FLYFF_LOCAL_STORAGE_SYNC_SELECTORS,
         }),
         "builtin-feifei-infinite-universe" => Some(BuiltinGameDefinition {
             key: "feifei-infinite-universe",
             name: "飞飞：无限宇宙",
             default_launch_url: "https://ffcli.ruiwoo.cn",
-            local_storage_sync_keys: &[],
-            local_storage_sync_selectors: &FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS,
         }),
         _ => None,
     }
-}
-
-pub fn normalize_local_storage_sync_keys(values: Vec<String>) -> CoreResult<Vec<String>> {
-    if values.len() > MAX_LOCAL_STORAGE_SYNC_KEYS {
-        return Err(domain(
-            "GAME_LOCAL_STORAGE_SYNC_KEYS_TOO_MANY",
-            "A game can synchronize at most 32 localStorage keys.",
-        ));
-    }
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::with_capacity(values.len());
-    for value in values {
-        let value = value.trim().to_owned();
-        if value.is_empty() || value.len() > MAX_LOCAL_STORAGE_SYNC_KEY_BYTES {
-            return Err(domain(
-                "GAME_LOCAL_STORAGE_SYNC_KEY_INVALID",
-                "localStorage sync keys must be between 1 and 256 UTF-8 bytes.",
-            ));
-        }
-        if seen.insert(value.clone()) {
-            normalized.push(value);
-        }
-    }
-    Ok(normalized)
-}
-
-pub fn normalize_game_local_storage_sync_keys(
-    builtin_key: Option<&str>,
-    values: Vec<String>,
-) -> CoreResult<Vec<String>> {
-    let values = normalize_local_storage_sync_keys(values)?;
-    if matches!(
-        builtin_key,
-        Some("flyff-universe" | "feifei-infinite-universe")
-    )
-        && values.iter().any(|value| {
-            matches!(
-                value.as_str(),
-                FLYFF_LOCAL_STORAGE_SYNC_KEY | FLYFF_LOCAL_STORAGE_SESSION_KEY
-            )
-        })
-    {
-        return Err(domain(
-            "GAME_LOCAL_STORAGE_SYNC_KEY_UNSAFE",
-            "Flyff settings and session identity cannot be synchronized as whole values.",
-        ));
-    }
-    Ok(values)
-}
-
-pub fn normalize_local_storage_sync_selectors(
-    builtin_key: Option<&str>,
-    values: Vec<String>,
-) -> CoreResult<Vec<String>> {
-    let allowed = match builtin_key {
-        Some("flyff-universe") => FLYFF_LOCAL_STORAGE_SYNC_SELECTORS.as_slice(),
-        Some("feifei-infinite-universe") => {
-            FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS.as_slice()
-        }
-        _ => &[],
-    };
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::with_capacity(values.len());
-    for value in values {
-        let value = value.trim().to_owned();
-        if !allowed.contains(&value.as_str()) {
-            return Err(domain(
-                "GAME_LOCAL_STORAGE_SYNC_SELECTOR_INVALID",
-                "The localStorage synchronization field is not available for this game.",
-            ));
-        }
-        if seen.insert(value.clone()) {
-            normalized.push(value);
-        }
-    }
-    Ok(normalized)
-}
-
-fn normalize_local_storage_source_role_id(value: Option<String>) -> CoreResult<Option<String>> {
-    value
-        .map(|value| {
-            let value = value.trim().to_owned();
-            if value.is_empty() || value.len() > 128 {
-                Err(domain(
-                    "ROLE_LOCAL_STORAGE_SOURCE_INVALID",
-                    "The localStorage source role is invalid.",
-                ))
-            } else {
-                Ok(value)
-            }
-        })
-        .transpose()
-}
-
-pub fn validate_role_local_storage_binding(
-    role: &StateRoleRecord,
-    roles: &[StateRoleRecord],
-) -> CoreResult<()> {
-    let Some(source_id) = role.local_storage_source_role_id.as_deref() else {
-        return Ok(());
-    };
-    if source_id == role.id {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_SOURCE_SELF",
-            "A role cannot synchronize localStorage from itself.",
-        ));
-    }
-    if roles.iter().any(|candidate| {
-        candidate.local_storage_source_role_id.as_deref() == Some(role.id.as_str())
-    }) {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_SOURCE_HAS_DEPENDENTS",
-            "A source role with dependents cannot depend on another role.",
-        ));
-    }
-    let source = roles
-        .iter()
-        .find(|candidate| candidate.id == source_id)
-        .ok_or_else(|| {
-            domain(
-                "ROLE_LOCAL_STORAGE_SOURCE_NOT_FOUND",
-                "The localStorage source role was not found.",
-            )
-        })?;
-    if source.local_storage_source_role_id.is_some() {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_SOURCE_CHAIN",
-            "A dependent role cannot be used as a localStorage source.",
-        ));
-    }
-    if source.game_id != role.game_id {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_SOURCE_GAME_MISMATCH",
-            "The localStorage source role must belong to the same game.",
-        ));
-    }
-    if launch_origin(&source.launch_url)? != launch_origin(&role.launch_url)? {
-        return Err(domain(
-            "ROLE_LOCAL_STORAGE_SOURCE_ORIGIN_MISMATCH",
-            "The localStorage source role must use the same launch origin.",
-        ));
-    }
-    Ok(())
-}
-
-pub fn launch_origin(value: &str) -> CoreResult<String> {
-    let url = Url::parse(value).map_err(|_| {
-        domain(
-            "ROLE_LAUNCH_URL_INVALID",
-            "Role launch URL must be a valid HTTP or HTTPS URL.",
-        )
-    })?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(domain(
-            "ROLE_LAUNCH_URL_INVALID",
-            "Role launch URL must be a valid HTTP or HTTPS URL.",
-        ));
-    }
-    Ok(url.origin().ascii_serialization())
 }
 
 #[derive(Debug, Deserialize)]

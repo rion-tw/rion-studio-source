@@ -14,8 +14,7 @@ export function createNewRoleForm(game?: Game): RoleFormState {
     gameId: game?.id ?? "",
     name: "",
     launchUrl: game?.defaultLaunchUrl ?? DEFAULT_LAUNCH_URL,
-    notes: "",
-    localStorageSourceRoleId: undefined
+    notes: ""
   };
 }
 
@@ -27,8 +26,7 @@ export function createRoleFormState(role: Role): RoleFormState {
     launchUrl: role.launchUrl,
     notes: role.notes,
     coverImageDataUrl: role.coverImageDataUrl,
-    coverImageDominantColor: role.coverImageDominantColor,
-    localStorageSourceRoleId: role.localStorageSourceRoleId
+    coverImageDominantColor: role.coverImageDominantColor
   };
 }
 
@@ -36,9 +34,7 @@ export function createNewGameForm(): GameFormState {
   return {
     source: "custom",
     name: "",
-    defaultLaunchUrl: "https://",
-    localStorageSyncKeys: [],
-    localStorageSyncSelectors: []
+    defaultLaunchUrl: "https://"
   };
 }
 
@@ -50,9 +46,7 @@ export function createGameFormState(game: Game): GameFormState {
     name: game.name,
     iconImageDataUrl: game.iconImageDataUrl,
     coverImageDataUrl: game.coverImageDataUrl,
-    defaultLaunchUrl: game.defaultLaunchUrl,
-    localStorageSyncKeys: game.localStorageSyncKeys,
-    localStorageSyncSelectors: game.localStorageSyncSelectors
+    defaultLaunchUrl: game.defaultLaunchUrl
   };
 }
 

@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 
 const REMOVE_RETRIES: usize = 8;
 const REMOVE_RETRY_DELAY: Duration = Duration::from_millis(100);
+const RETIRED_LOCAL_STORAGE_SYNC_CACHE_FILES: [&str; 2] =
+    ["local-storage-sync-v1.enc", "local-storage-sync-v2.enc"];
 
 pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord> {
     validate_role_id(role_id)?;
@@ -65,6 +67,57 @@ pub fn reset(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord>
 pub fn remove(user_data_dir: &Path, role_id: &str) -> CoreResult<()> {
     validate_role_id(role_id)?;
     remove_with_retry(&user_data_dir.join("roles").join(role_id))
+}
+
+/// Removes only the retired role-to-role synchronization cache files. Native
+/// WebView storage, cookies, and every other role file are deliberately left
+/// untouched. Failures are returned as warnings so a transient Windows file
+/// lock cannot prevent application startup; the next startup retries them.
+pub fn retire_local_storage_sync_caches(user_data_dir: &Path) -> Vec<String> {
+    let roles_directory = user_data_dir.join("roles");
+    let entries = match fs::read_dir(&roles_directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => {
+            return vec![format!("{}: {error}", roles_directory.display())];
+        }
+    };
+    let mut warnings = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                warnings.push(format!("{}: {error}", roles_directory.display()));
+                continue;
+            }
+        };
+        let role_directory = entry.path();
+        if entry.file_type().map_or(true, |file_type| {
+            !file_type.is_dir() || file_type.is_symlink()
+        }) {
+            continue;
+        }
+        let system_directory = role_directory.join("browser").join("system");
+        if fs::symlink_metadata(&system_directory).map_or(true, |metadata| {
+            !metadata.is_dir() || metadata.file_type().is_symlink()
+        }) {
+            continue;
+        }
+        for file_name in RETIRED_LOCAL_STORAGE_SYNC_CACHE_FILES {
+            let path = system_directory.join(file_name);
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                    if let Err(error) = fs::remove_file(&path) {
+                        warnings.push(format!("{}: {error}", path.display()));
+                    }
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => warnings.push(format!("{}: {error}", path.display())),
+            }
+        }
+    }
+    warnings
 }
 
 pub fn quarantine(user_data_dir: &Path, role_id: &str, operation_id: &str) -> CoreResult<bool> {
@@ -246,5 +299,59 @@ mod tests {
         quarantine(directory.path(), "role-1", "operation-2").unwrap();
         discard_quarantine(directory.path(), "operation-2").unwrap();
         assert!(!directory.path().join("roles/role-1").exists());
+    }
+
+    #[test]
+    fn retirement_removes_only_exact_sync_cache_files_and_is_idempotent() {
+        let directory = tempdir().unwrap();
+        let paths = ensure(directory.path(), "role-1").unwrap();
+        let system = Path::new(&paths.system_browser_data_dir);
+        let webview2 = Path::new(&paths.webview2_user_data_dir);
+        fs::write(system.join("local-storage-sync-v1.enc"), b"v1").unwrap();
+        fs::write(system.join("local-storage-sync-v2.enc"), b"v2").unwrap();
+        fs::write(system.join("local-storage-sync-v3.enc"), b"keep").unwrap();
+        fs::write(system.join("cookies.enc"), b"keep").unwrap();
+        fs::write(webview2.join("Local Storage"), b"keep").unwrap();
+        fs::write(
+            Path::new(&paths.browser_user_data_dir).join("unrelated"),
+            b"keep",
+        )
+        .unwrap();
+
+        assert!(retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(!system.join("local-storage-sync-v1.enc").exists());
+        assert!(!system.join("local-storage-sync-v2.enc").exists());
+        assert!(system.join("local-storage-sync-v3.enc").exists());
+        assert!(system.join("cookies.enc").exists());
+        assert!(webview2.join("Local Storage").exists());
+        assert!(
+            Path::new(&paths.browser_user_data_dir)
+                .join("unrelated")
+                .exists()
+        );
+        assert!(retire_local_storage_sync_caches(directory.path()).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retirement_retries_a_windows_locked_cache_on_the_next_run() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let directory = tempdir().unwrap();
+        let paths = ensure(directory.path(), "role-1").unwrap();
+        let cache = Path::new(&paths.system_browser_data_dir).join("local-storage-sync-v2.enc");
+        fs::write(&cache, b"locked").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&cache)
+            .unwrap();
+
+        assert!(!retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(cache.exists());
+        drop(lock);
+        assert!(retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(!cache.exists());
     }
 }

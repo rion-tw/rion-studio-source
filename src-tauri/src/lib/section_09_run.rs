@@ -179,34 +179,6 @@ pub fn run() {
                                     renderer_events.push(CoreEvent::Shutdown);
                                 }
                                 event => {
-                                    if matches!(
-                                        &event,
-                                        CoreEvent::StateChanged { changed_collections, .. }
-                                            if changed_collections.iter().any(|collection| {
-                                                matches!(collection, StateCollection::Roles | StateCollection::Games)
-                                            })
-                                    ) {
-                                        let roles: Option<Vec<StateRoleRecord>> = effect_core
-                                            .invoke(CoreCommand::RolesList)
-                                            .ok()
-                                            .and_then(|value| serde_json::from_value(value).ok());
-                                        let games: Option<Vec<StateGameRecord>> = effect_core
-                                            .invoke(CoreCommand::GamesList)
-                                            .ok()
-                                            .and_then(|value| serde_json::from_value(value).ok());
-                                        if let (Some(roles), Some(games)) = (roles, games)
-                                            && let Err(message) = effect_runtime
-                                                .refresh_local_storage_sync_metadata(&roles, &games)
-                                        {
-                                            reveal_shell_error(
-                                                &app_handle,
-                                                shell_error(
-                                                    "LOCAL_STORAGE_SYNC_METADATA_REFRESH_FAILED",
-                                                    message,
-                                                ),
-                                            );
-                                        }
-                                    }
                                     let refresh_quick_menu =
                                         matches!(&event, CoreEvent::BrowserStatuses { .. })
                                             || matches!(
@@ -392,7 +364,6 @@ pub fn run() {
             rion_divider_pointer,
             rion_overlay_request,
             rion_overlay_ready,
-            rion_local_storage_sync_changed,
             rion_runtime_audio_state,
             rion_runtime_tab_action,
             rion_dispatch_core_effect_results,

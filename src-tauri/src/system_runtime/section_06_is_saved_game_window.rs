@@ -110,7 +110,7 @@ impl SystemRuntimeExecutor {
         Ok(Self {
             app,
             browser_proxy: BrowserProxyController::new(browser_proxy_settings),
-            close_effect_sender: OnceLock::new(),
+            close_effect_senders: OnceLock::new(),
             configuration: RuntimeWebViewConfiguration {
                 #[cfg(windows)]
                 base_browser_arguments,
@@ -131,7 +131,6 @@ impl SystemRuntimeExecutor {
             input_effect_lanes: Mutex::new(HashMap::new()),
             last_critical_activity: Mutex::new(Instant::now()),
             input_dispatch_lanes: Mutex::new(HashMap::new()),
-            local_storage_sync_lane: Mutex::new(()),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(native_creation_limit(
                 current_runtime_platform(),
@@ -171,27 +170,16 @@ impl SystemRuntimeExecutor {
 
         // Close/isolation has a dedicated lane. A slow launch or page-load waiter must never
         // consume the workers that take game content offline.
-        let (close_sender, close_receiver) = mpsc::sync_channel(32);
-        self.close_effect_sender
-            .set(close_sender)
-            .map_err(|_| "The close System WebView executor was already started.".to_owned())?;
-        let close_receiver = Arc::new(Mutex::new(close_receiver));
-        for index in 0..2 {
+        let mut close_senders: Vec<mpsc::SyncSender<ConcurrentRuntimeWork>> =
+            Vec::with_capacity(CLOSE_EFFECT_SHARD_COUNT);
+        for index in 0..CLOSE_EFFECT_SHARD_COUNT {
+            let (sender, receiver) = mpsc::sync_channel(32);
+            close_senders.push(sender);
             let runtime = Arc::downgrade(self);
-            let receiver = Arc::clone(&close_receiver);
             std::thread::Builder::new()
                 .name(format!("rion-native-close-{index}"))
                 .spawn(move || {
-                    loop {
-                        let work = {
-                            let Ok(receiver) = receiver.lock() else {
-                                return;
-                            };
-                            receiver.recv()
-                        };
-                        let Ok(work) = work else {
-                            return;
-                        };
+                    while let Ok(work) = receiver.recv() {
                         let Some(runtime) = runtime.upgrade() else {
                             return;
                         };
@@ -205,6 +193,9 @@ impl SystemRuntimeExecutor {
                 })
                 .map_err(|error| error.to_string())?;
         }
+        self.close_effect_senders
+            .set(close_senders)
+            .map_err(|_| "The close System WebView executor was already started.".to_owned())?;
 
         // Launch work is bounded separately. Navigation completion is handed to Tokio and no
         // longer occupies one of these workers for the 40 second page-load timeout.
@@ -371,7 +362,11 @@ impl SystemRuntimeExecutor {
             let effect_id = effect.effect_id.clone();
             let operation_id = effect.operation_id.clone();
             let sender = if is_surface_close_effect(&effect.action) {
-                self.close_effect_sender.get()
+                self.close_effect_senders.get().and_then(|senders| {
+                    self.close_effect_scope(&effect.action).and_then(|scope| {
+                        senders.get(close_effect_shard_index(&scope, senders.len()))
+                    })
+                })
             } else if is_browser_action_effect(&effect.action) {
                 self.input_effect_sender.get()
             } else {

@@ -11,21 +11,15 @@ afterEach(() => {
 });
 
 describe("Tauri bridge listener startup", () => {
-  it("preserves managed game keys and distinguishes binding clear from no change", () => {
+  it("maps game and role inputs without retired synchronization fields", () => {
     expect(gameCreateInput({
       name: "Flyff",
-      defaultLaunchUrl: "https://example.test/play",
-      localStorageSyncKeys: ["game_client_settings"],
-      localStorageSyncSelectors: []
-    })).toMatchObject({ localStorageSyncKeys: ["game_client_settings"] });
-    expect(roleUpdateInput({ localStorageSourceRoleId: null })).toMatchObject({
-      setLocalStorageSourceRoleId: true
-    });
-    expect(roleUpdateInput({ localStorageSourceRoleId: null })).not.toHaveProperty("localStorageSourceRoleId");
-    expect(roleUpdateInput({})).toMatchObject({ setLocalStorageSourceRoleId: false });
-    expect(roleUpdateInput({ localStorageSourceRoleId: "source" })).toMatchObject({
-      localStorageSourceRoleId: "source",
-      setLocalStorageSourceRoleId: true
+      defaultLaunchUrl: "https://example.test/play"
+    })).toEqual({ name: "Flyff", defaultLaunchUrl: "https://example.test/play" });
+    expect(roleUpdateInput({ name: "Role" })).toEqual({
+      name: "Role",
+      setCoverImageDataUrl: false,
+      setCoverImageDominantColor: false
     });
   });
   it("starts every listener registration in parallel and returns one cleanup", async () => {

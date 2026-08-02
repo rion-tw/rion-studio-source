@@ -4,7 +4,7 @@
 
 include!("state/section_01_schema_version.rs");
 include!("state/section_02_apply_domain_mutation.rs");
-include!("state/section_03_local_storage_sync_migrations.rs");
+include!("state/section_03_retired_data_migrations.rs");
 include!("state/section_03_read_overlay_configuration.rs");
 include!("state/section_04_entity_image.rs");
 

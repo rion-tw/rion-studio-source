@@ -318,6 +318,7 @@ struct PendingImport {
     created_at: Instant,
     data: PortableDataRecord,
     import_id: String,
+    retired_local_storage_sync_ignored: bool,
 }
 
 #[derive(Debug, Default)]
@@ -391,11 +392,24 @@ impl PortableRuntime {
         snapshot: CoreStateSnapshotRecord,
     ) -> CoreResult<PortableImportPreviewRecord> {
         self.prune_expired();
+        let retired_local_storage_sync_ignored = source
+            .get("schemaVersion")
+            .and_then(Value::as_u64)
+            .is_some_and(|schema| (11..=13).contains(&schema))
+            && source_has_retired_local_storage_sync(&source);
         let normalized = normalize_value(source)?;
         let data = serde_json::from_value::<PortableDataRecord>(normalized)
             .map_err(|error| invalid(format!("portable data model is invalid: {error}")))?;
         validate_preferences(data.preferences.as_ref())?;
-        let plan = build_import_plan(&data, &all_selection(), &[], snapshot)?;
+        let mut plan = build_import_plan(&data, &all_selection(), &[], snapshot)?;
+        if retired_local_storage_sync_ignored {
+            plan.warnings.push(warning(
+                "LOCAL_STORAGE_SYNC_IGNORED",
+                None,
+                None,
+                None,
+            ));
+        }
         let import_id = Uuid::new_v4().to_string();
         while self.pending.len() >= MAX_PENDING_IMPORTS {
             self.pending.pop_front();
@@ -404,6 +418,7 @@ impl PortableRuntime {
             created_at: Instant::now(),
             data: data.clone(),
             import_id: import_id.clone(),
+            retired_local_storage_sync_ignored,
         });
         Ok(PortableImportPreviewRecord {
             import_id,
@@ -437,7 +452,15 @@ impl PortableRuntime {
             .ok_or_else(import_expired)?;
         let selection = normalize_selection(selection);
         ensure_selected_content(&pending.data, &selection)?;
-        let plan = build_import_plan(&pending.data, &selection, &resolutions, snapshot)?;
+        let mut plan = build_import_plan(&pending.data, &selection, &resolutions, snapshot)?;
+        if pending.retired_local_storage_sync_ignored {
+            plan.warnings.push(warning(
+                "LOCAL_STORAGE_SYNC_IGNORED",
+                None,
+                None,
+                None,
+            ));
+        }
         if !plan.conflicts.is_empty() {
             return Err(CoreError::Domain {
                 code: "PORTABLE_IMPORT_CONFLICT_UNRESOLVED",
@@ -591,7 +614,6 @@ fn validate_portable_target_snapshot(snapshot: &CoreStateSnapshotRecord) -> Core
                 "portable import target role references a missing game",
             ));
         }
-        validate_role_local_storage_binding(role, &snapshot.roles)?;
     }
     if snapshot.launch_workspaces.iter().any(|workspace| {
         workspace
@@ -640,4 +662,24 @@ fn validate_portable_target_snapshot(snapshot: &CoreStateSnapshotRecord) -> Core
         validate_macro_settings(settings)?;
     }
     Ok(())
+}
+
+fn source_has_retired_local_storage_sync(source: &Value) -> bool {
+    source
+        .get("games")
+        .and_then(Value::as_array)
+        .is_some_and(|games| {
+            games.iter().any(|game| {
+                game.get("localStorageSyncKeys").is_some()
+                    || game.get("localStorageSyncSelectors").is_some()
+            })
+        })
+        || source
+            .get("roles")
+            .and_then(Value::as_array)
+            .is_some_and(|roles| {
+                roles
+                    .iter()
+                    .any(|role| role.get("localStorageSourceRoleId").is_some())
+            })
 }

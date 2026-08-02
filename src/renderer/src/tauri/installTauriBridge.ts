@@ -81,8 +81,6 @@ export function gameCreateInput(input: CreateGameInput): Extract<
   return {
     name: input.name,
     defaultLaunchUrl: input.defaultLaunchUrl,
-    localStorageSyncKeys: input.localStorageSyncKeys,
-    localStorageSyncSelectors: input.localStorageSyncSelectors,
     ...(typeof input.iconImageDataUrl === "string"
       ? { iconImageDataUrl: input.iconImageDataUrl }
       : {}),
@@ -101,12 +99,6 @@ function gameUpdateInput(input: UpdateGameInput): Extract<
     ...(input.defaultLaunchUrl === undefined
       ? {}
       : { defaultLaunchUrl: input.defaultLaunchUrl }),
-    ...(input.localStorageSyncKeys === undefined
-      ? {}
-      : { localStorageSyncKeys: input.localStorageSyncKeys }),
-    ...(input.localStorageSyncSelectors === undefined
-      ? {}
-      : { localStorageSyncSelectors: input.localStorageSyncSelectors }),
     ...(typeof input.iconImageDataUrl === "string"
       ? { iconImageDataUrl: input.iconImageDataUrl }
       : {}),
@@ -132,9 +124,6 @@ function roleCreateInput(input: CreateRoleInput): Extract<
       : {}),
     ...(typeof input.coverImageDominantColor === "string"
       ? { coverImageDominantColor: input.coverImageDominantColor }
-      : {}),
-    ...(typeof input.localStorageSourceRoleId === "string"
-      ? { localStorageSourceRoleId: input.localStorageSourceRoleId }
       : {})
   };
 }
@@ -155,11 +144,7 @@ export function roleUpdateInput(input: UpdateRoleInput): Extract<
     ...(typeof input.coverImageDominantColor === "string"
       ? { coverImageDominantColor: input.coverImageDominantColor }
       : {}),
-    setCoverImageDominantColor: input.coverImageDominantColor !== undefined,
-    ...(typeof input.localStorageSourceRoleId === "string"
-      ? { localStorageSourceRoleId: input.localStorageSourceRoleId }
-      : {}),
-    setLocalStorageSourceRoleId: input.localStorageSourceRoleId !== undefined
+    setCoverImageDominantColor: input.coverImageDominantColor !== undefined
   };
 }
 

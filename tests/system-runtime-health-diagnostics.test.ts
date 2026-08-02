@@ -19,7 +19,6 @@ describe("System WebView runtime health diagnostics", () => {
 
     expect(runtime).toContain("const RECENT_RUNTIME_FAILURE_CAPACITY: usize = 20");
     expect(runtime).toContain('event: "system-runtime.effect-failed"');
-    expect(runtime).toContain('event: "local-storage-sync.operation-failed"');
     expect(runtime).toContain("pub fn system_runtime_diagnostics(");
     expect(runtime).toContain("SYSTEM_RUNTIME_STATE_LOCK_POISONED");
     expect(runtime).not.toMatch(/SystemRuntimeFailureRecord\s*\{[^}]*message:/s);
@@ -29,7 +28,7 @@ describe("System WebView runtime health diagnostics", () => {
     expect(snapshot).toContain("nativeRuntime: SystemRuntimeDiagnosticsRecord");
     expect(diagnostics).toContain("snapshotComplete: boolean");
     expect(diagnostics).toContain("recentFailures: Array<SystemRuntimeFailureRecord>");
-    expect(failure).toContain('subsystem: "effect" | "localStorageSync"');
+    expect(failure).toContain('subsystem: "effect"');
     for (const sensitive of ["message", "origin", "token", "url", "webviewLabel"]) {
       expect(failure).not.toContain(`${sensitive}:`);
     }

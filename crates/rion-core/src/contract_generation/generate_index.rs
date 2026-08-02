@@ -104,8 +104,6 @@ fn export_bindings_index() {
                 "export type { LegalAcceptDocumentsInputRecord } from \"./LegalAcceptDocumentsInputRecord\";\n",
                 "export type { LegalAcceptanceStatusRecord } from \"./LegalAcceptanceStatusRecord\";\n",
                 "export type { LegalDocumentVersionsRecord } from \"./LegalDocumentVersionsRecord\";\n",
-                "export type { LocalStorageSyncRoleEffectRecord } from \"./LocalStorageSyncRoleEffectRecord\";\n",
-                "export type { LocalStorageSyncSourceEffectRecord } from \"./LocalStorageSyncSourceEffectRecord\";\n",
                 "export type { LogEntry } from \"./LogEntry\";\n",
                 "export type { LogErrorDetails } from \"./LogErrorDetails\";\n",
                 "export type { LogCaptureRecord } from \"./LogCaptureRecord\";\n",

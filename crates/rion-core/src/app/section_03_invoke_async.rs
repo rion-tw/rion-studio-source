@@ -2,15 +2,6 @@ impl AppCore {
     pub async fn invoke_async(self: &Arc<Self>, command: CoreCommand) -> CoreResult<Value> {
         match command {
             CoreCommand::RoleCreate { input } => {
-                let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
-                let mut roles = self.read_typed_state_collection::<StateRoleRecord>("roles")?;
-                let candidate = crate::domain::create_role(&games, &mut roles, input.clone())?;
-                let core = Arc::clone(self);
-                tokio::task::spawn_blocking(move || {
-                    core.refresh_local_storage_source_before_binding(&candidate)
-                })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??;
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || core.invoke(CoreCommand::RoleCreate { input }))
                     .await

@@ -537,7 +537,7 @@
     }
 
     #[test]
-    fn export_is_v13_and_never_emits_internal_timestamps_or_browser_session_source() {
+    fn export_is_v14_and_never_emits_internal_or_retired_sync_fields() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -553,7 +553,7 @@
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 13);
+            assert_eq!(value["schemaVersion"], 14);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")
@@ -579,6 +579,14 @@
             ] {
                 assert!(value["roles"][0].get(field).is_none());
             }
+            for field in ["localStorageSyncKeys", "localStorageSyncSelectors"] {
+                assert!(value["games"][0].get(field).is_none());
+            }
+            assert!(
+                value["roles"][0]
+                    .get("localStorageSourceRoleId")
+                    .is_none()
+            );
             assert!(value.get("gameCompatibilityReports").is_none());
         };
         assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());

@@ -426,6 +426,8 @@ impl AppCore {
         let state = StateDatabaseWorker::start(database_paths.state.clone())?;
         state.recover_portable_import(user_data_dir.clone())?;
         recover_operation_journals(&state, &user_data_dir)?;
+        let retired_sync_cache_warnings =
+            crate::role_browser_data::retire_local_storage_sync_caches(&user_data_dir);
         let log_level = state
             .read_scalar("logLevel".to_owned())?
             .and_then(|value| serde_json::from_value::<LogLevel>(value).ok())
@@ -534,6 +536,20 @@ impl AppCore {
             system_webview_runtime: RwLock::new(unavailable_system_webview_runtime(platform)),
             user_data_dir,
         };
+        if !retired_sync_cache_warnings.is_empty() {
+            let _ = core.capture_logs(vec![LogCaptureRecord {
+                level: LogLevel::Warn,
+                source: crate::model::LogSource::Main,
+                event: "storage.retired-local-storage-sync-cache-cleanup-failed".to_owned(),
+                message: "Retired role synchronization cache cleanup will retry on the next startup."
+                    .to_owned(),
+                context_raw_json: serde_json::to_string(&json!({
+                    "errors": retired_sync_cache_warnings,
+                }))
+                .ok(),
+                error: None,
+            }]);
+        }
         core.emit(vec![CoreEvent::Ready {
             schema_version: SCHEMA_VERSION,
         }]);

@@ -22,10 +22,7 @@ pub use chrome_cookie::{
     decrypt_windows_aes_gcm_payload,
 };
 mod protected_data;
-pub use protected_data::{
-    protect_local_storage_sync, protect_session_transfer, unprotect_local_storage_sync,
-    unprotect_session_transfer,
-};
+pub use protected_data::{protect_session_transfer, unprotect_session_transfer};
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
 mod system;

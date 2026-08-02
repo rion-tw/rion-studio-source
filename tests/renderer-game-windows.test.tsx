@@ -293,8 +293,6 @@ const game: Game = {
   source: "custom",
   name: "Flyff",
   defaultLaunchUrl: "https://example.com/play",
-  localStorageSyncKeys: [],
-  localStorageSyncSelectors: [],
   createdAt: "2026-07-27T00:00:00Z",
   updatedAt: "2026-07-27T00:00:00Z"
 };

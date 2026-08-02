@@ -56,8 +56,6 @@ fn apply_games_to_import_plan(
                 updated.cover_image_data_url = game.cover_image_data_url.clone();
             }
             updated.default_launch_url = game.default_launch_url.clone();
-            updated.local_storage_sync_keys = game.local_storage_sync_keys.clone();
-            updated.local_storage_sync_selectors = game.local_storage_sync_selectors.clone();
             updated.updated_at = timestamp.to_owned();
             if game_equivalent(&existing, &updated)? {
                 operations.games.unchanged += 1;
@@ -114,8 +112,6 @@ fn apply_games_to_import_plan(
                 .then_some(source.cover_image_data_url)
                 .flatten(),
             default_launch_url: source.default_launch_url,
-            local_storage_sync_keys: source.local_storage_sync_keys,
-            local_storage_sync_selectors: source.local_storage_sync_selectors,
             created_at: timestamp.to_owned(),
             updated_at: timestamp.to_owned(),
         };

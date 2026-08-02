@@ -88,7 +88,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
 
-    if (19..=21).contains(&current_version) {
+    if (19..=22).contains(&current_version) {
         connection
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -102,19 +102,10 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     )
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
-            if (19..=20).contains(&current_version) {
-                migrate_flyff_local_storage_sync_selectors(connection)?;
-                connection
-                    .execute(
-                        "INSERT INTO schema_migrations(version, applied_at) VALUES (21, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                        [],
-                    )
-                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-            }
-            migrate_flyff_china_local_storage_sync_selectors(connection)?;
+            migrate_retired_role_storage_sync(connection)?;
             connection
                 .execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (22, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (23, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                     [],
                 )
                 .map(|_| ())
@@ -230,7 +221,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                  );
                  CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (22, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (23, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -244,22 +235,18 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
 
 fn seed_builtin_games(connection: &Connection) -> CoreResult<()> {
     let timestamp = chrono::Utc::now().to_rfc3339();
-    for (ordinal, (id, key, name, launch_url, local_storage_sync_keys, selectors)) in [
+    for (ordinal, (id, key, name, launch_url)) in [
         (
             "builtin-flyff-universe",
             "flyff-universe",
             "Flyff Universe",
             "https://universe.flyff.com/play",
-            Vec::<&str>::new(),
-            crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS.to_vec(),
         ),
         (
             "builtin-feifei-infinite-universe",
             "feifei-infinite-universe",
             "飞飞：无限宇宙",
             "https://ffcli.ruiwoo.cn/",
-            Vec::<&str>::new(),
-            crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS.to_vec(),
         ),
     ]
     .into_iter()
@@ -271,8 +258,6 @@ fn seed_builtin_games(connection: &Connection) -> CoreResult<()> {
             "builtinKey": key,
             "name": name,
             "defaultLaunchUrl": launch_url,
-            "localStorageSyncKeys": local_storage_sync_keys,
-            "localStorageSyncSelectors": selectors,
             "createdAt": timestamp,
             "updatedAt": timestamp,
         }))

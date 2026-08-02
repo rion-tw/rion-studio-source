@@ -17,8 +17,7 @@ use tokio::sync::watch;
 use rion_core::{
     AppCore, BrowserAction, BrowserActionRequest, BrowserLaunchCompletionRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
-    BrowserPerformanceSurfaceDiagnosticRecord, BrowserProxyDiagnosticsRecord,
-    BrowserProxySettingsRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
+    BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
     DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,

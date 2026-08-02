@@ -244,11 +244,7 @@ impl SystemRuntimeExecutor {
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let mut builder = self
-            .role_store_webview_builder(
-                runtime_label("session-transfer-webview", &suffix),
-                paths,
-                role_id,
-            )?
+            .webview_builder(runtime_label("session-transfer-webview", &suffix), paths, None)?
             .on_page_load(move |_webview, payload| {
                 callback_navigation.page_event(payload.event(), payload.url());
             });
@@ -274,15 +270,6 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
-        #[cfg(windows)]
-        {
-            let snapshot = self.browser_proxy.snapshot_for_role(role_id)?;
-            self.browser_proxy.register_webview2_lifecycle(
-                &paths.webview2,
-                &snapshot,
-                Arc::clone(&lifecycle),
-            );
-        }
         if let Err(error) = install_platform_security_policy(&webview) {
             let _ = self.close_hidden_surface(role_id, window, webview, &lifecycle);
             return Err(error);

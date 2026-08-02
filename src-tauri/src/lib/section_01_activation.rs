@@ -10,7 +10,7 @@ use std::{
 };
 
 use rion_core::{
-    AppCore, AppCoreOptions, BrowserProxySettingsRecord, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
+    AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
     GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogCaptureRecord,

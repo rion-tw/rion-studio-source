@@ -81,13 +81,6 @@ fn main() {
             .flag("-Werror=nonnull")
             .compile("rion_dock_menu");
         cc::Build::new()
-            .file("native/macos/RionWKWebViewProxy.m")
-            .flag("-fobjc-arc")
-            .flag("-Werror=nullability-completeness")
-            .flag("-Werror=nullability")
-            .flag("-Werror=nonnull")
-            .compile("rion_wkwebview_proxy");
-        cc::Build::new()
             .cpp(true)
             .file("native/macos/RionRuntimeTabsController.mm")
             .flag("-fobjc-arc")
@@ -98,10 +91,8 @@ fn main() {
             .compile("rion_runtime_tabs");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=WebKit");
-        println!("cargo:rustc-link-lib=framework=Network");
         println!("cargo:rerun-if-changed=native/macos/RionWKWebViewInput.m");
         println!("cargo:rerun-if-changed=native/macos/RionDockMenu.m");
-        println!("cargo:rerun-if-changed=native/macos/RionWKWebViewProxy.m");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.h");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.mm");
         for source in [

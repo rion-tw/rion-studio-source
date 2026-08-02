@@ -256,9 +256,6 @@ impl AppCore {
                 serde_json::to_value(self.patch_game_browser_settings(patch)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::BrowserProxySettingsGet => self.get_browser_proxy_settings_value(),
-            CoreCommand::BrowserProxySettingsReplace { settings } =>
-                self.replace_browser_proxy_settings_value(settings),
             CoreCommand::BrowserFontCatalogList => {
                 serde_json::to_value(crate::font_catalog::list(&self.user_data_dir))
                     .map_err(|error| CoreError::Internal(error.to_string()))

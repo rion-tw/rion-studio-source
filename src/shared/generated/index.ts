@@ -18,9 +18,6 @@ export type { BrowserPerformanceSettingsRecord } from "./BrowserPerformanceSetti
 export type { BrowserPerformanceDiagnosticStatus } from "./BrowserPerformanceDiagnosticStatus";
 export type { BrowserPerformanceDiagnosticsRecord } from "./BrowserPerformanceDiagnosticsRecord";
 export type { BrowserPerformanceSurfaceDiagnosticRecord } from "./BrowserPerformanceSurfaceDiagnosticRecord";
-export type { BrowserProxyEndpointRecord } from "./BrowserProxyEndpointRecord";
-export type { BrowserProxyDiagnosticsRecord } from "./BrowserProxyDiagnosticsRecord";
-export type { BrowserProxySettingsRecord } from "./BrowserProxySettingsRecord";
 export type { BrowserHostKind } from "./BrowserHostKind";
 export type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 export type { BrowserRuntimeCommand } from "./BrowserRuntimeCommand";

@@ -106,14 +106,9 @@ impl SystemRuntimeExecutor {
         let result = pending_navigations
             .iter()
             .try_for_each(|(role_id, surface, navigation)| {
-                navigation.wait().map_err(|message| {
-                    let message = if self.browser_proxy.role_uses_custom_proxy(role_id) {
-                        format!("{message} A custom local role proxy was active.")
-                    } else {
-                        message
-                    };
-                    RuntimeError::new("TAURI_NAVIGATION_FAILED", message)
-                })?;
+                navigation
+                    .wait()
+                    .map_err(|message| RuntimeError::new("TAURI_NAVIGATION_FAILED", message))?;
                 self.reassert_role_keys(role_id, surface)
             });
         self.finish_controlled_navigations(&controlled_labels);

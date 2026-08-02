@@ -6,7 +6,7 @@ import {
 } from "../src/shared/legal";
 
 describe("legal document versions", () => {
-  it("advances only the privacy notice for Google Font previews", () => {
+  it("reports the current legal document versions", () => {
     expect(CURRENT_LEGAL_DOCUMENT_VERSIONS).toEqual({
       fairUse: "2026-07-26",
       privacy: "2026-08-02",

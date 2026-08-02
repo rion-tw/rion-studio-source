@@ -161,7 +161,6 @@ async fn export_diagnostics(
                 "displays": displays,
                 "gpuFeatureStatusRawJson": "{}",
                 "browserPerformance": state.runtime.last_browser_performance_diagnostics(),
-                "browserProxy": state.runtime.browser_proxy_diagnostics(),
                 "nativeRuntime": state.runtime.system_runtime_diagnostics(
                     state.core.macro_input_diagnostics().ok()
                 )

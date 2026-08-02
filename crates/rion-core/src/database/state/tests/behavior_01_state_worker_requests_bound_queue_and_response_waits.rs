@@ -36,42 +36,20 @@ use std::fs;
     }
 
     #[test]
-    fn browser_proxy_settings_default_round_trip_and_repair_corruption() {
+    fn removed_browser_proxy_settings_are_not_created_or_accepted() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
-        assert_eq!(
-            read_scalar(&connection, "browserProxySettings").unwrap(),
-            Some(serde_json::to_value(default_browser_proxy_settings()).unwrap())
-        );
-
-        let custom = json!({
-            "mode": "custom",
-            "custom": { "protocol": "socks5", "host": "::1", "port": 10090 }
-        });
-        replace_scalar(
-            &mut connection,
-            "browserProxySettings",
-            custom.clone(),
-        )
-        .unwrap();
-        let snapshot = read_snapshot(&connection).unwrap();
-        replace_snapshot(&mut connection, &snapshot).unwrap();
-        assert_eq!(
-            read_scalar(&connection, "browserProxySettings").unwrap(),
-            Some(custom)
-        );
-
-        connection
-            .execute(
-                "UPDATE settings SET payload_json='not-json' WHERE key='browserProxySettings'",
+        let stored = connection
+            .query_row(
+                "SELECT payload_json FROM settings WHERE key='browserProxySettings'",
                 [],
+                |row| row.get::<_, String>(0),
             )
+            .optional()
             .unwrap();
-        create_schema(&connection, false).unwrap();
-        assert_eq!(
-            read_scalar(&connection, "browserProxySettings").unwrap(),
-            Some(serde_json::to_value(default_browser_proxy_settings()).unwrap())
-        );
+        assert!(stored.is_none());
+        assert!(read_scalar(&connection, "browserProxySettings").is_err());
+        assert!(replace_scalar(&mut connection, "browserProxySettings", json!({})).is_err());
     }
 
     #[test]

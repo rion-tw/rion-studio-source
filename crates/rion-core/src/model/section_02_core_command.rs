@@ -175,10 +175,6 @@ pub enum CoreCommand {
     GameBrowserSettingsPatch {
         patch: GameBrowserSettingsPatchRecord,
     },
-    BrowserProxySettingsGet,
-    BrowserProxySettingsReplace {
-        settings: BrowserProxySettingsRecord,
-    },
     BrowserFontCatalogList,
     BrowserFontPackInstall {
         #[ts(rename = "catalogId")]

@@ -5,40 +5,28 @@ import { AppSidebar } from "./components/AppSidebar";
 import { UpdateReadyBanner } from "./components/UpdateReadyBanner";
 import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
+import { FirstRunOnboardingGate } from "./features/onboarding/FirstRunOnboardingGate";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
-
 import { useAppData } from "./hooks/useAppData";
-
 import { useAppUpdates } from "./hooks/useAppUpdates";
-
 import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
-
+import { useFirstRunOnboarding } from "./hooks/useFirstRunOnboarding";
 import { useGameWorkflow } from "./hooks/useGameWorkflow";
-
 import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
-
 import { usePreferences } from "./hooks/usePreferences";
-
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
-
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
-
 import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
 import { useBrowserProxySettings } from "./features/settings/useBrowserProxySettings";
 import { localizeErrorMessage } from "./i18n";
-
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
-
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
-
 import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, GameWindow, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
-
 import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppScreens";
-
 import { DashboardRoute, GameEditorRoute, GameWindowEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
 
 const TOAST_DISMISS_MS = 4000;
@@ -51,6 +39,7 @@ export function App(): JSX.Element {
   const hasBridge = Boolean(window.rionStudio);
   useWindowsApplicationShortcuts(hasBridge);
   const legal = useLegalAcceptance(hasBridge);
+  const firstRunOnboarding = useFirstRunOnboarding({ enabled: hasBridge && data.initialLoadState === "ready" && legal.status?.isAccepted === true, roles: data.roles });
   const browserProxy = useBrowserProxySettings({ enabled: hasBridge && data.initialLoadState === "ready", onError: data.setError });
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const gameBrowserSettingsPatchQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -330,23 +319,29 @@ export function App(): JSX.Element {
     if (
       initialLoadState !== "ready" ||
       data.error === null ||
-      isPersistentRuntimeError(data.error)
+      isPersistentRuntimeError(data.error) ||
+      firstRunOnboarding.isVisible
     ) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => setError(null), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [data.error, initialLoadState, setError]);
+  }, [data.error, firstRunOnboarding.isVisible, initialLoadState, setError]);
 
   useEffect(() => {
-    if (initialLoadState !== "ready" || data.error !== null || notice === null) {
+    if (
+      initialLoadState !== "ready" ||
+      data.error !== null ||
+      notice === null ||
+      firstRunOnboarding.isVisible
+    ) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => setNotice(null), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [data.error, initialLoadState, notice]);
+  }, [data.error, firstRunOnboarding.isVisible, initialLoadState, notice]);
 
   useEffect(() => {
     if (initialLoadState !== "ready") return;
@@ -431,6 +426,10 @@ export function App(): JSX.Element {
         onQuit={() => window.rionStudio.quitApplication()}
       />
     );
+  }
+
+  if (hasBridge && firstRunOnboarding.isVisible) {
+    return <FirstRunOnboardingGate controller={firstRunOnboarding} data={data} notice={notice} preferences={preferences} roleWorkflow={roleWorkflow} />;
   }
 
   const roleEditorElement = hasBridge ? (

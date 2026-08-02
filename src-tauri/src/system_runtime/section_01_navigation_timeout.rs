@@ -651,7 +651,7 @@ impl SurfaceLifecycleTracker {
         })
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, test))]
     fn wait_for_browser_process_exit(&self, timeout: Duration) -> bool {
         self.wait_for(timeout, |release| release.browser_process_exited)
     }

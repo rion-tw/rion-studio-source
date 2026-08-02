@@ -2,11 +2,11 @@ impl SystemRuntimeExecutor {
     fn start_role_loads(
         &self,
         roles: Vec<EmbeddedRoleLoadEffectRecord>,
-    ) -> RuntimeResult<Vec<(String, Webview, Arc<NavigationTracker>)>> {
+    ) -> RuntimeResult<Vec<PendingRoleNavigation>> {
         let mut pending_navigations = Vec::with_capacity(roles.len());
         let mut controlled_labels = Vec::with_capacity(roles.len());
 
-        let result = (|| -> RuntimeResult<Vec<(String, Webview, Arc<NavigationTracker>)>> {
+        let result = (|| -> RuntimeResult<Vec<PendingRoleNavigation>> {
             for role in roles {
                 if !is_current_system_engine(role.resolved_engine) {
                     return Err(RuntimeError::new(
@@ -31,7 +31,16 @@ impl SystemRuntimeExecutor {
                         "The role is closing or quarantined and cannot navigate to the game.",
                     ));
                 }
-                let (surface, navigation, current_url, base_zoom_factor, effective_zoom) = {
+                let (
+                    surface,
+                    navigation,
+                    current_url,
+                    base_zoom_factor,
+                    effective_zoom,
+                    surface_generation,
+                    tab_id,
+                    window_id,
+                ) = {
                     let state = self.state()?;
                     let tab_id = state.role_tabs.get(&role.role_id).ok_or_else(|| {
                         RuntimeError::new(
@@ -61,13 +70,25 @@ impl SystemRuntimeExecutor {
                         surface.current_url.clone(),
                         base_zoom_factor,
                         effective_zoom_factor(base_zoom_factor, window_zoom_factor),
+                        surface.generation,
+                        tab_id.clone(),
+                        state.tabs[tab_id].window_id.clone(),
                     )
                 };
                 let url = checked_web_url(&role.url)?;
                 let controlled_label = surface.label().to_owned();
                 self.begin_controlled_navigation(&controlled_label)?;
                 controlled_labels.push(controlled_label);
-                if current_url.as_ref() != Some(&url) {
+                let operation = NativeOperationContext::new(
+                    NativeOperationSubsystem::Navigation,
+                    "embeddedLoadRoles",
+                    NAVIGATION_TIMEOUT,
+                )
+                .with_role(&role.role_id)
+                .with_tab(&tab_id)
+                .with_window(&window_id)
+                .with_surface_generation(surface_generation);
+                let pending_operation = if current_url.as_ref() != Some(&url) {
                     if let Ok(mut state) = self.state()
                         && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
                         && let Some(role_surface) = state
@@ -81,17 +102,86 @@ impl SystemRuntimeExecutor {
                         role_surface.current_url = Some(url.clone());
                         role_surface.zoom_factor = base_zoom_factor;
                     }
-                    navigation.reset();
-                    surface.navigate(url.clone()).map_err(RuntimeError::tauri)?;
+                    if let Err(message) = navigation.begin_operation(&operation) {
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "navigationTracker",
+                                NativeOperationStatus::Failed,
+                                Some("SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE"),
+                            ),
+                        );
+                        return Err(RuntimeError::new(
+                            "SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE",
+                            message,
+                        ));
+                    }
+                    if let Err(error) = surface.navigate(url.clone()) {
+                        let error = RuntimeError::tauri(error);
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "navigationSubmit",
+                                NativeOperationStatus::Failed,
+                                Some(error.code),
+                            ),
+                        );
+                        return Err(error);
+                    }
+                    Some(operation)
+                } else {
+                    if let Err(message) = navigation.adopt_current_navigation(&operation) {
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "navigationTracker",
+                                NativeOperationStatus::Failed,
+                                Some("SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE"),
+                            ),
+                        );
+                        return Err(RuntimeError::new(
+                            "SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE",
+                            message,
+                        ));
+                    }
+                    Some(operation)
+                };
+                if let Err(error) = surface.set_zoom(effective_zoom) {
+                    let error = RuntimeError::tauri(error);
+                    if let Some(operation) = pending_operation.as_ref() {
+                        navigation.reset();
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation.clone(),
+                                "navigationSetup",
+                                NativeOperationStatus::Failed,
+                                Some(error.code),
+                            ),
+                        );
+                    }
+                    return Err(error);
                 }
-                surface
-                    .set_zoom(effective_zoom)
-                    .map_err(RuntimeError::tauri)?;
-                pending_navigations.push((role.role_id, surface, navigation));
+                pending_navigations.push(PendingRoleNavigation {
+                    navigation,
+                    operation: pending_operation,
+                    role_id: role.role_id,
+                    surface,
+                });
             }
-            Ok(pending_navigations)
+            Ok(std::mem::take(&mut pending_navigations))
         })();
         if result.is_err() {
+            for pending in pending_navigations {
+                if let Some(operation) = pending.operation {
+                    pending.navigation.reset();
+                    self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                        operation,
+                        "navigationBatchSetupAborted",
+                        NativeOperationStatus::Superseded,
+                        Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+                    ));
+                }
+            }
             self.finish_controlled_navigations(&controlled_labels);
         }
         result
@@ -101,16 +191,43 @@ impl SystemRuntimeExecutor {
         let pending_navigations = self.start_role_loads(roles)?;
         let controlled_labels = pending_navigations
             .iter()
-            .map(|(_, surface, _)| surface.label().to_owned())
+            .map(|pending| pending.surface.label().to_owned())
             .collect::<Vec<_>>();
-        let result = pending_navigations
-            .iter()
-            .try_for_each(|(role_id, surface, navigation)| {
-                navigation
-                    .wait()
-                    .map_err(|message| RuntimeError::new("TAURI_NAVIGATION_FAILED", message))?;
-                self.reassert_role_keys(role_id, surface)
-            });
+        let mut result = Ok(());
+        for pending in &pending_navigations {
+            if result.is_err() {
+                if let Some(operation) = pending.operation.clone() {
+                    pending.navigation.reset();
+                    self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                        operation,
+                        "navigationBatchAborted",
+                        NativeOperationStatus::Superseded,
+                        Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+                    ));
+                }
+                continue;
+            }
+            if let Some(operation) = pending.operation.clone() {
+                let receipt = pending.navigation.wait_operation(operation);
+                let status = receipt.status;
+                let failure_code = receipt.failure_code.clone();
+                self.record_native_operation_receipt(receipt);
+                if status != NativeOperationStatus::Applied {
+                    result = Err(RuntimeError::new(
+                        if status == NativeOperationStatus::Superseded {
+                            "SYSTEM_NAVIGATION_SUPERSEDED"
+                        } else {
+                            "TAURI_NAVIGATION_FAILED"
+                        },
+                        failure_code.unwrap_or_else(|| {
+                            "System WebView navigation did not complete.".to_owned()
+                        }),
+                    ));
+                    continue;
+                }
+            }
+            result = self.reassert_role_keys(&pending.role_id, &pending.surface);
+        }
         self.finish_controlled_navigations(&controlled_labels);
         result
     }
@@ -128,7 +245,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn focus_role(&self, role_id: &str, zoom_factor: Option<f64>) -> RuntimeResult<()> {
-        let (window, webview, window_zoom_factor) = {
+        let (tab_id, webview, window_zoom_factor) = {
             let state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
                 RuntimeError::new(
@@ -151,7 +268,7 @@ impl SystemRuntimeExecutor {
                     "Runtime display host was not found.",
                 )
             })?;
-            (host.window.clone(), role.webview.clone(), host.zoom_factor)
+            (tab_id.clone(), role.webview.clone(), host.zoom_factor)
         };
         if let Some(zoom_factor) = zoom_factor {
             let zoom_factor = zoom_factor.clamp(0.25, 3.0);
@@ -169,12 +286,14 @@ impl SystemRuntimeExecutor {
                 role_surface.zoom_mode = "fixed".to_owned();
             }
         }
-        if window.is_minimized().map_err(RuntimeError::tauri)? {
-            window.unminimize().map_err(RuntimeError::tauri)?;
-        }
-        window.show().map_err(RuntimeError::tauri)?;
-        window.set_focus().map_err(RuntimeError::tauri)?;
-        webview.set_focus().map_err(RuntimeError::tauri)
+        self.request_tab_presentation_with_window_visibility(
+            &tab_id,
+            NativePresentationFocus::WindowAndContent,
+            "focus-role",
+            Some(true),
+        )
+        .map(|_| ())
+        .map_err(|message| RuntimeError::new("TAURI_RUNTIME_VISIBILITY_FAILED", message))
     }
 
 }

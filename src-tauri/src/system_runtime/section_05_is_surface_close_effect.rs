@@ -245,21 +245,22 @@ fn native_presentation_mutation_plan(
     next_tab_id: &Option<String>,
     previous_surface_identities: &HashSet<(String, u64)>,
     next_surface_identities: &HashSet<(String, u64)>,
-    previous_window_visibility: Option<bool>,
-    window_visibility: Option<bool>,
-    focus: NativePresentationFocus,
+    window: NativeWindowPresentationTransition,
 ) -> NativePresentationMutationPlan {
     let presentation_changed =
         previous_tab_id != next_tab_id || previous_surface_identities != next_surface_identities;
-    let focus_allowed = window_visibility != Some(false);
-    let apply_content_focus = focus_allowed && focus.focuses_content();
-    let apply_window_focus = focus_allowed && focus.focuses_window();
+    let focus_allowed = window.requested_visibility != Some(false);
+    let apply_content_focus = focus_allowed && window.focus.focuses_content();
+    let apply_window_focus = focus_allowed && window.focus.focuses_window();
     NativePresentationMutationPlan {
         apply_content_focus,
         apply_window_focus,
         presentation_changed,
         requires_ui_thread: presentation_changed
-            || window_visibility.is_some_and(|visible| Some(visible) != previous_window_visibility)
+            || window
+                .requested_visibility
+                .is_some_and(|visible| Some(visible) != window.previous_visibility)
+            || window.mode.is_some()
             || apply_content_focus
             || apply_window_focus,
     }
@@ -303,9 +304,12 @@ fn apply_native_presentation_batch(
         &request.tab_id,
         previous_surface_identities,
         &next_surface_mutation_identities,
-        previous_window_visibility,
-        request.window_visibility,
-        request.focus,
+        NativeWindowPresentationTransition::new(
+            previous_window_visibility,
+            request.window_visibility,
+            request.window_mode,
+            request.focus,
+        ),
     );
     let still_desired = request.coordinator.lock().ok().is_some_and(|selection| {
         selection.revision == request.revision
@@ -350,6 +354,7 @@ fn apply_native_presentation_batch(
     let active_webview = request.active_webview.clone();
     let window = request.window.clone();
     let window_id = request.window_id.clone();
+    let window_mode = request.window_mode;
     let window_visibility = request.window_visibility;
     let mutation_plan = mutation_plan.clone();
     let scheduling = request.window.run_on_main_thread(move || {
@@ -468,6 +473,35 @@ fn apply_native_presentation_batch(
             .elapsed()
             .as_millis()
             .min(u64::MAX as u128) as u64;
+
+        if let Some(window_mode) = window_mode {
+            let mode_result = match window_mode {
+                NativeWindowMode::ExitFullscreen => {
+                    if window.is_fullscreen().unwrap_or(false) {
+                        window.set_fullscreen(false)
+                    } else {
+                        Ok(())
+                    }
+                }
+                NativeWindowMode::Fullscreen => {
+                    if window.is_fullscreen().unwrap_or(false) {
+                        Ok(())
+                    } else {
+                        window.set_fullscreen(true)
+                    }
+                }
+                NativeWindowMode::Maximized => {
+                    if window.is_maximized().unwrap_or(false) {
+                        Ok(())
+                    } else {
+                        window.maximize()
+                    }
+                }
+            };
+            if let Err(error) = mode_result {
+                visibility_errors.push(error.to_string());
+            }
+        }
 
         let mut focus_applied = false;
         let mut window_focus_applied = false;

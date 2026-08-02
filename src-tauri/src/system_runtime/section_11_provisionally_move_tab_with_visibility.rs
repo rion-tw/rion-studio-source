@@ -1,5 +1,5 @@
 impl SystemRuntimeExecutor {
-    fn provisionally_move_tab_with_visibility(
+    fn provisionally_move_tab_with_visibility_inner(
         &self,
         tab_id: &str,
         target_window_id: &str,

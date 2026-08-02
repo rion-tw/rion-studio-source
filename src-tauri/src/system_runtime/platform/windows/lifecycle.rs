@@ -20,6 +20,7 @@ fn windows_role_lifecycle_setup_error(error: RuntimeError) -> RuntimeError {
             setup_stage: "lifecycle",
         })),
         message: error.message,
+        rollback_error_count: error.rollback_error_count,
     }
 }
 
@@ -396,7 +397,13 @@ impl RuntimeError {
             code,
             diagnostic: None,
             message: message.into(),
+            rollback_error_count: None,
         }
+    }
+
+    fn with_rollback_error_count(mut self, count: usize) -> Self {
+        self.rollback_error_count = Some(count.min(u32::MAX as usize) as u32);
+        self
     }
 
     #[cfg(windows)]

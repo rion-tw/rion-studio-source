@@ -100,14 +100,11 @@ impl SystemRuntimeExecutor {
                 role_id,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
-            } => {
-                self.clear_role_browser_data(
-                    &role_id,
-                    &webview2_user_data_dir,
-                    &webkit_data_store_identifier,
-                )?;
-                Ok(None)
-            }
+            } => self.clear_role_browser_data_contract(
+                &role_id,
+                &webview2_user_data_dir,
+                &webkit_data_store_identifier,
+            ),
             CoreEffectAction::ChromeProfileImportSnapshot {
                 transaction_id,
                 role_id,
@@ -115,17 +112,16 @@ impl SystemRuntimeExecutor {
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
                 replace_existing,
-            } => {
-                self.snapshot_role_session_transfer(
-                    &transaction_id,
+            } => self.snapshot_role_session_contract(
+                &transaction_id,
+                RoleSessionContractTarget::new(
                     &role_id,
                     &launch_url,
                     &webview2_user_data_dir,
                     &webkit_data_store_identifier,
-                    replace_existing,
-                )?;
-                Ok(None)
-            }
+                ),
+                replace_existing,
+            ),
             CoreEffectAction::ChromeProfileImportApply {
                 transaction_id,
                 role_id,
@@ -133,25 +129,16 @@ impl SystemRuntimeExecutor {
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
                 replace_existing,
-            } => {
-                let payload = self.load_session_transfer(&transaction_id)?;
-                let (inserted_cookie_count, backup) =
-                    self.apply_role_session_transfer(RoleSessionTransferRequest {
-                        role_id: &role_id,
-                        launch_url: &launch_url,
-                        webview2_user_data_dir: &webview2_user_data_dir,
-                        webkit_data_store_identifier: &webkit_data_store_identifier,
-                        replace_existing,
-                        payload,
-                        backup_transaction_id: Some(&transaction_id),
-                    })?;
-                self.state()?
-                    .session_import_backups
-                    .insert(transaction_id, backup);
-                Ok(Some(
-                    json!({ "insertedCookieCount": inserted_cookie_count }).to_string(),
-                ))
-            }
+            } => self.apply_role_session_contract(
+                transaction_id,
+                RoleSessionContractTarget::new(
+                    &role_id,
+                    &launch_url,
+                    &webview2_user_data_dir,
+                    &webkit_data_store_identifier,
+                ),
+                replace_existing,
+            ),
             CoreEffectAction::ChromeProfileImportVerify {
                 role_id,
                 verification_url,
@@ -159,13 +146,15 @@ impl SystemRuntimeExecutor {
                 login_path,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
-            } => self.verify_role_authentication(
-                &role_id,
-                &verification_url,
+            } => self.verify_role_session_contract(
+                RoleSessionContractTarget::new(
+                    &role_id,
+                    &verification_url,
+                    &webview2_user_data_dir,
+                    &webkit_data_store_identifier,
+                ),
                 &authenticated_path,
                 &login_path,
-                &webview2_user_data_dir,
-                &webkit_data_store_identifier,
             ),
             CoreEffectAction::ChromeProfileImportRollback {
                 transaction_id,
@@ -173,19 +162,17 @@ impl SystemRuntimeExecutor {
                 launch_url,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
-            } => {
-                self.rollback_role_session_transfer(
-                    &transaction_id,
+            } => self.rollback_role_session_contract(
+                &transaction_id,
+                RoleSessionContractTarget::new(
                     &role_id,
                     &launch_url,
                     &webview2_user_data_dir,
                     &webkit_data_store_identifier,
-                )?;
-                Ok(None)
-            }
+                ),
+            ),
             CoreEffectAction::ChromeProfileImportCommit { transaction_id } => {
-                self.commit_role_session_transfer(&transaction_id)?;
-                Ok(None)
+                self.commit_role_session_contract(&transaction_id)
             }
             CoreEffectAction::OverlayOpenMacroPage { role_id } => {
                 let request = json!({ "roleId": role_id });
@@ -238,14 +225,28 @@ impl SystemRuntimeExecutor {
         }
         let started = Instant::now();
         let diagnostic = browser_action_diagnostic_context(&request.action);
+        let native_stage = match &request.action {
+            BrowserAction::Focus => "inputFocus",
+            BrowserAction::Key { .. } => "inputKey",
+            BrowserAction::Click { .. } => "inputClick",
+        };
         let request_id = request.request_id.clone();
         let role_id = request.role_id.clone();
         let input_epoch = request.input_epoch;
         let intent = request.intent.clone();
         let scheduled_at_ms = request.scheduled_at_ms;
         let deadline_ms = request.deadline_ms;
+        let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+        let mut native_operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Input,
+            "browserAction",
+            Duration::from_millis(deadline_ms.saturating_sub(now_ms))
+                .min(PLATFORM_CALLBACK_TIMEOUT),
+        )
+        .with_role(&role_id);
         let result = (|| {
             let context = self.input_dispatch_context(&request)?;
+            native_operation.surface_generation = Some(context.surface_generation);
             self.with_input_context_lane(&context, || match request.action {
                 BrowserAction::Focus => {
                     // Native key and mouse delivery targets the role WebView directly. Focus is
@@ -303,6 +304,34 @@ impl SystemRuntimeExecutor {
             started,
             &result,
         );
+        let receipt = match result.as_ref() {
+            Ok(_) => NativeOperationReceipt::applied(native_operation, native_stage),
+            Err(error)
+                if matches!(error.code, "BROWSER_ACTION_STALE" | "BROWSER_ACTION_DEADLINE") =>
+            {
+                NativeOperationReceipt::with_status(
+                    native_operation,
+                    native_stage,
+                    NativeOperationStatus::Superseded,
+                    Some(error.code),
+                )
+            }
+            Err(error) if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
+                NativeOperationReceipt::with_status(
+                    native_operation,
+                    native_stage,
+                    NativeOperationStatus::Indeterminate,
+                    Some(error.code),
+                )
+            }
+            Err(error) => NativeOperationReceipt::with_status(
+                native_operation,
+                native_stage,
+                NativeOperationStatus::Failed,
+                Some(error.code),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
         result
     }
 

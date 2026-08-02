@@ -104,6 +104,7 @@ impl SystemRuntimeExecutor {
                     rollback_errors.join("; ")
                 ),
             )
+            .with_rollback_error_count(rollback_errors.len())
         }
     }
 }

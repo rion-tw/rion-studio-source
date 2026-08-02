@@ -58,6 +58,7 @@ export type { SystemRuntimeDiagnosticsRecord } from "./SystemRuntimeDiagnosticsR
 export type { SystemRuntimeFailureRecord } from "./SystemRuntimeFailureRecord";
 export type { SystemRuntimeInputFenceEventRecord } from "./SystemRuntimeInputFenceEventRecord";
 export type { SystemRuntimeInputFenceRecord } from "./SystemRuntimeInputFenceRecord";
+export type { SystemRuntimeOperationSummaryRecord } from "./SystemRuntimeOperationSummaryRecord";
 export type { DisplayFingerprintRecord } from "./DisplayFingerprintRecord";
 export type { DisplayInfoRecord } from "./DisplayInfoRecord";
 export type { DisplayTargetRecord } from "./DisplayTargetRecord";
@@ -69,6 +70,7 @@ export type { EmbeddedRoleLoadEffectRecord } from "./EmbeddedRoleLoadEffectRecor
 export type { EmbeddedRoleViewEffectRecord } from "./EmbeddedRoleViewEffectRecord";
 export type { EmbeddedTabEffectRecord } from "./EmbeddedTabEffectRecord";
 export type { EngineCapabilitySnapshotRecord } from "./EngineCapabilitySnapshotRecord";
+export type { EngineCapabilityEvidenceRecord } from "./EngineCapabilityEvidenceRecord";
 export type { EngineCapabilityStatus } from "./EngineCapabilityStatus";
 export type { SystemWebViewIssueReason } from "./SystemWebViewIssueReason";
 export type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";

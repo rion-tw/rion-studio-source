@@ -1,5 +1,47 @@
 impl SystemRuntimeExecutor {
     fn set_role_audio_muted(&self, role_id: &str, muted: bool) -> RuntimeResult<()> {
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Audio,
+            "setRoleAudioMuted",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_role(role_id);
+        if let Ok(state) = self.state()
+            && let Some(tab_id) = state.role_tabs.get(role_id)
+            && let Some(tab) = state.tabs.get(tab_id)
+        {
+            operation.tab_id = Some(tab_id.clone());
+            operation.window_id = Some(tab.window_id.clone());
+            operation.surface_generation = tab.roles.get(role_id).map(|role| role.generation);
+        }
+        let result = self.apply_role_audio_muted(role_id, muted);
+        let receipt = match result.as_ref() {
+            Ok(()) => NativeOperationReceipt::applied(operation, "audioMuteApplied"),
+            Err(error) if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" => {
+                let receipt = NativeOperationReceipt::with_status(
+                    operation,
+                    "audioMuteRollbackFailed",
+                    NativeOperationStatus::Indeterminate,
+                    Some(error.code),
+                );
+                if let Some(count) = error.rollback_error_count {
+                    receipt.with_rollback_error_count(count as usize)
+                } else {
+                    receipt
+                }
+            }
+            Err(error) => NativeOperationReceipt::with_status(
+                operation,
+                "audioMuteFailed",
+                NativeOperationStatus::Failed,
+                Some(error.code),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result
+    }
+
+    fn apply_role_audio_muted(&self, role_id: &str, muted: bool) -> RuntimeResult<()> {
         let (tab_id, previous_muted, webviews, popup_labels) = {
             let state = self.state()?;
             let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
@@ -86,7 +128,8 @@ impl SystemRuntimeExecutor {
                         error.message,
                         rollback_errors.join("; ")
                     ),
-                ));
+                )
+                .with_rollback_error_count(rollback_errors.len()));
             }
             return Err(error);
         }

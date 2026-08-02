@@ -10,6 +10,7 @@ struct NavigationInputFence {
 #[derive(Clone)]
 struct RoleInputFence {
     input_epoch: u64,
+    navigation_operation: Option<NativeOperationContext>,
     reason: String,
     started_at: Instant,
     drained: bool,

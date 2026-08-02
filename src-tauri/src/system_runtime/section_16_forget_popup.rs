@@ -1,4 +1,28 @@
 impl SystemRuntimeExecutor {
+    fn record_popup_contract_outcome(
+        &self,
+        role_id: Option<&str>,
+        stage: &'static str,
+        status: NativeOperationStatus,
+        failure_code: Option<&str>,
+    ) {
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Popup,
+            "newWindow",
+            PLATFORM_CALLBACK_TIMEOUT,
+        );
+        if let Some(role_id) = role_id {
+            operation = operation.with_role(role_id);
+            operation.surface_generation = self.surface_generation_for_role(role_id);
+        }
+        self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+            operation,
+            stage,
+            status,
+            failure_code,
+        ));
+    }
+
     pub(crate) fn forget_popup(&self, window_label: &str) {
         let (role_id, released_surfaces, role_closing, active_epoch) = {
             let Ok(mut state) = self.state.lock() else {
@@ -176,63 +200,85 @@ impl SystemRuntimeExecutor {
         role_id: String,
         generation: u64,
     ) -> RuntimeResult<()> {
-        let (tab_id, window_id, effective_zoom) = {
-            let mut state = self.state()?;
-            let tab_id = state.role_tabs.get(&role_id).cloned().ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                    "Runtime role was not found while registering its popup.",
-                )
-            })?;
-            let tab = state.tabs.get(&tab_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_TAB_NOT_FOUND",
-                    "Runtime tab was not found while registering its popup.",
-                )
-            })?;
-            let role_zoom = tab
-                .roles
-                .get(&role_id)
-                .map(|role| role.zoom_factor)
-                .ok_or_else(|| {
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Popup,
+            "registerPopup",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_role(&role_id)
+        .with_surface_generation(generation);
+        let result = (|| {
+            let (tab_id, window_id, effective_zoom) = {
+                let mut state = self.state()?;
+                let tab_id = state.role_tabs.get(&role_id).cloned().ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                        "Runtime role surface was not found while registering its popup.",
+                        "Runtime role was not found while registering its popup.",
                     )
                 })?;
-            let window_id = tab.window_id.clone();
-            let window_zoom = state
-                .display_hosts
-                .get(&window_id)
-                .map(|host| host.zoom_factor)
-                .unwrap_or(1.0);
-            state
-                .popup_roles
-                .insert(window_label.clone(), role_id.clone());
-            (
-                tab_id,
-                window_id,
-                effective_zoom_factor(role_zoom, window_zoom),
-            )
-        };
-        if let Err(error) = self.register_managed_surface(
-            webview,
-            lifecycle,
-            ManagedSurfaceKind::Popup,
-            ManagedSurfacePhase::Live,
-            Some(&role_id),
-            Some(&tab_id),
-            &window_id,
-            generation,
-        ) {
-            if let Ok(mut state) = self.state.lock() {
-                state.popup_roles.remove(&window_label);
+                let tab = state.tabs.get(&tab_id).ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_TAB_NOT_FOUND",
+                        "Runtime tab was not found while registering its popup.",
+                    )
+                })?;
+                let role_zoom = tab
+                    .roles
+                    .get(&role_id)
+                    .map(|role| role.zoom_factor)
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                            "Runtime role surface was not found while registering its popup.",
+                        )
+                    })?;
+                let window_id = tab.window_id.clone();
+                let window_zoom = state
+                    .display_hosts
+                    .get(&window_id)
+                    .map(|host| host.zoom_factor)
+                    .unwrap_or(1.0);
+                state
+                    .popup_roles
+                    .insert(window_label.clone(), role_id.clone());
+                (
+                    tab_id,
+                    window_id,
+                    effective_zoom_factor(role_zoom, window_zoom),
+                )
+            };
+            operation.tab_id = Some(tab_id.clone());
+            operation.window_id = Some(window_id.clone());
+            if let Err(error) = self.register_managed_surface(
+                webview,
+                lifecycle,
+                ManagedSurfaceKind::Popup,
+                ManagedSurfacePhase::Live,
+                Some(&role_id),
+                Some(&tab_id),
+                &window_id,
+                generation,
+            ) {
+                if let Ok(mut state) = self.state.lock() {
+                    state.popup_roles.remove(&window_label);
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
-        webview
-            .set_zoom(effective_zoom)
-            .map_err(RuntimeError::tauri)
+            webview
+                .set_zoom(effective_zoom)
+                .map_err(RuntimeError::tauri)
+        })();
+        let receipt = match result.as_ref() {
+            Ok(()) => NativeOperationReceipt::applied(operation, "popupRegistered"),
+            Err(error) => NativeOperationReceipt::with_status(
+                operation,
+                "popupRegistrationFailed",
+                NativeOperationStatus::Failed,
+                Some(error.code),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result
     }
 
     fn schedule_surface_recovery(

@@ -22,7 +22,8 @@ use rion_core::{
     DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
     EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
-    EngineCapabilityStatus, GameBrowserSettingsRecord, GameWindowPlacementRecord,
+    EngineCapabilityEvidenceRecord, EngineCapabilityStatus, GameBrowserSettingsRecord,
+    GameWindowPlacementRecord,
     GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
@@ -32,6 +33,7 @@ use rion_core::{
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
+    SystemRuntimeOperationSummaryRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -477,6 +479,7 @@ const TAURI_MACRO_OVERLAY_BRIDGE_SOURCE: &str =
 
 #[derive(Default)]
 struct NavigationState {
+    active_operation_id: Option<String>,
     finished: bool,
     started: bool,
 }
@@ -501,6 +504,7 @@ impl Default for NavigationTracker {
 impl NavigationTracker {
     fn reset(&self) {
         if let Ok(mut state) = self.state.lock() {
+            state.active_operation_id = None;
             state.finished = false;
             state.started = false;
         }
@@ -525,26 +529,6 @@ impl NavigationTracker {
                 self.async_changed.send_replace(true);
             }
         }
-    }
-
-    async fn wait_async(&self) -> Result<(), String> {
-        let mut changed = self.async_changed.subscribe();
-        if *changed.borrow_and_update() {
-            return Ok(());
-        }
-        tokio::time::timeout(NAVIGATION_TIMEOUT, async move {
-            loop {
-                changed
-                    .changed()
-                    .await
-                    .map_err(|_| "System WebView navigation tracker stopped.".to_owned())?;
-                if *changed.borrow_and_update() {
-                    return Ok(());
-                }
-            }
-        })
-        .await
-        .map_err(|_| "System WebView navigation timed out.".to_owned())?
     }
 
     fn wait(&self) -> Result<(), String> {

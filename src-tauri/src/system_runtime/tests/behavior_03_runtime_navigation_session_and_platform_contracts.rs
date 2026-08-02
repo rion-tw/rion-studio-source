@@ -200,26 +200,42 @@ use uuid::Uuid;
     #[tokio::test]
     async fn navigation_tracker_async_wait_does_not_require_a_blocking_worker() {
         let tracker = Arc::new(NavigationTracker::default());
-        tracker.reset();
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Navigation,
+            "contract-test",
+            Duration::from_secs(1),
+        );
+        tracker.begin_operation(&operation).unwrap();
         let waiting = Arc::clone(&tracker);
-        let waiter = tokio::spawn(async move { waiting.wait_async().await });
+        let waiter = tokio::spawn(async move { waiting.wait_operation_async(operation).await });
         tokio::task::yield_now().await;
         tracker.page_event(
             PageLoadEvent::Finished,
             &Url::parse("https://example.test/ready").unwrap(),
         );
-        assert!(waiter.await.unwrap().is_ok());
+        assert_eq!(
+            waiter.await.unwrap().status,
+            NativeOperationStatus::Applied
+        );
     }
 
     #[tokio::test]
     async fn navigation_tracker_retains_completion_before_async_subscription() {
         let tracker = NavigationTracker::default();
-        tracker.reset();
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Navigation,
+            "contract-test",
+            Duration::from_secs(1),
+        );
+        tracker.begin_operation(&operation).unwrap();
         tracker.page_event(
             PageLoadEvent::Finished,
             &Url::parse("https://example.test/already-ready").unwrap(),
         );
-        assert!(tracker.wait_async().await.is_ok());
+        assert_eq!(
+            tracker.wait_operation_async(operation).await.status,
+            NativeOperationStatus::Applied
+        );
     }
 
     #[test]
@@ -681,4 +697,3 @@ use uuid::Uuid;
             );
         }
     }
-

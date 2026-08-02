@@ -112,6 +112,7 @@ impl NativeWindowActor {
                         }
                     }
                     state.last_receipt = Some(receipt.clone());
+                    state.push_operation_receipt(receipt.operation.clone());
                     state.requests.finish();
                     let has_pending = state.requests.pending.is_some();
                     if let Ok(mut coordinator) = batch.request.coordinator.lock() {
@@ -164,7 +165,14 @@ impl NativeWindowActor {
         // The only pending destination is replaced in-place. The worker does not dequeue it
         // until one short frame-coalescing interval has elapsed and the previous native batch
         // has actually completed on the UI thread.
-        state.requests.replace(request);
+        if let Some(superseded) = state.requests.replace(request) {
+            state.push_operation_receipt(NativeOperationReceipt::with_status(
+                superseded.plan().operation,
+                "nativePresentationQueued",
+                NativeOperationStatus::Superseded,
+                None,
+            ));
+        }
         changed.notify_one();
         Ok(())
     }
@@ -195,7 +203,14 @@ impl NativeWindowActor {
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
             state.stopped = true;
-            state.requests.pending = None;
+            if let Some(superseded) = state.requests.pending.take() {
+                state.push_operation_receipt(NativeOperationReceipt::with_status(
+                    superseded.plan().operation,
+                    "nativePresentationStopped",
+                    NativeOperationStatus::Superseded,
+                    None,
+                ));
+            }
             changed.notify_all();
         }
     }

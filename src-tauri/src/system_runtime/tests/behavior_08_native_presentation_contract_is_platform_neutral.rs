@@ -26,14 +26,23 @@ fn presentation_outcome(
     }
 }
 
-fn presentation_plan(platform: &str) -> NativePresentationPlan {
+fn presentation_plan(platform: &'static str) -> NativePresentationPlan {
     assert!(matches!(platform, "macos" | "windows"));
     NativePresentationPlan {
         focus: NativePresentationFocus::WindowAndContent,
+        operation: NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Presentation,
+            "contract-test",
+            Duration::from_secs(1),
+            platform,
+        )
+        .with_revision(41)
+        .with_window("window-1"),
         revision: 41,
         surface_identities: HashSet::from([("surface-1".to_owned(), 7)]),
         tab_id: Some("tab-1".to_owned()),
         window_id: "window-1".to_owned(),
+        window_mode: None,
         window_visibility: Some(true),
     }
 }
@@ -49,6 +58,16 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         assert_eq!(applied.status, NativePresentationStatus::Applied, "{platform}");
         assert_eq!(applied.applied_revision, Some(41), "{platform}");
         assert_eq!(applied.surface_identities, plan.surface_identities, "{platform}");
+        assert_eq!(applied.operation.completion_scope(), "nativeAcknowledgement");
+
+        let mut window_mode_plan = plan.clone();
+        window_mode_plan.window_mode = Some(NativeWindowMode::Fullscreen);
+        let window_mode = NativePresentationReceipt::from_outcome(
+            &window_mode_plan,
+            &presentation_outcome(true, Some(true), Some(true), Vec::new()),
+        );
+        assert_eq!(window_mode.status, NativePresentationStatus::Applied, "{platform}");
+        assert_eq!(window_mode.operation.completion_scope(), "nativeSubmission");
 
         let superseded = NativePresentationReceipt::from_outcome(
             &plan,

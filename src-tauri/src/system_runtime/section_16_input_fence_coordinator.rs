@@ -37,16 +37,46 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         _expected_url: Option<&str>,
     ) -> RuntimeResult<u64> {
-        let epoch = serde_json::from_value::<MacroInputEpochRecord>(
-            self.core
-                .invoke(CoreCommand::MacroInputFence {
-                    role_id: role_id.to_owned(),
-                })
-                .map_err(RuntimeError::core)?,
-        )
-        .map_err(|error| RuntimeError::new("SYSTEM_NAVIGATION_INPUT_FENCE_FAILED", error.to_string()))?
-        .input_epoch;
         let generation = self.surface_generation_for_role(role_id).unwrap_or_default();
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Navigation,
+            "navigationInputFence",
+            NAVIGATION_TIMEOUT,
+        )
+        .with_role(role_id)
+        .with_surface_generation(generation);
+        if let Ok(state) = self.state()
+            && let Some(tab_id) = state.role_tabs.get(role_id)
+            && let Some(tab) = state.tabs.get(tab_id)
+        {
+            operation.tab_id = Some(tab_id.clone());
+            operation.window_id = Some(tab.window_id.clone());
+        }
+        let epoch_result = self
+            .core
+            .invoke(CoreCommand::MacroInputFence {
+                role_id: role_id.to_owned(),
+            })
+            .map_err(RuntimeError::core)
+            .and_then(|value| {
+                serde_json::from_value::<MacroInputEpochRecord>(value).map_err(|error| {
+                    RuntimeError::new(
+                        "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
+                        error.to_string(),
+                    )
+                })
+            });
+        let epoch = match epoch_result {
+            Ok(epoch) => epoch.input_epoch,
+            Err(error) => {
+                self.record_native_operation_receipt(receipt_for_runtime_result(
+                    operation,
+                    "navigationInputFenceFailed",
+                    &Err::<(), _>(RuntimeError::new(error.code, &error.message)),
+                ));
+                return Err(error);
+            }
+        };
         if let Err(error) =
             self.install_role_input_fence(role_id, epoch, "navigation", Some(generation))
         {
@@ -57,6 +87,11 @@ impl SystemRuntimeExecutor {
                     generation,
                 );
             }
+            self.record_native_operation_receipt(receipt_for_runtime_result(
+                operation,
+                "navigationInputFenceFailed",
+                &Err::<(), _>(RuntimeError::new(error.code, &error.message)),
+            ));
             return Err(error);
         }
         let baseline_document_id = self
@@ -64,7 +99,14 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| state.last_completed_document_ids.get(webview_label).cloned());
-        if let Ok(mut state) = self.state.lock() {
+        let installed = self.state.lock().is_ok_and(|mut state| {
+            if !state
+                .role_input_fences
+                .get(role_id)
+                .is_some_and(|fence| fence.input_epoch == epoch)
+            {
+                return false;
+            }
             update_navigation_input_fences(
                 &mut state.navigation_input_fences,
                 webview_label,
@@ -73,6 +115,19 @@ impl SystemRuntimeExecutor {
                 generation,
                 baseline_document_id,
             );
+            if let Some(fence) = state.role_input_fences.get_mut(role_id) {
+                fence.navigation_operation = Some(operation.clone());
+            }
+            true
+        });
+        if !installed {
+            self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                operation,
+                "navigationInputFenceSuperseded",
+                NativeOperationStatus::Superseded,
+                Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+            ));
+            return Ok(epoch);
         }
         self.record_input_fence_event(role_id, epoch, "started");
         let app = self.app.clone();
@@ -255,16 +310,28 @@ impl SystemRuntimeExecutor {
         }
         if self.resume_role_input(role_id, input_epoch).unwrap_or(false) {
             self.record_input_fence_event(role_id, input_epoch, "resumed");
-            if let Ok(mut state) = self.state.lock()
-                && state
+            let operation = self.state.lock().ok().and_then(|mut state| {
+                if !state
                     .role_input_fences
                     .get(role_id)
                     .is_some_and(|fence| fence.input_epoch == input_epoch)
-            {
-                state.role_input_fences.remove(role_id);
+                {
+                    return None;
+                }
+                let operation = state
+                    .role_input_fences
+                    .remove(role_id)
+                    .and_then(|fence| fence.navigation_operation);
                 state
                     .navigation_input_fences
                     .retain(|_, ticket| ticket.role_id != role_id);
+                operation
+            });
+            if let Some(operation) = operation {
+                self.record_native_operation_receipt(NativeOperationReceipt::applied(
+                    operation,
+                    "navigationInputReady",
+                ));
             }
         } else {
             self.schedule_input_fence_recovery(
@@ -302,10 +369,13 @@ impl SystemRuntimeExecutor {
             ticket.input_epoch = input_epoch;
             ticket.surface_generation = generation;
         }
-        state.role_input_fences.insert(
+        let superseded_operation = state
+            .role_input_fences
+            .insert(
             role_id.to_owned(),
             RoleInputFence {
                 input_epoch,
+                navigation_operation: None,
                 reason: reason.to_owned(),
                 started_at: Instant::now(),
                 drained: false,
@@ -314,7 +384,17 @@ impl SystemRuntimeExecutor {
                 reconciling: false,
                 resuming: false,
             },
-        );
+        )
+            .and_then(|fence| fence.navigation_operation);
+        drop(state);
+        if let Some(operation) = superseded_operation {
+            self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                operation,
+                "navigationInputFenceSuperseded",
+                NativeOperationStatus::Superseded,
+                Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+            ));
+        }
         Ok(())
     }
 
@@ -445,12 +525,26 @@ impl SystemRuntimeExecutor {
     }
 
     fn schedule_input_fence_recovery(&self, role_id: &str, input_epoch: u64, reason: &str) {
-        let generation = self.state.lock().ok().and_then(|mut state| {
-            claim_input_fence_recovery(&mut state.role_input_fences, role_id, input_epoch)
+        let recovery = self.state.lock().ok().and_then(|mut state| {
+            let generation =
+                claim_input_fence_recovery(&mut state.role_input_fences, role_id, input_epoch)?;
+            let operation = state
+                .role_input_fences
+                .get_mut(role_id)
+                .and_then(|fence| fence.navigation_operation.take());
+            Some((generation, operation))
         });
-        let Some(generation) = generation else {
+        let Some((generation, operation)) = recovery else {
             return;
         };
+        if let Some(operation) = operation {
+            self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                operation,
+                "navigationInputRecovery",
+                NativeOperationStatus::Failed,
+                Some("SYSTEM_NAVIGATION_INPUT_FENCE_FAILED"),
+            ));
+        }
         self.record_input_fence_event_with_reason(
             role_id,
             input_epoch,
@@ -617,13 +711,21 @@ impl SystemRuntimeExecutor {
 
     fn discard_role_navigation_input_fences(&self, role_id: &str, reason: &str) {
         let discarded_epoch = self.state.lock().ok().and_then(|mut state| {
-            let input_epoch = state.role_input_fences.remove(role_id)?.input_epoch;
+            let fence = state.role_input_fences.remove(role_id)?;
             state
                 .navigation_input_fences
                 .retain(|_, ticket| ticket.role_id != role_id);
-            Some(input_epoch)
+            Some((fence.input_epoch, fence.navigation_operation))
         });
-        if let Some(input_epoch) = discarded_epoch {
+        if let Some((input_epoch, operation)) = discarded_epoch {
+            if let Some(operation) = operation {
+                self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                    operation,
+                    "navigationInputDiscarded",
+                    NativeOperationStatus::Superseded,
+                    Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+                ));
+            }
             self.record_input_fence_event_with_reason(
                 role_id,
                 input_epoch,
@@ -634,148 +736,4 @@ impl SystemRuntimeExecutor {
         }
     }
 
-}
-
-fn update_navigation_input_fences(
-    tickets: &mut HashMap<String, NavigationInputFence>,
-    webview_label: &str,
-    role_id: &str,
-    input_epoch: u64,
-    surface_generation: u64,
-    baseline_document_id: Option<String>,
-) {
-    for ticket in tickets
-        .values_mut()
-        .filter(|ticket| ticket.role_id == role_id)
-    {
-        ticket.input_epoch = input_epoch;
-    }
-    tickets.insert(
-        webview_label.to_owned(),
-        NavigationInputFence {
-            role_id: role_id.to_owned(),
-            input_epoch,
-            surface_generation,
-            baseline_document_id,
-            page_finished: false,
-        },
-    );
-}
-
-fn claim_input_fence_recovery(
-    fences: &mut HashMap<String, RoleInputFence>,
-    role_id: &str,
-    input_epoch: u64,
-) -> Option<u64> {
-    let fence = fences.get_mut(role_id)?;
-    if fence.input_epoch != input_epoch || fence.recovery_scheduled {
-        return None;
-    }
-    fence.recovery_scheduled = true;
-    fence.reconciling = false;
-    fence.resuming = false;
-    Some(fence.surface_generation)
-}
-
-fn mark_navigation_page_finished(
-    tickets: &mut HashMap<String, NavigationInputFence>,
-    webview_label: &str,
-    scheme: &str,
-) -> Option<(String, u64)> {
-    if !matches!(scheme, "http" | "https") {
-        return None;
-    }
-    let ticket = tickets.get_mut(webview_label)?;
-    ticket.page_finished = true;
-    Some((ticket.role_id.clone(), ticket.input_epoch))
-}
-
-fn navigation_input_is_ready(
-    fences: &HashMap<String, RoleInputFence>,
-    tickets: &HashMap<String, NavigationInputFence>,
-    role_id: &str,
-    input_epoch: u64,
-) -> bool {
-    let Some(fence) = fences
-        .get(role_id)
-        .filter(|fence| {
-            fence.input_epoch == input_epoch && fence.drained && !fence.recovery_scheduled
-        })
-    else {
-        return false;
-    };
-    tickets
-        .values()
-        .filter(|ticket| ticket.role_id == role_id)
-        .all(|ticket| {
-            ticket.input_epoch == fence.input_epoch
-                && ticket.surface_generation == fence.surface_generation
-                && ticket.page_finished
-        })
-}
-
-fn claim_navigation_input_resume(
-    fences: &mut HashMap<String, RoleInputFence>,
-    tickets: &HashMap<String, NavigationInputFence>,
-    role_id: &str,
-    input_epoch: u64,
-) -> bool {
-    if !navigation_input_is_ready(fences, tickets, role_id, input_epoch) {
-        return false;
-    }
-    let Some(fence) = fences.get_mut(role_id) else {
-        return false;
-    };
-    if fence.resuming {
-        return false;
-    }
-    fence.resuming = true;
-    true
-}
-
-fn read_document_instance(webview: &Webview) -> RuntimeResult<DocumentInstanceReadback> {
-    let raw = evaluate_system_webview(
-        webview,
-        r#"JSON.stringify({
-  documentId: typeof globalThis.__rionStudioDocumentInstanceId === "string"
-    ? globalThis.__rionStudioDocumentInstanceId
-    : null,
-  readyState: document.readyState,
-  protocol: location.protocol
-})"#,
-    )?;
-    let value = serde_json::from_str::<Value>(&raw).map_err(|error| {
-        RuntimeError::new(
-            "SYSTEM_INPUT_FENCE_READBACK_INVALID",
-            format!("System WebView returned invalid input-fence readback JSON: {error}"),
-        )
-    })?;
-    let value = if let Some(nested) = value.as_str() {
-        serde_json::from_str::<Value>(nested).map_err(|error| {
-            RuntimeError::new(
-                "SYSTEM_INPUT_FENCE_READBACK_INVALID",
-                format!("System WebView returned invalid nested input-fence readback JSON: {error}"),
-            )
-        })?
-    } else {
-        value
-    };
-    serde_json::from_value(value).map_err(|error| {
-        RuntimeError::new(
-            "SYSTEM_INPUT_FENCE_READBACK_INVALID",
-            format!("System WebView returned an invalid input-fence readback: {error}"),
-        )
-    })
-}
-
-fn document_instance_proves_completed_navigation(
-    readback: &DocumentInstanceReadback,
-    baseline_document_id: Option<&str>,
-) -> bool {
-    let Some(document_id) = readback.document_id.as_deref().filter(|value| !value.is_empty()) else {
-        return false;
-    };
-    baseline_document_id.is_some_and(|baseline| baseline != document_id)
-        && readback.ready_state == "complete"
-        && matches!(readback.protocol.as_str(), "http:" | "https:")
 }

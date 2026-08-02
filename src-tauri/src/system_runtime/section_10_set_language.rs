@@ -635,7 +635,7 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn prepare_provisional_game_window(
+    fn prepare_provisional_game_window_inner(
         &self,
         target: &EmbeddedLaunchTargetRecord,
         title: &str,
@@ -650,7 +650,10 @@ impl SystemRuntimeExecutor {
         window.hide().map_err(|error| error.to_string())
     }
 
-    pub fn make_provisional_game_window_interactive(&self, window_id: &str) -> Result<(), String> {
+    fn make_provisional_game_window_interactive_inner(
+        &self,
+        window_id: &str,
+    ) -> Result<(), String> {
         let window = self
             .window_for_id(window_id)
             .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
@@ -660,7 +663,7 @@ impl SystemRuntimeExecutor {
         window.set_focus().map_err(|error| error.to_string())
     }
 
-    pub fn position_provisional_game_window(
+    fn position_provisional_game_window_inner(
         &self,
         target: &EmbeddedLaunchTargetRecord,
     ) -> Result<(), String> {

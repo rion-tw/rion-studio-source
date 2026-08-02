@@ -24,9 +24,12 @@
             &tab,
             &identities,
             &identities,
-            None,
-            None,
-            NativePresentationFocus::None,
+            NativeWindowPresentationTransition::new(
+                None,
+                None,
+                None,
+                NativePresentationFocus::None,
+            ),
         );
         assert!(!no_op.requires_ui_thread);
         assert!(!no_op.apply_content_focus);
@@ -37,9 +40,12 @@
             &tab,
             &identities,
             &identities,
-            None,
-            None,
-            NativePresentationFocus::ContentOnly,
+            NativeWindowPresentationTransition::new(
+                None,
+                None,
+                None,
+                NativePresentationFocus::ContentOnly,
+            ),
         );
         assert!(tab_strip_focus.requires_ui_thread);
         assert!(tab_strip_focus.apply_content_focus);
@@ -51,9 +57,12 @@
             &tab,
             &identities,
             &replacement_identities,
-            None,
-            None,
-            NativePresentationFocus::ContentOnly,
+            NativeWindowPresentationTransition::new(
+                None,
+                None,
+                None,
+                NativePresentationFocus::ContentOnly,
+            ),
         );
         assert!(replacement.requires_ui_thread);
         assert!(replacement.presentation_changed);
@@ -65,9 +74,12 @@
             &Some("tab-b".to_owned()),
             &identities,
             &replacement_identities,
-            None,
-            Some(true),
-            NativePresentationFocus::WindowAndContent,
+            NativeWindowPresentationTransition::new(
+                None,
+                Some(true),
+                None,
+                NativePresentationFocus::WindowAndContent,
+            ),
         );
         assert!(external_reveal.apply_content_focus);
         assert!(external_reveal.apply_window_focus);
@@ -77,9 +89,12 @@
             &tab,
             &identities,
             &identities,
-            Some(false),
-            Some(true),
-            NativePresentationFocus::WindowAndContent,
+            NativeWindowPresentationTransition::new(
+                Some(false),
+                Some(true),
+                None,
+                NativePresentationFocus::WindowAndContent,
+            ),
         );
         assert!(external_reactivate.requires_ui_thread);
         assert!(!external_reactivate.presentation_changed);
@@ -101,9 +116,12 @@
             &tab,
             &identities,
             &identities,
-            Some(true),
-            Some(false),
-            NativePresentationFocus::WindowAndContent,
+            NativeWindowPresentationTransition::new(
+                Some(true),
+                Some(false),
+                None,
+                NativePresentationFocus::WindowAndContent,
+            ),
         );
         assert!(hide_window.requires_ui_thread);
         assert!(!hide_window.apply_content_focus);
@@ -114,11 +132,28 @@
             &tab,
             &identities,
             &identities,
-            Some(false),
-            Some(false),
-            NativePresentationFocus::None,
+            NativeWindowPresentationTransition::new(
+                Some(false),
+                Some(false),
+                None,
+                NativePresentationFocus::None,
+            ),
         );
         assert!(!visibility_no_op.requires_ui_thread);
+
+        let maximize_contract = native_presentation_mutation_plan(
+            &tab,
+            &tab,
+            &identities,
+            &identities,
+            NativeWindowPresentationTransition::new(
+                Some(true),
+                Some(true),
+                Some(NativeWindowMode::Maximized),
+                NativePresentationFocus::None,
+            ),
+        );
+        assert!(maximize_contract.requires_ui_thread);
     }
 
     #[test]

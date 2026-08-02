@@ -302,14 +302,40 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         generation: u64,
     ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
-        platform_role_surface_setup(
+        let ownership = self.state().ok().and_then(|state| {
+            let tab_id = state.role_tabs.get(role_id)?.clone();
+            let window_id = state.tabs.get(&tab_id)?.window_id.clone();
+            Some((tab_id, window_id))
+        });
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Security,
+            "roleSurfaceSetup",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_role(role_id)
+        .with_surface_generation(generation);
+        if let Some((tab_id, window_id)) = ownership {
+            operation = operation.with_tab(tab_id).with_window(window_id);
+        }
+        let result = platform_role_surface_setup(
             webview,
             self.app.clone(),
             SurfaceFailureTarget::Role {
                 role_id: role_id.to_owned(),
                 generation,
             },
-        )
+        );
+        let receipt = match result.as_ref() {
+            Ok(_) => NativeOperationReceipt::applied(operation, "securityPolicyInstalled"),
+            Err(failure) => NativeOperationReceipt::with_status(
+                operation,
+                "securityPolicyInstallFailed",
+                NativeOperationStatus::Failed,
+                Some(failure.error.code),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -324,57 +350,83 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         generation: u64,
     ) -> RuntimeResult<String> {
-        let instance_id = next_surface_instance_id(webview.label());
-        let surface = ManagedSurface {
-            close_started_at: None,
-            generation,
-            instance_id: instance_id.clone(),
-            kind,
-            lifecycle: Arc::clone(lifecycle),
-            native_lifecycle_lane: Arc::new(Mutex::new(())),
-            phase,
-            role_id: role_id.map(str::to_owned),
-            tab_id: tab_id.map(str::to_owned),
-            webview: webview.clone(),
-            window_id: window_id.to_owned(),
-        };
-        let role_fenced = {
-            let mut state = self.state()?;
-            let fenced = role_id.is_some_and(|role_id| {
-                state.close_coordinator.closing_roles.contains(role_id)
-                    || state.close_coordinator.quarantined_roles.contains(role_id)
-            });
-            if !fenced {
-                state
-                    .surface_registry
-                    .insert(instance_id.clone(), surface.clone());
-            }
-            fenced
-        };
-        if role_fenced {
-            if let Some(role_id) = role_id {
-                let _ = self.close_surface_and_wait(webview, lifecycle, role_id);
-            }
-            return Err(RuntimeError::new(
-                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                "The role is closing or quarantined and cannot register another native surface until Rion Studio restarts.",
-            ));
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::SurfaceLifecycle,
+            "registerManagedSurface",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_window(window_id)
+        .with_surface_generation(generation);
+        if let Some(role_id) = role_id {
+            operation = operation.with_role(role_id);
         }
-        self.record_surface_event(
-            LogLevel::Debug,
-            "surface.registered",
-            "Native surface registered.",
-            &surface,
-        );
-        if surface.tab_id.is_some() {
+        if let Some(tab_id) = tab_id {
+            operation = operation.with_tab(tab_id);
+        }
+        let result = (|| {
+            let instance_id = next_surface_instance_id(webview.label());
+            let surface = ManagedSurface {
+                close_started_at: None,
+                generation,
+                instance_id: instance_id.clone(),
+                kind,
+                lifecycle: Arc::clone(lifecycle),
+                native_lifecycle_lane: Arc::new(Mutex::new(())),
+                phase,
+                role_id: role_id.map(str::to_owned),
+                tab_id: tab_id.map(str::to_owned),
+                webview: webview.clone(),
+                window_id: window_id.to_owned(),
+            };
+            let role_fenced = {
+                let mut state = self.state()?;
+                let fenced = role_id.is_some_and(|role_id| {
+                    state.close_coordinator.closing_roles.contains(role_id)
+                        || state.close_coordinator.quarantined_roles.contains(role_id)
+                });
+                if !fenced {
+                    state
+                        .surface_registry
+                        .insert(instance_id.clone(), surface.clone());
+                }
+                fenced
+            };
+            if role_fenced {
+                if let Some(role_id) = role_id {
+                    let _ = self.close_surface_and_wait(webview, lifecycle, role_id);
+                }
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "The role is closing or quarantined and cannot register another native surface until Rion Studio restarts.",
+                ));
+            }
             self.record_surface_event(
                 LogLevel::Debug,
-                "tab.surface-attached",
-                "Native surface attached to a runtime tab.",
+                "surface.registered",
+                "Native surface registered.",
                 &surface,
             );
-        }
-        Ok(instance_id)
+            if surface.tab_id.is_some() {
+                self.record_surface_event(
+                    LogLevel::Debug,
+                    "tab.surface-attached",
+                    "Native surface attached to a runtime tab.",
+                    &surface,
+                );
+            }
+            Ok(instance_id)
+        })();
+        self.record_native_operation_receipt(receipt_for_runtime_result(
+            operation,
+            match kind {
+                ManagedSurfaceKind::Divider => "dividerSurfaceRegistered",
+                ManagedSurfaceKind::Popup => "popupSurfaceRegistered",
+                ManagedSurfaceKind::Recovery => "recoverySurfaceRegistered",
+                ManagedSurfaceKind::Role => "roleSurfaceRegistered",
+            },
+            &result,
+        ));
+        result
     }
 
     fn managed_surface(&self, instance_id: &str) -> RuntimeResult<ManagedSurface> {

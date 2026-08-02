@@ -425,6 +425,7 @@ impl SystemRuntimeExecutor {
             None,
             window_visibility,
             focus,
+            None,
         );
         Ok(Some(window_id))
     }
@@ -436,6 +437,83 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> Result<(String, u64), String> {
         self.request_tab_presentation_with_window_visibility(tab_id, focus, trigger, None)
+    }
+
+    fn request_window_contract_presentation(
+        &self,
+        window_id: &str,
+        tab_id: Option<&str>,
+        window_visibility: Option<bool>,
+        focus: NativePresentationFocus,
+        window_mode: Option<NativeWindowMode>,
+        trigger: &'static str,
+    ) -> RuntimeResult<u64> {
+        self.mark_critical_activity();
+        let window = {
+            let state = self.state()?;
+            state
+                .display_hosts
+                .get(window_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                        "Runtime display host was not found.",
+                    )
+                })?
+                .window
+                .clone()
+        };
+        let coordinator = self
+            .presentation
+            .coordinator(window_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        let revision = self.presentation.next_revision();
+        let (previous_tab_id, previous_surfaces, next_surfaces, active_webview) = {
+            let mut state = coordinator.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The runtime tab presentation coordinator is unavailable.",
+                )
+            })?;
+            if let Some(tab_id) = tab_id
+                && !state.contains_tab(tab_id)
+            {
+                return Err(RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "Runtime tab was not found in the presentation state.",
+                ));
+            }
+            let previous_tab_id = state.selected_tab_id.clone();
+            let previous_surfaces = state.surfaces(previous_tab_id.as_deref());
+            state.select(tab_id.map(str::to_owned), revision);
+            let next_surfaces = state.surfaces(tab_id);
+            let active_webview = next_surfaces.first().cloned();
+            (
+                previous_tab_id,
+                previous_surfaces,
+                next_surfaces,
+                active_webview,
+            )
+        };
+        self.apply_native_active_style(window_id, tab_id, revision, trigger);
+        self.dispatch_native_presentation(
+            window_id.to_owned(),
+            tab_id.map(str::to_owned),
+            revision,
+            trigger,
+            Instant::now(),
+            window,
+            previous_tab_id,
+            previous_surfaces,
+            next_surfaces,
+            active_webview,
+            window_visibility,
+            focus,
+            window_mode,
+        );
+        Ok(revision)
     }
 
     fn request_tab_presentation_with_window_visibility(
@@ -506,6 +584,7 @@ impl SystemRuntimeExecutor {
             active_webview,
             window_visibility,
             focus,
+            None,
         );
         Ok((window_id, revision))
     }
@@ -572,6 +651,7 @@ impl SystemRuntimeExecutor {
             active_webview,
             None,
             NativePresentationFocus::None,
+            None,
         );
         Ok(())
     }

@@ -312,9 +312,25 @@ impl SystemRuntimeExecutor {
         let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
         #[cfg(target_os = "macos")]
         self.prepare_runtime_window_fullscreen(window.label(), !fullscreen);
-        window
-            .set_fullscreen(!fullscreen)
-            .map_err(|error| error.to_string())?;
+        let selected_tab_id = self
+            .presentation
+            .existing(window_id)
+            .and_then(|state| state.lock().ok()?.selected_tab_id.clone());
+        let revision = self
+            .request_window_contract_presentation(
+                window_id,
+                selected_tab_id.as_deref(),
+                None,
+                NativePresentationFocus::None,
+                Some(if fullscreen {
+                    NativeWindowMode::ExitFullscreen
+                } else {
+                    NativeWindowMode::Fullscreen
+                }),
+                "toggle-fullscreen",
+            )
+            .map_err(|error| error.message)?;
+        self.wait_for_presentation_paint_barrier(window_id, revision);
         Ok(())
     }
 
@@ -322,8 +338,38 @@ impl SystemRuntimeExecutor {
         &self,
         sample_duration: Duration,
     ) -> Result<BrowserPerformanceDiagnosticsRecord, String> {
-        self.collect_browser_performance_diagnostics_inner(sample_duration)
-            .map_err(|error| error.message)
+        let bounded_duration =
+            sample_duration.clamp(Duration::from_millis(500), Duration::from_millis(5_000));
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Performance,
+            "collectBrowserPerformanceDiagnostics",
+            bounded_duration + Duration::from_secs(5),
+        );
+        let result = self.collect_browser_performance_diagnostics_inner(sample_duration);
+        if let Ok(record) = result.as_ref()
+            && let Some(window_id) = record.window_id.as_ref()
+        {
+            operation.window_id = Some(window_id.clone());
+        }
+        let receipt = match result.as_ref() {
+            Ok(record) if record.surfaces.iter().any(|surface| surface.error.is_some()) => {
+                NativeOperationReceipt::with_status(
+                    operation,
+                    "performanceProbePartial",
+                    NativeOperationStatus::Degraded,
+                    Some("PERFORMANCE_DIAGNOSTIC_PARTIAL"),
+                )
+            }
+            Ok(_) => NativeOperationReceipt::applied(operation, "performanceProbeCompleted"),
+            Err(error) => NativeOperationReceipt::with_status(
+                operation,
+                "performanceProbeFailed",
+                NativeOperationStatus::Failed,
+                Some(error.code),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result.map_err(|error| error.message)
     }
 
     fn collect_browser_performance_diagnostics_inner(
@@ -529,6 +575,39 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn zoom_runtime_window(&self, window_id: &str, action: &str) -> Result<bool, String> {
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Zoom,
+            "zoomRuntimeWindow",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_window(window_id);
+        let result = self.apply_runtime_window_zoom(window_id, action);
+        let receipt = match result.as_ref() {
+            Ok(_) => NativeOperationReceipt::applied(operation, "windowZoomApplied"),
+            Err(message)
+                if message
+                    .to_ascii_lowercase()
+                    .contains("compensation also failed") =>
+            {
+                NativeOperationReceipt::with_status(
+                    operation,
+                    "windowZoomRollbackFailed",
+                    NativeOperationStatus::Indeterminate,
+                    Some("SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED"),
+                )
+            }
+            Err(_) => NativeOperationReceipt::with_status(
+                operation,
+                "windowZoomFailed",
+                NativeOperationStatus::Failed,
+                Some("TAURI_RUNTIME_ZOOM_FAILED"),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result
+    }
+
+    fn apply_runtime_window_zoom(&self, window_id: &str, action: &str) -> Result<bool, String> {
         if !matches!(action, "in" | "out" | "reset") {
             return Err("Runtime window zoom action is invalid.".to_owned());
         }

@@ -25,8 +25,10 @@ impl SystemRuntimeExecutor {
                     let previous = surface.local_storage_sync.clone();
                     let next = roles_by_id.get(role_id.as_str()).and_then(|role| {
                         let game = games_by_id.get(role.game_id.as_str())?;
-                        let codec = (game.builtin_key.as_deref() == Some("flyff-universe"))
-                            .then(|| "flyff-client-settings-v7".to_owned());
+                        let codec = rion_core::local_storage_sync_codec_for_builtin_key(
+                            game.builtin_key.as_deref(),
+                        )
+                        .map(str::to_owned);
                         if game.local_storage_sync_keys.is_empty()
                             && game.local_storage_sync_selectors.is_empty()
                             && codec.is_none()

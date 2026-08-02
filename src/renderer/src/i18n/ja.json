@@ -1046,7 +1046,7 @@
   "common.close": "閉じる",
   "games.form.localStorageSyncKeys": "ローカルデータ同期",
   "games.form.localStorageSyncKeysDescription": "ロール間でミラーする localStorage キーを 1 行に 1 つ指定します。値はここにもエクスポートにも含まれません。",
-  "games.form.localStorageSyncSelectorsDescription": "ロール間でコピーする検証済みの Flyff 設定項目を選択します。未選択の対象ロールデータは保持されます。",
+  "games.form.localStorageSyncSelectorsDescription": "ロール間でコピーする検証済みのゲーム設定項目を選択します。未選択の対象ロールデータは保持されます。",
   "games.form.localStorageSyncSelectorsSafety": "キャラクター識別子、ログインセッション、不明な項目は取得も同期もされません。",
   "games.form.localStorageSelector.groupPages": "設定ページ",
   "games.form.localStorageSelector.groupLayoutInput": "レイアウトと操作",

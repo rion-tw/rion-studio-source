@@ -71,9 +71,9 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             "the state database predates supported schema 19".to_owned(),
         ));
     }
-    if current_version != 0 && !matches!(current_version, 19 | 20 | SCHEMA_VERSION) {
+    if current_version != 0 && !(19..=SCHEMA_VERSION).contains(&current_version) {
         return Err(CoreError::UnsupportedDataVersion(format!(
-            "SQLite schema {current_version} is unsupported; only schemas 19, 20, or {SCHEMA_VERSION} are accepted"
+            "SQLite schema {current_version} is unsupported; only schemas 19 through {SCHEMA_VERSION} are accepted"
         )));
     }
 
@@ -88,7 +88,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
 
-    if matches!(current_version, 19 | 20) {
+    if (19..=21).contains(&current_version) {
         connection
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -102,10 +102,19 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     )
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
-            migrate_flyff_local_storage_sync_selectors(connection)?;
+            if (19..=20).contains(&current_version) {
+                migrate_flyff_local_storage_sync_selectors(connection)?;
+                connection
+                    .execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (21, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                        [],
+                    )
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+            migrate_flyff_china_local_storage_sync_selectors(connection)?;
             connection
                 .execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (21, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (22, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                     [],
                 )
                 .map(|_| ())
@@ -221,7 +230,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                  );
                  CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (21, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (22, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -230,57 +239,6 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
     }
     repair_browser_proxy_settings(connection)?;
     repair_optional_log_level(connection)?;
-    Ok(())
-}
-
-fn migrate_flyff_local_storage_sync_selectors(connection: &Connection) -> CoreResult<()> {
-    let payload = connection
-        .query_row(
-            "SELECT payload_json FROM games WHERE id='builtin-flyff-universe'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let Some(payload) = payload else {
-        return Ok(());
-    };
-    let mut value: Value = serde_json::from_str(&payload)
-        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| CoreError::StateDatabase("stored Flyff game is invalid".to_owned()))?;
-    let mut migrated = false;
-    let mut migrated_settings = false;
-    if let Some(keys) = object.get_mut("localStorageSyncKeys").and_then(Value::as_array_mut) {
-        let previous_len = keys.len();
-        migrated_settings = keys
-            .iter()
-            .any(|key| key.as_str() == Some("game_client_settings"));
-        keys.retain(|key| {
-            !matches!(
-                key.as_str(),
-                Some("game_client_settings" | "game_client_sessions")
-            )
-        });
-        migrated = keys.len() != previous_len;
-    }
-    if migrated_settings {
-        object.insert(
-            "localStorageSyncSelectors".to_owned(),
-            json!(crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS),
-        );
-    }
-    if migrated {
-        let payload = serde_json::to_string(&value)
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        connection
-            .execute(
-                "UPDATE games SET payload_json=?1 WHERE id='builtin-flyff-universe'",
-                [payload],
-            )
-            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    }
     Ok(())
 }
 
@@ -301,7 +259,7 @@ fn seed_builtin_games(connection: &Connection) -> CoreResult<()> {
             "飞飞：无限宇宙",
             "https://ffcli.ruiwoo.cn/",
             Vec::<&str>::new(),
-            Vec::<&str>::new(),
+            crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS.to_vec(),
         ),
     ]
     .into_iter()

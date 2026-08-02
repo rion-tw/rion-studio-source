@@ -1046,7 +1046,7 @@
   "common.close": "关闭",
   "games.form.localStorageSyncKeys": "同步本地数据",
   "games.form.localStorageSyncKeysDescription": "角色间只会镜像这些 localStorage key。每行一个 key；值不会显示在此处，也不会进入导出文件。",
-  "games.form.localStorageSyncSelectorsDescription": "选择要在角色间复制的已验证 Flyff 设置字段；目标角色未选择的数据会保持不变。",
+  "games.form.localStorageSyncSelectorsDescription": "选择要在角色间复制的已验证游戏设置字段；目标角色未选择的数据会保持不变。",
   "games.form.localStorageSyncSelectorsSafety": "角色标识、登录会话与未知字段永远不会被采集或同步。",
   "games.form.localStorageSelector.groupPages": "设置分页",
   "games.form.localStorageSelector.groupLayoutInput": "布局与操作",

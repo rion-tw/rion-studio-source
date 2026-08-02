@@ -116,6 +116,52 @@ describe("games cover UI", () => {
     }));
   });
 
+  it("edits Flyff China through its grouped safe selectors", async () => {
+    const user = userEvent.setup();
+    const selectors = [
+      "game_client_settings.audio",
+      "game_client_settings.gameplay",
+      "game_client_settings.graphics",
+      "game_client_settings.ui",
+      "game_client_settings.video",
+      "game_client_settings.layout.windows",
+      "game_client_settings.layout.hotbars",
+      "game_client_settings.input.bindings"
+    ];
+    const flyffChina = game({
+      id: "builtin-feifei-infinite-universe",
+      source: "builtin",
+      builtinKey: "feifei-infinite-universe",
+      name: "飞飞：无限宇宙",
+      defaultLaunchUrl: "https://ffcli.ruiwoo.cn",
+      localStorageSyncKeys: [],
+      localStorageSyncSelectors: selectors
+    });
+    const onSave = vi.fn().mockResolvedValue(flyffChina);
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[flyffChina]}
+        isSaving={false}
+        t={t}
+        onError={vi.fn()}
+        onReset={vi.fn()}
+        onSave={onSave}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/builtin-feifei-infinite-universe/edit"] });
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("Settings pages")).toBeTruthy();
+    expect(screen.queryByLabelText("Managed keys")).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: "Audio settings" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      localStorageSyncKeys: [],
+      localStorageSyncSelectors: selectors.slice(1)
+    }));
+  });
+
   it("renders a clean cover section and keeps card actions independent from navigation", async () => {
     const user = userEvent.setup();
     const covered = game({ id: "covered", name: "Covered", coverImageDataUrl: processedCover });

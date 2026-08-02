@@ -1186,7 +1186,7 @@
   "common.close": "Close",
   "games.form.localStorageSyncKeys": "Synchronized local data",
   "games.form.localStorageSyncKeysDescription": "Only these localStorage keys can be mirrored between roles. Enter one key per line; values never appear here or in exports.",
-  "games.form.localStorageSyncSelectorsDescription": "Choose the verified Flyff settings fields to copy between roles. Unselected data is preserved on each target role.",
+  "games.form.localStorageSyncSelectorsDescription": "Choose the verified game settings fields to copy between roles. Unselected data is preserved on each target role.",
   "games.form.localStorageSyncSelectorsSafety": "Character identity, login sessions, and unknown fields are never captured or synchronized.",
   "games.form.localStorageSelector.groupPages": "Settings pages",
   "games.form.localStorageSelector.groupLayoutInput": "Layout and controls",

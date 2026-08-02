@@ -392,7 +392,11 @@ fn local_storage_sync_apply_script(
         &selectors,
         snapshot.codec.as_deref(),
     )?;
-    validate_flyff_selector_entries(&selectors, &snapshot.selector_entries)?;
+    validate_local_storage_sync_selector_entries(
+        snapshot.codec.as_deref(),
+        &selectors,
+        &snapshot.selector_entries,
+    )?;
     let selector_entries = serde_json::to_string(&snapshot.selector_entries).map_err(|_| {
         RuntimeError::new(
             "LOCAL_STORAGE_SYNC_SCRIPT_INVALID",
@@ -405,14 +409,14 @@ fn local_storage_sync_apply_script(
             "The localStorage synchronization selectors could not be encoded.",
         )
     })?;
-    let flyff_codec = flyff_local_storage_codec_script(&selectors, snapshot.codec.as_deref())?;
+    let codec_script = local_storage_codec_script(&selectors, snapshot.codec.as_deref())?;
     Ok(format!(
         r#"(() => {{
   if (globalThis.top !== globalThis || location.origin !== {origin}) return;
-  {flyff_codec}
+  {codec_script}
   const selectors = {selectors_json};
-  repairFlyffIdentity(selectors);
-  if (!applyFlyffFields(selectors, {selector_entries})) return;
+  repairLocalStorageCodecIdentity(selectors);
+  if (!applyLocalStorageCodecFields(selectors, {selector_entries})) return;
   for (const [key, value] of {entries}) {{
     if (value === null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
@@ -439,11 +443,11 @@ fn read_scoped_local_storage_snapshot(
             "The localStorage synchronization selectors could not be encoded.",
         )
     })?;
-    let flyff_codec = flyff_local_storage_codec_script(selectors, codec)?;
+    let codec_script = local_storage_codec_script(selectors, codec)?;
     let value = evaluate_json_value(
         webview,
         &format!(
-            "(() => {{ {flyff_codec} const keys = {keys_json}; const selectors = {selectors_json}; repairFlyffIdentity(selectors); const selectorValues = captureFlyffFields(selectors); if (selectorValues === null) return {{ error: 'FLYFF_SETTINGS_INVALID' }}; return {{ values: keys.map((key) => [key, localStorage.getItem(key)]), selectorValues }}; }})()"
+            "(() => {{ {codec_script} const keys = {keys_json}; const selectors = {selectors_json}; repairLocalStorageCodecIdentity(selectors); const selectorValues = captureLocalStorageCodecFields(selectors); if (selectorValues === null) return {{ error: localStorageCodecSettingsInvalidCode }}; return {{ values: keys.map((key) => [key, localStorage.getItem(key)]), selectorValues }}; }})()"
         ),
     )?;
     let values = value
@@ -529,7 +533,7 @@ fn read_scoped_local_storage_snapshot(
             Ok((selector.clone(), field))
         })
         .collect::<RuntimeResult<Vec<_>>>()?;
-    validate_flyff_selector_entries(selectors, &selector_entries)?;
+    validate_local_storage_sync_selector_entries(codec, selectors, &selector_entries)?;
     Ok((entries, selector_entries))
 }
 

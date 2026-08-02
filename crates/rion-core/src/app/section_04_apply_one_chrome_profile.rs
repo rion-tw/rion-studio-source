@@ -519,8 +519,10 @@ impl AppCore {
                 origin: crate::domain::launch_origin(&source.launch_url)?,
                 keys: game.local_storage_sync_keys,
                 selectors: game.local_storage_sync_selectors,
-                codec: (game.builtin_key.as_deref() == Some("flyff-universe"))
-                    .then(|| "flyff-client-settings-v7".to_owned()),
+                codec: crate::domain::local_storage_sync_codec_for_builtin_key(
+                    game.builtin_key.as_deref(),
+                )
+                .map(str::to_owned),
             },
             Duration::from_secs(45),
             None,

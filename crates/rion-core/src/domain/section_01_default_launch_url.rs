@@ -31,6 +31,8 @@ const MAX_LOCAL_STORAGE_SYNC_KEYS: usize = 32;
 const MAX_LOCAL_STORAGE_SYNC_KEY_BYTES: usize = 256;
 const FLYFF_LOCAL_STORAGE_SYNC_KEY: &str = "game_client_settings";
 const FLYFF_LOCAL_STORAGE_SESSION_KEY: &str = "game_client_sessions";
+pub const FLYFF_LOCAL_STORAGE_SYNC_CODEC: &str = "flyff-client-settings-v7";
+pub const FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC: &str = "flyff-china-client-settings";
 pub const FLYFF_LOCAL_STORAGE_SYNC_SELECTORS: [&str; 8] = [
     "game_client_settings.audio",
     "game_client_settings.gameplay",
@@ -41,6 +43,26 @@ pub const FLYFF_LOCAL_STORAGE_SYNC_SELECTORS: [&str; 8] = [
     "game_client_settings.layout.hotbars",
     "game_client_settings.input.bindings",
 ];
+pub const FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS: [&str; 8] = [
+    "game_client_settings.audio",
+    "game_client_settings.gameplay",
+    "game_client_settings.graphics",
+    "game_client_settings.ui",
+    "game_client_settings.video",
+    "game_client_settings.layout.windows",
+    "game_client_settings.layout.hotbars",
+    "game_client_settings.input.bindings",
+];
+
+pub fn local_storage_sync_codec_for_builtin_key(
+    builtin_key: Option<&str>,
+) -> Option<&'static str> {
+    match builtin_key {
+        Some("flyff-universe") => Some(FLYFF_LOCAL_STORAGE_SYNC_CODEC),
+        Some("feifei-infinite-universe") => Some(FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC),
+        _ => None,
+    }
+}
 
 pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
     GameBrowserSettingsRecord {

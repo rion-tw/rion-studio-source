@@ -1,3 +1,72 @@
+fn local_storage_codec_script(
+    selectors: &[String],
+    codec: Option<&str>,
+) -> RuntimeResult<String> {
+    match codec {
+        Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC) => {
+            flyff_local_storage_codec_script(selectors, codec)
+        }
+        Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC) => {
+            flyff_china_local_storage_codec_script(selectors, codec)
+        }
+        None if selectors.is_empty() => Ok(
+            r#"const captureLocalStorageCodecFields = () => [];
+  const applyLocalStorageCodecFields = (selectors, entries) => selectors.length === 0 && entries.length === 0;
+  const repairLocalStorageCodecIdentity = () => "disabled";
+  const localStorageCodecSettingsInvalidCode = null;
+  const localStorageCodecDiagnosticCode = () => null;"#
+                .to_owned(),
+        ),
+        _ => Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
+            "The localStorage synchronization codec is invalid.",
+        )),
+    }
+}
+
+fn validate_local_storage_sync_selector_entries(
+    codec: Option<&str>,
+    selectors: &[String],
+    entries: &[(String, Option<String>)],
+) -> RuntimeResult<()> {
+    match codec {
+        Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC) => {
+            validate_flyff_selector_entries(selectors, entries)
+        }
+        Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC) => {
+            validate_flyff_china_selector_entries(selectors, entries)
+        }
+        None if selectors.is_empty() && entries.is_empty() => Ok(()),
+        _ => Err(RuntimeError::new(
+            "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
+            "The localStorage synchronization fields do not match their codec.",
+        )),
+    }
+}
+
+fn local_storage_sync_diagnostic_is_valid(codec: Option<&str>, code: &str) -> bool {
+    match codec {
+        Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC) => matches!(
+            code,
+            "FLYFF_SETTINGS_INVALID"
+                | "FLYFF_SESSION_MISSING"
+                | "FLYFF_SESSION_INVALID"
+                | "FLYFF_SESSION_AMBIGUOUS"
+                | "FLYFF_IDENTITY_REPAIRED"
+        ),
+        Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC) => matches!(
+            code,
+            "FLYFF_CHINA_SETTINGS_INVALID"
+                | "FLYFF_CHINA_SESSION_MISSING"
+                | "FLYFF_CHINA_SESSION_INVALID"
+                | "FLYFF_CHINA_SESSION_AMBIGUOUS"
+                | "FLYFF_CHINA_IDENTITY_REPAIRED"
+        ),
+        None => false,
+        _ => false,
+    }
+}
+
 fn validate_local_storage_sync_contract(
     origin: &str,
     keys: &[String],
@@ -18,19 +87,26 @@ fn validate_local_storage_sync_contract(
             "The localStorage synchronization contract is invalid.",
         ));
     }
-    if !matches!(codec, None | Some("flyff-client-settings-v7"))
-        || (!selectors.is_empty() && codec != Some("flyff-client-settings-v7"))
-    {
-        return Err(RuntimeError::new(
-            "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
-            "The localStorage synchronization codec is invalid.",
-        ));
+    match codec {
+        Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC) => validate_flyff_selectors(selectors)?,
+        Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC) => {
+            validate_flyff_china_selectors(selectors)?
+        }
+        None if selectors.is_empty() => {}
+        _ => {
+            return Err(RuntimeError::new(
+                "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
+                "The localStorage synchronization codec is invalid.",
+            ));
+        }
     }
-    validate_flyff_selectors(selectors)?;
-    if codec == Some("flyff-client-settings-v7")
-        && keys
-            .iter()
-            .any(|key| matches!(key.as_str(), FLYFF_SETTINGS_KEY | FLYFF_SESSIONS_KEY))
+    if codec.is_some()
+        && keys.iter().any(|key| {
+            matches!(
+                key.as_str(),
+                FLYFF_SETTINGS_KEY | FLYFF_SESSIONS_KEY
+            )
+        })
     {
         return Err(RuntimeError::new(
             "LOCAL_STORAGE_SYNC_CONTRACT_INVALID",
@@ -71,27 +147,22 @@ fn local_storage_sync_observer_script(config: &LocalStorageRuntimeConfig) -> Run
             "The localStorage synchronization selectors could not be encoded.",
         )
     })?;
-    let flyff_codec =
-        flyff_local_storage_codec_script(&config.selectors, config.codec.as_deref())?;
+    let codec_script = local_storage_codec_script(&config.selectors, config.codec.as_deref())?;
     let is_source = config.source_role_id.is_none();
     let generation = config.generation;
     Ok(format!(
         r#"(() => {{
   if (globalThis.top !== globalThis || globalThis.__rionLocalStorageSyncObserver) return;
-  {flyff_codec}
+  {codec_script}
   const state = {{ token: {token}, origin: {origin}, keys: {keys}, selectors: {selectors}, generation: {generation}, disabled: false, identityStatus: null, inFlight: null, lastError: null, nextSequence: 1, previous: null, queued: null, timer: 0 }};
   const capture = () => {{
-    const identityStatus = repairFlyffIdentity(state.selectors);
-    let diagnosticCode = identityStatus === "repaired" ? "FLYFF_IDENTITY_REPAIRED"
-      : identityStatus === "session-missing" ? "FLYFF_SESSION_MISSING"
-      : identityStatus === "session-invalid" ? "FLYFF_SESSION_INVALID"
-      : identityStatus === "session-ambiguous" ? "FLYFF_SESSION_AMBIGUOUS"
-      : identityStatus === "settings-invalid" ? "FLYFF_SETTINGS_INVALID" : null;
+    const identityStatus = repairLocalStorageCodecIdentity(state.selectors);
+    let diagnosticCode = localStorageCodecDiagnosticCode(identityStatus);
     if (state.identityStatus === identityStatus) diagnosticCode = null;
     state.identityStatus = identityStatus;
-    let selectorEntries = captureFlyffFields(state.selectors);
+    let selectorEntries = captureLocalStorageCodecFields(state.selectors);
     if (selectorEntries === null) {{
-      diagnosticCode = "FLYFF_SETTINGS_INVALID";
+      diagnosticCode = localStorageCodecSettingsInvalidCode;
       selectorEntries = state.selectors.map((selector) => [selector, null]);
     }}
     return {{ diagnosticCode, entries: state.keys.map((key) => [key, localStorage.getItem(key)]), selectorEntries }};

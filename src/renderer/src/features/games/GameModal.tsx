@@ -16,6 +16,8 @@ import type { Translator } from "../../i18n";
 import type { Game } from "../../../../shared/types";
 import { parseLocalStorageSyncKeys } from "./localStorageSyncKeys";
 import {
+  FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS,
+  FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS,
   FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS,
   FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS
 } from "./localStorageSyncSelectors";
@@ -57,7 +59,17 @@ function GameEditor({
   const [localStorageKeysText, setLocalStorageKeysText] = useState(
     initialForm.localStorageSyncKeys.join("\n")
   );
-  const usesFlyffSelectors = form.builtinKey === "flyff-universe";
+  const selectorCatalog = form.builtinKey === "flyff-universe"
+    ? {
+        groups: FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS,
+        options: FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS
+      }
+    : form.builtinKey === "feifei-infinite-universe"
+      ? {
+          groups: FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS,
+          options: FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS
+        }
+      : undefined;
   const guard = useUnsavedChangesGuard(!areEditorFormsEqual(initialRef.current, form), useMemo(() => ({
     title: t("confirm.unsaved.title"), description: t("confirm.unsaved.description"), cancelLabel: t("confirm.unsaved.continue"), confirmLabel: t("confirm.unsaved.discard"), tone: "destructive" as const
   }), [t]), isSaving);
@@ -101,13 +113,13 @@ function GameEditor({
         <Surface className="grid gap-3 p-4" variant="inset">
           <FieldHeader
             title={t("games.form.localStorageSyncKeys")}
-            description={t(usesFlyffSelectors
+            description={t(selectorCatalog
               ? "games.form.localStorageSyncSelectorsDescription"
               : "games.form.localStorageSyncKeysDescription")}
           />
-          {usesFlyffSelectors ? (
+          {selectorCatalog ? (
             <div className="grid gap-3">
-              {FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_GROUPS.map((group) => (
+              {selectorCatalog.groups.map((group) => (
                 <fieldset key={group.id} className="grid gap-2 rounded-lg border border-border/70 p-3 sm:grid-cols-2">
                   <legend className="px-1 text-xs font-medium text-muted-foreground">{t(group.labelKey)}</legend>
                   {group.options.map((option) => (
@@ -120,7 +132,7 @@ function GameEditor({
                           else selected.delete(option.id);
                           setForm({
                             ...form,
-                            localStorageSyncSelectors: FLYFF_LOCAL_STORAGE_SYNC_SELECTOR_OPTIONS
+                            localStorageSyncSelectors: selectorCatalog.options
                               .map((candidate) => candidate.id)
                               .filter((id) => selected.has(id))
                           });

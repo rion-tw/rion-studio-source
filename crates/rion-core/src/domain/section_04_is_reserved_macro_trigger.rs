@@ -181,7 +181,7 @@ fn builtin_definition(id: &str) -> Option<BuiltinGameDefinition> {
             name: "飞飞：无限宇宙",
             default_launch_url: "https://ffcli.ruiwoo.cn",
             local_storage_sync_keys: &[],
-            local_storage_sync_selectors: &[],
+            local_storage_sync_selectors: &FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS,
         }),
         _ => None,
     }
@@ -216,7 +216,10 @@ pub fn normalize_game_local_storage_sync_keys(
     values: Vec<String>,
 ) -> CoreResult<Vec<String>> {
     let values = normalize_local_storage_sync_keys(values)?;
-    if builtin_key == Some("flyff-universe")
+    if matches!(
+        builtin_key,
+        Some("flyff-universe" | "feifei-infinite-universe")
+    )
         && values.iter().any(|value| {
             matches!(
                 value.as_str(),
@@ -236,10 +239,12 @@ pub fn normalize_local_storage_sync_selectors(
     builtin_key: Option<&str>,
     values: Vec<String>,
 ) -> CoreResult<Vec<String>> {
-    let allowed = if builtin_key == Some("flyff-universe") {
-        FLYFF_LOCAL_STORAGE_SYNC_SELECTORS.as_slice()
-    } else {
-        &[]
+    let allowed = match builtin_key {
+        Some("flyff-universe") => FLYFF_LOCAL_STORAGE_SYNC_SELECTORS.as_slice(),
+        Some("feifei-infinite-universe") => {
+            FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS.as_slice()
+        }
+        _ => &[],
     };
     let mut seen = HashSet::new();
     let mut normalized = Vec::with_capacity(values.len());

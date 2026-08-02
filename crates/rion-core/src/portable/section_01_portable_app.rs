@@ -33,7 +33,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 12;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 13;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -64,7 +64,7 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
         name: "飞飞：无限宇宙",
         launch_url: "https://ffcli.ruiwoo.cn",
         local_storage_sync_keys: &[],
-        local_storage_sync_selectors: &[],
+        local_storage_sync_selectors: &crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS,
     },
 ];
 
@@ -93,13 +93,19 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
                 "portable schema must be exactly {PORTABLE_SCHEMA_VERSION}"
             ))
         })?;
-    if !matches!(schema, 11 | PORTABLE_SCHEMA_VERSION) {
+    if !(11..=PORTABLE_SCHEMA_VERSION).contains(&schema) {
         return Err(CoreError::UnsupportedDataVersion(format!(
-            "portable schema {schema} is unsupported; expected 11 or {PORTABLE_SCHEMA_VERSION}"
+            "portable schema {schema} is unsupported; expected 11 through {PORTABLE_SCHEMA_VERSION}"
         )));
     }
     let mut roles = normalize_array(object, "roles", normalize_role)?;
-    let input_games = normalize_array(object, "games", normalize_game)?;
+    let input_games = object
+        .get("games")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("portable games must be an array"))?
+        .iter()
+        .map(|value| normalize_game(value, schema))
+        .collect::<CoreResult<Vec<_>>>()?;
     let workspaces = normalize_workspaces(object)?;
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
@@ -157,7 +163,7 @@ fn normalize_array(
         .collect()
 }
 
-fn normalize_game(value: &Value) -> CoreResult<Value> {
+fn normalize_game(value: &Value, portable_schema: u64) -> CoreResult<Value> {
     let source = object(value, "game")?;
     let id = required_string(source, "id", "game")?;
     let kind = required_string(source, "source", "game")?;
@@ -223,32 +229,44 @@ fn normalize_game(value: &Value) -> CoreResult<Value> {
         && local_storage_sync_keys
             .iter()
             .any(|key| key == "game_client_settings");
-    if builtin_key.as_deref() == Some("flyff-universe") {
+    let is_flyff_china = builtin_key.as_deref() == Some("feifei-infinite-universe");
+    if matches!(
+        builtin_key.as_deref(),
+        Some("flyff-universe" | "feifei-infinite-universe")
+    ) {
         local_storage_sync_keys.retain(|key| {
             !matches!(key.as_str(), "game_client_settings" | "game_client_sessions")
         });
     }
+    let imported_selectors = source
+        .get("localStorageSyncSelectors")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .map(|value| {
+                    value.as_str().map(str::to_owned).ok_or_else(|| {
+                        invalid("portable localStorage sync selector is invalid")
+                    })
+                })
+                .collect::<CoreResult<Vec<_>>>()
+        })
+        .transpose()?;
+    let legacy_flyff_china_default = portable_schema < PORTABLE_SCHEMA_VERSION
+        && is_flyff_china
+        && imported_selectors.as_ref().is_none_or(Vec::is_empty);
     let local_storage_sync_selectors = if migrated_flyff_key {
         crate::domain::FLYFF_LOCAL_STORAGE_SYNC_SELECTORS
             .iter()
             .map(|value| (*value).to_owned())
             .collect()
+    } else if legacy_flyff_china_default {
+        crate::domain::FLYFF_CHINA_LOCAL_STORAGE_SYNC_SELECTORS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect()
     } else {
-        source
-            .get("localStorageSyncSelectors")
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .map(|value| {
-                        value.as_str().map(str::to_owned).ok_or_else(|| {
-                            invalid("portable localStorage sync selector is invalid")
-                        })
-                    })
-                    .collect::<CoreResult<Vec<_>>>()
-            })
-            .transpose()?
-            .unwrap_or_else(|| {
+        imported_selectors.unwrap_or_else(|| {
                 builtin_key
                     .as_deref()
                     .and_then(builtin_by_key)

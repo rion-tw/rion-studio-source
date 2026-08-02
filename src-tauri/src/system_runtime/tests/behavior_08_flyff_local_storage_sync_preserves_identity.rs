@@ -16,7 +16,7 @@ fn flyff_identity_integrity_runs_even_when_every_sync_selector_is_disabled() {
     .unwrap();
 
     assert!(observer.contains("const flyffCodecEnabled = true"));
-    assert!(observer.contains("repairFlyffIdentity(state.selectors)"));
+    assert!(observer.contains("repairLocalStorageCodecIdentity(state.selectors)"));
     assert!(observer.contains("FLYFF_IDENTITY_REPAIRED"));
     assert!(observer.contains("diagnosticCode: request.diagnosticCode"));
 }

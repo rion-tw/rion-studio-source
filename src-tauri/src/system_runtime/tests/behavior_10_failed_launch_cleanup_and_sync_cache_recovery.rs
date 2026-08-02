@@ -56,3 +56,46 @@ fn dependent_launches_tolerate_missing_or_invalid_sync_snapshots() {
         &RuntimeError::new("SYSTEM_SURFACE_RELEASE_UNVERIFIED", "unsafe cleanup failure")
     ));
 }
+
+#[test]
+fn snapshot_codec_errors_keep_specific_codes_and_reject_unknown_variants() {
+    let flyff = reject_local_storage_sync_snapshot_codec_error(
+        &json!({ "error": "FLYFF_SETTINGS_INVALID" }),
+        Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC),
+    )
+    .unwrap_err();
+    assert_eq!(flyff.code, "LOCAL_STORAGE_SYNC_FLYFF_SETTINGS_INVALID");
+    assert!(flyff.message.contains("Open the role"));
+
+    let flyff_china = reject_local_storage_sync_snapshot_codec_error(
+        &json!({ "error": "FLYFF_CHINA_SETTINGS_INVALID" }),
+        Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC),
+    )
+    .unwrap_err();
+    assert_eq!(
+        flyff_china.code,
+        "LOCAL_STORAGE_SYNC_FLYFF_CHINA_SETTINGS_INVALID"
+    );
+
+    for (value, codec) in [
+        (
+            json!({ "error": "UNKNOWN" }),
+            Some(rion_core::FLYFF_LOCAL_STORAGE_SYNC_CODEC),
+        ),
+        (
+            json!({ "error": "FLYFF_SETTINGS_INVALID" }),
+            Some(rion_core::FLYFF_CHINA_LOCAL_STORAGE_SYNC_CODEC),
+        ),
+        (json!({ "error": 7 }), None),
+    ] {
+        assert_eq!(
+            reject_local_storage_sync_snapshot_codec_error(&value, codec)
+                .unwrap_err()
+                .code,
+            "LOCAL_STORAGE_SYNC_SNAPSHOT_INVALID"
+        );
+    }
+    assert!(
+        reject_local_storage_sync_snapshot_codec_error(&json!({ "values": [] }), None).is_ok()
+    );
+}

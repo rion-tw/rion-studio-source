@@ -14,3 +14,4 @@ include!("behavior_11_runtime_diagnostics_are_bounded_and_classified.rs");
 include!("behavior_12_geometry_reload_and_shutdown_contracts.rs");
 include!("behavior_13_macro_key_guard_is_fail_closed_for_keydown.rs");
 include!("behavior_14_native_operation_registry_is_bounded_and_terminal.rs");
+include!("behavior_15_window_close_transaction_is_generation_fenced.rs");

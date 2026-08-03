@@ -11,7 +11,8 @@ import {
 import type {
   CoreCommand,
   CoreCommandResult,
-  CoreEvent
+  CoreEvent,
+  SystemRuntimeOperationSummaryRecord
 } from "../../../shared/generated";
 import type {
   CreateGameInput,
@@ -420,6 +421,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
         emitRevisioned("runtimeState", payload);
       }
     ),
+    () => listen<SystemRuntimeOperationSummaryRecord>(
+      "rion://window-lifecycle",
+      ({ payload }) => emit("windowLifecycle", payload)
+    ),
     () => listen<Parameters<Parameters<RionStudioApi["onMacroPageRequested"]>[0]>[0]>(
       "rion://macro-page-request",
       ({ payload }) => emit("macroPageRequest", payload)
@@ -494,8 +499,12 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     hideGameWindow: async (windowId) => handleSystemRuntimeReceipt(
       await invokeShell("hideGameWindow", [windowId])
     ),
-    stopGameWindow: (windowId) => invokeShell("stopGameWindow", [windowId]),
-    deleteGameWindow: (windowId) => invokeShell("deleteGameWindow", [windowId]),
+    stopGameWindow: async (windowId) => handleSystemRuntimeReceipt(
+      await invokeShell("stopGameWindow", [windowId])
+    ),
+    deleteGameWindow: async (windowId) => handleSystemRuntimeReceipt(
+      await invokeShell("deleteGameWindow", [windowId])
+    ),
     showGameWindowTab: async (tabId) => handleSystemRuntimeReceipt(
       await invokeShell("showGameWindowTab", [tabId])
     ),
@@ -641,6 +650,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       on("applicationQuitRequested", callback as Listener),
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
     onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
+    onWindowLifecycleChanged: (callback) => on("windowLifecycle", callback as Listener),
     onGamesChanged: (callback) => on("games", callback as Listener),
     onRolesChanged: (callback) => on("roles", callback as Listener),
     onGameWindowsChanged: (callback) => on("gameWindows", callback as Listener),

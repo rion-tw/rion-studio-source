@@ -19,13 +19,7 @@ enum NativeOperationSubsystem {
     Performance,
     Capability,
     Shutdown,
-    DisplayTopology,
     WindowLifecycle,
-    Focus,
-    Recovery,
-    Power,
-    Drag,
-    Projection,
 }
 
 impl NativeOperationSubsystem {
@@ -45,13 +39,7 @@ impl NativeOperationSubsystem {
             Self::Performance => "performance",
             Self::Capability => "capability",
             Self::Shutdown => "shutdown",
-            Self::DisplayTopology => "displayTopology",
             Self::WindowLifecycle => "windowLifecycle",
-            Self::Focus => "focus",
-            Self::Recovery => "recovery",
-            Self::Power => "power",
-            Self::Drag => "drag",
-            Self::Projection => "projection",
         }
     }
 
@@ -64,17 +52,11 @@ impl NativeOperationSubsystem {
             | Self::Audio
             | Self::Zoom
             | Self::Shutdown
-            | Self::WindowLifecycle
-            | Self::Focus => "nativeAcknowledgement",
+            | Self::WindowLifecycle => "nativeAcknowledgement",
             Self::Navigation => "pageFinished",
             Self::Input | Self::Metadata => "nativeSubmission",
             Self::Popup | Self::Session => "stateCommit",
             Self::Performance | Self::Capability => "runtimeProbe",
-            Self::DisplayTopology => "topologyCommitted",
-            Self::Recovery => "inputReady",
-            Self::Power => "lifecycleTransition",
-            Self::Drag => "dragCommitted",
-            Self::Projection => "stateCommit",
         }
     }
 }
@@ -194,11 +176,6 @@ impl NativeOperationContext {
         self
     }
 
-    fn with_topology_revision(mut self, revision: u64) -> Self {
-        self.topology_revision = Some(revision);
-        self
-    }
-
     fn with_window_generation(mut self, generation: u64) -> Self {
         self.window_generation = Some(generation);
         self
@@ -206,16 +183,6 @@ impl NativeOperationContext {
 
     fn with_lifecycle_epoch(mut self, epoch: u64) -> Self {
         self.lifecycle_epoch = Some(epoch);
-        self
-    }
-
-    fn with_parent_operation(mut self, operation_id: impl Into<String>) -> Self {
-        self.parent_operation_id = Some(operation_id.into());
-        self
-    }
-
-    fn with_session(mut self, session_id: impl Into<String>) -> Self {
-        self.session_id = Some(session_id.into());
         self
     }
 

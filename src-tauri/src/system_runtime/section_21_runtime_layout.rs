@@ -473,6 +473,9 @@ impl SystemRuntimeExecutor {
         state.display_hosts.insert(
             target.window_id.clone(),
             RuntimeDisplayHost {
+                generation: WINDOW_GENERATION_SEQUENCE
+                    .fetch_add(1, Ordering::AcqRel)
+                    .saturating_add(1),
                 target: target.clone(),
                 window: window.clone(),
                 zoom_factor: 1.0,

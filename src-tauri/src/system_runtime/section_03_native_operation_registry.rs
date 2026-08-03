@@ -76,6 +76,14 @@ impl NativeOperationRegistry {
         true
     }
 
+    fn terminal(&self, operation_id: &str) -> Option<NativeOperationReceipt> {
+        self.expire_due_operations();
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.terminal.get(operation_id).cloned())
+    }
+
     fn complete(&self, receipt: NativeOperationReceipt) -> NativeOperationReceipt {
         let Ok(mut state) = self.state.lock() else {
             return receipt;

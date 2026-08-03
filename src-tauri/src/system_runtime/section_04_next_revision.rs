@@ -406,7 +406,7 @@ struct RuntimeState {
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
-    pending_window_close_labels: HashSet<String>,
+    window_closes: WindowCloseLedger,
     overlay_capabilities: HashMap<String, String>,
     overlay_ready_webviews: HashSet<String>,
     popup_roles: HashMap<String, String>,

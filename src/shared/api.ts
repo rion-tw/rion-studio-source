@@ -28,7 +28,6 @@ import type {
   DiagnosticExportResult,
   DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
-  DisplayInfo,
   DisplayTopology,
   GameWindow,
   LaunchWorkspace,
@@ -87,8 +86,8 @@ export interface RionStudioApi {
   reorderGameWindows: (input: ReorderItemsInput) => Promise<GameWindow[]>;
   showGameWindow: (windowId: string) => Promise<void>;
   hideGameWindow: (windowId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
-  stopGameWindow: (windowId: string) => Promise<void>;
-  deleteGameWindow: (windowId: string) => Promise<void>;
+  stopGameWindow: (windowId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
+  deleteGameWindow: (windowId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   showGameWindowTab: (tabId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   moveGameWindowTab: (tabId: string, windowId: string) => Promise<void>;
   moveGameWindowTabToNewWindow: (tabId: string) => Promise<{ windowId: string }>;
@@ -178,6 +177,9 @@ export interface RionStudioApi {
   onApplicationQuitRequested: (callback: () => void) => () => void;
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
+  onWindowLifecycleChanged: (
+    callback: (receipt: SystemRuntimeOperationSummaryRecord) => void
+  ) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
   onRolesChanged: (callback: (roles: Role[]) => void) => () => void;
   onGameWindowsChanged: (callback: (gameWindows: GameWindow[]) => void) => () => void;

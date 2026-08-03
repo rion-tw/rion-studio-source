@@ -287,17 +287,25 @@ async fn rion_shell_invoke(
         }
         "stopGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::BrowserWindowStop { window_id })
-                .await
-                .map_err(error_payload)
+            execute_game_window_close_transaction(
+                &app,
+                &state,
+                window_id.clone(),
+                CoreCommand::BrowserWindowStop { window_id },
+                "renderer-stop-window",
+            )
+            .await
         }
         "deleteGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::BrowserWindowDelete { window_id })
-                .await
-                .map_err(error_payload)
+            execute_game_window_close_transaction(
+                &app,
+                &state,
+                window_id.clone(),
+                CoreCommand::BrowserWindowDelete { window_id },
+                "renderer-delete-window",
+            )
+            .await
         }
         "showGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;

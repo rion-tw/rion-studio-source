@@ -319,34 +319,9 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.message)
     }
 
-    pub(crate) fn begin_window_close_requested(
-        &self,
-        label: &str,
-    ) -> RuntimeResult<RuntimeWindowCloseRequest> {
-        let mut state = self.state()?;
-        if state.allow_window_close_labels.remove(label) {
-            return Ok(RuntimeWindowCloseRequest::PassThrough);
-        }
-        let Some((window_id, window)) = state.display_hosts.iter().find_map(|(window_id, host)| {
-            (host.window.label() == label).then(|| (window_id.clone(), host.window.clone()))
-        }) else {
-            return Ok(RuntimeWindowCloseRequest::PassThrough);
-        };
-        if !state.pending_window_close_labels.insert(label.to_owned()) {
-            return Ok(RuntimeWindowCloseRequest::Pending);
-        }
-        Ok(RuntimeWindowCloseRequest::Start {
-            window_id,
-            window: Box::new(window),
-        })
-    }
+}
 
-    pub(crate) fn finish_window_close_requested(&self, label: &str) {
-        if let Ok(mut state) = self.state.lock() {
-            state.pending_window_close_labels.remove(label);
-        }
-    }
-
+impl SystemRuntimeExecutor {
     pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) -> bool {
         if self.require_runtime_accepting().is_err() {
             return false;

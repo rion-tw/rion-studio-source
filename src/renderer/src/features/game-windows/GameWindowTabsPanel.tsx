@@ -1,34 +1,18 @@
-import {
-  Eye,
-  EyeOff,
-  MoreHorizontal,
-  Plus,
-  Square,
-  Volume2,
-  VolumeX
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { type JSX } from "react";
 
 import type { EmbeddedRuntimeState, GameWindow, GameWindowTab } from "../../../../shared/types";
 import { Button } from "../../components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "../../components/ui/dropdown-menu";
 import { Surface } from "../../components/ui/patterns";
-import type { Translator } from "../../i18n";
 import { useBusyIds } from "../../hooks/useBusyIds";
+import type { Translator } from "../../i18n";
 
 const tabBusyKey = (tabId: string): string => `tab:${tabId}`;
 const windowBusyKey = (windowId: string): string => `window:${windowId}`;
-const NEW_WINDOW_BUSY_KEY = "window:new";
 
 interface GameWindowTabsPanelProps {
   className?: string;
   gameWindow: GameWindow;
-  gameWindows: GameWindow[];
   onAdd: () => void;
   onError: (error: unknown) => void;
   runtime: EmbeddedRuntimeState;
@@ -39,7 +23,6 @@ interface GameWindowTabsPanelProps {
 export function GameWindowTabsPanel({
   className,
   gameWindow,
-  gameWindows,
   onAdd,
   onError,
   runtime,
@@ -89,21 +72,18 @@ export function GameWindowTabsPanel({
         </Surface>
       ) : (
         <div className="grid gap-2">
-          {gameWindow.tabs.map((tab) => (
+          {gameWindow.tabs.map((tab, index) => (
             <GameWindowTabRow
               key={tab.id}
-              busy={busyIds.has(tabBusyKey(tab.id))}
-              gameWindow={gameWindow}
-              gameWindows={gameWindows}
+              busy={busyIds.has(windowBusyKey(gameWindow.id)) || busyIds.has(tabBusyKey(tab.id))}
+              index={index}
               runtime={runtime}
               tab={tab}
+              tabs={gameWindow.tabs}
               t={t}
-              onInvoke={(targetWindowId, action) => void run([
+              onInvoke={(action) => void run([
                 tabBusyKey(tab.id),
-                windowBusyKey(gameWindow.id),
-                ...(targetWindowId
-                  ? [targetWindowId === "new" ? NEW_WINDOW_BUSY_KEY : windowBusyKey(targetWindowId)]
-                  : [])
+                windowBusyKey(gameWindow.id)
               ], action)}
             />
           ))}
@@ -115,31 +95,32 @@ export function GameWindowTabsPanel({
 
 function GameWindowTabRow({
   busy,
-  gameWindow,
-  gameWindows,
+  index,
   onInvoke,
   runtime,
   tab,
+  tabs,
   t
 }: {
   busy: boolean;
-  gameWindow: GameWindow;
-  gameWindows: GameWindow[];
-  onInvoke: (targetWindowId: string | undefined, action: () => Promise<unknown>) => void;
+  index: number;
+  onInvoke: (action: () => Promise<unknown>) => void;
   runtime: EmbeddedRuntimeState;
   tab: GameWindowTab;
+  tabs: GameWindowTab[];
   t: Translator;
 }): JSX.Element {
   const live = runtime.tabs.find((item) => item.id === tab.id);
-  const invoke = (action: () => Promise<unknown>, targetWindowId?: string): void =>
-    onInvoke(targetWindowId, action);
+  const canMove = !busy && Boolean(live);
+  const beforeTabIdForMoveDown = tabs[index + 2]?.id;
+
   return (
     <Surface className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5" variant="inset">
       <button
         className="min-w-0 text-left disabled:cursor-default"
         disabled={busy || !live}
         type="button"
-        onClick={() => invoke(() => window.rionStudio.showGameWindowTab(tab.id))}
+        onClick={() => onInvoke(() => window.rionStudio.showGameWindowTab(tab.id))}
       >
         <span className="block truncate text-body font-medium">{tab.name}</span>
         <span className="block truncate text-caption text-muted-foreground">
@@ -149,52 +130,35 @@ function GameWindowTabRow({
         </span>
       </button>
       <div className="flex items-center gap-0.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button aria-label={t("gameWindows.moveTab")} disabled={busy || !live} size="icon" type="button" variant="ghost">
-              <MoreHorizontal size={15} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => invoke(() => window.rionStudio.moveGameWindowTabToNewWindow(tab.id), "new")}>
-              {t("gameWindows.moveTabNew")}
-            </DropdownMenuItem>
-            {gameWindows.filter((item) => item.id !== gameWindow.id).map((item) => (
-              <DropdownMenuItem key={item.id} onSelect={() => invoke(() => window.rionStudio.moveGameWindowTab(tab.id, item.id), item.id)}>
-                {t("gameWindows.moveTabTo").replace("{name}", item.name)}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
         <Button
-          aria-label={tab.audioMuted ? t("gameWindows.unmute") : t("gameWindows.mute")}
-          disabled={busy || !live}
+          aria-label={t("gameWindows.tabs.moveUp")}
+          disabled={!canMove || index === 0}
           size="icon"
           type="button"
           variant="ghost"
-          onClick={() => invoke(() => window.rionStudio.setGameWindowTabMuted(tab.id, !tab.audioMuted))}
+          onClick={() => onInvoke(() => window.rionStudio.reorderGameWindowTab(tab.id, tabs[index - 1]?.id))}
         >
-          {tab.audioMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          <ChevronUp size={15} />
         </Button>
         <Button
-          aria-label={tab.hidden ? t("gameWindows.showTab") : t("gameWindows.hideTab")}
-          disabled={busy || !live}
+          aria-label={t("gameWindows.tabs.moveDown")}
+          disabled={!canMove || index === tabs.length - 1}
           size="icon"
           type="button"
           variant="ghost"
-          onClick={() => invoke(() => window.rionStudio.setGameWindowTabHidden(tab.id, !tab.hidden))}
+          onClick={() => onInvoke(() => window.rionStudio.reorderGameWindowTab(tab.id, beforeTabIdForMoveDown))}
         >
-          {tab.hidden ? <Eye size={15} /> : <EyeOff size={15} />}
+          <ChevronDown size={15} />
         </Button>
         <Button
-          aria-label={t("gameWindows.stopTab")}
+          aria-label={t("gameWindows.tabs.close")}
           disabled={busy || !live}
           size="icon"
           type="button"
           variant="ghost"
-          onClick={() => invoke(() => window.rionStudio.stopGameWindowTab(tab.id))}
+          onClick={() => onInvoke(() => window.rionStudio.stopGameWindowTab(tab.id))}
         >
-          <Square size={14} />
+          <Trash2 size={15} />
         </Button>
       </div>
     </Surface>

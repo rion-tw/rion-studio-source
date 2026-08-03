@@ -96,6 +96,8 @@ describe("System Runtime receipt bridge", () => {
 
     await expect(window.rionStudio.moveGameWindowTab("tab-1", "window-2"))
       .resolves.toEqual(appliedReceipt);
+    await expect(window.rionStudio.reorderGameWindowTab("tab-1", "tab-2"))
+      .resolves.toEqual(appliedReceipt);
     await expect(window.rionStudio.setGameWindowTabHidden("tab-1", true))
       .resolves.toEqual(appliedReceipt);
     await expect(window.rionStudio.stopGameWindowTab("tab-1"))
@@ -105,6 +107,10 @@ describe("System Runtime receipt bridge", () => {
     expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
       operation: "stopGameWindowTab",
       args: ["tab-1"]
+    });
+    expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
+      operation: "reorderGameWindowTab",
+      args: ["tab-1", "tab-2"]
     });
   });
 });

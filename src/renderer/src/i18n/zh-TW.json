@@ -75,6 +75,7 @@
   "gameWindows.tabs.liveConfigNotice": "此視窗目前正在執行；分頁變更會在下次啟動時套用。",
   "gameWindows.tabs.moveUp": "將分頁上移",
   "gameWindows.tabs.moveDown": "將分頁下移",
+  "gameWindows.tabs.close": "關閉分頁",
   "gameWindows.tabs.remove": "移除保存的分頁",
   "gameWindows.tabs.saved": "已儲存",
   "gameWindows.tabs.createFirstTitle": "請先建立視窗，再加入內容",

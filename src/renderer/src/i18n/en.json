@@ -75,6 +75,7 @@
   "gameWindows.tabs.liveConfigNotice": "This window is running. Saved tab changes will apply the next time it starts.",
   "gameWindows.tabs.moveUp": "Move tab up",
   "gameWindows.tabs.moveDown": "Move tab down",
+  "gameWindows.tabs.close": "Close tab",
   "gameWindows.tabs.remove": "Remove saved tab",
   "gameWindows.tabs.saved": "Saved",
   "gameWindows.tabs.createFirstTitle": "Create the window before adding content",

@@ -75,6 +75,7 @@
   "gameWindows.tabs.liveConfigNotice": "此窗口当前正在运行；标签页更改将在下次启动时应用。",
   "gameWindows.tabs.moveUp": "上移标签页",
   "gameWindows.tabs.moveDown": "下移标签页",
+  "gameWindows.tabs.close": "关闭标签页",
   "gameWindows.tabs.remove": "移除已保存标签页",
   "gameWindows.tabs.saved": "已保存",
   "gameWindows.tabs.createFirstTitle": "请先创建窗口，再添加内容",

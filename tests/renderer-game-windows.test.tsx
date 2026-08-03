@@ -33,10 +33,9 @@ afterEach(() => {
 });
 
 describe("Game Window management", () => {
-  it("keeps window management in the list and changes target displays directly", async () => {
+  it("keeps window management in the list and delegates tab management to the shown window", async () => {
     const user = userEvent.setup();
     const showGameWindow = vi.fn(() => Promise.resolve());
-    const showGameWindowTab = vi.fn(() => Promise.resolve());
     const hideGameWindow = vi.fn(() => Promise.resolve());
     const updateGameWindow = vi.fn(() => Promise.resolve(gameWindow));
     Object.defineProperty(window, "rionStudio", {
@@ -44,7 +43,7 @@ describe("Game Window management", () => {
       value: {
         createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
         showGameWindow,
-        showGameWindowTab,
+        showGameWindowTab: vi.fn(() => Promise.resolve()),
         reorderGameWindowTab: vi.fn(() => Promise.resolve()),
         stopGameWindowTab: vi.fn(() => Promise.resolve()),
         updateGameWindow,
@@ -76,16 +75,14 @@ describe("Game Window management", () => {
     }));
 
     await user.click(screen.getByRole("button", { name: "Show" }));
-    await user.click(screen.getByRole("button", { name: /Mina/ }));
     await user.click(screen.getByRole("button", { name: "Game window actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Hide window" }));
 
     expect(showGameWindow).toHaveBeenCalledWith("window-1");
-    expect(showGameWindowTab).toHaveBeenCalledWith("tab-1");
     expect(hideGameWindow).toHaveBeenCalledWith("window-1");
-    expect(screen.getByRole("button", { name: "Move tab up" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Move tab down" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Close tab" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Move tab up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move tab down" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close tab" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Move to…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Mute tab" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hide tab" })).toBeNull();
@@ -119,8 +116,7 @@ describe("Game Window management", () => {
     });
   });
 
-  it("reorders live tabs and closes them through the native tab-close operation", async () => {
-    const user = userEvent.setup();
+  it("does not expose tab reordering or close controls in the list", () => {
     const reorderGameWindowTab = vi.fn(() => Promise.resolve());
     const stopGameWindowTab = vi.fn(() => Promise.resolve());
     Object.defineProperty(window, "rionStudio", {
@@ -139,18 +135,11 @@ describe("Game Window management", () => {
 
     renderRoute({ gameWindows: [multiTabGameWindow], runtime: multiTabRuntime });
 
-    const moveUpButtons = screen.getAllByRole("button", { name: "Move tab up" });
-    const moveDownButtons = screen.getAllByRole("button", { name: "Move tab down" });
-    expect(moveUpButtons[0]).toHaveProperty("disabled", true);
-    expect(moveDownButtons[2]).toHaveProperty("disabled", true);
-
-    await user.click(moveDownButtons[0]);
-    await waitFor(() => expect(reorderGameWindowTab).toHaveBeenCalledWith("tab-1", "tab-3"));
-    await user.click(moveUpButtons[1]);
-    await waitFor(() => expect(reorderGameWindowTab).toHaveBeenCalledWith("tab-2", "tab-1"));
-    await user.click(screen.getAllByRole("button", { name: "Close tab" })[2]);
-
-    expect(stopGameWindowTab).toHaveBeenCalledWith("tab-3");
+    expect(screen.queryByRole("button", { name: "Move tab up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move tab down" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close tab" })).toBeNull();
+    expect(reorderGameWindowTab).not.toHaveBeenCalled();
+    expect(stopGameWindowTab).not.toHaveBeenCalled();
   });
 
   it("locks duplicate actions for the same window", async () => {
@@ -189,7 +178,7 @@ describe("Game Window management", () => {
     await waitFor(() => expect(showButton).toHaveProperty("disabled", false));
   });
 
-  it("does not offer role or workspace addition from an empty list entry", () => {
+  it("keeps an empty window as a list-only summary", () => {
     Object.defineProperty(window, "rionStudio", {
       configurable: true,
       value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
@@ -197,7 +186,8 @@ describe("Game Window management", () => {
 
     renderRoute({ gameWindows: [emptyGameWindow], runtime: emptyRuntime });
 
-    expect(screen.getByText("This window is empty. Show it to add a role or workspace from its tab bar.")).toBeTruthy();
+    expect(screen.getByText("Empty")).toBeTruthy();
+    expect(screen.getByText("0 tabs")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: /Add to/ })).toBeNull();
   });

@@ -1,5 +1,5 @@
 // Focused implementation extracted from MacrosRoute.tsx.
-import { ArrowDown, ArrowUp, CircleAlert, Copy, Loader2, MoreHorizontal, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleAlert, Copy, Loader2, MoreHorizontal, Pause, Pencil, Play, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 
 import { type CSSProperties, type JSX, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -124,9 +124,9 @@ export function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBa
         );
       })}
       {remainingRoleCount > 0 ? (
-        <span className="self-center leading-5 text-muted-foreground">
+        <Badge variant="outline">
           {t("macros.roles.more").replace("{count}", String(remainingRoleCount))}
-        </span>
+        </Badge>
       ) : null}
     </div>
   );
@@ -272,6 +272,7 @@ interface MacroActionMenuProps {
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onSetEnabled?: (enabled: boolean) => void;
   t: Translator;
 }
 
@@ -287,13 +288,14 @@ export function MacroActionMenu({
   onCopy,
   onDelete,
   onEdit,
+  onSetEnabled,
   t
 }: MacroActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MacroActionMenuPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const isDeleteBusy = busyMacroIds.has(macro.id);
+  const isMutationBusy = busyMacroIds.has(macro.id);
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -311,7 +313,7 @@ export function MacroActionMenu({
       const viewportPadding = 8;
       const menuGap = 4;
       const menuWidth = menuRef.current?.offsetWidth ?? 128;
-      const menuHeight = menuRef.current?.offsetHeight ?? 92;
+      const menuHeight = menuRef.current?.offsetHeight ?? (onSetEnabled ? 120 : 92);
       const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
       const left = Math.min(Math.max(viewportPadding, triggerBounds.right - menuWidth), maxLeft);
       const belowTop = triggerBounds.bottom + menuGap;
@@ -354,7 +356,7 @@ export function MacroActionMenu({
       window.removeEventListener("resize", scheduleMenuPositionUpdate);
       window.removeEventListener("scroll", scheduleMenuPositionUpdate, true);
     };
-  }, [isOpen]);
+  }, [isOpen, onSetEnabled]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -401,6 +403,11 @@ export function MacroActionMenu({
     onDelete();
   }
 
+  function handleSetEnabled(): void {
+    setIsOpen(false);
+    onSetEnabled?.(!macro.enabled);
+  }
+
   const menuStyle: CSSProperties | undefined = menuPosition
     ? {
         left: menuPosition.left,
@@ -435,19 +442,31 @@ export function MacroActionMenu({
               type="button"
               role="menuitem"
               onClick={handleCopy}
-              disabled={isDeleteBusy}
+              disabled={isMutationBusy}
             >
               <Copy size={14} />
               <span>{t("macros.copy")}</span>
             </button>
+            {onSetEnabled ? (
+              <button
+                className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                type="button"
+                role="menuitem"
+                onClick={handleSetEnabled}
+                disabled={isMutationBusy}
+              >
+                {macro.enabled ? <ToggleLeft size={14} /> : <ToggleRight size={14} />}
+                <span>{t(macro.enabled ? "macros.disable" : "macros.enable")}</span>
+              </button>
+            ) : null}
             <button
               className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               type="button"
               role="menuitem"
               onClick={handleDelete}
-              disabled={isDeleteBusy}
+              disabled={isMutationBusy}
             >
-              {isDeleteBusy ? <Loader2 className="spin" size={14} /> : <Trash2 size={14} />}
+              {isMutationBusy ? <Loader2 className="spin" size={14} /> : <Trash2 size={14} />}
               <span>{t("macros.delete")}</span>
             </button>
           </Surface>,

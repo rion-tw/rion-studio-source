@@ -1,4 +1,4 @@
-import { Check, Keyboard, ListChecks, Plus, Repeat, Save } from "lucide-react";
+import { Check, ListChecks, Plus, Pointer, Repeat, Repeat1, Save, ToggleRight } from "lucide-react";
 
 import { type FormEvent, type JSX, useMemo, useRef, useState } from "react";
 
@@ -341,8 +341,8 @@ function MacroForm({
                   )}
                   aria-disabled={isSaving}
                   items={[
-                    { value: "toggle", label: t("macroForm.activation.toggle"), icon: Check },
-                    { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Keyboard }
+                    { value: "toggle", label: t("macroForm.activation.toggle"), icon: ToggleRight },
+                    { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Pointer }
                 ]}
                 value={form.activationMode ?? "toggle"}
                 onValueChange={(activationMode) => {
@@ -464,7 +464,7 @@ function MacroForm({
                     )}
                     aria-disabled={isSaving}
                     items={[
-                      { value: "once", label: t("macros.repeat.once"), icon: Check },
+                      { value: "once", label: t("macros.repeat.once"), icon: Repeat1 },
                       { value: "loop", label: t("macroForm.repeat.loop"), icon: Repeat }
                     ]}
                     value={form.repeat.type}

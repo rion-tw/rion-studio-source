@@ -45,12 +45,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.release.outputs.source_ref }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout requested release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Resolve immutable candidate source
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          VERIFIED_SHA: ${{ inputs.verified_sha || '' }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"
+          source_ref="$(git rev-parse HEAD)"
+          [[ "${source_ref}" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "${VERIFIED_SHA}" ]]; then
+            [[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            test "${source_ref}" = "${VERIFIED_SHA}"
+          fi
+          echo "source_ref=${source_ref}" >> "${GITHUB_OUTPUT}"
+          echo "version=${RELEASE_TAG#v}" >> "${GITHUB_OUTPUT}"
+
   build:
+    needs: resolve
     uses: ./.github/workflows/tauri-release-build.yml
     with:
-      tag: ${{ inputs.tag }}
+      source_ref: ${{ needs.resolve.outputs.source_ref }}
+      version: ${{ needs.resolve.outputs.version }}
       updater_base_url: ${{ inputs.updater_base_url }}
-      verified_sha: ${{ inputs.verified_sha || '' }}
       run_quality: ${{ github.event_name == 'workflow_dispatch' }}
     secrets:
       RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}

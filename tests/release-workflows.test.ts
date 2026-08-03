@@ -121,13 +121,22 @@ describe("Tauri-only release workflows", () => {
   });
 
   it("keeps the owner-locked unsigned platform policy while updater artifacts stay verified", async () => {
-    const [buildWorkflow, compatibilityWorkflow, candidateWorkflow, releaseScript, packageScript, macConfigSource] = await Promise.all([
+    const [
+      buildWorkflow,
+      compatibilityWorkflow,
+      candidateWorkflow,
+      releaseScript,
+      packageScript,
+      macConfigSource,
+      releasePlanScript
+    ] = await Promise.all([
       readWorkflow(".github/workflows/tauri-release-build.yml"),
       readWorkflow(".github/workflows/tauri-release-compatibility.yml"),
       readWorkflow(".github/workflows/tauri-release-candidate.yml"),
       readWorkflow("scripts/buildTauriRelease.mjs"),
       readWorkflow("scripts/packageTauri.mjs"),
-      readWorkflow("src-tauri/tauri.macos.conf.json")
+      readWorkflow("src-tauri/tauri.macos.conf.json"),
+      readWorkflow("scripts/planSemanticRelease.mjs")
     ]);
     const macConfig = JSON.parse(macConfigSource);
     const quality = buildWorkflow.slice(
@@ -151,8 +160,10 @@ describe("Tauri-only release workflows", () => {
     );
 
     expect(buildWorkflow).toContain("workflow_call:");
-    expect(buildWorkflow).toContain("verified_sha:");
-    expect(buildWorkflow).toContain("required: false");
+    expect(buildWorkflow).toContain("source_ref:");
+    expect(buildWorkflow).toContain("version:");
+    expect(buildWorkflow).not.toContain("verified_sha:");
+    expect(buildWorkflow).not.toContain("inputs.tag");
     expect(buildWorkflow).toContain("run_quality:");
     expect(buildWorkflow).toContain(
       "value: ${{ jobs.manifest.outputs.release_artifact_name }}"
@@ -160,8 +171,10 @@ describe("Tauri-only release workflows", () => {
     expect(buildWorkflow).toContain(
       "value: ${{ jobs.validate.outputs.version }}"
     );
-    expect(buildWorkflow).toContain('[[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]');
-    expect(buildWorkflow).toContain('test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"');
+    expect(buildWorkflow).toContain('[[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]');
+    expect(buildWorkflow).toContain('[[ "${RELEASE_VERSION}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+');
+    expect(buildWorkflow).toContain('test "$(git rev-parse HEAD)" = "${SOURCE_REF}"');
+    expect(buildWorkflow).not.toContain("git describe --tags --exact-match HEAD");
     expect(validate).toContain("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
@@ -178,9 +191,10 @@ describe("Tauri-only release workflows", () => {
       expect(buildWorkflow).not.toContain(platformSigningInput);
     }
     expect(validate.indexOf("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY"))
-      .toBeLessThan(validate.indexOf('[[ "${RELEASE_TAG}"'));
+      .toBeLessThan(validate.indexOf('[[ "${SOURCE_REF}"'));
     expect(quality).toContain("if: inputs.run_quality");
     expect(quality).toContain("uses: ./.github/workflows/ci.yml");
+    expect(quality).toContain("ref: ${{ inputs.source_ref }}");
     expect(build).toContain("always() &&");
     expect(build).toContain("needs.validate.result == 'success'");
     expect(build).toContain("needs.quality.result == 'success'");
@@ -224,6 +238,10 @@ describe("Tauri-only release workflows", () => {
     expect(releaseReady).toContain('test "${UPGRADE_RESULT}" = "success"');
     expect(candidateWorkflow).toContain("workflow_call:");
     expect(candidateWorkflow).toContain("workflow_dispatch:");
+    expect(candidateWorkflow).toContain("  resolve:");
+    expect(candidateWorkflow).toContain("source_ref: ${{ needs.resolve.outputs.source_ref }}");
+    expect(candidateWorkflow).toContain("version: ${{ needs.resolve.outputs.version }}");
+    expect(candidateWorkflow).toContain('test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"');
     expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
     expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
     expect(candidateWorkflow).toContain(
@@ -267,54 +285,58 @@ describe("Tauri-only release workflows", () => {
     expect(compatibilityWorkflow).toContain("preserve-sqlite-store");
     expect(compatibilityWorkflow).toContain("The in-place upgrade modified the SQLite store.");
     expect(compatibilityWorkflow).toContain("roles/upgrade/browser/data.marker");
+    expect(releasePlanScript).toContain("dryRun: true");
+    expect(releasePlanScript).toContain('repositoryUrl: "."');
+    expect(releasePlanScript).toContain("@semantic-release/commit-analyzer");
+    expect(releasePlanScript).toContain('git("branch", "--show-current") !== "main"');
+    expect(releasePlanScript).toContain('git("branch", "--force", "main", sourceSha)');
+    expect(releasePlanScript).toContain("has_release: Boolean(releaseVersion)");
     expect(buildWorkflow.toLowerCase()).not.toContain("electron");
     expect(compatibilityWorkflow.toLowerCase()).not.toContain("electron");
   });
 
-  it("publishes verified assets before the public release handoff", async () => {
-    const workflow = await readWorkflow(".github/workflows/release.yml");
-    const buildIndex = workflow.indexOf("build-tauri-release:");
+  it("requires a matching concurrent Tauri preflight before semantic-release publishes assets", async () => {
+    const [workflow, preflightWorkflow] = await Promise.all([
+      readWorkflow(".github/workflows/release.yml"),
+      readWorkflow(".github/workflows/tauri-release-preflight.yml")
+    ]);
+    const awaitIndex = workflow.indexOf("await-preflight:");
+    const semanticIndex = workflow.indexOf("semantic-release:");
+    const resolveIndex = workflow.indexOf("resolve-release:");
+    const stageIndex = workflow.indexOf("stage-preflight-release:");
     const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
     const compatibilityIndex = workflow.indexOf("verify-upgrade-compatibility:");
     const publishIndex = workflow.indexOf("publish-public-release:");
-    const build = workflow.slice(buildIndex, verifyIndex);
+    const awaitPreflight = workflow.slice(awaitIndex, semanticIndex);
+    const semantic = workflow.slice(semanticIndex, resolveIndex);
+    const stage = workflow.slice(stageIndex, verifyIndex);
     const verify = workflow.slice(verifyIndex, compatibilityIndex);
     const compatibility = workflow.slice(compatibilityIndex, publishIndex);
     const publish = workflow.slice(publishIndex);
 
     expect(workflow).toContain("name: Private Tauri Release");
     expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
     expect(workflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
-    expect(workflow).toContain(
-      "verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}"
-    );
-    expect(build).toContain(
-      "RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}"
-    );
-    expect(build).toContain(
-      "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-    );
-    expect(build).toContain(
-      "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
-    );
-    for (const platformSigningInput of [
-      "APPLE_CERTIFICATE",
-      "APPLE_CERTIFICATE_PASSWORD",
-      "APPLE_ID",
-      "APPLE_PASSWORD",
-      "APPLE_TEAM_ID",
-      "WINDOWS_CERTIFICATE",
-      "WINDOWS_CERTIFICATE_PASSWORD",
-      "WINDOWS_TIMESTAMP_URL"
-    ]) {
-      expect(build).not.toContain(platformSigningInput);
-    }
-    expect(build).toContain("- validate-ci-run");
-    expect(build).toContain("- resolve-release");
+    expect(workflow).not.toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(awaitPreflight).toContain("needs: validate-ci-run");
+    expect(awaitPreflight).toContain("timeout-minutes: 60");
+    expect(awaitPreflight).toContain("actions: write");
+    expect(awaitPreflight).toContain('workflow_file="tauri-release-preflight.yml"');
+    expect(awaitPreflight).toContain("wait_for_preflight push ''");
+    expect(awaitPreflight).toContain("gh workflow run");
+    expect(awaitPreflight).toContain("current_has_release");
+    expect(awaitPreflight).toContain("release_version");
+    expect(semantic).toContain("needs: await-preflight");
+    expect(semantic).toContain("needs.await-preflight.outputs.has_release == 'true'");
+    expect(semantic).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
+    expect(workflow).toContain('test "${VERSION}" = "${EXPECTED_VERSION}"');
+    expect(workflow).toContain('test "$(git rev-list -1 "${tag}")" = "${SOURCE_REF}"');
+    expect(stage).toContain('gh run download "${PREFLIGHT_RUN_ID}"');
+    expect(stage).toContain("Stage verified release assets for release checks");
+    expect(stage).toContain("node scripts/releaseArtifacts.mjs release-assets");
     expect(workflow).toContain("tauri-release-assets-");
     expect(workflow).toContain(
-      "name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}"
+      "name: ${{ needs.await-preflight.outputs.release_artifact_name }}"
     );
     expect(workflow).toContain(
       'run: test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"'
@@ -329,20 +351,40 @@ describe("Tauri-only release workflows", () => {
     );
     expect(verify).not.toContain("--write-checksums");
     expect(verify).not.toContain("verify-upgrade-compatibility");
+    expect(compatibility).toContain("- await-preflight");
     expect(compatibility).toContain("- resolve-release");
-    expect(compatibility).toContain("- build-tauri-release");
+    expect(compatibility).toContain("- stage-preflight-release");
     expect(compatibility).toContain(
-      "release_artifact_name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}"
+      "release_artifact_name: ${{ needs.await-preflight.outputs.release_artifact_name }}"
     );
     expect(publish).toContain("- verify-and-upload-private-release");
     expect(publish).toContain("- verify-upgrade-compatibility");
     expect(workflow).not.toContain("--clobber");
-    expect(buildIndex).toBeGreaterThan(-1);
-    expect(verifyIndex).toBeGreaterThan(buildIndex);
-    expect(compatibilityIndex).toBeGreaterThan(buildIndex);
+    expect(awaitIndex).toBeGreaterThan(-1);
+    expect(semanticIndex).toBeGreaterThan(awaitIndex);
+    expect(resolveIndex).toBeGreaterThan(semanticIndex);
+    expect(stageIndex).toBeGreaterThan(resolveIndex);
+    expect(verifyIndex).toBeGreaterThan(stageIndex);
+    expect(compatibilityIndex).toBeGreaterThan(stageIndex);
     expect(publishIndex).toBeGreaterThan(verifyIndex);
     expect(publishIndex).toBeGreaterThan(compatibilityIndex);
     expect(workflow.toLowerCase()).not.toContain("electron");
+
+    expect(preflightWorkflow).toContain("name: Tauri Release Preflight");
+    expect(preflightWorkflow).toContain("run-name: Tauri Release Preflight");
+    expect(preflightWorkflow).toContain("  push:");
+    expect(preflightWorkflow).toContain("      - main");
+    expect(preflightWorkflow).toContain("workflow_dispatch:");
+    expect(preflightWorkflow).toContain("source_ref:");
+    expect(preflightWorkflow).toContain("pnpm run release:plan > release-plan.json");
+    expect(preflightWorkflow).toContain("has_release=$(jq -r '.has_release' release-plan.json)");
+    expect(preflightWorkflow).toContain("if: needs.plan-release.outputs.has_release == 'true'");
+    expect(preflightWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(preflightWorkflow).toContain("source_ref: ${{ needs.plan-release.outputs.source_ref }}");
+    expect(preflightWorkflow).toContain("version: ${{ needs.plan-release.outputs.release_version }}");
+    expect(preflightWorkflow).toContain("release-preflight-${{ needs.plan-release.outputs.source_ref }}");
+    expect(preflightWorkflow).toContain("build_result");
+    expect(preflightWorkflow).toContain("has_release: $has_release");
   });
 
   it("records the owner-locked platform signing decision for future agents", async () => {

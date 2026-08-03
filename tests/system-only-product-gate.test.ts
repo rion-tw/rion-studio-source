@@ -10,10 +10,11 @@ describe("system-only product gate", () => {
   const execute = promisify(execFile);
 
   it("is a required CI and signed-candidate check", async () => {
-    const [packageJson, ci, release, buildWorkflow, candidate, gate] = await Promise.all([
+    const [packageJson, ci, release, preflight, buildWorkflow, candidate, gate] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile(".github/workflows/ci.yml", "utf8"),
       readFile(".github/workflows/release.yml", "utf8"),
+      readFile(".github/workflows/tauri-release-preflight.yml", "utf8"),
       readFile(".github/workflows/tauri-release-build.yml", "utf8"),
       readFile(".github/workflows/tauri-release-candidate.yml", "utf8"),
       readFile("scripts/verifySystemOnlyProduct.mjs", "utf8")
@@ -27,8 +28,12 @@ describe("system-only product gate", () => {
       '"verify:system-only": "node scripts/verifySystemOnlyProduct.mjs"'
     );
     expect(ci).toContain("pnpm run verify:system-only");
-    expect(release).toContain("verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}");
-    expect(buildWorkflow).toContain("verified_sha:");
+    expect(release).toContain("needs: await-preflight");
+    expect(release).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
+    expect(preflight).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(preflight).toContain("source_ref: ${{ needs.plan-release.outputs.source_ref }}");
+    expect(buildWorkflow).toContain("source_ref:");
+    expect(buildWorkflow).not.toContain("verified_sha:");
     expect(candidate).toContain("verified_sha:");
     expect(candidate).toContain("run_quality: ${{ github.event_name == 'workflow_dispatch' }}");
     expect(build).not.toContain("pnpm run verify:system-only");

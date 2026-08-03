@@ -1,0 +1,143 @@
+name: Tauri Release Preflight
+run-name: Tauri Release Preflight (${{ inputs.source_ref || github.sha }})
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Immutable 40-character main commit SHA to rebuild
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tauri-release-preflight-${{ inputs.source_ref || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-source:
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.source.outputs.source_ref }}
+    steps:
+      - name: Resolve immutable source
+        id: source
+        shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.source_ref || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]
+          echo "source_ref=${SOURCE_REF}" >> "${GITHUB_OUTPUT}"
+
+  plan-release:
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    outputs:
+      has_release: ${{ steps.plan.outputs.has_release }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+      release_version: ${{ steps.plan.outputs.release_version }}
+      source_ref: ${{ needs.resolve-source.outputs.source_ref }}
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve-source.outputs.source_ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Plan semantic release
+        id: plan
+        shell: bash
+        env:
+          SOURCE_REF: ${{ needs.resolve-source.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          pnpm run release:plan > release-plan.json
+          jq -e --arg source_ref "${SOURCE_REF}" '
+            .source_sha == $source_ref and
+            (.has_release | type == "boolean") and
+            (if .has_release
+             then (.release_version | test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$")) and
+                  (.release_tag == ("v" + .release_version))
+             else .release_version == "" and .release_tag == ""
+             end)
+          ' release-plan.json
+          echo "has_release=$(jq -r '.has_release' release-plan.json)" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=$(jq -r '.release_tag' release-plan.json)" >> "${GITHUB_OUTPUT}"
+          echo "release_version=$(jq -r '.release_version' release-plan.json)" >> "${GITHUB_OUTPUT}"
+
+  build-tauri-release:
+    needs: plan-release
+    if: needs.plan-release.outputs.has_release == 'true'
+    uses: ./.github/workflows/tauri-release-build.yml
+    with:
+      source_ref: ${{ needs.plan-release.outputs.source_ref }}
+      version: ${{ needs.plan-release.outputs.release_version }}
+      updater_base_url: https://github.com/rion-tw/rion-studio/releases/latest/download
+    secrets:
+      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+  record-preflight:
+    needs:
+      - plan-release
+      - build-tauri-release
+    if: always() && needs.plan-release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record release preflight metadata
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.build-tauri-release.outputs.release_artifact_name || '' }}
+          BUILD_RESULT: ${{ needs.build-tauri-release.result }}
+          HAS_RELEASE: ${{ needs.plan-release.outputs.has_release }}
+          RELEASE_TAG: ${{ needs.plan-release.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.plan-release.outputs.release_version }}
+          SOURCE_REF: ${{ needs.plan-release.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${HAS_RELEASE}" == true ]]; then
+            test "${BUILD_RESULT}" = success
+            test "${ARTIFACT_NAME}" = "tauri-release-assets-${RELEASE_VERSION}"
+          else
+            test "${HAS_RELEASE}" = false
+            test "${BUILD_RESULT}" = skipped
+            test -z "${ARTIFACT_NAME}"
+            test -z "${RELEASE_TAG}"
+            test -z "${RELEASE_VERSION}"
+          fi
+          jq -n \
+            --arg artifact_name "${ARTIFACT_NAME}" \
+            --arg build_result "${BUILD_RESULT}" \
+            --argjson has_release "${HAS_RELEASE}" \
+            --arg release_tag "${RELEASE_TAG}" \
+            --arg release_version "${RELEASE_VERSION}" \
+            --arg source_sha "${SOURCE_REF}" \
+            '{artifact_name: $artifact_name, build_result: $build_result, has_release: $has_release, release_tag: $release_tag, release_version: $release_version, source_sha: $source_sha}' \
+            > release-preflight.json
+
+      - name: Upload release preflight metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-preflight-${{ needs.plan-release.outputs.source_ref }}
+          if-no-files-found: error
+          retention-days: 14
+          path: release-preflight.json

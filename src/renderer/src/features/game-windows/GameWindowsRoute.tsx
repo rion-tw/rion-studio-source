@@ -20,7 +20,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { useConfirmation } from "../../components/confirmation";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +31,6 @@ import { PageFrame, PageHeader } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useBusyIds } from "../../hooks/useBusyIds";
 import type { Translator } from "../../i18n";
-import { GameWindowTabsPanel } from "./GameWindowTabsPanel";
 
 const windowBusyKey = (windowId: string): string => `window:${windowId}`;
 const newWindowBusyKey = "window:new";
@@ -222,14 +221,6 @@ export default function GameWindowsRoute({
                     </DropdownMenu>
                   </div>
                 </CardHeader>
-                <CardContent>
-                    <GameWindowTabsPanel
-                      gameWindow={gameWindow}
-                      runtime={runtime}
-                      t={t}
-                      onError={onError}
-                    />
-                </CardContent>
               </Card>
             );
           })}

@@ -308,6 +308,7 @@ describe("bulk selection UI", () => {
   });
 
   it("runs each bulk macro action only for applicable selected rows", async () => {
+    const user = userEvent.setup();
     const runnable = { ...macro("macro-run", "Runnable"), roleIds: ["role-1"] };
     const running = { ...macro("macro-stop", "Running"), roleIds: ["role-1"] };
     const disabled = { ...macro("macro-enable", "Disabled"), enabled: false, roleIds: ["role-1"] };

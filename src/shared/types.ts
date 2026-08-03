@@ -295,8 +295,6 @@ export type DisplayTarget = DisplayTargetRecord;
 
 type GameWindowPresentation = GameWindowPlacementRecord["presentation"];
 
-export type GameWindowPlacement = GameWindowPlacementRecord;
-
 export type GameWindowTab = GameWindowTabRecord;
 
 export type GameWindow = StateGameWindowRecord;

@@ -23,8 +23,6 @@ describe("create controls at the end of lists", () => {
     render(
       <GamesRoute
         games={[game()]}
-        roles={[]}
-        statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}

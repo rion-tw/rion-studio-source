@@ -1,12 +1,14 @@
 import {
   Eye,
+  EyeOff,
   Monitor,
   MoreHorizontal,
   PanelsTopLeft,
   Plus,
+  Square,
   Trash2
 } from "lucide-react";
-import { type JSX, useMemo } from "react";
+import { type JSX, useMemo, useRef, useState } from "react";
 
 import type {
   CreateGameWindowInput,
@@ -18,6 +20,7 @@ import type {
 } from "../../../../shared/types";
 import { EmptyState } from "../../components/EmptyState";
 import { useConfirmation } from "../../components/confirmation";
+import { SelectionActionBar, SelectionGroupOutlines, SelectionMarquee } from "../../components/ListSelection";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import {
@@ -29,6 +32,7 @@ import {
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useBusyIds } from "../../hooks/useBusyIds";
+import { useListSelection } from "../../hooks/useListSelection";
 import type { Translator } from "../../i18n";
 
 const windowBusyKey = (windowId: string): string => `window:${windowId}`;
@@ -51,23 +55,56 @@ export default function GameWindowsRoute({
 }: GameWindowsRouteProps): JSX.Element {
   const confirm = useConfirmation();
   const { beginBusyMany, busyIds } = useBusyIds();
+  const pageRef = useRef<HTMLElement | null>(null);
+  const [gameWindowListScrollContainer, setGameWindowListScrollContainer] = useState<HTMLDivElement | null>(null);
   const displayById = useMemo(() => new Map(displays.map((display) => [display.id, display])), [displays]);
+  const gameWindowIds = useMemo(() => gameWindows.map((gameWindow) => gameWindow.id), [gameWindows]);
+  const liveWindowById = useMemo(
+    () => new Map(runtime.windows.map((window) => [window.windowId, window])),
+    [runtime.windows]
+  );
+  const failedWindowIds = useMemo(
+    () => new Set(runtime.savedWindows?.filter((window) => window.state === "failed").map((window) => window.id)),
+    [runtime.savedWindows]
+  );
+  const selection = useListSelection({
+    orderedIds: gameWindowIds,
+    scrollContainerRef: pageRef
+  });
+  const selectedGameWindows = gameWindows.filter((gameWindow) => selection.selectedIds.has(gameWindow.id));
+  const selectedLiveWindows = selectedGameWindows.filter((gameWindow) => liveWindowById.has(gameWindow.id));
+  const selectedStoppableWindows = selectedGameWindows.filter((gameWindow) => gameWindow.tabs.length > 0);
+  const isSelectionBusy = selectedGameWindows.some((gameWindow) => busyIds.has(windowBusyKey(gameWindow.id)));
   const primaryDisplay = displays.find((display) => display.isPrimary) ?? displays[0];
 
-  async function run(ids: Iterable<string>, action: () => Promise<unknown>): Promise<void> {
+  async function run(ids: Iterable<string>, action: () => Promise<unknown>): Promise<boolean> {
     const finishBusy = beginBusyMany(ids);
-    if (!finishBusy) return;
+    if (!finishBusy) return false;
     try {
       await action();
+      return true;
     } catch (error) {
       onError(error);
+      return false;
     } finally {
       finishBusy();
     }
   }
 
-  const runWindow = (windowId: string, action: () => Promise<unknown>): Promise<void> =>
+  const runWindow = (windowId: string, action: () => Promise<unknown>): Promise<boolean> =>
     run([windowBusyKey(windowId)], action);
+
+  const runWindows = (
+    windows: readonly GameWindow[],
+    action: (gameWindow: GameWindow) => Promise<unknown>
+  ): Promise<boolean> => run(
+    windows.map((gameWindow) => windowBusyKey(gameWindow.id)),
+    async () => {
+      for (const gameWindow of windows) {
+        await action(gameWindow);
+      }
+    }
+  );
 
   function create(): void {
     if (!primaryDisplay) return;
@@ -106,8 +143,27 @@ export default function GameWindowsRoute({
     }
   }
 
+  async function removeSelected(): Promise<void> {
+    const accepted = await confirm({
+      title: t("gameWindows.deleteMany.title").replace("{count}", String(selectedGameWindows.length)),
+      description: t("gameWindows.delete.description"),
+      cancelLabel: t("confirm.cancel"),
+      confirmLabel: t("confirm.delete"),
+      tone: "destructive"
+    });
+    if (!accepted) return;
+
+    const completed = await runWindows(
+      selectedGameWindows,
+      (gameWindow) => window.rionStudio.deleteGameWindow(gameWindow.id)
+    );
+    if (completed) {
+      selection.clearSelection();
+    }
+  }
+
   return (
-    <PageFrame>
+    <PageFrame containerRef={pageRef} {...selection.collectionProps}>
       <PageHeader
         kicker={t("gameWindows.kicker")}
         title={t("gameWindows.title")}
@@ -120,6 +176,61 @@ export default function GameWindowsRoute({
         )}
       />
 
+      {selection.hasSelection ? (
+        <SelectionActionBar
+          actions={(
+            <>
+              <Button
+                disabled={isSelectionBusy}
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => void runWindows(
+                  selectedGameWindows,
+                  (gameWindow) => window.rionStudio.showGameWindow(gameWindow.id)
+                )}
+              >
+                <Eye size={14} />
+                {t("gameWindows.bulk.showCount").replace("{count}", String(selectedGameWindows.length))}
+              </Button>
+              <Button
+                disabled={isSelectionBusy || selectedLiveWindows.length === 0}
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => void runWindows(
+                  selectedLiveWindows,
+                  (gameWindow) => window.rionStudio.hideGameWindow(gameWindow.id)
+                )}
+              >
+                <EyeOff size={14} />
+                {t("gameWindows.bulk.hideCount").replace("{count}", String(selectedLiveWindows.length))}
+              </Button>
+              <Button
+                disabled={isSelectionBusy || selectedStoppableWindows.length === 0}
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => void runWindows(
+                  selectedStoppableWindows,
+                  (gameWindow) => window.rionStudio.stopGameWindow(gameWindow.id)
+                )}
+              >
+                <Square size={14} />
+                {t("gameWindows.bulk.stopCount").replace("{count}", String(selectedStoppableWindows.length))}
+              </Button>
+            </>
+          )}
+          isBusy={isSelectionBusy}
+          selectedCount={selection.selectedIds.size}
+          t={t}
+          totalCount={gameWindows.length}
+          onClear={selection.clearSelection}
+          onDelete={() => void removeSelected()}
+          onSelectAll={selection.selectAll}
+        />
+      ) : null}
+
       {gameWindows.length === 0 ? (
         <EmptyState
           icon={PanelsTopLeft}
@@ -130,7 +241,7 @@ export default function GameWindowsRoute({
         />
       ) : (
         <Surface className="game-window-list-surface w-full overflow-hidden" variant="panel">
-          <div className="overflow-x-auto">
+          <div ref={setGameWindowListScrollContainer} className="relative overflow-x-auto">
             <table className="game-window-list-table w-full min-w-[640px] table-fixed border-collapse text-left">
               <caption className="sr-only">{t("gameWindows.title")}</caption>
               <colgroup>
@@ -152,10 +263,10 @@ export default function GameWindowsRoute({
               <tbody className="divide-y divide-border/45 text-body">
                 {gameWindows.map((gameWindow) => {
                   const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
-                  const liveWindow = runtime.windows.find((item) => item.windowId === gameWindow.id);
+                  const liveWindow = liveWindowById.get(gameWindow.id);
                   const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
                   const display = displayById.get(gameWindow.targetDisplay.id);
-                  const failed = runtime.savedWindows?.find((item) => item.id === gameWindow.id)?.state === "failed";
+                  const failed = failedWindowIds.has(gameWindow.id);
                   const stateLabel = failed
                     ? t("gameWindows.state.failed")
                     : runtime.recovery
@@ -166,7 +277,13 @@ export default function GameWindowsRoute({
                           ? t("gameWindows.state.open")
                           : t("gameWindows.state.hidden");
                   return (
-                    <tr key={gameWindow.id} className="group align-middle">
+                    <tr
+                      key={gameWindow.id}
+                      ref={selection.registerItem(gameWindow.id)}
+                      className="group align-middle"
+                      data-selection-id={gameWindow.id}
+                      onClickCapture={(event) => selection.handleItemClick(event, gameWindow.id)}
+                    >
                       <td className="px-3 py-2.5">
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-foreground">{gameWindow.name}</p>
@@ -254,6 +371,12 @@ export default function GameWindowsRoute({
           </div>
         </Surface>
       )}
+      <SelectionGroupOutlines
+        container={gameWindowListScrollContainer}
+        orderedIds={gameWindowIds}
+        selectedIds={selection.selectedIds}
+      />
+      <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
     </PageFrame>
   );
 }

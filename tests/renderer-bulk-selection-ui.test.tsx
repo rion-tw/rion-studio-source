@@ -49,8 +49,6 @@ describe("bulk selection UI", () => {
     render(
       <GamesRoute
         games={items}
-        roles={[]}
-        statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
         onDeleteMany={onDeleteMany}
@@ -82,8 +80,6 @@ describe("bulk selection UI", () => {
     render(
       <GamesRoute
         games={[game("game-1", "One")]}
-        roles={[]}
-        statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}

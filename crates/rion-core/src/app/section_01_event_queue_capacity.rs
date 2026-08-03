@@ -371,6 +371,7 @@ pub struct AppCore {
         RwLock<std::collections::HashMap<String, crate::model::SystemWebViewIssueReason>>,
     embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
+    pending_game_window_configurations: Mutex<std::collections::HashSet<String>>,
     embedded_selection_revisions: Mutex<std::collections::HashMap<String, u64>>,
     instance_lock: Mutex<Option<File>>,
     macro_runtime: Arc<MacroRuntime>,
@@ -504,6 +505,7 @@ impl AppCore {
             system_webview_issues: RwLock::new(std::collections::HashMap::new()),
             embedded_closing_tabs: Mutex::new(std::collections::HashSet::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
+            pending_game_window_configurations: Mutex::new(std::collections::HashSet::new()),
             instance_lock: Mutex::new(Some(instance_lock)),
             log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new(
                 user_data_dir.clone(),

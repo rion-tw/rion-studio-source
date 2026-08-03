@@ -5,6 +5,7 @@ import type {
   EmbeddedRuntimeState,
   Game,
   GameWindow,
+  GameWindowTab,
   LaunchWorkspace,
   Role
 } from "../../../../shared/types";
@@ -15,11 +16,14 @@ import { SegmentedControl, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 
 type PickerKind = "role" | "workspace";
+type PickerMode = "runtime" | "saved";
 
 interface GameWindowContentPickerProps {
   gameWindows: GameWindow[];
   games: Game[];
+  mode?: PickerMode;
   onClose: () => void;
+  onAddSavedTab?: (tab: GameWindowTab) => void;
   onError: (error: unknown) => void;
   open: boolean;
   roles: Role[];
@@ -32,7 +36,9 @@ interface GameWindowContentPickerProps {
 export function GameWindowContentPicker({
   gameWindows,
   games,
+  mode = "runtime",
   onClose,
+  onAddSavedTab,
   onError,
   open,
   roles,
@@ -53,6 +59,7 @@ export function GameWindowContentPicker({
     [gameWindows]
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const savedMode = mode === "saved";
   const visibleRoles = roles.filter((role) => matchesQuery([
     role.name,
     gameById.get(role.gameId)?.name ?? ""
@@ -89,6 +96,10 @@ export function GameWindowContentPicker({
   }
 
   async function addRole(role: Role): Promise<boolean> {
+    if (savedMode) {
+      onAddSavedTab?.(savedRoleTab(role));
+      return true;
+    }
     const ownTab = runtime.tabs.find((tab) => tab.type === "role" && tab.sourceId === role.id);
     if (ownTab) {
       if (ownTab.windowId === targetWindow.id) {
@@ -103,6 +114,10 @@ export function GameWindowContentPicker({
   }
 
   async function addWorkspace(workspace: LaunchWorkspace): Promise<boolean> {
+    if (savedMode) {
+      onAddSavedTab?.(savedWorkspaceTab(workspace));
+      return true;
+    }
     const liveTab = runtime.tabs.find((tab) => tab.type === "workspace" && tab.sourceId === workspace.id);
     if (liveTab) {
       if (liveTab.windowId === targetWindow.id) {
@@ -152,7 +167,7 @@ export function GameWindowContentPicker({
               {t("gameWindows.add.title").replace("{name}", targetWindow.name)}
             </h2>
             <p id="game-window-content-picker-description" className="text-control text-muted-foreground">
-              {t("gameWindows.add.description")}
+              {savedMode ? t("gameWindows.add.savedDescription") : t("gameWindows.add.description")}
             </p>
           </div>
           <Button aria-label={t("common.close")} disabled={Boolean(busyId)} size="icon" type="button" variant="ghost" onClick={onClose}>
@@ -190,11 +205,12 @@ export function GameWindowContentPicker({
               {visibleRoles.length === 0 ? <PickerEmpty t={t} /> : visibleRoles.map((role) => {
                 const ownTab = runtime.tabs.find((tab) => tab.type === "role" && tab.sourceId === role.id);
                 const workspaceTab = runtime.tabs.find((tab) => tab.type === "workspace" && tab.roleIds.includes(role.id));
-                const disabled = Boolean(workspaceTab);
+                const savedConflict = targetWindow.tabs.some((tab) => tab.roleIds.includes(role.id));
+                const disabled = savedMode ? savedConflict : Boolean(workspaceTab);
                 return (
                   <PickerRow
                     key={role.id}
-                    actionLabel={pickerActionLabel(ownTab?.windowId, targetWindow.id, t)}
+                    actionLabel={savedMode ? t("gameWindows.add.saveAction") : pickerActionLabel(ownTab?.windowId, targetWindow.id, t)}
                     busy={busyId === role.id}
                     description={workspaceTab
                       ? t("gameWindows.add.roleInWorkspace").replace("{name}", workspaceTab.name)
@@ -213,13 +229,18 @@ export function GameWindowContentPicker({
               {visibleWorkspaces.length === 0 ? <PickerEmpty t={t} /> : visibleWorkspaces.map((workspace) => {
                 const liveTab = runtime.tabs.find((tab) => tab.type === "workspace" && tab.sourceId === workspace.id);
                 const roleCount = workspace.slots.filter((slot) => slot.roleId).length;
+                const workspaceRoleIds = workspace.slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
+                const savedConflict = targetWindow.tabs.some((tab) =>
+                  tab.sourceId === workspace.id
+                  || tab.roleIds.some((roleId) => workspaceRoleIds.includes(roleId))
+                );
                 return (
                   <PickerRow
                     key={workspace.id}
-                    actionLabel={pickerActionLabel(liveTab?.windowId, targetWindow.id, t)}
+                    actionLabel={savedMode ? t("gameWindows.add.saveAction") : pickerActionLabel(liveTab?.windowId, targetWindow.id, t)}
                     busy={busyId === workspace.id}
                     description={pickerLocation(liveTab?.windowId, targetWindow.id, windowById, t)}
-                    disabled={roleCount === 0 || Boolean(busyId)}
+                    disabled={roleCount === 0 || Boolean(busyId) || (savedMode && savedConflict)}
                     icon={<LayoutDashboard size={16} />}
                     metadata={t("gameWindows.add.roleCount").replace("{count}", String(roleCount))}
                     name={workspace.name}
@@ -233,6 +254,32 @@ export function GameWindowContentPicker({
       </Surface>
     </dialog>
   );
+}
+
+function savedRoleTab(role: Role): GameWindowTab {
+  return {
+    id: crypto.randomUUID(),
+    tabType: "role",
+    sourceId: role.id,
+    name: role.name,
+    roleIds: [role.id],
+    hidden: false,
+    audioMuted: false,
+    roleViews: []
+  };
+}
+
+function savedWorkspaceTab(workspace: LaunchWorkspace): GameWindowTab {
+  return {
+    id: crypto.randomUUID(),
+    tabType: "workspace",
+    sourceId: workspace.id,
+    name: workspace.name,
+    roleIds: workspace.slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []),
+    hidden: false,
+    audioMuted: false,
+    roleViews: []
+  };
 }
 
 function PickerRow({

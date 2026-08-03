@@ -135,6 +135,10 @@ pub enum CoreCommand {
         id: String,
         input: GameWindowUpdateInputRecord,
     },
+    GameWindowSaveConfiguration {
+        id: String,
+        input: GameWindowUpdateInputRecord,
+    },
     GameWindowsDisplayRemap {
         updates: Vec<GameWindowDisplayRemapRecord>,
     },

@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen }));
 import { installTauriBridgeIfNeeded } from "../src/renderer/src/tauri/installTauriBridge";
 
 describe("Tauri Game Window bridge compensation", () => {
-  it("delegates creation and native rollback to one transactional shell operation", async () => {
+  it("delegates creation to one persistence-only shell operation", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {}

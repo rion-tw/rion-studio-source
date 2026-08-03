@@ -9,6 +9,7 @@ import type {
   Game,
   GameWindow,
   GameWindowPlacement,
+  GameWindowTab,
   LaunchWorkspace,
   PixelBounds,
   Role
@@ -19,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import { GameWindowContentPicker } from "./GameWindowContentPicker";
-import { GameWindowTabsPanel } from "./GameWindowTabsPanel";
+import { GameWindowSavedTabsEditor } from "./GameWindowSavedTabsEditor";
 
 interface GameWindowEditorRouteProps {
   displays: DisplayInfo[];
@@ -36,6 +37,8 @@ interface GameWindowEditorRouteProps {
     name: string;
     targetDisplay: DisplayTarget;
     placement: GameWindowPlacement;
+    tabs: GameWindowTab[];
+    activeTabId?: string;
   }) => Promise<GameWindow | undefined>;
 }
 
@@ -59,7 +62,9 @@ export default function GameWindowEditorRoute(props: GameWindowEditorRouteProps)
         id: selected.id,
         name: selected.name,
         targetDisplay: selected.targetDisplay,
-        placement: selected.placement
+        placement: selected.placement,
+        tabs: selected.tabs,
+        activeTabId: selected.activeTabId
       }
     : primary
       ? createNewForm(props.gameWindows, primary, props.t)
@@ -96,6 +101,8 @@ function GameWindowEditor({
     name: string;
     targetDisplay: DisplayTarget;
     placement: GameWindowPlacement;
+    tabs: GameWindowTab[];
+    activeTabId?: string;
   };
   selected?: GameWindow;
 }): JSX.Element {
@@ -112,6 +119,7 @@ function GameWindowEditor({
     tone: "destructive" as const
   }), [t]), isSaving);
   const targetAvailable = displays.some((display) => display.id === form.targetDisplay.id);
+  const live = selected && runtime.windows.some((window) => window.windowId === selected.id);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -184,14 +192,22 @@ function GameWindowEditor({
       </Surface>
       {selected ? (
         <Surface className="p-4">
-          <GameWindowTabsPanel
-            gameWindow={selected}
-            gameWindows={gameWindows}
-            runtime={runtime}
-            showHeader
+          {live ? (
+            <p className="mb-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-caption text-muted-foreground">
+              {t("gameWindows.tabs.liveConfigNotice")}
+            </p>
+          ) : null}
+          <GameWindowSavedTabsEditor
+            tabs={form.tabs}
             t={t}
             onAdd={() => setAddOpen(true)}
-            onError={onError}
+            onChange={(tabs) => setForm((current) => ({
+              ...current,
+              tabs,
+              activeTabId: current.activeTabId && tabs.some((tab) => tab.id === current.activeTabId)
+                ? current.activeTabId
+                : tabs.find((tab) => !tab.hidden)?.id
+            }))}
           />
         </Surface>
       ) : (
@@ -207,11 +223,17 @@ function GameWindowEditor({
           gameWindows={gameWindows}
           games={games}
           open
+          mode="saved"
           roles={roles}
           runtime={runtime}
           t={t}
-          targetWindow={selected}
+          targetWindow={{ ...selected, tabs: form.tabs, activeTabId: form.activeTabId }}
           workspaces={workspaces}
+          onAddSavedTab={(tab) => setForm((current) => ({
+            ...current,
+            tabs: [...current.tabs, tab],
+            activeTabId: current.activeTabId ?? tab.id
+          }))}
           onClose={() => setAddOpen(false)}
           onError={onError}
         />
@@ -245,7 +267,8 @@ function createNewForm(gameWindows: GameWindow[], display: DisplayInfo, t: Trans
       normalBounds: clampBounds(centered, display.workArea),
       savedWorkArea: display.workArea,
       presentation: "normal" as const
-    }
+    },
+    tabs: []
   };
 }
 

@@ -212,15 +212,16 @@ impl AppCore {
             CoreCommand::GameWindowUpdate { id, input } => {
                 self.mutate_state(StateMutation::GameWindowUpdate { id, input })
             }
+            CoreCommand::GameWindowSaveConfiguration { id, input } => {
+                self.save_game_window_configuration(id, input)
+            }
             CoreCommand::GameWindowsDisplayRemap { updates } => {
                 self.mutate_state(StateMutation::GameWindowsDisplayRemap { updates })
             }
             CoreCommand::GameWindowReorder { ordered_ids } => {
                 self.mutate_state(StateMutation::GameWindowReorder { ordered_ids })
             }
-            CoreCommand::GameWindowDelete { id } => {
-                self.mutate_state(StateMutation::GameWindowDelete { id })
-            }
+            CoreCommand::GameWindowDelete { id } => self.delete_game_window(id),
             CoreCommand::GameWindowDeleteIfUnchanged { id, updated_at } => {
                 self.mutate_state(StateMutation::GameWindowDeleteIfUnchanged { id, updated_at })
             }

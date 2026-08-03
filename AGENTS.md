@@ -36,6 +36,11 @@ substantial work, then follow the scoped `AGENTS.md` nearest the files you edit.
   mocks when the other native target is unavailable locally.
 - Keep both `macos-latest` and `windows-latest` CI validation. Handoffs must state
   which Windows checks ran and which still require CI.
+- A green Linux portable check is not evidence that Tauri code is reachable on
+  Windows. After changing any `#[cfg(windows)]`, `#[cfg(target_os = "macos")]`,
+  shared runtime contract, or native import, run `pnpm run lint:rust` and
+  `pnpm run test:rust` on a supported native host before handoff; if Windows is
+  unavailable, leave the Windows CI gate pending and report it explicitly.
 - Do not hide target reachability problems with `allow(dead_code)`.
 
 ## Release Distribution (Owner-Locked)

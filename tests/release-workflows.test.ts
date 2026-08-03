@@ -35,12 +35,22 @@ describe("Tauri-only release workflows", () => {
     expect(checks).toContain("pnpm run lint:rust:portable");
     expect(checks).toContain("pnpm run test:rust:portable");
     expect(checks).toContain("pnpm run build:renderer");
+    expect(checks).toContain(
+      "name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}"
+    );
+    expect(checks).toContain("path: out/renderer");
     expect(checks).not.toContain("Install Linux Tauri build dependencies");
     expect(checks).not.toContain("run: pnpm run lint:rust\n");
     expect(checks).not.toContain("run: pnpm run test:rust\n");
     expect(checks).not.toContain("run: pnpm run build\n");
     expect(platformChecks).toContain("pnpm run lint:rust");
     expect(platformChecks).toContain("pnpm run test:rust");
+    expect(platformChecks).toContain("actions/download-artifact@");
+    expect(platformChecks).toContain(
+      "name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}"
+    );
+    expect(platformChecks).not.toContain("pnpm run build:renderer");
+    expect(platformChecks).not.toContain("pnpm install --frozen-lockfile");
     expect(platformChecks).toContain("id: target_rust_tests");
     expect(platformChecks).toContain("./scripts/diagnoseWindowsTestLoader.ps1");
     expect(platformChecks).toContain("steps.target_rust_tests.outcome == 'failure'");
@@ -65,8 +75,12 @@ describe("Tauri-only release workflows", () => {
     expect(windowsTestResource).toContain(
       'CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "windows-app-manifest.xml"'
     );
-    expect(platformChecks.indexOf("pnpm run build:renderer"))
-      .toBeLessThan(platformChecks.indexOf("pnpm run lint:rust"));
+    expect(checks.indexOf("pnpm run build:renderer")).toBeLessThan(
+      checks.indexOf("Upload renderer assets for platform checks")
+    );
+    expect(platformChecks.indexOf("Download renderer assets for platform checks")).toBeLessThan(
+      platformChecks.indexOf("pnpm run lint:rust")
+    );
     expect(packageJson.scripts["lint:rust:portable"]).toBe(
       "cargo fmt --all -- --check && cargo clippy -p rion-core -p rion-platform --all-targets --no-deps -- -D warnings"
     );

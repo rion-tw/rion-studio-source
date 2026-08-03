@@ -79,6 +79,14 @@ jobs:
       - name: Build renderer application
         run: pnpm run build:renderer
 
+      - name: Upload renderer assets for platform checks
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          path: out/renderer
+
   rust-concurrency-sanitizer:
     name: Linux Rust sanitizer and concurrency soak
     needs: checks
@@ -133,7 +141,6 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
@@ -144,14 +151,14 @@ jobs:
           cache-bin: "false"
           shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Download renderer assets for platform checks
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/renderer
 
       - name: Verify Tauri-only product boundary
         run: pnpm run verify:system-only
-
-      - name: Build renderer assets for Rust checks
-        run: pnpm run build:renderer
 
       - name: Check target-platform Rust formatting and lints
         run: pnpm run lint:rust

@@ -1,4 +1,8 @@
 @layer utilities {
+  .selection-group-outline {
+    border-radius: calc(var(--radius-md) + 1px);
+  }
+
   .list-toolbar {
     display: flex;
     min-width: 0;

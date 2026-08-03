@@ -124,6 +124,16 @@ fn renderer_instance_and_projection_readback_are_exactly_fenced() {
             Some(NativeOperationStatus::Applied),
             "{platform}"
         );
+        assert_eq!(
+            coordinator.wait_for_projection_status(
+                "window-1",
+                &projection.tab_order,
+                projection.active_tab_id.as_deref(),
+                Duration::from_millis(1),
+            ),
+            Some(NativeOperationStatus::Applied),
+            "{platform}"
+        );
     }
 }
 

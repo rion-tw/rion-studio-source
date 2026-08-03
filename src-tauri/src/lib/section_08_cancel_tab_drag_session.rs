@@ -349,6 +349,8 @@ async fn commit_tab_drag_session(
         .tab_drag_window_snapshot(&final_window_id)
         .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     let before_tab_id = tab_drag_before_tab_id(&final_snapshot.tab_ids, &session.tab_id);
+    let mut mutation: Option<(RuntimeTabMutationRequestRecord, Option<EmbeddedLaunchTargetRecord>)> =
+        None;
     if final_window_id == session.source_window_id {
         let original_order = session
             .snapshots
@@ -356,36 +358,46 @@ async fn commit_tab_drag_session(
             .map(|snapshot| snapshot.tab_ids.as_slice())
             .unwrap_or_default();
         if tab_drag_order_changed(original_order, &final_snapshot.tab_ids) {
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedTabReorder {
-                    tab_id: session.tab_id.clone(),
-                    before_tab_id,
-                })
-                .await
-                .map_err(error_payload)?;
+            mutation = Some((
+                tab_drag_mutation_request(
+                    session,
+                    "reorder",
+                    &final_snapshot,
+                    None,
+                    before_tab_id.as_deref(),
+                ),
+                None,
+            ));
         }
     } else if final_window_id == session.provisional_window_id && !session.single_tab {
-        Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedTabMoveOrdered {
-                tab_id: session.tab_id.clone(),
-                target: session.target.clone(),
-                before_tab_id: None,
-            })
-            .await
-            .map_err(error_payload)?;
+        mutation = Some((
+            tab_drag_mutation_request(
+                session,
+                "moveToNewWindow",
+                &final_snapshot,
+                Some(&final_window_id),
+                None,
+            ),
+            Some(session.target.clone()),
+        ));
     } else {
         let target = state
             .runtime
             .launch_target_for_window_id(&final_window_id)
             .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
-        Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedTabMoveOrdered {
-                tab_id: session.tab_id.clone(),
-                target,
-                before_tab_id,
-            })
-            .await
-            .map_err(error_payload)?;
+        mutation = Some((
+            tab_drag_mutation_request(
+                session,
+                "move",
+                &final_snapshot,
+                Some(&final_window_id),
+                before_tab_id.as_deref(),
+            ),
+            Some(target),
+        ));
+    }
+    if let Some((request, target)) = mutation {
+        exact_cleanup &= execute_tab_mutation_commit(state, request, target, before_tab_id).await?;
     }
     if session.single_tab
         && let Err(message) = state.runtime.finish_tab_drag_window_motion(
@@ -412,6 +424,36 @@ async fn commit_tab_drag_session(
         eprintln!("Runtime tab drag committed but focus restoration failed: {message}");
     }
     Ok(exact_cleanup)
+}
+
+fn tab_drag_mutation_request(
+    session: &GameWindowTabDragSession,
+    mutation_kind: &str,
+    final_snapshot: &RuntimeTabDragWindowSnapshot,
+    target_window_id: Option<&str>,
+    before_tab_id: Option<&str>,
+) -> RuntimeTabMutationRequestRecord {
+    RuntimeTabMutationRequestRecord {
+        operation_id: session.operation_id.clone(),
+        mutation_kind: mutation_kind.to_owned(),
+        tab_id: session.tab_id.clone(),
+        source_window_id: session.source_window_id.clone(),
+        source_window_generation: session.source_window_generation,
+        target_window_id: target_window_id.map(str::to_owned),
+        target_window_generation: target_window_id.map(|_| final_snapshot.generation),
+        lifecycle_epoch: session.lifecycle_epoch,
+        topology_revision: session.topology_revision,
+        presentation_revision: session.latest_move_revision,
+        reorder_target_index: before_tab_id.and_then(|before| {
+            final_snapshot
+                .tab_ids
+                .iter()
+                .position(|tab_id| tab_id == before)
+                .map(|index| index as u64)
+        }),
+        expected_tab_order: final_snapshot.tab_ids.clone(),
+        expected_active_tab_id: final_snapshot.active_tab_id.clone(),
+    }
 }
 
 fn tab_drag_before_tab_id(tab_ids: &[String], tab_id: &str) -> Option<String> {
@@ -491,7 +533,7 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     state: &CoreState,
     tab_id: &str,
     screen_point: Option<(f64, f64)>,
-) -> Result<Value, CoreErrorPayload> {
+) -> Result<RuntimeTabMoveResultRecord, CoreErrorPayload> {
     let runtime = state
         .core
         .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -539,15 +581,18 @@ pub(crate) async fn move_game_window_tab_to_new_window(
         bounds: bounds.clone(),
         presentation: "normal".to_owned(),
     };
-    Arc::clone(&state.core)
-        .invoke_async(CoreCommand::EmbeddedTabMoveOrdered {
-            tab_id: tab_id.to_owned(),
-            target,
-            before_tab_id: None,
-        })
-        .await
-        .map_err(error_payload)?;
-    Ok(json!({ "windowId": window_id }))
+    let receipt = execute_tab_mutation(
+        state,
+        "moveToNewWindow",
+        tab_id,
+        Some(target),
+        None,
+    )
+    .await?;
+    Ok(RuntimeTabMoveResultRecord {
+        target_window_id: window_id,
+        receipt,
+    })
 }
 
 fn next_game_window_name(windows: &[StateGameWindowRecord], language: &str) -> String {

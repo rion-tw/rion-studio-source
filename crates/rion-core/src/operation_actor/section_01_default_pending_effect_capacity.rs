@@ -141,17 +141,26 @@ impl OperationActor {
     }
 
     pub fn start(&self, plan: OperationPlan) -> CoreResult<OperationHandle> {
-        self.start_with_kind(plan, OperationKind::General)
+        self.start_with_kind(plan, OperationKind::General, None)
+    }
+
+    pub fn start_with_parent(
+        &self,
+        plan: OperationPlan,
+        parent_operation_id: String,
+    ) -> CoreResult<OperationHandle> {
+        self.start_with_kind(plan, OperationKind::General, Some(parent_operation_id))
     }
 
     pub fn start_launch(&self, plan: OperationPlan) -> CoreResult<OperationHandle> {
-        self.start_with_kind(plan, OperationKind::Launch)
+        self.start_with_kind(plan, OperationKind::Launch, None)
     }
 
     fn start_with_kind(
         &self,
         plan: OperationPlan,
         kind: OperationKind,
+        parent_operation_id: Option<String>,
     ) -> CoreResult<OperationHandle> {
         let operation_id = Uuid::new_v4().to_string();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -187,6 +196,7 @@ impl OperationActor {
                 let outcome = run_operation(
                     Arc::clone(&actor),
                     thread_operation_id.clone(),
+                    parent_operation_id,
                     cancelled,
                     plan,
                 );
@@ -377,6 +387,7 @@ impl OperationActor {
 fn run_operation(
     actor: Arc<ActorInner>,
     operation_id: String,
+    parent_operation_id: Option<String>,
     cancelled: Arc<AtomicBool>,
     plan: OperationPlan,
 ) -> OperationOutcome {
@@ -408,7 +419,13 @@ fn run_operation(
             break;
         }
         let compensate_on_rejected_result = step.effect.compensate_on_rejected_result;
-        match execute_effect(&runtime, Arc::clone(&actor), &operation_id, step.effect) {
+        match execute_effect(
+            &runtime,
+            Arc::clone(&actor),
+            &operation_id,
+            parent_operation_id.as_deref(),
+            step.effect,
+        ) {
             Ok(result) if result.ok => {
                 results.push(result);
                 if let Some(compensation) = step.compensation {
@@ -447,7 +464,13 @@ fn run_operation(
     if failure.is_some() {
         for compensation in compensations.into_iter().rev() {
             let recorded_effect = compensation.clone();
-            match execute_effect(&runtime, Arc::clone(&actor), &operation_id, compensation) {
+            match execute_effect(
+                &runtime,
+                Arc::clone(&actor),
+                &operation_id,
+                parent_operation_id.as_deref(),
+                compensation,
+            ) {
                 Ok(result) => {
                     if !result.ok {
                         compensation_failures.push(OperationCompensationFailure {
@@ -483,6 +506,7 @@ fn execute_effect(
     runtime: &tokio::runtime::Runtime,
     actor: Arc<ActorInner>,
     operation_id: &str,
+    parent_operation_id: Option<&str>,
     effect: OperationEffect,
 ) -> CoreResult<CoreEffectResult> {
     let timeout = effect.timeout.max(Duration::from_millis(1));
@@ -531,6 +555,7 @@ fn execute_effect(
     (actor.emit)(vec![CoreEffectRequest {
         effect_id: effect_id.clone(),
         operation_id: operation_id.to_owned(),
+        parent_operation_id: parent_operation_id.map(str::to_owned),
         target: effect.target,
         deadline_ms,
         action: effect.action,

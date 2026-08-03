@@ -8,6 +8,7 @@ include!("system_runtime/section_02_native_operation_contract.rs");
 include!("system_runtime/section_02_geometry_shutdown_contract.rs");
 include!("system_runtime/section_03_native_operation_registry.rs");
 include!("system_runtime/section_03_tab_activation_coordinator.rs");
+include!("system_runtime/section_03_tab_mutation_coordinator.rs");
 include!("system_runtime/section_03_native_presentation_queue.rs");
 include!("system_runtime/section_03_start.rs");
 include!("system_runtime/section_04_native_creation_gate.rs");

@@ -137,16 +137,6 @@ fn capture_launcher_action_event(
     });
 }
 
-fn spawn_command(app: &AppHandle, core: &std::sync::Arc<rion_core::AppCore>, command: CoreCommand) {
-    let app = app.clone();
-    let core = std::sync::Arc::clone(core);
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = core.invoke_async(command).await {
-            crate::reveal_shell_error(&app, error.payload());
-        }
-    });
-}
-
 fn reveal_menu_error(app: &AppHandle, message: impl Into<String>) {
     crate::reveal_shell_error(
         app,

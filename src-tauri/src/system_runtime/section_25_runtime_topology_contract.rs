@@ -1,3 +1,8 @@
+struct RuntimeEffectCorrelation {
+    parent_operation_id: Option<String>,
+    presentation_revision: u64,
+}
+
 impl SystemRuntimeExecutor {
     fn apply_runtime(
         &self,
@@ -6,7 +11,7 @@ impl SystemRuntimeExecutor {
         reveal_window_ids: &[String],
         focus_window_ids: &[String],
         focus_tab_id: Option<&str>,
-        presentation_revision: u64,
+        correlation: RuntimeEffectCorrelation,
     ) -> RuntimeResult<()> {
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Presentation,
@@ -14,7 +19,10 @@ impl SystemRuntimeExecutor {
             NAVIGATION_TIMEOUT,
         )
         .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
-        .with_revision(presentation_revision);
+        .with_revision(correlation.presentation_revision);
+        if let Some(parent_operation_id) = correlation.parent_operation_id {
+            operation = operation.with_parent_operation_id(parent_operation_id);
+        }
         if let Some(target) = target.as_ref() {
             operation = operation.with_window(&target.window_id);
         }
@@ -27,7 +35,7 @@ impl SystemRuntimeExecutor {
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
-            presentation_revision,
+            correlation.presentation_revision,
         );
         self.record_native_operation_receipt(receipt_for_runtime_result(
             operation,

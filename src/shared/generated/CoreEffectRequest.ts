@@ -2,4 +2,4 @@
 import type { CoreEffectAction } from "./CoreEffectAction";
 import type { CoreEffectTarget } from "./CoreEffectTarget";
 
-export type CoreEffectRequest = { effectId: string, operationId: string, target: CoreEffectTarget, deadlineMs: number, action: CoreEffectAction, };
+export type CoreEffectRequest = { effectId: string, operationId: string, parentOperationId?: string, target: CoreEffectTarget, deadlineMs: number, action: CoreEffectAction, };

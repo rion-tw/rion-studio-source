@@ -123,6 +123,7 @@ fn effect_request(request: BrowserActionRequest) -> CoreEffectRequest {
     CoreEffectRequest {
         effect_id: request.request_id.clone(),
         operation_id: effect_operation_id(&request.request_id),
+        parent_operation_id: None,
         target: CoreEffectTarget {
             kind: CoreEffectTargetKind::WebContents,
             handle_id: request.role_id.clone(),

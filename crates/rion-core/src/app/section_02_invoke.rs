@@ -764,21 +764,18 @@ impl AppCore {
                 None,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedTabMutation {
+                request,
+                target,
+                before_tab_id,
+            } => self.serialized_embedded_tab_mutation(request, target, before_tab_id),
             CoreCommand::BrowserStatuses => serde_json::to_value(self.browser_statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserWorkspaceStatuses => {
                 serde_json::to_value(self.browser_workspace_statuses()?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::BrowserRuntimeSnapshot => {
-                let snapshot = self
-                    .browser_runtime
-                    .lock()
-                    .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-                    .snapshot();
-                serde_json::to_value(snapshot)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }
+            CoreCommand::BrowserRuntimeSnapshot => self.serialized_browser_runtime_snapshot(),
             CoreCommand::BrowserRuntimeSuspend { suspended } => {
                 Ok(json!({ "suspended": suspended }))
             }

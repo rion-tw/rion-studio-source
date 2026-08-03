@@ -268,6 +268,31 @@ void rion_runtime_tabs_reorder(void * _Nullable rawController,
   }
 }
 
+bool rion_runtime_tabs_matches_projection(
+    void * _Nullable rawController, const char *tabIdentifiersJSON,
+    const char * _Nullable activeTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifiersJSON) return false;
+    NSString *json = RionStringFromUTF8(tabIdentifiersJSON);
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                       options:0
+                                                         error:nil]
+                    : nil;
+    if (![value isKindOfClass:[NSArray class]]) return false;
+    NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
+    for (id identifier in (NSArray *)value) {
+      if (![identifier isKindOfClass:[NSString class]]) return false;
+      [identifiers addObject:identifier];
+    }
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    return [controller
+        matchesTabIdentifiers:identifiers
+          activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
+  }
+}
+
 void rion_runtime_tabs_update_metadata(
     void * _Nullable rawController, const RionRuntimeTabInput *input,
     bool alwaysHideTabCloseButton, const char *audioMutedLabel,

@@ -501,6 +501,20 @@ NS_ASSUME_NONNULL_BEGIN
   } completionHandler:nil];
 }
 
+- (BOOL)matchesTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers
+          activeTabIdentifier:(nullable NSString *)activeTabIdentifier {
+  if (_destroyed || tabIdentifiers.count != _tabItems.count) return NO;
+  for (NSUInteger index = 0; index < tabIdentifiers.count; ++index) {
+    if (![tabIdentifiers[index]
+            isEqualToString:_tabItems[index].tabIdentifier]) {
+      return NO;
+    }
+  }
+  NSString *observedActive = _activeTabItem.tabIdentifier;
+  return (observedActive.length == 0 && activeTabIdentifier.length == 0) ||
+      [observedActive isEqualToString:activeTabIdentifier];
+}
+
 - (void)closeTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
     NSUInteger index = [_tabItems indexOfObjectPassingTest:

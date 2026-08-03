@@ -17,7 +17,7 @@ use rion_core::{
     GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
     StateCollection, StateGameWindowRecord,
     StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationSummaryRecord,
-    RuntimeTabDragSessionRecord,
+    RuntimeTabDragSessionRecord, RuntimeTabMoveResultRecord, RuntimeTabMutationRequestRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -28,7 +28,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use activation::ActivationServer;
 use system_runtime::{
     RuntimeTabDragTerminalStatus, RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor,
-    TabActivationComponentStatus,
+    RuntimeTabMutationTerminalStatus, TabActivationComponentStatus,
 };
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";

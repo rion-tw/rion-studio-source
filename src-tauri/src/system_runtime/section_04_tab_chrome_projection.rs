@@ -305,6 +305,39 @@ impl TabChromeProjectionCoordinator {
             })
         })
     }
+
+    fn wait_for_projection_status(
+        &self,
+        window_id: &str,
+        expected_tab_order: &[String],
+        expected_active_tab_id: Option<&str>,
+        timeout: Duration,
+    ) -> Option<NativeOperationStatus> {
+        let deadline = Instant::now() + timeout;
+        let Ok(mut state) = self.state.lock() else {
+            return None;
+        };
+        loop {
+            if let Some(delivery) = state.deliveries.get(window_id)
+                && delivery.tab_order == expected_tab_order
+                && delivery.active_tab_id.as_deref() == expected_active_tab_id
+                && let Some(status) = delivery.terminal_status
+            {
+                return Some(status);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let Ok((next, wait)) = self.changed.wait_timeout(state, remaining) else {
+                return None;
+            };
+            state = next;
+            if wait.timed_out() {
+                return None;
+            }
+        }
+    }
 }
 
 #[cfg(windows)]

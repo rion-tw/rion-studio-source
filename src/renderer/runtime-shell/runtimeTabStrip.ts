@@ -266,6 +266,9 @@ export const dispatch = (action: RuntimeTabAction): void => {
     .then(async (receipt) => {
       const handlesReceipt = action.type === "activate"
         || action.type === "activateAdjacent"
+        || action.type === "hide"
+        || action.type === "move"
+        || action.type === "reorder"
         || (action.type === "windowControl" && action.control !== "close");
       if (!handlesReceipt || !receipt) return;
       try {

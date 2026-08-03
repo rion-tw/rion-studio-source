@@ -473,6 +473,15 @@ pub enum CoreCommand {
         #[ts(optional, rename = "beforeTabId")]
         before_tab_id: Option<String>,
     },
+    EmbeddedTabMutation {
+        request: RuntimeTabMutationRequestRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        target: Option<EmbeddedLaunchTargetRecord>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "beforeTabId")]
+        before_tab_id: Option<String>,
+    },
     BrowserRoleLaunch {
         #[ts(rename = "roleId")]
         role_id: String,

@@ -374,7 +374,7 @@ it("patches drag metadata in place and defers native reorder projections until d
     expect(document.querySelector('[data-tab-id="tab-2"]')).toBe(original);
     expect(Array.from(document.querySelectorAll<HTMLElement>("#tabs button.tab"))
       .map((candidate) => candidate.dataset.tabId)).toEqual([
-      "tab-4", "tab-1", "tab-3", "tab-2"
+      "tab-1", "tab-3", "tab-4", "tab-2"
     ]);
   });
 

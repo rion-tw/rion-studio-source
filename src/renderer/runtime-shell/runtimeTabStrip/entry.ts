@@ -14,7 +14,7 @@ import type {
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
-import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, root, runtimeState, scrollLeftButton, scrollRightButton, setDropIndicator, suspendDragVisual, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, deferRuntimeTabOrder, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, logicalRuntimeTabOrder, root, runtimeState, scrollLeftButton, scrollRightButton, setDropIndicator, suspendDragVisual, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
 
 import type { RuntimeTabModel } from "../runtimeTabStrip";
 
@@ -96,12 +96,18 @@ function patchTabButton(
   syncCloseControlState(button);
 }
 
-function render(state: RuntimeTabStripState, authoritative = false): void {
+function render(
+  state: RuntimeTabStripState,
+  authoritative = false,
+  projectionRevision?: number
+): void {
   const revision = ++runtimeState.renderRevision;
   const previousScrollLeft = root.scrollLeft;
   const labels = runtimeTabStripLabels(state.language);
   runtimeState.current = state;
-  if (authoritative) runtimeState.optimisticActiveTabId = undefined;
+  if (authoritative && !runtimeState.latestDragIntentSessionId) {
+    runtimeState.optimisticActiveTabId = undefined;
+  }
   document.documentElement.lang = state.language;
   document.documentElement.dataset.theme = state.resolvedTheme;
   document.documentElement.style.colorScheme = state.resolvedTheme;
@@ -121,7 +127,13 @@ function render(state: RuntimeTabStripState, authoritative = false): void {
   const presentationActiveTabId = optimisticSelectionIsVisible
     ? runtimeState.optimisticActiveTabId
     : snapshotActiveTabId;
-  reconcileTabButtons(visibleTabs, state, labels, presentationActiveTabId);
+  reconcileTabButtons(
+    visibleTabs,
+    state,
+    labels,
+    presentationActiveTabId,
+    projectionRevision
+  );
   for (const tab of tabElements()) syncCloseControlState(tab);
   const nextActiveTabId = presentationActiveTabId;
   root.scrollLeft = previousScrollLeft;
@@ -146,14 +158,23 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
     || projection.projectionRevision < runtimeState.projectionRevision) return;
   runtimeState.projectionRevision = projection.projectionRevision;
   runtimeState.chromeHydrated = true;
-  render(stateFromChromeProjection(projection), true);
-  applyRuntimeTabOrder(projection.tabOrder, false);
-  if (projection.activeTabId) optimisticallyActivateTab(projection.activeTabId);
-  else window.__rionSetActiveRuntimeTab?.();
+  render(stateFromChromeProjection(projection), true, projection.projectionRevision);
+  const observedOrder = logicalRuntimeTabOrder();
+  const observedActiveTabId = exactActiveRuntimeTabId();
+  const projectionMatchesObserved = ordersEqual(observedOrder, projection.tabOrder)
+    && observedActiveTabId === projection.activeTabId;
+  if (!runtimeState.latestDragIntentSessionId) {
+    if (projection.activeTabId) optimisticallyActivateTab(projection.activeTabId);
+    else window.__rionSetActiveRuntimeTab?.();
+  }
   acknowledgeChromeProjection(
     projection,
     runtimeState.rendererInstanceId,
-    tabElements()
+    tabElements(),
+    observedOrder,
+    runtimeState.latestDragIntentSessionId && !projectionMatchesObserved
+      ? "superseded"
+      : undefined
   );
 
   const activations = window.__rionPendingRuntimeTabActivations ?? [];
@@ -179,11 +200,23 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
   window.__rionPendingRuntimeTabOrder = [];
 }
 
+function ordersEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((tabId, index) => tabId === right[index]);
+}
+
+function exactActiveRuntimeTabId(): string | undefined {
+  const active = tabElements().filter((tab) =>
+    tab.classList.contains("active") && tab.getAttribute("aria-selected") === "true"
+  );
+  return active.length === 1 ? active[0]?.dataset.tabId : undefined;
+}
+
 function reconcileTabButtons(
   tabs: RuntimeTabModel[],
   state: RuntimeTabStripState,
   labels: ReturnType<typeof runtimeTabStripLabels>,
-  presentationActiveTabId?: string
+  presentationActiveTabId?: string,
+  projectionRevision?: number
 ): void {
   const existingById = new Map(tabElements().map((button) => [button.dataset.tabId, button]));
   const retained = new Set<string>();
@@ -205,11 +238,11 @@ function reconcileTabButtons(
   }
 
   const desiredOrder = tabs.map((tab) => tab.id);
-  if (runtimeState.dragVisualState) {
-    runtimeState.pendingRuntimeTabOrder = desiredOrder;
-    const incoming = existingById.get(runtimeState.dragVisualState.tabId);
-    if (incoming && retained.has(runtimeState.dragVisualState.tabId) && runtimeState.dragVisualState.slot.isConnected
-      && runtimeState.dragVisualState.surface !== incoming) {
+  if (deferRuntimeTabOrder(desiredOrder, projectionRevision)) {
+    const visual = runtimeState.dragVisualState;
+    const incoming = visual ? existingById.get(visual.tabId) : undefined;
+    if (visual && incoming && retained.has(visual.tabId) && visual.slot.isConnected
+      && visual.surface !== incoming) {
       adoptDragSurface(incoming);
     }
   } else {
@@ -534,10 +567,7 @@ export function installRuntimeTabStrip(): void {
   };
 
   window.__rionReorderRuntimeTabs = (tabIds) => {
-    if (runtimeState.dragVisualState) {
-      runtimeState.pendingRuntimeTabOrder = [...tabIds];
-      return;
-    }
+    if (deferRuntimeTabOrder(tabIds)) return;
     runtimeState.pendingRuntimeTabOrder = undefined;
     applyRuntimeTabOrder(tabIds, true);
   };

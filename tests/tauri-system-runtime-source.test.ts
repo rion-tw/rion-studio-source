@@ -480,9 +480,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(macController).not.toContain("- (void)updateState:");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");
-    expect(windowsStrip).toContain(
-      "reconcileTabButtons(visibleTabs, state, labels, presentationActiveTabId)"
-    );
+    expect(windowsStrip).toContain("reconcileTabButtons(");
+    expect(windowsStrip).toContain("presentationActiveTabId,\n    projectionRevision");
     expect(windowsStrip).toContain("patchTabButton(button, tab, state, labels");
     expect(windowsStrip).toContain("window.__rionEnsureRuntimeTab = (tab)");
     expect(windowsStrip).toContain("window.__rionReorderRuntimeTabs = (tabIds)");

@@ -61,7 +61,8 @@ export function stateFromChromeProjection(
 }
 
 function observedChromeState(
-  tabs: HTMLButtonElement[]
+  tabs: HTMLButtonElement[],
+  observedTabOrder?: string[]
 ): { activeTabId?: string; tabOrder: string[] } {
   const active = tabs.filter((tab) =>
     tab.classList.contains("active") && tab.getAttribute("aria-selected") === "true"
@@ -70,26 +71,29 @@ function observedChromeState(
     ...(active.length === 1 && active[0]?.dataset.tabId
       ? { activeTabId: active[0].dataset.tabId }
       : {}),
-    tabOrder: tabs.flatMap((tab) => tab.dataset.tabId ? [tab.dataset.tabId] : [])
+    tabOrder: observedTabOrder
+      ?? tabs.flatMap((tab) => tab.dataset.tabId ? [tab.dataset.tabId] : [])
   };
 }
 
 export function acknowledgeChromeProjection(
   projection: RuntimeTabChromeProjectionRecord,
   rendererInstanceId: string,
-  tabs: HTMLButtonElement[]
+  tabs: HTMLButtonElement[],
+  observedTabOrder?: string[],
+  forcedStatus?: "superseded" | "failed"
 ): void {
-  const observed = observedChromeState(tabs);
+  const observed = observedChromeState(tabs, observedTabOrder);
   const acknowledgement: RuntimeTabChromeAcknowledgementRecord = {
     rendererInstanceId,
     projectionRevision: projection.projectionRevision,
     observedTabOrder: observed.tabOrder,
     ...(observed.activeTabId ? { observedActiveTabId: observed.activeTabId } : {}),
-    status: observed.tabOrder.length === projection.tabOrder.length
+    status: forcedStatus ?? (observed.tabOrder.length === projection.tabOrder.length
       && observed.tabOrder.every((tabId, index) => tabId === projection.tabOrder[index])
       && observed.activeTabId === projection.activeTabId
       ? "applied"
-      : "failed"
+      : "failed")
   };
   void invoke("rion_runtime_tab_action", {
     action: { type: "tabChromeProjectionApplied", acknowledgement }

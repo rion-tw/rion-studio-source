@@ -10,7 +10,7 @@ import { applyRuntimeTabOrder, ensureTabVisible, scheduleScrollControlsUpdate, t
 
 import type { RuntimeTabDragPayload } from "./entry";
 
-import { TAB_REORDER_HYSTERESIS_MAX, TAB_REORDER_HYSTERESIS_MIN, TAB_REORDER_HYSTERESIS_RATIO, adoptDragSurface, cancelledDragSessions, clearDragVisual, createDragSlot, dispatch, dragActionQueue, localDropSessions, positionDragSurface, reorderAnimationFrameByElement, root, runtimeState, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import { TAB_REORDER_HYSTERESIS_MAX, TAB_REORDER_HYSTERESIS_MIN, TAB_REORDER_HYSTERESIS_RATIO, adoptDragSurface, cancelledDragSessions, clearDragVisual, createDragSlot, dispatch, dragActionQueue, dragIntentOrders, localDropSessions, logicalRuntimeTabOrder, positionDragSurface, reorderAnimationFrameByElement, root, runtimeState, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
 
 export function resolveStableDragInsertion(
   payload: RuntimeTabDragPayload | undefined,
@@ -305,6 +305,11 @@ export const dispatchNextDragAction = (): void => {
       else handleRuntimeTabDragSession(result);
     })
     .catch(() => {
+      if (action.type === "tabDragStart" || action.type === "tabDragCancel") {
+        cancelledDragSessions.add(action.sessionId);
+        completeTerminalDragAction(action.sessionId);
+        return;
+      }
       if ((action.type === "tabDragDrop" || action.type === "tabDragSourceEnd"
         || action.type === "tabDragEnd")
         && !cancelledDragSessions.has(action.sessionId)) {
@@ -363,19 +368,36 @@ export function handleRuntimeTabDragSession(session: RuntimeTabDragSessionRecord
 }
 
 function completeTerminalDragAction(sessionId: string): void {
+  const isLatestIntent = runtimeState.latestDragIntentSessionId === sessionId;
+  if (!isLatestIntent) {
+    localDropSessions.delete(sessionId);
+    dragIntentOrders.delete(sessionId);
+    return;
+  }
+  const intent = dragIntentOrders.get(sessionId);
+  const cancelled = cancelledDragSessions.has(sessionId);
   if (runtimeState.dragVisualState?.sessionId === sessionId) {
     clearDragVisual({
-      mode: cancelledDragSessions.has(sessionId) ? "restore" : "settle",
+      mode: cancelled ? "restore" : "settle",
       sessionId
     });
   }
   localDropSessions.delete(sessionId);
-  flushPendingRuntimeTabOrder();
+  runtimeState.latestDragIntentSessionId = undefined;
+  const pending = runtimeState.pendingRuntimeTabOrder?.ownerSessionId === sessionId
+    ? runtimeState.pendingRuntimeTabOrder
+    : undefined;
+  if (pending) runtimeState.pendingRuntimeTabOrder = undefined;
+  if (cancelled) {
+    if (intent?.originOrder.length) applyRuntimeTabOrder(intent.originOrder, true);
+    if (pending) applyRuntimeTabOrder(pending.order, true);
+  } else if (pending) {
+    const finalOrder = intent?.finalOrder ?? logicalRuntimeTabOrder();
+    if (ordersEqual(pending.order, finalOrder)) applyRuntimeTabOrder(pending.order, true);
+  }
+  dragIntentOrders.delete(sessionId);
 }
 
-export function flushPendingRuntimeTabOrder(): void {
-  if (!runtimeState.pendingRuntimeTabOrder) return;
-  const order = runtimeState.pendingRuntimeTabOrder;
-  runtimeState.pendingRuntimeTabOrder = undefined;
-  applyRuntimeTabOrder(order, true);
+function ordersEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((tabId, index) => tabId === right[index]);
 }

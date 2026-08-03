@@ -80,7 +80,7 @@ fn renderer_instance_and_projection_readback_are_exactly_fenced() {
                     projection_revision: projection.projection_revision,
                     observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
                     observed_active_tab_id: Some("tab-1".to_owned()),
-                    status: "failed".to_owned(),
+                    status: "applied".to_owned(),
                 },
             ),
             Err("TAB_CHROME_PROJECTION_READBACK_MISMATCH"),
@@ -135,6 +135,80 @@ fn renderer_instance_and_projection_readback_are_exactly_fenced() {
             "{platform}"
         );
     }
+}
+
+#[test]
+fn superseded_and_failed_projection_acknowledgements_allow_observed_intent_mismatch() {
+    let platform = "windows";
+    for (status, expected) in [
+        ("superseded", TabChromeProjectionWaitOutcome::Superseded),
+        ("failed", TabChromeProjectionWaitOutcome::Failed),
+    ] {
+        let coordinator = TabChromeProjectionCoordinator::default();
+        coordinator
+            .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+            .unwrap();
+        let projection = coordinator
+            .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+            .unwrap();
+        assert!(coordinator.claim_delivery(&projection), "{platform}:{status}");
+        coordinator
+            .acknowledge(
+                "tab-strip-1",
+                RuntimeTabChromeAcknowledgementRecord {
+                    renderer_instance_id: "renderer-1".to_owned(),
+                    projection_revision: projection.projection_revision,
+                    observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
+                    observed_active_tab_id: Some("tab-2".to_owned()),
+                    status: status.to_owned(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            coordinator.wait(
+                "window-1",
+                "renderer-1",
+                projection.projection_revision,
+                Duration::from_millis(1),
+            ),
+            expected,
+            "{platform}:{status}"
+        );
+    }
+}
+
+#[test]
+fn projection_acknowledgement_rejects_a_stale_revision() {
+    let coordinator = TabChromeProjectionCoordinator::default();
+    coordinator
+        .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+        .unwrap();
+    let projection = coordinator
+        .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+        .unwrap();
+    assert!(coordinator.claim_delivery(&projection));
+    assert_eq!(
+        coordinator.acknowledge(
+            "tab-strip-1",
+            RuntimeTabChromeAcknowledgementRecord {
+                renderer_instance_id: "renderer-1".to_owned(),
+                projection_revision: projection.projection_revision.saturating_add(1),
+                observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
+                observed_active_tab_id: Some("tab-2".to_owned()),
+                status: "superseded".to_owned(),
+            },
+        ),
+        Err("TAB_CHROME_PROJECTION_STALE")
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn superseded_drag_terminal_remains_a_superseded_native_receipt() {
+    assert_eq!(
+        RuntimeTabDragTerminalStatus::Superseded.native_status(),
+        NativeOperationStatus::Superseded
+    );
 }
 
 #[test]

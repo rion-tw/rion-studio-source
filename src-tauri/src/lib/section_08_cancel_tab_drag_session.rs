@@ -338,8 +338,8 @@ fn cancel_tab_drag_session(
 async fn commit_tab_drag_session(
     state: &CoreState,
     session: &GameWindowTabDragSession,
-) -> Result<bool, CoreErrorPayload> {
-    let mut exact_cleanup = true;
+) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
+    let mut outcome = RuntimeTabMutationProjectionOutcome::Applied;
     let final_window_id = state
         .runtime
         .tab_window_id(&session.tab_id)
@@ -397,7 +397,7 @@ async fn commit_tab_drag_session(
         ));
     }
     if let Some((request, target)) = mutation {
-        exact_cleanup &= execute_tab_mutation_commit(state, request, target, before_tab_id).await?;
+        outcome = execute_tab_mutation_commit(state, request, target, before_tab_id).await?;
     }
     if session.single_tab
         && let Err(message) = state.runtime.finish_tab_drag_window_motion(
@@ -405,7 +405,7 @@ async fn commit_tab_drag_session(
                 final_window_id == session.source_window_id && session.window_was_moved,
             )
     {
-        exact_cleanup = false;
+        outcome = RuntimeTabMutationProjectionOutcome::Degraded;
         eprintln!("Runtime tab drag committed but motion cleanup failed: {message}");
     }
     if !session.single_tab && final_window_id != session.provisional_window_id {
@@ -423,7 +423,7 @@ async fn commit_tab_drag_session(
     {
         eprintln!("Runtime tab drag committed but focus restoration failed: {message}");
     }
-    Ok(exact_cleanup)
+    Ok(outcome)
 }
 
 fn tab_drag_mutation_request(

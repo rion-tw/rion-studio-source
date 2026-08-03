@@ -351,24 +351,33 @@ fn finish_applied_tab_drag(
     app: &AppHandle,
     state: &CoreState,
     session: &GameWindowTabDragSession,
-    exact_cleanup: bool,
+    outcome: RuntimeTabMutationProjectionOutcome,
 ) -> Result<Value, CoreErrorPayload> {
-    let status = if exact_cleanup {
-        RuntimeTabDragTerminalStatus::Applied
-    } else {
-        RuntimeTabDragTerminalStatus::Degraded
+    let (stage, status, failure_code) = match outcome {
+        RuntimeTabMutationProjectionOutcome::Applied => (
+            "tabDragCommitted",
+            RuntimeTabDragTerminalStatus::Applied,
+            None,
+        ),
+        #[cfg(windows)]
+        RuntimeTabMutationProjectionOutcome::Superseded => (
+            "tabDragSuperseded",
+            RuntimeTabDragTerminalStatus::Superseded,
+            None,
+        ),
+        RuntimeTabMutationProjectionOutcome::Degraded => (
+            "tabDragCleanupDegraded",
+            RuntimeTabDragTerminalStatus::Degraded,
+            Some("SYSTEM_TAB_DRAG_CLEANUP_DEGRADED"),
+        ),
     };
     let receipt = complete_tab_drag_terminal(
         app,
         state,
         session,
-        if exact_cleanup {
-            "tabDragCommitted"
-        } else {
-            "tabDragCleanupDegraded"
-        },
+        stage,
         status,
-        (!exact_cleanup).then_some("SYSTEM_TAB_DRAG_CLEANUP_DEGRADED"),
+        failure_code,
         0,
     )?;
     serialize_tab_drag_response(&receipt)

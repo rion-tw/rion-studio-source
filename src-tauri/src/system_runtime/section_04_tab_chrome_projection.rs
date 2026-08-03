@@ -217,13 +217,14 @@ impl TabChromeProjectionCoordinator {
         {
             return Err("TAB_CHROME_PROJECTION_STALE");
         }
-        if delivery.tab_order != acknowledgement.observed_tab_order
-            || delivery.active_tab_id != acknowledgement.observed_active_tab_id
-        {
-            return Err("TAB_CHROME_PROJECTION_READBACK_MISMATCH");
-        }
         if !matches!(acknowledgement.status.as_str(), "applied" | "superseded" | "failed") {
             return Err("TAB_CHROME_PROJECTION_STATUS_INVALID");
+        }
+        if acknowledgement.status == "applied"
+            && (delivery.tab_order != acknowledgement.observed_tab_order
+                || delivery.active_tab_id != acknowledgement.observed_active_tab_id)
+        {
+            return Err("TAB_CHROME_PROJECTION_READBACK_MISMATCH");
         }
         if delivery.acknowledgement.is_none() {
             delivery.acknowledgement = Some(acknowledgement);

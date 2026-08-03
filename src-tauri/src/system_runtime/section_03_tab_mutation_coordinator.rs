@@ -1,5 +1,13 @@
 const TAB_MUTATION_LANE_CAPACITY: usize = 32;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeTabMutationProjectionOutcome {
+    Applied,
+    Degraded,
+    #[cfg(windows)]
+    Superseded,
+}
+
 #[derive(Default)]
 struct TabMutationCoordinator {
     lanes: Mutex<HashMap<String, Arc<TabMutationLane>>>,
@@ -415,11 +423,11 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    pub(crate) fn tab_mutation_projection_converged(
+    pub(crate) fn tab_mutation_projection_outcome(
         &self,
         request: &RuntimeTabMutationRequestRecord,
         snapshot: &BrowserRuntimeSnapshot,
-    ) -> bool {
+    ) -> RuntimeTabMutationProjectionOutcome {
         let window_id = request
             .target_window_id
             .as_deref()
@@ -451,7 +459,7 @@ impl SystemRuntimeExecutor {
         if visible_order != request.expected_tab_order
             || runtime_active_tab_id != request.expected_active_tab_id.as_deref()
         {
-            return false;
+            return RuntimeTabMutationProjectionOutcome::Degraded;
         }
         let presentation = self
             .presentation
@@ -472,10 +480,10 @@ impl SystemRuntimeExecutor {
                 || presentation.selected_tab_id.as_deref()
                     != request.expected_active_tab_id.as_deref()
             {
-                return false;
+                return RuntimeTabMutationProjectionOutcome::Degraded;
             }
         } else if !request.expected_tab_order.is_empty() {
-            return false;
+            return RuntimeTabMutationProjectionOutcome::Degraded;
         }
 
         #[cfg(target_os = "macos")]
@@ -490,14 +498,18 @@ impl SystemRuntimeExecutor {
                         .get(window_id)
                         .map(|host| host.tabs_controller.clone())
                 });
-            controller.map_or(request.expected_tab_order.is_empty(), |controller| {
+            if controller.map_or(request.expected_tab_order.is_empty(), |controller| {
                 controller
                     .matches_projection(
                         &request.expected_tab_order,
                         request.expected_active_tab_id.as_deref(),
                     )
                     .unwrap_or(false)
-            })
+            }) {
+                RuntimeTabMutationProjectionOutcome::Applied
+            } else {
+                RuntimeTabMutationProjectionOutcome::Degraded
+            }
         }
         #[cfg(windows)]
         {
@@ -506,20 +518,27 @@ impl SystemRuntimeExecutor {
                 .lock()
                 .is_ok_and(|state| state.display_hosts.contains_key(window_id));
             if !host_exists {
-                return request.expected_tab_order.is_empty();
+                return if request.expected_tab_order.is_empty() {
+                    RuntimeTabMutationProjectionOutcome::Applied
+                } else {
+                    RuntimeTabMutationProjectionOutcome::Degraded
+                };
             }
-            matches!(
-                self.tab_chrome_projections.wait_for_projection_status(
+            match self.tab_chrome_projections.wait_for_projection_status(
                     window_id,
                     &request.expected_tab_order,
                     request.expected_active_tab_id.as_deref(),
                     Duration::from_millis(4_500),
-                ),
-                Some(NativeOperationStatus::Applied)
-            )
+                ) {
+                Some(NativeOperationStatus::Applied) => RuntimeTabMutationProjectionOutcome::Applied,
+                Some(NativeOperationStatus::Superseded) => {
+                    RuntimeTabMutationProjectionOutcome::Superseded
+                }
+                _ => RuntimeTabMutationProjectionOutcome::Degraded,
+            }
         }
         #[cfg(not(any(windows, target_os = "macos")))]
-        true
+        RuntimeTabMutationProjectionOutcome::Applied
     }
 }
 

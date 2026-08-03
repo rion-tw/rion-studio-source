@@ -19,7 +19,7 @@ import type { WorkspaceLayoutTemplate } from "../../shared/types";
 
 import { handleSystemRuntimeReceipt } from "../src/app/systemRuntimeReceipt";
 
-import { dispatchNextDragAction, flushPendingRuntimeTabOrder, handleRuntimeTabDragSession, optimisticallyActivateAdjacentTab, optimisticallyActivateTab, optimisticallyCloseTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./runtimeTabStrip/drag";
+import { dispatchNextDragAction, handleRuntimeTabDragSession, optimisticallyActivateAdjacentTab, optimisticallyActivateTab, optimisticallyCloseTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./runtimeTabStrip/drag";
 
 import { applyRuntimeTabOrder, clampRatio, installRuntimeTabStrip, runtimeTabDragPayload, scheduleScrollControlsUpdate, scrollForDragPoint, stopEdgeScroll, tabElements } from "./runtimeTabStrip/entry";
 
@@ -106,7 +106,8 @@ export const runtimeState = {
 } | undefined,
   dragProxyElement: undefined as HTMLElement | undefined,
   dragVisualState: undefined as RuntimeTabDragVisualState | undefined,
-  pendingRuntimeTabOrder: undefined as string[] | undefined,
+  pendingRuntimeTabOrder: undefined as PendingRuntimeTabOrder | undefined,
+  latestDragIntentSessionId: undefined as string | undefined,
   renderRevision: 0,
   activeTabId: undefined as string | undefined,
   optimisticActiveTabId: undefined as string | undefined,
@@ -126,6 +127,11 @@ export const terminalDragSessions = new Set<string>();
 export const cancelledDragSessions = new Set<string>();
 
 export const localDropSessions = new Set<string>();
+
+export const dragIntentOrders = new Map<string, {
+  finalOrder: string[];
+  originOrder: string[];
+}>();
 
 export const workspaceTemplateByTabId = new Map<string, WorkspaceLayoutTemplate>();
 
@@ -162,6 +168,43 @@ type RuntimeTabDragVisualState = {
   tabId: string;
   tabWidth: number;
 };
+
+export type PendingRuntimeTabOrder = {
+  order: string[];
+  ownerSessionId: string;
+  projectionRevision?: number;
+};
+
+export function logicalRuntimeTabOrder(): string[] {
+  const seen = new Set<string>();
+  return Array.from(root.children).flatMap((child) => {
+    if (!(child instanceof HTMLElement) || child.classList.contains("drag-surface")) return [];
+    const tabId = child.dataset.dragSlotTab ?? child.dataset.tabId;
+    if (!tabId || seen.has(tabId)) return [];
+    seen.add(tabId);
+    return [tabId];
+  });
+}
+
+export function deferRuntimeTabOrder(
+  order: string[],
+  projectionRevision?: number
+): boolean {
+  const ownerSessionId = runtimeState.latestDragIntentSessionId;
+  if (!ownerSessionId) return false;
+  const pending = runtimeState.pendingRuntimeTabOrder;
+  if (pending?.ownerSessionId === ownerSessionId
+    && pending.projectionRevision !== undefined
+    && (projectionRevision === undefined || projectionRevision < pending.projectionRevision)) {
+    return true;
+  }
+  runtimeState.pendingRuntimeTabOrder = {
+    order: [...order],
+    ownerSessionId,
+    ...(projectionRevision !== undefined ? { projectionRevision } : {})
+  };
+  return true;
+}
 
 export function createLucideSvg(Icon: LucideIcon): SVGSVGElement {
   let markup = iconMarkup.get(Icon);
@@ -372,6 +415,10 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
     optimisticallyActivateTab(tabId);
     runtimeState.draggingTabId = tabId;
     runtimeState.dragSessionId = crypto.randomUUID();
+    runtimeState.latestDragIntentSessionId = runtimeState.dragSessionId;
+    if (runtimeState.pendingRuntimeTabOrder) {
+      runtimeState.pendingRuntimeTabOrder.ownerSessionId = runtimeState.dragSessionId;
+    }
     runtimeState.dragCancelled = false;
     runtimeState.lastDragPoint = { screenX: event.screenX, screenY: event.screenY };
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
@@ -444,9 +491,6 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
         : "settle"
     });
     clearDragProxy();
-    if (endingSessionId && !runtimeState.dragCancelled && !localDropSessions.has(endingSessionId)) {
-      flushPendingRuntimeTabOrder();
-    }
     if (endingSessionId) localDropSessions.delete(endingSessionId);
     runtimeState.draggingTabId = undefined;
     runtimeState.dragOriginActiveTabId = undefined;
@@ -554,6 +598,7 @@ function beginDragVisual(
     tabId: payload.tabId,
     tabWidth: payload.tabWidth
   };
+  dragIntentOrders.set(payload.sessionId, { finalOrder: originOrder, originOrder });
   adoptDragSurface(button);
 }
 
@@ -615,6 +660,12 @@ export function clearDragVisual(options: {
 }): void {
   const visual = runtimeState.dragVisualState;
   if (!visual || (options.sessionId && options.sessionId !== visual.sessionId)) return;
+  const intent = dragIntentOrders.get(visual.sessionId);
+  if (intent) {
+    intent.finalOrder = options.mode === "restore"
+      ? [...intent.originOrder]
+      : logicalRuntimeTabOrder();
+  }
   const surface = visual.surface;
   if (surface) {
     if (options.mode === "discard" || (visual.suspended && options.mode === "settle")) {

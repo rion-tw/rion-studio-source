@@ -28,11 +28,11 @@ import type { Translator } from "../../i18n";
 
 import { cn } from "../../lib/utils";
 
-import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedRuntimeTabSwitchMacroTrigger, macroRoleAssignmentsOverlap, MACRO_OVERLAY_TRIGGER } from "../../../../shared/macroShortcuts";
+import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedRuntimeTabSwitchMacroTrigger, macroShortcutSourcesOverlap, MACRO_OVERLAY_TRIGGER } from "../../../../shared/macroShortcuts";
 
 import { DEFAULT_MACRO_SETTINGS } from "../../../../shared/macroSettings";
 
-import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroRepeat, MacroSettings, MacroStep, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroRepeat, MacroSettings, MacroShortcutSourceScope, MacroStep, Role } from "../../../../shared/types";
 
 import { createClientId, getMacroTargetOptions, isCallableMacroTarget, isValidMacroInterval } from "./macroUtils";
 
@@ -108,12 +108,12 @@ function MacroEditor({
       (macro) =>
         macro.id !== form.id &&
         areMacroTriggersEqual(macro.trigger, form.trigger) &&
-        macroRoleAssignmentsOverlap(macro.roleIds, form.roleIds)
+        macroShortcutSourcesOverlap(macro, form)
     );
     return conflictingMacro
       ? t("macroForm.shortcutConflict").replace("{name}", conflictingMacro.name)
       : undefined;
-  }, [form.id, form.roleIds, form.trigger, macros, t]);
+  }, [form, macros, t]);
   const macroStepError = useMemo(() => {
     const invalidStep = form.steps.find((step) => {
       if (step.type !== "macro") return false;
@@ -124,15 +124,21 @@ function MacroEditor({
   const activationError = form.activationMode === "while_held" && !form.trigger
     ? t("macroForm.saveHint.holdNeedsShortcut")
     : undefined;
+  const shortcutSourceError = form.trigger &&
+    form.shortcutSourceScope.type === "selected_roles" &&
+    form.shortcutSourceScope.roleIds.length === 0
+    ? t("macroForm.saveHint.needsShortcutSourceRole")
+    : undefined;
   const canSubmit =
     form.name.trim().length > 0 &&
     (form.roleIds.length > 0 || Boolean(form.id)) &&
     form.steps.length > 0 &&
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
     !activationError &&
+    !shortcutSourceError &&
     !macroStepError &&
     !shortcutConflict;
-  const saveHint = shortcutConflict ?? activationError ?? macroStepError ?? (
+  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? macroStepError ?? (
     form.roleIds.length === 0
       ? t(form.id ? "macroForm.saveHint.unassigned" : "macroForm.saveHint.needsRole")
       : form.steps.length === 0
@@ -189,6 +195,7 @@ function MacroEditor({
         macros={macros}
         roles={roles}
         shortcutConflict={shortcutConflict}
+        shortcutSourceError={shortcutSourceError}
         t={t}
         onChange={setForm}
       />
@@ -205,6 +212,7 @@ interface MacroFormProps {
   onChange: (form: MacroFormState | ((current: MacroFormState) => MacroFormState)) => void;
   roles: Role[];
   shortcutConflict?: string;
+  shortcutSourceError?: string;
   t: Translator;
 }
 
@@ -217,8 +225,14 @@ function MacroForm({
   onChange,
   roles,
   shortcutConflict,
+  shortcutSourceError,
   t
 }: MacroFormProps): JSX.Element {
+  const selectedShortcutSourceRoleIdsRef = useRef<string[] | null>(
+    form.shortcutSourceScope.type === "selected_roles"
+      ? [...form.shortcutSourceScope.roleIds]
+      : null
+  );
   const macroTargetOptions = useMemo(
     () => getMacroTargetOptions(macros, form.id),
     [form.id, macros]
@@ -338,19 +352,106 @@ function MacroForm({
               </FormField>
             </Surface>
 
-            <Surface className="p-4" padding="none" variant="inset">
+            <Surface className="grid gap-4 p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
                 <ShortcutRecorder
                   trigger={form.trigger}
                   t={t}
-                  onChange={(trigger) => update((current) => ({ ...current, trigger }))}
+                  onChange={(trigger) => update((current) => {
+                    if (!trigger || !current.trigger) {
+                      selectedShortcutSourceRoleIdsRef.current = null;
+                    }
+                    return {
+                      ...current,
+                      trigger,
+                      shortcutSourceScope: trigger
+                        ? current.trigger
+                          ? current.shortcutSourceScope
+                          : { type: "all_execution_roles" }
+                        : { type: "all_execution_roles" }
+                    };
+                  })}
                 />
-                {shortcutConflict ? (
+                {shortcutConflict || shortcutSourceError ? (
                   <p className="mt-2 text-caption font-semibold text-destructive">
-                    {shortcutConflict}
+                    {shortcutConflict ?? shortcutSourceError}
                   </p>
                 ) : null}
               </FormField>
+
+              {form.trigger ? (
+                <FormField
+                  label={t("macroForm.shortcutScope")}
+                  description={t("macroForm.shortcutScopeDescription")}
+                >
+                  <div className="grid gap-3">
+                    <SegmentedControl<MacroShortcutSourceScope["type"]>
+                      className={cn(
+                        "w-full grid-cols-2 p-0.5 [&>button]:h-6",
+                        isSaving && "pointer-events-none opacity-45"
+                      )}
+                      aria-disabled={isSaving}
+                      items={[
+                        {
+                          value: "all_execution_roles",
+                          label: t("macroForm.shortcutScope.allExecutionRoles")
+                        },
+                        {
+                          value: "selected_roles",
+                          label: t("macroForm.shortcutScope.selectedRoles")
+                        }
+                      ]}
+                      value={form.shortcutSourceScope.type}
+                      onValueChange={(type) => {
+                        if (isSaving) return;
+                        update((current) => {
+                          if (current.shortcutSourceScope.type === "selected_roles") {
+                            selectedShortcutSourceRoleIdsRef.current = [
+                              ...current.shortcutSourceScope.roleIds
+                            ];
+                          }
+                          const selectedRoleIds = selectedShortcutSourceRoleIdsRef.current ?? [
+                            ...current.roleIds
+                          ];
+                          if (type === "selected_roles") {
+                            selectedShortcutSourceRoleIdsRef.current = [...selectedRoleIds];
+                          }
+                          return {
+                            ...current,
+                            shortcutSourceScope: type === "selected_roles"
+                              ? { type, roleIds: selectedRoleIds }
+                              : { type }
+                          };
+                        });
+                      }}
+                    />
+                    {form.shortcutSourceScope.type === "selected_roles" ? (
+                      <FormField
+                        htmlFor="macro-shortcut-source-role"
+                        label={t("macroForm.shortcutSourceRoles")}
+                        description={t("macroForm.shortcutSourceRolesDescription")}
+                      >
+                        <MacroRoleCombobox
+                          ariaLabel={t("macroForm.shortcutSourceRoles")}
+                          disabled={isSaving}
+                          games={games}
+                          inputId="macro-shortcut-source-role"
+                          roles={roles}
+                          t={t}
+                          value={form.shortcutSourceScope.roleIds}
+                          onValueChange={(roleIds) => update((current) => {
+                            selectedShortcutSourceRoleIdsRef.current = [...roleIds];
+                            return {
+                              ...current,
+                              shortcutSourceScope: { type: "selected_roles", roleIds }
+                            };
+                          })}
+                        />
+                      </FormField>
+                    ) : null}
+                  </div>
+                </FormField>
+              ) : null}
             </Surface>
 
             <Surface className="p-4" padding="none" variant="inset">
@@ -485,6 +586,7 @@ function MacroForm({
               <HelpPanel data-macro-help="activation">
                 <MacroHelpSection title={t("macroForm.help.activationTitle")}>
                   <li>{t("macroForm.help.activationRoles")}</li>
+                  <li>{t("macroForm.help.activationShortcutSources")}</li>
                   <li>{t("macroForm.help.activationModes")}</li>
                   <li>{t("macroForm.help.activationRepeat")}</li>
                 </MacroHelpSection>

@@ -134,6 +134,7 @@ fn export_bindings_index() {
                 "export type { MacroRunStatus } from \"./MacroRunStatus\";\n",
                 "export type { MacroRuntimeSettings } from \"./MacroRuntimeSettings\";\n",
                 "export type { MacroSettingsRecord } from \"./MacroSettingsRecord\";\n",
+                "export type { MacroShortcutSourceScope } from \"./MacroShortcutSourceScope\";\n",
                 "export type { MacroStartRequest } from \"./MacroStartRequest\";\n",
                 "export type { MacroStepDefinition } from \"./MacroStepDefinition\";\n",
                 "export type { MacroStepInputRecord } from \"./MacroStepInputRecord\";\n",

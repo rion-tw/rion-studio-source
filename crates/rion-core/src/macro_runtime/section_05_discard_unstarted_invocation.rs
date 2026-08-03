@@ -1,3 +1,25 @@
+fn validate_shortcut_source(request: &MacroStartRequest) -> CoreResult<()> {
+    let Some(source_role_id) = request.source_role_id.as_deref() else {
+        return Ok(());
+    };
+    let definition = request
+        .macros
+        .iter()
+        .find(|definition| definition.id == request.macro_id)
+        .ok_or_else(|| CoreError::InvalidInput("macro was not found".to_owned()))?;
+    if crate::domain::macro_shortcut_source_contains(
+        &definition.shortcut_source_scope,
+        &definition.role_ids,
+        source_role_id,
+    ) {
+        Ok(())
+    } else {
+        Err(CoreError::InvalidInput(
+            "macro shortcut is not available to the requested role".to_owned(),
+        ))
+    }
+}
+
 fn discard_unstarted_invocation(shared: &Arc<Shared>, control: &Arc<InvocationControl>) {
     if let Ok(mut inner) = shared.inner.lock() {
         inner.invocations.remove(&control.id);
@@ -308,11 +330,26 @@ fn validate_start_request(request: &MacroStartRequest) -> CoreResult<()> {
     }
     let mut ids = HashSet::new();
     for definition in &request.macros {
+        let shortcut_source_role_ids = crate::domain::macro_shortcut_source_role_ids(
+            &definition.shortcut_source_scope,
+            &definition.role_ids,
+        );
         if definition.id.trim().is_empty()
             || definition.name.trim().is_empty()
             || !ids.insert(definition.id.clone())
             || definition.steps.len() > 100
             || definition.role_ids.iter().any(|id| id.trim().is_empty())
+            || shortcut_source_role_ids
+                .iter()
+                .any(|id| id.trim().is_empty())
+            || shortcut_source_role_ids.iter().collect::<HashSet<_>>().len()
+                != shortcut_source_role_ids.len()
+            || (definition.trigger.is_some()
+                && matches!(
+                    definition.shortcut_source_scope,
+                    crate::model::MacroShortcutSourceScope::SelectedRoles { ref role_ids }
+                        if role_ids.is_empty()
+                ))
         {
             return Err(CoreError::InvalidInput(
                 "macro definition is invalid".to_owned(),

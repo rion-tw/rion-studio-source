@@ -4,6 +4,7 @@ import {
   formatMacroActivationMode,
   formatMacroRepeat,
   formatMacroShortcut,
+  formatMacroShortcutSourceScope,
   summarizeMacroSteps
 } from "./macroUtils";
 
@@ -60,10 +61,16 @@ export function getMacroListItems({
       const roleNames = macro.roleIds.length > 0
         ? macro.roleIds.map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"))
         : [t("macros.noRoles")];
+      const shortcutSourceRoleNames = macro.shortcutSourceScope.type === "selected_roles"
+        ? macro.shortcutSourceScope.roleIds.map(
+            (roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole")
+          )
+        : [];
 
       return [
         macro.name,
         ...roleNames,
+        ...shortcutSourceRoleNames,
         formatMacroShortcut(macro.trigger, t),
         formatMacroActivationMode(macro.activationMode, t),
         formatMacroRepeat(macro.repeat, t),
@@ -109,7 +116,10 @@ function compareBySortKey(
     case "roles":
       return compareMacroRoles(a, b, roles, roleById);
     case "shortcut":
-      return compareText(formatMacroShortcut(a.trigger, t), formatMacroShortcut(b.trigger, t));
+      return compareText(
+        `${formatMacroShortcut(a.trigger, t)} ${formatMacroShortcutSourceScope(a, roleById, t)}`,
+        `${formatMacroShortcut(b.trigger, t)} ${formatMacroShortcutSourceScope(b, roleById, t)}`
+      );
     case "activation":
       return compareText(formatMacroActivationMode(a.activationMode, t), formatMacroActivationMode(b.activationMode, t));
     case "repeat":

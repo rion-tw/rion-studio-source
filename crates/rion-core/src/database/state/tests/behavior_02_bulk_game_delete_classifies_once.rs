@@ -77,7 +77,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=23;
+                "DELETE FROM schema_migrations WHERE version=24;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  INSERT INTO legacy_session_restores(id) VALUES ('retired');
@@ -94,7 +94,7 @@
                     0
                 ))
                 .unwrap(),
-            23
+            24
         );
         assert_eq!(
             connection
@@ -119,12 +119,59 @@
     }
 
     #[test]
+    fn schema_twenty_three_adds_the_default_macro_shortcut_source_scope() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let payload = json!({
+            "id": "macro-1",
+            "name": "Legacy macro",
+            "roleIds": ["role-1"],
+            "trigger": {"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false}
+        });
+        connection
+            .execute(
+                "INSERT INTO macros(id, ordinal, name, payload_json) VALUES ('macro-1', 0, 'Legacy macro', ?1)",
+                [serde_json::to_string(&payload).unwrap()],
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM schema_migrations;
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (23, 'current');",
+            )
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let migrated: Value = serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM macros WHERE id='macro-1'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            migrated["shortcutSourceScope"],
+            json!({"type":"all_execution_roles"})
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
+                .unwrap(),
+            24
+        );
+    }
+
+    #[test]
     fn schema_nineteen_upgrade_failure_rolls_back() {
         let connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=23;
+                "DELETE FROM schema_migrations WHERE version=24;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  CREATE TRIGGER reject_schema_twenty BEFORE INSERT ON schema_migrations
@@ -243,7 +290,7 @@
                         row.get::<_, u32>(0)
                     })
                     .unwrap(),
-                23
+                24
             );
             for game_id in ["builtin-flyff-universe", "custom-game"] {
                 let migrated_game: Value = serde_json::from_str(

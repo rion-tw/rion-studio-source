@@ -334,6 +334,50 @@ fn normalize_macro_role_ids(role_ids: Vec<String>) -> CoreResult<Vec<String>> {
     Ok(normalized)
 }
 
+fn normalize_macro_shortcut_source_scope(
+    scope: Option<MacroShortcutSourceScope>,
+    has_trigger: bool,
+) -> CoreResult<MacroShortcutSourceScope> {
+    if !has_trigger {
+        return Ok(MacroShortcutSourceScope::AllExecutionRoles);
+    }
+    match scope.unwrap_or_default() {
+        MacroShortcutSourceScope::AllExecutionRoles => {
+            Ok(MacroShortcutSourceScope::AllExecutionRoles)
+        }
+        MacroShortcutSourceScope::SelectedRoles { role_ids } => {
+            let role_ids = normalize_macro_role_ids(role_ids)?;
+            if role_ids.is_empty() {
+                return Err(domain(
+                    "MACRO_SHORTCUT_SOURCE_REQUIRED",
+                    "A shortcut with selected source roles requires at least one role.",
+                ));
+            }
+            Ok(MacroShortcutSourceScope::SelectedRoles { role_ids })
+        }
+    }
+}
+
+pub(crate) fn macro_shortcut_source_role_ids<'a>(
+    scope: &'a MacroShortcutSourceScope,
+    execution_role_ids: &'a [String],
+) -> &'a [String] {
+    match scope {
+        MacroShortcutSourceScope::AllExecutionRoles => execution_role_ids,
+        MacroShortcutSourceScope::SelectedRoles { role_ids } => role_ids,
+    }
+}
+
+pub(crate) fn macro_shortcut_source_contains(
+    scope: &MacroShortcutSourceScope,
+    execution_role_ids: &[String],
+    role_id: &str,
+) -> bool {
+    macro_shortcut_source_role_ids(scope, execution_role_ids)
+        .iter()
+        .any(|candidate| candidate == role_id)
+}
+
 fn normalize_macro_trigger(mut trigger: MacroTrigger) -> CoreResult<MacroTrigger> {
     trigger.code = normalize_macro_code(&trigger.code, "Macro shortcut key is invalid.")?;
     Ok(trigger)
@@ -651,21 +695,26 @@ fn validate_macro_candidate(
     }
     if let Some(trigger) = &candidate.trigger
         && macros.iter().any(|item| {
+            let candidate_source_role_ids = macro_shortcut_source_role_ids(
+                &candidate.shortcut_source_scope,
+                &candidate.role_ids,
+            );
+            let item_source_role_ids = macro_shortcut_source_role_ids(
+                &item.shortcut_source_scope,
+                &item.role_ids,
+            );
             Some(item.id.as_str()) != current_id
                 && item.trigger.as_ref().is_some_and(|other| {
                     serde_json::to_value(other).ok() == serde_json::to_value(trigger).ok()
                 })
-                && (item.role_ids.is_empty()
-                    || candidate.role_ids.is_empty()
-                    || item
-                        .role_ids
-                        .iter()
-                        .any(|id| candidate.role_ids.contains(id)))
+                && item_source_role_ids
+                    .iter()
+                    .any(|id| candidate_source_role_ids.contains(id))
         })
     {
         return Err(domain(
             "MACRO_TRIGGER_CONFLICT",
-            "Macro shortcut conflicts with another macro assigned to the same role.",
+            "Macro shortcut conflicts with another macro for an overlapping source role.",
         ));
     }
     Ok(())

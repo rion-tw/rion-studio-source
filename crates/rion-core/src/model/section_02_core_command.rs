@@ -680,6 +680,8 @@ pub struct PortableMacroRecord {
     pub activation_mode: String,
     pub name: String,
     pub role_ids: Vec<String>,
+    #[serde(default)]
+    pub shortcut_source_scope: MacroShortcutSourceScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub trigger: Option<MacroTrigger>,

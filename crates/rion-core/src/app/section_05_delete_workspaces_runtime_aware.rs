@@ -554,7 +554,7 @@ impl AppCore {
             MacroOverlayRequestRecord::Toggle { macro_id } => {
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
-                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                crate::overlay::ensure_macro_shortcut_available(&macros, role_id, &macro_id)?;
                 let assigned_count = macros
                     .iter()
                     .find(|definition| definition.id == macro_id)
@@ -581,7 +581,7 @@ impl AppCore {
             MacroOverlayRequestRecord::Press { macro_id, press_id } => {
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
-                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                crate::overlay::ensure_macro_shortcut_available(&macros, role_id, &macro_id)?;
                 let assigned_count = macros
                     .iter()
                     .find(|definition| definition.id == macro_id)
@@ -606,9 +606,6 @@ impl AppCore {
                 press_id,
                 release_mode,
             } => {
-                let (macros, _) =
-                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
-                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
                 self.macro_runtime.release(MacroReleaseRequest {
                     macro_id,
                     source_role_id: role_id.to_owned(),
@@ -628,18 +625,27 @@ impl AppCore {
     ) -> CoreResult<MacroOverlayViewModelRecord> {
         let (macros, macro_badge_position) =
             self.with_runtime(|runtime| runtime.state.overlay_configuration())?;
+        let shortcut_macro_ids = crate::overlay::shortcut_macro_ids(&macros, role_id);
         let macros = crate::overlay::available_macros(&macros, role_id);
         let macro_ids = macros
             .iter()
             .map(|definition| definition.id.as_str())
             .collect::<std::collections::HashSet<_>>();
-        let statuses = self
-            .macro_runtime
-            .statuses()?
-            .into_iter()
+        let all_statuses = self.macro_runtime.statuses()?;
+        let statuses = all_statuses
+            .iter()
             .filter(|status| {
                 status.role_id == role_id && macro_ids.contains(status.macro_id.as_str())
             })
+            .cloned()
+            .collect();
+        let shortcut_macro_id_set = shortcut_macro_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::HashSet<_>>();
+        let shortcut_statuses = all_statuses
+            .into_iter()
+            .filter(|status| shortcut_macro_id_set.contains(status.macro_id.as_str()))
             .collect();
         let resolved_theme = self
             .resolved_theme
@@ -651,6 +657,8 @@ impl AppCore {
             language,
             macro_badge_position,
             macros,
+            shortcut_macro_ids,
+            shortcut_statuses,
             resolved_theme,
             start_summary,
             statuses,

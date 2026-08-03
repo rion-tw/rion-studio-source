@@ -11,6 +11,7 @@ use std::{
 use crossbeam_channel::{Receiver, Sender, after, bounded, select};
 
 use crate::{
+    domain::macro_shortcut_source_contains,
     error::{CoreError, CoreResult},
     model::{CoreEvent, MacroDefinition, MacroOverlayRequestRecord},
 };
@@ -34,13 +35,34 @@ pub fn available_macros(macros: &[MacroDefinition], role_id: &str) -> Vec<MacroD
     macros
         .iter()
         .filter(|definition| {
-            definition
+            (definition
                 .role_ids
                 .iter()
                 .any(|candidate| candidate == role_id)
+                || macro_shortcut_source_contains(
+                    &definition.shortcut_source_scope,
+                    &definition.role_ids,
+                    role_id,
+                ))
                 && !has_unassigned_dependency(macros, &definition.id)
         })
         .cloned()
+        .collect()
+}
+
+pub fn shortcut_macro_ids(macros: &[MacroDefinition], role_id: &str) -> Vec<String> {
+    macros
+        .iter()
+        .filter(|definition| {
+            definition.trigger.is_some()
+                && macro_shortcut_source_contains(
+                    &definition.shortcut_source_scope,
+                    &definition.role_ids,
+                    role_id,
+                )
+                && !has_unassigned_dependency(macros, &definition.id)
+        })
+        .map(|definition| definition.id.clone())
         .collect()
 }
 
@@ -49,15 +71,37 @@ pub fn ensure_macro_available(
     role_id: &str,
     macro_id: &str,
 ) -> CoreResult<()> {
-    if available_macros(macros, role_id)
-        .iter()
-        .any(|definition| definition.id == macro_id)
-    {
+    if macros.iter().any(|definition| {
+        definition.id == macro_id
+            && definition
+                .role_ids
+                .iter()
+                .any(|candidate| candidate == role_id)
+            && !has_unassigned_dependency(macros, &definition.id)
+    }) {
         Ok(())
     } else {
         Err(domain(
             "MACRO_ROLE_INVALID",
             "This macro is not assigned to the current role.",
+        ))
+    }
+}
+
+pub fn ensure_macro_shortcut_available(
+    macros: &[MacroDefinition],
+    role_id: &str,
+    macro_id: &str,
+) -> CoreResult<()> {
+    if shortcut_macro_ids(macros, role_id)
+        .iter()
+        .any(|candidate| candidate == macro_id)
+    {
+        Ok(())
+    } else {
+        Err(domain(
+            "MACRO_SHORTCUT_ROLE_INVALID",
+            "This macro shortcut is not available to the current role.",
         ))
     }
 }
@@ -260,12 +304,16 @@ impl OverlayProjection {
         for event in events {
             match event {
                 CoreEvent::StateChanged { .. } => change.all = true,
-                CoreEvent::MacroStatuses { statuses, .. } => {
-                    change.role_ids.extend(update_grouped_signatures(
-                        &mut self.macros,
-                        statuses,
-                        |status| &status.role_id,
-                    ));
+                CoreEvent::MacroStatuses { reliable, statuses } => {
+                    if *reliable {
+                        change.all = true;
+                    } else {
+                        change.role_ids.extend(update_grouped_signatures(
+                            &mut self.macros,
+                            statuses,
+                            |status| &status.role_id,
+                        ));
+                    }
                 }
                 CoreEvent::BrowserStatuses { statuses } => {
                     change.role_ids.extend(update_grouped_signatures(
@@ -398,7 +446,10 @@ fn domain(code: &'static str, message: &str) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{MacroLastClick, MacroRepeat, MacroRunStatus, MacroStepDefinition};
+    use crate::model::{
+        MacroLastClick, MacroRepeat, MacroRunStatus, MacroShortcutSourceScope, MacroStepDefinition,
+        MacroTrigger,
+    };
 
     fn definition(id: &str, role_ids: &[&str], steps: Vec<MacroStepDefinition>) -> MacroDefinition {
         MacroDefinition {
@@ -410,6 +461,7 @@ mod tests {
                 .iter()
                 .map(|role_id| (*role_id).to_owned())
                 .collect(),
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps,
@@ -486,6 +538,31 @@ mod tests {
     }
 
     #[test]
+    fn exposes_external_shortcut_sources_without_granting_local_execution_actions() {
+        let mut controlled = definition("controlled", &["executor"], Vec::new());
+        controlled.shortcut_source_scope = MacroShortcutSourceScope::SelectedRoles {
+            role_ids: vec!["controller".to_owned()],
+        };
+        controlled.trigger = Some(MacroTrigger {
+            code: "F2".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        let macros = vec![controlled];
+
+        assert_eq!(available_macros(&macros, "controller").len(), 1);
+        assert_eq!(
+            shortcut_macro_ids(&macros, "controller"),
+            vec!["controlled"]
+        );
+        assert!(ensure_macro_shortcut_available(&macros, "controller", "controlled").is_ok());
+        assert!(ensure_macro_available(&macros, "controller", "controlled").is_err());
+        assert_eq!(available_macros(&macros, "unrelated").len(), 0);
+    }
+
+    #[test]
     fn projects_only_roles_with_changed_macro_presentation() {
         let mut projection = OverlayProjection::default();
         let status = MacroRunStatus {
@@ -502,17 +579,15 @@ mod tests {
             reliable: true,
             statuses: vec![status.clone()],
         }]);
-        {
-            assert_eq!(first.role_ids, HashSet::from(["role-1".to_owned()]));
-        };
+        assert!(first.all);
+        assert!(first.role_ids.is_empty());
         assert!(
             projection
                 .observe(&[CoreEvent::MacroStatuses {
                     reliable: true,
                     statuses: vec![status.clone()],
                 }])
-                .role_ids
-                .is_empty()
+                .all
         );
         let mut clicked = status;
         clicked.last_click = Some(MacroLastClick {

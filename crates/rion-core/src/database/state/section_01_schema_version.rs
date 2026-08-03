@@ -17,7 +17,8 @@ use crate::domain::{
     create_macro, create_role, create_workspace, default_game_browser_settings,
     default_macro_settings, default_runtime_window_preferences, delete_game, delete_game_window,
     delete_game_window_if_unchanged, delete_macro, delete_macros, delete_workspace,
-    normalize_game_browser_settings, normalize_macro_settings, reorder_game_windows, reorder_roles,
+    macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
+    reorder_game_windows, reorder_roles,
     reorder_workspaces, reset_builtin_game, save_runtime_game_window, update_game,
     update_game_window, update_macro, update_role, update_workspace,
     validate_game_window_collection,
@@ -34,7 +35,7 @@ use crate::model::{
     StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 23;
+pub(crate) const SCHEMA_VERSION: u32 = 24;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);

@@ -59,6 +59,7 @@ impl MacroRuntime {
     }
 
     pub fn toggle(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
+        validate_shortcut_source(&request)?;
         let _toggle = self
             .shared
             .toggle_serial
@@ -83,6 +84,7 @@ impl MacroRuntime {
 
     pub fn press(&self, request: MacroPressRequest) -> CoreResult<Vec<MacroRunStatus>> {
         validate_press_id(&request.press_id)?;
+        validate_shortcut_source(&request.start)?;
         let source_role_id = request.start.source_role_id.as_deref().ok_or_else(|| {
             CoreError::InvalidInput("macro press requires sourceRoleId".to_owned())
         })?;
@@ -588,6 +590,11 @@ impl MacroRuntime {
         }
         if let Some(source_role_id) = &request.source_role_id
             && !root.role_ids.contains(source_role_id)
+            && !crate::domain::macro_shortcut_source_contains(
+                &root.shortcut_source_scope,
+                &root.role_ids,
+                source_role_id,
+            )
         {
             return Err(CoreError::InvalidInput(
                 "macro is not assigned to the requested role".to_owned(),

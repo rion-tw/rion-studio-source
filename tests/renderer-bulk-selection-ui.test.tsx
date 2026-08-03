@@ -471,6 +471,7 @@ function macro(id: string, name: string): Macro {
     enabled: true,
     name,
     roleIds: [],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F2" }],
     createdAt: "2026-07-15T00:00:00.000Z",

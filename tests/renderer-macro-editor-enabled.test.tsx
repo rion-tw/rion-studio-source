@@ -78,6 +78,7 @@ it.each([
     expect(macroHelps[2].getAttribute("data-macro-help")).toBe("stop");
     expect(macroHelps[0].textContent).toContain("Starting and repeating");
     expect(macroHelps[0].textContent).toContain("every assigned role that is launched and controllable");
+    expect(macroHelps[0].textContent).toContain("do not become execution roles or receive macro steps");
     expect(macroHelps[0].textContent).toContain("Tap to toggle switches between starting and stopping");
     expect(macroHelps[0].textContent).toContain("0 ms interval removes only the extra wait");
     expect(macroHelps[1].textContent).toContain("Running other macros");
@@ -91,7 +92,7 @@ it.each([
     expect(macroHelps[2].textContent).toContain("cancels the parent");
     expect(macroHelps[2].textContent).toContain("does not stop the parent");
     expect(macroHelps[2].textContent).toContain("Closing any participating role stops the entire multi-role macro run");
-    expect([...macroHelps].map((help) => help.querySelectorAll("li").length)).toEqual([3, 4, 3]);
+    expect([...macroHelps].map((help) => help.querySelectorAll("li").length)).toEqual([4, 4, 3]);
     macroHelps.forEach((macroHelp) => {
       expect(macroHelp.querySelector("svg")).toBeNull();
       expect(macroHelp.querySelectorAll("section")).toHaveLength(1);
@@ -667,7 +668,7 @@ it("uses a removable multi-select combobox for assigned roles", async () => {
       </ConfirmationProvider>
     );
 
-    const rolePicker = screen.getByRole("combobox", { name: "Roles" });
+    const rolePicker = screen.getByRole("combobox", { name: "Execution roles" });
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getByRole("button", { name: "Remove Main role" })).toBeTruthy();
 
@@ -704,7 +705,7 @@ it("keeps the create-role prompt when no roles exist", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     expect(screen.getByText("Create roles before assigning macros.")).toBeTruthy();
-    expect(screen.queryByRole("combobox", { name: "Roles" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Execution roles" })).toBeNull();
   });
 });
 
@@ -768,6 +769,7 @@ function macro(overrides: Partial<Macro> = {}): Macro {
     enabled: true,
     name: "Auto heal",
     roleIds: ["role-1"],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F2" }],
     createdAt: "2026-07-15T00:00:00.000Z",

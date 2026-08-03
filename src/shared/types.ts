@@ -39,6 +39,7 @@ import type {
   MacroBadgePositionRecord,
   MacroRepeat as RustMacroRepeat,
   MacroSettingsRecord,
+  MacroShortcutSourceScope as RustMacroShortcutSourceScope,
   MacroStepDefinition,
   MacroTrigger as RustMacroTrigger,
   MacroUpdateRequest,
@@ -232,6 +233,8 @@ export type MacroKeyAction = "tap" | "hold_until_stop";
 export type MacroKeyModifier = "primary" | "ctrl" | "alt" | "shift" | "meta";
 
 export type MacroSettings = MacroSettingsRecord;
+
+export type MacroShortcutSourceScope = RustMacroShortcutSourceScope;
 
 export type MacroRepeat = RustMacroRepeat;
 

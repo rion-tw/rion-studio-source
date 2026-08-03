@@ -404,6 +404,9 @@ export class MemoryStateRepository {
       activationMode: input.activationMode ?? "toggle",
       name: input.name.trim(),
       roleIds: [...input.roleIds],
+      shortcutSourceScope: structuredClone(
+        input.shortcutSourceScope ?? { type: "all_execution_roles" as const }
+      ),
       ...(input.trigger ? { trigger: structuredClone(input.trigger) } : {}),
       repeat: structuredClone(input.repeat ?? { type: "once" }),
       steps: structuredClone(input.steps),
@@ -442,10 +445,27 @@ export class MemoryStateRepository {
   }
 
   async clearMacroRole(roleId: string): Promise<void> {
-    await this.replace("macros", (await this.listMacros()).map((macro) => ({
-      ...macro,
-      roleIds: macro.roleIds.filter((id) => id !== roleId)
-    })));
+    await this.replace("macros", (await this.listMacros()).map((macro) => {
+      const roleIds = macro.roleIds.filter((id) => id !== roleId);
+      if (macro.shortcutSourceScope.type !== "selected_roles") {
+        return { ...macro, roleIds };
+      }
+      const sourceRoleIds = macro.shortcutSourceScope.roleIds.filter((id) => id !== roleId);
+      if (sourceRoleIds.length > 0 || !macro.trigger) {
+        return {
+          ...macro,
+          roleIds,
+          shortcutSourceScope: { type: "selected_roles" as const, roleIds: sourceRoleIds }
+        };
+      }
+      return {
+        ...macro,
+        activationMode: macro.activationMode === "while_held" ? "toggle" as const : macro.activationMode,
+        roleIds,
+        shortcutSourceScope: { type: "all_execution_roles" as const },
+        trigger: undefined
+      };
+    }));
   }
 
   async invoke<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {

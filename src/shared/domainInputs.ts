@@ -37,6 +37,9 @@ export function toMacroCreateInput(input: CreateMacroInput): MacroCreateInputRec
     ...(input.activationMode === undefined ? {} : { activationMode: input.activationMode }),
     name: input.name,
     roleIds: [...input.roleIds],
+    ...(input.shortcutSourceScope === undefined
+      ? {}
+      : { shortcutSourceScope: structuredClone(input.shortcutSourceScope) }),
     ...(input.trigger ? { trigger: structuredClone(input.trigger) } : {}),
     ...(input.repeat === undefined ? {} : { repeat: structuredClone(input.repeat) }),
     steps: structuredClone(input.steps)
@@ -49,6 +52,9 @@ export function toMacroUpdateInput(input: UpdateMacroInput): MacroUpdateInputRec
     ...(input.activationMode === undefined ? {} : { activationMode: input.activationMode }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.roleIds === undefined ? {} : { roleIds: [...input.roleIds] }),
+    ...(input.shortcutSourceScope === undefined
+      ? {}
+      : { shortcutSourceScope: structuredClone(input.shortcutSourceScope) }),
     setTrigger: input.trigger !== undefined,
     ...(input.trigger ? { trigger: structuredClone(input.trigger) } : {}),
     ...(input.repeat === undefined ? {} : { repeat: structuredClone(input.repeat) }),

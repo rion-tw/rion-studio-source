@@ -39,12 +39,29 @@ describe("renderer macro list helpers", () => {
     expect(listIds({ macros, query: "alt", roles })).toEqual(["shared"]);
   });
 
+  it("searches shortcut source role names without changing the execution-role filter", () => {
+    const roles = [
+      role({ id: "role-1", name: "Executor" }),
+      role({ id: "role-controller", name: "Controller" })
+    ];
+    const controlled = macro({
+      id: "controlled",
+      roleIds: ["role-1"],
+      shortcutSourceScope: { type: "selected_roles", roleIds: ["role-controller"] }
+    });
+
+    expect(listIds({ macros: [controlled], query: "controller", roles })).toEqual(["controlled"]);
+    expect(listIds({ macros: [controlled], roleFilterId: "role-controller", roles })).toEqual([]);
+    expect(listIds({ macros: [controlled], roleFilterId: "role-1", roles })).toEqual(["controlled"]);
+  });
+
   it("searches tap-or-hold activation and held-key summaries", () => {
     const roles = [role({ id: "role-1", name: "Main" })];
     const held = macro({
       id: "held",
       activationMode: "while_held",
       roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
       steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
     });
 
@@ -70,24 +87,28 @@ describe("renderer macro list helpers", () => {
         id: "role-1-alpha",
         name: "Alpha",
         roleIds: ["role-1"],
+        shortcutSourceScope: { type: "all_execution_roles" as const },
         createdAt: "2026-01-01T00:00:00.000Z"
       }),
       macro({
         id: "role-2-beta",
         name: "Beta",
         roleIds: ["role-2"],
+        shortcutSourceScope: { type: "all_execution_roles" as const },
         createdAt: "2026-01-01T00:00:00.000Z"
       }),
       macro({
         id: "role-2-alpha-new",
         name: "Alpha",
         roleIds: ["role-2"],
+        shortcutSourceScope: { type: "all_execution_roles" as const },
         createdAt: "2026-01-02T00:00:00.000Z"
       }),
       macro({
         id: "role-2-alpha-old",
         name: "Alpha",
         roleIds: ["role-2"],
+        shortcutSourceScope: { type: "all_execution_roles" as const },
         createdAt: "2026-01-01T00:00:00.000Z"
       })
     ];
@@ -163,6 +184,7 @@ function macro(overrides: Partial<Macro>): Macro {
     enabled: true,
     name: "Macro",
     roleIds: [],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: "step", type: "key", code: "Tab", label: "Tab" }],
     createdAt: "2026-01-01T00:00:00.000Z",

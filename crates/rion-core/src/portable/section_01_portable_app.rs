@@ -12,15 +12,16 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        normalize_game_browser_settings, normalize_macro_settings, validate_game_browser_settings,
-        validate_macro_settings,
+        macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
+        validate_game_browser_settings, validate_macro_settings,
     },
     error::{CoreError, CoreResult},
     layout::normalize_rect_edges,
     macro_graph::validate_macro_graph,
     model::{
         CoreStateSnapshotRecord, GameBrowserSettingsRecord, GameWindowTabRecord, LayoutRect,
-        MacroSettingsRecord, MacroStepDefinition, MacroTrigger, PortableDataRecord,
+        MacroSettingsRecord, MacroShortcutSourceScope, MacroStepDefinition, MacroTrigger,
+        PortableDataRecord,
         PortableDataSelectionRecord, PortableExportResultRecord, PortableGameRecord,
         PortableGameWindowRecord, PortableImportOperationsRecord, PortableImportPreviewRecord,
         PortableImportResultRecord, PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
@@ -33,7 +34,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 14;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 15;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -103,7 +104,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     let workspaces = normalize_workspaces(object)?;
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
-    let macros = normalize_macros(object, true)?;
+    let macros = normalize_macros(object, true, schema)?;
     let game_windows = normalize_array(object, "gameWindows", normalize_game_window)?;
     ensure_unique_ids(&games, "id", "game")?;
     ensure_unique_ids(&roles, "id", "role")?;
@@ -451,6 +452,7 @@ fn normalize_slot(
 fn normalize_macros(
     object: &Map<String, Value>,
     supports_modifiers: bool,
+    schema: u64,
 ) -> CoreResult<Vec<Value>> {
     let values = object
         .get("macros")
@@ -458,11 +460,11 @@ fn normalize_macros(
         .ok_or_else(|| invalid("portable macros must be an array"))?;
     values
         .iter()
-        .map(|value| normalize_macro(value, supports_modifiers))
+        .map(|value| normalize_macro(value, supports_modifiers, schema))
         .collect()
 }
 
-fn normalize_macro(value: &Value, supports_modifiers: bool) -> CoreResult<Value> {
+fn normalize_macro(value: &Value, supports_modifiers: bool, schema: u64) -> CoreResult<Value> {
     let source = object(value, "macro")?;
     let role_ids = source
         .get("roleIds")
@@ -533,10 +535,60 @@ fn normalize_macro(value: &Value, supports_modifiers: bool) -> CoreResult<Value>
         json!(required_string(source, "name", "macro")?),
     );
     macro_value.insert("roleIds".to_owned(), json!(role_ids));
+    let shortcut_source_scope = normalize_portable_macro_shortcut_source_scope(
+        source,
+        schema,
+        trigger.is_some(),
+    )?;
+    macro_value.insert(
+        "shortcutSourceScope".to_owned(),
+        shortcut_source_scope,
+    );
     if let Some(trigger) = trigger {
         macro_value.insert("trigger".to_owned(), trigger);
     }
     macro_value.insert("repeat".to_owned(), repeat);
     macro_value.insert("steps".to_owned(), Value::Array(steps));
     Ok(Value::Object(macro_value))
+}
+
+fn normalize_portable_macro_shortcut_source_scope(
+    source: &Map<String, Value>,
+    schema: u64,
+    has_trigger: bool,
+) -> CoreResult<Value> {
+    if !has_trigger || schema < 15 {
+        return Ok(json!({ "type": "all_execution_roles" }));
+    }
+    let scope = source
+        .get("shortcutSourceScope")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("portable macro shortcutSourceScope is invalid"))?;
+    match scope.get("type").and_then(Value::as_str) {
+        Some("all_execution_roles") => Ok(json!({ "type": "all_execution_roles" })),
+        Some("selected_roles") => {
+            let role_ids = scope
+                .get("roleIds")
+                .and_then(Value::as_array)
+                .ok_or_else(|| invalid("portable macro shortcut source roleIds are invalid"))?
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro shortcut source roleId is invalid"))
+                })
+                .collect::<CoreResult<Vec<_>>>()?;
+            if role_ids.is_empty()
+                || role_ids.iter().collect::<HashSet<_>>().len() != role_ids.len()
+            {
+                return Err(invalid(
+                    "portable macro shortcut source roleIds are invalid",
+                ));
+            }
+            Ok(json!({ "type": "selected_roles", "roleIds": role_ids }))
+        }
+        _ => Err(invalid("portable macro shortcutSourceScope is invalid")),
+    }
 }

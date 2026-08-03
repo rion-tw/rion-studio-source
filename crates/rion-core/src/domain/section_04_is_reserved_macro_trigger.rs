@@ -498,6 +498,8 @@ struct MacroRecord {
     activation_mode: Option<String>,
     name: String,
     role_ids: Vec<String>,
+    #[serde(default)]
+    shortcut_source_scope: MacroShortcutSourceScope,
     repeat: ValidatedMacroRepeat,
     steps: Vec<MacroStep>,
     created_at: String,

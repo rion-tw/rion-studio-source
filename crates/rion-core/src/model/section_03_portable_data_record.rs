@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "14")]
+    #[ts(type = "15")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -45,7 +45,7 @@ pub struct PortableImportOperationsRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct PortableImportWarningRecord {
     #[ts(
-        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"LOCAL_STORAGE_SYNC_IGNORED\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"GAME_WINDOW_NAME_RENAMED\" | \"GAME_WINDOW_TAB_DEPENDENCY_MISSING\" | \"GAME_WINDOW_TAB_ROLE_CONFLICT\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
+        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"LOCAL_STORAGE_SYNC_IGNORED\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"GAME_WINDOW_NAME_RENAMED\" | \"GAME_WINDOW_TAB_DEPENDENCY_MISSING\" | \"GAME_WINDOW_TAB_ROLE_CONFLICT\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
     )]
     pub code: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -292,6 +292,9 @@ pub struct MacroCreateRequest {
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub shortcut_source_scope: Option<MacroShortcutSourceScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub trigger: Option<MacroTrigger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -316,6 +319,9 @@ pub struct MacroUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub role_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub shortcut_source_scope: Option<MacroShortcutSourceScope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub trigger: Option<MacroTrigger>,
@@ -564,6 +570,9 @@ pub struct MacroCreateInputRecord {
     pub role_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub shortcut_source_scope: Option<MacroShortcutSourceScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub trigger: Option<MacroTrigger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -587,6 +596,9 @@ pub struct MacroUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub role_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub shortcut_source_scope: Option<MacroShortcutSourceScope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub trigger: Option<MacroTrigger>,

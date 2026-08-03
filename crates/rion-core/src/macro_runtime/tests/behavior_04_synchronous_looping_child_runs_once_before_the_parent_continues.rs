@@ -24,6 +24,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Loop { interval_ms: 0 },
             steps: vec![MacroStepDefinition::Key {
@@ -225,6 +226,7 @@
                 activation_mode: Some("toggle".to_owned()),
                 name: "Child".to_owned(),
                 role_ids: vec!["r2".to_owned()],
+                shortcut_source_scope: Default::default(),
                 trigger: None,
                 repeat: MacroRepeat::Once,
                 steps: vec![],
@@ -275,6 +277,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Parent".to_owned(),
             role_ids: vec!["r1".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Macro {
@@ -289,6 +292,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Delay {
@@ -375,6 +379,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Child".to_owned(),
             role_ids: vec!["r3".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Key {
@@ -444,6 +449,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "C".to_owned(),
             role_ids: vec!["r3".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Key {
@@ -460,6 +466,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "B".to_owned(),
             role_ids: vec!["r2".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![
@@ -538,6 +545,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Key {

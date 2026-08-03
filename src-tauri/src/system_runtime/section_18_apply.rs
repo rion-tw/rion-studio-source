@@ -352,7 +352,7 @@ impl SystemRuntimeExecutor {
         let mut executed = Vec::new();
         let dispatch_result: RuntimeResult<()> = transition.effects.iter().try_for_each(|effect| {
             context.ensure_current()?;
-            dispatch_key_effect(&webview, effect, context)?;
+            dispatch_guarded_macro_key_effect(&webview, effect, context)?;
             executed.push(effect.clone());
             Ok(())
         });
@@ -574,7 +574,7 @@ impl SystemRuntimeExecutor {
     ) {
         let cleanup = self.cleanup_input_context(context);
         for effect in key_prefix_compensation(executed) {
-            if let Err(error) = dispatch_key_effect(webview, &effect, &cleanup) {
+            if let Err(error) = dispatch_guarded_macro_key_effect(webview, &effect, &cleanup) {
                 self.quarantine_role_input(role_id, &error);
                 break;
             }
@@ -741,14 +741,16 @@ impl SystemRuntimeExecutor {
             .iter()
             .filter(|effect| should_dispatch(&effect.code))
             .try_for_each(|effect| {
-                dispatch_key_effect(&webview, effect, context)?;
+                dispatch_guarded_macro_key_effect(&webview, effect, context)?;
                 executed.push(effect.clone());
                 Ok(())
             });
         if let Err(error) = result {
             let cleanup = self.cleanup_input_context(context);
             for effect in release_reasserted_key_effects(&executed) {
-                if let Err(cleanup_error) = dispatch_key_effect(&webview, &effect, &cleanup) {
+                if let Err(cleanup_error) =
+                    dispatch_guarded_macro_key_effect(&webview, &effect, &cleanup)
+                {
                     self.quarantine_role_input(role_id, &cleanup_error);
                     break;
                 }

@@ -120,6 +120,9 @@ const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.c
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str = concat!(
     include_str!("../../../src/shared/browser-overlay/macro-overlay-runtime/state-and-input.js"),
     include_str!(
+        "../../../src/shared/browser-overlay/macro-overlay-runtime/keyboard-input-guard.js"
+    ),
+    include_str!(
         "../../../src/shared/browser-overlay/macro-overlay-runtime/presentation-and-lifecycle.js"
     )
 );

@@ -14,7 +14,7 @@ impl NativeWindowActor {
                         let Ok(mut state) = lock.lock() else {
                             return;
                         };
-                        while state.requests.pending.is_none() && !state.stopped {
+                        while state.requests.is_empty() && !state.stopped {
                             let Ok(next) = changed.wait(state) else {
                                 return;
                             };
@@ -25,8 +25,7 @@ impl NativeWindowActor {
                         }
                         let mut observed_revision = state
                             .requests
-                            .pending
-                            .as_ref()
+                            .back()
                             .map(|request| request.revision)
                             .unwrap_or(0);
                         loop {
@@ -41,8 +40,7 @@ impl NativeWindowActor {
                             }
                             let latest_revision = state
                                 .requests
-                                .pending
-                                .as_ref()
+                                .back()
                                 .map(|request| request.revision)
                                 .unwrap_or(0);
                             if latest_revision != observed_revision {
@@ -53,7 +51,7 @@ impl NativeWindowActor {
                                 break;
                             }
                         }
-                        let Some(request) = state.requests.begin_latest() else {
+                        let Some(request) = state.requests.begin_next() else {
                             continue;
                         };
                         if let Ok(mut coordinator) = request.coordinator.lock() {
@@ -67,7 +65,7 @@ impl NativeWindowActor {
                                 .unwrap_or(request.requested_at),
                             first_revision: std::mem::take(&mut state.burst_first_revision),
                             request,
-                            request_count: std::mem::take(&mut state.burst_request_count),
+                            request_count: std::mem::take(&mut state.burst_request_count).max(1),
                         })
                     };
                     let Some(batch) = batch else {
@@ -101,24 +99,26 @@ impl NativeWindowActor {
                     };
                     if outcome.applied {
                         state.applied_revision = batch.request.revision;
+                        if let Some(window_visibility) = batch.request.window_visibility {
+                            state.applied_window_visibility = Some(window_visibility);
+                        }
+                    }
+                    if outcome.presentation_applied {
                         state.applied_tab_id = batch.request.tab_id.clone();
                         state.applied_surface_identities = presentation_owner_identities(
                             &batch.request.next_surfaces,
                             &batch.request.surface_owner_revisions,
                         );
                         state.applied_surfaces = batch.request.next_surfaces.clone();
-                        if let Some(window_visibility) = batch.request.window_visibility {
-                            state.applied_window_visibility = Some(window_visibility);
-                        }
                     }
                     state.last_receipt = Some(receipt.clone());
                     state.push_operation_receipt(receipt.operation.clone());
                     state.requests.finish();
-                    let has_pending = state.requests.pending.is_some();
+                    let has_pending = !state.requests.is_empty();
                     if let Ok(mut coordinator) = batch.request.coordinator.lock() {
                         coordinator.in_flight = false;
                         coordinator.scheduled = has_pending;
-                        if outcome.applied {
+                        if outcome.presentation_applied {
                             coordinator.applied_revision = batch.request.revision;
                             coordinator.applied_tab_id = batch.request.tab_id.clone();
                         }
@@ -142,7 +142,7 @@ impl NativeWindowActor {
         }
         if state.applied_revision == 0
             && !state.requests.in_flight
-            && state.requests.pending.is_none()
+            && state.requests.is_empty()
             && state.applied_surfaces.is_empty()
         {
             state.applied_tab_id = request.observed_previous_tab_id.clone();
@@ -152,20 +152,47 @@ impl NativeWindowActor {
             );
             state.applied_surfaces = request.observed_previous_surfaces.clone();
         }
-        if state.requests.pending.is_none() {
-            state.burst_first_requested_at = Some(request.requested_at);
-            state.burst_first_revision = request.revision;
+        let queue_was_empty = state.requests.is_empty();
+        let requested_at = request.requested_at;
+        let revision = request.revision;
+        let coordinator = Arc::clone(&request.coordinator);
+        let ordered = request.window_mode.is_some() || request.window_visibility.is_some();
+        let superseded = if ordered {
+            if let Err(rejected) = state.requests.enqueue_ordered(request) {
+                state.push_operation_receipt(NativeOperationReceipt::with_status(
+                    rejected.plan().operation,
+                    "nativePresentationQueueFull",
+                    NativeOperationStatus::Failed,
+                    Some("NATIVE_PRESENTATION_QUEUE_FULL"),
+                ));
+                return Err("The bounded native window control queue is full.".to_owned());
+            }
+            None
+        } else {
+            match state.requests.enqueue_latest(request) {
+                Ok(superseded) => superseded,
+                Err(rejected) => {
+                    state.push_operation_receipt(NativeOperationReceipt::with_status(
+                        rejected.plan().operation,
+                        "nativePresentationQueueFull",
+                        NativeOperationStatus::Failed,
+                        Some("NATIVE_PRESENTATION_QUEUE_FULL"),
+                    ));
+                    return Err("The bounded native presentation queue is full.".to_owned());
+                }
+            }
+        };
+        if queue_was_empty {
+            state.burst_first_requested_at = Some(requested_at);
+            state.burst_first_revision = revision;
             state.burst_request_count = 1;
         } else {
             state.burst_request_count = state.burst_request_count.saturating_add(1);
         }
-        if let Ok(mut coordinator) = request.coordinator.lock() {
+        if let Ok(mut coordinator) = coordinator.lock() {
             coordinator.scheduled = true;
         }
-        // The only pending destination is replaced in-place. The worker does not dequeue it
-        // until one short frame-coalescing interval has elapsed and the previous native batch
-        // has actually completed on the UI thread.
-        if let Some(superseded) = state.requests.replace(request) {
+        if let Some(superseded) = superseded {
             state.push_operation_receipt(NativeOperationReceipt::with_status(
                 superseded.plan().operation,
                 "nativePresentationQueued",
@@ -203,7 +230,8 @@ impl NativeWindowActor {
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
             state.stopped = true;
-            if let Some(superseded) = state.requests.pending.take() {
+            let superseded = state.requests.drain().collect::<Vec<_>>();
+            for superseded in superseded {
                 state.push_operation_receipt(NativeOperationReceipt::with_status(
                     superseded.plan().operation,
                     "nativePresentationStopped",

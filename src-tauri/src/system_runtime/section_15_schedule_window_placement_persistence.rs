@@ -4,9 +4,10 @@ impl SystemRuntimeExecutor {
         let should_spawn = self.state.lock().ok().is_some_and(|mut state| {
             let suppressed = state.display_hosts.iter().any(|(window_id, host)| {
                 host.window.label() == label
-                    && state
+                    && (state
                         .tab_drag_placement_suppressed_windows
                         .contains(window_id)
+                        || state.active_geometry_windows.contains(window_id))
             });
             if suppressed {
                 return false;

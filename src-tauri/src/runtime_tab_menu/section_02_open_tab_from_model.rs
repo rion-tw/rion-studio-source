@@ -529,27 +529,16 @@ pub async fn handle_scoped_action(
         let control = action["control"]
             .as_str()
             .ok_or_else(|| "runtime window control is required".to_owned())?;
-        let window = state
-            .runtime
-            .window_for_id(&window_id)
-            .ok_or_else(|| "runtime window was not found".to_owned())?;
         return match control {
-            "close" => window.close().map_err(|error| error.to_string()),
-            "minimize" => window.minimize().map_err(|error| error.to_string()),
-            "toggleFullscreen" => {
-                let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
-                window
-                    .set_fullscreen(!fullscreen)
-                    .map_err(|error| error.to_string())
-            }
-            "zoom" => {
-                let maximized = window.is_maximized().map_err(|error| error.to_string())?;
-                if maximized {
-                    window.unmaximize().map_err(|error| error.to_string())
-                } else {
-                    window.maximize().map_err(|error| error.to_string())
-                }
-            }
+            "close" => state
+                .runtime
+                .window_for_id(&window_id)
+                .ok_or_else(|| "runtime window was not found".to_owned())?
+                .close()
+                .map_err(|error| error.to_string()),
+            "minimize" => state.runtime.minimize_runtime_window(&window_id),
+            "toggleFullscreen" => state.runtime.toggle_runtime_window_fullscreen(&window_id),
+            "zoom" => state.runtime.toggle_runtime_window_maximized(&window_id),
             _ => Err("runtime window control is invalid".to_owned()),
         };
     }

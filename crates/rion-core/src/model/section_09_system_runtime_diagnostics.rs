@@ -37,7 +37,7 @@ pub struct SystemRuntimeOperationSummaryRecord {
     pub captured_at: String,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
-    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\"")]
+    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"geometry\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\" | \"shutdown\"")]
     pub subsystem: String,
     #[ts(type = "\"applied\" | \"superseded\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
     pub status: String,
@@ -150,6 +150,10 @@ pub struct SystemRuntimeInputFenceEventRecord {
     pub recovery_scheduled: bool,
 }
 
+fn default_system_runtime_shutdown_state() -> String {
+    "accepting".to_owned()
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -157,6 +161,9 @@ pub struct SystemRuntimeDiagnosticsRecord {
     pub contract_version: u32,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
+    #[serde(default = "default_system_runtime_shutdown_state")]
+    #[ts(type = "\"accepting\" | \"draining\" | \"closed\" | \"indeterminate\"")]
+    pub shutdown_state: String,
     pub healthy: bool,
     pub snapshot_complete: bool,
     pub collection_error_codes: Vec<String>,

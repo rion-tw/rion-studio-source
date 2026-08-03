@@ -207,9 +207,46 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       runtime.indexOf("pub fn reload_tab("),
       runtime.indexOf("pub fn set_tab_audio_muted(")
     );
-    expect(reloadTab).toMatch(/tab\s*\.roles/);
-    expect(reloadTab).toContain("webview.reload()");
-    expect(reloadTab).not.toContain("popup_roles");
+    expect(reloadTab).toContain("reload_tab_contract");
+    const reloadContract = runtime.slice(
+      runtime.indexOf("fn reload_tab_contract("),
+      runtime.indexOf("async fn wait_reload_input_ready(")
+    );
+    expect(reloadContract).toMatch(/tab\s*\.roles/);
+    expect(reloadContract).toContain("webview.reload()");
+    expect(reloadContract).toContain("begin_navigation_input_fence");
+    expect(reloadContract).not.toContain("popup_roles");
+    expect(runtime).toContain("begin_controlled_navigation_scope(");
+    expect(runtime).toContain("finish_controlled_navigation_scope(");
+
+    const shutdownContract = runtime.slice(
+      runtime.indexOf("pub fn close_all("),
+      runtime.indexOf("fn shutdown_role_ids(")
+    );
+    expect(shutdownContract).toContain("RuntimeShutdownState::Draining");
+    expect(shutdownContract).toContain("native_creation_slots.wait_for_idle(deadline)");
+    expect(shutdownContract).toContain("native_window_mutations.wait_for_idle(deadline)");
+    expect(shutdownContract.indexOf("clear_role_keys(role_id)")).toBeLessThan(
+      shutdownContract.indexOf("native_creation_slots.wait_for_idle(deadline)")
+    );
+    expect(shutdownContract.indexOf("wait_for_idle(deadline)")).toBeLessThan(
+      shutdownContract.indexOf("shutdown_surface_snapshot()")
+    );
+
+    const exitRequested = shell.slice(
+      shell.indexOf("tauri::RunEvent::ExitRequested"),
+      shell.indexOf("tauri::RunEvent::WindowEvent")
+    );
+    expect(exitRequested).toContain("api.prevent_exit()");
+    expect(exitRequested).toContain("spawn_blocking(move ||");
+    expect(exitRequested).toContain("runtime.close_all()");
+    expect(exitRequested).toContain("app.exit(0)");
+    const updateExit = shell.slice(
+      shell.indexOf("fn prepare_application_update_exit("),
+      shell.indexOf("fn prepare_application_update_install(")
+    );
+    expect(updateExit).toContain("application_shutdown_started");
+    expect(updateExit).toContain(".store(true, Ordering::Release)");
 
     expect(runtime).not.toContain("CompatibilitySurface");
     expect(runtime).not.toContain("create_compatibility_surface");
@@ -224,6 +261,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       runtime.indexOf("fn send_divider_indicators(")
     );
     expect(dividerPointer).toContain("persist_runtime_tab_role_views");
+    expect(dividerPointer).toContain("previous_active_resize");
+    expect(dividerPointer).toContain("state_rolled_back");
     expect(dividerPointer).not.toContain("persist_restore_session(false)");
     expect(runtime).toContain("pub fn restore_tab_role_views(");
 

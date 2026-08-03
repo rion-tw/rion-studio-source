@@ -1,3 +1,80 @@
+enum NativeLayoutMutation {
+    Bounds {
+        next_position: LogicalPosition<f64>,
+        next_size: LogicalSize<f64>,
+        previous_position: PhysicalPosition<i32>,
+        previous_size: tauri::PhysicalSize<u32>,
+        webview: Webview,
+    },
+    Zoom {
+        next: f64,
+        previous: f64,
+        webview: Webview,
+    },
+}
+
+impl NativeLayoutMutation {
+    fn apply(&self) -> Result<(), String> {
+        match self {
+            Self::Bounds {
+                next_position,
+                next_size,
+                webview,
+                ..
+            } => {
+                webview
+                    .set_position(*next_position)
+                    .map_err(|error| error.to_string())?;
+                webview
+                    .set_size(*next_size)
+                    .map_err(|error| error.to_string())
+            }
+            Self::Zoom { next, webview, .. } => {
+                webview.set_zoom(*next).map_err(|error| error.to_string())
+            }
+        }
+    }
+
+    fn rollback(&self) -> Result<(), String> {
+        match self {
+            Self::Bounds {
+                previous_position,
+                previous_size,
+                webview,
+                ..
+            } => {
+                webview
+                    .set_position(*previous_position)
+                    .map_err(|error| error.to_string())?;
+                webview
+                    .set_size(*previous_size)
+                    .map_err(|error| error.to_string())
+            }
+            Self::Zoom {
+                previous, webview, ..
+            } => webview
+                .set_zoom(*previous)
+                .map_err(|error| error.to_string()),
+        }
+    }
+}
+
+fn native_layout_bounds_mutation(
+    webview: Webview,
+    position: LogicalPosition<f64>,
+    size: LogicalSize<f64>,
+) -> RuntimeResult<NativeLayoutMutation> {
+    let previous_position = webview.position().map_err(RuntimeError::tauri)?;
+    let previous_size = webview.size().map_err(RuntimeError::tauri)?;
+    Ok(NativeLayoutMutation::Bounds {
+        next_position: position,
+        next_size: size,
+        previous_position,
+        previous_size,
+        webview,
+    })
+}
+
 impl SystemRuntimeExecutor {
     fn resolve_runtime_layout(
         &self,
@@ -84,7 +161,7 @@ impl SystemRuntimeExecutor {
         Ok((roles, dividers))
     }
 
-    fn layout_runtime_tab(&self, tab_id: &str) -> RuntimeResult<()> {
+    fn layout_runtime_tab_inner(&self, tab_id: &str) -> RuntimeResult<()> {
         let (
             window,
             role_views,
@@ -148,17 +225,6 @@ impl SystemRuntimeExecutor {
         let metrics = runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?;
         #[cfg(not(windows))]
         let metrics = runtime_window_content_metrics(&window)?;
-        #[cfg(windows)]
-        if let Some(tab_strip) = tab_strip {
-            tab_strip
-                .set_position(LogicalPosition::new(0.0, 0.0))
-                .map_err(RuntimeError::tauri)?;
-            tab_strip
-                .set_size(LogicalSize::new(metrics.width, tab_strip_height))
-                .map_err(RuntimeError::tauri)?;
-        }
-        #[cfg(not(windows))]
-        let _ = tab_strip;
         let role_inputs = role_views
             .iter()
             .map(|(_, _, _, _, input)| input.clone())
@@ -180,22 +246,35 @@ impl SystemRuntimeExecutor {
                 webview.clone(),
                 base_zoom,
                 effective_zoom_factor(base_zoom, window_zoom_factor),
+                effective_zoom_factor(*current_zoom, window_zoom_factor),
             ));
         }
-        for (role_id, webview, _, _, _) in role_views {
-            if let Some(bounds) = role_bounds.get(&role_id) {
-                webview
-                    .set_position(LogicalPosition::new(bounds.x, bounds.y))
-                    .map_err(RuntimeError::tauri)?;
-                webview
-                    .set_size(LogicalSize::new(bounds.width, bounds.height))
-                    .map_err(RuntimeError::tauri)?;
+        let mut mutations = Vec::new();
+        #[cfg(windows)]
+        if let Some(tab_strip) = tab_strip {
+            mutations.push(native_layout_bounds_mutation(
+                tab_strip,
+                LogicalPosition::new(0.0, 0.0),
+                LogicalSize::new(metrics.width, tab_strip_height),
+            )?);
+        }
+        #[cfg(not(windows))]
+        let _ = tab_strip;
+        for (role_id, webview, _, _, _) in &role_views {
+            if let Some(bounds) = role_bounds.get(role_id) {
+                mutations.push(native_layout_bounds_mutation(
+                    webview.clone(),
+                    LogicalPosition::new(bounds.x, bounds.y),
+                    LogicalSize::new(bounds.width, bounds.height),
+                )?);
             }
         }
-        for (_, webview, _, effective_zoom) in &zoom_updates {
-            webview
-                .set_zoom(*effective_zoom)
-                .map_err(RuntimeError::tauri)?;
+        for (_, webview, _, effective_zoom, previous_zoom) in &zoom_updates {
+            mutations.push(NativeLayoutMutation::Zoom {
+                next: *effective_zoom,
+                previous: *previous_zoom,
+                webview: webview.clone(),
+            });
         }
         let popup_updates = {
             let state = self.state()?;
@@ -205,39 +284,72 @@ impl SystemRuntimeExecutor {
                 .filter_map(|(label, popup_role_id)| {
                     zoom_updates
                         .iter()
-                        .find(|(role_id, _, _, _)| role_id == popup_role_id)
-                        .map(|(_, _, _, effective)| (label.clone(), *effective))
+                        .find(|(role_id, _, _, _, _)| role_id == popup_role_id)
+                        .map(|(_, _, _, effective, previous)| {
+                            (label.clone(), *effective, *previous)
+                        })
                 })
                 .collect::<Vec<_>>()
         };
-        for (label, effective_zoom) in popup_updates {
+        for (label, effective_zoom, previous_zoom) in popup_updates {
             if let Some(webview) = self.app.get_webview(&label) {
-                webview
-                    .set_zoom(effective_zoom)
-                    .map_err(RuntimeError::tauri)?;
-            }
-        }
-        if let Ok(mut state) = self.state()
-            && let Some(tab) = state.tabs.get_mut(tab_id)
-        {
-            for (role_id, _, base_zoom, _) in zoom_updates {
-                if let Some(surface) = tab.roles.get_mut(&role_id)
-                    && surface.zoom_mode == "adaptive"
-                {
-                    surface.zoom_factor = base_zoom;
-                }
+                mutations.push(NativeLayoutMutation::Zoom {
+                    next: effective_zoom,
+                    previous: previous_zoom,
+                    webview,
+                });
             }
         }
         for (index, descriptor, bounds) in divider_bounds {
             if let Some(webview) = divider_views.get(&index) {
                 let bounds = divider_hit_bounds(&descriptor.axis, bounds);
-                webview
-                    .set_position(LogicalPosition::new(bounds.x, bounds.y))
-                    .map_err(RuntimeError::tauri)?;
-                webview
-                    .set_size(LogicalSize::new(bounds.width, bounds.height))
-                    .map_err(RuntimeError::tauri)?;
+                mutations.push(native_layout_bounds_mutation(
+                    webview.clone(),
+                    LogicalPosition::new(bounds.x, bounds.y),
+                    LogicalSize::new(bounds.width, bounds.height),
+                )?);
             }
+        }
+        if let Err(failure) = apply_reversible_fanout(
+            &mutations,
+            |_, mutation| mutation.apply(),
+            |_, mutation| mutation.rollback(),
+        ) {
+            return Err(reversible_fanout_runtime_error(
+                "SYSTEM_GEOMETRY_APPLY_FAILED",
+                "Native runtime layout",
+                &failure,
+            ));
+        }
+        let state_commit = (|| -> RuntimeResult<()> {
+            let mut state = self.state()?;
+            let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "Runtime tab disappeared before native layout could commit.",
+                )
+            })?;
+            for (role_id, _, base_zoom, _, _) in &zoom_updates {
+                if let Some(surface) = tab.roles.get_mut(role_id)
+                    && surface.zoom_mode == "adaptive"
+                {
+                    surface.zoom_factor = *base_zoom;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = state_commit {
+            let failure = ReversibleFanoutFailure {
+                apply_error: error.message,
+                rollback_errors: rollback_reversible_fanout(&mutations, |_, mutation| {
+                    mutation.rollback()
+                }),
+            };
+            return Err(reversible_fanout_runtime_error(
+                "SYSTEM_GEOMETRY_APPLY_FAILED",
+                "Native runtime layout state commit",
+                &failure,
+            ));
         }
         Ok(())
     }

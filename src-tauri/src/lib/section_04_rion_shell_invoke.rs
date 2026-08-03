@@ -278,12 +278,12 @@ async fn rion_shell_invoke(
         }
         "hideGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            if let Some(runtime_window) = state.runtime.window_for_id(&window_id) {
-                runtime_window
-                    .hide()
-                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            if state.runtime.window_for_id(&window_id).is_some() {
+                state
+                    .runtime
+                    .hide_runtime_window(&window_id)
+                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error))?;
             }
-            state.runtime.publish_projection();
             Ok(Value::Null)
         }
         "stopGameWindow" => {
@@ -472,6 +472,11 @@ async fn rion_shell_invoke(
         "installDownloadedUpdate" => {
             prepare_application_update_install(&state)
                 .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
+            let runtime = Arc::clone(&state.runtime);
+            tauri::async_runtime::spawn_blocking(move || runtime.close_all())
+                .await
+                .map_err(|error| shell_error("SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE", error.to_string()))?;
+            state.core.shutdown();
             state
                 .updates
                 .install_downloaded()

@@ -10,7 +10,9 @@ impl SystemRuntimeExecutor {
         }
         if should_release_macros_for_navigation(url) {
             let controlled = self.state.lock().is_ok_and(|state| {
-                state.controlled_navigation_webviews.contains(webview_label)
+                state
+                    .controlled_navigation_webviews
+                    .contains_key(webview_label)
             });
             if !controlled
                 && let Err(error) = self.begin_navigation_input_fence(
@@ -323,6 +325,9 @@ impl SystemRuntimeExecutor {
                     .remove(role_id)
                     .and_then(|fence| fence.navigation_operation);
                 state
+                    .last_input_ready_epochs
+                    .insert(role_id.to_owned(), input_epoch);
+                state
                     .navigation_input_fences
                     .retain(|_, ticket| ticket.role_id != role_id);
                 operation
@@ -369,22 +374,23 @@ impl SystemRuntimeExecutor {
             ticket.input_epoch = input_epoch;
             ticket.surface_generation = generation;
         }
+        state.last_input_ready_epochs.remove(role_id);
         let superseded_operation = state
             .role_input_fences
             .insert(
-            role_id.to_owned(),
-            RoleInputFence {
-                input_epoch,
-                navigation_operation: None,
-                reason: reason.to_owned(),
-                started_at: Instant::now(),
-                drained: false,
-                surface_generation: generation,
-                recovery_scheduled: false,
-                reconciling: false,
-                resuming: false,
-            },
-        )
+                role_id.to_owned(),
+                RoleInputFence {
+                    input_epoch,
+                    navigation_operation: None,
+                    reason: reason.to_owned(),
+                    started_at: Instant::now(),
+                    drained: false,
+                    surface_generation: generation,
+                    recovery_scheduled: false,
+                    reconciling: false,
+                    resuming: false,
+                },
+            )
             .and_then(|fence| fence.navigation_operation);
         drop(state);
         if let Some(operation) = superseded_operation {
@@ -711,6 +717,7 @@ impl SystemRuntimeExecutor {
 
     fn discard_role_navigation_input_fences(&self, role_id: &str, reason: &str) {
         let discarded_epoch = self.state.lock().ok().and_then(|mut state| {
+            state.last_input_ready_epochs.remove(role_id);
             let fence = state.role_input_fences.remove(role_id)?;
             state
                 .navigation_input_fences

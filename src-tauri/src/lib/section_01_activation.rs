@@ -58,6 +58,7 @@ struct CoreState {
     _quick_menu: quick_menu::QuickMenu,
     core: Arc<AppCore>,
     application_exit_guard: ApplicationExitGuard,
+    application_shutdown_started: AtomicBool,
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
     quick_menu_refresh: quick_menu::RefreshCoordinator,
@@ -74,6 +75,9 @@ struct CoreState {
 pub(crate) fn prepare_application_update_exit(app: &AppHandle) {
     if let Some(state) = app.try_state::<CoreState>() {
         state.application_exit_guard.permit();
+        state
+            .application_shutdown_started
+            .store(true, Ordering::Release);
         state.runtime.close_all();
         state.core.shutdown();
     }

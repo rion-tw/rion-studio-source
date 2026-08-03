@@ -42,44 +42,6 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn close_all(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            let tabs = std::mem::take(&mut state.tabs);
-            let display_hosts = std::mem::take(&mut state.display_hosts);
-            let display_window_ids = display_hosts.keys().cloned().collect::<Vec<_>>();
-            let popup_labels = std::mem::take(&mut state.popup_roles)
-                .into_keys()
-                .collect::<Vec<_>>();
-            state.audible_webviews.clear();
-            state.launch_phases.clear();
-            state.overlay_capabilities.clear();
-            state.overlay_ready_webviews.clear();
-            state.role_tabs.clear();
-            state.allow_window_close_labels.extend(
-                display_hosts
-                    .values()
-                    .map(|host| host.window.label().to_owned()),
-            );
-            drop(state);
-            for (_, tab) in tabs {
-                for role_id in tab.roles.keys() {
-                    self.clear_role_keys(role_id);
-                }
-            }
-            for window_id in display_window_ids {
-                self.unregister_runtime_launcher_window(&window_id);
-            }
-            for (_, host) in display_hosts {
-                let _ = host.window.close();
-            }
-            for label in popup_labels {
-                if let Some(window) = self.app.get_webview_window(&label) {
-                    let _ = window.close();
-                }
-            }
-        }
-    }
-
     pub fn projection(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
         let role_names = self
             .core

@@ -348,6 +348,9 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn resize_window(&self, label: &str, physical_width: u32, physical_height: u32) -> bool {
+        if self.require_runtime_accepting().is_err() {
+            return false;
+        }
         let Some((window_id, window)) = self.state.lock().ok().and_then(|state| {
             state
                 .display_hosts
@@ -357,6 +360,14 @@ impl SystemRuntimeExecutor {
         }) else {
             return false;
         };
+        if self.state.lock().ok().is_some_and(|state| {
+            state.active_geometry_windows.contains(&window_id)
+        }) {
+            return false;
+        }
+        if self.native_window_mutations.is_busy(&window_id) {
+            return false;
+        }
         if !runtime_window_resize_is_actionable(
             physical_width,
             physical_height,
@@ -409,6 +420,9 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn move_window(self: &Arc<Self>, label: &str, physical_x: i32, physical_y: i32) {
+        if self.require_runtime_accepting().is_err() {
+            return;
+        }
         // Tauri window queries can synchronously marshal to AppKit's main thread.
         // Snapshot the native window while holding the runtime lock, then release
         // the lock before making any of those calls to avoid lock inversion with
@@ -451,6 +465,14 @@ impl SystemRuntimeExecutor {
         .flatten() else {
             return;
         };
+        if self.state.lock().ok().is_some_and(|state| {
+            state.active_geometry_windows.contains(&window_id)
+        }) {
+            return;
+        }
+        if self.native_window_mutations.is_busy(&window_id) {
+            return;
+        }
         if let Ok(mut state) = self.state.lock()
             && let Some(host) = state.display_hosts.get_mut(&window_id)
         {
@@ -473,54 +495,12 @@ impl SystemRuntimeExecutor {
         &self,
         target: EmbeddedLaunchTargetRecord,
     ) -> Result<bool, String> {
-        let Some(window) = self.window_for_id(&target.window_id) else {
-            return Ok(false);
-        };
-        if window.is_fullscreen().unwrap_or(false) {
-            window
-                .set_fullscreen(false)
-                .map_err(|error| error.to_string())?;
-        }
-        if window.is_maximized().unwrap_or(false) {
-            window.unmaximize().map_err(|error| error.to_string())?;
-        }
-        let (physical_x, physical_y) =
-            physical_window_position(target.bounds.x, target.bounds.y, target.scale_factor);
-        window
-            .set_position(PhysicalPosition::new(physical_x, physical_y))
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(LogicalSize::new(
-                target.bounds.width.max(1) as f64,
-                target.bounds.height.max(1) as f64,
-            ))
-            .map_err(|error| error.to_string())?;
-        let tab_ids = {
-            let mut state = self.state().map_err(|error| error.message)?;
-            if let Some(host) = state.display_hosts.get_mut(&target.window_id) {
-                host.target = target.clone();
-            }
-            state
-                .tabs
-                .iter()
-                .filter_map(|(tab_id, tab)| {
-                    (tab.window_id == target.window_id).then_some(tab_id.clone())
-                })
-                .collect::<Vec<_>>()
-        };
-        for tab_id in tab_ids {
-            self.layout_runtime_tab(&tab_id)
-                .map_err(|error| error.message)?;
-        }
-        match target.presentation.as_str() {
-            "fullscreen" => window
-                .set_fullscreen(true)
-                .map_err(|error| error.to_string())?,
-            "maximized" => window.maximize().map_err(|error| error.to_string())?,
-            _ => {}
-        }
-        self.publish_projection();
-        Ok(true)
+        self.apply_window_geometry_target(
+            &target,
+            GeometryMutationScope::WindowAndLayout,
+            "relocateGameWindow",
+        )
+        .map_err(|error| error.message)
     }
 
     pub fn focus_window(self: &Arc<Self>, label: &str) {
@@ -651,6 +631,7 @@ impl SystemRuntimeExecutor {
         if std::thread::Builder::new()
             .name("rion-runtime-window-resize".to_owned())
             .spawn(move || {
+                let mut native_blocked_since = None;
                 loop {
                     let next = runtime.state.lock().ok().and_then(|mut state| {
                         let next = state.pending_window_resizes.remove(&worker_label);
@@ -662,6 +643,33 @@ impl SystemRuntimeExecutor {
                     let Some((width, height)) = next else {
                         break;
                     };
+                    let native_busy = runtime
+                        .window_id_for_label(&worker_label)
+                        .is_some_and(|window_id| {
+                            runtime.native_window_mutations.is_busy(&window_id)
+                        });
+                    let shutdown_state = RuntimeShutdownState::from_raw(
+                        runtime.shutdown_state.load(Ordering::Acquire),
+                    );
+                    if native_resize_should_retry(
+                        native_busy,
+                        shutdown_state,
+                        native_blocked_since
+                            .map(|started: Instant| started.elapsed())
+                            .unwrap_or_default(),
+                    ) {
+                        native_blocked_since.get_or_insert_with(Instant::now);
+                        if let Ok(mut state) = runtime.state.lock() {
+                            state
+                                .pending_window_resizes
+                                .entry(worker_label.clone())
+                                .or_insert((width, height));
+                        }
+                        thread::sleep(Duration::from_millis(2));
+                        continue;
+                    } else {
+                        native_blocked_since = None;
+                    }
                     if runtime.resize_window(&worker_label, width, height) {
                         runtime.schedule_window_placement_persistence(worker_label.clone());
                     }
@@ -675,4 +683,14 @@ impl SystemRuntimeExecutor {
         }
     }
 
+}
+
+fn native_resize_should_retry(
+    native_busy: bool,
+    shutdown_state: RuntimeShutdownState,
+    blocked_for: Duration,
+) -> bool {
+    native_busy
+        && shutdown_state == RuntimeShutdownState::Accepting
+        && blocked_for < PLATFORM_CALLBACK_TIMEOUT
 }

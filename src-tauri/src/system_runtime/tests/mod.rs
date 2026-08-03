@@ -11,3 +11,4 @@ include!("behavior_08_native_presentation_contract_is_platform_neutral.rs");
 include!("behavior_09_native_operation_contract_is_shared.rs");
 include!("behavior_10_failed_launch_cleanup_is_idempotent.rs");
 include!("behavior_11_runtime_diagnostics_are_bounded_and_classified.rs");
+include!("behavior_12_geometry_reload_and_shutdown_contracts.rs");

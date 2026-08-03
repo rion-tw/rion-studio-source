@@ -445,6 +445,7 @@ struct RuntimeDivider {
     webview: Webview,
 }
 
+#[derive(Clone)]
 struct ActiveDividerResize {
     divider_index: u32,
     role_ids: Vec<String>,
@@ -563,7 +564,9 @@ impl NativePresentationReceipt {
             .window_visibility
             .zip(outcome.window_visible_after)
             .is_some_and(|(expected, actual)| expected != actual)
-            || (plan.focus.focuses_window() && outcome.window_focused_after == Some(false));
+            || (outcome.presentation_applied
+                && plan.focus.focuses_window()
+                && outcome.window_focused_after == Some(false));
         let deadline_exceeded = plan.operation.remaining().is_zero();
         let status = if !outcome.visibility_errors.is_empty() {
             NativePresentationStatus::Failed
@@ -595,7 +598,11 @@ impl NativePresentationReceipt {
                 },
             ),
             status,
-            surface_identities: plan.surface_identities.clone(),
+            surface_identities: if outcome.presentation_applied {
+                plan.surface_identities.clone()
+            } else {
+                HashSet::new()
+            },
             visible: outcome.window_visible_after,
             window_id: plan.window_id.clone(),
         }
@@ -645,12 +652,14 @@ struct NativePresentationRequest {
     focus: NativePresentationFocus,
     next_surface_identities: HashSet<(String, u64)>,
     next_surfaces: Vec<Webview>,
+    native_window_mutations: Arc<NativeWindowMutationRegistry>,
     observed_previous_tab_id: Option<String>,
     observed_previous_surfaces: Vec<Webview>,
     requested_at: Instant,
     revision: u64,
     surface_owner_revisions: HashMap<String, u64>,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
+    shutdown_state: Arc<AtomicU8>,
     tab_id: Option<String>,
     trigger: &'static str,
     window: Window,
@@ -697,6 +706,7 @@ struct NativePresentationBatch {
 
 struct NativePresentationOutcome {
     applied: bool,
+    presentation_applied: bool,
     focus_applied: bool,
     hidden_surface_count: usize,
     hide_ms: u64,
@@ -724,39 +734,6 @@ struct NativePresentationMutationPlan {
     requires_ui_thread: bool,
 }
 
-struct LatestOnlyPresentationQueue<T> {
-    in_flight: bool,
-    pending: Option<T>,
-}
-
-impl<T> Default for LatestOnlyPresentationQueue<T> {
-    fn default() -> Self {
-        Self {
-            in_flight: false,
-            pending: None,
-        }
-    }
-}
-
-impl<T> LatestOnlyPresentationQueue<T> {
-    fn replace(&mut self, value: T) -> Option<T> {
-        self.pending.replace(value)
-    }
-
-    fn begin_latest(&mut self) -> Option<T> {
-        if self.in_flight {
-            return None;
-        }
-        let latest = self.pending.take()?;
-        self.in_flight = true;
-        Some(latest)
-    }
-
-    fn finish(&mut self) {
-        self.in_flight = false;
-    }
-}
-
 #[derive(Default)]
 struct NativeWindowActorState {
     applied_revision: u64,
@@ -769,7 +746,7 @@ struct NativeWindowActorState {
     burst_first_requested_at: Option<Instant>,
     burst_first_revision: u64,
     burst_request_count: u32,
-    requests: LatestOnlyPresentationQueue<NativePresentationRequest>,
+    requests: NativePresentationQueue<NativePresentationRequest>,
     stopped: bool,
 }
 

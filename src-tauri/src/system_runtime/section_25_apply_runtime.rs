@@ -573,28 +573,16 @@ impl SystemRuntimeExecutor {
             .collect::<HashMap<_, _>>();
 
         if let Some(target) = target.as_ref()
-            && let Some(window) = self.window_for_id(&target.window_id)
         {
-            let fullscreen = window.is_fullscreen().unwrap_or(false);
+            let fullscreen = self
+                .window_for_id(&target.window_id)
+                .is_some_and(|window| window.is_fullscreen().unwrap_or(false));
             if runtime_target_requires_placement_reapply(&target.presentation, fullscreen) {
-                if fullscreen {
-                    window.set_fullscreen(false).map_err(RuntimeError::tauri)?;
-                }
-                if window.is_maximized().unwrap_or(false) {
-                    window.unmaximize().map_err(RuntimeError::tauri)?;
-                }
-                window
-                    .set_position(LogicalPosition::new(
-                        target.bounds.x as f64,
-                        target.bounds.y as f64,
-                    ))
-                    .map_err(RuntimeError::tauri)?;
-                window
-                    .set_size(LogicalSize::new(
-                        target.bounds.width.max(1) as f64,
-                        target.bounds.height.max(1) as f64,
-                    ))
-                    .map_err(RuntimeError::tauri)?;
+                self.apply_window_geometry_target(
+                    target,
+                    GeometryMutationScope::WindowAndLayout,
+                    "applyRuntimePlacement",
+                )?;
             }
         }
 

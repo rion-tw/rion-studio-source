@@ -128,12 +128,14 @@ impl SystemRuntimeExecutor {
             native_creation_slots: NativeCreationGate::new(native_creation_limit(
                 current_runtime_platform(),
             )),
+            native_window_mutations: Arc::new(NativeWindowMutationRegistry::default()),
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
             prewarm_state: AtomicU8::new(0),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
+            shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
                 recovery_required,
@@ -345,6 +347,26 @@ impl SystemRuntimeExecutor {
         action_name: &'static str,
         persist_runtime: bool,
     ) -> Result<(), String> {
+        if RuntimeShutdownState::from_raw(self.shutdown_state.load(Ordering::Acquire))
+            != RuntimeShutdownState::Accepting
+            && !is_surface_close_effect(&effect.action)
+        {
+            return self
+                .core
+                .dispatch_core_effect_results(vec![CoreEffectResult {
+                    effect_id: effect.effect_id,
+                    operation_id: effect.operation_id,
+                    ok: false,
+                    value_json: None,
+                    error: Some(rion_core::CoreErrorPayload {
+                        code: "SYSTEM_RUNTIME_SHUTTING_DOWN".to_owned(),
+                        message: "The System WebView runtime is shutting down and rejected new native work."
+                            .to_owned(),
+                    }),
+                }])
+                .map(|_| ())
+                .map_err(|error| error.to_string());
+        }
         let presentation_revision = self.presentation.current_revision();
         if is_surface_close_effect(&effect.action)
             || is_independent_tab_launch_effect(&effect.action)

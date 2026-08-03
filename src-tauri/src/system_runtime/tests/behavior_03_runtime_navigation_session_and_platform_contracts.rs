@@ -15,31 +15,6 @@ use uuid::Uuid;
     }
 
     #[test]
-    fn runtime_tab_reload_attempts_every_role_surface_and_reports_the_first_error() {
-        let mut attempted = Vec::new();
-        let error = reload_runtime_tab_handles(["role-a", "destroyed", "role-b"], |label| {
-            attempted.push(label);
-            if label == "destroyed" {
-                Err("WebView was destroyed")
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap_err();
-
-        assert_eq!(attempted, ["role-a", "destroyed", "role-b"]);
-        assert_eq!(error, "WebView was destroyed");
-
-        let mut single_attempt = Vec::new();
-        reload_runtime_tab_handles(["role-only"], |label| {
-            single_attempt.push(label);
-            Ok::<_, &str>(())
-        })
-        .unwrap();
-        assert_eq!(single_attempt, ["role-only"]);
-    }
-
-    #[test]
     fn macro_release_is_limited_to_top_level_game_page_navigation_schemes() {
         for url in ["https://game.example/", "http://game.example/"] {
             assert!(should_release_macros_for_navigation(

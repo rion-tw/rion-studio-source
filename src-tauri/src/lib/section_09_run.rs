@@ -281,6 +281,7 @@ pub fn run() {
                 _quick_menu: quick_menu,
                 core,
                 application_exit_guard: ApplicationExitGuard::default(),
+                application_shutdown_started: AtomicBool::new(false),
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
                 quick_menu_refresh: quick_menu_refresh.clone(),
@@ -388,6 +389,16 @@ pub fn run() {
                         let _ = app_handle.emit("rion://application-quit-requested", ());
                         return;
                     }
+                    if state
+                        .application_shutdown_started
+                        .swap(true, Ordering::AcqRel)
+                    {
+                        if !state.runtime.shutdown_is_terminal() {
+                            api.prevent_exit();
+                        }
+                        return;
+                    }
+                    api.prevent_exit();
                     let _ = state.runtime.persist_all_game_window_placements();
                     if let Err(error) = state.runtime.persist_restore_session(true) {
                         let _ = app_handle.emit(
@@ -398,7 +409,14 @@ pub fn run() {
                             }),
                         );
                     }
-                    state.runtime.close_all();
+                    let runtime = Arc::clone(&state.runtime);
+                    let core = Arc::clone(&state.core);
+                    let app = app_handle.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        runtime.close_all();
+                        core.shutdown();
+                        app.exit(0);
+                    });
                 }
                 tauri::RunEvent::WindowEvent { label, event, .. } => {
                     let Some(state) = app_handle.try_state::<CoreState>() else {

@@ -5,6 +5,7 @@ fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms
         (NativeOperationSubsystem::Navigation, "pageFinished"),
         (NativeOperationSubsystem::Input, "nativeSubmission"),
         (NativeOperationSubsystem::Presentation, "nativeAcknowledgement"),
+        (NativeOperationSubsystem::Geometry, "nativeAcknowledgement"),
         (NativeOperationSubsystem::Popup, "stateCommit"),
         (NativeOperationSubsystem::Security, "nativeAcknowledgement"),
         (NativeOperationSubsystem::Session, "stateCommit"),
@@ -13,6 +14,7 @@ fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms
         (NativeOperationSubsystem::Metadata, "nativeSubmission"),
         (NativeOperationSubsystem::Performance, "runtimeProbe"),
         (NativeOperationSubsystem::Capability, "runtimeProbe"),
+        (NativeOperationSubsystem::Shutdown, "nativeAcknowledgement"),
     ];
     for platform in ["macos", "windows"] {
         for (subsystem, completion_scope) in cases {

@@ -172,22 +172,28 @@ impl SystemRuntimeExecutor {
         self.state.lock().is_ok_and(|state| {
             should_defer_document_navigation(
                 "windows",
-                state.controlled_navigation_webviews.contains(webview_label),
+                state
+                    .controlled_navigation_webviews
+                    .contains_key(webview_label),
             )
         })
     }
 
     fn begin_controlled_navigation(&self, webview_label: &str) -> RuntimeResult<()> {
-        self.state()?
-            .controlled_navigation_webviews
-            .insert(webview_label.to_owned());
+        begin_controlled_navigation_scope(
+            &mut self.state()?.controlled_navigation_webviews,
+            webview_label,
+        );
         Ok(())
     }
 
     fn finish_controlled_navigations(&self, webview_labels: &[String]) {
         if let Ok(mut state) = self.state.lock() {
             for label in webview_labels {
-                state.controlled_navigation_webviews.remove(label);
+                finish_controlled_navigation_scope(
+                    &mut state.controlled_navigation_webviews,
+                    label,
+                );
             }
         }
     }
@@ -521,4 +527,20 @@ impl SystemRuntimeExecutor {
         }
     }
 
+}
+
+fn begin_controlled_navigation_scope(scopes: &mut HashMap<String, u32>, webview_label: &str) {
+    let depth = scopes.entry(webview_label.to_owned()).or_default();
+    *depth = depth.saturating_add(1);
+}
+
+fn finish_controlled_navigation_scope(scopes: &mut HashMap<String, u32>, webview_label: &str) {
+    let Some(depth) = scopes.get_mut(webview_label) else {
+        return;
+    };
+    if *depth <= 1 {
+        scopes.remove(webview_label);
+    } else {
+        *depth -= 1;
+    }
 }

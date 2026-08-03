@@ -13,6 +13,7 @@ impl AppCore {
         &self,
         workspace_id: &str,
         acquire_operation_lease: bool,
+        parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
         let initial_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
@@ -96,16 +97,16 @@ impl AppCore {
             // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
             let (workspace, tab_id, next_active_tab_id) = prepared;
-            self.run_effect_plan(vec![effect_step(
+            self.run_embedded_runtime_effect(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
                     attempt_generation: None,
                     next_active_tab_id,
                 },
-                Duration::from_secs(12),
                 None,
-            )])?;
+                parent_operation_id,
+            )?;
 
             {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
@@ -226,9 +227,9 @@ impl AppCore {
 
         for (tab_type, source_id) in sources {
             if tab_type == "workspace" {
-                self.stop_embedded_workspace_with_operation_lease(&source_id, true)?;
+                self.stop_embedded_workspace_with_operation_lease(&source_id, true, None)?;
             } else {
-                self.stop_embedded_role_with_operation_lease(&source_id, true)?;
+                self.stop_embedded_role_with_operation_lease(&source_id, true, None)?;
             }
         }
 
@@ -682,115 +683,6 @@ impl AppCore {
         validate_runtime_game_window_snapshot(&snapshot, &input)?;
 
         self.mutate_state(StateMutation::GameWindowSaveRuntime(input))
-    }
-
-    fn apply_embedded_runtime_command(
-        &self,
-        commands: Vec<BrowserRuntimeCommand>,
-        target: Option<EmbeddedLaunchTargetRecord>,
-        reveal_window_ids: Vec<String>,
-        focus_window_ids: Vec<String>,
-        focus_tab_id: Option<String>,
-        focus_active_window_id: Option<String>,
-    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        let _sequence = self.embedded_runtime_sequence.acquire()?;
-        self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
-            commands,
-            target,
-            reveal_window_ids,
-            focus_window_ids,
-            focus_tab_id,
-            focus_active_window_id,
-            parent_operation_id: None,
-        })
-    }
-
-    fn apply_embedded_tab_mutation(
-        &self,
-        request: crate::model::RuntimeTabMutationRequestRecord,
-        target: Option<EmbeddedLaunchTargetRecord>,
-        before_tab_id: Option<String>,
-    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        let _sequence = self.embedded_runtime_sequence.acquire()?;
-        let (commands, reveal_window_ids, focus_window_ids, focus_tab_id) =
-            match request.mutation_kind.as_str() {
-                "hide" => (
-                    vec![BrowserRuntimeCommand::HideTab {
-                        tab_id: request.tab_id.clone(),
-                    }],
-                    Vec::new(),
-                    Vec::new(),
-                    None,
-                ),
-                "reorder" => (
-                    vec![BrowserRuntimeCommand::ReorderTab {
-                        tab_id: request.tab_id.clone(),
-                        before_tab_id,
-                    }],
-                    Vec::new(),
-                    Vec::new(),
-                    None,
-                ),
-                "move" | "moveToNewWindow" => {
-                    let target = target.as_ref().ok_or_else(|| CoreError::Domain {
-                        code: "TAB_MUTATION_TARGET_REQUIRED",
-                        message: "A move mutation requires a target Game Window.".to_owned(),
-                    })?;
-                    let mut commands = vec![BrowserRuntimeCommand::MoveTab {
-                        tab_id: request.tab_id.clone(),
-                        window_id: target.window_id.clone(),
-                    }];
-                    if before_tab_id.is_some() {
-                        commands.push(BrowserRuntimeCommand::ReorderTab {
-                            tab_id: request.tab_id.clone(),
-                            before_tab_id,
-                        });
-                    }
-                    (
-                        commands,
-                        vec![target.window_id.clone()],
-                        vec![target.window_id.clone()],
-                        Some(request.tab_id.clone()),
-                    )
-                }
-                _ => {
-                    return Err(CoreError::Domain {
-                        code: "TAB_MUTATION_KIND_INVALID",
-                        message: "The tab mutation kind is unsupported by this transaction."
-                            .to_owned(),
-                    });
-                }
-            };
-        self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
-            commands,
-            target,
-            reveal_window_ids,
-            focus_window_ids,
-            focus_tab_id,
-            focus_active_window_id: None,
-            parent_operation_id: Some(request.operation_id),
-        })
-    }
-
-    fn serialized_embedded_tab_mutation(
-        &self,
-        request: crate::model::RuntimeTabMutationRequestRecord,
-        target: Option<EmbeddedLaunchTargetRecord>,
-        before_tab_id: Option<String>,
-    ) -> CoreResult<Value> {
-        serde_json::to_value(self.apply_embedded_tab_mutation(request, target, before_tab_id)?)
-            .map_err(|error| CoreError::Internal(error.to_string()))
-    }
-
-    fn serialized_browser_runtime_snapshot(&self) -> CoreResult<Value> {
-        let snapshot = self
-            .browser_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-            .snapshot();
-        serde_json::to_value(snapshot).map_err(|error| CoreError::Internal(error.to_string()))
     }
 
 }

@@ -788,6 +788,7 @@ impl AppCore {
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleStop { .. }
             | CoreCommand::BrowserWorkspaceStop { .. }
+            | CoreCommand::EmbeddedTabStop { .. }
             | CoreCommand::BrowserWindowStop { .. }
             | CoreCommand::BrowserWindowDelete { .. } => Err(CoreError::Internal(
                 "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),

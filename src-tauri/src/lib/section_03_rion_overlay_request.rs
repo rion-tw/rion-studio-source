@@ -261,6 +261,21 @@ async fn rion_runtime_tab_action(
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });
     }
+    if action.get("type").and_then(Value::as_str) == Some("stop") {
+        let tab_id = action["tabId"]
+            .as_str()
+            .filter(|tab_id| !tab_id.is_empty())
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "runtime tab ID is required",
+                )
+            })?;
+        let receipt = execute_tab_stop(&state, tab_id).await?;
+        return serde_json::to_value(receipt).map_err(|error| {
+            shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+        });
+    }
     if matches!(
         action.get("type").and_then(Value::as_str),
         Some("hide" | "move" | "reorder")

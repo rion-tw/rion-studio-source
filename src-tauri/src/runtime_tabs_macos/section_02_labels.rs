@@ -318,7 +318,6 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             return;
         }
         let target_window_id = target_window_id.or(host_window_id);
-        let preview_tab_id = tab_id.clone();
         if matches!(
             action_type.as_str(),
             "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
@@ -345,36 +344,11 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             }
             return;
         }
-        if action_type == "stop"
-            && let Some(tab_id) = tab_id.as_deref()
-            && state.runtime.cancel_provisional_tab_launch(tab_id)
-        {
-            return;
-        }
-        let previewed_stop_command = if action_type == "stop" {
+        if matches!(action_type.as_str(), "hide" | "reorder" | "move" | "stop") {
             let Some(tab_id) = tab_id.as_deref() else {
                 return;
             };
-            match state.runtime.preview_tab_close(tab_id) {
-                Ok(intent) => Some(intent.into_core_command()),
-                Err(message) => {
-                    crate::reveal_shell_error(
-                        &app,
-                        crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
-                    );
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-        let command = match action_type.as_str() {
-            "hide" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabHide { tab_id }),
-            "reorder" => tab_id.map(|tab_id| CoreCommand::EmbeddedTabReorder {
-                tab_id,
-                before_tab_id,
-            }),
-            "move" => tab_id.and_then(|tab_id| {
+            let target = if action_type == "move" {
                 let Some(window_id) = target_window_id.as_deref() else {
                     crate::reveal_shell_error(
                         &app,
@@ -383,17 +357,41 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                             "Target Game Window was not found.",
                         ),
                     );
-                    return None;
+                    return;
                 };
                 match crate::launch_target_for_game_window(&app, window_id) {
-                    Ok(target) => Some(CoreCommand::EmbeddedTabMove { tab_id, target }),
+                    Ok(target) => Some(target),
                     Err(error) => {
                         crate::reveal_shell_error(&app, error);
-                        None
+                        return;
                     }
                 }
-            }),
-            "stop" => previewed_stop_command,
+            } else {
+                None
+            };
+            let result = if action_type == "stop" {
+                crate::execute_tab_stop(&state, tab_id).await
+            } else {
+                crate::execute_tab_mutation(
+                    &state,
+                    &action_type,
+                    tab_id,
+                    target,
+                    before_tab_id,
+                )
+                .await
+            };
+            let result = result.and_then(|receipt| {
+                crate::runtime_operation_receipt_result(receipt).map_err(|code| {
+                    crate::shell_error(&code, "Runtime tab mutation did not converge.")
+                })
+            });
+            if let Err(error) = result {
+                crate::reveal_shell_error(&app, error);
+            }
+            return;
+        }
+        match action_type.as_str() {
             "openLauncher" => {
                 if let Some(window_id) = target_window_id.as_deref()
                     && let Err(message) = crate::runtime_tab_menu::open_launcher(&app, window_id)
@@ -403,7 +401,6 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                         crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
                     );
                 }
-                None
             }
             "openTabMenu" => {
                 if let Some(tab_id) = tab_id.as_deref()
@@ -414,30 +411,10 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
                         crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
                     );
                 }
-                None
             }
-            _ => None,
-        };
-        let _ = source_window_id;
-        if let Some(command) = command {
-            let result = state.core.invoke_async(command).await;
-            if action_type == "stop"
-                && let Some(tab_id) = preview_tab_id.as_deref()
-            {
-                state
-                    .runtime
-                    .resolve_tab_close_preview(tab_id, result.is_ok());
-            }
-            if let Err(error) = result {
-                crate::reveal_shell_error(&app, error.payload());
-            }
-        } else if action_type == "stop"
-            && let Some(tab_id) = preview_tab_id.as_deref()
-        {
-            // The native control already removed the item optimistically. If the
-            // scoped command could not be created, repaint the authoritative tab.
-            state.runtime.cancel_tab_close_preview(tab_id);
+            _ => {}
         }
+        let _ = source_window_id;
     });
 }
 

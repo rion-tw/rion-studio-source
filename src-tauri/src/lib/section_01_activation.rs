@@ -27,8 +27,8 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use activation::ActivationServer;
 use system_runtime::{
-    RuntimeTabDragTerminalStatus, RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor,
-    RuntimeTabMutationTerminalStatus, TabActivationComponentStatus,
+    RuntimeTabDragTerminalStatus, RuntimeTabDragWindowSnapshot, RuntimeTabMutationAcceptance,
+    RuntimeTabMutationTerminalStatus, SystemRuntimeExecutor, TabActivationComponentStatus,
 };
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";

@@ -11,7 +11,9 @@ use std::{
     use super::*;
     use crate::{
         error::CoreErrorPayload,
-        model::{CoreEffectRequest, CoreEffectResult, StatePixelBoundsRecord},
+        model::{
+            BrowserRuntimeSnapshot, CoreEffectRequest, CoreEffectResult, StatePixelBoundsRecord,
+        },
     };
 
     fn command(mut value: Value) -> CoreCommand {
@@ -444,6 +446,33 @@ use std::{
             },
             target: Some(target),
             before_tab_id: None,
+        }
+    }
+
+    fn embedded_tab_stop_mutation_command(
+        parent_operation_id: &str,
+        tab_id: &str,
+        source_window_id: &str,
+        source_id: &str,
+    ) -> CoreCommand {
+        CoreCommand::EmbeddedTabStop {
+            request: crate::model::RuntimeTabMutationRequestRecord {
+                operation_id: parent_operation_id.to_owned(),
+                mutation_kind: "stop".to_owned(),
+                tab_id: tab_id.to_owned(),
+                source_window_id: source_window_id.to_owned(),
+                source_window_generation: 7,
+                target_window_id: None,
+                target_window_generation: None,
+                lifecycle_epoch: 3,
+                topology_revision: 5,
+                presentation_revision: 13,
+                reorder_target_index: None,
+                expected_tab_order: Vec::new(),
+                expected_active_tab_id: None,
+            },
+            source_id: source_id.to_owned(),
+            tab_type: "role".to_owned(),
         }
     }
 

@@ -222,22 +222,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             }
         });
     } else if let Some(tab_id) = id.strip_prefix(STOP_PREFIX) {
-        match state.runtime.preview_tab_close(tab_id) {
-            Ok(intent) => {
-                let app = app.clone();
-                let core = std::sync::Arc::clone(&state.core);
-                let runtime = std::sync::Arc::clone(&state.runtime);
-                let tab_id = tab_id.to_owned();
-                tauri::async_runtime::spawn(async move {
-                    let result = core.invoke_async(intent.into_core_command()).await;
-                    runtime.resolve_tab_close_preview(&tab_id, result.is_ok());
-                    if let Err(error) = result {
-                        crate::reveal_shell_error(&app, error.payload());
-                    }
-                });
-            }
-            Err(message) => reveal_menu_error(app, message),
-        }
+        spawn_tab_stop(app, tab_id);
     } else if let Some(tab_id) = id.strip_prefix(MUTE_PREFIX) {
         match current_tab_muted(&state, tab_id) {
             Ok(muted) => {
@@ -559,19 +544,14 @@ pub async fn handle_scoped_action(
         .as_str()
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "runtime tab ID is required".to_owned())?;
-    if action_type == "stop" && state.runtime.cancel_provisional_tab_launch(tab_id) {
-        return Ok(());
-    }
     if action_type == "activate" {
         return crate::preview_and_commit_native_tab_selection(app, state, tab_id);
     }
     if action_type == "stop" {
-        let intent = state.runtime.preview_tab_close(tab_id)?;
-        let result = state.core.invoke_async(intent.into_core_command()).await;
-        state
-            .runtime
-            .resolve_tab_close_preview(tab_id, result.is_ok());
-        return result.map(|_| ()).map_err(|error| error.to_string());
+        return crate::execute_tab_stop(state, tab_id)
+            .await
+            .map_err(|error| format!("{}: {}", error.code, error.message))
+            .and_then(crate::runtime_operation_receipt_result);
     }
     let snapshot = snapshot(&state.core)?;
     let tab = snapshot
@@ -651,6 +631,24 @@ fn spawn_tab_mutation(
         });
         if let Err(error) = result {
             crate::reveal_shell_error(&app, error);
+        }
+    });
+}
+
+fn spawn_tab_stop(app: &AppHandle, tab_id: &str) {
+    let app = app.clone();
+    let tab_id = tab_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let Some(state) = app.try_state::<crate::CoreState>() else {
+            reveal_menu_error(&app, "runtime state is unavailable");
+            return;
+        };
+        let result = crate::execute_tab_stop(&state, &tab_id)
+            .await
+            .map_err(|error| error.message)
+            .and_then(crate::runtime_operation_receipt_result);
+        if let Err(message) = result {
+            reveal_menu_error(&app, message);
         }
     });
 }

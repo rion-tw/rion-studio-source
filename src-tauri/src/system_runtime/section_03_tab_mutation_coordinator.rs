@@ -9,7 +9,7 @@ struct TabMutationCoordinator {
 struct TabMutationLane {
     gate: Arc<tokio::sync::Mutex<()>>,
     queued: AtomicUsize,
-    stopping: AtomicBool,
+    stop_operation_id: Mutex<Option<String>>,
 }
 
 impl TabMutationLane {
@@ -26,6 +26,24 @@ impl TabMutationLane {
     fn finish_queued(&self) {
         self.queued.fetch_sub(1, Ordering::AcqRel);
     }
+}
+
+fn classify_active_tab_stop(
+    active_operation_id: Option<&str>,
+    mutation_kind: &str,
+) -> RuntimeResult<Option<RuntimeTabMutationAcceptance>> {
+    let Some(operation_id) = active_operation_id else {
+        return Ok(None);
+    };
+    if mutation_kind == "stop" {
+        return Ok(Some(RuntimeTabMutationAcceptance::ExistingStop(
+            operation_id.to_owned(),
+        )));
+    }
+    Err(RuntimeError::new(
+        "TAB_MUTATION_CLOSING",
+        "The runtime tab is already closing.",
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,10 +75,21 @@ pub(crate) struct RuntimeTabMutationOperation {
     pub(crate) request: RuntimeTabMutationRequestRecord,
 }
 
+pub(crate) enum RuntimeTabMutationAcceptance {
+    Accepted(Box<RuntimeTabMutationOperation>),
+    ExistingStop(String),
+}
+
 impl Drop for RuntimeTabMutationOperation {
     fn drop(&mut self) {
         if self.queued {
             self.lane.finish_queued();
+            if self.request.mutation_kind == "stop"
+                && let Ok(mut active) = self.lane.stop_operation_id.lock()
+                && active.as_deref() == Some(self.request.operation_id.as_str())
+            {
+                *active = None;
+            }
         }
     }
 }
@@ -79,7 +108,7 @@ impl SystemRuntimeExecutor {
         target_window_id: Option<&str>,
         before_tab_id: Option<&str>,
         topology_revision: u64,
-    ) -> RuntimeResult<RuntimeTabMutationOperation> {
+    ) -> RuntimeResult<RuntimeTabMutationAcceptance> {
         self.require_runtime_accepting()?;
         if !matches!(
             mutation_kind,
@@ -90,12 +119,43 @@ impl SystemRuntimeExecutor {
                 "The tab mutation kind is invalid.",
             ));
         }
-        let source_window_id = self.tab_window_id(tab_id).ok_or_else(|| {
-            RuntimeError::new(
-                "TAURI_RUNTIME_TAB_NOT_FOUND",
-                "The runtime tab was not found.",
+        let lane = {
+            let mut lanes = self.tab_mutations.lanes.lock().map_err(|_| {
+                RuntimeError::new(
+                    "TAB_MUTATION_COORDINATOR_UNAVAILABLE",
+                    "The tab mutation coordinator is unavailable.",
+                )
+            })?;
+            Arc::clone(
+                lanes
+                    .entry(tab_id.to_owned())
+                    .or_insert_with(|| Arc::new(TabMutationLane::default())),
             )
-        })?;
+        };
+        let active_stop = lane
+            .stop_operation_id
+            .lock()
+            .map_err(|_| {
+                RuntimeError::new(
+                    "TAB_MUTATION_COORDINATOR_UNAVAILABLE",
+                    "The tab mutation stop state is unavailable.",
+                )
+            })?
+            .clone();
+        if let Some(acceptance) =
+            classify_active_tab_stop(active_stop.as_deref(), mutation_kind)?
+        {
+            return Ok(acceptance);
+        }
+        let source_window_id = self
+            .tab_window_id(tab_id)
+            .or_else(|| self.presentation.tab_window(tab_id).ok().flatten())
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "The runtime tab was not found.",
+                )
+            })?;
         let mut source_snapshot = self
             .tab_drag_window_snapshot(&source_window_id)
             .map_err(RuntimeError::tauri)?;
@@ -128,31 +188,6 @@ impl SystemRuntimeExecutor {
                 target_snapshot.as_ref(),
                 before_tab_id,
             );
-        let lane = {
-            let mut lanes = self.tab_mutations.lanes.lock().map_err(|_| {
-                RuntimeError::new(
-                    "TAB_MUTATION_COORDINATOR_UNAVAILABLE",
-                    "The tab mutation coordinator is unavailable.",
-                )
-            })?;
-            Arc::clone(
-                lanes
-                    .entry(tab_id.to_owned())
-                    .or_insert_with(|| Arc::new(TabMutationLane::default())),
-            )
-        };
-        if lane.stopping.load(Ordering::Acquire) && mutation_kind != "stop" {
-            return Err(RuntimeError::new(
-                "TAB_MUTATION_CLOSING",
-                "The runtime tab is already closing.",
-            ));
-        }
-        if !lane.try_enqueue() {
-            return Err(RuntimeError::new(
-                "TAB_MUTATION_QUEUE_FULL",
-                "The runtime tab mutation queue is full.",
-            ));
-        }
         let trigger = match mutation_kind {
             "move" => "tab-mutation-move",
             "moveToNewWindow" => "tab-mutation-move-to-new-window",
@@ -173,6 +208,23 @@ impl SystemRuntimeExecutor {
         .with_lifecycle_epoch(self.lifecycle_epoch())
         .with_topology_revision(topology_revision)
         .with_revision(self.presentation.current_revision());
+        let mut active_stop = lane.stop_operation_id.lock().map_err(|_| {
+            RuntimeError::new(
+                "TAB_MUTATION_COORDINATOR_UNAVAILABLE",
+                "The tab mutation stop state is unavailable.",
+            )
+        })?;
+        if let Some(acceptance) =
+            classify_active_tab_stop(active_stop.as_deref(), mutation_kind)?
+        {
+            return Ok(acceptance);
+        }
+        if !lane.try_enqueue() {
+            return Err(RuntimeError::new(
+                "TAB_MUTATION_QUEUE_FULL",
+                "The runtime tab mutation queue is full.",
+            ));
+        }
         if let Err(code) = self.operations.register(context.clone()) {
             lane.finish_queued();
             return Err(RuntimeError::new(
@@ -180,6 +232,10 @@ impl SystemRuntimeExecutor {
                 "The native tab mutation operation registry is full or unavailable.",
             ));
         }
+        if mutation_kind == "stop" {
+            *active_stop = Some(context.operation_id.clone());
+        }
+        drop(active_stop);
         let request = RuntimeTabMutationRequestRecord {
             operation_id: context.operation_id,
             mutation_kind: mutation_kind.to_owned(),
@@ -195,13 +251,15 @@ impl SystemRuntimeExecutor {
             expected_tab_order,
             expected_active_tab_id,
         };
-        Ok(RuntimeTabMutationOperation {
-            accepted_deadline: Instant::now() + TAB_MUTATION_OPERATION_TIMEOUT,
-            before_tab_id: before_tab_id.map(str::to_owned),
-            lane,
-            queued: true,
-            request,
-        })
+        Ok(RuntimeTabMutationAcceptance::Accepted(Box::new(
+            RuntimeTabMutationOperation {
+                accepted_deadline: Instant::now() + TAB_MUTATION_OPERATION_TIMEOUT,
+                before_tab_id: before_tab_id.map(str::to_owned),
+                lane,
+                queued: true,
+                request,
+            },
+        )))
     }
 
     pub(crate) async fn await_tab_mutation_turn(
@@ -216,10 +274,15 @@ impl SystemRuntimeExecutor {
         operation.lane.finish_queued();
         operation.queued = false;
         let Ok(guard) = guard else {
-            return Err(self.wait_or_fallback_tab_mutation_receipt(&operation.request.operation_id));
+            let receipt =
+                self.wait_or_fallback_tab_mutation_receipt(&operation.request.operation_id);
+            self.clear_failed_tab_stop(&receipt);
+            return Err(receipt);
         };
         if let Some(receipt) = self.operations.terminal(&operation.request.operation_id) {
-            return Err(receipt.summary());
+            let summary = receipt.summary();
+            self.clear_failed_tab_stop(&summary);
+            return Err(summary);
         }
         if !self.tab_mutation_identity_is_current(&operation.request) {
             return Err(self.complete_tab_mutation(
@@ -234,7 +297,10 @@ impl SystemRuntimeExecutor {
             .operations
             .mark_in_flight(&operation.request.operation_id)
         {
-            return Err(self.wait_or_fallback_tab_mutation_receipt(&operation.request.operation_id));
+            let receipt =
+                self.wait_or_fallback_tab_mutation_receipt(&operation.request.operation_id);
+            self.clear_failed_tab_stop(&receipt);
+            return Err(receipt);
         }
         Ok(RuntimeTabMutationLease {
             _guard: guard,
@@ -268,7 +334,15 @@ impl SystemRuntimeExecutor {
         } else {
             receipt.with_rollback_error_count(rollback_error_count)
         };
-        self.operations.complete(receipt).summary()
+        let summary = self.operations.complete(receipt).summary();
+        if matches!(
+            status,
+            RuntimeTabMutationTerminalStatus::Failed
+                | RuntimeTabMutationTerminalStatus::Superseded
+        ) {
+            self.clear_failed_tab_stop(&summary);
+        }
+        summary
     }
 
     fn wait_or_fallback_tab_mutation_receipt(
@@ -281,9 +355,19 @@ impl SystemRuntimeExecutor {
             .unwrap_or_else(|_| tab_mutation_fallback_receipt())
     }
 
+    pub(crate) fn wait_tab_mutation_receipt(
+        &self,
+        operation_id: &str,
+    ) -> SystemRuntimeOperationSummaryRecord {
+        self.wait_or_fallback_tab_mutation_receipt(operation_id)
+    }
+
     fn tab_mutation_identity_is_current(&self, request: &RuntimeTabMutationRequestRecord) -> bool {
         if !self.application_lifecycle_epoch_matches(request.lifecycle_epoch)
-            || self.tab_window_id(&request.tab_id).as_deref()
+            || self
+                .tab_window_id(&request.tab_id)
+                .or_else(|| self.presentation.tab_window(&request.tab_id).ok().flatten())
+                .as_deref()
                 != Some(request.source_window_id.as_str())
             || !self.tab_drag_window_generation_matches(
                 &request.source_window_id,
@@ -303,6 +387,33 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn clear_failed_tab_stop(&self, summary: &SystemRuntimeOperationSummaryRecord) {
+        let Some(tab_id) = summary.tab_id.as_deref() else {
+            return;
+        };
+        let lane = self
+            .tab_mutations
+            .lanes
+            .lock()
+            .ok()
+            .and_then(|lanes| lanes.get(tab_id).cloned());
+        if let Some(lane) = lane
+            && let Ok(mut active) = lane.stop_operation_id.lock()
+            && active.as_deref() == Some(summary.operation_id.as_str())
+        {
+            *active = None;
+        }
+    }
+
+    pub(crate) fn tab_surface_release_confirmed(&self, tab_id: &str) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state
+                .surface_registry
+                .values()
+                .chain(state.retired_surface_registry.values())
+                .all(|surface| surface.tab_id.as_deref() != Some(tab_id))
+        })
+    }
 
     pub(crate) fn tab_mutation_projection_converged(
         &self,
@@ -314,50 +425,56 @@ impl SystemRuntimeExecutor {
             .as_deref()
             .filter(|_| matches!(request.mutation_kind.as_str(), "move" | "moveToNewWindow"))
             .unwrap_or(&request.source_window_id);
-        let Some(window) = snapshot
+        let visible_order = snapshot
             .windows
             .iter()
             .find(|window| window.window_id == window_id)
-        else {
-            return request.expected_tab_order.is_empty();
-        };
-        let visible_order = window
-            .tab_ids
-            .iter()
-            .filter(|tab_id| {
-                snapshot
-                    .tabs
+            .map(|window| {
+                window
+                    .tab_ids
                     .iter()
-                    .any(|tab| tab.id == **tab_id && !tab.hidden)
+                    .filter(|tab_id| {
+                        snapshot
+                            .tabs
+                            .iter()
+                            .any(|tab| tab.id == **tab_id && !tab.hidden)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
             })
-            .cloned()
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
+        let runtime_active_tab_id = snapshot
+            .windows
+            .iter()
+            .find(|window| window.window_id == window_id)
+            .and_then(|window| window.active_tab_id.as_deref());
         if visible_order != request.expected_tab_order
-            || window.active_tab_id.as_deref() != request.expected_active_tab_id.as_deref()
+            || runtime_active_tab_id != request.expected_active_tab_id.as_deref()
         {
             return false;
         }
-        let Some(presentation) = self
+        let presentation = self
             .presentation
             .existing(window_id)
-            .and_then(|state| state.lock().ok().map(|state| state.clone()))
-        else {
-            return request.expected_tab_order.is_empty();
-        };
-        let presented_visible_order = presentation
-            .tab_ids()
-            .into_iter()
-            .filter(|tab_id| {
-                snapshot
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.id == *tab_id && !tab.hidden)
-            })
-            .collect::<Vec<_>>();
-        if presented_visible_order != request.expected_tab_order
-            || presentation.selected_tab_id.as_deref()
-                != request.expected_active_tab_id.as_deref()
-        {
+            .and_then(|state| state.lock().ok().map(|state| state.clone()));
+        if let Some(presentation) = presentation {
+            let presented_visible_order = presentation
+                .tab_ids()
+                .into_iter()
+                .filter(|tab_id| {
+                    snapshot
+                        .tabs
+                        .iter()
+                        .any(|tab| tab.id == *tab_id && !tab.hidden)
+                })
+                .collect::<Vec<_>>();
+            if presented_visible_order != request.expected_tab_order
+                || presentation.selected_tab_id.as_deref()
+                    != request.expected_active_tab_id.as_deref()
+            {
+                return false;
+            }
+        } else if !request.expected_tab_order.is_empty() {
             return false;
         }
 
@@ -373,7 +490,7 @@ impl SystemRuntimeExecutor {
                         .get(window_id)
                         .map(|host| host.tabs_controller.clone())
                 });
-            controller.is_some_and(|controller| {
+            controller.map_or(request.expected_tab_order.is_empty(), |controller| {
                 controller
                     .matches_projection(
                         &request.expected_tab_order,
@@ -384,6 +501,13 @@ impl SystemRuntimeExecutor {
         }
         #[cfg(windows)]
         {
+            let host_exists = self
+                .state
+                .lock()
+                .is_ok_and(|state| state.display_hosts.contains_key(window_id));
+            if !host_exists {
+                return request.expected_tab_order.is_empty();
+            }
             matches!(
                 self.tab_chrome_projections.wait_for_projection_status(
                     window_id,
@@ -435,7 +559,10 @@ fn expected_tab_mutation_projection(
     }
     let active = match mutation_kind {
         "move" | "moveToNewWindow" => Some(tab_id.to_owned()),
-        "hide" | "stop" if source.active_tab_id.as_deref() == Some(tab_id) => {
+        "stop" if source.active_tab_id.as_deref() == Some(tab_id) => {
+            successor_tab_after_close(&source.tab_ids, tab_id, |_| true)
+        }
+        "hide" if source.active_tab_id.as_deref() == Some(tab_id) => {
             order.first().cloned()
         }
         _ => source.active_tab_id.clone(),

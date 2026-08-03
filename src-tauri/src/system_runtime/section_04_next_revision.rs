@@ -437,20 +437,6 @@ pub(crate) struct RuntimeTabCloseIntent {
     pub(crate) tab_type: String,
 }
 
-impl RuntimeTabCloseIntent {
-    pub(crate) fn into_core_command(self) -> CoreCommand {
-        if self.tab_type == "workspace" {
-            CoreCommand::BrowserWorkspaceStop {
-                workspace_id: self.source_id,
-            }
-        } else {
-            CoreCommand::BrowserRoleStop {
-                role_id: self.source_id,
-            }
-        }
-    }
-}
-
 #[derive(Clone)]
 struct NativeSessionBackup {
     cookies: Vec<Cookie<'static>>,

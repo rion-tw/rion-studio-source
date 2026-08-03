@@ -543,7 +543,9 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     setGameWindowTabHidden: async (tabId, hidden) => handleSystemRuntimeReceipt(
       await invokeShell("setGameWindowTabHidden", [tabId, hidden])
     ),
-    stopGameWindowTab: (tabId) => invokeShell("stopGameWindowTab", [tabId]),
+    stopGameWindowTab: async (tabId) => handleSystemRuntimeReceipt(
+      await invokeShell("stopGameWindowTab", [tabId])
+    ),
     restoreSavedGameWindows: async (input) => {
       const result = await invokeShell<void>("restoreSavedGameWindows", [input]);
       await invokeShell("refreshQuickMenu");

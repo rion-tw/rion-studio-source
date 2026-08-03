@@ -482,6 +482,13 @@ pub enum CoreCommand {
         #[ts(optional, rename = "beforeTabId")]
         before_tab_id: Option<String>,
     },
+    EmbeddedTabStop {
+        request: RuntimeTabMutationRequestRecord,
+        #[ts(rename = "sourceId")]
+        source_id: String,
+        #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
+        tab_type: String,
+    },
     BrowserRoleLaunch {
         #[ts(rename = "roleId")]
         role_id: String,

@@ -121,43 +121,47 @@ describe("Tauri-only release workflows", () => {
   });
 
   it("keeps the owner-locked unsigned platform policy while updater artifacts stay verified", async () => {
-    const [workflow, releaseScript, packageScript, macConfigSource] = await Promise.all([
+    const [buildWorkflow, compatibilityWorkflow, candidateWorkflow, releaseScript, packageScript, macConfigSource] = await Promise.all([
+      readWorkflow(".github/workflows/tauri-release-build.yml"),
+      readWorkflow(".github/workflows/tauri-release-compatibility.yml"),
       readWorkflow(".github/workflows/tauri-release-candidate.yml"),
       readWorkflow("scripts/buildTauriRelease.mjs"),
       readWorkflow("scripts/packageTauri.mjs"),
       readWorkflow("src-tauri/tauri.macos.conf.json")
     ]);
     const macConfig = JSON.parse(macConfigSource);
-    const quality = workflow.slice(
-      workflow.indexOf("  quality:"),
-      workflow.indexOf("  build:")
+    const quality = buildWorkflow.slice(
+      buildWorkflow.indexOf("  quality:"),
+      buildWorkflow.indexOf("  build:")
     );
-    const validate = workflow.slice(
-      workflow.indexOf("  validate:"),
-      workflow.indexOf("  quality:")
+    const validate = buildWorkflow.slice(
+      buildWorkflow.indexOf("  validate:"),
+      buildWorkflow.indexOf("  quality:")
     );
-    const build = workflow.slice(
-      workflow.indexOf("  build:"),
-      workflow.indexOf("  manifest:")
+    const build = buildWorkflow.slice(
+      buildWorkflow.indexOf("  build:"),
+      buildWorkflow.indexOf("  manifest:")
     );
-    const manifest = workflow.slice(
-      workflow.indexOf("  manifest:"),
-      workflow.indexOf("  upgrade-compatibility:")
+    const compatibility = compatibilityWorkflow.slice(
+      compatibilityWorkflow.indexOf("  upgrade-compatibility:"),
+      compatibilityWorkflow.indexOf("  release-ready:")
     );
-    const upgrade = workflow.slice(
-      workflow.indexOf("  upgrade-compatibility:"),
-      workflow.indexOf("  release-ready:")
+    const releaseReady = compatibilityWorkflow.slice(
+      compatibilityWorkflow.indexOf("  release-ready:")
     );
-    const releaseReady = workflow.slice(workflow.indexOf("  release-ready:"));
 
-    expect(workflow).toContain("workflow_call:");
-    expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("verified_sha:");
-    expect(workflow).toContain(
+    expect(buildWorkflow).toContain("workflow_call:");
+    expect(buildWorkflow).toContain("verified_sha:");
+    expect(buildWorkflow).toContain("required: false");
+    expect(buildWorkflow).toContain("run_quality:");
+    expect(buildWorkflow).toContain(
       "value: ${{ jobs.manifest.outputs.release_artifact_name }}"
     );
-    expect(workflow).toContain('[[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]');
-    expect(workflow).toContain('test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"');
+    expect(buildWorkflow).toContain(
+      "value: ${{ jobs.validate.outputs.version }}"
+    );
+    expect(buildWorkflow).toContain('[[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]');
+    expect(buildWorkflow).toContain('test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"');
     expect(validate).toContain("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY");
     expect(validate).toContain("require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
@@ -171,11 +175,11 @@ describe("Tauri-only release workflows", () => {
       "WINDOWS_CERTIFICATE_PASSWORD",
       "WINDOWS_TIMESTAMP_URL"
     ]) {
-      expect(workflow).not.toContain(platformSigningInput);
+      expect(buildWorkflow).not.toContain(platformSigningInput);
     }
     expect(validate.indexOf("require_secret RION_STUDIO_UPDATER_PUBLIC_KEY"))
       .toBeLessThan(validate.indexOf('[[ "${RELEASE_TAG}"'));
-    expect(quality).toContain("if: github.event_name == 'workflow_dispatch'");
+    expect(quality).toContain("if: inputs.run_quality");
     expect(quality).toContain("uses: ./.github/workflows/ci.yml");
     expect(build).toContain("always() &&");
     expect(build).toContain("needs.validate.result == 'success'");
@@ -184,93 +188,99 @@ describe("Tauri-only release workflows", () => {
     expect(build).not.toContain("pnpm run verify:system-only");
     expect(build).not.toContain("pnpm run test");
     expect(build).not.toContain("pnpm run lint");
-    expect(manifest).toContain("always() &&");
-    expect(manifest).toContain("needs.build.result == 'success'");
-    expect(manifest).toContain("release_artifact_name: ${{ steps.artifact.outputs.name }}");
-    expect(upgrade).toContain("always() &&");
-    expect(upgrade).toContain("needs.manifest.result == 'success'");
-    expect(upgrade).toContain("needs.manifest.outputs.release_artifact_name");
-    expect(releaseReady).toContain("if: always()");
-    expect(releaseReady).toContain(
-      '[[ "${QUALITY_RESULT}" == "success" || "${QUALITY_RESULT}" == "skipped" ]]'
+    expect(buildWorkflow).toContain("  manifest:");
+    expect(buildWorkflow).toContain("needs.build.result == 'success'");
+    expect(buildWorkflow).toContain("release_artifact_name: ${{ steps.artifact.outputs.name }}");
+    expect(compatibilityWorkflow).toContain("workflow_call:");
+    expect(compatibilityWorkflow).toContain("release_artifact_name:");
+    expect(compatibilityWorkflow).toContain("name: ${{ inputs.release_artifact_name }}");
+    expect(compatibility).toContain("timeout-minutes: 10");
+    expect(compatibilityWorkflow).toContain("PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio");
+    expect(compatibility).toContain("Verify macOS manual replacement preserves shared data");
+    expect(compatibility).toContain("Verify Windows clean install and previous Tauri in-place upgrade");
+    expect(compatibility).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
+    expect(compatibility).toContain(
+      'gh release download --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
     );
-    expect(releaseReady).toContain('test "${BUILD_RESULT}" = "success"');
-    expect(releaseReady).toContain('test "${MANIFEST_RESULT}" = "success"');
+    expect(compatibility).toContain(
+      "gh release download --repo $env:PUBLIC_RELEASE_REPOSITORY --pattern Rion.Studio-win.exe"
+    );
+    expect(compatibility).not.toContain(
+      'gh release download --repo "${GITHUB_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
+    );
+    expect(compatibility).not.toContain(
+      "gh release download --repo $env:GITHUB_REPOSITORY --pattern Rion.Studio-win.exe"
+    );
+    expect(compatibility).toContain("function Invoke-BoundedProcess");
+    expect(compatibility).toContain("$process.WaitForExit($TimeoutSeconds * 1000)");
+    expect(compatibility).toContain("$process.Kill($true)");
+    expect(compatibility).toContain('[Environment]::GetFolderPath("ApplicationData")');
+    expect(compatibility).not.toContain("Start-Process -FilePath $installer -ArgumentList");
+    expect(compatibility).not.toContain("RION_STUDIO_USER_DATA_DIR");
+    expect(releaseReady).toContain("if: always()");
     expect(releaseReady).toContain('test "${UPGRADE_RESULT}" = "success"');
-    expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
-    expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
-    expect(workflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
-    expect(workflow).toContain("pnpm run dist -- --bundles");
+    expect(candidateWorkflow).toContain("workflow_call:");
+    expect(candidateWorkflow).toContain("workflow_dispatch:");
+    expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
+    expect(candidateWorkflow).toContain(
+      "run_quality: ${{ github.event_name == 'workflow_dispatch' }}"
+    );
+    expect(buildWorkflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(buildWorkflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
+    expect(buildWorkflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
+    expect(buildWorkflow).toContain("pnpm run dist -- --bundles");
     expect(build).toContain(
       "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
     );
-    expect(workflow).toContain("codesign --verify --deep --strict");
-    expect(workflow).toContain('grep -F "Signature=adhoc"');
-    expect(workflow).toContain('grep -F "TeamIdentifier=not set"');
-    expect(workflow).not.toContain("Import Apple Developer ID certificate");
-    expect(workflow).not.toContain("xcrun stapler validate");
-    expect(workflow).not.toContain("Import Windows Authenticode certificate");
+    expect(buildWorkflow).toContain("codesign --verify --deep --strict");
+    expect(buildWorkflow).toContain('grep -F "Signature=adhoc"');
+    expect(buildWorkflow).toContain('grep -F "TeamIdentifier=not set"');
+    expect(buildWorkflow).not.toContain("Import Apple Developer ID certificate");
+    expect(buildWorkflow).not.toContain("xcrun stapler validate");
+    expect(buildWorkflow).not.toContain("Import Windows Authenticode certificate");
     expect(releaseScript).toContain('signingIdentity: "-"');
     expect(releaseScript).toContain("delete buildEnvironment[name]");
     expect(releaseScript).not.toContain("releasePlatformBundle");
     expect(packageScript).toContain('signingIdentity: "-"');
     expect(packageScript).not.toContain("test:native:");
-    expect(workflow).not.toContain("test:native:");
-    expect(workflow).not.toContain("attestation");
+    expect(buildWorkflow).not.toContain("test:native:");
+    expect(buildWorkflow).not.toContain("attestation");
     expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
-    expect(workflow).toContain("Get-AuthenticodeSignature");
-    expect(workflow).toContain('$signature.Status -ne "NotSigned"');
-    expect(workflow).not.toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
-    expect(workflow).toContain("createTauriUpdaterManifest.mjs");
-    expect(workflow).not.toContain("createLegacyUpdateManifests.mjs");
-    expect(workflow).toContain("releaseArtifacts.mjs");
-    expect(workflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
-    expect(workflow).toContain("Rion.Studio-win.exe.sig");
+    expect(buildWorkflow).toContain("Get-AuthenticodeSignature");
+    expect(buildWorkflow).toContain('$signature.Status -ne "NotSigned"');
+    expect(buildWorkflow).not.toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
+    expect(buildWorkflow).toContain("createTauriUpdaterManifest.mjs");
+    expect(buildWorkflow).not.toContain("createLegacyUpdateManifests.mjs");
+    expect(buildWorkflow).toContain("releaseArtifacts.mjs");
+    expect(buildWorkflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
+    expect(buildWorkflow).toContain("Rion.Studio-win.exe.sig");
     expect(build).toContain("pnpm run check:release-size -- candidate");
     expect(build.indexOf("Normalize release assets"))
       .toBeLessThan(build.indexOf("Verify release size budgets"));
     expect(build.indexOf("Verify release size budgets"))
       .toBeLessThan(build.indexOf("Upload verified platform candidate"));
-    expect(workflow).toContain("upgrade-compatibility:");
-    expect(workflow).toContain("PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio");
-    expect(workflow).toContain("Verify macOS manual replacement preserves shared data");
-    expect(workflow).toContain("Verify Windows clean install and previous Tauri in-place upgrade");
-    expect(workflow).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
-    expect(upgrade).toContain("timeout-minutes: 10");
-    expect(upgrade).toContain(
-      'gh release download --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
-    );
-    expect(upgrade).toContain(
-      "gh release download --repo $env:PUBLIC_RELEASE_REPOSITORY --pattern Rion.Studio-win.exe"
-    );
-    expect(upgrade).not.toContain(
-      'gh release download --repo "${GITHUB_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
-    );
-    expect(upgrade).not.toContain(
-      "gh release download --repo $env:GITHUB_REPOSITORY --pattern Rion.Studio-win.exe"
-    );
-    expect(upgrade).toContain("function Invoke-BoundedProcess");
-    expect(upgrade).toContain("$process.WaitForExit($TimeoutSeconds * 1000)");
-    expect(upgrade).toContain("$process.Kill($true)");
-    expect(upgrade).toContain('[Environment]::GetFolderPath("ApplicationData")');
-    expect(upgrade).not.toContain("Start-Process -FilePath $installer -ArgumentList");
-    expect(upgrade).not.toContain("RION_STUDIO_USER_DATA_DIR");
-    expect(workflow).toContain("rion-studio.sqlite3");
-    expect(workflow).toContain("roles/upgrade/browser/data.marker");
-    expect(workflow.toLowerCase()).not.toContain("electron");
+    expect(compatibilityWorkflow).toContain("rion-studio.sqlite3");
+    expect(compatibilityWorkflow).toContain("roles/upgrade/browser/data.marker");
+    expect(buildWorkflow.toLowerCase()).not.toContain("electron");
+    expect(compatibilityWorkflow.toLowerCase()).not.toContain("electron");
   });
 
   it("publishes verified assets before the public release handoff", async () => {
     const workflow = await readWorkflow(".github/workflows/release.yml");
     const buildIndex = workflow.indexOf("build-tauri-release:");
     const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
+    const compatibilityIndex = workflow.indexOf("verify-upgrade-compatibility:");
     const publishIndex = workflow.indexOf("publish-public-release:");
     const build = workflow.slice(buildIndex, verifyIndex);
-    const verify = workflow.slice(verifyIndex, publishIndex);
+    const verify = workflow.slice(verifyIndex, compatibilityIndex);
+    const compatibility = workflow.slice(compatibilityIndex, publishIndex);
+    const publish = workflow.slice(publishIndex);
 
     expect(workflow).toContain("name: Private Tauri Release");
     expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("uses: ./.github/workflows/tauri-release-candidate.yml");
+    expect(workflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(workflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
     expect(workflow).toContain(
       "verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}"
     );
@@ -313,10 +323,20 @@ describe("Tauri-only release workflows", () => {
       "node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --verify-checksums"
     );
     expect(verify).not.toContain("--write-checksums");
+    expect(verify).not.toContain("verify-upgrade-compatibility");
+    expect(compatibility).toContain("- resolve-release");
+    expect(compatibility).toContain("- build-tauri-release");
+    expect(compatibility).toContain(
+      "release_artifact_name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}"
+    );
+    expect(publish).toContain("- verify-and-upload-private-release");
+    expect(publish).toContain("- verify-upgrade-compatibility");
     expect(workflow).not.toContain("--clobber");
     expect(buildIndex).toBeGreaterThan(-1);
     expect(verifyIndex).toBeGreaterThan(buildIndex);
+    expect(compatibilityIndex).toBeGreaterThan(buildIndex);
     expect(publishIndex).toBeGreaterThan(verifyIndex);
+    expect(publishIndex).toBeGreaterThan(compatibilityIndex);
     expect(workflow.toLowerCase()).not.toContain("electron");
   });
 

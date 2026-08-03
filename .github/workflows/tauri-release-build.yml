@@ -1,0 +1,268 @@
+name: Tauri Release Build
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build, for example v2.4.0
+        required: true
+        type: string
+      updater_base_url:
+        description: HTTPS directory where the release assets will be published
+        required: true
+        type: string
+      verified_sha:
+        description: Optional CI SHA that must match the requested release tag
+        required: false
+        type: string
+      run_quality:
+        description: Run the reusable CI quality workflow before packaging
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      release_artifact_name:
+        description: Name of the verified release candidate artifact
+        value: ${{ jobs.manifest.outputs.release_artifact_name }}
+      version:
+        description: Semantic version of the release candidate
+        value: ${{ jobs.validate.outputs.version }}
+    secrets:
+      RION_STUDIO_UPDATER_PUBLIC_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
+
+concurrency:
+  group: tauri-release-build-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout requested tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Validate immutable release inputs
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+          VERIFIED_SHA: ${{ inputs.verified_sha }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          require_secret() {
+            local name="$1"
+            if [[ -z "${!name}" ]]; then
+              echo "::error::${name} is required for updater-signed release artifacts."
+              exit 1
+            fi
+          }
+          require_secret RION_STUDIO_UPDATER_PUBLIC_KEY
+          require_secret TAURI_SIGNING_PRIVATE_KEY
+          require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${UPDATER_BASE_URL}" == https://* ]]
+          test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"
+          if [[ -n "${VERIFIED_SHA}" ]]; then
+            [[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "${GITHUB_OUTPUT}"
+
+  quality:
+    needs: validate
+    if: inputs.run_quality
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag }}
+
+  build:
+    needs:
+      - validate
+      - quality
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      (needs.quality.result == 'success' || needs.quality.result == 'skipped')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-arm64
+            bundles: app,dmg
+          - os: windows-latest
+            name: windows-x64
+            bundles: nsis
+    env:
+      RION_STUDIO_UPDATER_ENDPOINT: https://github.com/rion-tw/rion-studio/releases/latest/download/latest.json
+      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout requested tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-bin: "false"
+          shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply release version
+        run: pnpm run release:version -- ${{ needs.validate.outputs.version }}
+
+      - name: Build Tauri release candidate
+        run: pnpm run dist -- --bundles ${{ matrix.bundles }}
+
+      - name: Verify packaged macOS candidate
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="target/release/bundle/macos/Rion Studio.app"
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+          codesign_details="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
+          grep -F "Signature=adhoc" <<< "${codesign_details}"
+          grep -F "TeamIdentifier=not set" <<< "${codesign_details}"
+          test -s "${app_path}.tar.gz"
+          test -s "${app_path}.tar.gz.sig"
+
+      - name: Verify packaged Windows candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $executable = (Resolve-Path "target/release/rion-tauri.exe").Path
+          $bytes = [System.IO.File]::ReadAllBytes($executable)
+          if ($bytes.Length -lt 64) { throw "Windows executable is too small to contain a PE header." }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 0 -or $peOffset + 94 -gt $bytes.Length) { throw "Windows executable has an invalid PE header offset." }
+          if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "Windows executable is missing the PE signature." }
+          $optionalHeaderOffset = $peOffset + 24
+          $optionalHeaderMagic = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset)
+          if ($optionalHeaderMagic -notin @(0x010b, 0x020b)) { throw "Windows executable has an unsupported PE optional header." }
+          $subsystem = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset + 68)
+          if ($subsystem -ne 2) { throw "Windows executable must use IMAGE_SUBSYSTEM_WINDOWS_GUI; found subsystem $subsystem." }
+          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          if ($null -eq $installer) { throw "NSIS installer is missing." }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne "NotSigned") { throw "Windows candidate must remain unsigned like the legacy release." }
+          if (-not (Test-Path "$($installer.FullName).sig" -PathType Leaf)) { throw "Updater signature is missing." }
+
+      - name: Normalize release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            cp "$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)" candidate/Rion.Studio-mac.dmg
+            cp "target/release/bundle/macos/Rion Studio.app.tar.gz" candidate/Rion.Studio-mac.app.tar.gz
+            cp "target/release/bundle/macos/Rion Studio.app.tar.gz.sig" candidate/Rion.Studio-mac.app.tar.gz.sig
+          else
+            installer="$(find target/release/bundle/nsis -maxdepth 1 -name '*.exe' -print -quit)"
+            cp "${installer}" candidate/Rion.Studio-win.exe
+            cp "${installer}.sig" candidate/Rion.Studio-win.exe.sig
+          fi
+
+      - name: Verify release size budgets
+        run: pnpm run check:release-size -- candidate
+
+      - name: Upload verified platform candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tauri-${{ matrix.name }}-${{ needs.validate.outputs.version }}
+          if-no-files-found: error
+          retention-days: 14
+          path: candidate
+
+  manifest:
+    needs:
+      - validate
+      - build
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      release_artifact_name: ${{ steps.artifact.outputs.name }}
+    steps:
+      - name: Checkout requested tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Download verified candidates
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: tauri-*-${{ needs.validate.outputs.version }}
+          path: candidate
+          merge-multiple: true
+
+      - name: Create updater-signed manifest
+        shell: bash
+        env:
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/createTauriUpdaterManifest.mjs \
+            --version "${VERSION}" \
+            --base-url "${UPDATER_BASE_URL}" \
+            --mac-archive candidate/Rion.Studio-mac.app.tar.gz \
+            --windows-installer candidate/Rion.Studio-win.exe \
+            --output candidate/latest.json
+          node scripts/releaseArtifacts.mjs candidate "${VERSION}" --write-checksums
+
+      - name: Record verified release artifact
+        id: artifact
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: echo "name=tauri-release-assets-${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload verified release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: candidate

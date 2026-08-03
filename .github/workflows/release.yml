@@ -100,7 +100,7 @@ jobs:
       - validate-ci-run
       - resolve-release
     if: needs.resolve-release.outputs.has_release == 'true'
-    uses: ./.github/workflows/tauri-release-candidate.yml
+    uses: ./.github/workflows/tauri-release-build.yml
     with:
       tag: ${{ needs.resolve-release.outputs.release_tag }}
       updater_base_url: https://github.com/rion-tw/rion-studio/releases/latest/download
@@ -175,10 +175,22 @@ jobs:
           node scripts/releaseArtifacts.mjs downloaded-assets "${VERSION}" --verify-checksums
           cmp release-assets/SHA256SUMS.txt downloaded-assets/SHA256SUMS.txt
 
+  verify-upgrade-compatibility:
+    needs:
+      - resolve-release
+      - build-tauri-release
+    if: needs.resolve-release.outputs.has_release == 'true'
+    uses: ./.github/workflows/tauri-release-compatibility.yml
+    with:
+      tag: ${{ needs.resolve-release.outputs.release_tag }}
+      version: ${{ needs.resolve-release.outputs.release_version }}
+      release_artifact_name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}
+
   publish-public-release:
     needs:
       - resolve-release
       - verify-and-upload-private-release
+      - verify-upgrade-compatibility
     uses: ./.github/workflows/publish-public-release.yml
     permissions:
       contents: read

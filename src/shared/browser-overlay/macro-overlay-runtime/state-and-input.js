@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v60";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-03.1";
+  const scriptVersion = "2026-08-03.2";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -191,12 +191,16 @@
     return typeof HTMLCanvasElement !== "undefined" && candidate instanceof HTMLCanvasElement;
   }
 
-  function eventPathIncludesCanvas(event) {
+  function eventPathCanvas(event) {
     try {
-      return event.composedPath().some(isCanvas);
+      return event.composedPath().find(isCanvas) ?? null;
     } catch {
-      return isCanvas(event.target);
+      return isCanvas(event.target) ? event.target : null;
     }
+  }
+
+  function eventPathIncludesCanvas(event) {
+    return eventPathCanvas(event) !== null;
   }
 
   function getDeepActiveElement() {
@@ -221,7 +225,9 @@
   }
 
   function refreshGameInputContext() {
-    reportGameInputContext(hasActiveGameCanvas());
+    const activeCanvas = [getDeepActiveElement(), document.pointerLockElement].find(isCanvas);
+    if (activeCanvas) rememberMacroGameCanvas(activeCanvas);
+    reportGameInputContext(Boolean(activeCanvas));
   }
 
   function scheduleGameInputContextRefresh() {
@@ -239,7 +245,9 @@
     if (!document.hasFocus()) {
       void Promise.resolve(binding({ type: "activate" })).catch(() => undefined);
     }
-    if (eventPathIncludesCanvas(event)) {
+    const canvas = eventPathCanvas(event);
+    if (canvas) {
+      rememberMacroGameCanvas(canvas);
       reportGameInputContext(true);
       return;
     }
@@ -247,10 +255,14 @@
   }
 
   function handleGameSurfaceFocusIn(event) {
-    reportGameInputContext(eventPathIncludesCanvas(event) || hasActiveGameCanvas());
+    const canvas = eventPathCanvas(event);
+    if (canvas) rememberMacroGameCanvas(canvas);
+    handleMacroGameFocusIn(event);
+    reportGameInputContext(Boolean(canvas) || hasActiveGameCanvas());
   }
 
-  function handleGameSurfaceFocusOut() {
+  function handleGameSurfaceFocusOut(event) {
+    handleMacroGameFocusOut(event);
     scheduleGameInputContextRefresh();
   }
 

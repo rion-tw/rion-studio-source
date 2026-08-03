@@ -677,6 +677,7 @@ pub struct SystemRuntimeExecutor {
     prewarm_state: AtomicU8,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,
+    runtime_projection: RevisionedJsonProjection,
     shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
     shutdown_operation: OnceLock<NativeOperationContext>,
     shutdown_state: Arc<AtomicU8>,

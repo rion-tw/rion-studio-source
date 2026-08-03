@@ -321,6 +321,8 @@ const workspace: LaunchWorkspace = {
 };
 
 const runtime: EmbeddedRuntimeState = {
+  revision: 1,
+  capturedAt: "2026-08-03T00:00:00Z",
   tabs: [{
     id: "tab-1",
     type: "role",

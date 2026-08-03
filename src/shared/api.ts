@@ -29,6 +29,7 @@ import type {
   DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
   DisplayInfo,
+  DisplayTopology,
   GameWindow,
   LaunchWorkspace,
   LogEntry,
@@ -126,7 +127,7 @@ export interface RionStudioApi {
   reorderLaunchWorkspaces: (input: ReorderItemsInput) => Promise<LaunchWorkspace[]>;
   deleteLaunchWorkspace: (id: string) => Promise<void>;
   deleteLaunchWorkspaces: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
-  listDisplays: () => Promise<DisplayInfo[]>;
+  getDisplayTopology: () => Promise<DisplayTopology>;
   launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
   listMacros: () => Promise<Macro[]>;
@@ -181,7 +182,7 @@ export interface RionStudioApi {
   onRolesChanged: (callback: (roles: Role[]) => void) => () => void;
   onGameWindowsChanged: (callback: (gameWindows: GameWindow[]) => void) => () => void;
   onWorkspacesChanged: (callback: (workspaces: LaunchWorkspace[]) => void) => () => void;
-  onDisplaysChanged: (callback: (displays: DisplayInfo[]) => void) => () => void;
+  onDisplayTopologyChanged: (callback: (topology: DisplayTopology) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;

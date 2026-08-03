@@ -4,6 +4,7 @@
 
 mod activation;
 mod application_menu;
+mod native_projection;
 mod native_shell;
 mod quick_menu;
 #[cfg(target_os = "macos")]

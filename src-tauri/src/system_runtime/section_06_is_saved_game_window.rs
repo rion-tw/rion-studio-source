@@ -137,6 +137,7 @@ impl SystemRuntimeExecutor {
             prewarm_state: AtomicU8::new(0),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),
+            runtime_projection: RevisionedJsonProjection::default(),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
             shutdown_operation: OnceLock::new(),
             shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),

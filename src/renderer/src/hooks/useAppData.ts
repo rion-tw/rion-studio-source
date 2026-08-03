@@ -17,7 +17,7 @@ import type {
   MacroRunStatus,
   Role,
   RoleStatus,
-  DisplayInfo
+  DisplayTopology
 } from "../../../shared/types";
 import { LatestRequestGate } from "../app/operationState";
 import { createRoleStats } from "../app/statusUtils";
@@ -52,13 +52,63 @@ function useVersionedState<T>(initialValue: T): VersionedState<T> {
   return { beginRequest, commitRequest, setValue, value };
 }
 
+interface RevisionedProjection {
+  revision: number;
+}
+
+function useRevisionedProjectionState<T extends RevisionedProjection>(
+  initialValue: T
+): VersionedState<T> {
+  const [value, setRawValue] = useState(initialValue);
+  const requestGateRef = useRef(new LatestRequestGate());
+  const latestRevisionRef = useRef(initialValue.revision);
+  const setValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
+    if (typeof nextValue === "function") {
+      setRawValue((current) => {
+        const resolved = (nextValue as (value: T) => T)(current);
+        if (resolved.revision <= latestRevisionRef.current) return current;
+        latestRevisionRef.current = resolved.revision;
+        requestGateRef.current.invalidate();
+        return resolved;
+      });
+      return;
+    }
+    if (nextValue.revision <= latestRevisionRef.current) return;
+    latestRevisionRef.current = nextValue.revision;
+    requestGateRef.current.invalidate();
+    setRawValue(nextValue);
+  }, []);
+  const beginRequest = useCallback(() => requestGateRef.current.begin(), []);
+  const commitRequest = useCallback((request: number, nextValue: T) => {
+    if (
+      requestGateRef.current.isCurrent(request)
+      && nextValue.revision > latestRevisionRef.current
+    ) {
+      latestRevisionRef.current = nextValue.revision;
+      setRawValue(nextValue);
+    }
+  }, []);
+
+  return { beginRequest, commitRequest, setValue, value };
+}
+
 export function useAppData() {
   const gameState = useVersionedState<Game[]>([]);
   const roleState = useVersionedState<Role[]>([]);
-  const embeddedRuntimeState = useVersionedState<EmbeddedRuntimeState>({ windows: [], tabs: [] });
+  const embeddedRuntimeState = useRevisionedProjectionState<EmbeddedRuntimeState>({
+    revision: 0,
+    capturedAt: "",
+    windows: [],
+    tabs: []
+  });
   const workspaceState = useVersionedState<LaunchWorkspace[]>([]);
   const gameWindowState = useVersionedState<GameWindow[]>([]);
-  const displayState = useVersionedState<DisplayInfo[]>([]);
+  const displayState = useRevisionedProjectionState<DisplayTopology>({
+    revision: 0,
+    capturedAt: "",
+    cause: "initial",
+    displays: []
+  });
   const macroState = useVersionedState<Macro[]>([]);
   const statusState = useVersionedState<RoleStatus[]>([]);
   const macroStatusState = useVersionedState<MacroRunStatus[]>([]);
@@ -101,7 +151,7 @@ export function useAppData() {
     beginRequest: beginDisplaysRequest,
     commitRequest: commitDisplaysRequest,
     setValue: setDisplays,
-    value: displays
+    value: displayTopology
   } = displayState;
   const {
     beginRequest: beginMacrosRequest,
@@ -195,7 +245,7 @@ export function useAppData() {
       commitGameWindowsRequest(gameWindowsRequest, snapshot.gameWindows);
       commitMacrosRequest(macrosRequest, snapshot.macros);
       commitMacroStatusesRequest(macroStatusesRequest, snapshot.macroStatuses);
-      commitDisplaysRequest(displaysRequest, snapshot.displays);
+      commitDisplaysRequest(displaysRequest, snapshot.displayTopology);
       if (initialLoadRequest !== undefined && initialLoadRequestRef.current === initialLoadRequest) {
         setInitialLoadState("ready");
       }
@@ -250,7 +300,7 @@ export function useAppData() {
       return;
     }
 
-    return window.rionStudio.onDisplaysChanged(setDisplays);
+    return window.rionStudio.onDisplayTopologyChanged(setDisplays);
   }, [setDisplays]);
 
   useEffect(() => {
@@ -329,6 +379,6 @@ export function useAppData() {
     statusByRole,
     statuses,
     workspaces,
-    displays
+    displays: displayTopology.displays
   };
 }

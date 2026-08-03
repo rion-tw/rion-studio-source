@@ -119,7 +119,7 @@ async fn rion_shell_invoke(
             .map(|()| Value::Null)
             .map_err(|error| shell_error("TAURI_APPLICATION_SHORTCUT_FAILED", error))
         }
-        "displays" => display_inventory(&window),
+        "displayTopology" => display_topology(&state, &window, "getter"),
         "launchRole" => launch_role_from_shell(&app, &state, &window, &args).await,
         "launchWorkspace" => launch_workspace_from_shell(&app, &state, &window, &args).await,
         "showGameWindow" => {

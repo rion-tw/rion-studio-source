@@ -268,6 +268,40 @@ fn display_inventory(window: &WebviewWindow) -> Result<Value, CoreErrorPayload> 
     ))
 }
 
+fn display_topology(
+    state: &CoreState,
+    window: &WebviewWindow,
+    cause: &str,
+) -> Result<Value, CoreErrorPayload> {
+    let displays = display_inventory(window)?;
+    let primary_display_id = displays.as_array().and_then(|displays| {
+        displays
+            .iter()
+            .find(|display| display["isPrimary"].as_bool() == Some(true))
+            .and_then(|display| display["id"].as_i64())
+            .map(|display_id| display_id.to_string())
+    });
+    Ok(state.display_topology.resolve_object_ignoring(
+        json!({
+            "cause": cause,
+            "primaryDisplayId": primary_display_id,
+            "displays": displays
+        }),
+        &["cause"],
+    ))
+}
+
+fn publish_display_topology(
+    app: &AppHandle,
+    state: &CoreState,
+    window: &WebviewWindow,
+    cause: &str,
+) -> Result<Value, CoreErrorPayload> {
+    let topology = display_topology(state, window, cause)?;
+    let _ = app.emit("rion://display-topology", &topology);
+    Ok(topology)
+}
+
 fn start_display_watcher(app: AppHandle) -> Result<(), String> {
     thread::Builder::new()
         .name("rion-tauri-display-watcher".to_owned())
@@ -366,7 +400,7 @@ fn start_display_watcher(app: AppHandle) -> Result<(), String> {
                     continue;
                 }
                 state.runtime.publish_projection();
-                let _ = app.emit("rion://displays", &displays);
+                let _ = publish_display_topology(&app, &state, &window, "native-notification");
                 previous = Some(displays);
             }
         })
@@ -404,7 +438,7 @@ fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, Core
         "roles": snapshot["roles"].clone(),
         "roleStatuses": role_statuses,
         "launchWorkspaces": snapshot["launchWorkspaces"].clone(),
-        "displays": display_inventory(window)?,
+        "displayTopology": display_topology(state, window, "snapshot")?,
         "macros": snapshot["macros"].clone(),
         "macroStatuses": macro_statuses
     }))

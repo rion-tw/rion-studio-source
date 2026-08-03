@@ -158,6 +158,8 @@ impl SystemRuntimeExecutor {
             presentation: Arc::new(PresentationRegistry::default()),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
             tab_activations: Arc::new(TabActivationCoordinator::default()),
+            #[cfg(windows)]
+            tab_chrome_projections: Arc::new(TabChromeProjectionCoordinator::default()),
             prewarm_state: AtomicU8::new(0),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),

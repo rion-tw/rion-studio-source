@@ -137,17 +137,21 @@ pub struct RuntimeTabChromeItemRecord {
     #[ts(rename = "type", type = "\"role\" | \"workspace\"")]
     pub tab_type: String,
     pub hidden: bool,
+    pub audible: bool,
     pub muted: bool,
     pub loading: bool,
     pub degraded: bool,
+    pub closable: bool,
+    pub source_id: String,
+    pub phase: String,
     pub role_ids: Vec<String>,
     pub role_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub icon_data_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "unknown")]
-    pub workspace_template: Option<serde_json::Value>,
+    #[ts(optional, type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\"")]
+    pub workspace_template: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

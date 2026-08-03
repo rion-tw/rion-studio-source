@@ -1,0 +1,170 @@
+fn tab_chrome_ready(instance: &str) -> RuntimeTabChromeReadyRecord {
+    RuntimeTabChromeReadyRecord {
+        renderer_instance_id: instance.to_owned(),
+        window_id: "window-1".to_owned(),
+        window_generation: 7,
+        lifecycle_epoch: 3,
+    }
+}
+
+fn tab_chrome_projection(instance: &str, active_tab_id: Option<&str>) -> RuntimeTabChromeProjectionRecord {
+    RuntimeTabChromeProjectionRecord {
+        renderer_instance_id: Some(instance.to_owned()),
+        window_id: "window-1".to_owned(),
+        window_generation: 7,
+        lifecycle_epoch: 3,
+        projection_revision: 0,
+        tabs: Vec::new(),
+        tab_order: vec!["tab-1".to_owned(), "tab-2".to_owned()],
+        active_tab_id: active_tab_id.map(str::to_owned),
+        display_id: 11,
+        displays: Vec::new(),
+        fullscreen: false,
+        window_fullscreen: false,
+        toolbar_visible: true,
+        always_hide_tab_close_button: false,
+        always_show_toolbar_in_full_screen: false,
+        language: "en".to_owned(),
+        theme: "light".to_owned(),
+    }
+}
+
+#[test]
+fn semantic_projection_revision_survives_a_renderer_reload() {
+    let platform = "windows";
+    {
+        let coordinator = TabChromeProjectionCoordinator::default();
+        coordinator
+            .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+            .unwrap();
+        assert_eq!(
+            coordinator.renderer("window-1").map(|renderer| renderer.renderer_instance_id),
+            Some("renderer-1".to_owned()),
+            "{platform}"
+        );
+        let first = coordinator
+            .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+            .unwrap();
+        coordinator
+            .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-2"))
+            .unwrap();
+        let replay = coordinator
+            .resolve_projection(tab_chrome_projection("renderer-2", Some("tab-1")))
+            .unwrap();
+        let changed = coordinator
+            .resolve_projection(tab_chrome_projection("renderer-2", Some("tab-2")))
+            .unwrap();
+
+        assert_eq!(first.projection_revision, replay.projection_revision, "{platform}");
+        assert!(changed.projection_revision > replay.projection_revision, "{platform}");
+    }
+}
+
+#[test]
+fn renderer_instance_and_projection_readback_are_exactly_fenced() {
+    let platform = "windows";
+    {
+        let coordinator = TabChromeProjectionCoordinator::default();
+        coordinator
+            .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+            .unwrap();
+        let projection = coordinator
+            .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+            .unwrap();
+        assert!(coordinator.claim_delivery(&projection), "{platform}");
+        assert_eq!(
+            coordinator.acknowledge(
+                "tab-strip-1",
+                RuntimeTabChromeAcknowledgementRecord {
+                    renderer_instance_id: "renderer-1".to_owned(),
+                    projection_revision: projection.projection_revision,
+                    observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
+                    observed_active_tab_id: Some("tab-1".to_owned()),
+                    status: "failed".to_owned(),
+                },
+            ),
+            Err("TAB_CHROME_PROJECTION_READBACK_MISMATCH"),
+            "{platform}"
+        );
+        coordinator
+            .acknowledge(
+                "tab-strip-1",
+                RuntimeTabChromeAcknowledgementRecord {
+                    renderer_instance_id: "renderer-1".to_owned(),
+                    projection_revision: projection.projection_revision,
+                    observed_tab_order: projection.tab_order.clone(),
+                    observed_active_tab_id: projection.active_tab_id.clone(),
+                    status: "applied".to_owned(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            coordinator.wait(
+                "window-1",
+                "renderer-1",
+                projection.projection_revision,
+                Duration::from_millis(1),
+            ),
+            TabChromeProjectionWaitOutcome::Applied,
+            "{platform}"
+        );
+        assert!(coordinator.prepare_retry(
+            "window-1",
+            "renderer-1",
+            projection.projection_revision,
+        ));
+        coordinator.finish(
+            "window-1",
+            "renderer-1",
+            projection.projection_revision,
+            NativeOperationStatus::Applied,
+        );
+        assert_eq!(
+            coordinator.last_status("window-1", projection.projection_revision),
+            Some(NativeOperationStatus::Applied),
+            "{platform}"
+        );
+    }
+}
+
+#[test]
+fn a_new_renderer_supersedes_the_old_pending_projection() {
+    let platform = "windows";
+    {
+        let coordinator = TabChromeProjectionCoordinator::default();
+        coordinator
+            .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+            .unwrap();
+        let projection = coordinator
+            .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+            .unwrap();
+        assert!(coordinator.claim_delivery(&projection), "{platform}");
+        coordinator
+            .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-2"))
+            .unwrap();
+        assert_eq!(
+            coordinator.wait(
+                "window-1",
+                "renderer-1",
+                projection.projection_revision,
+                Duration::from_millis(1),
+            ),
+            TabChromeProjectionWaitOutcome::Superseded,
+            "{platform}"
+        );
+        assert_eq!(
+            coordinator.acknowledge(
+                "tab-strip-1",
+                RuntimeTabChromeAcknowledgementRecord {
+                    renderer_instance_id: "renderer-1".to_owned(),
+                    projection_revision: projection.projection_revision,
+                    observed_tab_order: projection.tab_order,
+                    observed_active_tab_id: projection.active_tab_id,
+                    status: "applied".to_owned(),
+                },
+            ),
+            Err("TAB_CHROME_RENDERER_INSTANCE_STALE"),
+            "{platform}"
+        );
+    }
+}

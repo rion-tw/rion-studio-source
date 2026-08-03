@@ -41,9 +41,15 @@ use rion_core::{
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
+#[cfg(any(windows, test))]
+use rion_core::{
+    RuntimeTabChromeAcknowledgementRecord, RuntimeTabChromeProjectionRecord,
+    RuntimeTabChromeReadyRecord,
+};
 #[cfg(windows)]
 use rion_core::{
     RuntimeTabActivationAcknowledgementRecord, RuntimeTabActivationRequestRecord,
+    RuntimeTabChromeItemRecord, RuntimeWindowPreferencesRecord,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -425,6 +431,22 @@ const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
   };
 })();
 "#;
+
+#[cfg(windows)]
+fn windows_runtime_tab_initialization_script(
+    window_id: &str,
+    window_generation: u64,
+    lifecycle_epoch: u64,
+) -> Result<String, serde_json::Error> {
+    let identity = serde_json::to_string(&json!({
+        "windowId": window_id,
+        "windowGeneration": window_generation,
+        "lifecycleEpoch": lifecycle_epoch,
+    }))?;
+    Ok(format!(
+        "{WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT}\nObject.defineProperty(globalThis, '__rionRuntimeTabChromeIdentity', {{ configurable: false, enumerable: false, writable: false, value: Object.freeze({identity}) }});"
+    ))
+}
 
 fn native_runtime_window_title_for_platform(platform: &str, saved_name: Option<&str>) -> String {
     if platform == "windows"

@@ -8,7 +8,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
-import type { RuntimeTabActivationRequestRecord, RuntimeTabDragSessionRecord, SystemRuntimeOperationSummaryRecord } from "../../shared/generated";
+import type {
+  RuntimeTabActivationRequestRecord,
+  RuntimeTabChromeProjectionRecord,
+  RuntimeTabDragSessionRecord,
+  SystemRuntimeOperationSummaryRecord
+} from "../../shared/generated";
 
 import type { WorkspaceLayoutTemplate } from "../../shared/types";
 
@@ -28,6 +33,9 @@ declare global {
       mutation: () => void
     ) => void;
     __rionApplyRuntimeTabActivation?: (request: RuntimeTabActivationRequestRecord) => void;
+    __rionApplyRuntimeTabChromeProjection?: (
+      projection: RuntimeTabChromeProjectionRecord
+    ) => void;
     __rionEnsureRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionPendingRuntimeTabOrder?: string[];
     __rionPendingRuntimeTabEnsures?: ProvisionalRuntimeTab[];
@@ -42,6 +50,11 @@ declare global {
     __rionReserveRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionSetActiveRuntimeTab?: (tabId?: string) => void;
     __rionRuntimeTabChromeReady?: boolean;
+    __rionRuntimeTabChromeIdentity?: {
+      lifecycleEpoch: number;
+      windowGeneration: number;
+      windowId: string;
+    };
     __rionUpdateRuntimeTabMetadata?: (tab: RuntimeTabMetadata) => void;
     __rionUpdateRuntimeTabMetadataBatch?: (tabs: RuntimeTabMetadata[]) => void;
   }
@@ -98,6 +111,10 @@ export const runtimeState = {
   activeTabId: undefined as string | undefined,
   optimisticActiveTabId: undefined as string | undefined,
   activationRevision: 0,
+  chromeHydrated: false,
+  projectionRevision: 0,
+  rendererInstanceId: globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
   dragActionPending: false,
   scrollControlsFrame: undefined as number | undefined,
 };

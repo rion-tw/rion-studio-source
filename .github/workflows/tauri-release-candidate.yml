@@ -4,18 +4,21 @@ on:
   workflow_call:
     inputs:
       tag:
+        description: Existing private release tag to build, for example v2.4.0
         required: true
         type: string
       updater_base_url:
+        description: HTTPS directory where the release assets will be published
         required: true
         type: string
       verified_sha:
+        description: CI SHA that must match the requested release tag
         required: true
         type: string
     outputs:
       release_artifact_name:
         description: Name of the complete verified release artifact
-        value: ${{ jobs.manifest.outputs.release_artifact_name }}
+        value: ${{ jobs.build.outputs.release_artifact_name }}
     secrets:
       RION_STUDIO_UPDATER_PUBLIC_KEY:
         required: true
@@ -37,395 +40,27 @@ on:
 permissions:
   contents: read
 
-env:
-  PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
-
 concurrency:
   group: tauri-candidate-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-    steps:
-      - name: Checkout requested tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.tag }}
-
-      - name: Validate immutable release inputs
-        id: release
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
-          VERIFIED_SHA: ${{ inputs.verified_sha }}
-          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          require_secret() {
-            local name="$1"
-            if [[ -z "${!name}" ]]; then
-              echo "::error::${name} is required for updater-signed release artifacts."
-              exit 1
-            fi
-          }
-          require_secret RION_STUDIO_UPDATER_PUBLIC_KEY
-          require_secret TAURI_SIGNING_PRIVATE_KEY
-          require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
-          [[ "${UPDATER_BASE_URL}" == https://* ]]
-          test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"
-          if [[ -n "${VERIFIED_SHA}" ]]; then
-            [[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]
-            test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"
-          fi
-          echo "version=${RELEASE_TAG#v}" >> "${GITHUB_OUTPUT}"
-
-  quality:
-    needs: validate
-    if: github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/ci.yml
-    with:
-      ref: ${{ inputs.tag }}
-
   build:
-    needs:
-      - validate
-      - quality
-    if: >-
-      always() &&
-      needs.validate.result == 'success' &&
-      (needs.quality.result == 'success' || needs.quality.result == 'skipped')
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: macos-latest
-            name: macos-arm64
-            bundles: app,dmg
-          - os: windows-latest
-            name: windows-x64
-            bundles: nsis
-    env:
-      RION_STUDIO_UPDATER_ENDPOINT: https://github.com/rion-tw/rion-studio/releases/latest/download/latest.json
+    uses: ./.github/workflows/tauri-release-build.yml
+    with:
+      tag: ${{ inputs.tag }}
+      updater_base_url: ${{ inputs.updater_base_url }}
+      verified_sha: ${{ inputs.verified_sha || '' }}
+      run_quality: ${{ github.event_name == 'workflow_dispatch' }}
+    secrets:
       RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-    steps:
-      - name: Checkout requested tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.tag }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-
-      - name: Setup Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Resolve pinned Rust toolchain
-        run: rustup show active-toolchain
-
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          cache-bin: "false"
-          shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Apply release version
-        run: pnpm run release:version -- ${{ needs.validate.outputs.version }}
-
-      - name: Build Tauri release candidate
-        run: pnpm run dist -- --bundles ${{ matrix.bundles }}
-
-      - name: Verify packaged macOS candidate
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_path="target/release/bundle/macos/Rion Studio.app"
-          codesign --verify --deep --strict --verbose=2 "${app_path}"
-          codesign_details="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
-          grep -F "Signature=adhoc" <<< "${codesign_details}"
-          grep -F "TeamIdentifier=not set" <<< "${codesign_details}"
-          test -s "${app_path}.tar.gz"
-          test -s "${app_path}.tar.gz.sig"
-
-      - name: Verify packaged Windows candidate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $executable = (Resolve-Path "target/release/rion-tauri.exe").Path
-          $bytes = [System.IO.File]::ReadAllBytes($executable)
-          if ($bytes.Length -lt 64) { throw "Windows executable is too small to contain a PE header." }
-          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          if ($peOffset -lt 0 -or $peOffset + 94 -gt $bytes.Length) { throw "Windows executable has an invalid PE header offset." }
-          if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "Windows executable is missing the PE signature." }
-          $optionalHeaderOffset = $peOffset + 24
-          $optionalHeaderMagic = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset)
-          if ($optionalHeaderMagic -notin @(0x010b, 0x020b)) { throw "Windows executable has an unsupported PE optional header." }
-          $subsystem = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset + 68)
-          if ($subsystem -ne 2) { throw "Windows executable must use IMAGE_SUBSYSTEM_WINDOWS_GUI; found subsystem $subsystem." }
-          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
-          if ($null -eq $installer) { throw "NSIS installer is missing." }
-          $signature = Get-AuthenticodeSignature $installer.FullName
-          if ($signature.Status -ne "NotSigned") { throw "Windows candidate must remain unsigned like the legacy release." }
-          if (-not (Test-Path "$($installer.FullName).sig" -PathType Leaf)) { throw "Updater signature is missing." }
-
-      - name: Normalize release assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p candidate
-          if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            cp "$(find target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)" candidate/Rion.Studio-mac.dmg
-            cp "target/release/bundle/macos/Rion Studio.app.tar.gz" candidate/Rion.Studio-mac.app.tar.gz
-            cp "target/release/bundle/macos/Rion Studio.app.tar.gz.sig" candidate/Rion.Studio-mac.app.tar.gz.sig
-          else
-            installer="$(find target/release/bundle/nsis -maxdepth 1 -name '*.exe' -print -quit)"
-            cp "${installer}" candidate/Rion.Studio-win.exe
-            cp "${installer}.sig" candidate/Rion.Studio-win.exe.sig
-          fi
-
-      - name: Verify release size budgets
-        run: pnpm run check:release-size -- candidate
-
-      - name: Upload verified platform candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: tauri-${{ matrix.name }}-${{ needs.validate.outputs.version }}
-          if-no-files-found: error
-          retention-days: 14
-          path: candidate
-
-  manifest:
-    needs:
-      - validate
-      - build
-    if: >-
-      always() &&
-      needs.validate.result == 'success' &&
-      needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    outputs:
-      release_artifact_name: ${{ steps.artifact.outputs.name }}
-    steps:
-      - name: Checkout requested tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.tag }}
-
-      - name: Download verified candidates
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: tauri-*-${{ needs.validate.outputs.version }}
-          path: candidate
-          merge-multiple: true
-
-      - name: Create updater-signed manifest
-        shell: bash
-        env:
-          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
-          VERSION: ${{ needs.validate.outputs.version }}
-        run: |
-          set -euo pipefail
-          node scripts/createTauriUpdaterManifest.mjs \
-            --version "${VERSION}" \
-            --base-url "${UPDATER_BASE_URL}" \
-            --mac-archive candidate/Rion.Studio-mac.app.tar.gz \
-            --windows-installer candidate/Rion.Studio-win.exe \
-            --output candidate/latest.json
-          node scripts/releaseArtifacts.mjs candidate "${VERSION}" --write-checksums
-
-      - name: Record verified release artifact
-        id: artifact
-        shell: bash
-        env:
-          VERSION: ${{ needs.validate.outputs.version }}
-        run: echo "name=tauri-release-assets-${VERSION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Upload verified release candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ steps.artifact.outputs.name }}
-          if-no-files-found: error
-          retention-days: 14
-          path: candidate
-
-  upgrade-compatibility:
-    needs:
-      - validate
-      - manifest
-    if: >-
-      always() &&
-      needs.validate.result == 'success' &&
-      needs.manifest.result == 'success'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [macos-latest, windows-latest]
-    steps:
-      - name: Checkout requested tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.tag }}
-
-      - name: Download complete updater-signed candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: ${{ needs.manifest.outputs.release_artifact_name }}
-          path: candidate
-
-      - name: Verify updater manifest and immutable checksums
-        run: node scripts/releaseArtifacts.mjs candidate ${{ needs.validate.outputs.version }} --verify-checksums
-
-      - name: Download previous macOS Tauri release
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern Rion.Studio-mac.dmg --dir previous
-
-      - name: Download previous Windows Tauri release
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download --repo $env:PUBLIC_RELEASE_REPOSITORY --pattern Rion.Studio-win.exe --dir previous
-
-      - name: Verify macOS manual replacement preserves shared data
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mount_path="${RUNNER_TEMP}/rion-dmg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          previous_mount_path="${RUNNER_TEMP}/rion-previous-dmg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          applications_path="${RUNNER_TEMP}/rion-applications-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          user_data_path="${RUNNER_TEMP}/rion-user-data-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "${mount_path}" "${previous_mount_path}" "${applications_path}" "${user_data_path}/roles/upgrade/browser"
-          hdiutil attach previous/Rion.Studio-mac.dmg -nobrowse -readonly -mountpoint "${previous_mount_path}"
-          ditto "${previous_mount_path}/Rion Studio.app" "${applications_path}/Rion Studio.app"
-          hdiutil detach "${previous_mount_path}"
-          printf 'preserve-browser-data' > "${user_data_path}/roles/upgrade/browser/data.marker"
-          hdiutil attach candidate/Rion.Studio-mac.dmg -nobrowse -readonly -mountpoint "${mount_path}"
-          trap 'hdiutil detach "${mount_path}" >/dev/null' EXIT
-          test -d "${mount_path}/Rion Studio.app"
-          mv "${applications_path}/Rion Studio.app" "${applications_path}/Rion Studio.previous.app"
-          ditto "${mount_path}/Rion Studio.app" "${applications_path}/Rion Studio.app"
-          test -f "${user_data_path}/roles/upgrade/browser/data.marker"
-          codesign --verify --deep --strict "${applications_path}/Rion Studio.app"
-
-      - name: Verify Windows clean install and previous Tauri in-place upgrade
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          function Invoke-BoundedProcess {
-            param(
-              [Parameter(Mandatory = $true)][string] $FilePath,
-              [Parameter(Mandatory = $true)][string[]] $ArgumentList,
-              [Parameter(Mandatory = $true)][string] $Stage,
-              [int] $TimeoutSeconds = 120
-            )
-
-            Write-Host "${Stage}: starting"
-            $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru
-            try {
-              if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-                try { $process.Kill($true) } catch { Write-Warning "${Stage}: failed to terminate timed-out process tree: $_" }
-                throw "${Stage} timed out after ${TimeoutSeconds} seconds."
-              }
-              if ($process.ExitCode -ne 0) { throw "${Stage} failed with exit code $($process.ExitCode)." }
-            } finally {
-              $process.Dispose()
-            }
-            Write-Host "${Stage}: completed"
-          }
-
-          $root = Join-Path $env:RUNNER_TEMP "rion-upgrade-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          $cleanPath = Join-Path $root "clean-install"
-          $installPath = Join-Path $root "custom-install"
-          $userData = Join-Path ([Environment]::GetFolderPath("ApplicationData")) "Rion Studio"
-          $installer = (Resolve-Path candidate/Rion.Studio-win.exe).Path
-          $previousInstaller = (Resolve-Path previous/Rion.Studio-win.exe).Path
-          if (Test-Path $userData) { throw "The fresh Windows runner already contains Rion Studio user data." }
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-
-          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "/D=$cleanPath") -Stage "Clean NSIS installation"
-          if (-not (Test-Path (Join-Path $cleanPath "rion-tauri.exe") -PathType Leaf)) { throw "Clean NSIS installation did not create the executable." }
-          $cleanUninstaller = Get-ChildItem $cleanPath -Filter "*uninstall*.exe" | Select-Object -First 1
-          if ($null -eq $cleanUninstaller) { throw "Clean installation did not create an uninstaller." }
-          Invoke-BoundedProcess -FilePath $cleanUninstaller.FullName -ArgumentList "/S" -Stage "Clean NSIS uninstallation"
-
-          Invoke-BoundedProcess -FilePath $previousInstaller -ArgumentList @("/S", "/D=$installPath") -Stage "Previous Tauri NSIS installation"
-          $previousExecutable = Join-Path $installPath "rion-tauri.exe"
-          if (-not (Test-Path $previousExecutable -PathType Leaf)) { throw "Previous Tauri installation did not create the executable." }
-          $previousApp = Start-Process -FilePath $previousExecutable -PassThru
-          for ($attempt = 0; $attempt -lt 30 -and -not (Test-Path (Join-Path $userData "rion-studio.sqlite3")); $attempt += 1) { Start-Sleep -Seconds 1 }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Previous Tauri release did not create the SQLite store." }
-          if (-not $previousApp.HasExited) { Stop-Process -Id $previousApp.Id -Force }
-          New-Item -ItemType Directory -Force -Path (Join-Path $userData "roles/upgrade/browser") | Out-Null
-          Set-Content -NoNewline -Path (Join-Path $userData "roles/upgrade/browser/data.marker") -Value "preserve-browser-data"
-
-          # Start-Process -Wait waits for the whole descendant tree. --force-run launches
-          # the app as an installer descendant, so wait only for the installer process.
-          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "--updated", "--force-run", "/D=$installPath") -Stage "Tauri in-place NSIS upgrade"
-          $installedExecutable = Join-Path $installPath "rion-tauri.exe"
-          if (-not (Test-Path $installedExecutable -PathType Leaf)) { throw "The Tauri executable was not installed to the custom path." }
-
-          $launched = $null
-          for ($attempt = 0; $attempt -lt 30 -and $null -eq $launched; $attempt += 1) {
-            Start-Sleep -Seconds 1
-            $launched = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $installedExecutable } | Select-Object -First 1
-          }
-          if ($null -eq $launched) { throw "--force-run did not launch the installed Tauri executable." }
-          for ($attempt = 0; $attempt -lt 30 -and -not (Test-Path (Join-Path $userData "rion-studio.sqlite3")); $attempt += 1) { Start-Sleep -Seconds 1 }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "The upgraded app did not preserve the SQLite store." }
-          Stop-Process -Id $launched.ProcessId -Force
-
-          $uninstaller = Get-ChildItem $installPath -Filter "*uninstall*.exe" | Select-Object -First 1
-          if ($null -eq $uninstaller) { throw "The upgraded installation did not create an uninstaller." }
-          Invoke-BoundedProcess -FilePath $uninstaller.FullName -ArgumentList "/S" -Stage "Upgraded NSIS uninstallation"
-          if (-not (Test-Path (Join-Path $userData "roles/upgrade/browser/data.marker") -PathType Leaf)) { throw "Uninstallation removed role browser data." }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Uninstallation removed the SQLite store." }
-
-  release-ready:
-    needs:
-      - validate
-      - quality
-      - build
-      - manifest
-      - upgrade-compatibility
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every release-specific verification
-        shell: bash
-        env:
-          VALIDATE_RESULT: ${{ needs.validate.result }}
-          QUALITY_RESULT: ${{ needs.quality.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          MANIFEST_RESULT: ${{ needs.manifest.result }}
-          UPGRADE_RESULT: ${{ needs.upgrade-compatibility.result }}
-        run: |
-          set -euo pipefail
-          test "${VALIDATE_RESULT}" = "success"
-          [[ "${QUALITY_RESULT}" == "success" || "${QUALITY_RESULT}" == "skipped" ]]
-          test "${BUILD_RESULT}" = "success"
-          test "${MANIFEST_RESULT}" = "success"
-          test "${UPGRADE_RESULT}" = "success"
+  compatibility:
+    needs: build
+    uses: ./.github/workflows/tauri-release-compatibility.yml
+    with:
+      tag: ${{ inputs.tag }}
+      version: ${{ needs.build.outputs.version }}
+      release_artifact_name: ${{ needs.build.outputs.release_artifact_name }}

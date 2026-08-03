@@ -3,8 +3,9 @@
 Contract version 3 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
-Win32/WebView2 adapters implement it. Existing macOS behavior is the reference
-for user-visible ordering, focus, visibility, and navigation behavior.
+Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
+reference for user-visible ordering, focus, visibility, and navigation behavior;
+WKWebView APIs themselves are not an implementation template for Windows.
 
 ## Operation envelope and receipt
 
@@ -47,7 +48,7 @@ supersede, actor-stop, queue-full, or shutdown result.
 | Subsystem | Shared guarantee | Native mechanism |
 | --- | --- | --- |
 | Surface lifecycle | Generation-fenced register, isolate, release, retire, or quarantine | WKWebView lifecycle callbacks / WebView2 controller callbacks |
-| Navigation | Latest operation reaches HTTP(S) page finish or is superseded; automatic input resumes only after drain plus new-document proof | WKNavigation callbacks / WebView2 navigation callbacks |
+| Navigation | Only a permitted main-frame HTTP(S) navigation or controlled reload can create an input-fence operation; the latest operation reaches page finish or is superseded, and automatic input resumes only after drain plus new-document proof | WKNavigation callbacks / WebView2 main-frame navigation callbacks |
 | Input | Epoch- and generation-fenced native submission with bounded cleanup | AppKit event delivery / WebView2 native input |
 | Presentation | Latest-only revisions coalesce tab surfaces and focus; a bounded per-window FIFO preserves non-idempotent visibility/fullscreen/maximized controls and returns native acknowledgement for the submitted native transaction | AppKit window and view APIs / Win32 and WebView2 controller APIs |
 | Geometry and layout | Per-window serialized revision applies logical bounds, DPI conversion, child-surface layout, readback, and reverse-order compensation; asynchronous window modes declare native submission | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
@@ -98,6 +99,16 @@ separately and cannot turn an acknowledged presentation into a false failure.
 - `pageFinished` means the engine completed an HTTP(S) navigation callback.
 - `inputReady` is stronger: Core input drained, a different completed document
   instance was observed, and the native input epoch resumed.
+- Main-frame navigation is the only implicit input-fence transaction boundary.
+  Subframe, iframe, document-resource, and other resource requests never create,
+  advance, extend, or release a role input fence on either platform.
+- macOS and Windows share the observable ordering: synchronously close Core and
+  native input before allowing the main-frame navigation, asynchronously drain
+  that epoch once, then wait for the matching generation's page finish and new
+  document proof. Platform adapters may use different native APIs to provide it.
+- A navigation watchdog belongs to one current main-frame or controlled-reload
+  operation. Recovery is valid only while that operation ID, input epoch, and
+  surface generation remain current; resource activity cannot start or reset it.
 - Timeouts never silently become success. A newer operation becomes
   `superseded`; an unknown native result becomes `indeterminate`.
 - Reload is a navigation operation rather than a bare native command. Every role
@@ -128,8 +139,10 @@ including update installation and repeated exit requests.
 
 Popups without a role owner or with an unsupported scheme are denied before a
 native window is created. A created popup must install security, lifecycle,
-failure-monitor, zoom, ownership, and input-fence handling before registration.
-Failure at any stage closes the provisional window and records a failed receipt.
+failure-monitor, zoom, ownership, and main-frame navigation handling before
+registration. Popup resource and subframe activity never participates in the
+role input-fence transaction. Failure at any stage closes the provisional window
+and records a failed receipt.
 
 `capabilityEvidence` reports each capability's runtime probe, policy mode,
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and
@@ -143,6 +156,9 @@ capability evidence, active lifecycle/navigation counts, and at most 80 recent
 operation summaries from the same registry used by API waiters. Summaries may
 include stable IDs and error codes, but never
 URLs, origins, session values, tokens, or native error messages.
+Input-fence log contexts include the owning operation ID together with the input
+epoch and surface generation, so every recovery event can be traced to its
+main-frame or controlled-reload transaction without exposing page data.
 
 Additive fields remain compatible within version 3. Changing a terminal status,
 completion scope, identity fence, popup/security policy, or ordering guarantee

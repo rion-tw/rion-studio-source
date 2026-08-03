@@ -1,5 +1,5 @@
 impl SystemRuntimeExecutor {
-    fn allow_navigation_after_macro_release(
+    fn allow_main_frame_navigation_after_input_fence(
         &self,
         webview_label: &str,
         role_id: &str,
@@ -18,7 +18,7 @@ impl SystemRuntimeExecutor {
                 && let Err(error) = self.begin_navigation_input_fence(
                     webview_label,
                     role_id,
-                    Some(url.as_str()),
+                    NavigationInputFenceSource::MainFrame,
                 )
             {
                 self.emit_navigation_input_error(
@@ -37,12 +37,12 @@ impl SystemRuntimeExecutor {
         &self,
         webview_label: &str,
         role_id: &str,
-        _expected_url: Option<&str>,
+        source: NavigationInputFenceSource,
     ) -> RuntimeResult<u64> {
         let generation = self.surface_generation_for_role(role_id).unwrap_or_default();
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Navigation,
-            "navigationInputFence",
+            source.trigger(),
             NAVIGATION_TIMEOUT,
         )
         .with_completion_scope("inputReady")
@@ -55,6 +55,7 @@ impl SystemRuntimeExecutor {
             operation.tab_id = Some(tab_id.clone());
             operation.window_id = Some(tab.window_id.clone());
         }
+        accept_navigation_input_operation(&self.operations, &operation)?;
         let epoch_result = self
             .core
             .invoke(CoreCommand::MacroInputFence {
@@ -81,7 +82,7 @@ impl SystemRuntimeExecutor {
             }
         };
         if let Err(error) =
-            self.install_role_input_fence(role_id, epoch, "navigation", Some(generation))
+            self.install_role_input_fence(role_id, epoch, source.reason(), Some(generation))
         {
             if let Some(state) = self.app.try_state::<crate::CoreState>() {
                 state.runtime.schedule_surface_recovery(
@@ -110,8 +111,8 @@ impl SystemRuntimeExecutor {
             {
                 return false;
             }
-            update_navigation_input_fences(
-                &mut state.navigation_input_fences,
+            update_main_frame_navigation_input_fences(
+                &mut state.main_frame_navigation_input_fences,
                 webview_label,
                 role_id,
                 epoch,
@@ -186,21 +187,6 @@ impl SystemRuntimeExecutor {
         Ok(epoch)
     }
 
-    #[cfg(windows)]
-    fn current_navigation_input_epoch(
-        &self,
-        webview_label: &str,
-        role_id: &str,
-    ) -> Option<u64> {
-        self.state.lock().ok().and_then(|state| {
-            state
-                .navigation_input_fences
-                .get(webview_label)
-                .filter(|ticket| ticket.role_id == role_id)
-                .map(|ticket| ticket.input_epoch)
-        })
-    }
-
     fn finish_navigation_input_drain(&self, role_id: &str, input_epoch: u64) {
         let current = self.state.lock().is_ok_and(|mut state| {
             let Some(fence) = state.role_input_fences.get_mut(role_id) else {
@@ -220,7 +206,7 @@ impl SystemRuntimeExecutor {
         self.try_resume_navigation_input(role_id, input_epoch);
     }
 
-    fn finish_navigation_page(&self, webview: &Webview, url: &Url) {
+    fn finish_main_frame_navigation_page(&self, webview: &Webview, url: &Url) {
         if !matches!(url.scheme(), "http" | "https") {
             return;
         }
@@ -232,12 +218,15 @@ impl SystemRuntimeExecutor {
             if let Some(state) = app.try_state::<crate::CoreState>() {
                 state
                     .runtime
-                    .complete_navigation_page_finish(&webview_label, readback.as_ref().ok());
+                    .complete_main_frame_navigation_page_finish(
+                        &webview_label,
+                        readback.as_ref().ok(),
+                    );
             }
         }));
     }
 
-    fn complete_navigation_page_finish(
+    fn complete_main_frame_navigation_page_finish(
         &self,
         webview_label: &str,
         readback: Option<&DocumentInstanceReadback>,
@@ -252,7 +241,9 @@ impl SystemRuntimeExecutor {
             .map(str::to_owned);
         let ticket = self.state.lock().ok().and_then(|mut state| {
             let document_id = completed_document_id.as_ref()?;
-            let ticket = state.navigation_input_fences.get_mut(webview_label);
+            let ticket = state
+                .main_frame_navigation_input_fences
+                .get_mut(webview_label);
             let completed = ticket.is_none_or(|ticket| {
                 ticket
                     .baseline_document_id
@@ -265,8 +256,8 @@ impl SystemRuntimeExecutor {
             state
                 .last_completed_document_ids
                 .insert(webview_label.to_owned(), document_id.clone());
-            mark_navigation_page_finished(
-                &mut state.navigation_input_fences,
+            mark_main_frame_navigation_page_finished(
+                &mut state.main_frame_navigation_input_fences,
                 webview_label,
                 "https",
             )
@@ -281,12 +272,12 @@ impl SystemRuntimeExecutor {
         let ready = self.state.lock().is_ok_and(|mut state| {
             let RuntimeState {
                 role_input_fences,
-                navigation_input_fences,
+                main_frame_navigation_input_fences,
                 ..
             } = &mut *state;
             claim_navigation_input_resume(
                 role_input_fences,
-                navigation_input_fences,
+                main_frame_navigation_input_fences,
                 role_id,
                 input_epoch,
             )
@@ -329,7 +320,7 @@ impl SystemRuntimeExecutor {
                     .last_input_ready_epochs
                     .insert(role_id.to_owned(), input_epoch);
                 state
-                    .navigation_input_fences
+                    .main_frame_navigation_input_fences
                     .retain(|_, ticket| ticket.role_id != role_id);
                 operation
             });
@@ -368,7 +359,7 @@ impl SystemRuntimeExecutor {
             return Ok(());
         }
         for ticket in state
-            .navigation_input_fences
+            .main_frame_navigation_input_fences
             .values_mut()
             .filter(|ticket| ticket.role_id == role_id)
         {
@@ -413,21 +404,17 @@ impl SystemRuntimeExecutor {
         surface_generation: u64,
     ) {
         let snapshot = self.state.lock().ok().and_then(|mut state| {
-            let fence = state.role_input_fences.get(role_id)?;
-            if fence.input_epoch != input_epoch
-                || fence.surface_generation != surface_generation
-                || fence.recovery_scheduled
-            {
+            if !main_frame_navigation_needs_reconciliation(
+                &state.role_input_fences,
+                &state.main_frame_navigation_input_fences,
+                webview_label,
+                role_id,
+                input_epoch,
+                surface_generation,
+            ) {
                 return None;
             }
-            let ticket = state.navigation_input_fences.get(webview_label)?;
-            if ticket.role_id != role_id
-                || ticket.input_epoch != input_epoch
-                || ticket.surface_generation != surface_generation
-                || ticket.page_finished
-            {
-                return None;
-            }
+            let ticket = state.main_frame_navigation_input_fences.get(webview_label)?;
             let baseline_document_id = ticket.baseline_document_id.clone();
             let webview = state
                 .surface_registry
@@ -496,7 +483,10 @@ impl SystemRuntimeExecutor {
                 return false;
             }
             fence.reconciling = false;
-            let Some(ticket) = state.navigation_input_fences.get_mut(webview_label) else {
+            let Some(ticket) = state
+                .main_frame_navigation_input_fences
+                .get_mut(webview_label)
+            else {
                 return false;
             };
             if ticket.role_id != role_id
@@ -537,8 +527,8 @@ impl SystemRuntimeExecutor {
                 claim_input_fence_recovery(&mut state.role_input_fences, role_id, input_epoch)?;
             let operation = state
                 .role_input_fences
-                .get_mut(role_id)
-                .and_then(|fence| fence.navigation_operation.take());
+                .get(role_id)
+                .and_then(|fence| fence.navigation_operation.clone());
             Some((generation, operation))
         });
         let Some((generation, operation)) = recovery else {
@@ -623,7 +613,15 @@ impl SystemRuntimeExecutor {
         fallback_reason: &str,
         level: LogLevel,
     ) {
-        let (reason, elapsed_ms, surface_generation, drained, pending, recovery_scheduled) = self
+        let (
+            reason,
+            elapsed_ms,
+            surface_generation,
+            operation_id,
+            drained,
+            pending,
+            recovery_scheduled,
+        ) = self
             .state
             .lock()
             .ok()
@@ -637,9 +635,13 @@ impl SystemRuntimeExecutor {
                             .as_millis()
                             .min(u64::MAX as u128) as u64,
                         Some(fence.surface_generation),
+                        fence
+                            .navigation_operation
+                            .as_ref()
+                            .map(|operation| operation.operation_id.clone()),
                         fence.drained,
                         state
-                            .navigation_input_fences
+                            .main_frame_navigation_input_fences
                             .values()
                             .filter(|ticket| {
                                 ticket.role_id == role_id
@@ -653,7 +655,15 @@ impl SystemRuntimeExecutor {
                 })
             })
             .unwrap_or_else(|| {
-                (fallback_reason.to_owned(), 0, None, false, 0, false)
+                (
+                    fallback_reason.to_owned(),
+                    0,
+                    None,
+                    None,
+                    false,
+                    0,
+                    false,
+                )
             });
         let record = SystemRuntimeInputFenceEventRecord {
             captured_at: chrono::Utc::now().to_rfc3339(),
@@ -674,6 +684,7 @@ impl SystemRuntimeExecutor {
             "drained": drained,
             "elapsedMs": elapsed_ms,
             "inputEpoch": input_epoch,
+            "operationId": operation_id,
             "pendingPageFinishCount": pending,
             "reason": reason,
             "recoveryScheduled": recovery_scheduled,
@@ -721,7 +732,7 @@ impl SystemRuntimeExecutor {
             state.last_input_ready_epochs.remove(role_id);
             let fence = state.role_input_fences.remove(role_id)?;
             state
-                .navigation_input_fences
+                .main_frame_navigation_input_fences
                 .retain(|_, ticket| ticket.role_id != role_id);
             Some((fence.input_epoch, fence.navigation_operation))
         });

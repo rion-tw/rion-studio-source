@@ -43,7 +43,7 @@ impl SystemRuntimeExecutor {
                 state.close_coordinator.closing_roles.contains(role_id)
                     || state.close_coordinator.quarantined_roles.contains(role_id)
             });
-            state.navigation_input_fences.remove(window_label);
+            state.main_frame_navigation_input_fences.remove(window_label);
             state.last_completed_document_ids.remove(window_label);
             let active_epoch = role_id.as_ref().and_then(|role_id| {
                 state
@@ -166,18 +166,6 @@ impl SystemRuntimeExecutor {
             }
         });
         Ok(())
-    }
-
-    #[cfg(windows)]
-    fn should_defer_windows_document_navigation(&self, webview_label: &str) -> bool {
-        self.state.lock().is_ok_and(|state| {
-            should_defer_document_navigation(
-                "windows",
-                state
-                    .controlled_navigation_webviews
-                    .contains_key(webview_label),
-            )
-        })
     }
 
     fn begin_controlled_navigation(&self, webview_label: &str) -> RuntimeResult<()> {
@@ -472,7 +460,7 @@ impl SystemRuntimeExecutor {
                     fence.reconciling = false;
                     fence.resuming = false;
                     state
-                        .navigation_input_fences
+                        .main_frame_navigation_input_fences
                         .retain(|_, ticket| ticket.role_id != role_id);
                 }
                 let recovered = self

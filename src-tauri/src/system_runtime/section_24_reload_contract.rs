@@ -88,7 +88,11 @@ impl SystemRuntimeExecutor {
             .with_window(&window_id)
             .with_surface_generation(generation);
             let setup = (|| -> RuntimeResult<u64> {
-                let epoch = self.begin_navigation_input_fence(&label, &role_id, None)?;
+                let epoch = self.begin_navigation_input_fence(
+                    &label,
+                    &role_id,
+                    NavigationInputFenceSource::ControlledReload,
+                )?;
                 self.begin_controlled_navigation(&label)?;
                 controlled_labels.push(label.clone());
                 navigation.begin_operation(&operation).map_err(|message| {

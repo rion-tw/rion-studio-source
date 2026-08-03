@@ -674,7 +674,7 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
       runtime.indexOf("fn register_popup(")
     );
     expect(cleanup).toContain("state.popup_roles.remove(window_label)");
-    expect(cleanup).toContain("state.navigation_input_fences.remove(window_label)");
+    expect(cleanup).toContain("state.main_frame_navigation_input_fences.remove(window_label)");
     expect(cleanup).toContain("tauri::async_runtime::spawn(async move");
     expect(cleanup).toContain("advance_role_input_fence_local(role_id)");
     expect(cleanup).toContain(".invoke_async(CoreCommand::MacroInputFence");

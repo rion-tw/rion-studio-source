@@ -394,7 +394,7 @@ struct RuntimeState {
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     launch_phases: HashMap<String, LaunchPhase>,
     launch_attempt_generations: HashMap<String, String>,
-    navigation_input_fences: HashMap<String, NavigationInputFence>,
+    main_frame_navigation_input_fences: HashMap<String, MainFrameNavigationInputFence>,
     role_input_fences: HashMap<String, RoleInputFence>,
     last_completed_document_ids: HashMap<String, String>,
     last_input_ready_epochs: HashMap<String, u64>,

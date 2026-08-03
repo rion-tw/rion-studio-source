@@ -37,7 +37,7 @@ impl SystemRuntimeExecutor {
                 navigation_app
                     .try_state::<crate::CoreState>()
                     .is_some_and(|state| {
-                        state.runtime.allow_navigation_after_macro_release(
+                        state.runtime.allow_main_frame_navigation_after_input_fence(
                             &navigation_label,
                             role_id,
                             url,
@@ -123,7 +123,7 @@ impl SystemRuntimeExecutor {
                     popup_navigation_app
                         .try_state::<crate::CoreState>()
                         .is_some_and(|state| {
-                            state.runtime.allow_navigation_after_macro_release(
+                            state.runtime.allow_main_frame_navigation_after_input_fence(
                                 &popup_navigation_label,
                                 &popup_navigation_role_id,
                                 target,
@@ -137,7 +137,10 @@ impl SystemRuntimeExecutor {
                     {
                         state
                             .runtime
-                            .finish_navigation_page(webview.as_ref(), payload.url());
+                            .finish_main_frame_navigation_page(
+                                webview.as_ref(),
+                                payload.url(),
+                            );
                     }
                 })
                 .on_download(move |_webview, event| {
@@ -156,15 +159,7 @@ impl SystemRuntimeExecutor {
                 let popup = popup_builder.build();
                 match popup {
                     Ok(window) => {
-                        if let Err(error) = install_platform_security_policy(window.as_ref())
-                            .and_then(|()| {
-                                install_document_navigation_macro_release_handler(
-                                    window.as_ref(),
-                                    popup_app.clone(),
-                                    role_id,
-                                )
-                            })
-                        {
+                        if let Err(error) = install_platform_security_policy(window.as_ref()) {
                             let _ = window.close();
                             if let Some(state) = popup_app.try_state::<crate::CoreState>() {
                                 state.runtime.revoke_overlay_capability(&label);

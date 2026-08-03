@@ -1,10 +1,32 @@
 #[derive(Clone)]
-struct NavigationInputFence {
+struct MainFrameNavigationInputFence {
     role_id: String,
     input_epoch: u64,
     surface_generation: u64,
     baseline_document_id: Option<String>,
     page_finished: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NavigationInputFenceSource {
+    MainFrame,
+    ControlledReload,
+}
+
+impl NavigationInputFenceSource {
+    const fn trigger(self) -> &'static str {
+        match self {
+            Self::MainFrame => "mainFrameNavigationInputFence",
+            Self::ControlledReload => "controlledReloadInputFence",
+        }
+    }
+
+    const fn reason(self) -> &'static str {
+        match self {
+            Self::MainFrame => "main-frame-navigation",
+            Self::ControlledReload => "controlled-reload",
+        }
+    }
 }
 
 #[derive(Clone)]

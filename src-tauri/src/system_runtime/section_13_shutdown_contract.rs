@@ -240,7 +240,7 @@ impl SystemRuntimeExecutor {
         state.overlay_capabilities.clear();
         state.overlay_ready_webviews.clear();
         state.role_tabs.clear();
-        state.navigation_input_fences.clear();
+        state.main_frame_navigation_input_fences.clear();
         state.role_input_fences.clear();
         state.last_input_ready_epochs.clear();
         state.controlled_navigation_webviews.clear();

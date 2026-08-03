@@ -215,6 +215,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(reloadContract).toMatch(/tab\s*\.roles/);
     expect(reloadContract).toContain("webview.reload()");
     expect(reloadContract).toContain("begin_navigation_input_fence");
+    expect(reloadContract).toContain("NavigationInputFenceSource::ControlledReload");
     expect(reloadContract).not.toContain("popup_roles");
     expect(runtime).toContain("begin_controlled_navigation_scope(");
     expect(runtime).toContain("finish_controlled_navigation_scope(");
@@ -387,15 +388,19 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       runtime.indexOf(".on_navigation(move |url| {"),
       runtime.indexOf(".on_new_window(move |url, features|")
     );
-    expect(mainNavigation).toContain("allow_navigation_after_macro_release(");
+    expect(mainNavigation).toContain("allow_main_frame_navigation_after_input_fence(");
     expect(runtime).toContain('matches!(url.scheme(), "http" | "https")');
 
     const navigationPolicy = runtime.slice(
-      runtime.indexOf("fn allow_navigation_after_macro_release("),
-      runtime.indexOf("fn update_navigation_input_fences(")
+      runtime.indexOf("fn allow_main_frame_navigation_after_input_fence("),
+      runtime.indexOf("fn update_main_frame_navigation_input_fences(")
     );
     expect(navigationPolicy).toContain("begin_navigation_input_fence(");
-    expect(navigationPolicy).toContain("fn current_navigation_input_epoch(");
+    expect(navigationPolicy).toContain("NavigationInputFenceSource::MainFrame");
+    expect(navigationPolicy).toContain("accept_navigation_input_operation(");
+    expect(navigationPolicy.indexOf("accept_navigation_input_operation(")).toBeLessThan(
+      navigationPolicy.indexOf("CoreCommand::MacroInputFence {")
+    );
     expect(navigationPolicy).toContain(
       "fn finish_navigation_input_drain(&self, role_id: &str, input_epoch: u64)"
     );
@@ -406,47 +411,33 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(navigationPolicy).not.toContain("CoreCommand::MacroReleaseRole");
     expect(navigationPolicy).not.toContain("webview.navigate(url)");
     expect(navigationPolicy).not.toContain('"url"');
+    expect(runtime.match(/begin_navigation_input_fence\(/g)).toHaveLength(3);
+    expect(runtime).toContain('"operationId": operation_id');
 
-    const windowsDocumentHandler = runtime.slice(
-      runtime.indexOf("fn install_document_navigation_macro_release_handler("),
-      runtime.indexOf("fn complete_windows_document_navigation_deferral(")
-    );
-    expect(windowsDocumentHandler).toContain("WebResourceRequestedEventHandler");
-    expect(windowsDocumentHandler).toContain("AddWebResourceRequestedFilter");
-    expect(windowsDocumentHandler).toContain("COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT");
-    expect(windowsDocumentHandler).toContain("args.GetDeferral()");
-    expect(windowsDocumentHandler).toContain("unsafe { args.GetDeferral() }");
-    expect(windowsDocumentHandler).toMatch(
-      /unsafe\s*\{\s*core_webview\.AddWebResourceRequestedFilter/
-    );
-    expect(windowsDocumentHandler).toContain(
-      "unsafe { core_webview.add_WebResourceRequested(&handler, &mut token) }"
-    );
-    expect(windowsDocumentHandler).toContain("retain_windows_document_navigation_deferral(deferral)");
-    expect(windowsDocumentHandler).toContain(".invoke_async(CoreCommand::MacroInputDrain");
-    expect(windowsDocumentHandler).toContain("current_navigation_input_epoch(");
-    expect(windowsDocumentHandler).toMatch(
-      /finish_navigation_input_drain\(\s*&release_role_id,\s*input_epoch,?\s*\)/
-    );
-    expect(windowsDocumentHandler).toContain("run_on_main_thread");
-    expect(windowsDocumentHandler).not.toContain("navigate(");
-    expect(runtime).toContain("WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS");
-    expect(runtime).not.toContain("AgileReference");
-    expect(runtime).not.toContain("RoGetAgileReference");
-    expect(runtime).toContain("deferral.Complete()");
-    expect(runtime).toContain("register_windows_document_navigation_handler(");
+    for (const forbiddenDocumentRequestNavigationToken of [
+      "WebResourceRequestedEventHandler",
+      "AddWebResourceRequestedFilter",
+      "COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT",
+      "WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS",
+      "register_windows_document_navigation_handler(",
+      "install_document_navigation_macro_release_handler(",
+      "current_navigation_input_epoch(",
+      "SYSTEM_NAVIGATION_DEFERRAL"
+    ]) {
+      expect(runtime).not.toContain(forbiddenDocumentRequestNavigationToken);
+    }
     const windowsRoleSetup = runtime.slice(
       runtime.indexOf('#[cfg(windows)]\nfn install_windows_role_surface_handlers('),
       runtime.indexOf('#[cfg(windows)]\nfn windows_role_setup_error(')
     );
     expect(windowsRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
-    expect(windowsRoleSetup).toContain("register_windows_document_navigation_handler(");
+    expect(windowsRoleSetup).not.toContain("navigation-handler");
 
     const popupNavigation = runtime.slice(
       runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("),
       runtime.indexOf(".on_download(move |_webview, event|", runtime.indexOf("let popup_builder = WebviewWindowBuilder::new("))
     );
-    expect(popupNavigation).toContain("allow_navigation_after_macro_release(");
+    expect(popupNavigation).toContain("allow_main_frame_navigation_after_input_fence(");
 
     const pendingRoute = app.slice(
       app.indexOf("const consumePendingPageRequest"),

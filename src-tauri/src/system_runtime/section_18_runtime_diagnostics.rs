@@ -407,7 +407,7 @@ impl SystemRuntimeExecutor {
                             .or_else(|| native_lane.map(|lane| lane.0))
                             .unwrap_or_default();
                         let pending_page_finish_count = state
-                            .navigation_input_fences
+                            .main_frame_navigation_input_fences
                             .values()
                             .filter(|ticket| {
                                 ticket.role_id == role_id

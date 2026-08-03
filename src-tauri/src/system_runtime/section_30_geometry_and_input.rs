@@ -112,25 +112,6 @@ fn should_release_macros_for_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
 
-#[cfg(any(windows, test))]
-fn should_defer_document_navigation(platform: &str, controlled: bool) -> bool {
-    platform == "windows" && !controlled
-}
-
-#[cfg(any(windows, test))]
-fn complete_navigation_deferral_once<E>(
-    completed: &AtomicBool,
-    complete: impl FnOnce() -> Result<(), E>,
-) -> Result<bool, E> {
-    if completed
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        return Ok(false);
-    }
-    complete().map(|()| true)
-}
-
 fn replace_single_script_token(
     source: &str,
     token: &str,

@@ -15,3 +15,4 @@ include!("behavior_12_geometry_reload_and_shutdown_contracts.rs");
 include!("behavior_13_macro_key_guard_is_fail_closed_for_keydown.rs");
 include!("behavior_14_native_operation_registry_is_bounded_and_terminal.rs");
 include!("behavior_15_window_close_transaction_is_generation_fenced.rs");
+include!("behavior_16_focus_broker_is_global_and_generation_fenced.rs");

@@ -521,13 +521,16 @@ pub fn run() {
                             }
                         }
                         tauri::WindowEvent::Focused(true) if label != "main" => {
-                            state.runtime.focus_window(&label);
+                            state.runtime.observe_window_focus(&label);
                             let runtime = Arc::clone(&state.runtime);
                             let _ = thread::Builder::new()
                                 .name("rion-runtime-focus-persist".to_owned())
                                 .spawn(move || {
                                     let _ = runtime.persist_restore_session(false);
                                 });
+                        }
+                        tauri::WindowEvent::Focused(false) if label != "main" => {
+                            state.runtime.observe_window_blur(&label);
                         }
                         tauri::WindowEvent::Destroyed => {
                             state.runtime.complete_window_destroyed(&label);

@@ -20,6 +20,7 @@ enum NativeOperationSubsystem {
     Capability,
     Shutdown,
     WindowLifecycle,
+    Focus,
 }
 
 impl NativeOperationSubsystem {
@@ -40,6 +41,7 @@ impl NativeOperationSubsystem {
             Self::Capability => "capability",
             Self::Shutdown => "shutdown",
             Self::WindowLifecycle => "windowLifecycle",
+            Self::Focus => "focus",
         }
     }
 
@@ -52,7 +54,8 @@ impl NativeOperationSubsystem {
             | Self::Audio
             | Self::Zoom
             | Self::Shutdown
-            | Self::WindowLifecycle => "nativeAcknowledgement",
+            | Self::WindowLifecycle
+            | Self::Focus => "nativeAcknowledgement",
             Self::Navigation => "pageFinished",
             Self::Input | Self::Metadata => "nativeSubmission",
             Self::Popup | Self::Session => "stateCommit",

@@ -572,7 +572,11 @@ impl SystemRuntimeExecutor {
         };
         if let Some(source) = self.window_for_id(source_window_id) {
             let _ = source.show();
-            let _ = source.set_focus();
+            let _ = self.focus_runtime_window_direct(
+                source_window_id,
+                &source,
+                "cancelProvisionalTabMove",
+            );
         }
         self.discard_provisional_game_window(provisional_window_id);
         self.publish_projection();
@@ -593,6 +597,8 @@ impl SystemRuntimeExecutor {
         self.presentation.remove(window_id);
         self.publish_launcher_presence();
         if let Some(host) = host {
+            self.focus_broker
+                .revoke_window(window_id, host.generation);
             self.unregister_runtime_launcher_window(window_id);
             let _ = host.window.close();
         }
@@ -791,5 +797,4 @@ impl SystemRuntimeExecutor {
     ) -> Result<(), String> {
         Err("Windows runtime tab strip is unavailable on this platform".to_owned())
     }
-
 }

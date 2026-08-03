@@ -8,6 +8,7 @@ fn presentation_outcome(
         applied,
         presentation_applied: applied,
         focus_applied: focused == Some(true),
+        focus_superseded: false,
         hidden_surface_count: 0,
         hide_ms: 0,
         main_queue_wait_ms: 0,
@@ -89,6 +90,16 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         );
         assert_eq!(
             superseded.status,
+            NativePresentationStatus::Superseded,
+            "{platform}"
+        );
+        let mut cross_window_focus =
+            presentation_outcome(true, Some(true), Some(true), Vec::new());
+        cross_window_focus.focus_superseded = true;
+        let cross_window_focus =
+            NativePresentationReceipt::from_outcome(&plan, &cross_window_focus);
+        assert_eq!(
+            cross_window_focus.status,
             NativePresentationStatus::Superseded,
             "{platform}"
         );

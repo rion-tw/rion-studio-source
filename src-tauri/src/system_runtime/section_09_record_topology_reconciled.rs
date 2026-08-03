@@ -537,6 +537,12 @@ impl SystemRuntimeExecutor {
         focus: NativePresentationFocus,
         window_mode: Option<NativeWindowMode>,
     ) -> String {
+        let window_generation = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.display_hosts.get(&window_id).map(|host| host.generation))
+            .unwrap_or_default();
         let mut operation = NativeOperationContext::new_at_for_platform(
             NativeOperationSubsystem::Presentation,
             trigger,
@@ -546,7 +552,9 @@ impl SystemRuntimeExecutor {
         )
         .with_completion_scope("nativeAcknowledgement")
         .with_revision(revision)
-        .with_window(window_id.clone());
+        .with_window(window_id.clone())
+        .with_window_generation(window_generation)
+        .with_lifecycle_epoch(0);
         if let Some(tab_id) = tab_id.as_ref() {
             operation = operation.with_tab(tab_id.clone());
         }
@@ -579,6 +587,15 @@ impl SystemRuntimeExecutor {
             ));
             return operation_id;
         };
+        let focus_lease = (focus != NativePresentationFocus::None).then(|| {
+            self.focus_broker.accept(
+                &window_id,
+                window_generation,
+                0,
+                tab_id.clone(),
+                focus,
+            )
+        });
         let next_surface_identities = presentation
             .lock()
             .ok()
@@ -618,6 +635,8 @@ impl SystemRuntimeExecutor {
             coordinator: presentation,
             core: Arc::clone(&self.core),
             focus,
+            focus_broker: Arc::clone(&self.focus_broker),
+            focus_lease,
             next_surface_identities,
             next_surfaces,
             native_window_mutations: Arc::clone(&self.native_window_mutations),

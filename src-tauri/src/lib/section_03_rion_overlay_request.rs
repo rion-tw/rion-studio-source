@@ -25,12 +25,10 @@ async fn rion_overlay_request(
             .overlay_webview_is_selected(webview.label(), &role_id)
             .map_err(|message| shell_error("OVERLAY_WEBVIEW_FOCUS_STATE_FAILED", message))?
     {
-        webview.set_focus().map_err(|error| {
-            shell_error(
-                "OVERLAY_WEBVIEW_FOCUS_FAILED",
-                format!("Unable to focus the active role WebView: {error}"),
-            )
-        })?;
+        state
+            .runtime
+            .focus_selected_overlay_webview(&webview, &role_id)
+            .map_err(|error| shell_error(error.code, error.message))?;
     }
     Arc::clone(&state.core)
         .invoke_async(CoreCommand::OverlayRequest {

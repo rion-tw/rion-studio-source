@@ -87,6 +87,7 @@ type TypedCoreCommandResultMap = {
   gameWindowCreate: StateGameWindowRecord;
   gameWindowSaveRuntime: StateGameWindowRecord;
   gameWindowUpdate: StateGameWindowRecord;
+  gameWindowsDisplayRemap: StateGameWindowRecord[];
   gameWindowReorder: StateGameWindowRecord[];
   macrosList: StateMacroRecord[];
   macroGet: StateMacroRecord;

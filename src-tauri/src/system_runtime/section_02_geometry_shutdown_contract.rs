@@ -29,6 +29,7 @@ impl RuntimeShutdownState {
 
 #[derive(Default)]
 struct NativeWindowMutationRegistry {
+    issue_gate: Mutex<()>,
     lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     latest_revisions: Mutex<HashMap<String, u64>>,
     next_revision: AtomicU64,
@@ -36,6 +37,16 @@ struct NativeWindowMutationRegistry {
 
 impl NativeWindowMutationRegistry {
     fn issue(&self, window_id: &str) -> RuntimeResult<(u64, Arc<Mutex<()>>)> {
+        let _guard = self.issue_gate.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_GEOMETRY_APPLY_FAILED",
+                "The native window mutation issue gate is unavailable.",
+            )
+        })?;
+        self.issue_under_gate(window_id)
+    }
+
+    fn issue_under_gate(&self, window_id: &str) -> RuntimeResult<(u64, Arc<Mutex<()>>)> {
         let revision = self
             .next_revision
             .fetch_add(1, Ordering::AcqRel)

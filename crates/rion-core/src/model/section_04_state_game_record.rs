@@ -195,6 +195,14 @@ pub struct GameWindowUpdateInputRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowDisplayRemapRecord {
+    pub window_id: String,
+    pub input: GameWindowUpdateInputRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWorkspaceSlotRecord {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -87,6 +87,7 @@ export type { GameCreateRequest } from "./GameCreateRequest";
 export type { GameUpdateInputRecord } from "./GameUpdateInputRecord";
 export type { GameUpdateRequest } from "./GameUpdateRequest";
 export type { GameWindowCreateInputRecord } from "./GameWindowCreateInputRecord";
+export type { GameWindowDisplayRemapRecord } from "./GameWindowDisplayRemapRecord";
 export type { GameWindowPlacementRecord } from "./GameWindowPlacementRecord";
 export type { GameWindowRoleViewRecord } from "./GameWindowRoleViewRecord";
 export type { GameWindowSaveRuntimeInputRecord } from "./GameWindowSaveRuntimeInputRecord";

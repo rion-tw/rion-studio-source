@@ -349,6 +349,35 @@ fn apply_domain_mutation(
                 upsert_game_window(&transaction, &json_value(&game_window)?, ordinal)?;
                 serde_json::to_value(game_window)
             }
+            StateMutation::GameWindowsDisplayRemap { updates } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let mut seen = std::collections::HashSet::new();
+                let mut remapped = Vec::with_capacity(updates.len());
+                for update in updates {
+                    if !seen.insert(update.window_id.clone()) {
+                        return Err(CoreError::Domain {
+                            code: "GAME_WINDOW_DISPLAY_REMAP_DUPLICATE",
+                            message: "A display remap transaction cannot update one game window twice."
+                                .to_owned(),
+                        });
+                    }
+                    let window = update_game_window(
+                        &mut game_windows,
+                        &update.window_id,
+                        update.input,
+                    )?;
+                    remapped.push(window);
+                }
+                for window in &remapped {
+                    let ordinal = game_windows
+                        .iter()
+                        .position(|candidate| candidate.id == window.id)
+                        .expect("remapped game window remains in the collection");
+                    upsert_game_window(&transaction, &json_value(window)?, ordinal)?;
+                }
+                serde_json::to_value(remapped)
+            }
             StateMutation::GameWindowReorder { ordered_ids } => {
                 let mut game_windows =
                     read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;

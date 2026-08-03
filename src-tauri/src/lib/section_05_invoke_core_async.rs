@@ -128,16 +128,14 @@ async fn export_diagnostics(
     let Some(path) = path else {
         return Ok(Value::Null);
     };
-    let displays = display_inventory(window)?
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
+    let displays = capture_display_inventory(window)?
+        .records
         .into_iter()
         .map(|display| {
             json!({
-                "bounds": display["bounds"].clone(),
-                "resolution": display["resolution"].clone(),
-                "scaleFactor": display["scaleFactor"].clone()
+                "bounds": display.bounds,
+                "resolution": display.resolution,
+                "scaleFactor": display.scale_factor
             })
         })
         .collect::<Vec<_>>();

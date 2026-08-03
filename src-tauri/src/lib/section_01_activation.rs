@@ -12,9 +12,10 @@ use std::{
 use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
-    EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
-    GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogCaptureRecord,
-    LogLevel, LogSource, MacroRunStatus, StateCollection, StateGameWindowRecord,
+    EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
+    GameWindowPlacementRecord, GameWindowRoleViewRecord, GameWindowTabRecord,
+    GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
+    StateCollection, StateGameWindowRecord,
     StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationSummaryRecord,
 };
 use serde_json::{Value, json};
@@ -57,7 +58,7 @@ struct CoreState {
     _activation: ActivationServer,
     _quick_menu: quick_menu::QuickMenu,
     core: Arc<AppCore>,
-    display_topology: native_projection::RevisionedJsonProjection,
+    display_topology: DisplayTopologyCoordinator,
     application_exit_guard: ApplicationExitGuard,
     application_shutdown_started: AtomicBool,
     main_window_zoom: Mutex<f64>,

@@ -135,6 +135,9 @@ pub enum CoreCommand {
         id: String,
         input: GameWindowUpdateInputRecord,
     },
+    GameWindowsDisplayRemap {
+        updates: Vec<GameWindowDisplayRemapRecord>,
+    },
     GameWindowReorder {
         #[ts(rename = "orderedIds")]
         ordered_ids: Vec<String>,

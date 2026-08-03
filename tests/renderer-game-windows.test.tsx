@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +33,24 @@ afterEach(() => {
 });
 
 describe("Game Window management", () => {
+  it("presents game windows in labeled management table columns", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+
+    renderRoute();
+
+    const table = screen.getByRole("table", { name: "Game Windows" });
+    expect(within(table).getByRole("columnheader", { name: "Window" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Status" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Target display" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Tabs" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Actions" })).toBeTruthy();
+    expect(within(table).getByText("Raid window")).toBeTruthy();
+    expect(within(table).getByText("Active: Mina")).toBeTruthy();
+  });
+
   it("keeps window management in the list and delegates tab management to the shown window", async () => {
     const user = userEvent.setup();
     const showGameWindow = vi.fn(() => Promise.resolve());

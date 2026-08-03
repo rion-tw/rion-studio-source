@@ -195,23 +195,27 @@
     line-height: var(--type-body-line);
   }
 
-  .mac-list-table tbody tr {
+  .mac-list-table tbody tr,
+  .game-window-list-table tbody tr {
     transition:
       background-color 150ms ease,
       color 150ms ease;
   }
 
-  .mac-list-table thead {
+  .mac-list-table thead,
+  .game-window-list-table thead {
     background: transparent;
   }
 
-  .mac-list-table tbody tr:hover {
+  .mac-list-table tbody tr:hover,
+  .game-window-list-table tbody tr:hover {
     background:
       linear-gradient(90deg, hsl(var(--table-row-hover)), transparent 72%),
       hsl(var(--table-row-hover));
   }
 
-  .mac-list-surface.glass-panel {
+  .mac-list-surface.glass-panel,
+  .game-window-list-surface.glass-panel {
     border-color: hsl(var(--glass-border-muted));
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 42%),

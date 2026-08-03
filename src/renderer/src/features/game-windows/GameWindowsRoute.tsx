@@ -20,14 +20,13 @@ import { EmptyState } from "../../components/EmptyState";
 import { useConfirmation } from "../../components/confirmation";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "../../components/ui/dropdown-menu";
-import { PageFrame, PageHeader } from "../../components/ui/patterns";
+import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useBusyIds } from "../../hooks/useBusyIds";
 import type { Translator } from "../../i18n";
@@ -130,101 +129,130 @@ export default function GameWindowsRoute({
           onAction={primaryDisplay ? create : undefined}
         />
       ) : (
-        <div className="collection-grid collection-grid-game-windows gap-4">
-          {gameWindows.map((gameWindow) => {
-            const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
-            const liveWindow = runtime.windows.find((item) => item.windowId === gameWindow.id);
-            const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
-            const display = displayById.get(gameWindow.targetDisplay.id);
-            const failed = runtime.savedWindows?.find((item) => item.id === gameWindow.id)?.state === "failed";
-            const stateLabel = failed
-              ? t("gameWindows.state.failed")
-              : runtime.recovery
-                ? t("gameWindows.state.restoring")
-                : gameWindow.tabs.length === 0
-                  ? t("gameWindows.state.empty")
-                  : liveWindow?.visible
-                    ? t("gameWindows.state.open")
-                    : t("gameWindows.state.hidden");
-            return (
-              <Card key={gameWindow.id} className="overflow-hidden">
-                <CardHeader className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="truncate text-heading">{gameWindow.name}</CardTitle>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Badge variant="secondary">{stateLabel}</Badge>
-                      <Badge variant="secondary">{t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}</Badge>
-                      <Badge variant="secondary">
+        <Surface className="game-window-list-surface w-full overflow-hidden" variant="panel">
+          <div className="overflow-x-auto">
+            <table className="game-window-list-table w-full min-w-[640px] table-fixed border-collapse text-left">
+              <caption className="sr-only">{t("gameWindows.title")}</caption>
+              <colgroup>
+                <col className="w-[31%]" />
+                <col className="w-[18%]" />
+                <col className="w-[25%]" />
+                <col className="w-[10%]" />
+                <col className="w-[16%]" />
+              </colgroup>
+              <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2.5 font-semibold" scope="col">{t("gameWindows.column.window")}</th>
+                  <th className="px-3 py-2.5 font-semibold" scope="col">{t("gameWindows.column.status")}</th>
+                  <th className="px-3 py-2.5 font-semibold" scope="col">{t("gameWindows.column.display")}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold" scope="col">{t("gameWindows.column.tabs")}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold" scope="col">{t("gameWindows.column.actions")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/45 text-body">
+                {gameWindows.map((gameWindow) => {
+                  const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
+                  const liveWindow = runtime.windows.find((item) => item.windowId === gameWindow.id);
+                  const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
+                  const display = displayById.get(gameWindow.targetDisplay.id);
+                  const failed = runtime.savedWindows?.find((item) => item.id === gameWindow.id)?.state === "failed";
+                  const stateLabel = failed
+                    ? t("gameWindows.state.failed")
+                    : runtime.recovery
+                      ? t("gameWindows.state.restoring")
+                      : gameWindow.tabs.length === 0
+                        ? t("gameWindows.state.empty")
+                        : liveWindow?.visible
+                          ? t("gameWindows.state.open")
+                          : t("gameWindows.state.hidden");
+                  return (
+                    <tr key={gameWindow.id} className="group align-middle">
+                      <td className="px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-foreground">{gameWindow.name}</p>
+                          {activeTab ? (
+                            <p className="mt-0.5 truncate text-control text-muted-foreground">
+                              {t("gameWindows.activeTab").replace("{name}", activeTab.name)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <Badge variant="secondary">{stateLabel}</Badge>
+                          <span className="truncate text-control text-muted-foreground">
+                            {t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Select
+                          disabled={windowIsBusy}
+                          value={display ? String(display.id) : "unavailable"}
+                          onValueChange={(value) => changeDisplay(gameWindow, value)}
+                        >
+                          <SelectTrigger aria-label={t("gameWindows.targetDisplay")} className="w-full">
+                            <Monitor size={15} />
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {!display ? <SelectItem disabled value="unavailable">{t("gameWindows.displayUnavailable")}</SelectItem> : null}
+                            {displays.map((candidate) => (
+                              <SelectItem key={candidate.id} value={String(candidate.id)}>
+                                {candidate.label}{candidate.isPrimary ? ` · ${t("gameWindows.primaryDisplay")}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-control text-muted-foreground">
                         {t("gameWindows.tabCount").replace("{count}", String(gameWindow.tabs.length))}
-                      </Badge>
-                    </div>
-                    {activeTab ? (
-                      <p className="mt-2 truncate text-xs text-muted-foreground">
-                        {t("gameWindows.activeTab").replace("{name}", activeTab.name)}
-                      </p>
-                    ) : null}
-                    <div className="mt-3 flex max-w-sm items-center gap-2">
-                      <span className="shrink-0 text-caption text-muted-foreground">{t("gameWindows.targetDisplay")}</span>
-                      <Select
-                        disabled={windowIsBusy}
-                        value={display ? String(display.id) : "unavailable"}
-                        onValueChange={(value) => changeDisplay(gameWindow, value)}
-                      >
-                        <SelectTrigger aria-label={t("gameWindows.targetDisplay")} className="w-full">
-                          <Monitor size={15} />
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {!display ? <SelectItem disabled value="unavailable">{t("gameWindows.displayUnavailable")}</SelectItem> : null}
-                          {displays.map((candidate) => (
-                            <SelectItem key={candidate.id} value={String(candidate.id)}>
-                              {candidate.label}{candidate.isPrimary ? ` · ${t("gameWindows.primaryDisplay")}` : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      disabled={windowIsBusy}
-                      type="button"
-                      onClick={() => void runWindow(gameWindow.id, () => window.rionStudio.showGameWindow(gameWindow.id))}
-                    >
-                      <Eye size={15} />
-                      {t("gameWindows.show")}
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button aria-label={t("gameWindows.actions")} disabled={windowIsBusy} size="icon" type="button" variant="outline">
-                          <MoreHorizontal size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          disabled={windowIsBusy || !liveWindow}
-                          onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
-                        >
-                          {t("gameWindows.hide")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={windowIsBusy || gameWindow.tabs.length === 0}
-                          onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
-                        >
-                          {t("gameWindows.stopAll")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" disabled={windowIsBusy} onSelect={() => void remove(gameWindow)}>
-                          <Trash2 className="mr-2" size={14} />
-                          {t("gameWindows.delete")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardHeader>
-              </Card>
-            );
-          })}
-        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            disabled={windowIsBusy}
+                            size="sm"
+                            type="button"
+                            onClick={() => void runWindow(gameWindow.id, () => window.rionStudio.showGameWindow(gameWindow.id))}
+                          >
+                            <Eye size={15} />
+                            {t("gameWindows.show")}
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button aria-label={t("gameWindows.actions")} disabled={windowIsBusy} size="icon" type="button" variant="outline">
+                                <MoreHorizontal size={16} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                disabled={windowIsBusy || !liveWindow}
+                                onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
+                              >
+                                {t("gameWindows.hide")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={windowIsBusy || gameWindow.tabs.length === 0}
+                                onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
+                              >
+                                {t("gameWindows.stopAll")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive" disabled={windowIsBusy} onSelect={() => void remove(gameWindow)}>
+                                <Trash2 className="mr-2" size={14} />
+                                {t("gameWindows.delete")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Surface>
       )}
     </PageFrame>
   );

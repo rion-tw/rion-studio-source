@@ -70,7 +70,12 @@
 @layer base {
   body.list-marquee-active {
     cursor: crosshair;
+  }
+
+  body.list-marquee-active,
+  body.list-marquee-active * {
     user-select: none;
+    -webkit-user-select: none;
   }
 
   body.pointer-drag-active,

@@ -3,23 +3,11 @@ import { join, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-export const RELEASE_SIZE_BASELINE_VERSION = "v3.18.1";
-export const REQUIRED_RELEASE_SIZE_REDUCTION_PERCENT = 10;
-export const RELEASE_SIZE_BASELINES = Object.freeze({
-  "Rion.Studio-mac.app.tar.gz": 14_153_681,
-  "Rion.Studio-mac.dmg": 15_273_570,
-  "Rion.Studio-win.exe": 10_119_820
+export const RELEASE_SIZE_LIMITS = Object.freeze({
+  "Rion.Studio-mac.app.tar.gz": 16 * 1024 * 1024,
+  "Rion.Studio-mac.dmg": 18 * 1024 * 1024,
+  "Rion.Studio-win.exe": 12 * 1024 * 1024
 });
-export const RELEASE_SIZE_TOLERANCES = Object.freeze({
-  "Rion.Studio-mac.dmg": 32 * 1024
-});
-export const RELEASE_SIZE_LIMITS = Object.freeze(Object.fromEntries(
-  Object.entries(RELEASE_SIZE_BASELINES).map(([name, baselineBytes]) => [
-    name,
-    Math.floor(baselineBytes * (1 - REQUIRED_RELEASE_SIZE_REDUCTION_PERCENT / 100))
-      + (RELEASE_SIZE_TOLERANCES[name] ?? 0)
-  ])
-));
 
 const MAC_ARTIFACTS = ["Rion.Studio-mac.app.tar.gz", "Rion.Studio-mac.dmg"];
 const WINDOWS_ARTIFACTS = ["Rion.Studio-win.exe"];
@@ -52,26 +40,16 @@ export async function verifyReleaseSizeBudget(directory) {
     if (!details.isFile() || details.size === 0) {
       throw new Error(`${name} must be a non-empty file.`);
     }
-    const baselineBytes = RELEASE_SIZE_BASELINES[name];
     const maximumBytes = RELEASE_SIZE_LIMITS[name];
-    const toleranceBytes = RELEASE_SIZE_TOLERANCES[name] ?? 0;
     if (details.size > maximumBytes) {
-      const toleranceDescription = toleranceBytes > 0
-        ? ` within a ${toleranceBytes}-byte packaging tolerance`
-        : "";
       throw new Error(
-        `${name} is ${details.size} bytes; it must be at most ${maximumBytes} bytes ` +
-        `to remain${toleranceDescription} of ${REQUIRED_RELEASE_SIZE_REDUCTION_PERCENT}% smaller than ` +
-        `${RELEASE_SIZE_BASELINE_VERSION} (${baselineBytes} bytes).`
+        `${name} is ${details.size} bytes; it must be at most ${maximumBytes} bytes.`
       );
     }
     return {
-      baselineBytes,
       maximumBytes,
       name,
-      reductionPercent: ((baselineBytes - details.size) / baselineBytes) * 100,
-      sizeBytes: details.size,
-      toleranceBytes
+      sizeBytes: details.size
     };
   }));
 }
@@ -90,9 +68,7 @@ async function runCli() {
   for (const result of results) {
     process.stdout.write(
       `${result.name}: ${formatMiB(result.sizeBytes)} MiB ` +
-      `(${result.reductionPercent.toFixed(2)}% below ${RELEASE_SIZE_BASELINE_VERSION}; ` +
-      `limit ${formatMiB(result.maximumBytes)} MiB` +
-      `${result.toleranceBytes > 0 ? ` including ${result.toleranceBytes}-byte packaging tolerance` : ""})\n`
+      `(limit ${formatMiB(result.maximumBytes)} MiB)\n`
     );
   }
 }

@@ -10,6 +10,7 @@ on:
       - main
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -33,12 +34,154 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          test -n "${HEAD_SHA}"
+          [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
           echo "source_ref=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
 
-  semantic-release:
+  await-preflight:
     needs: validate-ci-run
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      has_release: ${{ steps.gate.outputs.has_release }}
+      preflight_run_id: ${{ steps.gate.outputs.preflight_run_id }}
+      release_artifact_name: ${{ steps.gate.outputs.release_artifact_name }}
+      release_tag: ${{ steps.gate.outputs.release_tag }}
+      release_version: ${{ steps.gate.outputs.release_version }}
+      source_ref: ${{ steps.gate.outputs.source_ref }}
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.validate-ci-run.outputs.source_ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Require a matching successful Tauri preflight
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REF: ${{ needs.validate-ci-run.outputs.source_ref }}
+        run: |
+          set -euo pipefail
+          workflow_file="tauri-release-preflight.yml"
+          artifact_name="release-preflight-${SOURCE_REF}"
+
+          wait_for_preflight() {
+            local event_name="$1"
+            local expected_title="$2"
+            local run_id=""
+            local run_json=""
+            local status=""
+            local conclusion=""
+            for attempt in $(seq 1 240); do
+              run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs?event=${event_name}&per_page=100")"
+              if [[ -n "${expected_title}" ]]; then
+                run_id="$(jq -r --arg title "${expected_title}" '[.workflow_runs[] | select(.display_title == $title)] | sort_by(.created_at) | last | .id // empty' <<< "${run_json}")"
+              else
+                run_id="$(jq -r --arg source_ref "${SOURCE_REF}" '[.workflow_runs[] | select(.head_sha == $source_ref)] | sort_by(.created_at) | last | .id // empty' <<< "${run_json}")"
+              fi
+              if [[ -n "${run_id}" ]]; then
+                status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')"
+                conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion // empty')"
+                if [[ "${status}" == completed ]]; then
+                  test "${conclusion}" = success
+                  printf '%s\n' "${run_id}"
+                  return 0
+                fi
+              fi
+              sleep 15
+            done
+            echo "Timed out waiting for ${event_name} Tauri release preflight for ${SOURCE_REF}." >&2
+            return 1
+          }
+
+          read_metadata() {
+            local run_id="$1"
+            rm -rf preflight-metadata
+            mkdir preflight-metadata
+            gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" --name "${artifact_name}" --dir preflight-metadata
+            test -f preflight-metadata/release-preflight.json
+            jq -e --arg source_ref "${SOURCE_REF}" '
+              .source_sha == $source_ref and
+              (.has_release | type == "boolean") and
+              (if .has_release
+               then .build_result == "success" and
+                    (.release_version | test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$")) and
+                    (.release_tag == ("v" + .release_version)) and
+                    (.artifact_name == ("tauri-release-assets-" + .release_version))
+               else .build_result == "skipped" and
+                    .release_version == "" and .release_tag == "" and .artifact_name == ""
+               end)
+            ' preflight-metadata/release-preflight.json >/dev/null
+          }
+
+          preflight_run_id="$(wait_for_preflight push '')"
+          read_metadata "${preflight_run_id}"
+          preflight_has_release="$(jq -r '.has_release' preflight-metadata/release-preflight.json)"
+          preflight_version="$(jq -r '.release_version' preflight-metadata/release-preflight.json)"
+
+          SOURCE_REF="${SOURCE_REF}" pnpm run release:plan > current-release-plan.json
+          jq -e --arg source_ref "${SOURCE_REF}" '
+            .source_sha == $source_ref and
+            (.has_release | type == "boolean") and
+            (if .has_release
+             then (.release_version | test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$")) and
+                  (.release_tag == ("v" + .release_version))
+             else .release_version == "" and .release_tag == ""
+             end)
+          ' current-release-plan.json >/dev/null
+          current_has_release="$(jq -r '.has_release' current-release-plan.json)"
+          current_version="$(jq -r '.release_version' current-release-plan.json)"
+
+          if [[ "${current_has_release}" == false ]]; then
+            echo "has_release=false" >> "${GITHUB_OUTPUT}"
+            echo "source_ref=${SOURCE_REF}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if [[ "${preflight_has_release}" != true || "${preflight_version}" != "${current_version}" ]]; then
+            gh workflow run "${workflow_file}" --repo "${GITHUB_REPOSITORY}" --ref main -f "source_ref=${SOURCE_REF}"
+            expected_title="Tauri Release Preflight (${SOURCE_REF})"
+            preflight_run_id="$(wait_for_preflight workflow_dispatch "${expected_title}")"
+            read_metadata "${preflight_run_id}"
+          fi
+
+          has_release="$(jq -r '.has_release' preflight-metadata/release-preflight.json)"
+          release_tag="$(jq -r '.release_tag' preflight-metadata/release-preflight.json)"
+          release_version="$(jq -r '.release_version' preflight-metadata/release-preflight.json)"
+          release_artifact_name="$(jq -r '.artifact_name' preflight-metadata/release-preflight.json)"
+          test "${has_release}" = true
+          test "${release_version}" = "${current_version}"
+          test "${release_tag}" = "v${release_version}"
+          test "${release_artifact_name}" = "tauri-release-assets-${release_version}"
+          echo "has_release=${has_release}" >> "${GITHUB_OUTPUT}"
+          echo "preflight_run_id=${preflight_run_id}" >> "${GITHUB_OUTPUT}"
+          echo "release_artifact_name=${release_artifact_name}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_version=${release_version}" >> "${GITHUB_OUTPUT}"
+          echo "source_ref=${SOURCE_REF}" >> "${GITHUB_OUTPUT}"
+
+  semantic-release:
+    needs: await-preflight
+    if: needs.await-preflight.outputs.has_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       release_version: ${{ steps.semantic.outputs.release_version }}
     steps:
@@ -46,7 +189,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ needs.validate-ci-run.outputs.source_ref }}
+          ref: ${{ needs.await-preflight.outputs.source_ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -68,7 +211,7 @@ jobs:
 
   resolve-release:
     needs:
-      - validate-ci-run
+      - await-preflight
       - semantic-release
     if: needs.semantic-release.result == 'success'
     runs-on: ubuntu-latest
@@ -77,43 +220,70 @@ jobs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       release_version: ${{ steps.resolve.outputs.release_version }}
     steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.await-preflight.outputs.source_ref }}
+
       - name: Resolve private release
         id: resolve
         shell: bash
         env:
+          EXPECTED_VERSION: ${{ needs.await-preflight.outputs.release_version }}
+          SOURCE_REF: ${{ needs.await-preflight.outputs.source_ref }}
           VERSION: ${{ needs.semantic-release.outputs.release_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${VERSION}" ]]; then
-            echo "has_release=false" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
+          [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]
+          test -n "${VERSION}"
+          test "${VERSION}" = "${EXPECTED_VERSION}"
           tag="v${VERSION}"
+          git fetch --tags origin
+          test "$(git rev-list -1 "${tag}")" = "${SOURCE_REF}"
           gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null
           echo "has_release=true" >> "${GITHUB_OUTPUT}"
           echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "release_version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
-  build-tauri-release:
+  stage-preflight-release:
     needs:
-      - validate-ci-run
       - resolve-release
+      - await-preflight
     if: needs.resolve-release.outputs.has_release == 'true'
-    uses: ./.github/workflows/tauri-release-build.yml
-    with:
-      tag: ${{ needs.resolve-release.outputs.release_tag }}
-      updater_base_url: https://github.com/rion-tw/rion-studio/releases/latest/download
-      verified_sha: ${{ needs.validate-ci-run.outputs.source_ref }}
-    secrets:
-      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download immutable preflight release assets
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.await-preflight.outputs.release_artifact_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFLIGHT_RUN_ID: ${{ needs.await-preflight.outputs.preflight_run_id }}
+          VERSION: ${{ needs.resolve-release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
+          [[ "${PREFLIGHT_RUN_ID}" =~ ^[0-9]+$ ]]
+          gh run download "${PREFLIGHT_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${ARTIFACT_NAME}" --dir release-assets
+          node scripts/releaseArtifacts.mjs release-assets "${VERSION}" --verify-checksums
+
+      - name: Stage verified release assets for release checks
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.await-preflight.outputs.release_artifact_name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: release-assets
 
   verify-and-upload-private-release:
     needs:
+      - await-preflight
       - resolve-release
-      - build-tauri-release
+      - stage-preflight-release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release tag
@@ -124,14 +294,14 @@ jobs:
       - name: Validate release candidate output
         shell: bash
         env:
-          ARTIFACT_NAME: ${{ needs.build-tauri-release.outputs.release_artifact_name }}
+          ARTIFACT_NAME: ${{ needs.await-preflight.outputs.release_artifact_name }}
           VERSION: ${{ needs.resolve-release.outputs.release_version }}
         run: test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
 
       - name: Download verified release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}
+          name: ${{ needs.await-preflight.outputs.release_artifact_name }}
           path: release-assets
 
       - name: Verify private release assets
@@ -177,14 +347,15 @@ jobs:
 
   verify-upgrade-compatibility:
     needs:
+      - await-preflight
       - resolve-release
-      - build-tauri-release
+      - stage-preflight-release
     if: needs.resolve-release.outputs.has_release == 'true'
     uses: ./.github/workflows/tauri-release-compatibility.yml
     with:
       tag: ${{ needs.resolve-release.outputs.release_tag }}
       version: ${{ needs.resolve-release.outputs.release_version }}
-      release_artifact_name: ${{ needs.build-tauri-release.outputs.release_artifact_name }}
+      release_artifact_name: ${{ needs.await-preflight.outputs.release_artifact_name }}
 
   publish-public-release:
     needs:

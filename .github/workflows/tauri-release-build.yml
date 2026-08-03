@@ -3,17 +3,17 @@ name: Tauri Release Build
 on:
   workflow_call:
     inputs:
-      tag:
-        description: Release tag to build, for example v2.4.0
+      source_ref:
+        description: Immutable 40-character source commit SHA to package
+        required: true
+        type: string
+      version:
+        description: Semantic version to embed in the release candidate, for example 2.4.0
         required: true
         type: string
       updater_base_url:
         description: HTTPS directory where the release assets will be published
         required: true
-        type: string
-      verified_sha:
-        description: Optional CI SHA that must match the requested release tag
-        required: false
         type: string
       run_quality:
         description: Run the reusable CI quality workflow before packaging
@@ -42,7 +42,7 @@ env:
   PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
 
 concurrency:
-  group: tauri-release-build-${{ inputs.tag }}
+  group: tauri-release-build-${{ inputs.source_ref }}
   cancel-in-progress: false
 
 jobs:
@@ -51,19 +51,19 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Checkout requested tag
+      - name: Checkout immutable release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_ref }}
 
       - name: Validate immutable release inputs
         id: release
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ inputs.source_ref }}
           UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
-          VERIFIED_SHA: ${{ inputs.verified_sha }}
           RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -79,21 +79,18 @@ jobs:
           require_secret RION_STUDIO_UPDATER_PUBLIC_KEY
           require_secret TAURI_SIGNING_PRIVATE_KEY
           require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           [[ "${UPDATER_BASE_URL}" == https://* ]]
-          test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"
-          if [[ -n "${VERIFIED_SHA}" ]]; then
-            [[ "${VERIFIED_SHA}" =~ ^[0-9a-f]{40}$ ]]
-            test "$(git rev-parse HEAD)" = "${VERIFIED_SHA}"
-          fi
-          echo "version=${RELEASE_TAG#v}" >> "${GITHUB_OUTPUT}"
+          test "$(git rev-parse HEAD)" = "${SOURCE_REF}"
+          echo "version=${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
 
   quality:
     needs: validate
     if: inputs.run_quality
     uses: ./.github/workflows/ci.yml
     with:
-      ref: ${{ inputs.tag }}
+      ref: ${{ inputs.source_ref }}
 
   build:
     needs:
@@ -120,11 +117,11 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - name: Checkout requested tag
+      - name: Checkout immutable release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -225,10 +222,10 @@ jobs:
     outputs:
       release_artifact_name: ${{ steps.artifact.outputs.name }}
     steps:
-      - name: Checkout requested tag
+      - name: Checkout immutable release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_ref }}
 
       - name: Download verified candidates
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

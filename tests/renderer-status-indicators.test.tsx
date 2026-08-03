@@ -121,7 +121,9 @@ describe("renderer status indicators", () => {
 
     roles.slice(0, 4).forEach((item) => expect(screen.getByText(item.name)).toBeTruthy());
     roles.slice(4).forEach((item) => expect(screen.queryByText(item.name)).toBeNull());
-    expect(screen.getByText("+2 more").className).toContain("text-muted-foreground");
+    const remainderBadge = screen.getByText("+2 more");
+    expect(remainderBadge.className).toContain("ui-badge");
+    expect(remainderBadge.className).toContain("glass-control");
     expect(screen.getAllByRole("img", { name: "Role active" })).toHaveLength(1);
     expect(screen.getAllByRole("img", { name: "Role inactive" })).toHaveLength(3);
   });
@@ -160,7 +162,7 @@ describe("renderer status indicators", () => {
     expect(updateDot.className).toContain("ring-activity/15");
   });
 
-  it("exposes a switch for enabling a disabled macro", () => {
+  it("moves the macro enabled control into the action menu", () => {
     const onSetMacroEnabled = vi.fn();
     const disabledMacro = { ...macro(), enabled: false };
 
@@ -192,17 +194,14 @@ describe("renderer status indicators", () => {
       />
     );
 
-    const toggle = screen.getByRole("switch", { name: "Enable Auto heal" });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    const layout = toggle.closest("[data-macro-enabled-control]");
-    expect(layout?.className).toContain("place-items-center");
-    expect(layout?.parentElement?.className).toContain("absolute");
-    expect(layout?.parentElement?.className).toContain("inset-0");
-    const row = toggle.closest("tr")!;
+    expect(screen.queryByRole("switch", { name: "Enable Auto heal" })).toBeNull();
+    const actions = screen.getByRole("button", { name: "Macro actions" });
+    const row = actions.closest("tr")!;
     expect(row.getAttribute("data-macro-disabled")).toBe("true");
     expect(row.className).toContain("opacity-[0.55]");
     expect(screen.getByText("Auto heal").closest("button")?.className).toContain("text-muted-foreground");
-    fireEvent.click(toggle);
+    fireEvent.click(actions);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Enable" }));
     expect(onSetMacroEnabled).toHaveBeenCalledWith(disabledMacro, true);
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
   });

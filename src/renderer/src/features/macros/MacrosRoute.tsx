@@ -14,8 +14,6 @@ import { Button } from "../../components/ui/button";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
-import { Switch } from "../../components/ui/switch";
-
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 
 import type { Translator } from "../../i18n";
@@ -394,7 +392,7 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
-                  <th className="w-24 px-4 py-1" aria-label={t("macros.actions")} />
+                  <th className="w-12 px-2 py-1" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-body">
@@ -516,20 +514,8 @@ function MacrosRoute({
                     <td className="max-w-[320px] px-4 py-2 align-middle text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
-                    <td className="relative w-24 p-0">
-                      <div className="absolute inset-0 flex items-center justify-end gap-2 px-3" data-macro-actions-control>
-                        {onSetMacroEnabled ? (
-                          <div className="grid place-items-center" data-macro-enabled-control>
-                            <Switch
-                              checked={macro.enabled}
-                              disabled={busyMacroIds.has(macro.id)}
-                              title={t(macro.enabled ? "macros.disable" : "macros.enable")}
-                              aria-label={t(macro.enabled ? "macros.disableNamed" : "macros.enableNamed")
-                                .replace("{name}", macro.name)}
-                              onCheckedChange={(enabled) => onSetMacroEnabled?.(macro, enabled)}
-                            />
-                          </div>
-                        ) : null}
+                    <td className="relative w-12 p-0">
+                      <div className="absolute inset-0 grid place-items-center px-2" data-macro-actions-control>
                         <MacroActionMenu
                           busyMacroIds={busyMacroIds}
                           macro={macro}
@@ -537,6 +523,9 @@ function MacrosRoute({
                           onCopy={() => onCopyMacro(macro)}
                           onDelete={() => onDeleteMacro(macro)}
                           onEdit={() => onEditMacro(macro)}
+                          onSetEnabled={onSetMacroEnabled
+                            ? (enabled) => onSetMacroEnabled(macro, enabled)
+                            : undefined}
                           t={t}
                         />
                       </div>

@@ -11,6 +11,7 @@
     "package": "node scripts/packageTauri.mjs",
     "dist": "node scripts/buildTauriRelease.mjs",
     "release:manifest": "node scripts/createTauriUpdaterManifest.mjs",
+    "release:plan": "node scripts/planSemanticRelease.mjs",
     "release:version": "node scripts/applyReleaseVersion.mjs",
     "verify:system-only": "node scripts/verifySystemOnlyProduct.mjs",
     "check:source-hygiene": "node scripts/checkSourceHygiene.mjs",

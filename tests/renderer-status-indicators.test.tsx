@@ -285,7 +285,7 @@ describe("renderer status indicators", () => {
     const row = start.closest("tr")!;
     expect(row.getAttribute("data-macro-unassigned")).toBe("true");
     expect(row.className).toContain("bg-warning/35");
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Auto heal" }));
+    fireEvent.click(screen.getByText("No execution roles"));
     expect(row.className).toContain("bg-warning/35");
     expect(row.className).toContain("[&>td]:border-t-activity/80");
     expect(row.className).toContain("[&>td]:border-b-activity/80");

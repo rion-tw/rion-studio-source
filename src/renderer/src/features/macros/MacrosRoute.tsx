@@ -4,7 +4,7 @@ import { type JSX, type MutableRefObject, useEffect, useMemo, useRef } from "rea
 
 import { EmptyState } from "../../components/EmptyState";
 
-import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
+import { SelectionActionBar, SelectionMarquee } from "../../components/ListSelection";
 
 import { SearchField } from "../../components/SearchField";
 
@@ -73,7 +73,10 @@ function MacroRepeatIndicator({ macro, t }: { macro: Macro; t: Translator }): JS
           <span aria-hidden="true" className="text-body leading-5 tabular-nums">{delayLabel}</span>
         </>
       ) : (
-        <Repeat1 aria-hidden="true" size={14} />
+        <>
+          <Repeat1 aria-hidden="true" size={14} />
+          <span aria-hidden="true" className="text-body leading-5">{label}</span>
+        </>
       )}
     </span>
   );
@@ -394,7 +397,6 @@ function MacrosRoute({
               <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
               <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
                 <tr>
-                  <th className="w-9 px-2 py-1" aria-hidden="true" />
                   <MacroSortHeader
                     label={t("macros.column.name")}
                     sort={sort}
@@ -473,17 +475,6 @@ function MacrosRoute({
                       data-selection-id={macro.id}
                       onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                     >
-                    <td className="relative w-9 p-0">
-                      <div className="absolute inset-0 grid place-items-center" data-macro-selection-control>
-                        <SelectionToggle
-                          alwaysVisible
-                          isSelected={selection.isSelected(macro.id)}
-                          label={t(selection.isSelected(macro.id) ? "selection.deselectItem" : "selection.selectItem")
-                            .replace("{name}", macro.name)}
-                          onToggle={() => selection.toggleSelection(macro.id)}
-                        />
-                      </div>
-                    </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">
                       <div className="min-w-0" data-macro-name-control>
                         <div className="flex min-w-0 items-center gap-1.5">

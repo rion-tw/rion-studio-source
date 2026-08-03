@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { type JSX } from "react";
 
 import type { EmbeddedRuntimeState, GameWindow, GameWindowTab } from "../../../../shared/types";
@@ -13,20 +13,16 @@ const windowBusyKey = (windowId: string): string => `window:${windowId}`;
 interface GameWindowTabsPanelProps {
   className?: string;
   gameWindow: GameWindow;
-  onAdd: () => void;
   onError: (error: unknown) => void;
   runtime: EmbeddedRuntimeState;
-  showHeader?: boolean;
   t: Translator;
 }
 
 export function GameWindowTabsPanel({
   className,
   gameWindow,
-  onAdd,
   onError,
   runtime,
-  showHeader = false,
   t
 }: GameWindowTabsPanelProps): JSX.Element {
   const { beginBusyMany, busyIds } = useBusyIds();
@@ -45,30 +41,9 @@ export function GameWindowTabsPanel({
 
   return (
     <section className={className}>
-      {showHeader ? (
-        <div className="mb-2 flex items-center justify-between gap-3 px-1">
-          <div>
-            <h2 className="text-control font-semibold">{t("gameWindows.tabs.title")}</h2>
-            <p className="text-caption text-muted-foreground">
-              {t("gameWindows.tabCount").replace("{count}", String(gameWindow.tabs.length))}
-            </p>
-          </div>
-          <Button size="sm" type="button" variant="outline" onClick={onAdd}>
-            <Plus size={14} />
-            {t("gameWindows.add.button")}
-          </Button>
-        </div>
-      ) : null}
-
       {gameWindow.tabs.length === 0 ? (
         <Surface className="grid min-h-28 place-items-center px-4 py-5 text-center" variant="inset">
-          <div>
-            <p className="text-control font-medium text-muted-foreground">{t("gameWindows.emptyWindow")}</p>
-            <Button className="mt-3" size="sm" type="button" variant="outline" onClick={onAdd}>
-              <Plus size={14} />
-              {t("gameWindows.add.button")}
-            </Button>
-          </div>
+          <p className="text-control font-medium text-muted-foreground">{t("gameWindows.emptyWindow")}</p>
         </Surface>
       ) : (
         <div className="grid gap-2">
@@ -125,7 +100,7 @@ function GameWindowTabRow({
         <span className="block truncate text-body font-medium">{tab.name}</span>
         <span className="block truncate text-caption text-muted-foreground">
           {tab.tabType === "workspace" ? t("gameWindows.tab.workspace") : t("gameWindows.tab.role")}
-          {tab.roleIds.length > 1 ? ` · ${t("gameWindows.add.roleCount").replace("{count}", String(tab.roleIds.length))}` : ""}
+          {tab.roleIds.length > 1 ? ` · ${t("gameWindows.tab.roleCount").replace("{count}", String(tab.roleIds.length))}` : ""}
           {!live ? ` · ${t("gameWindows.tabs.saved")}` : ""}
         </span>
       </button>

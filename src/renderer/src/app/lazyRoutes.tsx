@@ -17,8 +17,6 @@ export const WorkspaceEditorRoute = lazy(() => import("../features/workspaces/Wo
 
 export const GameWindowsRoute = lazy(() => import("../features/game-windows/GameWindowsRoute"));
 
-export const GameWindowEditorRoute = lazy(() => import("../features/game-windows/GameWindowModal"));
-
 export const MacrosRoute = lazy(() => import("../features/macros/MacrosRoute"));
 
 export const MacroEditorRoute = lazy(() => import("../features/macros/MacroModal"));

@@ -137,7 +137,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                 initial_anchor.unwrap_or((tab_width * grab_ratio_x, tab_height * grab_ratio_y)),
             )?;
             let title = tab["name"].as_str().unwrap_or("Rion Studio").to_owned();
-            let lifecycle_epoch = 0;
+            let lifecycle_epoch = state.runtime.lifecycle_epoch();
             let topology_revision = state.display_topology.current_revision();
             let operation = state
                 .runtime

@@ -12,6 +12,7 @@ import type {
   CoreCommand,
   CoreCommandResult,
   CoreEvent,
+  ApplicationLifecycleStatusRecord,
   SurfaceRecoveryAttemptRecord,
   SystemRuntimeOperationSummaryRecord
 } from "../../../shared/generated";
@@ -426,6 +427,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       "rion://window-lifecycle",
       ({ payload }) => emit("windowLifecycle", payload)
     ),
+    () => listen<ApplicationLifecycleStatusRecord>(
+      "rion://application-lifecycle",
+      ({ payload }) => emitRevisioned("applicationLifecycle", payload)
+    ),
     () => listen<SurfaceRecoveryAttemptRecord>(
       "rion://surface-recovery-attempt",
       ({ payload }) => emit("surfaceRecoveryAttempt", payload)
@@ -477,6 +482,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     },
     getAppSnapshot: () => invokeShell("appSnapshot"),
     getCurrentWindowState: () => invokeShell("currentWindowState"),
+    getApplicationLifecycleStatus: () => invokeShell("applicationLifecycleStatus"),
     getLegalAcceptanceStatus: () => invokeCore({ type: "legalAcceptanceStatus" }),
     acceptLegalDocuments: async (input) => {
       const status = await invokeCore({
@@ -660,6 +666,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onApplicationQuitRequested: (callback) =>
       on("applicationQuitRequested", callback as Listener),
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
+    onApplicationLifecycleChanged: (callback) =>
+      on("applicationLifecycle", callback as Listener),
     onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
     onWindowLifecycleChanged: (callback) => on("windowLifecycle", callback as Listener),
     onSurfaceRecoveryAttemptChanged: (callback) =>

@@ -2,6 +2,7 @@ const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 4;
 const ACTIVE_NATIVE_OPERATION_CAPACITY: usize = 256;
 const RECENT_NATIVE_OPERATION_CAPACITY: usize = 80;
 static NATIVE_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static APPLICATION_LIFECYCLE_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NativeOperationSubsystem {
@@ -24,6 +25,7 @@ enum NativeOperationSubsystem {
     Focus,
     Drag,
     Recovery,
+    Power,
 }
 
 impl NativeOperationSubsystem {
@@ -48,6 +50,7 @@ impl NativeOperationSubsystem {
             Self::Focus => "focus",
             Self::Drag => "drag",
             Self::Recovery => "recovery",
+            Self::Power => "power",
         }
     }
 
@@ -65,6 +68,7 @@ impl NativeOperationSubsystem {
             | Self::Focus => "nativeAcknowledgement",
             Self::Drag => "dragCommitted",
             Self::Recovery => "inputReady",
+            Self::Power => "lifecycleTransition",
             Self::Navigation => "pageFinished",
             Self::Input | Self::Metadata => "nativeSubmission",
             Self::Popup | Self::Session => "stateCommit",
@@ -159,7 +163,10 @@ impl NativeOperationContext {
             completion_scope: subsystem.default_completion_scope(),
             deadline: started_at + timeout,
             deadline_at: deadline_at.to_rfc3339(),
-            lifecycle_epoch: None,
+            lifecycle_epoch: match APPLICATION_LIFECYCLE_EPOCH.load(Ordering::Acquire) {
+                0 => None,
+                epoch => Some(epoch),
+            },
             operation_id: format!("native-{}-{sequence}", subsystem.as_str()),
             parent_operation_id: None,
             platform,
@@ -236,6 +243,10 @@ impl NativeOperationContext {
     fn remaining(&self) -> Duration {
         self.deadline.saturating_duration_since(Instant::now())
     }
+}
+
+fn set_application_lifecycle_epoch(epoch: u64) {
+    APPLICATION_LIFECYCLE_EPOCH.store(epoch, Ordering::Release);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -409,6 +420,7 @@ impl NativeWindowPresentationTransition {
 }
 
 struct PendingRoleNavigation {
+    lifecycle_epoch: u64,
     navigation: Arc<NavigationTracker>,
     operation: Option<NativeOperationContext>,
     role_id: String,

@@ -674,6 +674,7 @@ struct NativePresentationRequest {
     surface_owner_revisions: HashMap<String, u64>,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     shutdown_state: Arc<AtomicU8>,
+    application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
     tab_id: Option<String>,
     trigger: &'static str,
     window: Window,

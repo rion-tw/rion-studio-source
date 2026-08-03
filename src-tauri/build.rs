@@ -81,6 +81,13 @@ fn main() {
             .flag("-Werror=nonnull")
             .compile("rion_dock_menu");
         cc::Build::new()
+            .file("native/macos/RionPowerLifecycle.m")
+            .flag("-fobjc-arc")
+            .flag("-Werror=nullability-completeness")
+            .flag("-Werror=nullability")
+            .flag("-Werror=nonnull")
+            .compile("rion_power_lifecycle");
+        cc::Build::new()
             .cpp(true)
             .file("native/macos/RionRuntimeTabsController.mm")
             .flag("-fobjc-arc")
@@ -93,6 +100,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=WebKit");
         println!("cargo:rerun-if-changed=native/macos/RionWKWebViewInput.m");
         println!("cargo:rerun-if-changed=native/macos/RionDockMenu.m");
+        println!("cargo:rerun-if-changed=native/macos/RionPowerLifecycle.m");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.h");
         println!("cargo:rerun-if-changed=native/macos/RionRuntimeTabsController.mm");
         for source in [

@@ -5,6 +5,8 @@ impl SystemRuntimeExecutor {
         destructive_started: &mut bool,
     ) -> RuntimeResult<()> {
         let role_id = transaction.role_id.as_str();
+        let lifecycle_epoch = transaction.context.lifecycle_epoch.unwrap_or_default();
+        self.require_application_lifecycle_epoch(lifecycle_epoch)?;
         {
             let state = self.state()?;
             if state.close_coordinator.closing_roles.contains(role_id)
@@ -196,6 +198,10 @@ impl SystemRuntimeExecutor {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
         }
+        if let Err(error) = self.require_application_lifecycle_epoch(lifecycle_epoch) {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
         let replacement_label = webview.label().to_owned();
         let popup_labels = (|| -> RuntimeResult<Vec<String>> {
             let state = self.state()?;
@@ -253,6 +259,10 @@ impl SystemRuntimeExecutor {
             self.forget_popup(&label);
         }
 
+        if let Err(error) = self.require_application_lifecycle_epoch(lifecycle_epoch) {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
         *destructive_started = true;
         if let Err(error) =
             self.set_managed_surface_phase(&old_surface_instance_id, ManagedSurfacePhase::Retired)
@@ -262,6 +272,10 @@ impl SystemRuntimeExecutor {
         }
         let old_close = self.close_managed_surface_and_wait(&old_surface_instance_id, role_id);
         if let Err(error) = old_close {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+        if let Err(error) = self.require_application_lifecycle_epoch(lifecycle_epoch) {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
         }
@@ -303,11 +317,22 @@ impl SystemRuntimeExecutor {
         })();
         let navigation_result = navigation_start.and_then(|()| {
             navigation
-                .wait()
-                .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))
+                .wait_while(|| self.application_lifecycle_epoch_matches(lifecycle_epoch))
+                .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))?
+                .then_some(())
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_LIFECYCLE_STALE",
+                        "The application lifecycle changed while the replacement surface was navigating.",
+                    )
+                })
         });
         self.finish_controlled_navigations(&[controlled_label]);
         if let Err(error) = navigation_result {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
+        if let Err(error) = self.require_application_lifecycle_epoch(lifecycle_epoch) {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
         }
@@ -345,6 +370,10 @@ impl SystemRuntimeExecutor {
             return Err(error);
         }
 
+        if let Err(error) = self.require_application_lifecycle_epoch(lifecycle_epoch) {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
         self.update_surface_recovery_phase(transaction, "swapping");
         let mut state = self.state()?;
         let active_tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
@@ -410,6 +439,7 @@ impl SystemRuntimeExecutor {
             surface.phase = ManagedSurfacePhase::Live;
         }
         drop(state);
+        self.require_application_lifecycle_epoch(lifecycle_epoch)?;
         self.set_role_input_surface(role_id, generation, false, false)?;
         let surface_bound = self
             .presentation
@@ -469,6 +499,7 @@ impl SystemRuntimeExecutor {
                 &surface,
             );
         }
+        self.require_application_lifecycle_epoch(lifecycle_epoch)?;
         Ok(())
     }
 

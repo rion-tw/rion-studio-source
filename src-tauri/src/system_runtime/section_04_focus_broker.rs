@@ -222,7 +222,7 @@ impl SystemRuntimeExecutor {
         .with_completion_scope("nativeAcknowledgement")
         .with_window(window_id)
         .with_window_generation(window_generation)
-        .with_lifecycle_epoch(0);
+        .with_lifecycle_epoch(self.lifecycle_epoch());
         if let Some(tab_id) = tab_id.as_ref() {
             operation = operation.with_tab(tab_id);
         }
@@ -233,7 +233,7 @@ impl SystemRuntimeExecutor {
         let lease = self.focus_broker.accept(
             window_id,
             window_generation,
-            0,
+            self.lifecycle_epoch(),
             tab_id,
             NativePresentationFocus::WindowAndContent,
         );
@@ -314,7 +314,7 @@ impl SystemRuntimeExecutor {
         .with_role(role_id)
         .with_window(&window_id)
         .with_window_generation(window_generation)
-        .with_lifecycle_epoch(0);
+        .with_lifecycle_epoch(self.lifecycle_epoch());
         if let Some(tab_id) = tab_id.as_ref() {
             operation = operation.with_tab(tab_id);
         }
@@ -325,7 +325,7 @@ impl SystemRuntimeExecutor {
         let lease = self.focus_broker.accept(
             &window_id,
             window_generation,
-            0,
+            self.lifecycle_epoch(),
             tab_id,
             NativePresentationFocus::ContentOnly,
         );

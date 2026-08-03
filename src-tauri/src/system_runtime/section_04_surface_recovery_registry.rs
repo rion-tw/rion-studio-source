@@ -91,6 +91,23 @@ impl SurfaceRecoveryRegistry {
         state.by_operation.get(operation_id).cloned()
     }
 
+    fn release_terminal_key_for_retry(&self, role_id: &str, generation: u64) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let key = (role_id.to_owned(), generation);
+        let Some(operation_id) = state.by_surface.get(&key).cloned() else {
+            return;
+        };
+        if state
+            .by_operation
+            .get(&operation_id)
+            .is_some_and(|record| record.status != "active")
+        {
+            state.by_surface.remove(&key);
+        }
+    }
+
     fn update_phase(
         &self,
         operation_id: &str,
@@ -198,6 +215,34 @@ impl SystemRuntimeExecutor {
             self.emit_surface_recovery_attempt(&record);
         }
         receipt
+    }
+
+    fn retry_surface_recovery_after_lifecycle(
+        self: &Arc<Self>,
+        transaction: SurfaceRecoveryTransaction,
+        reason: String,
+        stage: &'static str,
+    ) {
+        let role_id = transaction.role_id.clone();
+        let generation = transaction.surface_generation;
+        let parent_operation_id = transaction.context.parent_operation_id.clone();
+        if let Ok(mut state) = self.state.lock() {
+            state.recovering_roles.remove(&role_id);
+        }
+        self.complete_surface_recovery(
+            transaction,
+            stage,
+            NativeOperationStatus::Failed,
+            Some("SYSTEM_LIFECYCLE_STALE"),
+            false,
+        );
+        self.schedule_surface_recovery_internal(
+            role_id,
+            format!("{reason}:lifecycle-retry"),
+            generation,
+            parent_operation_id,
+            true,
+        );
     }
 }
 

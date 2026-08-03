@@ -185,33 +185,73 @@ impl SystemRuntimeExecutor {
                 reason,
                 transaction,
             } => {
+                let expected_lifecycle_epoch =
+                    transaction.context.lifecycle_epoch.unwrap_or_default();
+                let lifecycle_current = self
+                    .application_lifecycle_epoch_matches(expected_lifecycle_epoch);
                 if self.health.is_healthy()
+                    && lifecycle_current
                     && RuntimeShutdownState::from_raw(
                         self.shutdown_state.load(Ordering::Acquire),
                     ) == RuntimeShutdownState::Accepting
                 {
                     self.recover_system_surface(*transaction, reason, allowed);
                 } else {
+                    let lifecycle_accepting =
+                        self.application_lifecycle.accepts_native_work();
+                    let lifecycle_unavailable = !lifecycle_current;
+                    let (stage, failure_code, message, restart_required) =
+                        if lifecycle_unavailable {
+                            (
+                                "surfaceRecoveryLifecycleCancelled",
+                                if lifecycle_accepting {
+                                    "SYSTEM_LIFECYCLE_STALE"
+                                } else {
+                                    "SYSTEM_LIFECYCLE_SUSPENDED"
+                                },
+                                "Surface recovery was cancelled because its application lifecycle epoch ended.",
+                                false,
+                            )
+                        } else {
+                        (
+                            "surfaceRecoveryRuntimeUnavailable",
+                            "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
+                            "The System WebView runtime rejected recovery after a stalled native lifecycle. Restart Rion Studio to recover safely.",
+                            true,
+                        )
+                    };
                     let role_id = transaction.role_id.clone();
+                    let generation = transaction.surface_generation;
+                    let parent_operation_id =
+                        transaction.context.parent_operation_id.clone();
                     if let Ok(mut state) = self.state.lock() {
                         state.recovering_roles.remove(&role_id);
                     }
                     self.complete_surface_recovery(
                         *transaction,
-                        "surfaceRecoveryRuntimeUnavailable",
+                        stage,
                         NativeOperationStatus::Failed,
-                        Some("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY"),
-                        true,
+                        Some(failure_code),
+                        restart_required,
                     );
                     let _ = self.app.emit(
                         "rion://shell-error",
                         json!({
-                            "code": "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
-                            "message": "The System WebView runtime rejected recovery after a stalled native lifecycle. Restart Rion Studio to recover safely.",
+                            "code": failure_code,
+                            "message": message,
                             "roleId": role_id,
                             "reason": reason
                         }),
                     );
+                    if lifecycle_unavailable {
+                        self.schedule_surface_recovery_internal(
+                            role_id,
+                            format!("{reason}:lifecycle-retry"),
+                            generation,
+                            parent_operation_id,
+                            true,
+                        );
+                    }
                 }
             }
             SystemRuntimeWork::FinalizeSurfaceRelease {
@@ -229,19 +269,32 @@ impl SystemRuntimeExecutor {
         presentation_revision: u64,
         persist_runtime: bool,
     ) {
-        if RuntimeShutdownState::from_raw(self.shutdown_state.load(Ordering::Acquire))
-            != RuntimeShutdownState::Accepting
+        let shutdown_accepting = RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        ) == RuntimeShutdownState::Accepting;
+        let lifecycle_accepting = self.application_lifecycle.accepts_native_work();
+        if (!shutdown_accepting || !lifecycle_accepting)
             && !is_surface_close_effect(&effect.action)
         {
+            let (code, message) = if shutdown_accepting {
+                (
+                    "SYSTEM_RUNTIME_SUSPENDED",
+                    "The System WebView runtime is suspended and cancelled queued native work.",
+                )
+            } else {
+                (
+                    "SYSTEM_RUNTIME_SHUTTING_DOWN",
+                    "The System WebView runtime is shutting down and cancelled queued native work.",
+                )
+            };
             let _ = self.core.dispatch_core_effect_results(vec![CoreEffectResult {
                 effect_id: effect.effect_id,
                 operation_id: effect.operation_id,
                 ok: false,
                 value_json: None,
                 error: Some(rion_core::CoreErrorPayload {
-                    code: "SYSTEM_RUNTIME_SHUTTING_DOWN".to_owned(),
-                    message: "The System WebView runtime is shutting down and cancelled queued native work."
-                        .to_owned(),
+                    code: code.to_owned(),
+                    message: message.to_owned(),
                 }),
             }]);
             return;
@@ -473,194 +526,6 @@ impl SystemRuntimeExecutor {
                     }],
                 })
                 .await;
-        });
-    }
-
-    fn execute_role_load_effect_async(
-        self: &Arc<Self>,
-        action_name: &'static str,
-        effect: CoreEffectRequest,
-        _presentation_revision: u64,
-        persist_runtime: bool,
-    ) {
-        let effect_id = effect.effect_id.clone();
-        let operation_id = effect.operation_id.clone();
-        let scope = native_effect_scope(&effect);
-        let started = Instant::now();
-        let roles = match effect.action {
-            CoreEffectAction::EmbeddedLoadRoles { roles } => roles,
-            _ => unreachable!("role-load async dispatch only accepts EmbeddedLoadRoles"),
-        };
-        let pending = match self.start_role_loads(roles) {
-            Ok(pending) => pending,
-            Err(error) => {
-                let error_payload = rion_core::CoreErrorPayload {
-                    code: error.code.to_owned(),
-                    message: error.message,
-                };
-                let result = CoreEffectResult {
-                    effect_id: effect_id.clone(),
-                    operation_id: operation_id.clone(),
-                    ok: false,
-                    value_json: None,
-                    error: Some(error_payload.clone()),
-                };
-                let dispatch = self.core.dispatch_core_effect_results(vec![result]);
-                let acknowledgement_status = dispatch
-                    .as_ref()
-                    .map(|report| effect_acknowledgement_status(report, &effect_id))
-                    .unwrap_or("dispatchFailed");
-                self.record_effect_outcome_failures(
-                    action_name,
-                    &effect_id,
-                    &operation_id,
-                    Some(&error_payload),
-                    acknowledgement_status,
-                    started.elapsed(),
-                    persist_runtime,
-                    &scope,
-                );
-                return;
-            }
-        };
-        let runtime = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
-            let role_ids = pending
-                .iter()
-                .map(|pending| pending.role_id.clone())
-                .collect::<Vec<_>>();
-            let mut navigation_error: Option<(&'static str, String)> = None;
-            for pending_navigation in &pending {
-                if navigation_error.is_some() {
-                    if let Some(operation) = pending_navigation.operation.clone() {
-                        pending_navigation.navigation.reset();
-                        runtime.record_native_operation_receipt(
-                            NativeOperationReceipt::with_status(
-                                operation,
-                                "navigationBatchAborted",
-                                NativeOperationStatus::Superseded,
-                                Some("SYSTEM_NAVIGATION_SUPERSEDED"),
-                            ),
-                        );
-                    }
-                    continue;
-                }
-                if let Some(operation) = pending_navigation.operation.clone() {
-                    let receipt = pending_navigation
-                        .navigation
-                        .wait_operation_async(operation)
-                        .await;
-                    let status = receipt.status;
-                    let failure_code = receipt.failure_code.clone();
-                    runtime.record_native_operation_receipt(receipt);
-                    if status != NativeOperationStatus::Applied {
-                        navigation_error = Some((
-                            if status == NativeOperationStatus::Superseded {
-                                "SYSTEM_NAVIGATION_SUPERSEDED"
-                            } else {
-                                "TAURI_NAVIGATION_FAILED"
-                            },
-                            failure_code.unwrap_or_else(|| {
-                                "System WebView navigation did not complete.".to_owned()
-                            }),
-                        ));
-                        continue;
-                    }
-                }
-                runtime.record_runtime_stage(
-                    format!("page-finished:{}", pending_navigation.role_id),
-                    "completed",
-                    started,
-                );
-            }
-            let runtime_for_completion = Arc::clone(&runtime);
-            let completion = tauri::async_runtime::spawn_blocking(move || {
-                let controlled_labels = pending
-                    .iter()
-                    .map(|pending| pending.surface.label().to_owned())
-                    .collect::<Vec<_>>();
-                let result = if let Some((code, message)) = navigation_error {
-                    Err(RuntimeError::new(code, message))
-                } else {
-                    pending.iter().try_for_each(|pending| {
-                        runtime_for_completion
-                            .reassert_role_keys(&pending.role_id, &pending.surface)
-                    })
-                };
-                runtime_for_completion.finish_controlled_navigations(&controlled_labels);
-                result
-            })
-            .await
-            .unwrap_or_else(|error| {
-                Err(RuntimeError::new(
-                    "TAURI_NAVIGATION_FAILED",
-                    format!("Navigation completion task failed: {error}"),
-                ))
-            });
-            let mut result = match completion {
-                Ok(()) => CoreEffectResult {
-                    effect_id: effect_id.clone(),
-                    operation_id: operation_id.clone(),
-                    ok: true,
-                    value_json: None,
-                    error: None,
-                },
-                Err(error) => CoreEffectResult {
-                    effect_id: effect_id.clone(),
-                    operation_id: operation_id.clone(),
-                    ok: false,
-                    value_json: None,
-                    error: Some(rion_core::CoreErrorPayload {
-                        code: error.code.to_owned(),
-                        message: error.message,
-                    }),
-                },
-            };
-            if result.ok {
-                let tab_ids = runtime
-                    .state
-                    .lock()
-                    .ok()
-                    .map(|state| {
-                        role_ids
-                            .iter()
-                            .filter_map(|role_id| state.role_tabs.get(role_id).cloned())
-                            .collect::<HashSet<_>>()
-                    })
-                    .unwrap_or_default();
-                for tab_id in tab_ids {
-                    runtime.set_launch_phase(&tab_id, LaunchPhase::EssentialReady);
-                    runtime.schedule_optional_hydration(&tab_id);
-                }
-            }
-            let persistence_error = (result.ok && persist_runtime)
-                .then(|| runtime.persist_restore_session(false).err())
-                .flatten();
-            result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
-            let succeeded = result.ok;
-            let error_payload = result.error.clone();
-            eprintln!(
-                "System WebView effect: {action_name} completed asynchronously (ok={succeeded}, elapsedMs={}).",
-                started.elapsed().as_millis()
-            );
-            let dispatch = runtime.core.dispatch_core_effect_results(vec![result]);
-            let acknowledgement_status = dispatch
-                .as_ref()
-                .map(|report| effect_acknowledgement_status(report, &effect_id))
-                .unwrap_or("dispatchFailed");
-            runtime.record_effect_outcome_failures(
-                action_name,
-                &effect_id,
-                &operation_id,
-                error_payload.as_ref(),
-                acknowledgement_status,
-                started.elapsed(),
-                persist_runtime,
-                &scope,
-            );
-            if dispatch.is_ok() && succeeded && persist_runtime {
-                runtime.publish_projection();
-            }
         });
     }
 

@@ -96,6 +96,7 @@ pub fn run() {
                 }
             }))?;
             runtime.start_effect_executor()?;
+            let power_monitor = power_lifecycle::PowerMonitor::install(Arc::downgrade(&runtime))?;
             runtime.schedule_webview_prewarm();
             core.invoke(CoreCommand::SystemWebViewRuntimeRegister {
                 registration: runtime.registration(),
@@ -272,6 +273,7 @@ pub fn run() {
             let recovery_core = Arc::clone(&core);
             app.manage(CoreState {
                 _activation: activation,
+                _power_monitor: power_monitor,
                 _quick_menu: quick_menu,
                 core,
                 display_topology: DisplayTopologyCoordinator::default(),

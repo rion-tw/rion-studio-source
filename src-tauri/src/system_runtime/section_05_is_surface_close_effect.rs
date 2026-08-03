@@ -309,6 +309,7 @@ fn apply_native_presentation_batch(
     };
     if RuntimeShutdownState::from_raw(request.shutdown_state.load(Ordering::Acquire))
         != RuntimeShutdownState::Accepting
+        || !request.application_lifecycle.accepts_native_work()
     {
         return NativePresentationOutcome {
             applied: false,

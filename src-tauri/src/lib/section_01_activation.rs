@@ -59,6 +59,7 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
 
 struct CoreState {
     _activation: ActivationServer,
+    _power_monitor: power_lifecycle::PowerMonitor,
     _quick_menu: quick_menu::QuickMenu,
     core: Arc<AppCore>,
     display_topology: DisplayTopologyCoordinator,

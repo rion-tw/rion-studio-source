@@ -67,6 +67,7 @@ import type {
 } from "./types";
 import type {
   CoreErrorPayload,
+  ApplicationLifecycleStatusRecord,
   SurfaceRecoveryAttemptRecord,
   SystemRuntimeOperationSummaryRecord
 } from "./generated";
@@ -75,6 +76,7 @@ export interface RionStudioApi {
   notifyRendererReady: () => Promise<void>;
   getAppSnapshot: () => Promise<AppSnapshot>;
   getCurrentWindowState: () => Promise<AppWindowState>;
+  getApplicationLifecycleStatus: () => Promise<ApplicationLifecycleStatusRecord>;
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
@@ -180,6 +182,9 @@ export interface RionStudioApi {
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
   onApplicationQuitRequested: (callback: () => void) => () => void;
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
+  onApplicationLifecycleChanged: (
+    callback: (status: ApplicationLifecycleStatusRecord) => void
+  ) => () => void;
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onWindowLifecycleChanged: (
     callback: (receipt: SystemRuntimeOperationSummaryRecord) => void

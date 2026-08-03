@@ -337,6 +337,9 @@ pub struct SystemRuntimeDiagnosticsRecord {
     #[serde(default = "default_system_runtime_shutdown_state")]
     #[ts(type = "\"accepting\" | \"draining\" | \"closed\" | \"indeterminate\"")]
     pub shutdown_state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub application_lifecycle: Option<ApplicationLifecycleStatusRecord>,
     pub healthy: bool,
     pub snapshot_complete: bool,
     pub collection_error_codes: Vec<String>,

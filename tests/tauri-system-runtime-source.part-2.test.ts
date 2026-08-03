@@ -97,7 +97,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime).toContain("move_tab_with_activation(");
     expect(applyRuntime).toContain("relocate_native_tab_reservation(");
     expect(applyRuntime).toContain("try_ensure_native_tab(");
-    expect(applyRuntime).toContain("reorder_native_tabs(");
+    expect(applyRuntime).toContain("reorder_native_tabs_for_projection(");
     expect(applyRuntime).toContain("let projected_native_tab_window_ids = snapshot");
     expect(applyRuntime).toContain("resolved_runtime_window_selection(");
     expect(applyRuntime).toContain("dispatch_native_presentation(");

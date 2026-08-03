@@ -158,6 +158,7 @@ impl SystemRuntimeExecutor {
             presentation: Arc::new(PresentationRegistry::default()),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
             tab_activations: Arc::new(TabActivationCoordinator::default()),
+            tab_drag_intents: Arc::new(TabDragIntentCoordinator::default()),
             tab_mutations: Arc::new(TabMutationCoordinator::default()),
             #[cfg(windows)]
             tab_chrome_projections: Arc::new(TabChromeProjectionCoordinator::default()),

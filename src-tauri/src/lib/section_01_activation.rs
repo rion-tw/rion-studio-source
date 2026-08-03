@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
@@ -77,6 +77,9 @@ struct CoreState {
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
     tab_drag_finished: Mutex<VecDeque<CompletedGameWindowTabDrag>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
+    #[cfg(target_os = "macos")]
+    macos_tab_drag_actions:
+        OnceLock<tokio::sync::mpsc::UnboundedSender<runtime_tabs_macos::QueuedNativeTabAction>>,
     updates: Arc<update_manager::UpdateManager>,
 }
 
@@ -223,6 +226,8 @@ struct GameWindowTabDragSession {
     grab_ratio_x: f64,
     grab_ratio_y: f64,
     id: String,
+    intent_generation: u64,
+    last_event_sequence: u64,
     latest_move_revision: u64,
     latest_screen_x: f64,
     latest_screen_y: f64,

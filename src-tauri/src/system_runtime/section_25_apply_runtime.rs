@@ -6,8 +6,20 @@ impl SystemRuntimeExecutor {
         reveal_window_ids: &[String],
         focus_window_ids: &[String],
         focus_tab_id: Option<&str>,
-        presentation_revision: u64,
+        correlation: &RuntimeEffectCorrelation,
     ) -> RuntimeResult<()> {
+        let parent_operation_id = correlation.parent_operation_id.as_deref();
+        let presentation_revision = correlation.presentation_revision;
+        if parent_operation_id.is_some()
+            && self
+                .tab_drag_intents
+                .projection_is_superseded(parent_operation_id, "")
+        {
+            // Drag commits preview their frozen topology before entering Core. If a newer
+            // native drag starts while Core is persisting that fallback, its late effect must
+            // not replay the old projection over the newer AppKit/WebView2 overlay.
+            return Ok(());
+        }
         struct TabUpdate {
             window_id: String,
             moved: bool,
@@ -502,7 +514,11 @@ impl SystemRuntimeExecutor {
                 })
                 .cloned()
                 .collect::<Vec<_>>();
-            self.reorder_native_tabs(&runtime_window.window_id, &visible_tab_ids)?;
+            self.reorder_native_tabs_for_projection(
+                &runtime_window.window_id,
+                &visible_tab_ids,
+                parent_operation_id,
+            )?;
         }
         for snapshot_tab in &snapshot.tabs {
             if !live_windows.contains_key(&snapshot_tab.id)
@@ -743,6 +759,11 @@ impl SystemRuntimeExecutor {
             let mut state = self.state()?;
             obsolete_window_ids
                 .into_iter()
+                .filter(|window_id| {
+                    !self
+                        .tab_drag_intents
+                        .projection_is_superseded(parent_operation_id, window_id)
+                })
                 .filter_map(|window_id| {
                     let host = state.display_hosts.remove(&window_id)?;
                     state

@@ -38,6 +38,13 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
 
+static CGFloat RionRuntimeTabsWidthWithExternalGhost(CGFloat tabsWidth,
+                                                       NSUInteger tabCount,
+                                                       CGFloat ghostWidth) {
+  if (ghostWidth <= 0) return tabsWidth;
+  return tabsWidth + ghostWidth + (tabCount > 0 ? kRionTabSpacing : 0);
+}
+
 static NSString *RionRuntimeTabDragPayload(NSString *sourceWindowID,
                                            NSString *tabIdentifier,
                                            NSString *sessionIdentifier,

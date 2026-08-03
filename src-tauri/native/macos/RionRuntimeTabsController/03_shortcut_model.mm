@@ -32,7 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
                                             sessionID:(NSString *)sessionID
                                            grabRatioX:(CGFloat)grabRatioX
                                        sourceTabWidth:(CGFloat)sourceTabWidth;
-- (void)previewDragTabIdentifier:(NSString *)tabIdentifier
+- (BOOL)previewDragTabIdentifier:(NSString *)tabIdentifier
                 beforeIdentifier:(nullable NSString *)beforeIdentifier;
 - (void)positionDragSurfaceForTabIdentifier:(NSString *)tabIdentifier
                                     atPoint:(NSPoint)point
@@ -41,6 +41,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)hideDragSurfaceForTabIdentifier:(NSString *)tabIdentifier;
 - (void)resetTabDragInsertionState;
 - (void)hideInsertionIndicator;
+- (void)hideExternalDragGhost;
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view;
 - (void)stopTabDragEdgeScroll;
 - (void)applyTabDragEdgeScroll;
@@ -92,6 +93,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)updateFullscreenToolbarPresentationPolicy;
 - (BOOL)updateTitlebarButtonPositionsForFrameView:(nullable NSView *)frameView;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
+- (void)showExternalDragGhostBeforeIdentifier:(nullable NSString *)identifier
+                                         width:(CGFloat)width;
 - (nullable NSView *)toolbarHostView;
 
 @end

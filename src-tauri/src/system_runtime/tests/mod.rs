@@ -25,3 +25,4 @@ include!("behavior_22_tab_activation_transaction_converges.rs");
 include!("behavior_23_tab_chrome_projection_is_instance_fenced.rs");
 include!("behavior_24_tab_mutation_projection_is_frozen.rs");
 include!("behavior_25_provisional_launch_attempts_are_identity_fenced.rs");
+include!("behavior_26_tab_drag_intent_is_latest.rs");

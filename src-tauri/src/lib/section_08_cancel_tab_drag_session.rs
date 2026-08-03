@@ -1,4 +1,4 @@
-fn record_windows_tab_drag_drop_intent(
+fn record_deferred_tab_drag_drop_intent(
     state: &CoreState,
     session_id: &str,
     target_window_id: &str,
@@ -36,7 +36,7 @@ fn record_windows_tab_drag_drop_intent(
     Ok(session.source_end_received && session.source_drop_accepted)
 }
 
-fn record_windows_tab_drag_source_end(
+fn record_deferred_tab_drag_source_end(
     state: &CoreState,
     session_id: &str,
     cancelled: bool,
@@ -53,7 +53,7 @@ fn record_windows_tab_drag_source_end(
     session.source_cancelled = cancelled;
     session.source_drop_accepted = drop_accepted;
     session.source_end_received = true;
-    let ready = windows_tab_drag_terminal_ready(
+    let ready = deferred_tab_drag_terminal_ready(
         cancelled,
         drop_accepted,
         session.drop_window_id.is_some(),
@@ -64,7 +64,7 @@ fn record_windows_tab_drag_source_end(
     Ok(ready)
 }
 
-fn windows_tab_drag_terminal_ready(
+fn deferred_tab_drag_terminal_ready(
     cancelled: bool,
     drop_accepted: bool,
     has_drop_intent: bool,
@@ -72,7 +72,7 @@ fn windows_tab_drag_terminal_ready(
     cancelled || !drop_accepted || has_drop_intent
 }
 
-async fn finish_windows_tab_drag_session(
+async fn finish_deferred_tab_drag_session(
     app: &AppHandle,
     state: &CoreState,
     session_id: &str,
@@ -88,7 +88,7 @@ async fn finish_windows_tab_drag_session(
             state,
             &session,
             "tab.drag-cancelled",
-            "The WebView2 tab drag ended without applying native topology changes.",
+            "The deferred native tab drag ended without applying topology changes.",
         );
         return finish_cancelled_tab_drag(app, state, session);
     }
@@ -107,6 +107,12 @@ async fn finish_windows_tab_drag_session(
     if let Some(error) = tab_drag_fence_error(state, &session) {
         return finish_failed_tab_drag_session(app, state, &mut session, error);
     }
+    record_tab_drag_lifecycle(
+        state,
+        &session,
+        "tab.drag-terminal-frozen",
+        "The latest native drag destination was frozen before durable topology commit.",
+    );
     if !state
         .runtime
         .mark_tab_drag_native_submitted(&session.operation_id)
@@ -125,14 +131,14 @@ async fn finish_windows_tab_drag_session(
         state,
         &session,
         "tab.drag-native-commit-started",
-        "The WebView2 OLE drag ended; native tab topology commit is starting.",
+        "The native drag ended; tab topology commit is starting.",
     );
-    if let Err(error) = apply_windows_tab_drag_destination(app, state, &mut session) {
+    if let Err(error) = apply_deferred_tab_drag_destination(app, state, &mut session) {
         record_tab_drag_lifecycle(
             state,
             &session,
             "tab.drag-native-commit-failed",
-            "The native tab topology commit failed and rollback was requested.",
+            "The deferred native tab topology commit failed and rollback was requested.",
         );
         return finish_failed_tab_drag_session(app, state, &mut session, error);
     }
@@ -152,7 +158,7 @@ async fn finish_windows_tab_drag_session(
         state,
         &session,
         "tab.drag-committed",
-        "The deferred WebView2 tab drag committed successfully.",
+        "The deferred native tab drag committed successfully.",
     );
     finish_applied_tab_drag(app, state, &session, exact_cleanup)
 }
@@ -166,7 +172,11 @@ fn record_tab_drag_lifecycle(
     let core = Arc::clone(&state.core);
     let context_raw_json = serde_json::to_string(&json!({
         "dropAccepted": session.source_drop_accepted,
+        "beforeTabId": session.drop_before_tab_id,
+        "eventSequence": session.last_event_sequence,
+        "intentGeneration": session.intent_generation,
         "nativeChangesApplied": session.native_changes_applied,
+        "projectionRevision": session.topology_revision,
         "sessionId": session.id,
         "singleTab": session.single_tab,
         "sourceWindowId": session.source_window_id,
@@ -190,7 +200,7 @@ fn record_tab_drag_lifecycle(
     });
 }
 
-fn apply_windows_tab_drag_destination(
+fn apply_deferred_tab_drag_destination(
     app: &AppHandle,
     state: &CoreState,
     session: &mut GameWindowTabDragSession,
@@ -349,8 +359,10 @@ async fn commit_tab_drag_session(
         .tab_drag_window_snapshot(&final_window_id)
         .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     let before_tab_id = tab_drag_before_tab_id(&final_snapshot.tab_ids, &session.tab_id);
-    let mut mutation: Option<(RuntimeTabMutationRequestRecord, Option<EmbeddedLaunchTargetRecord>)> =
-        None;
+    let mut mutation: Option<(
+        RuntimeTabMutationRequestRecord,
+        Option<EmbeddedLaunchTargetRecord>,
+    )> = None;
     if final_window_id == session.source_window_id {
         let original_order = session
             .snapshots
@@ -397,13 +409,27 @@ async fn commit_tab_drag_session(
         ));
     }
     if let Some((request, target)) = mutation {
-        outcome = execute_tab_mutation_commit(state, request, target, before_tab_id).await?;
+        outcome =
+            execute_tab_mutation_commit(state, request.clone(), target, before_tab_id).await?;
+        if outcome == RuntimeTabMutationProjectionOutcome::Degraded {
+            state.runtime.record_tab_drag_projection_mismatch(&request);
+        }
+    }
+    if outcome == RuntimeTabMutationProjectionOutcome::Superseded
+        || (session.intent_generation > 0
+            && !state
+                .runtime
+                .tab_drag_projection_is_latest(&session.id, session.intent_generation))
+    {
+        // The durable mutation may be retained as the fallback for the newer drag, but
+        // every native cleanup below belongs to the older session and must not touch it.
+        return Ok(RuntimeTabMutationProjectionOutcome::Superseded);
     }
     if session.single_tab
         && let Err(message) = state.runtime.finish_tab_drag_window_motion(
-                &session.source_window_id,
-                final_window_id == session.source_window_id && session.window_was_moved,
-            )
+            &session.source_window_id,
+            final_window_id == session.source_window_id && session.window_was_moved,
+        )
     {
         outcome = RuntimeTabMutationProjectionOutcome::Degraded;
         eprintln!("Runtime tab drag committed but motion cleanup failed: {message}");
@@ -581,14 +607,8 @@ pub(crate) async fn move_game_window_tab_to_new_window(
         bounds: bounds.clone(),
         presentation: "normal".to_owned(),
     };
-    let receipt = execute_tab_mutation(
-        state,
-        "moveToNewWindow",
-        tab_id,
-        Some(target),
-        None,
-    )
-    .await?;
+    let receipt =
+        execute_tab_mutation(state, "moveToNewWindow", tab_id, Some(target), None).await?;
     Ok(RuntimeTabMoveResultRecord {
         target_window_id: window_id,
         receipt,

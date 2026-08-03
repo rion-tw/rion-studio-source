@@ -526,6 +526,33 @@ impl MacRuntimeTabsController {
         .map_err(|error| error.to_string())
     }
 
+    pub(crate) fn reorder_fenced(
+        &self,
+        tab_ids: &[String],
+        window_id: &str,
+        parent_operation_id: Option<&str>,
+        drag_intents: Arc<crate::system_runtime::TabDragIntentCoordinator>,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_ids = serde_json::to_string(tab_ids)
+            .map(|value| c_string(&value))
+            .map_err(|error| error.to_string())?;
+        let window_id = window_id.to_owned();
+        let parent_operation_id = parent_operation_id.map(str::to_owned);
+        let app = inner.app.clone();
+        app.run_on_main_thread(move || {
+            if drag_intents
+                .projection_is_superseded(parent_operation_id.as_deref(), &window_id)
+            {
+                return;
+            }
+            unsafe {
+                rion_runtime_tabs_reorder(inner.raw, tab_ids.as_ptr());
+            }
+        })
+        .map_err(|error| error.to_string())
+    }
+
     pub fn matches_projection(
         &self,
         tab_ids: &[String],

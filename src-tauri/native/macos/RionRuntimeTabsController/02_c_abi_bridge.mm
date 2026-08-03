@@ -430,6 +430,8 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
   @autoreleasepool {
     CGFloat visibleWidth = RionRuntimePreferredTabWidth(160.0, NO);
     CGFloat hiddenWidth = RionRuntimePreferredTabWidth(160.0, YES);
+    CGFloat ghostWidth =
+        RionRuntimeTabsWidthWithExternalGhost(400.0, 3, 144.0);
     CGFloat longWindowNameWidth = MIN(kRionWindowNameMaximumWidth, 420.0);
     CGFloat minimumWindowTabsWidth =
         640.0 - kRionTrafficLightFallbackWidth - kRionRootLeadingInset -
@@ -444,6 +446,7 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
            RionRuntimeRevealScrollOrigin(620.0, 760.0, 100.0, 400.0,
                                          900.0) == 360.0 &&
            hiddenWidth < visibleWidth &&
+           ghostWidth == 550.0 &&
            longWindowNameWidth == kRionWindowNameMaximumWidth &&
            minimumWindowTabsWidth > kRionTabMinimumWidth &&
            kRionTitlebarHeight == 40.0 &&

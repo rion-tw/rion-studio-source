@@ -1,10 +1,9 @@
-type EditorSection = "games" | "roles" | "workspaces" | "game-windows" | "macros";
+type EditorSection = "games" | "roles" | "workspaces" | "macros";
 
 const editorPathPatterns: Array<{ pattern: RegExp; section: EditorSection }> = [
   { section: "games", pattern: /^\/games\/(?:new|[^/]+\/edit)$/ },
   { section: "roles", pattern: /^\/roles\/(?:new|[^/]+\/edit)$/ },
   { section: "workspaces", pattern: /^\/workspaces\/(?:new|[^/]+\/edit)$/ },
-  { section: "game-windows", pattern: /^\/game-windows\/(?:new|[^/]+\/edit)$/ },
   { section: "macros", pattern: /^\/macros\/(?:new|[^/]+\/edit)$/ }
 ];
 

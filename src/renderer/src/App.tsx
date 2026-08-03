@@ -25,9 +25,9 @@ import { useSystemRuntimeWarnings } from "./hooks/useSystemRuntimeWarnings";
 import { localizeErrorMessage } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
-import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, GameWindow, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
+import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
 import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppScreens";
-import { DashboardRoute, GameEditorRoute, GameWindowEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
+import { DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
 
 const TOAST_DISMISS_MS = 4000;
 
@@ -51,8 +51,6 @@ export function App(): JSX.Element {
     });
   const [notice, setNotice] = useState<string | null>(null);
   useSystemRuntimeWarnings(setNotice);
-  const [isSavingGameWindow, setIsSavingGameWindow] = useState(false);
-  const isSavingGameWindowRef = useRef(false);
   const notifiedEngineIssues = useRef(new Map<string, string>());
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
@@ -90,49 +88,6 @@ export function App(): JSX.Element {
     (workspaceId: string) => navigate(createEditEditorPath("workspaces", workspaceId)),
     [navigate]
   );
-  const navigateToNewGameWindow = useCallback(() => navigate(createNewEditorPath("game-windows")), [navigate]);
-  const navigateToEditGameWindow = useCallback(
-    (windowId: string) => navigate(createEditEditorPath("game-windows", windowId)),
-    [navigate]
-  );
-  const saveGameWindow = useCallback(async (form: {
-    id?: string;
-    name: string;
-    targetDisplay: Parameters<typeof window.rionStudio.createGameWindow>[0]["targetDisplay"];
-    placement: Parameters<typeof window.rionStudio.createGameWindow>[0]["placement"];
-    tabs: GameWindow["tabs"];
-    activeTabId?: GameWindow["activeTabId"];
-  }): Promise<GameWindow | undefined> => {
-    if (!window.rionStudio || isSavingGameWindowRef.current) return undefined;
-    isSavingGameWindowRef.current = true;
-    setIsSavingGameWindow(true);
-    const reportError = data.beginErrorOperation();
-    try {
-      const saved = form.id
-        ? await window.rionStudio.updateGameWindow(form.id, {
-            name: form.name,
-            targetDisplay: form.targetDisplay,
-            placement: form.placement,
-            tabs: form.tabs,
-            activeTabId: form.activeTabId
-          })
-        : await window.rionStudio.createGameWindow({
-            name: form.name,
-            targetDisplay: form.targetDisplay,
-            placement: form.placement
-          });
-      data.setGameWindows((current) => form.id
-        ? current.map((item) => item.id === saved.id ? saved : item)
-        : [...current, saved]);
-      return saved;
-    } catch (error) {
-      reportError(error);
-      return undefined;
-    } finally {
-      isSavingGameWindowRef.current = false;
-      setIsSavingGameWindow(false);
-    }
-  }, [data]);
   const navigateToNewMacro = useCallback((roleId?: string) => {
     const searchParams = roleId ? new URLSearchParams({ roleId }) : undefined;
     navigate(createNewEditorPath("macros", searchParams));
@@ -672,40 +627,10 @@ export function App(): JSX.Element {
               element={hasBridge ? (
                 <GameWindowsRoute
                   displays={data.displays}
-                  gameWindows={data.gameWindows} games={data.games}
-                  runtime={data.embeddedRuntime} roles={data.roles}
-                  t={preferences.t} workspaces={data.workspaces}
-                  onEdit={navigateToEditGameWindow}
+                  gameWindows={data.gameWindows}
+                  runtime={data.embeddedRuntime}
+                  t={preferences.t}
                   onError={data.setError}
-                  onNew={navigateToNewGameWindow}
-                />
-              ) : <BridgeUnavailable t={preferences.t} />}
-            />
-            <Route
-              path="/game-windows/new"
-              element={hasBridge ? (
-                <GameWindowEditorRoute
-                  displays={data.displays}
-                  gameWindows={data.gameWindows} games={data.games}
-                  isSaving={isSavingGameWindow}
-                  onError={data.setError} roles={data.roles} runtime={data.embeddedRuntime}
-                  t={preferences.t}
-                  workspaces={data.workspaces}
-                  onSave={saveGameWindow}
-                />
-              ) : <BridgeUnavailable t={preferences.t} />}
-            />
-            <Route
-              path="/game-windows/:id/edit"
-              element={hasBridge ? (
-                <GameWindowEditorRoute
-                  displays={data.displays}
-                  gameWindows={data.gameWindows} games={data.games}
-                  isSaving={isSavingGameWindow}
-                  onError={data.setError} roles={data.roles} runtime={data.embeddedRuntime}
-                  t={preferences.t}
-                  workspaces={data.workspaces}
-                  onSave={saveGameWindow}
                 />
               ) : <BridgeUnavailable t={preferences.t} />}
             />

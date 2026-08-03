@@ -8,11 +8,11 @@ enum MainWindowCommand {
 }
 
 impl MainWindowCommand {
-    fn completion_scope(self) -> &'static str {
+    fn completion_scope(self) -> SystemRuntimeOperationCompletionScope {
         if matches!(self, Self::StartDragging) {
-            "nativeSubmission"
+            SystemRuntimeOperationCompletionScope::NativeSubmission
         } else {
-            "nativeAcknowledgement"
+            SystemRuntimeOperationCompletionScope::NativeAcknowledgement
         }
     }
 

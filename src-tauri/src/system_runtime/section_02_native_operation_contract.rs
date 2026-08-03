@@ -1,112 +1,16 @@
-const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 5;
+const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 6;
 const ACTIVE_NATIVE_OPERATION_CAPACITY: usize = 256;
 const RECENT_NATIVE_OPERATION_CAPACITY: usize = 80;
 static NATIVE_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static APPLICATION_LIFECYCLE_EPOCH: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativeOperationSubsystem {
-    SurfaceLifecycle,
-    Navigation,
-    Input,
-    Presentation,
-    TabActivation,
-    Geometry,
-    Popup,
-    Security,
-    Session,
-    Audio,
-    Zoom,
-    Metadata,
-    Performance,
-    Capability,
-    Shutdown,
-    DisplayTopology,
-    WindowLifecycle,
-    Focus,
-    Drag,
-    Recovery,
-    Power,
-}
-
-impl NativeOperationSubsystem {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::SurfaceLifecycle => "surfaceLifecycle",
-            Self::Navigation => "navigation",
-            Self::Input => "input",
-            Self::Presentation => "presentation",
-            Self::TabActivation => "tabActivation",
-            Self::Geometry => "geometry",
-            Self::Popup => "popup",
-            Self::Security => "security",
-            Self::Session => "session",
-            Self::Audio => "audio",
-            Self::Zoom => "zoom",
-            Self::Metadata => "metadata",
-            Self::Performance => "performance",
-            Self::Capability => "capability",
-            Self::Shutdown => "shutdown",
-            Self::DisplayTopology => "displayTopology",
-            Self::WindowLifecycle => "windowLifecycle",
-            Self::Focus => "focus",
-            Self::Drag => "drag",
-            Self::Recovery => "recovery",
-            Self::Power => "power",
-        }
-    }
-
-    const fn default_completion_scope(self) -> &'static str {
-        match self {
-            Self::SurfaceLifecycle
-            | Self::Presentation
-            | Self::Geometry
-            | Self::Security
-            | Self::Audio
-            | Self::Zoom
-            | Self::Shutdown
-            | Self::DisplayTopology
-            | Self::WindowLifecycle
-            | Self::Focus => "nativeAcknowledgement",
-            Self::TabActivation => "tabActivationConverged",
-            Self::Drag => "dragCommitted",
-            Self::Recovery => "inputReady",
-            Self::Power => "lifecycleTransition",
-            Self::Navigation => "pageFinished",
-            Self::Input | Self::Metadata => "nativeSubmission",
-            Self::Popup | Self::Session => "stateCommit",
-            Self::Performance | Self::Capability => "runtimeProbe",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum NativeOperationStatus {
-    Applied,
-    Superseded,
-    Cancelled,
-    Degraded,
-    Failed,
-    Indeterminate,
-}
-
-impl NativeOperationStatus {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Applied => "applied",
-            Self::Superseded => "superseded",
-            Self::Cancelled => "cancelled",
-            Self::Degraded => "degraded",
-            Self::Failed => "failed",
-            Self::Indeterminate => "indeterminate",
-        }
-    }
-}
+type NativeOperationSubsystem = SystemRuntimeOperationSubsystem;
+type NativeOperationStatus = SystemRuntimeOperationStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativeOperationContext {
     accepted_at: String,
-    completion_scope: &'static str,
+    completion_scope: SystemRuntimeOperationCompletionScope,
     deadline: Instant,
     deadline_at: String,
     lifecycle_epoch: Option<u64>,
@@ -188,7 +92,10 @@ impl NativeOperationContext {
         }
     }
 
-    fn with_completion_scope(mut self, completion_scope: &'static str) -> Self {
+    fn with_completion_scope(
+        mut self,
+        completion_scope: SystemRuntimeOperationCompletionScope,
+    ) -> Self {
         self.completion_scope = completion_scope;
         self
     }
@@ -264,7 +171,7 @@ struct NativeOperationReceipt {
 }
 
 impl NativeOperationReceipt {
-    fn completion_scope(&self) -> &'static str {
+    fn completion_scope(&self) -> SystemRuntimeOperationCompletionScope {
         self.context.completion_scope
     }
 
@@ -324,10 +231,10 @@ impl NativeOperationReceipt {
             captured_at: self.completed_at.clone(),
             deadline_at: self.context.deadline_at.clone(),
             platform: self.context.platform.to_owned(),
-            subsystem: self.context.subsystem.as_str().to_owned(),
-            status: self.status.as_str().to_owned(),
+            subsystem: self.context.subsystem,
+            status: self.status,
             stage: self.stage.to_owned(),
-            completion_scope: self.completion_scope().to_owned(),
+            completion_scope: self.completion_scope(),
             operation_id: self.context.operation_id.clone(),
             trigger: self.context.trigger.to_owned(),
             elapsed_ms: self.elapsed_ms,

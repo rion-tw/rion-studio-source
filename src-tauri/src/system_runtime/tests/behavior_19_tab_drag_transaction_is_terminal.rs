@@ -16,8 +16,8 @@ fn tab_drag_receipt_freezes_session_and_fences_on_both_platforms() {
         let summary = NativeOperationReceipt::applied(context, "tabDragCommitted").summary();
 
         assert_eq!(summary.platform, platform);
-        assert_eq!(summary.subsystem, "drag");
-        assert_eq!(summary.completion_scope, "dragCommitted");
+        assert_eq!(summary.subsystem, SystemRuntimeOperationSubsystem::Drag);
+        assert_eq!(summary.completion_scope, SystemRuntimeOperationCompletionScope::DragCommitted);
         assert_eq!(summary.session_id.as_deref(), Some("drag-session"));
         assert_eq!(summary.window_generation, Some(17));
         assert_eq!(summary.lifecycle_epoch, Some(9));
@@ -54,5 +54,5 @@ fn tab_drag_registry_replays_the_first_terminal_receipt() {
 
     assert_eq!(late, first);
     assert_eq!(registry.wait(&operation_id).unwrap(), first);
-    assert_eq!(first.summary().status, "cancelled");
+    assert_eq!(first.summary().status, SystemRuntimeOperationStatus::Cancelled);
 }

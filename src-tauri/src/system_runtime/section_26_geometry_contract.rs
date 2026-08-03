@@ -66,7 +66,7 @@ impl SystemRuntimeExecutor {
             "layoutRuntimeTab",
             PLATFORM_CALLBACK_TIMEOUT,
         )
-        .with_completion_scope("nativeSubmission")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeSubmission)
         .with_revision(revision)
         .with_tab(tab_id)
         .with_window(&window_id);
@@ -152,9 +152,9 @@ impl SystemRuntimeExecutor {
             PLATFORM_CALLBACK_TIMEOUT,
         )
         .with_completion_scope(if scope == GeometryMutationScope::PositionOnly {
-            "nativeAcknowledgement"
+            SystemRuntimeOperationCompletionScope::NativeAcknowledgement
         } else {
-            "nativeSubmission"
+            SystemRuntimeOperationCompletionScope::NativeSubmission
         })
         .with_revision(revision)
         .with_window(&target.window_id);

@@ -68,6 +68,7 @@ import type {
 import type {
   CoreErrorPayload,
   ApplicationLifecycleStatusRecord,
+  RuntimeTabMoveResultRecord,
   SurfaceRecoveryAttemptRecord,
   SystemRuntimeOperationSummaryRecord
 } from "./generated";
@@ -95,14 +96,20 @@ export interface RionStudioApi {
   stopGameWindow: (windowId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   deleteGameWindow: (windowId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   showGameWindowTab: (tabId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
-  moveGameWindowTab: (tabId: string, windowId: string) => Promise<void>;
-  moveGameWindowTabToNewWindow: (tabId: string) => Promise<{ windowId: string }>;
+  moveGameWindowTab: (
+    tabId: string,
+    windowId: string
+  ) => Promise<SystemRuntimeOperationSummaryRecord>;
+  moveGameWindowTabToNewWindow: (tabId: string) => Promise<RuntimeTabMoveResultRecord>;
   setGameWindowTabMuted: (
     tabId: string,
     muted: boolean
   ) => Promise<SystemRuntimeOperationSummaryRecord>;
-  setGameWindowTabHidden: (tabId: string, hidden: boolean) => Promise<void>;
-  stopGameWindowTab: (tabId: string) => Promise<void>;
+  setGameWindowTabHidden: (
+    tabId: string,
+    hidden: boolean
+  ) => Promise<SystemRuntimeOperationSummaryRecord>;
+  stopGameWindowTab: (tabId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   restoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => Promise<void>;
   discardSavedGameWindows: (input: DiscardSavedGameWindowsInput) => Promise<void>;
   getRuntimeWindowPreferences: () => Promise<RuntimeWindowPreferences>;

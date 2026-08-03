@@ -13,7 +13,7 @@ impl SystemRuntimeExecutor {
             "applyRuntimeTopology",
             NAVIGATION_TIMEOUT,
         )
-        .with_completion_scope("stateCommit")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
         .with_revision(presentation_revision);
         if let Some(target) = target.as_ref() {
             operation = operation.with_window(&target.window_id);

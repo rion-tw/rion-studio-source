@@ -670,7 +670,7 @@ impl SystemRuntimeExecutor {
             "setGameWindowTabMuted",
             PLATFORM_CALLBACK_TIMEOUT,
         )
-        .with_completion_scope("nativeAcknowledgement")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
         .with_role(&role_id)
         .with_tab(tab_id)
         .with_window(window_id);

@@ -97,9 +97,9 @@ impl SystemRuntimeExecutor {
             WINDOW_CLOSE_TIMEOUT,
         )
         .with_completion_scope(if native_expected {
-            "nativeDestroyed"
+            SystemRuntimeOperationCompletionScope::NativeDestroyed
         } else {
-            "stateCommit"
+            SystemRuntimeOperationCompletionScope::StateCommit
         })
         .with_window(window_id)
         .with_lifecycle_epoch(self.lifecycle_epoch());
@@ -221,7 +221,7 @@ impl SystemRuntimeExecutor {
                     "window-close-receipt-fallback",
                     Duration::ZERO,
                 )
-                .with_completion_scope("nativeDestroyed");
+                .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeDestroyed);
                 NativeOperationReceipt::with_status(
                     fallback,
                     "windowCloseReceiptUnavailable",

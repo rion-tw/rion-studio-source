@@ -7,13 +7,13 @@ fn display_topology_receipts_freeze_the_committed_revision_on_both_platforms() {
             Duration::from_secs(10),
             platform,
         )
-        .with_completion_scope("topologyCommitted")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::TopologyCommitted)
         .with_topology_revision(42);
         let summary = NativeOperationReceipt::applied(context, "displayTopologyCommitted").summary();
 
         assert_eq!(summary.platform, platform);
-        assert_eq!(summary.subsystem, "displayTopology");
-        assert_eq!(summary.completion_scope, "topologyCommitted");
+        assert_eq!(summary.subsystem, SystemRuntimeOperationSubsystem::DisplayTopology);
+        assert_eq!(summary.completion_scope, SystemRuntimeOperationCompletionScope::TopologyCommitted);
         assert_eq!(summary.topology_revision, Some(42));
     }
 }

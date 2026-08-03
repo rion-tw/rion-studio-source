@@ -22,7 +22,7 @@ fn duplicate_window_close_uses_one_operation_until_it_is_terminal() {
             Duration::from_secs(5),
             platform,
         )
-        .with_completion_scope("nativeDestroyed")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeDestroyed)
         .with_window_generation(7)
         .with_window("window-1");
         let first_id = first.operation_id.clone();

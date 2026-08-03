@@ -71,7 +71,7 @@ impl SystemRuntimeExecutor {
             "nativeDisplayTopologyChanged",
             DISPLAY_TOPOLOGY_RECONCILE_TIMEOUT,
         )
-        .with_completion_scope("topologyCommitted")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::TopologyCommitted)
         .with_topology_revision(topology_revision);
         let operation_id = operation.operation_id.clone();
         self.operations

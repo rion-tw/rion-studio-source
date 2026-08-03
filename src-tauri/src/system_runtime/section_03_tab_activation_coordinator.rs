@@ -208,7 +208,7 @@ impl SystemRuntimeExecutor {
             trigger,
             PLATFORM_CALLBACK_TIMEOUT,
         )
-        .with_completion_scope("tabActivationConverged")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::TabActivationConverged)
         .with_revision(revision)
         .with_window(window_id)
         .with_window_generation(window_generation)

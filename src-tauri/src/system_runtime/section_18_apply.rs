@@ -246,9 +246,9 @@ impl SystemRuntimeExecutor {
                 .min(PLATFORM_CALLBACK_TIMEOUT),
         )
         .with_completion_scope(if native_stage == "inputFocus" {
-            "inputReady"
+            SystemRuntimeOperationCompletionScope::InputReady
         } else {
-            "nativeSubmission"
+            SystemRuntimeOperationCompletionScope::NativeSubmission
         })
         .with_role(&role_id);
         let result = (|| {

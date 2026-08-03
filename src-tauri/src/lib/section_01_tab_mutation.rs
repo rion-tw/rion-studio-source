@@ -40,13 +40,20 @@ async fn execute_tab_mutation(
     )
     .await;
     let (stage, status, failure_code, rollback_error_count) = match commit {
-        Ok(true) => (
+        Ok(RuntimeTabMutationProjectionOutcome::Applied) => (
             "tabMutationConverged",
             RuntimeTabMutationTerminalStatus::Applied,
             None,
             0,
         ),
-        Ok(false) => (
+        #[cfg(windows)]
+        Ok(RuntimeTabMutationProjectionOutcome::Superseded) => (
+            "tabMutationSuperseded",
+            RuntimeTabMutationTerminalStatus::Superseded,
+            None,
+            0,
+        ),
+        Ok(RuntimeTabMutationProjectionOutcome::Degraded) => (
             "tabMutationChromeUnconfirmed",
             RuntimeTabMutationTerminalStatus::Degraded,
             Some("TAB_MUTATION_CHROME_NOT_CONFIRMED"),
@@ -218,7 +225,10 @@ async fn execute_tab_stop(
     let runtime = Arc::clone(&state.runtime);
     let request = lease.request;
     let converged = tauri::async_runtime::spawn_blocking(move || {
-        runtime.tab_mutation_projection_converged(&request, &snapshot)
+        matches!(
+            runtime.tab_mutation_projection_outcome(&request, &snapshot),
+            RuntimeTabMutationProjectionOutcome::Applied
+        )
     })
     .await
     .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))?;
@@ -249,7 +259,10 @@ async fn tab_stop_projection_converged(
         })?;
     let runtime = Arc::clone(&state.runtime);
     tauri::async_runtime::spawn_blocking(move || {
-        runtime.tab_mutation_projection_converged(&request, &snapshot)
+        matches!(
+            runtime.tab_mutation_projection_outcome(&request, &snapshot),
+            RuntimeTabMutationProjectionOutcome::Applied
+        )
     })
     .await
     .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
@@ -260,7 +273,7 @@ async fn execute_tab_mutation_commit(
     request: RuntimeTabMutationRequestRecord,
     target: Option<EmbeddedLaunchTargetRecord>,
     before_tab_id: Option<String>,
-) -> Result<bool, CoreErrorPayload> {
+) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
     let value = Arc::clone(&state.core)
         .invoke_async(CoreCommand::EmbeddedTabMutation {
             request: request.clone(),
@@ -288,7 +301,7 @@ async fn execute_tab_mutation_commit(
     state.runtime.publish_projection();
     let runtime = Arc::clone(&state.runtime);
     tauri::async_runtime::spawn_blocking(move || {
-        runtime.tab_mutation_projection_converged(&request, &snapshot)
+        runtime.tab_mutation_projection_outcome(&request, &snapshot)
     })
     .await
     .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))

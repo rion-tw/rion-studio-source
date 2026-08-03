@@ -223,7 +223,150 @@ async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 4; index += 1) await Promise.resolve();
 }
 
+function dispatchDrag(
+  target: Element,
+  type: "dragend" | "dragover" | "dragstart" | "drop",
+  dataTransfer: ReturnType<typeof dragTransfer>,
+  clientX: number
+): void {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    clientX: { value: clientX },
+    dataTransfer: { value: dataTransfer },
+    screenX: { value: clientX + 200 },
+    screenY: { value: 240 }
+  });
+  target.dispatchEvent(event);
+}
+
+function dragSession(
+  sessionId: string,
+  status: "applied" | "cancelled" | "superseded"
+) {
+  return {
+    sessionId,
+    operationId: `operation-${sessionId}`,
+    sourceWindowId: "window-1",
+    sourceTabId: "tab-1",
+    lifecycleEpoch: 7,
+    topologyRevision: 11,
+    phase: "completed",
+    status,
+    startedAt: "2026-08-03T00:00:00Z",
+    updatedAt: "2026-08-03T00:00:01Z"
+  };
+}
+
 describe("Tauri-owned Windows runtime tab strip", () => {
+  it("keeps the newest drag intent when an older projection and terminal arrive late", async () => {
+    window.__rionApplyRuntimeTabState?.(_stateWithTabs());
+    _setTabGeometry();
+    const listener = eventListeners.get("rion://runtime-tab-drag-session");
+    const tabA = document.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;
+
+    const firstTransfer = dragTransfer();
+    dispatchDrag(tabA, "dragstart", firstTransfer, 20);
+    const firstPayload = JSON.parse(firstTransfer.getData("text/rion-runtime-tab")) as {
+      sessionId: string;
+    };
+    dispatchDrag(document.querySelector("#tabs")!, "dragover", firstTransfer, 900);
+    dispatchDrag(document.querySelector("#tabs")!, "drop", firstTransfer, 900);
+    dispatchDrag(tabA, "dragend", firstTransfer, 900);
+    expect(_dragLayoutOrder()).toEqual(["tab-2", "tab-3", "tab-4", "tab-1"]);
+
+    const secondTransfer = dragTransfer();
+    dispatchDrag(tabA, "dragstart", secondTransfer, 900);
+    const secondPayload = JSON.parse(secondTransfer.getData("text/rion-runtime-tab")) as {
+      sessionId: string;
+    };
+    dispatchDrag(document.querySelector("#tabs")!, "dragover", secondTransfer, 0);
+    expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+    dispatchDrag(document.querySelector("#tabs")!, "drop", secondTransfer, 0);
+    dispatchDrag(tabA, "dragend", secondTransfer, 0);
+
+    const runtimeModule = await import("../src/renderer/runtime-shell/runtimeTabStrip");
+    window.__rionReorderRuntimeTabs?.(["tab-2", "tab-3", "tab-4", "tab-1"]);
+    listener?.({ payload: dragSession(firstPayload.sessionId, "superseded") });
+    expect(runtimeModule.runtimeState.latestDragIntentSessionId).toBe(secondPayload.sessionId);
+    expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+
+    invoke.mockClear();
+    window.__rionApplyRuntimeTabChromeProjection?.({
+      rendererInstanceId: runtimeModule.runtimeState.rendererInstanceId,
+      windowId: "window-1",
+      windowGeneration: 3,
+      lifecycleEpoch: 7,
+      projectionRevision: 10_000,
+      tabs: _stateWithTabs().tabs.map((tab) => ({
+        audible: tab.audible,
+        closable: true,
+        degraded: false,
+        hidden: tab.hidden,
+        id: tab.id,
+        loading: false,
+        muted: tab.audioMuted,
+        name: tab.name,
+        phase: "ready",
+        roleIds: tab.roleIds,
+        roleNames: tab.roleNames ?? [],
+        sourceId: tab.sourceId,
+        type: tab.type
+      })),
+      tabOrder: ["tab-2", "tab-3", "tab-4", "tab-1"],
+      activeTabId: "tab-1",
+      displayId: 11,
+      displays: [],
+      fullscreen: false,
+      windowFullscreen: false,
+      toolbarVisible: true,
+      alwaysHideTabCloseButton: false,
+      alwaysShowToolbarInFullScreen: false,
+      language: "zh-TW",
+      theme: "light"
+    });
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: {
+        type: "tabChromeProjectionApplied",
+        acknowledgement: expect.objectContaining({
+          observedTabOrder: ["tab-1", "tab-2", "tab-3", "tab-4"],
+          projectionRevision: 10_000,
+          rendererInstanceId: runtimeModule.runtimeState.rendererInstanceId,
+          status: "superseded"
+        })
+      }
+    });
+    expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+
+    window.__rionReorderRuntimeTabs?.(["tab-1", "tab-2", "tab-3", "tab-4"]);
+    listener?.({ payload: dragSession(secondPayload.sessionId, "applied") });
+    expect(document.querySelector(".drag-slot")).toBeNull();
+    expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+  });
+
+  it("restores the durable order when the newest drag is cancelled", () => {
+    const durable = _stateWithTabs(3);
+    durable.tabs = [durable.tabs[1], durable.tabs[2], durable.tabs[3], durable.tabs[0]];
+    window.__rionApplyRuntimeTabState?.(durable);
+    _setTabGeometry();
+    const tabA = document.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;
+    const transfer = dragTransfer();
+    dispatchDrag(tabA, "dragstart", transfer, 900);
+    const payload = JSON.parse(transfer.getData("text/rion-runtime-tab")) as {
+      sessionId: string;
+    };
+    dispatchDrag(document.querySelector("#tabs")!, "dragover", transfer, 0);
+    dispatchDrag(document.querySelector("#tabs")!, "drop", transfer, 0);
+    dispatchDrag(tabA, "dragend", transfer, 0);
+    expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
+
+    window.__rionReorderRuntimeTabs?.(["tab-2", "tab-3", "tab-4", "tab-1"]);
+    eventListeners.get("rion://runtime-tab-drag-session")?.({
+      payload: dragSession(payload.sessionId, "cancelled")
+    });
+
+    expect(_dragLayoutOrder()).toEqual(["tab-2", "tab-3", "tab-4", "tab-1"]);
+  });
+
   it("acknowledges the exact active tab and ignores stale activation revisions", () => {
     window.__rionEnsureRuntimeTab?.({ id: "tab-2", name: "Second", type: "role" });
     window.__rionEnsureRuntimeTab?.({ id: "tab-3", name: "Third", type: "role" });

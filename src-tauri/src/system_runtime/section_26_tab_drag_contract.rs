@@ -8,6 +8,8 @@ pub(crate) struct RuntimeTabDragOperation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeTabDragTerminalStatus {
     Applied,
+    #[cfg(windows)]
+    Superseded,
     Degraded,
     Cancelled,
     Failed,
@@ -18,6 +20,8 @@ impl RuntimeTabDragTerminalStatus {
     fn native_status(self) -> NativeOperationStatus {
         match self {
             Self::Applied => NativeOperationStatus::Applied,
+            #[cfg(windows)]
+            Self::Superseded => NativeOperationStatus::Superseded,
             Self::Degraded => NativeOperationStatus::Degraded,
             Self::Cancelled => NativeOperationStatus::Cancelled,
             Self::Failed => NativeOperationStatus::Failed,

@@ -1,4 +1,4 @@
-const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 4;
+const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 5;
 const ACTIVE_NATIVE_OPERATION_CAPACITY: usize = 256;
 const RECENT_NATIVE_OPERATION_CAPACITY: usize = 80;
 static NATIVE_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -10,6 +10,7 @@ enum NativeOperationSubsystem {
     Navigation,
     Input,
     Presentation,
+    TabActivation,
     Geometry,
     Popup,
     Security,
@@ -35,6 +36,7 @@ impl NativeOperationSubsystem {
             Self::Navigation => "navigation",
             Self::Input => "input",
             Self::Presentation => "presentation",
+            Self::TabActivation => "tabActivation",
             Self::Geometry => "geometry",
             Self::Popup => "popup",
             Self::Security => "security",
@@ -66,6 +68,7 @@ impl NativeOperationSubsystem {
             | Self::DisplayTopology
             | Self::WindowLifecycle
             | Self::Focus => "nativeAcknowledgement",
+            Self::TabActivation => "tabActivationConverged",
             Self::Drag => "dragCommitted",
             Self::Recovery => "inputReady",
             Self::Power => "lifecycleTransition",

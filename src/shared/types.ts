@@ -435,8 +435,6 @@ export interface ChromeProfileImportInput {
   resolutions: ChromeProfileImportResolution[];
 }
 
-export type AppUpdateState = AppUpdateStatusRecord["state"];
-export type AppUpdateInstallMode = AppUpdateStatusRecord["installMode"];
 export type AppUpdateInstallAttempt = AppUpdateInstallAttemptRecord;
 export type AppUpdateStatus = AppUpdateStatusRecord;
 export type LogLevel = RustLogLevel;

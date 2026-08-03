@@ -6,7 +6,35 @@ impl SystemRuntimeExecutor {
         )
     }
 
-    pub fn close_all(&self) {
+    pub fn close_all(&self) -> SystemRuntimeOperationSummaryRecord {
+        let operation = self
+            .shutdown_operation
+            .get_or_init(|| {
+                NativeOperationContext::new(
+                    NativeOperationSubsystem::Shutdown,
+                    "closeAll",
+                    SURFACE_RECLAMATION_TIMEOUT,
+                )
+                .with_completion_scope("nativeAcknowledgement")
+            })
+            .clone();
+        match self.operations.register(operation.clone()) {
+            Ok(()) => {}
+            Err("SYSTEM_NATIVE_OPERATION_ID_CONFLICT") => {
+                return self.shutdown_receipt_or_indeterminate(&operation);
+            }
+            Err(code) => {
+                return self
+                    .operations
+                    .record_untracked(NativeOperationReceipt::with_status(
+                        operation,
+                        "shutdownRegistrationFailed",
+                        NativeOperationStatus::Failed,
+                        Some(code),
+                    ))
+                    .summary();
+            }
+        }
         if self
             .shutdown_state
             .compare_exchange(
@@ -17,19 +45,17 @@ impl SystemRuntimeExecutor {
             )
             .is_err()
         {
-            return;
+            return self.shutdown_receipt_or_indeterminate(&operation);
         }
-        let operation = NativeOperationContext::new(
-            NativeOperationSubsystem::Shutdown,
-            "closeAll",
-            SURFACE_RECLAMATION_TIMEOUT,
-        );
+        self.operations.mark_in_flight(&operation.operation_id);
         let deadline = operation.deadline;
         let initial_role_ids = match self.shutdown_role_ids() {
             Ok(role_ids) => role_ids,
             Err(()) => {
                 self.finish_shutdown_indeterminate(operation, "shutdownStateUnavailable");
-                return;
+                return self.shutdown_receipt_or_indeterminate(
+                    self.shutdown_operation.get().expect("shutdown operation exists"),
+                );
             }
         };
         for role_id in &initial_role_ids {
@@ -42,7 +68,9 @@ impl SystemRuntimeExecutor {
             Ok(snapshot) => snapshot,
             Err(()) => {
                 self.finish_shutdown_indeterminate(operation, "shutdownStateUnavailable");
-                return;
+                return self.shutdown_receipt_or_indeterminate(
+                    self.shutdown_operation.get().expect("shutdown operation exists"),
+                );
             }
         };
         for role_id in &role_ids {
@@ -65,7 +93,9 @@ impl SystemRuntimeExecutor {
             Ok(snapshot) => snapshot,
             Err(()) => {
                 self.finish_shutdown_indeterminate(operation, "shutdownCommitUnavailable");
-                return;
+                return self.shutdown_receipt_or_indeterminate(
+                    self.shutdown_operation.get().expect("shutdown operation exists"),
+                );
             }
         };
         drop(hosts.tabs);
@@ -106,12 +136,32 @@ impl SystemRuntimeExecutor {
         if state == RuntimeShutdownState::Indeterminate {
             self.health.mark_unhealthy();
         }
-        self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+        self.operations.complete(NativeOperationReceipt::with_status(
             operation,
             stage,
             status,
             failure_code,
         ));
+        self.shutdown_receipt_or_indeterminate(
+            self.shutdown_operation.get().expect("shutdown operation exists"),
+        )
+    }
+
+    fn shutdown_receipt_or_indeterminate(
+        &self,
+        operation: &NativeOperationContext,
+    ) -> SystemRuntimeOperationSummaryRecord {
+        self.operations
+            .wait(&operation.operation_id)
+            .unwrap_or_else(|code| {
+                NativeOperationReceipt::with_status(
+                    operation.clone(),
+                    "shutdownReceiptUnavailable",
+                    NativeOperationStatus::Indeterminate,
+                    Some(code),
+                )
+            })
+            .summary()
     }
 
     fn shutdown_role_ids(&self) -> Result<Vec<String>, ()> {
@@ -244,7 +294,7 @@ impl SystemRuntimeExecutor {
             Ordering::Release,
         );
         self.health.mark_unhealthy();
-        self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+        self.operations.complete(NativeOperationReceipt::with_status(
             operation,
             stage,
             NativeOperationStatus::Indeterminate,

@@ -296,7 +296,9 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn toggle_focused_runtime_fullscreen(&self) -> Result<bool, String> {
+    pub fn toggle_focused_runtime_fullscreen(
+        &self,
+    ) -> Result<Option<SystemRuntimeOperationSummaryRecord>, String> {
         let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
@@ -306,13 +308,15 @@ impl SystemRuntimeExecutor {
                 .map(|host| host.target.window_id.clone())
         };
         let Some(window_id) = window_id else {
-            return Ok(false);
+            return Ok(None);
         };
-        self.toggle_runtime_window_fullscreen(&window_id)?;
-        Ok(true)
+        self.toggle_runtime_window_fullscreen(&window_id).map(Some)
     }
 
-    pub fn toggle_runtime_window_fullscreen(&self, window_id: &str) -> Result<(), String> {
+    pub fn toggle_runtime_window_fullscreen(
+        &self,
+        window_id: &str,
+    ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
         self.require_runtime_accepting()
             .map_err(|error| error.message)?;
         #[cfg(target_os = "macos")]
@@ -327,7 +331,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .and_then(|state| state.lock().ok()?.selected_tab_id.clone());
-        let revision = self
+        let (revision, operation_id) = self
             .request_window_contract_presentation(
                 window_id,
                 selected_tab_id.as_deref(),
@@ -338,7 +342,7 @@ impl SystemRuntimeExecutor {
             )
             .map_err(|error| error.message)?;
         self.wait_for_presentation_paint_barrier(window_id, revision);
-        Ok(())
+        self.wait_native_operation_summary(&operation_id)
     }
 
     pub fn collect_browser_performance_diagnostics(

@@ -5,7 +5,6 @@ const RECENT_INPUT_FENCE_EVENT_CAPACITY: usize = 40;
 struct RuntimeDiagnosticsState {
     recent_failures: VecDeque<SystemRuntimeFailureRecord>,
     recent_input_fence_events: VecDeque<SystemRuntimeInputFenceEventRecord>,
-    recent_operations: VecDeque<SystemRuntimeOperationSummaryRecord>,
 }
 
 impl RuntimeDiagnosticsState {
@@ -35,26 +34,6 @@ impl RuntimeDiagnosticsState {
             .collect()
     }
 
-    fn push_operation(&mut self, operation: SystemRuntimeOperationSummaryRecord) {
-        if operation.subsystem == "metadata"
-            && operation.status == "applied"
-            && self.recent_operations.back().is_some_and(|previous| {
-                previous.subsystem == operation.subsystem
-                    && previous.status == operation.status
-                    && previous.stage == operation.stage
-            })
-        {
-            self.recent_operations.pop_back();
-        }
-        while self.recent_operations.len() >= RECENT_NATIVE_OPERATION_CAPACITY {
-            self.recent_operations.pop_front();
-        }
-        self.recent_operations.push_back(operation);
-    }
-
-    fn operations_newest_first(&self) -> Vec<SystemRuntimeOperationSummaryRecord> {
-        self.recent_operations.iter().rev().cloned().collect()
-    }
 }
 
 fn effect_acknowledgement_status(
@@ -134,10 +113,7 @@ fn diagnostic_input_fence_state(
 
 impl SystemRuntimeExecutor {
     fn record_native_operation_receipt(&self, receipt: NativeOperationReceipt) {
-        let summary = receipt.summary();
-        if let Ok(mut diagnostics) = self.diagnostics.lock() {
-            diagnostics.push_operation(summary);
-        }
+        self.operations.record_untracked(receipt);
     }
 
     fn remember_runtime_failure(&self, failure: SystemRuntimeFailureRecord) {
@@ -491,18 +467,11 @@ impl SystemRuntimeExecutor {
                 record.recent_failures = diagnostics.failures_newest_first();
                 record.recent_input_fence_events =
                     diagnostics.input_fence_events_newest_first();
-                record.recent_operations = diagnostics.operations_newest_first();
             }
             Err(_) => collection_error_codes
                 .push("SYSTEM_RUNTIME_DIAGNOSTICS_LOCK_POISONED".to_owned()),
         }
-        record
-            .recent_operations
-            .extend(self.presentation.recent_operation_summaries());
-        record
-            .recent_operations
-            .sort_by(|left, right| right.captured_at.cmp(&left.captured_at));
-        record.recent_operations.truncate(RECENT_NATIVE_OPERATION_CAPACITY);
+        record.recent_operations = self.operations.recent_summaries();
         record.snapshot_complete = collection_error_codes.is_empty();
         record.collection_error_codes = collection_error_codes;
         record

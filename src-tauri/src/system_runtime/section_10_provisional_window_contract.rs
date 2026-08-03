@@ -9,6 +9,7 @@ impl SystemRuntimeExecutor {
             "prepareProvisionalWindow",
             PLATFORM_CALLBACK_TIMEOUT,
         )
+        .with_completion_scope("nativeSubmission")
         .with_window(&target.window_id);
         let result = self.prepare_provisional_game_window_inner(target, title);
         self.record_native_operation_receipt(receipt_for_string_result(
@@ -29,6 +30,7 @@ impl SystemRuntimeExecutor {
             "activateProvisionalWindow",
             PLATFORM_CALLBACK_TIMEOUT,
         )
+        .with_completion_scope("nativeSubmission")
         .with_window(window_id);
         let result = self.make_provisional_game_window_interactive_inner(window_id);
         self.record_native_operation_receipt(receipt_for_string_result(
@@ -49,6 +51,7 @@ impl SystemRuntimeExecutor {
             "positionProvisionalWindow",
             PLATFORM_CALLBACK_TIMEOUT,
         )
+        .with_completion_scope("nativeSubmission")
         .with_window(&target.window_id);
         let result = self.position_provisional_game_window_inner(target);
         self.record_native_operation_receipt(receipt_for_string_result(
@@ -71,6 +74,7 @@ impl SystemRuntimeExecutor {
             "moveProvisionalTab",
             NAVIGATION_TIMEOUT,
         )
+        .with_completion_scope("stateCommit")
         .with_tab(tab_id)
         .with_window(target_window_id);
         let result = self.provisionally_move_tab_with_visibility_inner(

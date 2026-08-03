@@ -3,12 +3,14 @@ fn preview_and_commit_launcher_tab_selection(
     state: &CoreState,
     tab_id: &str,
 ) -> Result<(), String> {
-    let (window_id, provisional, resolved_tab_id) =
+    let (window_id, provisional, resolved_tab_id, operation_id) =
         state.runtime.preview_launcher_tab_activation(tab_id)?;
-    if provisional {
-        return Ok(());
+    if !provisional {
+        commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)?;
     }
-    commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)
+    crate::runtime_operation_receipt_result(
+        state.runtime.wait_native_operation_summary(&operation_id)?,
+    )
 }
 
 async fn begin_shell_launch_presentation(

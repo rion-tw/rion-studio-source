@@ -15,7 +15,7 @@ use rion_core::{
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowPlacementRecord,
     GameWindowRoleViewRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogCaptureRecord,
     LogLevel, LogSource, MacroRunStatus, StateCollection, StateGameWindowRecord,
-    StatePixelBoundsRecord, StateResolutionRecord,
+    StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationSummaryRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -70,23 +70,6 @@ struct CoreState {
     tab_drag_finished: Mutex<VecDeque<String>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
     updates: Arc<update_manager::UpdateManager>,
-}
-
-pub(crate) fn prepare_application_update_exit(app: &AppHandle) {
-    if let Some(state) = app.try_state::<CoreState>() {
-        state.application_exit_guard.permit();
-        state
-            .application_shutdown_started
-            .store(true, Ordering::Release);
-        state.runtime.close_all();
-        state.core.shutdown();
-    }
-}
-
-fn prepare_application_update_install(state: &CoreState) -> Result<(), String> {
-    state.runtime.persist_all_game_window_placements()?;
-    state.runtime.persist_restore_session(true)?;
-    Ok(())
 }
 
 const TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150);
@@ -292,7 +275,7 @@ pub(crate) fn preview_and_commit_tab_selection(
     app: &AppHandle,
     state: &CoreState,
     tab_id: &str,
-) -> Result<(), String> {
+) -> Result<SystemRuntimeOperationSummaryRecord, String> {
     preview_and_commit_tab_selection_inner(app, state, tab_id, false)
 }
 
@@ -301,14 +284,22 @@ fn preview_and_commit_tab_selection_inner(
     state: &CoreState,
     tab_id: &str,
     native_style_applied: bool,
-) -> Result<(), String> {
-    let (window_id, provisional, resolved_tab_id) = state
+) -> Result<SystemRuntimeOperationSummaryRecord, String> {
+    let (window_id, provisional, resolved_tab_id, operation_id) = state
         .runtime
         .preview_tab_activation(tab_id, native_style_applied)?;
-    if provisional {
-        return Ok(());
+    if !provisional
+        && let Err(message) =
+            commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)
+    {
+        eprintln!("Runtime tab selection commit could not be scheduled: {message}");
+        return state.runtime.fail_native_operation_summary(
+            &operation_id,
+            "tabSelectionCommitFailed",
+            "SYSTEM_TAB_SELECTION_COMMIT_FAILED",
+        );
     }
-    commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)
+    state.runtime.wait_native_operation_summary(&operation_id)
 }
 
 pub(crate) fn preview_and_commit_native_tab_selection(
@@ -327,7 +318,7 @@ pub(crate) fn preview_and_commit_native_tab_selection(
             // replacement. They are stale presentation intents, not user-visible failures.
             Ok(())
         }
-        result => result,
+        result => result.and_then(runtime_operation_receipt_result),
     }
 }
 

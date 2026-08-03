@@ -131,6 +131,33 @@ fn rollback_failures_are_preserved_in_the_public_summary() {
 }
 
 #[test]
+fn failure_stage_cannot_change_the_declared_completion_scope() {
+    for platform in ["macos", "windows"] {
+        let context = NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Navigation,
+            "reloadTab",
+            Duration::from_secs(1),
+            platform,
+        )
+        .with_completion_scope("inputReady");
+        let failed = NativeOperationReceipt::with_status(
+            context.clone(),
+            "reloadSubmitFailed",
+            NativeOperationStatus::Failed,
+            Some("SYSTEM_RELOAD_PARTIAL_FAILURE"),
+        );
+        let indeterminate = NativeOperationReceipt::with_status(
+            context,
+            "navigationInputReloadIncomplete",
+            NativeOperationStatus::Indeterminate,
+            Some("SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE"),
+        );
+        assert_eq!(failed.completion_scope(), "inputReady", "{platform}");
+        assert_eq!(indeterminate.completion_scope(), "inputReady", "{platform}");
+    }
+}
+
+#[test]
 fn an_operation_that_finishes_after_its_deadline_cannot_report_applied() {
     for platform in ["macos", "windows"] {
         let context = NativeOperationContext::new_for_platform(

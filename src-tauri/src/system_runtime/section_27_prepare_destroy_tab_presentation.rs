@@ -65,7 +65,7 @@ impl SystemRuntimeExecutor {
                 ClosePreflightPlan::PresentSuccessor {
                     tab_id: successor_tab_id,
                 } => {
-                    let (requested_window_id, revision) = self
+                    let (requested_window_id, revision, _) = self
                         .request_tab_presentation(
                             &successor_tab_id,
                             NativePresentationFocus::ContentOnly,

@@ -290,8 +290,8 @@ fn toggle_fullscreen(
 ) -> Result<(), String> {
     match target {
         ApplicationShortcutTarget::Focused => {
-            if state.runtime.toggle_focused_runtime_fullscreen()? {
-                return Ok(());
+            if let Some(receipt) = state.runtime.toggle_focused_runtime_fullscreen()? {
+                return crate::runtime_operation_receipt_result(receipt);
             }
             let window = app
                 .get_webview_window("main")
@@ -305,11 +305,15 @@ fn toggle_fullscreen(
                 .runtime
                 .window_id_for_webview(webview_label)
                 .ok_or_else(|| "runtime WebView is not associated with a window".to_owned())?;
-            state.runtime.toggle_runtime_window_fullscreen(&window_id)
+            state
+                .runtime
+                .toggle_runtime_window_fullscreen(&window_id)
+                .and_then(crate::runtime_operation_receipt_result)
         }
-        ApplicationShortcutTarget::RuntimeWindow(window_id) => {
-            state.runtime.toggle_runtime_window_fullscreen(window_id)
-        }
+        ApplicationShortcutTarget::RuntimeWindow(window_id) => state
+            .runtime
+            .toggle_runtime_window_fullscreen(window_id)
+            .and_then(crate::runtime_operation_receipt_result),
     }
 }
 

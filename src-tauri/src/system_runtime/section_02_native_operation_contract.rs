@@ -1,4 +1,5 @@
-const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 2;
+const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 3;
+const ACTIVE_NATIVE_OPERATION_CAPACITY: usize = 256;
 const RECENT_NATIVE_OPERATION_CAPACITY: usize = 80;
 static NATIVE_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -39,6 +40,22 @@ impl NativeOperationSubsystem {
             Self::Shutdown => "shutdown",
         }
     }
+
+    const fn default_completion_scope(self) -> &'static str {
+        match self {
+            Self::SurfaceLifecycle
+            | Self::Presentation
+            | Self::Geometry
+            | Self::Security
+            | Self::Audio
+            | Self::Zoom
+            | Self::Shutdown => "nativeAcknowledgement",
+            Self::Navigation => "pageFinished",
+            Self::Input | Self::Metadata => "nativeSubmission",
+            Self::Popup | Self::Session => "stateCommit",
+            Self::Performance | Self::Capability => "runtimeProbe",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +81,7 @@ impl NativeOperationStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativeOperationContext {
+    completion_scope: &'static str,
     deadline: Instant,
     operation_id: String,
     platform: &'static str,
@@ -110,6 +128,7 @@ impl NativeOperationContext {
     ) -> Self {
         let sequence = NATIVE_OPERATION_SEQUENCE.fetch_add(1, Ordering::AcqRel);
         Self {
+            completion_scope: subsystem.default_completion_scope(),
             deadline: started_at + timeout,
             operation_id: format!("native-{}-{sequence}", subsystem.as_str()),
             platform,
@@ -123,6 +142,11 @@ impl NativeOperationContext {
             trigger,
             window_id: None,
         }
+    }
+
+    fn with_completion_scope(mut self, completion_scope: &'static str) -> Self {
+        self.completion_scope = completion_scope;
+        self
     }
 
     fn with_revision(mut self, revision: u64) -> Self {
@@ -168,51 +192,7 @@ struct NativeOperationReceipt {
 
 impl NativeOperationReceipt {
     fn completion_scope(&self) -> &'static str {
-        match self.context.subsystem {
-            NativeOperationSubsystem::SurfaceLifecycle if self.stage.ends_with("Registered") => {
-                "stateCommit"
-            }
-            NativeOperationSubsystem::Presentation
-                if matches!(
-                    self.stage,
-                    "runtimeTopologyCommitted" | "provisionalTabMoveCommitted"
-                ) =>
-            {
-                "stateCommit"
-            }
-            NativeOperationSubsystem::Presentation
-                if self.stage.starts_with("provisionalWindow")
-                    || self.stage == "nativePresentationModeSubmitted" =>
-            {
-                "nativeSubmission"
-            }
-            NativeOperationSubsystem::Geometry
-                if matches!(self.stage, "geometryLayoutSubmitted" | "geometryModeSubmitted") =>
-            {
-                "nativeSubmission"
-            }
-            NativeOperationSubsystem::SurfaceLifecycle
-            | NativeOperationSubsystem::Presentation
-            | NativeOperationSubsystem::Geometry
-            | NativeOperationSubsystem::Security
-            | NativeOperationSubsystem::Audio
-            | NativeOperationSubsystem::Zoom => "nativeAcknowledgement",
-            NativeOperationSubsystem::Metadata => "nativeSubmission",
-            NativeOperationSubsystem::Navigation if self.stage.starts_with("navigationInput") => {
-                "inputReady"
-            }
-            NativeOperationSubsystem::Navigation => "pageFinished",
-            NativeOperationSubsystem::Input if self.stage == "inputFocus" => "inputReady",
-            NativeOperationSubsystem::Input => "nativeSubmission",
-            NativeOperationSubsystem::Popup if self.stage.starts_with("popupDenied") => {
-                "policyDecision"
-            }
-            NativeOperationSubsystem::Session if self.stage == "sessionVerified" => "runtimeProbe",
-            NativeOperationSubsystem::Popup | NativeOperationSubsystem::Session => "stateCommit",
-            NativeOperationSubsystem::Performance => "runtimeProbe",
-            NativeOperationSubsystem::Capability => "runtimeProbe",
-            NativeOperationSubsystem::Shutdown => "nativeAcknowledgement",
-        }
+        self.context.completion_scope
     }
 
     fn applied(context: NativeOperationContext, stage: &'static str) -> Self {
@@ -597,34 +577,5 @@ fn receipt_for_string_result<T>(
             NativeOperationStatus::Failed,
             Some(failure_code),
         ),
-    }
-}
-
-impl PresentationRegistry {
-    fn recent_operation_summaries(&self) -> Vec<SystemRuntimeOperationSummaryRecord> {
-        self.actors
-            .lock()
-            .ok()
-            .map(|actors| {
-                actors
-                    .values()
-                    .flat_map(|actor| {
-                        actor
-                            .queue
-                            .0
-                            .lock()
-                            .ok()
-                            .map(|state| {
-                                state
-                                    .recent_operation_receipts
-                                    .iter()
-                                    .map(NativeOperationReceipt::summary)
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
     }
 }

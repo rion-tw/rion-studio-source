@@ -17,7 +17,7 @@ import {
 } from "./applicationQuitGuardRegistry";
 
 interface PendingGuardedAction {
-  action: () => Promise<void>;
+  action: () => Promise<unknown>;
   promise: Promise<boolean>;
   reject: (error: unknown) => void;
   resolve: (confirmed: boolean) => void;

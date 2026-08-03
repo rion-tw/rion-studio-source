@@ -580,5 +580,12 @@ export function formatUpdateStatus(status: AppUpdateStatus | null, t: Translator
     return t("settings.updateError").replace("{error}", status.error ?? t("settings.updateErrorUnknown"));
   }
 
+  if (status.state === "install_failed") {
+    return t("settings.updateInstallFailed").replace(
+      "{error}",
+      status.errorCode ?? status.error ?? t("settings.updateErrorUnknown")
+    );
+  }
+
   return t(`settings.updateState.${status.state}`);
 }

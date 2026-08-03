@@ -30,7 +30,7 @@ export function shouldShowUpdateBadge(status: AppUpdateStatus | null): boolean {
     return false;
   }
 
-  if (status.state === "downloaded") {
+  if (status.state === "downloaded" || status.state === "install_failed") {
     return true;
   }
 

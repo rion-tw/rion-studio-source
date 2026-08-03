@@ -29,7 +29,7 @@ fn aggregate_reload_status(statuses: &[NativeOperationStatus]) -> NativeOperatio
 }
 
 impl SystemRuntimeExecutor {
-    fn reload_tab_contract(self: &Arc<Self>, tab_id: &str) -> RuntimeResult<()> {
+    fn reload_tab_contract(self: &Arc<Self>, tab_id: &str) -> RuntimeResult<String> {
         self.require_runtime_accepting()?;
         let (window_id, targets) = {
             let state = self.state()?;
@@ -62,8 +62,15 @@ impl SystemRuntimeExecutor {
             "reloadTab",
             NAVIGATION_TIMEOUT,
         )
+        .with_completion_scope("inputReady")
         .with_tab(tab_id)
         .with_window(&window_id);
+        let aggregate_operation_id = aggregate_operation.operation_id.clone();
+        self.operations
+            .register(aggregate_operation.clone())
+            .map_err(|code| RuntimeError::new(code, "The native operation registry is full."))?;
+        self.operations
+            .mark_in_flight(&aggregate_operation.operation_id);
         let mut pending = Vec::with_capacity(targets.len());
         let mut immediate_statuses = Vec::new();
         let mut controlled_labels = Vec::new();
@@ -116,16 +123,14 @@ impl SystemRuntimeExecutor {
 
         if pending.is_empty() {
             self.finish_controlled_navigations(&controlled_labels);
-            self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+            self.operations.complete(NativeOperationReceipt::with_status(
                 aggregate_operation,
                 "reloadTabFailed",
                 NativeOperationStatus::Failed,
                 Some("SYSTEM_RELOAD_PARTIAL_FAILURE"),
             ));
-            return Err(RuntimeError::new(
-                "SYSTEM_RELOAD_PARTIAL_FAILURE",
-                immediate_errors.join("; "),
-            ));
+            let _ = immediate_errors;
+            return Ok(aggregate_operation_id);
         }
 
         let runtime = Arc::clone(self);
@@ -164,7 +169,7 @@ impl SystemRuntimeExecutor {
                 }
                 _ => Some("SYSTEM_RELOAD_PARTIAL_FAILURE"),
             };
-            runtime.record_native_operation_receipt(NativeOperationReceipt::with_status(
+            runtime.operations.complete(NativeOperationReceipt::with_status(
                 aggregate_operation,
                 if status == NativeOperationStatus::Applied {
                     "navigationInputReloadReady"
@@ -198,7 +203,7 @@ impl SystemRuntimeExecutor {
                 }
             }
         });
-        Ok(())
+        Ok(aggregate_operation_id)
     }
 
     async fn wait_reload_input_ready(

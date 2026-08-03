@@ -22,6 +22,7 @@ import type {
   UpdateRoleInput
 } from "../../../shared/types";
 import { withTimeout } from "../app/withTimeout";
+import { handleSystemRuntimeReceipt } from "../app/systemRuntimeReceipt";
 
 type Listener = (...payload: never[]) => void;
 type Unlisten = () => void;
@@ -473,16 +474,21 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     reorderGameWindows: (input) =>
       invokeCore({ type: "gameWindowReorder", orderedIds: input.orderedIds }),
     showGameWindow: (windowId) => invokeShell("showGameWindow", [windowId]),
-    hideGameWindow: (windowId) => invokeShell("hideGameWindow", [windowId]),
+    hideGameWindow: async (windowId) => handleSystemRuntimeReceipt(
+      await invokeShell("hideGameWindow", [windowId])
+    ),
     stopGameWindow: (windowId) => invokeShell("stopGameWindow", [windowId]),
     deleteGameWindow: (windowId) => invokeShell("deleteGameWindow", [windowId]),
-    showGameWindowTab: (tabId) => invokeShell("showGameWindowTab", [tabId]),
+    showGameWindowTab: async (tabId) => handleSystemRuntimeReceipt(
+      await invokeShell("showGameWindowTab", [tabId])
+    ),
     moveGameWindowTab: (tabId, windowId) =>
       invokeShell("moveGameWindowTab", [tabId, windowId]),
     moveGameWindowTabToNewWindow: (tabId) =>
       invokeShell("moveGameWindowTabToNewWindow", [tabId]),
-    setGameWindowTabMuted: (tabId, muted) =>
-      invokeShell("setGameWindowTabMuted", [tabId, muted]),
+    setGameWindowTabMuted: async (tabId, muted) => handleSystemRuntimeReceipt(
+      await invokeShell("setGameWindowTabMuted", [tabId, muted])
+    ),
     setGameWindowTabHidden: (tabId, hidden) =>
       invokeShell("setGameWindowTabHidden", [tabId, hidden]),
     stopGameWindowTab: (tabId) => invokeShell("stopGameWindowTab", [tabId]),

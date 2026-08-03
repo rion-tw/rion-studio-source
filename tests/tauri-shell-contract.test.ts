@@ -113,7 +113,8 @@ describe("Tauri shell contract guard", () => {
     expect(tabs).toContain("LayoutResizeDivider");
     expect(tabs).toContain("tab_strip_window_for_webview");
     expect(tabMenu).toContain('format!("{RELOAD_PREFIX}{tab_id}")');
-    expect(tabMenu).toContain("state.runtime.reload_tab(tab_id)");
+    expect(tabMenu).toContain("spawn_blocking(move || runtime.reload_tab(&tab_id))");
+    expect(tabMenu).toContain('matches!(receipt.status.as_str(), "applied" | "superseded")');
     expect(shell).toContain("rion_runtime_tab_action");
     expect(shell).toContain('window.label() != "main"');
     expect(tabs).toContain("runtime-divider.html");

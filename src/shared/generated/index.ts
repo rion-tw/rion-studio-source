@@ -54,6 +54,8 @@ export type { CountedLatencySummaryRecord } from "./CountedLatencySummaryRecord"
 export type { DiagnosticDisplayRecord } from "./DiagnosticDisplayRecord";
 export type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecord";
 export type { ApplicationDiagnosticsSnapshotRecord } from "./ApplicationDiagnosticsSnapshotRecord";
+export type { AppUpdateInstallAttemptRecord } from "./AppUpdateInstallAttemptRecord";
+export type { AppUpdateStatusRecord } from "./AppUpdateStatusRecord";
 export type { SystemRuntimeDiagnosticsRecord } from "./SystemRuntimeDiagnosticsRecord";
 export type { SystemRuntimeFailureRecord } from "./SystemRuntimeFailureRecord";
 export type { SystemRuntimeInputFenceEventRecord } from "./SystemRuntimeInputFenceEventRecord";

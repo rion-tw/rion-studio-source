@@ -19,7 +19,8 @@ fn geometry_receipts_keep_readback_and_submission_scopes_distinct_on_both_platfo
                     "contract-test",
                     Duration::from_secs(1),
                     platform,
-                ),
+                )
+                .with_completion_scope("nativeSubmission"),
                 stage,
             );
             assert_eq!(submitted.completion_scope(), "nativeSubmission");

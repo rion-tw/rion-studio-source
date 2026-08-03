@@ -76,6 +76,27 @@ jobs:
       - name: Lint TypeScript
         run: pnpm run lint
 
+  renderer-assets:
+    name: Build renderer assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Build renderer application
         run: pnpm run build:renderer
 
@@ -89,7 +110,6 @@ jobs:
 
   rust-concurrency-sanitizer:
     name: Linux Rust sanitizer and concurrency soak
-    needs: checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -118,7 +138,7 @@ jobs:
 
   platform-build:
     name: ${{ matrix.name }} Tauri platform build
-    needs: checks
+    needs: renderer-assets
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

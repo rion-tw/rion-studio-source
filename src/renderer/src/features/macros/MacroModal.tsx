@@ -422,7 +422,7 @@ function MacroForm({
 
           <div className="grid content-start gap-4">
 
-            <Surface className="grid min-h-[360px] content-start gap-3 p-4" padding="none" variant="inset">
+            <Surface className="grid content-start gap-3 p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.steps")} description={t("macroForm.stepsDescription")}>
                 <div className="grid gap-3">
                   {form.steps.length === 0 ? (

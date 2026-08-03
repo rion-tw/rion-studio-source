@@ -75,6 +75,7 @@
   "gameWindows.tabs.liveConfigNotice": "このウィンドウは実行中です。タブの変更は次回の起動時に適用されます。",
   "gameWindows.tabs.moveUp": "タブを上へ移動",
   "gameWindows.tabs.moveDown": "タブを下へ移動",
+  "gameWindows.tabs.close": "タブを閉じる",
   "gameWindows.tabs.remove": "保存済みタブを削除",
   "gameWindows.tabs.saved": "保存済み",
   "gameWindows.tabs.createFirstTitle": "コンテンツを追加する前にウィンドウを作成してください",

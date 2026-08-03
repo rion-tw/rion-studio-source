@@ -537,6 +537,12 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       handleSystemRuntimeReceipt(result.receipt);
       return result;
     },
+    reorderGameWindowTab: async (tabId, beforeTabId) => handleSystemRuntimeReceipt(
+      await invokeShell(
+        "reorderGameWindowTab",
+        beforeTabId ? [tabId, beforeTabId] : [tabId]
+      )
+    ),
     setGameWindowTabMuted: async (tabId, muted) => handleSystemRuntimeReceipt(
       await invokeShell("setGameWindowTabMuted", [tabId, muted])
     ),

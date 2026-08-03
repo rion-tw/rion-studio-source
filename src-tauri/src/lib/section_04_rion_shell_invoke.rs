@@ -349,6 +349,47 @@ async fn rion_shell_invoke(
             serde_json::to_value(created)
                 .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
         }
+        "reorderGameWindowTab" => {
+            let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
+            let source_window_id = state.runtime.tab_window_id(&tab_id).ok_or_else(|| {
+                shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "The runtime tab was not found.")
+            })?;
+            let before_tab_id = match args.get(1) {
+                None => None,
+                Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
+                Some(_) => {
+                    return Err(shell_error(
+                        "TAURI_SHELL_INPUT_INVALID",
+                        "Reorder target tab ID must be a non-empty string.",
+                    ));
+                }
+            };
+            if before_tab_id.as_deref() == Some(tab_id.as_str()) {
+                return Err(shell_error(
+                    "TAURI_SHELL_INPUT_INVALID",
+                    "A tab cannot be reordered before itself.",
+                ));
+            }
+            if let Some(before_tab_id) = before_tab_id.as_deref()
+                && state.runtime.tab_window_id(before_tab_id).as_deref()
+                    != Some(source_window_id.as_str())
+            {
+                return Err(shell_error(
+                    "TAURI_SHELL_INPUT_INVALID",
+                    "Reorder target tab must belong to the same Game Window.",
+                ));
+            }
+            let receipt = execute_tab_mutation(
+                &state,
+                "reorder",
+                &tab_id,
+                None,
+                before_tab_id,
+            )
+            .await?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
+        }
         "setGameWindowTabMuted" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
             let muted = args.get(1).and_then(Value::as_bool).ok_or_else(|| {

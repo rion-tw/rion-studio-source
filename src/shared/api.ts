@@ -101,6 +101,10 @@ export interface RionStudioApi {
     windowId: string
   ) => Promise<SystemRuntimeOperationSummaryRecord>;
   moveGameWindowTabToNewWindow: (tabId: string) => Promise<RuntimeTabMoveResultRecord>;
+  reorderGameWindowTab: (
+    tabId: string,
+    beforeTabId?: string
+  ) => Promise<SystemRuntimeOperationSummaryRecord>;
   setGameWindowTabMuted: (
     tabId: string,
     muted: boolean

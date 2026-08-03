@@ -212,7 +212,6 @@ export default function GameWindowsRoute({
                 <CardContent>
                     <GameWindowTabsPanel
                       gameWindow={gameWindow}
-                      gameWindows={gameWindows}
                       runtime={runtime}
                       t={t}
                       onAdd={() => {

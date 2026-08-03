@@ -1,4 +1,4 @@
-const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 3;
+const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 4;
 const ACTIVE_NATIVE_OPERATION_CAPACITY: usize = 256;
 const RECENT_NATIVE_OPERATION_CAPACITY: usize = 80;
 static NATIVE_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -19,6 +19,13 @@ enum NativeOperationSubsystem {
     Performance,
     Capability,
     Shutdown,
+    DisplayTopology,
+    WindowLifecycle,
+    Focus,
+    Recovery,
+    Power,
+    Drag,
+    Projection,
 }
 
 impl NativeOperationSubsystem {
@@ -38,6 +45,13 @@ impl NativeOperationSubsystem {
             Self::Performance => "performance",
             Self::Capability => "capability",
             Self::Shutdown => "shutdown",
+            Self::DisplayTopology => "displayTopology",
+            Self::WindowLifecycle => "windowLifecycle",
+            Self::Focus => "focus",
+            Self::Recovery => "recovery",
+            Self::Power => "power",
+            Self::Drag => "drag",
+            Self::Projection => "projection",
         }
     }
 
@@ -49,11 +63,18 @@ impl NativeOperationSubsystem {
             | Self::Security
             | Self::Audio
             | Self::Zoom
-            | Self::Shutdown => "nativeAcknowledgement",
+            | Self::Shutdown
+            | Self::WindowLifecycle
+            | Self::Focus => "nativeAcknowledgement",
             Self::Navigation => "pageFinished",
             Self::Input | Self::Metadata => "nativeSubmission",
             Self::Popup | Self::Session => "stateCommit",
             Self::Performance | Self::Capability => "runtimeProbe",
+            Self::DisplayTopology => "topologyCommitted",
+            Self::Recovery => "inputReady",
+            Self::Power => "lifecycleTransition",
+            Self::Drag => "dragCommitted",
+            Self::Projection => "stateCommit",
         }
     }
 }
@@ -62,6 +83,7 @@ impl NativeOperationSubsystem {
 enum NativeOperationStatus {
     Applied,
     Superseded,
+    Cancelled,
     Degraded,
     Failed,
     Indeterminate,
@@ -72,6 +94,7 @@ impl NativeOperationStatus {
         match self {
             Self::Applied => "applied",
             Self::Superseded => "superseded",
+            Self::Cancelled => "cancelled",
             Self::Degraded => "degraded",
             Self::Failed => "failed",
             Self::Indeterminate => "indeterminate",
@@ -81,18 +104,25 @@ impl NativeOperationStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativeOperationContext {
+    accepted_at: String,
     completion_scope: &'static str,
     deadline: Instant,
+    deadline_at: String,
+    lifecycle_epoch: Option<u64>,
     operation_id: String,
+    parent_operation_id: Option<String>,
     platform: &'static str,
     revision: Option<u64>,
     role_id: Option<String>,
     started_at: Instant,
     subsystem: NativeOperationSubsystem,
     surface_generation: Option<u64>,
+    session_id: Option<String>,
     tab_id: Option<String>,
     timeout: Duration,
     trigger: &'static str,
+    topology_revision: Option<u64>,
+    window_generation: Option<u64>,
     window_id: Option<String>,
 }
 
@@ -127,19 +157,29 @@ impl NativeOperationContext {
         started_at: Instant,
     ) -> Self {
         let sequence = NATIVE_OPERATION_SEQUENCE.fetch_add(1, Ordering::AcqRel);
+        let accepted_at = chrono::Utc::now();
+        let deadline_at = accepted_at
+            + chrono::Duration::from_std(timeout).unwrap_or(chrono::Duration::MAX);
         Self {
+            accepted_at: accepted_at.to_rfc3339(),
             completion_scope: subsystem.default_completion_scope(),
             deadline: started_at + timeout,
+            deadline_at: deadline_at.to_rfc3339(),
+            lifecycle_epoch: None,
             operation_id: format!("native-{}-{sequence}", subsystem.as_str()),
+            parent_operation_id: None,
             platform,
             revision: None,
             role_id: None,
             started_at,
             subsystem,
             surface_generation: None,
+            session_id: None,
             tab_id: None,
             timeout,
             trigger,
+            topology_revision: None,
+            window_generation: None,
             window_id: None,
         }
     }
@@ -151,6 +191,31 @@ impl NativeOperationContext {
 
     fn with_revision(mut self, revision: u64) -> Self {
         self.revision = Some(revision);
+        self
+    }
+
+    fn with_topology_revision(mut self, revision: u64) -> Self {
+        self.topology_revision = Some(revision);
+        self
+    }
+
+    fn with_window_generation(mut self, generation: u64) -> Self {
+        self.window_generation = Some(generation);
+        self
+    }
+
+    fn with_lifecycle_epoch(mut self, epoch: u64) -> Self {
+        self.lifecycle_epoch = Some(epoch);
+        self
+    }
+
+    fn with_parent_operation(mut self, operation_id: impl Into<String>) -> Self {
+        self.parent_operation_id = Some(operation_id.into());
+        self
+    }
+
+    fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
         self
     }
 
@@ -247,7 +312,9 @@ impl NativeOperationReceipt {
 
     fn summary(&self) -> SystemRuntimeOperationSummaryRecord {
         SystemRuntimeOperationSummaryRecord {
+            accepted_at: self.context.accepted_at.clone(),
             captured_at: self.completed_at.clone(),
+            deadline_at: self.context.deadline_at.clone(),
             platform: self.context.platform.to_owned(),
             subsystem: self.context.subsystem.as_str().to_owned(),
             status: self.status.as_str().to_owned(),
@@ -262,10 +329,15 @@ impl NativeOperationReceipt {
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
             revision: self.context.revision,
+            topology_revision: self.context.topology_revision,
+            window_generation: self.context.window_generation,
+            lifecycle_epoch: self.context.lifecycle_epoch,
             surface_generation: self.context.surface_generation,
             role_id: self.context.role_id.clone(),
             tab_id: self.context.tab_id.clone(),
             window_id: self.context.window_id.clone(),
+            parent_operation_id: self.context.parent_operation_id.clone(),
+            session_id: self.context.session_id.clone(),
             failure_code: self.failure_code.clone(),
             rollback_error_count: self.rollback_error_count,
         }

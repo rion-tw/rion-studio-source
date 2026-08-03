@@ -12,7 +12,9 @@ function receipt(
   status: SystemRuntimeOperationSummaryRecord["status"]
 ): SystemRuntimeOperationSummaryRecord {
   return {
+    acceptedAt: "2026-08-03T00:00:00Z",
     capturedAt: "2026-08-03T00:00:00Z",
+    deadlineAt: "2026-08-03T00:00:10Z",
     platform: "windows",
     subsystem: "presentation",
     status,
@@ -22,16 +24,17 @@ function receipt(
     trigger: "test",
     elapsedMs: 5,
     timeoutMs: 10_000,
-    failureCode: status === "applied" || status === "superseded"
+    failureCode: status === "applied" || status === "superseded" || status === "cancelled"
       ? undefined
       : `TEST_${status.toUpperCase()}`
   };
 }
 
 describe("System Runtime terminal receipt handling", () => {
-  it("accepts applied and silently ignores superseded receipts", () => {
+  it("accepts applied and silently ignores superseded or cancelled receipts", () => {
     expect(handleSystemRuntimeReceipt(receipt("applied")).status).toBe("applied");
     expect(handleSystemRuntimeReceipt(receipt("superseded")).status).toBe("superseded");
+    expect(handleSystemRuntimeReceipt(receipt("cancelled")).status).toBe("cancelled");
   });
 
   it("publishes degraded receipts as non-blocking warnings", () => {

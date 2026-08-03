@@ -54,6 +54,58 @@ fn first_terminal_receipt_wins_over_late_callbacks() {
 }
 
 #[test]
+fn v4_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
+    for (platform, subsystem) in [
+        ("macos", NativeOperationSubsystem::Projection),
+        ("windows", NativeOperationSubsystem::DisplayTopology),
+        ("macos", NativeOperationSubsystem::WindowLifecycle),
+        ("windows", NativeOperationSubsystem::Focus),
+        ("macos", NativeOperationSubsystem::Recovery),
+        ("windows", NativeOperationSubsystem::Power),
+        ("macos", NativeOperationSubsystem::Drag),
+    ] {
+        let registry = NativeOperationRegistry::default();
+        let operation = NativeOperationContext::new_for_platform(
+            subsystem,
+            "v4-metadata-test",
+            Duration::from_secs(1),
+            platform,
+        )
+        .with_completion_scope("policyDecision")
+        .with_revision(11)
+        .with_topology_revision(12)
+        .with_window_generation(13)
+        .with_lifecycle_epoch(14)
+        .with_parent_operation("native-parent-1")
+        .with_session("session-1")
+        .with_window("window-1");
+        let operation_id = operation.operation_id.clone();
+        let accepted_at = operation.accepted_at.clone();
+        let deadline_at = operation.deadline_at.clone();
+        registry.register(operation.clone()).unwrap();
+        let receipt = registry.complete(NativeOperationReceipt::with_status(
+            operation,
+            "policyCancelled",
+            NativeOperationStatus::Cancelled,
+            None,
+        ));
+        let summary = receipt.summary();
+
+        assert_eq!(summary.status, "cancelled", "{platform}");
+        assert_eq!(summary.operation_id, operation_id, "{platform}");
+        assert_eq!(summary.accepted_at, accepted_at, "{platform}");
+        assert_eq!(summary.deadline_at, deadline_at, "{platform}");
+        assert_eq!(summary.completion_scope, "policyDecision", "{platform}");
+        assert_eq!(summary.revision, Some(11), "{platform}");
+        assert_eq!(summary.topology_revision, Some(12), "{platform}");
+        assert_eq!(summary.window_generation, Some(13), "{platform}");
+        assert_eq!(summary.lifecycle_epoch, Some(14), "{platform}");
+        assert_eq!(summary.parent_operation_id.as_deref(), Some("native-parent-1"));
+        assert_eq!(summary.session_id.as_deref(), Some("session-1"));
+    }
+}
+
+#[test]
 fn latest_only_and_ordered_presentation_work_complete_their_original_receipts() {
     for platform in ["macos", "windows"] {
         let registry = NativeOperationRegistry::default();

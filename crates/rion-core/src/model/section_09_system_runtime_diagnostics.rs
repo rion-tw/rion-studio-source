@@ -34,15 +34,17 @@ pub struct SystemRuntimeFailureRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct SystemRuntimeOperationSummaryRecord {
+    pub accepted_at: String,
     pub captured_at: String,
+    pub deadline_at: String,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
-    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"geometry\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\" | \"shutdown\"")]
+    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"geometry\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\" | \"shutdown\" | \"displayTopology\" | \"windowLifecycle\" | \"focus\" | \"recovery\" | \"power\" | \"drag\" | \"projection\"")]
     pub subsystem: String,
-    #[ts(type = "\"applied\" | \"superseded\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
+    #[ts(type = "\"applied\" | \"superseded\" | \"cancelled\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
     pub status: String,
     pub stage: String,
-    #[ts(type = "\"stateCommit\" | \"nativeSubmission\" | \"nativeAcknowledgement\" | \"pageFinished\" | \"inputReady\" | \"policyDecision\" | \"runtimeProbe\"")]
+    #[ts(type = "\"stateCommit\" | \"nativeSubmission\" | \"nativeAcknowledgement\" | \"nativeDestroyed\" | \"pageFinished\" | \"inputReady\" | \"policyDecision\" | \"runtimeProbe\" | \"topologyCommitted\" | \"focusObserved\" | \"dragCommitted\" | \"lifecycleTransition\"")]
     pub completion_scope: String,
     pub operation_id: String,
     pub trigger: String,
@@ -53,6 +55,15 @@ pub struct SystemRuntimeOperationSummaryRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "number")]
     pub revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub topology_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub window_generation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub lifecycle_epoch: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "number")]
     pub surface_generation: Option<u64>,
@@ -67,10 +78,114 @@ pub struct SystemRuntimeOperationSummaryRecord {
     pub window_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub parent_operation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub failure_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub rollback_error_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct DisplayTopologySnapshotRecord {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub captured_at: String,
+    pub cause: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub primary_display_id: Option<String>,
+    pub displays: Vec<DisplayInfoRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct NativeWindowStateRecord {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub captured_at: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    pub visible: bool,
+    pub minimized: bool,
+    pub maximized: bool,
+    pub fullscreen: bool,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ApplicationLifecycleStatusRecord {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub captured_at: String,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    #[ts(type = "\"active\" | \"suspending\" | \"suspended\" | \"resuming\" | \"degraded\"")]
+    pub state: String,
+    pub reason: String,
+    #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
+    pub platform: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct SurfaceRecoveryAttemptRecord {
+    pub attempt_id: String,
+    pub operation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub parent_operation_id: Option<String>,
+    pub role_id: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub surface_generation: u64,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    #[ts(type = "\"fencing\" | \"isolating\" | \"rebuilding\" | \"navigating\" | \"inputReady\" | \"swapping\" | \"completed\" | \"blocked\"")]
+    pub phase: String,
+    #[ts(type = "\"active\" | \"applied\" | \"degraded\" | \"failed\" | \"indeterminate\" | \"restartRequired\"")]
+    pub status: String,
+    pub started_at: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabDragSessionRecord {
+    pub session_id: String,
+    pub operation_id: String,
+    pub source_window_id: String,
+    pub source_tab_id: String,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
+    #[ts(type = "\"accepted\" | \"dragging\" | \"hovering\" | \"dropping\" | \"settling\" | \"cancelled\" | \"completed\" | \"failed\" | \"indeterminate\"")]
+    pub phase: String,
+    #[ts(type = "\"active\" | \"applied\" | \"cancelled\" | \"failed\" | \"indeterminate\"")]
+    pub status: String,
+    pub started_at: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]

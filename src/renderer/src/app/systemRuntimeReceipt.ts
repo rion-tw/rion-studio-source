@@ -11,7 +11,11 @@ export interface SystemRuntimeWarningDetail {
 export function handleSystemRuntimeReceipt(
   receipt: SystemRuntimeOperationSummaryRecord
 ): SystemRuntimeOperationSummaryRecord {
-  if (receipt.status === "applied" || receipt.status === "superseded") {
+  if (
+    receipt.status === "applied"
+    || receipt.status === "superseded"
+    || receipt.status === "cancelled"
+  ) {
     return receipt;
   }
   const code = receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_FAILED";

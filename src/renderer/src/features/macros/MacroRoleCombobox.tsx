@@ -19,8 +19,10 @@ import type { Translator } from "../../i18n";
 import type { Game, Role } from "../../../../shared/types";
 
 interface MacroRoleComboboxProps {
+  ariaLabel?: string;
   disabled?: boolean;
   games: Game[];
+  inputId?: string;
   roles: Role[];
   t: Translator;
   value: string[];
@@ -40,8 +42,10 @@ interface RoleOptionGroup {
 }
 
 export function MacroRoleCombobox({
+  ariaLabel,
   disabled = false,
   games,
+  inputId = "macro-role",
   roles,
   t,
   value,
@@ -81,8 +85,8 @@ export function MacroRoleCombobox({
                 </ComboboxChip>
               ))}
               <ComboboxChipsInput
-                id="macro-role"
-                aria-label={t("macroForm.roles")}
+                id={inputId}
+                aria-label={ariaLabel ?? t("macroForm.roles")}
                 autoComplete="off"
                 disabled={disabled}
                 placeholder={selected.length === 0 ? t("macroForm.rolesPlaceholder") : undefined}

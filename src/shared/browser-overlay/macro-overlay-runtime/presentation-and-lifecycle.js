@@ -401,8 +401,9 @@
         const behavior = formatMacroBehavior(macro);
         const { delay, duration, iteration } = getMacroIteration(macro.id);
         const iterationFlashClass = iteration > 0 ? " is-iteration-flash" : "";
-        const shortcutlessClass = macro.trigger ? "" : " is-shortcutless";
-        const shortcutMarkup = macro.trigger
+        const hasUsableShortcut = macro.trigger && isShortcutMacroId(macro.id);
+        const shortcutlessClass = hasUsableShortcut ? "" : " is-shortcutless";
+        const shortcutMarkup = hasUsableShortcut
           ? '<span class="active-badge-shortcut">' +
             escapeHtml(formatShortcut(macro.trigger)) +
             "</span>"
@@ -602,6 +603,8 @@
     macroActionTails.clear();
     latestCoreStatuses = [];
     state.macros = [];
+    state.shortcutMacroIds = [];
+    state.shortcutStatuses = [];
     state.statuses = [];
     clearAllSuppressedShortcuts();
 

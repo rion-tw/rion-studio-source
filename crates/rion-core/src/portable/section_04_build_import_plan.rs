@@ -418,6 +418,49 @@ fn build_import_plan(
                 operations.macros.skip += 1;
                 continue;
             }
+            let mut macro_record = macro_record.clone();
+            if let MacroShortcutSourceScope::SelectedRoles {
+                role_ids: source_role_ids,
+            } = &macro_record.shortcut_source_scope
+            {
+                let mut seen_source_role_ids = HashSet::new();
+                let mapped_source_role_ids = source_role_ids
+                    .iter()
+                    .filter_map(|role_id| role_id_map.get(role_id).cloned())
+                    .filter(|role_id| seen_source_role_ids.insert(role_id.clone()))
+                    .collect::<Vec<_>>();
+                let missing_source_count = source_role_ids
+                    .iter()
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .filter(|role_id| !role_id_map.contains_key(*role_id))
+                    .count() as u32;
+                if missing_source_count > 0 {
+                    warnings.push(warning(
+                        "MACRO_ROLE_MISSING",
+                        Some(macro_record.name.clone()),
+                        None,
+                        Some(missing_source_count),
+                    ));
+                }
+                if mapped_source_role_ids.is_empty() {
+                    warnings.push(warning(
+                        "MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES",
+                        Some(macro_record.name.clone()),
+                        None,
+                        None,
+                    ));
+                    macro_record.shortcut_source_scope =
+                        MacroShortcutSourceScope::AllExecutionRoles;
+                    macro_record.trigger = None;
+                    macro_record.activation_mode = "toggle".to_owned();
+                } else {
+                    macro_record.shortcut_source_scope =
+                        MacroShortcutSourceScope::SelectedRoles {
+                            role_ids: mapped_source_role_ids,
+                        };
+                }
+            }
             let identity = macro_identity(&macro_record.name, &role_ids);
             if !seen_keys.insert(identity.clone()) {
                 let name = reserve_import_name(&macro_record.name, &mut used_copy_names)?;
@@ -498,7 +541,7 @@ fn build_import_plan(
                 }
                 None => conflicts.push(portable_conflict(
                     &conflict_id,
-                    macro_record,
+                    &macro_record,
                     &role_ids,
                     &candidates,
                     &snapshot.roles,
@@ -555,11 +598,19 @@ fn build_import_plan(
                 trigger = None;
             } else if trigger.as_ref().is_some_and(|trigger| {
                 accepted.iter().any(|candidate| {
+                    let candidate_source_role_ids = macro_shortcut_source_role_ids(
+                        &candidate.shortcut_source_scope,
+                        &candidate.role_ids,
+                    );
+                    let item_source_role_ids = macro_shortcut_source_role_ids(
+                        &item.macro_record.shortcut_source_scope,
+                        &item.role_ids,
+                    );
                     candidate
                         .trigger
                         .as_ref()
                         .is_some_and(|candidate_trigger| triggers_equal(candidate_trigger, trigger))
-                        && roles_overlap(&candidate.role_ids, &item.role_ids)
+                        && roles_overlap(candidate_source_role_ids, item_source_role_ids)
                 })
             }) {
                 warnings.push(warning(
@@ -587,6 +638,11 @@ fn build_import_plan(
                 }),
                 name: item.name,
                 role_ids: item.role_ids,
+                shortcut_source_scope: if trigger.is_some() {
+                    item.macro_record.shortcut_source_scope
+                } else {
+                    MacroShortcutSourceScope::AllExecutionRoles
+                },
                 trigger,
                 repeat: item.macro_record.repeat,
                 steps,

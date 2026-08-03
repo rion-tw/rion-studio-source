@@ -4,4 +4,4 @@ import type { MacroDefinition } from "./MacroDefinition";
 import type { MacroOverlayStartSummaryRecord } from "./MacroOverlayStartSummaryRecord";
 import type { MacroRunStatus } from "./MacroRunStatus";
 
-export type MacroOverlayViewModelRecord = { detached: boolean, language?: "en" | "zh-TW" | "zh-CN" | "ja", macroBadgePosition: MacroBadgePositionRecord, macros: Array<MacroDefinition>, resolvedTheme: "light" | "dark", startSummary?: MacroOverlayStartSummaryRecord, statuses: Array<MacroRunStatus>, };
+export type MacroOverlayViewModelRecord = { detached: boolean, language?: "en" | "zh-TW" | "zh-CN" | "ja", macroBadgePosition: MacroBadgePositionRecord, macros: Array<MacroDefinition>, shortcutMacroIds: Array<string>, shortcutStatuses: Array<MacroRunStatus>, resolvedTheme: "light" | "dark", startSummary?: MacroOverlayStartSummaryRecord, statuses: Array<MacroRunStatus>, };

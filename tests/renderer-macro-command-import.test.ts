@@ -171,6 +171,7 @@ function createMacro(
     enabled: true,
     name,
     roleIds: ["role-1"],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat,
     steps: holdsKey
       ? [{ id: `${id}-hold`, type: "key", code: "KeyW", action: "hold_until_stop" }]

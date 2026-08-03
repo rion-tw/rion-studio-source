@@ -176,6 +176,10 @@ fn portable_game_window(window: &StateGameWindowRecord) -> PortableGameWindowRec
 fn portable_macro(macro_record: &StateMacroRecord) -> PortableMacroRecord {
     let mut role_ids = macro_record.role_ids.clone();
     role_ids.sort();
+    let mut shortcut_source_scope = macro_record.shortcut_source_scope.clone();
+    if let MacroShortcutSourceScope::SelectedRoles { role_ids } = &mut shortcut_source_scope {
+        role_ids.sort();
+    }
     PortableMacroRecord {
         id: macro_record.id.clone(),
         enabled: macro_record.enabled,
@@ -185,6 +189,7 @@ fn portable_macro(macro_record: &StateMacroRecord) -> PortableMacroRecord {
             .unwrap_or_else(|| "toggle".to_owned()),
         name: macro_record.name.clone(),
         role_ids,
+        shortcut_source_scope,
         trigger: macro_record.trigger.clone(),
         repeat: macro_record.repeat.clone(),
         steps: macro_record.steps.clone(),

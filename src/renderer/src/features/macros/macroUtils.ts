@@ -234,6 +234,7 @@ export function createEmptyMacroForm(
     activationMode: "toggle",
     name: createEmptyMacroFormName(macros, t),
     roleIds: roleId ? [roleId] : [],
+    shortcutSourceScope: { type: "all_execution_roles" },
     repeat: { type: "once" },
     steps: []
   };
@@ -246,6 +247,7 @@ export function createMacroFormState(macro: Macro): MacroFormState {
     activationMode: macro.activationMode ?? "toggle",
     name: macro.name,
     roleIds: [...macro.roleIds],
+    shortcutSourceScope: structuredClone(macro.shortcutSourceScope),
     repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
     steps: macro.steps.map((step) => ({
       ...step,
@@ -253,6 +255,20 @@ export function createMacroFormState(macro: Macro): MacroFormState {
     })),
     trigger: macro.trigger ? { ...macro.trigger } : undefined
   };
+}
+
+export function formatMacroShortcutSourceScope(
+  macro: Macro,
+  roleById: ReadonlyMap<string, Role>,
+  t: Translator
+): string {
+  if (macro.shortcutSourceScope.type === "all_execution_roles") {
+    return t("macros.shortcutScope.allExecutionRoles");
+  }
+
+  return macro.shortcutSourceScope.roleIds
+    .map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"))
+    .join(", ");
 }
 
 export function formatMacroCode(code: string): string {

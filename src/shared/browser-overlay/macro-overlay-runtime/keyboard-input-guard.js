@@ -291,7 +291,10 @@
     }
 
     const matchesMacroShortcut = state.macros.some(
-      (macro) => macro.enabled !== false && matchesShortcut(event, macro.trigger)
+      (macro) =>
+        isShortcutMacroId(macro.id) &&
+        macro.enabled !== false &&
+        matchesShortcut(event, macro.trigger)
     );
     if (event.repeat) {
       if (matchesOpenShortcut(event) || matchesMacroShortcut) {
@@ -308,7 +311,10 @@
     }
 
     const matchingMacros = state.macros.filter(
-      (macro) => macro.enabled !== false && matchesShortcut(event, macro.trigger)
+      (macro) =>
+        isShortcutMacroId(macro.id) &&
+        macro.enabled !== false &&
+        matchesShortcut(event, macro.trigger)
     );
     if (matchingMacros.length === 0) {
       return;

@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v60";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-03.2";
+  const scriptVersion = "2026-08-03.3";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -181,6 +181,8 @@
     macros: [],
     requestVersion: 0,
     resolvedTheme: "light",
+    shortcutMacroIds: [],
+    shortcutStatuses: [],
     statuses: []
   };
   const pendingMacroActions = new Map();
@@ -525,6 +527,12 @@
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
     state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+    state.shortcutMacroIds = Array.isArray(nextState?.shortcutMacroIds)
+      ? nextState.shortcutMacroIds.map(String)
+      : state.macros.filter((macro) => macro.trigger).map((macro) => String(macro.id));
+    state.shortcutStatuses = Array.isArray(nextState?.shortcutStatuses)
+      ? nextState.shortcutStatuses
+      : [];
     state.resolvedTheme = normalizeResolvedTheme(nextState?.resolvedTheme);
     applyHostTheme();
     const activeMacroIds = new Set(state.macros.map((macro) => String(macro.id)));
@@ -609,7 +617,24 @@
   }
 
   function isRunning(macroId) {
-    return state.statuses.some((status) => status.macroId === macroId && status.state === "running");
+    return getBadgeStatuses().some(
+      (status) => status.macroId === macroId && status.state === "running"
+    );
+  }
+
+  function isShortcutMacroId(macroId) {
+    return state.shortcutMacroIds.some((id) => id === String(macroId));
+  }
+
+  function getBadgeStatuses() {
+    const statusesByRoleAndMacro = new Map();
+    [...state.shortcutStatuses, ...state.statuses].forEach((status) => {
+      statusesByRoleAndMacro.set(
+        String(status.roleId) + ":" + String(status.macroId),
+        status
+      );
+    });
+    return [...statusesByRoleAndMacro.values()];
   }
 
   function getRunningBadgeMacros() {
@@ -617,7 +642,7 @@
   }
 
   function getMacroIteration(macroId) {
-    const status = state.statuses
+    const status = getBadgeStatuses()
       .filter((status) => status.macroId === macroId && status.state === "running")
       .sort((left, right) => (right.iteration ?? 0) - (left.iteration ?? 0))[0];
     const iteration = status?.iteration ?? 0;

@@ -178,6 +178,7 @@ describe("macroUtils", () => {
       enabled: true,
       name: "Partial",
       roleIds: ["role-1", "role-2"],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
       repeat: { type: "once" as const },
       steps: [{ id: "step-1", type: "key" as const, code: "F2" }],
       createdAt: "2026-07-10T00:00:00.000Z",
@@ -222,6 +223,7 @@ describe("macroUtils", () => {
     const base = {
       enabled: true,
       roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
       repeat: { type: "once" as const },
       createdAt: "2026-07-10T00:00:00.000Z",
       updatedAt: "2026-07-10T00:00:00.000Z"

@@ -462,6 +462,11 @@ pub fn create_macro(
     input: MacroCreateInputRecord,
 ) -> CoreResult<StateMacroRecord> {
     let now = chrono::Utc::now().to_rfc3339();
+    let trigger = input.trigger.map(normalize_macro_trigger).transpose()?;
+    let shortcut_source_scope = normalize_macro_shortcut_source_scope(
+        input.shortcut_source_scope,
+        trigger.is_some(),
+    )?;
     let macro_record = StateMacroRecord {
         id: Uuid::new_v4().to_string(),
         enabled: input.enabled.unwrap_or(true),
@@ -470,7 +475,8 @@ pub fn create_macro(
         )?),
         name: normalize_name(&input.name, "MACRO_NAME_REQUIRED", "MACRO_NAME_TOO_LONG")?,
         role_ids: normalize_macro_role_ids(input.role_ids)?,
-        trigger: input.trigger.map(normalize_macro_trigger).transpose()?,
+        shortcut_source_scope,
+        trigger,
         repeat: normalize_macro_repeat(input.repeat)?,
         steps: normalize_macro_steps(input.steps)?,
         created_at: now.clone(),
@@ -494,6 +500,17 @@ pub fn update_macro(
         .position(|item| item.id == id)
         .ok_or_else(|| domain("MACRO_NOT_FOUND", "Macro not found."))?;
     let current = macros[index].clone();
+    let trigger = if input.set_trigger {
+        input.trigger.map(normalize_macro_trigger).transpose()?
+    } else {
+        current.trigger.clone()
+    };
+    let shortcut_source_scope = normalize_macro_shortcut_source_scope(
+        input
+            .shortcut_source_scope
+            .or_else(|| Some(current.shortcut_source_scope.clone())),
+        trigger.is_some(),
+    )?;
     let macro_record = StateMacroRecord {
         id: current.id.clone(),
         enabled: input.enabled.unwrap_or(current.enabled),
@@ -515,11 +532,8 @@ pub fn update_macro(
             .map(normalize_macro_role_ids)
             .transpose()?
             .unwrap_or_else(|| current.role_ids.clone()),
-        trigger: if input.set_trigger {
-            input.trigger.map(normalize_macro_trigger).transpose()?
-        } else {
-            current.trigger.clone()
-        },
+        shortcut_source_scope,
+        trigger,
         repeat: input
             .repeat
             .map(|repeat| normalize_macro_repeat(Some(repeat)))
@@ -610,9 +624,30 @@ pub fn delete_macros(macros: &mut Vec<StateMacroRecord>, ids: &[String]) -> Macr
 pub fn clear_macro_role(macros: &mut [StateMacroRecord], role_id: &str) {
     let now = chrono::Utc::now().to_rfc3339();
     for macro_record in macros {
-        let before = macro_record.role_ids.len();
+        let before = macro_record.clone();
         macro_record.role_ids.retain(|id| id != role_id);
-        if macro_record.role_ids.len() != before {
+        let removed_last_selected_source = if let MacroShortcutSourceScope::SelectedRoles {
+            role_ids,
+        } = &mut macro_record.shortcut_source_scope
+        {
+            let was_source = role_ids.iter().any(|id| id == role_id);
+            role_ids.retain(|id| id != role_id);
+            was_source && role_ids.is_empty()
+        } else {
+            false
+        };
+        if removed_last_selected_source {
+            macro_record.trigger = None;
+            macro_record.shortcut_source_scope = MacroShortcutSourceScope::AllExecutionRoles;
+            if macro_record.activation_mode.as_deref() == Some("while_held") {
+                macro_record.activation_mode = Some("toggle".to_owned());
+            }
+        }
+        if macro_record.role_ids != before.role_ids
+            || macro_record.shortcut_source_scope != before.shortcut_source_scope
+            || macro_record.trigger != before.trigger
+            || macro_record.activation_mode != before.activation_mode
+        {
             macro_record.updated_at = now.clone();
         }
     }

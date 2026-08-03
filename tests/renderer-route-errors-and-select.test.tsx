@@ -64,7 +64,7 @@ describe("list select filters", () => {
     expect(page).not.toBeNull();
     const setPointerCapture = vi.spyOn(page!, "setPointerCapture");
 
-    await user.click(screen.getByRole("combobox", { name: "Filter by role" }));
+    await user.click(screen.getByRole("combobox", { name: "Filter by execution role" }));
 
     expect(screen.getByRole("option", { name: "Main" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Alt" })).toBeTruthy();
@@ -74,7 +74,7 @@ describe("list select filters", () => {
     await user.click(screen.getByRole("option", { name: "Alt" }));
 
     expect(setPointerCapture).not.toHaveBeenCalled();
-    expect(screen.getByRole("combobox", { name: "Filter by role" }).textContent).toContain("Alt");
+    expect(screen.getByRole("combobox", { name: "Filter by execution role" }).textContent).toContain("Alt");
     expect(screen.queryByRole("button", { name: "Main macro" })).toBeNull();
     expect(screen.getByRole("button", { name: "Alt macro" })).toBeTruthy();
   });
@@ -234,6 +234,7 @@ function macro(overrides: Partial<Macro>): Macro {
     enabled: true,
     name: "Macro",
     roleIds: [],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: "step", type: "key", code: "Tab", label: "Tab" }],
     createdAt: "2026-01-01T00:00:00.000Z",

@@ -55,6 +55,7 @@ const assignedMacro: Macro = {
   enabled: true,
   name: "Auto heal",
   roleIds: ["role-1"],
+  shortcutSourceScope: { type: "all_execution_roles" as const },
   trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
   repeat: { type: "once" },
   steps: [{ id: "step-1", type: "key", code: "KeyQ" }],
@@ -265,6 +266,68 @@ it("renders running click coordinates, merges duplicates, and flashes the clicke
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
     }
+  });
+
+it("shows controller-role running badges without exposing execution-role click markers", async () => {
+    createGameSurface(document);
+    const controllerStatus = runningStatus({
+      macroId: clickMacro.id,
+      lastClick: { sequence: 1, stepId: "click-first" }
+    });
+    const state = {
+      macros: [clickMacro],
+      shortcutMacroIds: [clickMacro.id],
+      shortcutStatuses: [controllerStatus],
+      statuses: []
+    };
+    const binding = vi.fn(async (_request: unknown) => state);
+    const controller = installOverlay(window, binding);
+
+    await controller.refresh();
+
+    const root = getOverlayRoot(document);
+    expect(root.querySelector(".active-badge-name")?.textContent).toBe(clickMacro.name);
+    expect(root.querySelector(".active-badge-shortcut")?.textContent).toBe("F2");
+    expect(root.querySelectorAll(".click-marker")).toHaveLength(0);
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "toggle",
+      macroId: clickMacro.id
+    }));
+  });
+
+it("keeps local execution status visible while passing an unavailable shortcut to the game", async () => {
+    createGameSurface(document);
+    const state = {
+      macros: [clickMacro],
+      shortcutMacroIds: [],
+      shortcutStatuses: [],
+      statuses: [runningStatus({
+        macroId: clickMacro.id,
+        lastClick: { sequence: 1, stepId: "click-first" }
+      })]
+    };
+    const binding = vi.fn(async (_request: unknown) => state);
+    const controller = installOverlay(window, binding);
+
+    await controller.refresh();
+
+    const root = getOverlayRoot(document);
+    expect(root.querySelector(".active-badge-name")?.textContent).toBe(clickMacro.name);
+    expect(root.querySelector(".active-badge-shortcut")).toBeNull();
+    expect(root.querySelectorAll(".click-marker")).toHaveLength(2);
+
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    expect(document.dispatchEvent(event)).toBe(true);
+    expect(binding.mock.calls.some(([request]) =>
+      isRecord(request) && request.type === "toggle"
+    )).toBe(false);
   });
 
 it("renders one connector per flashing click step and skips zero-length connectors", async () => {

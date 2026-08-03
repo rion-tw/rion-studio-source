@@ -46,6 +46,7 @@ describe("useMacroWorkflow", () => {
       enabled: true,
       name: "New macro",
       roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
       repeat: { type: "once" },
       steps: [],
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -71,6 +72,7 @@ describe("useMacroWorkflow", () => {
         activationMode: "toggle",
         name: "New macro",
         roleIds: ["role-1"],
+        shortcutSourceScope: { type: "all_execution_roles" as const },
         repeat: { type: "once" },
         steps: []
       });
@@ -85,6 +87,7 @@ describe("useMacroWorkflow", () => {
       enabled: true,
       name: "Unassigned",
       roleIds: [],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
       trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
       repeat: { type: "once" },
       steps: [{ id: "step-1", type: "key", code: "F2" }],
@@ -110,6 +113,7 @@ describe("useMacroWorkflow", () => {
 
     expect(createMacro).toHaveBeenCalledWith(expect.objectContaining({
       roleIds: [],
+      shortcutSourceScope: { type: "all_execution_roles" as const },
       trigger: null
     }));
     expect(setMacros).toHaveBeenCalledWith(expect.any(Function));
@@ -251,6 +255,7 @@ function macro(id: string): Macro {
     enabled: true,
     name: id,
     roleIds: ["role-1"],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: `${id}-step`, type: "key", code: "F2" }],
     createdAt: "2026-01-01T00:00:00.000Z",

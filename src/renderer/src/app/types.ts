@@ -5,6 +5,7 @@ import type {
   LaunchWorkspaceSlot,
   MacroActivationMode,
   MacroRepeat,
+  MacroShortcutSourceScope,
   MacroStep,
   MacroTrigger,
   ResolvedTheme as SharedResolvedTheme,
@@ -44,6 +45,7 @@ export interface MacroFormState {
   activationMode?: MacroActivationMode;
   name: string;
   roleIds: string[];
+  shortcutSourceScope: MacroShortcutSourceScope;
   repeat: MacroRepeat;
   steps: MacroStep[];
   trigger?: MacroTrigger;

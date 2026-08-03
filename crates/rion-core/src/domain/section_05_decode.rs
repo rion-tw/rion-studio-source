@@ -99,6 +99,17 @@ fn validate_macro(macro_record: MacroRecord) -> CoreResult<()> {
             "macro role assignments are invalid".to_owned(),
         ));
     }
+    let shortcut_role_ids = macro_shortcut_source_role_ids(
+        &macro_record.shortcut_source_scope,
+        &macro_record.role_ids,
+    );
+    if shortcut_role_ids.iter().any(|id| id.trim().is_empty())
+        || shortcut_role_ids.iter().collect::<HashSet<_>>().len() != shortcut_role_ids.len()
+    {
+        return Err(CoreError::InvalidInput(
+            "macro shortcut source assignments are invalid".to_owned(),
+        ));
+    }
     if let ValidatedMacroRepeat::Loop { interval_ms } = macro_record.repeat
         && interval_ms > 86_400_000
     {

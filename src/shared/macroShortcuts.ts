@@ -1,4 +1,4 @@
-import type { MacroTrigger } from "./types";
+import type { MacroShortcutSourceScope, MacroTrigger } from "./types";
 
 export const MACRO_OVERLAY_TRIGGER: MacroTrigger = {
   code: "KeyM",
@@ -26,6 +26,24 @@ export function areMacroTriggersEqual(
 export function macroRoleAssignmentsOverlap(left: string[], right: string[]): boolean {
   const rightRoleIds = new Set(right);
   return left.some((roleId) => rightRoleIds.has(roleId));
+}
+
+export function getMacroShortcutSourceRoleIds(
+  macro: { roleIds: string[]; shortcutSourceScope: MacroShortcutSourceScope }
+): string[] {
+  return macro.shortcutSourceScope.type === "selected_roles"
+    ? macro.shortcutSourceScope.roleIds
+    : macro.roleIds;
+}
+
+export function macroShortcutSourcesOverlap(
+  left: { roleIds: string[]; shortcutSourceScope: MacroShortcutSourceScope },
+  right: { roleIds: string[]; shortcutSourceScope: MacroShortcutSourceScope }
+): boolean {
+  return macroRoleAssignmentsOverlap(
+    getMacroShortcutSourceRoleIds(left),
+    getMacroShortcutSourceRoleIds(right)
+  );
 }
 
 export function isReservedBrowserZoomMacroTrigger(

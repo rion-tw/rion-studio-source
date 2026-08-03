@@ -130,6 +130,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro name must be 80 characters or fewer.": "error.macroNameTooLong",
   "Macro role assignment is invalid.": "error.macroRoleIdInvalid",
   "Macro shortcut key is invalid.": "error.macroShortcutInvalid",
+  "A shortcut with selected source roles requires at least one role.": "error.macroShortcutSourceRequired",
   "Macro repeat setting is invalid.": "error.macroRepeatInvalid",
   "Macro activation mode is invalid.": "error.macroActivationModeInvalid",
   "A tap-or-hold macro requires a shortcut.": "error.macroHoldShortcutRequired",
@@ -180,6 +181,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Ctrl+Tab and Ctrl+Shift+Tab are reserved for switching Rion Studio tabs.":
     "error.macroRuntimeTabShortcutReserved",
   "Macro shortcut conflicts with another macro assigned to the same role.": "error.macroShortcutConflict",
+  "Macro shortcut conflicts with another macro for an overlapping source role.": "error.macroShortcutConflict",
   "This macro is not assigned to the current role.": "error.macroNotAssigned",
   "Macro is not assigned to this role.": "error.macroNotAssigned",
   "Launch this role before running a macro.": "error.macroRoleNotRunning",

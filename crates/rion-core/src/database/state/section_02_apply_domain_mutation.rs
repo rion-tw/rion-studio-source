@@ -129,9 +129,7 @@ fn apply_domain_mutation(
                     }
                 }
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-                for macro_record in &mut macros {
-                    macro_record.role_ids.retain(|role_id| role_id != &id);
-                }
+                clear_macro_role(&mut macros, &id);
                 transaction
                     .execute("DELETE FROM roles WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -176,10 +174,8 @@ fn apply_domain_mutation(
                     }
                 }
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
-                for macro_record in &mut macros {
-                    macro_record
-                        .role_ids
-                        .retain(|role_id| !deleted.contains(role_id));
+                for role_id in &deleted_ids {
+                    clear_macro_role(&mut macros, role_id);
                 }
                 for id in &deleted_ids {
                     transaction
@@ -593,6 +589,10 @@ fn validate_macro_role_references(
     if macro_record
         .role_ids
         .iter()
+        .chain(macro_shortcut_source_role_ids(
+            &macro_record.shortcut_source_scope,
+            &macro_record.role_ids,
+        ))
         .any(|id| !roles.iter().any(|role| &role.id == id))
     {
         Err(CoreError::Domain {
@@ -617,6 +617,7 @@ fn read_macro_configuration(
             activation_mode: record.activation_mode,
             name: record.name,
             role_ids: record.role_ids,
+            shortcut_source_scope: record.shortcut_source_scope,
             trigger: record.trigger,
             repeat: record.repeat,
             steps: record.steps,

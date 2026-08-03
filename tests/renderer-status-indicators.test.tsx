@@ -234,7 +234,7 @@ describe("renderer status indicators", () => {
       />
     );
 
-    expect(screen.getByText("Unassigned role")).toBeTruthy();
+    expect(screen.getByText("No execution roles")).toBeTruthy();
     const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     expect(start.title).toBe("Assign a role before running this macro.");
@@ -314,6 +314,7 @@ function macro(): Macro {
     enabled: true,
     name: "Auto heal",
     roleIds: ["role-1"],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F2" }],
     createdAt: "2026-07-15T00:00:00.000Z",

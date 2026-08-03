@@ -200,6 +200,11 @@
                 "input": {
                     "name": "Overlay macro",
                     "roleIds": [role_id.clone()],
+                    "trigger": {"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false},
+                    "shortcutSourceScope": {
+                        "type": "selected_roles",
+                        "roleIds": [unassigned_role_id.clone()]
+                    },
                     "steps": [{"type": "delay", "ms": 10}]
                 }
             })))
@@ -228,6 +233,8 @@
         assert_eq!(view["language"], "zh-TW");
         assert_eq!(view["resolvedTheme"], "light");
         assert_eq!(view["macros"][0]["id"], macro_id);
+        assert_eq!(view["shortcutMacroIds"], json!([]));
+        assert_eq!(view["shortcutStatuses"], json!([]));
         assert_eq!(view["statuses"], json!([]));
         {
             assert_eq!(view["macroBadgePosition"]["horizontalAlign"], "right");
@@ -249,6 +256,18 @@
             }))))
             .unwrap();
         assert_eq!(themed_view["resolvedTheme"], "dark");
+
+        let controller_view = runtime
+            .block_on(core.invoke_async(command(json!({
+                "type": "overlayRequest",
+                "roleId": unassigned_role_id.clone(),
+                "requestJson": "{\"type\":\"list\"}"
+            }))))
+            .unwrap();
+        assert_eq!(controller_view["macros"][0]["id"], macro_id);
+        assert_eq!(controller_view["shortcutMacroIds"], json!([macro_id.clone()]));
+        assert_eq!(controller_view["statuses"], json!([]));
+        assert_eq!(controller_view["shortcutStatuses"], json!([]));
 
         let error = runtime
             .block_on(core.invoke_async(command(json!({

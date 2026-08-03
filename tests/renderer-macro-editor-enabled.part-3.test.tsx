@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -90,7 +91,7 @@ it.each([
     expect(macroHelps[2].textContent).toContain("cancels the parent");
     expect(macroHelps[2].textContent).toContain("does not stop the parent");
     expect(macroHelps[2].textContent).toContain("Closing any participating role stops the entire multi-role macro run");
-    expect([...macroHelps].map((help) => help.querySelectorAll("li").length)).toEqual([3, 4, 3]);
+    expect([...macroHelps].map((help) => help.querySelectorAll("li").length)).toEqual([4, 4, 3]);
     macroHelps.forEach((macroHelp) => {
       expect(macroHelp.querySelector("svg")).toBeNull();
       expect(macroHelp.querySelectorAll("section")).toHaveLength(1);
@@ -495,6 +496,88 @@ it("supports minute, hour, and day delay units", async () => {
       steps: [{ id: "delay", type: "delay", ms: 43_200_000 }]
     })));
   });
+
+it("selects external shortcut source roles and saves them separately from execution roles", async () => {
+    const user = userEvent.setup();
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const controllerRole = { ...role(), id: "role-controller", name: "Controller" };
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role(), controllerRole]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    expect(screen.getByText("Effective scope")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Selected roles" }));
+    expect(screen.getAllByRole("button", { name: "Remove Main role" })).toHaveLength(2);
+
+    const sourceInput = screen.getByRole("combobox", { name: "Shortcut source roles" });
+    await user.click(sourceInput);
+    await user.click(await screen.findByRole("option", { name: "Controller" }));
+    await user.keyboard("{Escape}");
+    const sourceToolbar = sourceInput.closest<HTMLElement>('[role="toolbar"]');
+    expect(sourceToolbar).not.toBeNull();
+    await user.click(within(sourceToolbar!).getByRole("button", { name: "Remove Main role" }));
+    await user.click(screen.getByRole("button", { name: "All execution roles" }));
+    await user.click(screen.getByRole("button", { name: "Selected roles" }));
+    expect(screen.getAllByRole("button", { name: "Remove Main role" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Remove Controller" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      roleIds: ["role-1"],
+      shortcutSourceScope: {
+        type: "selected_roles",
+        roleIds: ["role-controller"]
+      }
+    })));
+  });
+
+it("blocks saving an empty selected shortcut source scope", async () => {
+    const user = userEvent.setup();
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    await user.click(screen.getByRole("button", { name: "Selected roles" }));
+    await user.click(screen.getAllByRole("button", { name: "Remove Main role" })[0]);
+
+    expect(screen.getAllByText("Select at least one shortcut source role, or clear the shortcut."))
+      .toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled"))
+      .toBe(true);
+  });
 });
 
 const t: Translator = (key) => en[key];
@@ -588,6 +671,7 @@ function macro(overrides: Partial<Macro> = {}): Macro {
     enabled: true,
     name: "Auto heal",
     roleIds: ["role-1"],
+    shortcutSourceScope: { type: "all_execution_roles" as const },
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F2" }],
     createdAt: "2026-07-15T00:00:00.000Z",

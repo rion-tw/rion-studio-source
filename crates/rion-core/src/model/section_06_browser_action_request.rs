@@ -416,6 +416,8 @@ pub struct MacroDefinition {
     pub activation_mode: Option<String>,
     pub name: String,
     pub role_ids: Vec<String>,
+    #[serde(default)]
+    pub shortcut_source_scope: MacroShortcutSourceScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub trigger: Option<MacroTrigger>,
@@ -423,7 +425,20 @@ pub struct MacroDefinition {
     pub steps: Vec<MacroStepDefinition>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroShortcutSourceScope {
+    #[default]
+    AllExecutionRoles,
+    SelectedRoles {
+        #[serde(rename = "roleIds")]
+        #[ts(rename = "roleIds")]
+        role_ids: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroTrigger {

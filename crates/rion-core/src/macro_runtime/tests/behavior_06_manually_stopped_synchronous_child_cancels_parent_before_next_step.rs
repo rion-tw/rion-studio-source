@@ -24,6 +24,7 @@
             activation_mode: Some("toggle".to_owned()),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Delay {

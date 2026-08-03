@@ -30,7 +30,7 @@ import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared
 
 import { getMacroListItems, type MacroListSortKey, type MacroListSortState } from "./macroListUtils";
 
-import { formatMacroActivationMode, formatMacroRepeat, formatMacroShortcut, summarizeMacroSteps } from "./macroUtils";
+import { formatMacroActivationMode, formatMacroRepeat, formatMacroShortcut, formatMacroShortcutSourceScope, summarizeMacroSteps } from "./macroUtils";
 
 import { MacroActionMenu, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
 
@@ -492,10 +492,20 @@ function MacrosRoute({
                         t={t}
                       />
                     </td>
-                    <td className="px-4 py-2 align-middle text-muted-foreground">
-                      <span className="block">
-                        {macro.trigger ? formatMacroShortcut(macro.trigger, t) : t("macros.noShortcutShort")}
-                      </span>
+                    <td className="max-w-[220px] px-4 py-2 align-middle text-muted-foreground">
+                      {macro.trigger ? (
+                        <div className="grid min-w-0 gap-0.5">
+                          <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
+                          <span
+                            className="block truncate text-caption"
+                            title={formatMacroShortcutSourceScope(macro, roleById, t)}
+                          >
+                            {formatMacroShortcutSourceScope(macro, roleById, t)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="block">{t("macros.noShortcutShort")}</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 align-middle text-muted-foreground">
                       {formatMacroActivationMode(macro.activationMode, t)}

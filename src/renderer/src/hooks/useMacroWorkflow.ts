@@ -58,6 +58,7 @@ export function useMacroWorkflow({
         activationMode: form.activationMode,
         name: form.name,
         roleIds: form.roleIds,
+        shortcutSourceScope: form.shortcutSourceScope,
         repeat: form.repeat,
         steps: form.steps,
         trigger: form.trigger ?? null
@@ -155,6 +156,7 @@ export function useMacroWorkflow({
         activationMode: macro.activationMode === "while_held" ? "toggle" : macro.activationMode,
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
         roleIds: [...macro.roleIds],
+        shortcutSourceScope: { type: "all_execution_roles" },
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
         steps: macro.steps.map((step) => ({
           ...step,

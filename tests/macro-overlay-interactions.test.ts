@@ -55,6 +55,7 @@ const assignedMacro: Macro = {
   enabled: true,
   name: "Auto heal",
   roleIds: ["role-1"],
+  shortcutSourceScope: { type: "all_execution_roles" as const },
   trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
   repeat: { type: "once" },
   steps: [{ id: "step-1", type: "key", code: "KeyQ" }],

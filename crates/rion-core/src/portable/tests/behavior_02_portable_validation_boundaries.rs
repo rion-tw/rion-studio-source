@@ -209,6 +209,83 @@
         };
 
         {
+            let mut source = fixture_value(15);
+            source["roles"].as_array_mut().unwrap().push(json!({
+                "id":"r2","gameId":"g1","name":"Controller",
+                "launchUrl":"https://example.test/controller","notes":""
+            }));
+            source["macros"][0]["trigger"] =
+                json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
+            source["macros"][0]["shortcutSourceScope"] =
+                json!({"type":"selected_roles","roleIds":["r2"]});
+            let mut runtime = PortableRuntime::default();
+            let preview = runtime
+                .preview(
+                    &source.to_string(),
+                    "/tmp/remapped-shortcut-source.json".to_owned(),
+                    empty_snapshot(),
+                )
+                .unwrap();
+            let prepared = runtime
+                .prepare_apply(
+                    &preview.import_id,
+                    all_selection(),
+                    Vec::new(),
+                    empty_snapshot(),
+                )
+                .unwrap();
+            let controller_id = prepared
+                .snapshot
+                .roles
+                .iter()
+                .find(|role| role.name == "Controller")
+                .unwrap()
+                .id
+                .clone();
+            assert!(matches!(
+                &prepared.snapshot.macros[0].shortcut_source_scope,
+                MacroShortcutSourceScope::SelectedRoles { role_ids }
+                    if role_ids == &vec![controller_id.clone()]
+            ));
+            assert_ne!(prepared.snapshot.macros[0].role_ids, vec![controller_id]);
+        };
+
+        {
+            let mut source = fixture_value(15);
+            source["macros"][0]["activationMode"] = json!("while_held");
+            source["macros"][0]["trigger"] =
+                json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
+            source["macros"][0]["shortcutSourceScope"] =
+                json!({"type":"selected_roles","roleIds":["missing-controller"]});
+            let mut runtime = PortableRuntime::default();
+            let preview = runtime
+                .preview(
+                    &source.to_string(),
+                    "/tmp/missing-shortcut-source.json".to_owned(),
+                    empty_snapshot(),
+                )
+                .unwrap();
+            assert!(preview.warnings.iter().any(|warning| {
+                warning.code == "MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES"
+            }));
+            let prepared = runtime
+                .prepare_apply(
+                    &preview.import_id,
+                    all_selection(),
+                    Vec::new(),
+                    empty_snapshot(),
+                )
+                .unwrap();
+            let imported = &prepared.snapshot.macros[0];
+            assert!(imported.trigger.is_none());
+            assert_eq!(imported.activation_mode.as_deref(), Some("toggle"));
+            assert!(matches!(
+                imported.shortcut_source_scope,
+                MacroShortcutSourceScope::AllExecutionRoles
+            ));
+        };
+
+        {
             let mut source = fixture_value(11);
             let duplicate = json!({
                 "id":"r2","gameId":"g1","name":"Role",
@@ -524,7 +601,7 @@
     }
 
     #[test]
-    fn export_is_v14_and_never_emits_internal_or_retired_sync_fields() {
+    fn export_is_v15_and_never_emits_internal_or_retired_sync_fields() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -540,7 +617,7 @@
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 14);
+            assert_eq!(value["schemaVersion"], 15);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")

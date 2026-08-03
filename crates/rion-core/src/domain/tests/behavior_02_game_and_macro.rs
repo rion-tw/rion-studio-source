@@ -401,19 +401,26 @@
         {
             let trigger = json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
             let mut macros = Vec::new();
-            create_macro(
+            let first = create_macro(
                 &mut macros,
                 macro_input(json!({
                     "name":"First","roleIds":["r1"],"trigger":trigger,
+                    "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-1"]},
                     "steps":[{"type":"delay","ms":1}]
                 })),
             )
             .unwrap();
+            assert!(matches!(
+                first.shortcut_source_scope,
+                MacroShortcutSourceScope::SelectedRoles { ref role_ids }
+                    if role_ids == &vec!["controller-1".to_owned()]
+            ));
             assert!(
                 create_macro(
                     &mut macros,
                     macro_input(json!({
-                        "name":"Overlap","roleIds":["r1"],"trigger":trigger,
+                        "name":"Overlap","roleIds":["r2"],"trigger":trigger,
+                        "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-1"]},
                         "steps":[{"type":"delay","ms":1}]
                     }))
                 )
@@ -423,11 +430,27 @@
                 create_macro(
                     &mut macros,
                     macro_input(json!({
-                        "name":"Separate","roleIds":["r2"],"trigger":trigger,
+                        "name":"Separate","roleIds":["r1"],"trigger":trigger,
+                        "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-2"]},
                         "steps":[{"type":"delay","ms":1}]
                     }))
                 )
                 .is_ok()
+            );
+            assert_eq!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"No source","roleIds":["r3"],"trigger":{
+                            "code":"F3","ctrl":false,"alt":false,"shift":false,"meta":false
+                        },
+                        "shortcutSourceScope":{"type":"selected_roles","roleIds":[]},
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .unwrap_err()
+                .code(),
+                "MACRO_SHORTCUT_SOURCE_REQUIRED"
             );
             assert!(
                 create_macro(
@@ -440,6 +463,42 @@
                 )
                 .is_err()
             );
+        };
+
+        {
+            let mut macros = Vec::new();
+            let default_scope = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Default scope","roleIds":["r1"],
+                    "trigger":{"code":"F4","ctrl":false,"alt":false,"shift":false,"meta":false},
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                default_scope.shortcut_source_scope,
+                MacroShortcutSourceScope::AllExecutionRoles
+            ));
+
+            let selected = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "activationMode":"while_held","name":"Delete source","roleIds":["r1"],
+                    "trigger":{"code":"F5","ctrl":false,"alt":false,"shift":false,"meta":false},
+                    "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller"]},
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            clear_macro_role(&mut macros, "controller");
+            let selected = macros.iter().find(|item| item.id == selected.id).unwrap();
+            assert!(selected.trigger.is_none());
+            assert_eq!(selected.activation_mode.as_deref(), Some("toggle"));
+            assert!(matches!(
+                selected.shortcut_source_scope,
+                MacroShortcutSourceScope::AllExecutionRoles
+            ));
         };
 
         {

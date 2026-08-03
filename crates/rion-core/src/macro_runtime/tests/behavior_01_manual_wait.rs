@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 
     use super::*;
-    use crate::model::{MacroRepeat, MacroStepDefinition};
+    use crate::model::{MacroRepeat, MacroShortcutSourceScope, MacroStepDefinition, MacroTrigger};
 
     struct ManualWait {
         duration_ms: u32,
@@ -102,6 +102,7 @@ use std::sync::mpsc;
                 activation_mode: Some("toggle".to_owned()),
                 name: "Macro".to_owned(),
                 role_ids: vec!["r1".to_owned()],
+                shortcut_source_scope: Default::default(),
                 trigger: None,
                 repeat: MacroRepeat::Once,
                 steps,
@@ -119,6 +120,61 @@ use std::sync::mpsc;
     }
 
     #[test]
+    fn external_shortcut_source_runs_only_active_execution_roles() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut shortcut = request(vec![MacroStepDefinition::Delay {
+            id: "wait".to_owned(),
+            ms: 60_000,
+        }]);
+        shortcut.macros[0].role_ids = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        shortcut.macros[0].shortcut_source_scope = MacroShortcutSourceScope::SelectedRoles {
+            role_ids: vec!["d".to_owned()],
+        };
+        shortcut.macros[0].trigger = Some(MacroTrigger {
+            code: "F2".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        shortcut.source_role_id = Some("d".to_owned());
+        shortcut.active_role_ids = vec![
+            "a".to_owned(),
+            "b".to_owned(),
+            "c".to_owned(),
+            "d".to_owned(),
+        ];
+
+        let starting_runtime = runtime.clone();
+        let start_request = shortcut.clone();
+        let starting = thread::spawn(move || starting_runtime.toggle(start_request));
+        let focus = next_browser_actions(&receiver);
+        let mut focused_role_ids = focus
+            .iter()
+            .map(|action| action.role_id.clone())
+            .collect::<Vec<_>>();
+        focused_role_ids.sort();
+        assert_eq!(focused_role_ids, ["a", "b", "c"]);
+        runtime.dispatch_results(success_results(focus)).unwrap();
+        let mut started_role_ids = starting
+            .join()
+            .unwrap()
+            .unwrap()
+            .into_iter()
+            .map(|status| status.role_id)
+            .collect::<Vec<_>>();
+        started_role_ids.sort();
+        assert_eq!(started_role_ids, ["a", "b", "c"]);
+        assert!(runtime.toggle(shortcut.clone()).unwrap().is_empty());
+
+        shortcut.source_role_id = Some("a".to_owned());
+        assert!(runtime.toggle(shortcut).is_err());
+    }
+
+    #[test]
     fn suppresses_only_keys_that_can_match_an_enabled_role_shortcut() {
         let definitions = [
             MacroDefinition {
@@ -127,6 +183,7 @@ use std::sync::mpsc;
                 activation_mode: Some("toggle".to_owned()),
                 name: "Matching".to_owned(),
                 role_ids: vec!["r1".to_owned()],
+                shortcut_source_scope: Default::default(),
                 trigger: Some(crate::model::MacroTrigger {
                     code: "KeyE".to_owned(),
                     ctrl: false,
@@ -143,6 +200,7 @@ use std::sync::mpsc;
                 activation_mode: Some("toggle".to_owned()),
                 name: "Other".to_owned(),
                 role_ids: vec!["r2".to_owned()],
+                shortcut_source_scope: Default::default(),
                 trigger: Some(crate::model::MacroTrigger {
                     code: "KeyY".to_owned(),
                     ctrl: false,
@@ -196,6 +254,7 @@ use std::sync::mpsc;
             activation_mode: Some("toggle".to_owned()),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
+            shortcut_source_scope: Default::default(),
             trigger: None,
             repeat: MacroRepeat::Once,
             steps: vec![MacroStepDefinition::Delay {

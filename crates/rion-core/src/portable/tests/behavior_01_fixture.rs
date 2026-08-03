@@ -160,7 +160,7 @@ use super::*;
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         };
-        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":15");
+        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":16");
         assert!(normalize(&future).is_err());
     }
 
@@ -174,7 +174,7 @@ use super::*;
 
             let normalized = normalize(&source.to_string()).unwrap();
 
-            assert_eq!(normalized["schemaVersion"], 14);
+            assert_eq!(normalized["schemaVersion"], 15);
             assert!(normalized["games"][0].get("localStorageSyncKeys").is_none());
             assert!(normalized["games"][0].get("localStorageSyncSelectors").is_none());
             assert!(normalized["roles"][0].get("localStorageSourceRoleId").is_none());
@@ -503,7 +503,7 @@ use super::*;
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 14);
+            assert_eq!(exported.schema_version, 15);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);

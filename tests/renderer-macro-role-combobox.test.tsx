@@ -41,7 +41,7 @@ describe("macro role combobox", () => {
     );
 
     expect(screen.getByRole("button", { name: "Remove Second" })).toBeTruthy();
-    await user.click(screen.getByRole("combobox", { name: "Roles" }));
+    await user.click(screen.getByRole("combobox", { name: "Execution roles" }));
     const listbox = await screen.findByRole("listbox");
     const listText = listbox.textContent ?? "";
     expect(listText.indexOf("Game B")).toBeLessThan(listText.indexOf("First"));
@@ -66,7 +66,7 @@ describe("macro role combobox", () => {
         roles={[role("role-1", "First", "game-1"), role("role-2", "Second", "game-1")]}
       />
     );
-    const input = screen.getByRole("combobox", { name: "Roles" });
+    const input = screen.getByRole("combobox", { name: "Execution roles" });
 
     await user.click(input);
     await user.type(input, "Second");
@@ -93,7 +93,7 @@ describe("macro role combobox", () => {
       />
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Roles" }));
+    await user.click(screen.getByRole("combobox", { name: "Execution roles" }));
     expect(await screen.findByText("Unavailable roles")).toBeTruthy();
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Remove Unknown role" }));
@@ -113,7 +113,7 @@ describe("macro role combobox", () => {
         onValueChange={onValueChange}
       />
     );
-    const input = screen.getByRole("combobox", { name: "Roles" });
+    const input = screen.getByRole("combobox", { name: "Execution roles" });
     const removeButton = screen.getByRole("button", { name: "Remove First" });
 
     expect(input.hasAttribute("disabled")).toBe(true);

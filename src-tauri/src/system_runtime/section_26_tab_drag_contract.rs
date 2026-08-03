@@ -76,6 +76,7 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn stamp_native_tab_drag_action(
         &self,
         action_type: &str,

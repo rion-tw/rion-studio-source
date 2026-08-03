@@ -84,6 +84,21 @@ impl NativeOperationRegistry {
             .and_then(|state| state.terminal.get(operation_id).cloned())
     }
 
+    fn context(&self, operation_id: &str) -> Option<NativeOperationContext> {
+        self.state.lock().ok().and_then(|state| {
+            state
+                .active
+                .get(operation_id)
+                .map(|operation| operation.context.clone())
+                .or_else(|| {
+                    state
+                        .terminal
+                        .get(operation_id)
+                        .map(|receipt| receipt.context.clone())
+                })
+        })
+    }
+
     fn complete(&self, receipt: NativeOperationReceipt) -> NativeOperationReceipt {
         let Ok(mut state) = self.state.lock() else {
             return receipt;

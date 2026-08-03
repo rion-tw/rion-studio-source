@@ -5,10 +5,22 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTabStripState } from "../src/shared/runtimeTabs";
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(() => Promise.resolve()) }));
+const { emit, eventListeners, invoke, listen } = vi.hoisted(() => {
+  const eventListeners = new Map<string, (event: { payload: unknown }) => void>();
+  return {
+    emit: vi.fn(() => Promise.resolve()),
+    eventListeners,
+    invoke: vi.fn(() => Promise.resolve()),
+    listen: vi.fn((event: string, listener: (event: { payload: unknown }) => void) => {
+      eventListeners.set(event, listener);
+      return Promise.resolve(vi.fn());
+    })
+  };
+});
 let resizeObserverCallback: ResizeObserverCallback | undefined;
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/event", () => ({ emit, listen }));
 
 const state: RuntimeTabStripState = {
   revision: 1,
@@ -57,6 +69,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  emit.mockClear();
   invoke.mockReset();
   invoke.mockResolvedValue(undefined);
   installScrollGeometry(1_000, 140);
@@ -211,6 +224,34 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
+it("reports an asynchronous indeterminate drag receipt without dispatching another cancel", async () => {
+    const listener = eventListeners.get("rion://runtime-tab-drag-session");
+    expect(listener).toBeTypeOf("function");
+
+    listener?.({
+      payload: {
+        sessionId: "drag-session",
+        operationId: "native-drag-1",
+        sourceWindowId: "window-1",
+        sourceTabId: "tab-1",
+        lifecycleEpoch: 7,
+        topologyRevision: 11,
+        phase: "indeterminate",
+        status: "indeterminate",
+        startedAt: "2026-08-03T00:00:00Z",
+        updatedAt: "2026-08-03T00:00:01Z",
+        failureCode: "TAURI_TAB_DRAG_ROLLBACK_FAILED"
+      }
+    });
+    await flushMicrotasks();
+
+    expect(emit).toHaveBeenCalledWith("rion://shell-error", {
+      code: "TAURI_TAB_DRAG_ROLLBACK_FAILED",
+      message: expect.stringContaining("Restart Rion Studio")
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
 it("cancels a rejected terminal drag once and ignores late motion for that session", async () => {
     invoke
       .mockResolvedValueOnce(undefined)

@@ -1,5 +1,10 @@
 // Focused implementation extracted from runtimeTabStrip.ts.
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+
+import type { RuntimeTabDragSessionRecord, SystemRuntimeOperationSummaryRecord } from "../../../shared/generated";
+
+import { handleSystemRuntimeReceipt } from "../../src/app/systemRuntimeReceipt";
 
 import { applyRuntimeTabOrder, ensureTabVisible, scheduleScrollControlsUpdate, tabElements } from "./entry";
 
@@ -286,12 +291,18 @@ export const dispatchNextDragAction = (): void => {
   const action = dragActionQueue.shift();
   if (!action) return;
   runtimeState.dragActionPending = true;
-  void invoke("rion_runtime_tab_action", { action })
-    .then(() => {
-      if (action.type === "tabDragSourceEnd" || action.type === "tabDragEnd"
-        || action.type === "tabDragCancel") {
-        completeTerminalDragAction(action.sessionId);
+  void invoke<RuntimeTabDragSessionRecord | SystemRuntimeOperationSummaryRecord | null>(
+    "rion_runtime_tab_action",
+    { action }
+  )
+    .then((result) => {
+      if (!result) {
+        if (action.type === "tabDragSourceEnd" || action.type === "tabDragEnd"
+          || action.type === "tabDragCancel") completeTerminalDragAction(action.sessionId);
+        return;
       }
+      if (isSystemRuntimeReceipt(result)) handleRuntimeTabDragReceipt(action.sessionId, result);
+      else handleRuntimeTabDragSession(result);
     })
     .catch(() => {
       if ((action.type === "tabDragDrop" || action.type === "tabDragSourceEnd"
@@ -306,6 +317,50 @@ export const dispatchNextDragAction = (): void => {
       dispatchNextDragAction();
     });
 };
+
+function isSystemRuntimeReceipt(
+  result: RuntimeTabDragSessionRecord | SystemRuntimeOperationSummaryRecord
+): result is SystemRuntimeOperationSummaryRecord {
+  return "completionScope" in result;
+}
+
+function handleRuntimeTabDragReceipt(
+  sessionId: string,
+  receipt: SystemRuntimeOperationSummaryRecord
+): void {
+  if (receipt.status === "cancelled" || receipt.status === "failed"
+    || receipt.status === "indeterminate") {
+    cancelledDragSessions.add(sessionId);
+  }
+  try {
+    handleSystemRuntimeReceipt(receipt);
+  } catch (error) {
+    const issue = error as { code?: string; message?: string };
+    void emit("rion://shell-error", {
+      code: issue.code ?? receipt.failureCode ?? "SYSTEM_TAB_DRAG_FAILED",
+      message: issue.message ?? "The native tab drag could not be committed."
+    });
+  }
+  completeTerminalDragAction(sessionId);
+}
+
+export function handleRuntimeTabDragSession(session: RuntimeTabDragSessionRecord): void {
+  if (session.status === "active") return;
+  if (session.status === "cancelled" || session.status === "failed"
+    || session.status === "indeterminate") {
+    cancelledDragSessions.add(session.sessionId);
+  }
+  if (session.status === "failed" || session.status === "indeterminate") {
+    const code = session.failureCode ?? "SYSTEM_TAB_DRAG_FAILED";
+    void emit("rion://shell-error", {
+      code,
+      message: session.status === "indeterminate"
+        ? `The native tab drag could not be confirmed (${code}). Restart Rion Studio before trying again.`
+        : `The native tab drag failed (${code}).`
+    });
+  }
+  completeTerminalDragAction(session.sessionId);
+}
 
 function completeTerminalDragAction(sessionId: string): void {
   if (runtimeState.dragVisualState?.sessionId === sessionId) {

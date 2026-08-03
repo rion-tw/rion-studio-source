@@ -213,6 +213,37 @@ fn active_operations_are_never_evicted_for_capacity() {
 }
 
 #[test]
+fn navigation_is_rejected_before_input_mutation_when_the_registry_is_full() {
+    let registry = NativeOperationRegistry::default();
+    for _ in 0..ACTIVE_NATIVE_OPERATION_CAPACITY {
+        registry
+            .register(registry_operation(Duration::from_secs(5)))
+            .unwrap();
+    }
+    let operation = NativeOperationContext::new_for_platform(
+        NativeOperationSubsystem::Navigation,
+        NavigationInputFenceSource::MainFrame.trigger(),
+        Duration::from_secs(5),
+        "windows",
+    )
+    .with_completion_scope("inputReady")
+    .with_role("role-1")
+    .with_surface_generation(7);
+    let operation_id = operation.operation_id.clone();
+
+    let error = accept_navigation_input_operation(&registry, &operation).unwrap_err();
+
+    assert_eq!(error.code, "SYSTEM_NATIVE_OPERATION_REGISTRY_FULL");
+    let receipt = registry.wait(&operation_id).unwrap();
+    assert_eq!(receipt.status, NativeOperationStatus::Failed);
+    assert_eq!(
+        receipt.failure_code.as_deref(),
+        Some("SYSTEM_NATIVE_OPERATION_REGISTRY_FULL")
+    );
+    assert_eq!(registry.active_count(), ACTIVE_NATIVE_OPERATION_CAPACITY);
+}
+
+#[test]
 fn queued_and_in_flight_deadlines_have_distinct_terminal_statuses() {
     for platform in ["macos", "windows"] {
         let queued_registry = NativeOperationRegistry::default();

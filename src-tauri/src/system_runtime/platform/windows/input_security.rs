@@ -123,236 +123,6 @@ fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
 }
 
 #[cfg(windows)]
-fn install_document_navigation_macro_release_handler(
-    webview: &Webview,
-    app: AppHandle,
-    role_id: &str,
-) -> RuntimeResult<()> {
-    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
-
-    let webview_label = webview.label().to_owned();
-    let role_id = role_id.to_owned();
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    webview
-        .with_webview(move |platform_webview| unsafe {
-            let result = platform_webview
-                .controller()
-                .CoreWebView2()
-                .and_then(|core: ICoreWebView2| {
-                    register_windows_document_navigation_handler(&core, app, role_id, webview_label)
-                })
-                .map_err(|error| error.to_string());
-            let _ = sender.send(result);
-        })
-        .map_err(RuntimeError::tauri)?;
-    receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_NAVIGATION_HANDLER_TIMEOUT",
-                "WebView2 document navigation handler installation timed out.",
-            )
-        })?
-        .map_err(|message| RuntimeError::new("SYSTEM_NAVIGATION_HANDLER_FAILED", message))
-}
-
-#[cfg(windows)]
-fn register_windows_document_navigation_handler(
-    core_webview: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
-    callback_app: AppHandle,
-    role_id: String,
-    webview_label: String,
-) -> windows::core::Result<()> {
-    use webview2_com::{
-        Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
-        WebResourceRequestedEventHandler,
-    };
-    use windows::core::HSTRING;
-
-    let handler = WebResourceRequestedEventHandler::create(Box::new(move |_core, args| {
-        let Some(args) = args else {
-            return Ok(());
-        };
-        let Some(state) = callback_app.try_state::<crate::CoreState>() else {
-            return Ok(());
-        };
-        if !state
-            .runtime
-            .should_defer_windows_document_navigation(&webview_label)
-        {
-            return Ok(());
-        }
-        let input_epoch = match state
-            .runtime
-            .current_navigation_input_epoch(&webview_label, &role_id)
-            .map(Ok)
-            .unwrap_or_else(|| {
-                state
-                    .runtime
-                    .begin_navigation_input_fence(&webview_label, &role_id, None)
-            })
-        {
-            Ok(input_epoch) => input_epoch,
-            Err(error) => {
-                emit_windows_document_navigation_error(
-                    &callback_app,
-                    "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
-                    "The Windows document request could not establish an input fence and was allowed to continue.",
-                    &role_id,
-                    &webview_label,
-                    &error.message,
-                );
-                return Ok(());
-            }
-        };
-        // SAFETY: WebView2 supplied these event args to this callback, and the
-        // callback is still executing on the owning UI thread.
-        let deferral = match unsafe { args.GetDeferral() } {
-            Ok(deferral) => deferral,
-            Err(error) => {
-                emit_windows_document_navigation_error(
-                    &callback_app,
-                    "SYSTEM_NAVIGATION_DEFERRAL_FAILED",
-                    "The Windows document request could not be deferred and was allowed to continue.",
-                    &role_id,
-                    &webview_label,
-                    &error.to_string(),
-                );
-                return Ok(());
-            }
-        };
-        let completed = Arc::new(AtomicBool::new(false));
-        let deferral_token = retain_windows_document_navigation_deferral(deferral);
-        let core = Arc::clone(&state.core);
-        let release_app = callback_app.clone();
-        let release_role_id = role_id.clone();
-        let release_webview_label = webview_label.clone();
-        let release_runtime = Arc::clone(&state.runtime);
-        tauri::async_runtime::spawn(async move {
-            let release = core
-                .invoke_async(CoreCommand::MacroInputDrain {
-                    role_id: release_role_id.clone(),
-                    input_epoch,
-                })
-                .await;
-            match release {
-                Ok(value) => {
-                    let current = serde_json::from_value::<MacroInputEpochRecord>(value)
-                        .is_ok_and(|record| record.current);
-                    if current {
-                        release_runtime.finish_navigation_input_drain(
-                            &release_role_id,
-                            input_epoch,
-                        );
-                    }
-                }
-                Err(error) => emit_windows_document_navigation_error(
-                    &release_app,
-                    "SYSTEM_NAVIGATION_INPUT_DRAIN_FAILED",
-                    "Macro input could not be drained before a Windows document request; automatic input remains fenced.",
-                    &release_role_id,
-                    &release_webview_label,
-                    &error.to_string(),
-                ),
-            }
-            let scheduled_completed = Arc::clone(&completed);
-            let completion_app = release_app.clone();
-            let completion_role_id = release_role_id.clone();
-            let completion_webview_label = release_webview_label.clone();
-            let scheduling = release_app.run_on_main_thread(move || {
-                if let Err(error) = complete_windows_document_navigation_deferral(
-                    deferral_token,
-                    &scheduled_completed,
-                ) {
-                    emit_windows_document_navigation_error(
-                        &completion_app,
-                        "SYSTEM_NAVIGATION_DEFERRAL_COMPLETE_FAILED",
-                        "The Windows document request deferral could not be completed.",
-                        &completion_role_id,
-                        &completion_webview_label,
-                        &error,
-                    );
-                }
-            });
-            if let Err(error) = scheduling {
-                emit_windows_document_navigation_error(
-                    &release_app,
-                    "SYSTEM_NAVIGATION_DEFERRAL_SCHEDULE_FAILED",
-                    "The Windows document request could not be resumed because the app event loop was unavailable.",
-                    &release_role_id,
-                    &release_webview_label,
-                    &error.to_string(),
-                );
-            }
-        });
-        Ok(())
-    }));
-    for pattern in ["http://*", "https://*"] {
-        // SAFETY: `core_webview` remains owned by the WebView2 UI thread for
-        // the duration of handler registration.
-        unsafe {
-            core_webview.AddWebResourceRequestedFilter(
-                &HSTRING::from(pattern),
-                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT,
-            )?;
-        }
-    }
-    let mut token = 0;
-    // SAFETY: The handler and event token are valid for this registration call,
-    // which runs on the WebView2 UI thread.
-    unsafe { core_webview.add_WebResourceRequested(&handler, &mut token) }
-}
-
-#[cfg(windows)]
-fn retain_windows_document_navigation_deferral(
-    deferral: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
-) -> u64 {
-    let token = WINDOWS_DOCUMENT_NAVIGATION_DEFERRAL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS.with(|deferrals| {
-        let previous = deferrals.borrow_mut().insert(token, deferral);
-        debug_assert!(
-            previous.is_none(),
-            "document navigation deferral token reused"
-        );
-    });
-    token
-}
-
-#[cfg(windows)]
-fn complete_windows_document_navigation_deferral(
-    token: u64,
-    completed: &AtomicBool,
-) -> Result<bool, String> {
-    complete_navigation_deferral_once(completed, || {
-        let deferral = WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS
-            .with(|deferrals| deferrals.borrow_mut().remove(&token))
-            .ok_or_else(|| "The Windows document request deferral was not found.".to_owned())?;
-        unsafe { deferral.Complete() }.map_err(|error| error.to_string())
-    })
-}
-
-#[cfg(windows)]
-fn emit_windows_document_navigation_error(
-    app: &AppHandle,
-    code: &str,
-    message: &str,
-    role_id: &str,
-    webview_label: &str,
-    reason: &str,
-) {
-    let _ = app.emit(
-        "rion://shell-error",
-        json!({
-            "code": code,
-            "message": message,
-            "reason": reason,
-            "roleId": role_id,
-            "webviewLabel": webview_label
-        }),
-    );
-}
-
-#[cfg(windows)]
 fn dispatch_runtime_tab_shortcut(
     app: &AppHandle,
     webview_label: &str,
@@ -551,17 +321,13 @@ fn install_windows_role_surface_handlers(
     };
     use windows::core::Interface;
 
-    let navigation_role_id = match &target {
-        SurfaceFailureTarget::Role { role_id, .. } => role_id.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                "SYSTEM_ROLE_SETUP_FAILED",
-                "WebView2 role setup requires a role surface target.",
-            )
-            .with_setup_diagnostic("target-validation", None));
-        }
-    };
-    let navigation_webview_label = webview.label().to_owned();
+    if !matches!(&target, SurfaceFailureTarget::Role { .. }) {
+        return Err(RuntimeError::new(
+            "SYSTEM_ROLE_SETUP_FAILED",
+            "WebView2 role setup requires a role surface target.",
+        )
+        .with_setup_diagnostic("target-validation", None));
+    }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
@@ -629,14 +395,6 @@ fn install_windows_role_surface_handlers(
                 core.add_ProcessFailed(&process_handler, &mut process_token)
                     .map_err(|error| windows_role_setup_error("process-failed-handler", error))?;
 
-                register_windows_document_navigation_handler(
-                    &core,
-                    app.clone(),
-                    navigation_role_id.clone(),
-                    navigation_webview_label.clone(),
-                )
-                .map_err(|error| windows_role_setup_error("document-navigation-handler", error))?;
-
                 Ok(())
             })();
             let _ = sender.send(result);
@@ -653,7 +411,7 @@ fn install_windows_role_surface_handlers(
         .map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_ROLE_SETUP_TIMEOUT",
-                "WebView2 security, process, and navigation setup timed out.",
+                "WebView2 security and process setup timed out.",
             )
             .with_setup_diagnostic("handler-timeout", None)
         })?

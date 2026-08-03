@@ -29,59 +29,23 @@ use uuid::Uuid;
     }
 
     #[test]
-    fn windows_document_requests_are_deferred_except_during_controlled_navigation() {
-        assert!(should_defer_document_navigation("windows", false));
-        assert!(!should_defer_document_navigation("windows", true));
-    }
-
-    #[test]
-    fn macos_and_other_platforms_preserve_document_requests_without_deferral() {
-        assert!(!should_defer_document_navigation("macos", false));
-        assert!(!should_defer_document_navigation("other", false));
-    }
-
-    #[test]
-    fn navigation_deferral_completion_is_exactly_once_after_success() {
-        let completed = AtomicBool::new(false);
-        let attempts = AtomicU64::new(0);
-
+    fn main_frame_and_controlled_reload_are_the_only_navigation_fence_sources() {
         assert_eq!(
-            complete_navigation_deferral_once(&completed, || {
-                attempts.fetch_add(1, Ordering::Relaxed);
-                Ok::<_, ()>(())
-            }),
-            Ok(true)
+            NavigationInputFenceSource::MainFrame.trigger(),
+            "mainFrameNavigationInputFence"
         );
         assert_eq!(
-            complete_navigation_deferral_once(&completed, || {
-                attempts.fetch_add(1, Ordering::Relaxed);
-                Ok::<_, ()>(())
-            }),
-            Ok(false)
-        );
-        assert_eq!(attempts.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn navigation_deferral_completion_is_exactly_once_after_failure() {
-        let completed = AtomicBool::new(false);
-        let attempts = AtomicU64::new(0);
-
-        assert_eq!(
-            complete_navigation_deferral_once(&completed, || {
-                attempts.fetch_add(1, Ordering::Relaxed);
-                Err::<(), _>("complete failed")
-            }),
-            Err("complete failed")
+            NavigationInputFenceSource::MainFrame.reason(),
+            "main-frame-navigation"
         );
         assert_eq!(
-            complete_navigation_deferral_once(&completed, || {
-                attempts.fetch_add(1, Ordering::Relaxed);
-                Ok::<_, &str>(())
-            }),
-            Ok(false)
+            NavigationInputFenceSource::ControlledReload.trigger(),
+            "controlledReloadInputFence"
         );
-        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            NavigationInputFenceSource::ControlledReload.reason(),
+            "controlled-reload"
+        );
     }
 
     #[test]

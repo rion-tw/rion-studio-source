@@ -1,5 +1,3 @@
-#[cfg(windows)]
-use std::cell::RefCell;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
@@ -101,19 +99,6 @@ fn point_in_runtime_tab_control_row(
     screen_y: f64,
 ) -> bool {
     screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
-}
-#[cfg(windows)]
-static WINDOWS_DOCUMENT_NAVIGATION_DEFERRAL_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-#[cfg(windows)]
-thread_local! {
-    // WebView2 delivers WebResourceRequested on its owning UI thread. Keep each
-    // apartment-bound deferral on that thread, then resolve the token after
-    // run_on_main_thread returns from the asynchronous macro-release command.
-    // This also avoids adding an eager COM entry-point import to the process.
-    static WINDOWS_DOCUMENT_NAVIGATION_DEFERRALS: RefCell<HashMap<
-        u64,
-        webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
-    >> = RefCell::new(HashMap::new());
 }
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css");

@@ -1,5 +1,36 @@
-fn update_navigation_input_fences(
-    tickets: &mut HashMap<String, NavigationInputFence>,
+fn accept_navigation_input_operation(
+    registry: &NativeOperationRegistry,
+    operation: &NativeOperationContext,
+) -> RuntimeResult<()> {
+    if let Err(code) = registry.register(operation.clone()) {
+        registry.record_untracked(NativeOperationReceipt::with_status(
+            operation.clone(),
+            "navigationInputFenceRejected",
+            NativeOperationStatus::Failed,
+            Some(code),
+        ));
+        return Err(RuntimeError::new(
+            code,
+            "The main-frame navigation was rejected before input state changed.",
+        ));
+    }
+    if registry.mark_in_flight(&operation.operation_id) {
+        return Ok(());
+    }
+    registry.record_untracked(NativeOperationReceipt::with_status(
+        operation.clone(),
+        "navigationInputFenceRejected",
+        NativeOperationStatus::Failed,
+        Some("SYSTEM_NATIVE_OPERATION_REGISTRY_UNAVAILABLE"),
+    ));
+    Err(RuntimeError::new(
+        "SYSTEM_NATIVE_OPERATION_REGISTRY_UNAVAILABLE",
+        "The main-frame navigation operation could not enter the in-flight state.",
+    ))
+}
+
+fn update_main_frame_navigation_input_fences(
+    tickets: &mut HashMap<String, MainFrameNavigationInputFence>,
     webview_label: &str,
     role_id: &str,
     input_epoch: u64,
@@ -14,7 +45,7 @@ fn update_navigation_input_fences(
     }
     tickets.insert(
         webview_label.to_owned(),
-        NavigationInputFence {
+        MainFrameNavigationInputFence {
             role_id: role_id.to_owned(),
             input_epoch,
             surface_generation,
@@ -39,8 +70,8 @@ fn claim_input_fence_recovery(
     Some(fence.surface_generation)
 }
 
-fn mark_navigation_page_finished(
-    tickets: &mut HashMap<String, NavigationInputFence>,
+fn mark_main_frame_navigation_page_finished(
+    tickets: &mut HashMap<String, MainFrameNavigationInputFence>,
     webview_label: &str,
     scheme: &str,
 ) -> Option<(String, u64)> {
@@ -52,9 +83,9 @@ fn mark_navigation_page_finished(
     Some((ticket.role_id.clone(), ticket.input_epoch))
 }
 
-fn navigation_input_is_ready(
+fn main_frame_navigation_input_is_ready(
     fences: &HashMap<String, RoleInputFence>,
-    tickets: &HashMap<String, NavigationInputFence>,
+    tickets: &HashMap<String, MainFrameNavigationInputFence>,
     role_id: &str,
     input_epoch: u64,
 ) -> bool {
@@ -75,11 +106,11 @@ fn navigation_input_is_ready(
 
 fn claim_navigation_input_resume(
     fences: &mut HashMap<String, RoleInputFence>,
-    tickets: &HashMap<String, NavigationInputFence>,
+    tickets: &HashMap<String, MainFrameNavigationInputFence>,
     role_id: &str,
     input_epoch: u64,
 ) -> bool {
-    if !navigation_input_is_ready(fences, tickets, role_id, input_epoch) {
+    if !main_frame_navigation_input_is_ready(fences, tickets, role_id, input_epoch) {
         return false;
     }
     let Some(fence) = fences.get_mut(role_id) else {
@@ -90,6 +121,28 @@ fn claim_navigation_input_resume(
     }
     fence.resuming = true;
     true
+}
+
+fn main_frame_navigation_needs_reconciliation(
+    fences: &HashMap<String, RoleInputFence>,
+    tickets: &HashMap<String, MainFrameNavigationInputFence>,
+    webview_label: &str,
+    role_id: &str,
+    input_epoch: u64,
+    surface_generation: u64,
+) -> bool {
+    let current_fence = fences.get(role_id).is_some_and(|fence| {
+        fence.input_epoch == input_epoch
+            && fence.surface_generation == surface_generation
+            && !fence.recovery_scheduled
+    });
+    current_fence
+        && tickets.get(webview_label).is_some_and(|ticket| {
+            ticket.role_id == role_id
+                && ticket.input_epoch == input_epoch
+                && ticket.surface_generation == surface_generation
+                && !ticket.page_finished
+        })
 }
 
 fn read_document_instance(webview: &Webview) -> RuntimeResult<DocumentInstanceReadback> {

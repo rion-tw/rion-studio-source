@@ -17,7 +17,7 @@ fn stale_epoch_cannot_finish_or_resume_the_latest_role_fence() {
     let mut fences = HashMap::new();
     let mut tickets = HashMap::new();
     fences.insert("role-1".to_owned(), test_role_input_fence(2, 7));
-    update_navigation_input_fences(
+    update_main_frame_navigation_input_fences(
         &mut tickets,
         "role-main",
         "role-1",
@@ -25,7 +25,7 @@ fn stale_epoch_cannot_finish_or_resume_the_latest_role_fence() {
         7,
         Some("old-document".to_owned()),
     );
-    update_navigation_input_fences(
+    update_main_frame_navigation_input_fences(
         &mut tickets,
         "role-main",
         "role-1",
@@ -34,10 +34,16 @@ fn stale_epoch_cannot_finish_or_resume_the_latest_role_fence() {
         Some("old-document".to_owned()),
     );
 
-    assert!(!navigation_input_is_ready(&fences, &tickets, "role-1", 1));
+    assert!(!main_frame_navigation_input_is_ready(
+        &fences, &tickets, "role-1", 1
+    ));
     fences.get_mut("role-1").unwrap().drained = true;
-    assert!(mark_navigation_page_finished(&mut tickets, "role-main", "https").is_some());
-    assert!(navigation_input_is_ready(&fences, &tickets, "role-1", 2));
+    assert!(
+        mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https").is_some()
+    );
+    assert!(main_frame_navigation_input_is_ready(
+        &fences, &tickets, "role-1", 2
+    ));
 }
 
 #[test]
@@ -47,7 +53,7 @@ fn redirects_finish_the_current_ticket_without_matching_the_requested_url() {
     let mut fence = test_role_input_fence(3, 8);
     fence.drained = true;
     fences.insert("role-1".to_owned(), fence);
-    update_navigation_input_fences(
+    update_main_frame_navigation_input_fences(
         &mut tickets,
         "role-main",
         "role-1",
@@ -56,8 +62,62 @@ fn redirects_finish_the_current_ticket_without_matching_the_requested_url() {
         Some("before-redirect".to_owned()),
     );
 
-    assert!(mark_navigation_page_finished(&mut tickets, "role-main", "https").is_some());
-    assert!(navigation_input_is_ready(&fences, &tickets, "role-1", 3));
+    assert!(
+        mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https").is_some()
+    );
+    assert!(main_frame_navigation_input_is_ready(
+        &fences, &tickets, "role-1", 3
+    ));
+}
+
+#[test]
+fn completed_main_frame_cannot_be_reopened_by_a_late_watchdog() {
+    let mut fences = HashMap::new();
+    let mut tickets = HashMap::new();
+    fences.insert("role-1".to_owned(), test_role_input_fence(4, 8));
+    update_main_frame_navigation_input_fences(
+        &mut tickets,
+        "role-main",
+        "role-1",
+        4,
+        8,
+        Some("old-document".to_owned()),
+    );
+
+    assert!(main_frame_navigation_needs_reconciliation(
+        &fences,
+        &tickets,
+        "role-main",
+        "role-1",
+        4,
+        8
+    ));
+    mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https");
+
+    assert!(!main_frame_navigation_needs_reconciliation(
+        &fences,
+        &tickets,
+        "role-main",
+        "role-1",
+        4,
+        8
+    ));
+    assert!(!main_frame_navigation_needs_reconciliation(
+        &fences,
+        &tickets,
+        "role-main",
+        "role-1",
+        3,
+        8
+    ));
+    assert!(!main_frame_navigation_needs_reconciliation(
+        &fences,
+        &tickets,
+        "role-main",
+        "role-1",
+        4,
+        7
+    ));
 }
 
 #[test]
@@ -67,7 +127,7 @@ fn popup_close_removes_only_its_ticket_and_does_not_release_a_pending_main_page(
     let mut fence = test_role_input_fence(5, 9);
     fence.drained = true;
     fences.insert("role-1".to_owned(), fence);
-    update_navigation_input_fences(
+    update_main_frame_navigation_input_fences(
         &mut tickets,
         "role-main",
         "role-1",
@@ -75,7 +135,7 @@ fn popup_close_removes_only_its_ticket_and_does_not_release_a_pending_main_page(
         9,
         Some("main-old".to_owned()),
     );
-    update_navigation_input_fences(
+    update_main_frame_navigation_input_fences(
         &mut tickets,
         "role-popup",
         "role-1",
@@ -85,9 +145,13 @@ fn popup_close_removes_only_its_ticket_and_does_not_release_a_pending_main_page(
     );
 
     tickets.remove("role-popup");
-    assert!(!navigation_input_is_ready(&fences, &tickets, "role-1", 5));
-    mark_navigation_page_finished(&mut tickets, "role-main", "https");
-    assert!(navigation_input_is_ready(&fences, &tickets, "role-1", 5));
+    assert!(!main_frame_navigation_input_is_ready(
+        &fences, &tickets, "role-1", 5
+    ));
+    mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https");
+    assert!(main_frame_navigation_input_is_ready(
+        &fences, &tickets, "role-1", 5
+    ));
 }
 
 #[test]
@@ -98,7 +162,7 @@ fn a_drained_popup_close_fence_with_no_page_tickets_is_ready() {
     fence.drained = true;
     fences.insert("role-1".to_owned(), fence);
 
-    assert!(navigation_input_is_ready(
+    assert!(main_frame_navigation_input_is_ready(
         &fences,
         &HashMap::new(),
         "role-1",

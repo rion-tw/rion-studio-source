@@ -123,7 +123,7 @@ impl SystemRuntimeExecutor {
             {
                 state
                     .runtime
-                    .finish_navigation_page(&webview, payload.url());
+                    .finish_main_frame_navigation_page(&webview, payload.url());
             }
         });
         let bounds = role_bounds_for_content(runtime_window_content_metrics(&window)?, &rect);
@@ -161,7 +161,6 @@ impl SystemRuntimeExecutor {
             // The replacement remains about:blank until the old native surface is gone.
             webview.hide().map_err(RuntimeError::tauri)?;
             install_platform_security_policy(&webview)?;
-            install_document_navigation_macro_release_handler(&webview, self.app.clone(), role_id)?;
             install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
             install_process_failure_monitor(
                 &webview,

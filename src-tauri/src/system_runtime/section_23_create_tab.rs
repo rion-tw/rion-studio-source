@@ -254,7 +254,7 @@ impl SystemRuntimeExecutor {
                     {
                         state
                             .runtime
-                            .finish_navigation_page(&webview, payload.url());
+                            .finish_main_frame_navigation_page(&webview, payload.url());
                     }
                 });
                 // The normalized role rectangle is sufficient for the first frame. Exact gap,

@@ -353,15 +353,6 @@ fn high_refresh_rate_status_label(status: HighRefreshRateDiagnosticStatus) -> &'
     }
 }
 
-#[cfg(not(windows))]
-fn install_document_navigation_macro_release_handler(
-    _webview: &Webview,
-    _app: AppHandle,
-    _role_id: &str,
-) -> RuntimeResult<()> {
-    Ok(())
-}
-
 #[cfg(any(windows, test))]
 fn windows_shortcut_modifier_codes(
     left_control: bool,

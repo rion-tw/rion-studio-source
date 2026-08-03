@@ -492,8 +492,6 @@ export function App(): JSX.Element {
               element={hasBridge ? <GamesRoute
                 games={data.games}
                 isDeleting={gameWorkflow.isDeletingGames}
-                roles={data.roles}
-                statusByRole={data.statusByRole}
                 t={preferences.t}
                 onDelete={(game) => void gameWorkflow.deleteGame(game)}
                 onDeleteMany={gameWorkflow.deleteGames}

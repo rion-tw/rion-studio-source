@@ -47,8 +47,6 @@ describe("games cover UI", () => {
     const { container } = render(
       <GamesRoute
         games={[covered, uncovered]}
-        roles={[]}
-        statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}
@@ -70,6 +68,8 @@ describe("games cover UI", () => {
     expect(coveredCard?.querySelector("[class*='group-hover:pointer-events-auto']")).toBeTruthy();
     expect(uncoveredCard?.querySelector(".aspect-video img")).toBeNull();
     expect(container.querySelectorAll(".aspect-video")).toHaveLength(2);
+    expect(screen.queryByText("Roles")).toBeNull();
+    expect(screen.queryByText("Running")).toBeNull();
 
     await user.click(screen.getByText("Covered"));
     expect(onEdit).toHaveBeenCalledWith(covered);

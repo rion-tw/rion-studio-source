@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +13,16 @@ import type { EmbeddedRuntimeState, GameWindow } from "../src/shared/types";
 const t: Translator = (key) => en[key] ?? key;
 
 beforeAll(() => {
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    close: {
+      configurable: true,
+      value: function close(this: HTMLDialogElement): void { this.removeAttribute("open"); }
+    },
+    showModal: {
+      configurable: true,
+      value: function showModal(this: HTMLDialogElement): void { this.setAttribute("open", ""); }
+    }
+  });
   if (!("PointerEvent" in window)) {
     Object.defineProperty(window, "PointerEvent", {
       configurable: true,
@@ -49,6 +59,51 @@ describe("Game Window management", () => {
     expect(within(table).getByRole("columnheader", { name: "Actions" })).toBeTruthy();
     expect(within(table).getByText("Raid window")).toBeTruthy();
     expect(within(table).getByText("Active: Mina")).toBeTruthy();
+  });
+
+  it("applies the shared bulk selection UI to game window rows", async () => {
+    const user = userEvent.setup();
+    const showGameWindow = vi.fn(() => Promise.resolve());
+    const hideGameWindow = vi.fn(() => Promise.resolve());
+    const stopGameWindow = vi.fn(() => Promise.resolve());
+    const deleteGameWindow = vi.fn(() => Promise.resolve());
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        showGameWindow,
+        hideGameWindow,
+        stopGameWindow,
+        deleteGameWindow
+      }
+    });
+    const secondWindow = { ...emptyGameWindow, id: "window-2", name: "Social window" };
+
+    renderRoute({ gameWindows: [gameWindow, secondWindow] });
+
+    await user.click(screen.getByText("Raid window").closest("tr")!);
+    fireEvent.click(screen.getByText("Social window").closest("tr")!, { ctrlKey: true });
+
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(document.querySelectorAll("[data-selection-id]")).toHaveLength(2);
+    expect(document.querySelector("[data-selection-group-outline]")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show 2" }));
+    await waitFor(() => expect(showGameWindow).toHaveBeenNthCalledWith(2, "window-2"));
+
+    await user.click(screen.getByRole("button", { name: "Hide 1" }));
+    await waitFor(() => expect(hideGameWindow).toHaveBeenCalledWith("window-1"));
+
+    await user.click(screen.getByRole("button", { name: "Stop 1" }));
+    await waitFor(() => expect(stopGameWindow).toHaveBeenCalledWith("window-1"));
+
+    await user.click(screen.getByRole("button", { name: "Delete 2" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete 2 windows?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteGameWindow).toHaveBeenNthCalledWith(2, "window-2"));
+    expect(screen.queryByRole("toolbar")).toBeNull();
   });
 
   it("keeps window management in the list and delegates tab management to the shown window", async () => {
@@ -93,11 +148,13 @@ describe("Game Window management", () => {
     }));
 
     await user.click(screen.getByRole("button", { name: "Show" }));
-    await user.click(screen.getByRole("button", { name: "Game window actions" }));
+    const actionsButton = screen.getByRole("button", { name: "Game window actions" });
+    await waitFor(() => expect(actionsButton).toHaveProperty("disabled", false));
+    await user.click(actionsButton);
     await user.click(screen.getByRole("menuitem", { name: "Hide window" }));
 
-    expect(showGameWindow).toHaveBeenCalledWith("window-1");
-    expect(hideGameWindow).toHaveBeenCalledWith("window-1");
+    await waitFor(() => expect(showGameWindow).toHaveBeenCalledWith("window-1"));
+    await waitFor(() => expect(hideGameWindow).toHaveBeenCalledWith("window-1"));
     expect(screen.queryByRole("button", { name: "Move tab up" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Move tab down" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Close tab" })).toBeNull();

@@ -24,12 +24,10 @@ import { Card } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { useListSelection } from "../../hooks/useListSelection";
-import type { Game, Role, RoleStatus } from "../../../../shared/types";
+import type { Game } from "../../../../shared/types";
 
 interface GamesRouteProps {
   games: Game[];
-  roles: Role[];
-  statusByRole: Map<string, RoleStatus>;
   t: Translator;
   isDeleting?: boolean;
   onDelete: (game: Game) => void;
@@ -41,8 +39,6 @@ interface GamesRouteProps {
 
 function GamesRoute({
   games,
-  roles,
-  statusByRole,
   t,
   isDeleting = false,
   onDelete,
@@ -100,8 +96,6 @@ function GamesRoute({
       ) : (
         <div className="collection-grid collection-grid-games auto-rows-fr gap-3">
           {filteredGames.map((game) => {
-            const gameRoles = roles.filter((role) => role.gameId === game.id);
-            const running = gameRoles.filter((role) => statusByRole.has(role.id)).length;
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
             return (
@@ -134,7 +128,7 @@ function GamesRoute({
                       </div>
                     )}
                   </div>
-                  <div className="flex min-w-0 items-center gap-3 px-4 pt-4">
+                  <div className="flex min-w-0 items-center gap-3 px-4 py-4">
                     <div className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
                       {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" /> : <Gamepad2 size={20} />}
                     </div>
@@ -155,12 +149,6 @@ function GamesRoute({
                     onEdit={() => onEdit(game)}
                     onNewRole={() => onNewRole(game.id)}
                   />
-                </div>
-                <div className="p-4 pt-3">
-                  <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                    <Metric label={t("games.roles")} value={gameRoles.length} />
-                    <Metric label={t("games.running")} value={running} />
-                  </div>
                 </div>
               </Card>
             );
@@ -260,10 +248,6 @@ function GameActionMenu({
       ) : null}
     </div>
   );
-}
-
-function Metric({ label, value }: { label: string; value: number }): JSX.Element {
-  return <div className="rounded-sm bg-muted/55 px-2 py-2"><p className="font-semibold">{value}</p><p className="truncate text-micro text-muted-foreground">{label}</p></div>;
 }
 
 export default GamesRoute;

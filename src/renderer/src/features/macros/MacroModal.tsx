@@ -480,33 +480,33 @@ function MacroForm({
                 </div>
               </FormField>
             </Surface>
-          </div>
 
-          <div className="editor-layout-macro-help grid gap-4" data-macro-help-list>
-            <HelpPanel data-macro-help="activation">
-              <MacroHelpSection title={t("macroForm.help.activationTitle")}>
-                <li>{t("macroForm.help.activationRoles")}</li>
-                <li>{t("macroForm.help.activationModes")}</li>
-                <li>{t("macroForm.help.activationRepeat")}</li>
-              </MacroHelpSection>
-            </HelpPanel>
+            <div className="editor-layout-macro-help grid gap-4" data-macro-help-list>
+              <HelpPanel data-macro-help="activation">
+                <MacroHelpSection title={t("macroForm.help.activationTitle")}>
+                  <li>{t("macroForm.help.activationRoles")}</li>
+                  <li>{t("macroForm.help.activationModes")}</li>
+                  <li>{t("macroForm.help.activationRepeat")}</li>
+                </MacroHelpSection>
+              </HelpPanel>
 
-            <HelpPanel data-macro-help="calls">
-              <MacroHelpSection title={t("macroForm.help.callsTitle")}>
-                <li>{t("macroForm.help.callsRequirements")}</li>
-                <li>{t("macroForm.help.callsWait")}</li>
-                <li>{t("macroForm.help.callsTrigger")}</li>
-                <li>{t("macroForm.help.callsDuplicate")}</li>
-              </MacroHelpSection>
-            </HelpPanel>
+              <HelpPanel data-macro-help="calls">
+                <MacroHelpSection title={t("macroForm.help.callsTitle")}>
+                  <li>{t("macroForm.help.callsRequirements")}</li>
+                  <li>{t("macroForm.help.callsWait")}</li>
+                  <li>{t("macroForm.help.callsTrigger")}</li>
+                  <li>{t("macroForm.help.callsDuplicate")}</li>
+                </MacroHelpSection>
+              </HelpPanel>
 
-            <HelpPanel data-macro-help="stop">
-              <MacroHelpSection title={t("macroForm.help.stopTitle")}>
-                <li>{t("macroForm.help.stopRun")}</li>
-                <li>{t("macroForm.help.stopChild")}</li>
-                <li>{t("macroForm.help.stopRole")}</li>
-              </MacroHelpSection>
-            </HelpPanel>
+              <HelpPanel data-macro-help="stop">
+                <MacroHelpSection title={t("macroForm.help.stopTitle")}>
+                  <li>{t("macroForm.help.stopRun")}</li>
+                  <li>{t("macroForm.help.stopChild")}</li>
+                  <li>{t("macroForm.help.stopRole")}</li>
+                </MacroHelpSection>
+              </HelpPanel>
+            </div>
           </div>
 
           <MacroCommandImportDialog

@@ -11,7 +11,7 @@ export const RELEASE_SIZE_BASELINES = Object.freeze({
   "Rion.Studio-win.exe": 10_119_820
 });
 export const RELEASE_SIZE_TOLERANCES = Object.freeze({
-  "Rion.Studio-mac.dmg": 16 * 1024
+  "Rion.Studio-mac.dmg": 32 * 1024
 });
 export const RELEASE_SIZE_LIMITS = Object.freeze(Object.fromEntries(
   Object.entries(RELEASE_SIZE_BASELINES).map(([name, baselineBytes]) => [

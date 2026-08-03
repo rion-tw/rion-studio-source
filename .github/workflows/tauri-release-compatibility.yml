@@ -129,36 +129,27 @@ jobs:
           Invoke-BoundedProcess -FilePath $previousInstaller -ArgumentList @("/S", "/D=$installPath") -Stage "Previous Tauri NSIS installation"
           $previousExecutable = Join-Path $installPath "rion-tauri.exe"
           if (-not (Test-Path $previousExecutable -PathType Leaf)) { throw "Previous Tauri installation did not create the executable." }
-          $previousApp = Start-Process -FilePath $previousExecutable -PassThru
-          for ($attempt = 0; $attempt -lt 30 -and -not (Test-Path (Join-Path $userData "rion-studio.sqlite3")); $attempt += 1) { Start-Sleep -Seconds 1 }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Previous Tauri release did not create the SQLite store." }
-          if (-not $previousApp.HasExited) { Stop-Process -Id $previousApp.Id -Force }
+          $stateStore = Join-Path $userData "rion-studio.sqlite3"
+          $stateSentinel = "preserve-sqlite-store"
+          Set-Content -NoNewline -Path $stateStore -Value $stateSentinel
           New-Item -ItemType Directory -Force -Path (Join-Path $userData "roles/upgrade/browser") | Out-Null
-          Set-Content -NoNewline -Path (Join-Path $userData "roles/upgrade/browser/data.marker") -Value "preserve-browser-data"
+          $roleMarker = Join-Path $userData "roles/upgrade/browser/data.marker"
+          $roleSentinel = "preserve-browser-data"
+          Set-Content -NoNewline -Path $roleMarker -Value $roleSentinel
 
-          # Start-Process -Wait waits for the whole descendant tree. --force-run launches
-          # the app as an installer descendant, so wait only for the installer process.
-          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "--updated", "--force-run", "/D=$installPath") -Stage "Tauri in-place NSIS upgrade"
+          # Release validation exercises the installer only. GitHub-hosted Windows runners
+          # do not provide an interactive desktop session for starting a System WebView app.
+          Invoke-BoundedProcess -FilePath $installer -ArgumentList @("/S", "--updated", "/D=$installPath") -Stage "Tauri in-place NSIS upgrade"
           $installedExecutable = Join-Path $installPath "rion-tauri.exe"
           if (-not (Test-Path $installedExecutable -PathType Leaf)) { throw "The Tauri executable was not installed to the custom path." }
-
-          $launched = $null
-          for ($attempt = 0; $attempt -lt 30 -and $null -eq $launched; $attempt += 1) {
-            Start-Sleep -Seconds 1
-            $launched = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $installedExecutable } | Select-Object -First 1
-          }
-          if ($null -eq $launched) { throw "--force-run did not launch the installed Tauri executable." }
-          for ($attempt = 0; $attempt -lt 30 -and -not (Test-Path (Join-Path $userData "rion-studio.sqlite3")); $attempt += 1) {
-            Start-Sleep -Seconds 1
-          }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "The upgraded app did not preserve the SQLite store." }
-          Stop-Process -Id $launched.ProcessId -Force
+          if ((Get-Content -Raw -Path $stateStore) -ne $stateSentinel) { throw "The in-place upgrade modified the SQLite store." }
+          if ((Get-Content -Raw -Path $roleMarker) -ne $roleSentinel) { throw "The in-place upgrade modified role browser data." }
 
           $uninstaller = Get-ChildItem $installPath -Filter "*uninstall*.exe" | Select-Object -First 1
           if ($null -eq $uninstaller) { throw "The upgraded installation did not create an uninstaller." }
           Invoke-BoundedProcess -FilePath $uninstaller.FullName -ArgumentList "/S" -Stage "Upgraded NSIS uninstallation"
-          if (-not (Test-Path (Join-Path $userData "roles/upgrade/browser/data.marker") -PathType Leaf)) { throw "Uninstallation removed role browser data." }
-          if (-not (Test-Path (Join-Path $userData "rion-studio.sqlite3") -PathType Leaf)) { throw "Uninstallation removed the SQLite store." }
+          if ((Get-Content -Raw -Path $roleMarker) -ne $roleSentinel) { throw "Uninstallation modified role browser data." }
+          if ((Get-Content -Raw -Path $stateStore) -ne $stateSentinel) { throw "Uninstallation modified the SQLite store." }
 
   release-ready:
     needs:

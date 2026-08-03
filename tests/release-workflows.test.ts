@@ -198,7 +198,10 @@ describe("Tauri-only release workflows", () => {
     expect(compatibilityWorkflow).toContain("PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio");
     expect(compatibility).toContain("Verify macOS manual replacement preserves shared data");
     expect(compatibility).toContain("Verify Windows clean install and previous Tauri in-place upgrade");
-    expect(compatibility).toContain('@("/S", "--updated", "--force-run", "/D=$installPath")');
+    expect(compatibility).toContain('@("/S", "--updated", "/D=$installPath")');
+    expect(compatibility).not.toContain("--force-run");
+    expect(compatibility).not.toContain("Start-Process -FilePath $previousExecutable");
+    expect(compatibility).not.toContain("Get-CimInstance Win32_Process");
     expect(compatibility).toContain(
       'gh release download --repo "${PUBLIC_RELEASE_REPOSITORY}" --pattern Rion.Studio-mac.dmg'
     );
@@ -261,6 +264,8 @@ describe("Tauri-only release workflows", () => {
     expect(build.indexOf("Verify release size budgets"))
       .toBeLessThan(build.indexOf("Upload verified platform candidate"));
     expect(compatibilityWorkflow).toContain("rion-studio.sqlite3");
+    expect(compatibilityWorkflow).toContain("preserve-sqlite-store");
+    expect(compatibilityWorkflow).toContain("The in-place upgrade modified the SQLite store.");
     expect(compatibilityWorkflow).toContain("roles/upgrade/browser/data.marker");
     expect(buildWorkflow.toLowerCase()).not.toContain("electron");
     expect(compatibilityWorkflow.toLowerCase()).not.toContain("electron");

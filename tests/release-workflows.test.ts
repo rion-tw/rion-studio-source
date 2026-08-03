@@ -22,7 +22,15 @@ describe("Tauri-only release workflows", () => {
     const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
     const checks = workflow.slice(
       workflow.indexOf("  checks:"),
+      workflow.indexOf("  renderer-assets:")
+    );
+    const rendererAssets = workflow.slice(
+      workflow.indexOf("  renderer-assets:"),
       workflow.indexOf("  rust-concurrency-sanitizer:")
+    );
+    const sanitizer = workflow.slice(
+      workflow.indexOf("  rust-concurrency-sanitizer:"),
+      workflow.indexOf("  platform-build:")
     );
     const platformChecks = workflow.slice(workflow.indexOf("  platform-build:"));
 
@@ -34,15 +42,21 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("pnpm run lint");
     expect(checks).toContain("pnpm run lint:rust:portable");
     expect(checks).toContain("pnpm run test:rust:portable");
-    expect(checks).toContain("pnpm run build:renderer");
-    expect(checks).toContain(
-      "name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}"
-    );
-    expect(checks).toContain("path: out/renderer");
+    expect(checks).not.toContain("needs:");
+    expect(checks).not.toContain("pnpm run build:renderer");
+    expect(checks).not.toContain("renderer-assets-");
     expect(checks).not.toContain("Install Linux Tauri build dependencies");
     expect(checks).not.toContain("run: pnpm run lint:rust\n");
     expect(checks).not.toContain("run: pnpm run test:rust\n");
     expect(checks).not.toContain("run: pnpm run build\n");
+    expect(rendererAssets).toContain("pnpm install --frozen-lockfile");
+    expect(rendererAssets).toContain("pnpm run build:renderer");
+    expect(rendererAssets).toContain(
+      "name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}"
+    );
+    expect(rendererAssets).toContain("path: out/renderer");
+    expect(rendererAssets).not.toContain("needs:");
+    expect(sanitizer).not.toContain("needs:");
     expect(platformChecks).toContain("pnpm run lint:rust");
     expect(platformChecks).toContain("pnpm run test:rust");
     expect(platformChecks).toContain("actions/download-artifact@");
@@ -75,9 +89,11 @@ describe("Tauri-only release workflows", () => {
     expect(windowsTestResource).toContain(
       'CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "windows-app-manifest.xml"'
     );
-    expect(checks.indexOf("pnpm run build:renderer")).toBeLessThan(
-      checks.indexOf("Upload renderer assets for platform checks")
+    expect(rendererAssets.indexOf("pnpm run build:renderer")).toBeLessThan(
+      rendererAssets.indexOf("Upload renderer assets for platform checks")
     );
+    expect(platformChecks).toContain("needs: renderer-assets");
+    expect(platformChecks).not.toContain("needs: checks");
     expect(platformChecks.indexOf("Download renderer assets for platform checks")).toBeLessThan(
       platformChecks.indexOf("pnpm run lint:rust")
     );

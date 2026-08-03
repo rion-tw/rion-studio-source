@@ -72,6 +72,8 @@ fn export_bindings_index() {
                 "export type { SystemRuntimeInputFenceEventRecord } from \"./SystemRuntimeInputFenceEventRecord\";\n",
                 "export type { SystemRuntimeInputFenceRecord } from \"./SystemRuntimeInputFenceRecord\";\n",
                 "export type { SystemRuntimeOperationSummaryRecord } from \"./SystemRuntimeOperationSummaryRecord\";\n",
+                "export type { RuntimeTabActivationRequestRecord } from \"./RuntimeTabActivationRequestRecord\";\n",
+                "export type { RuntimeTabActivationAcknowledgementRecord } from \"./RuntimeTabActivationAcknowledgementRecord\";\n",
                 "export type { DisplayTopologySnapshotRecord } from \"./DisplayTopologySnapshotRecord\";\n",
                 "export type { NativeWindowStateRecord } from \"./NativeWindowStateRecord\";\n",
                 "export type { ApplicationLifecycleStatusRecord } from \"./ApplicationLifecycleStatusRecord\";\n",

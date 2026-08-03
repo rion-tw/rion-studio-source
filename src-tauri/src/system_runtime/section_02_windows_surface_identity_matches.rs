@@ -505,6 +505,9 @@ struct PresentationRegistry {
     #[cfg(windows)]
     tab_chrome_acknowledgements: Mutex<HashMap<String, u64>>,
     #[cfg(windows)]
+    tab_activation_acknowledgements:
+        Mutex<HashMap<String, RuntimeTabActivationAcknowledgementRecord>>,
+    #[cfg(windows)]
     tab_chrome_changed: Condvar,
     windows: Mutex<HashMap<String, Arc<Mutex<WindowPresentationState>>>>,
 }

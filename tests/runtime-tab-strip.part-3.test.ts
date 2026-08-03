@@ -224,6 +224,107 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
+  it("acknowledges the exact active tab and ignores stale activation revisions", () => {
+    window.__rionEnsureRuntimeTab?.({ id: "tab-2", name: "Second", type: "role" });
+    window.__rionEnsureRuntimeTab?.({ id: "tab-3", name: "Third", type: "role" });
+    invoke.mockClear();
+    window.__rionApplyRuntimeTabActivation?.({
+      lifecycleEpoch: 7,
+      mode: "optimistic",
+      operationId: "activation-100",
+      orderedTabIds: ["tab-1", "tab-2", "tab-3"],
+      revision: 100,
+      targetTabId: "tab-2",
+      windowGeneration: 3,
+      windowId: "window-1"
+    });
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')?.classList.contains("active")).toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("rion_runtime_tab_action", {
+      action: {
+        type: "tabActivationApplied",
+        acknowledgement: {
+          observedActiveTabId: "tab-2",
+          operationId: "activation-100",
+          revision: 100,
+          status: "applied",
+          targetTabId: "tab-2"
+        }
+      }
+    });
+
+    invoke.mockClear();
+    window.__rionApplyRuntimeTabActivation?.({
+      lifecycleEpoch: 7,
+      mode: "reconcile",
+      operationId: "activation-99",
+      orderedTabIds: ["tab-1", "tab-2", "tab-3"],
+      revision: 99,
+      targetTabId: "tab-1",
+      windowGeneration: 3,
+      windowId: "window-1"
+    });
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')?.classList.contains("active")).toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("rion_runtime_tab_action", {
+      action: {
+        type: "tabActivationApplied",
+        acknowledgement: {
+          observedActiveTabId: "tab-2",
+          operationId: "activation-99",
+          revision: 99,
+          status: "superseded",
+          targetTabId: "tab-1"
+        }
+      }
+    });
+  });
+
+  it("defers activation until chrome is ready and reconciles the authoritative order", () => {
+    window.__rionEnsureRuntimeTab?.({ id: "tab-2", name: "Second", type: "role" });
+    window.__rionEnsureRuntimeTab?.({ id: "tab-3", name: "Third", type: "role" });
+    window.__rionRuntimeTabChromeReady = false;
+    window.__rionPendingRuntimeTabActivations = [];
+    invoke.mockClear();
+    const request = {
+      lifecycleEpoch: 7,
+      mode: "reconcile" as const,
+      operationId: "activation-200",
+      orderedTabIds: ["tab-3", "tab-2", "tab-1"],
+      revision: 200,
+      targetTabId: "tab-3",
+      windowGeneration: 3,
+      windowId: "window-1"
+    };
+
+    window.__rionApplyRuntimeTabActivation?.(request);
+    expect(window.__rionPendingRuntimeTabActivations).toEqual([request]);
+    expect(invoke).not.toHaveBeenCalled();
+
+    window.__rionRuntimeTabChromeReady = true;
+    for (const pending of window.__rionPendingRuntimeTabActivations ?? []) {
+      window.__rionApplyRuntimeTabActivation?.(pending);
+    }
+    window.__rionPendingRuntimeTabActivations = [];
+
+    expect(Array.from(document.querySelectorAll(".tab")).map((tab) =>
+      (tab as HTMLElement).dataset.tabId
+    )).toEqual(["tab-3", "tab-2", "tab-1"]);
+    expect(document.querySelector('[data-tab-id="tab-3"]')?.classList.contains("active")).toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("rion_runtime_tab_action", {
+      action: {
+        type: "tabActivationApplied",
+        acknowledgement: {
+          observedActiveTabId: "tab-3",
+          operationId: "activation-200",
+          revision: 200,
+          status: "applied",
+          targetTabId: "tab-3"
+        }
+      }
+    });
+  });
+
 it("reports an asynchronous indeterminate drag receipt without dispatching another cancel", async () => {
     const listener = eventListeners.get("rion://runtime-tab-drag-session");
     expect(listener).toBeTypeOf("function");

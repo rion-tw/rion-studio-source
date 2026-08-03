@@ -39,6 +39,10 @@ use rion_core::{
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
+#[cfg(windows)]
+use rion_core::{
+    RuntimeTabActivationAcknowledgementRecord, RuntimeTabActivationRequestRecord,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -383,8 +387,12 @@ const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
 #[cfg(windows)]
 const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
 (() => {
+  globalThis.__rionPendingRuntimeTabActivations ??= [];
   globalThis.__rionPendingRuntimeTabChromeMutations ??= [];
   globalThis.__rionRuntimeTabChromeReady ??= false;
+  globalThis.__rionApplyRuntimeTabActivation ??= (request) => {
+    globalThis.__rionPendingRuntimeTabActivations.push(request);
+  };
   globalThis.__rionApplyRuntimeTabChromeMutation ??= (revision, mutation) => {
     if (!globalThis.__rionRuntimeTabChromeReady) {
       globalThis.__rionPendingRuntimeTabChromeMutations.push({ mutation, revision });

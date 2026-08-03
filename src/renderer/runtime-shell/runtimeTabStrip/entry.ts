@@ -7,7 +7,10 @@ import { applicationShortcutForKeyEvent } from "../../../shared/applicationShort
 
 import type { RuntimeTabStripState } from "../../../shared/runtimeTabs";
 
-import type { RuntimeTabActivationAcknowledgementRecord } from "../../../shared/generated";
+import type {
+  RuntimeTabActivationAcknowledgementRecord,
+  RuntimeTabChromeProjectionRecord
+} from "../../../shared/generated";
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
@@ -16,6 +19,12 @@ import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearD
 import type { RuntimeTabModel } from "../runtimeTabStrip";
 
 import { animateReorderedTabs, optimisticallyActivateTab, previewDragPosition, rememberDragInsertion, resolveStableDragInsertion, scheduleDragHover } from "./drag";
+
+import {
+  acknowledgeChromeProjection,
+  announceChromeReady,
+  stateFromChromeProjection
+} from "./chromeProjection";
 
 function createTabButton(tabId: string): HTMLButtonElement {
   const button = document.createElement("button");
@@ -87,11 +96,12 @@ function patchTabButton(
   syncCloseControlState(button);
 }
 
-function render(state: RuntimeTabStripState): void {
+function render(state: RuntimeTabStripState, authoritative = false): void {
   const revision = ++runtimeState.renderRevision;
   const previousScrollLeft = root.scrollLeft;
   const labels = runtimeTabStripLabels(state.language);
   runtimeState.current = state;
+  if (authoritative) runtimeState.optimisticActiveTabId = undefined;
   document.documentElement.lang = state.language;
   document.documentElement.dataset.theme = state.resolvedTheme;
   document.documentElement.style.colorScheme = state.resolvedTheme;
@@ -129,6 +139,44 @@ function render(state: RuntimeTabStripState): void {
   scrollRightButton.ariaLabel = labels.scrollRight;
   scrollLeftButton.title = scrollLeftButton.ariaLabel;
   scrollRightButton.title = scrollRightButton.ariaLabel;
+}
+
+function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): void {
+  if (projection.rendererInstanceId !== runtimeState.rendererInstanceId
+    || projection.projectionRevision < runtimeState.projectionRevision) return;
+  runtimeState.projectionRevision = projection.projectionRevision;
+  runtimeState.chromeHydrated = true;
+  render(stateFromChromeProjection(projection), true);
+  applyRuntimeTabOrder(projection.tabOrder, false);
+  if (projection.activeTabId) optimisticallyActivateTab(projection.activeTabId);
+  else window.__rionSetActiveRuntimeTab?.();
+  acknowledgeChromeProjection(
+    projection,
+    runtimeState.rendererInstanceId,
+    tabElements()
+  );
+
+  const activations = window.__rionPendingRuntimeTabActivations ?? [];
+  window.__rionPendingRuntimeTabActivations = [];
+  for (const request of activations) window.__rionApplyRuntimeTabActivation?.(request);
+
+  const mutations = window.__rionPendingRuntimeTabChromeMutations ?? [];
+  window.__rionPendingRuntimeTabChromeMutations = [];
+  for (const pending of mutations) {
+    if (pending.revision > projection.projectionRevision) {
+      window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);
+    }
+  }
+
+  for (const tab of window.__rionPendingRuntimeTabEnsures ?? []) {
+    window.__rionEnsureRuntimeTab?.(tab);
+  }
+  window.__rionPendingRuntimeTabEnsures = [];
+  for (const tab of window.__rionPendingRuntimeTabs ?? []) {
+    window.__rionReserveRuntimeTab?.(tab);
+  }
+  window.__rionPendingRuntimeTabs = [];
+  window.__rionPendingRuntimeTabOrder = [];
 }
 
 function reconcileTabButtons(
@@ -388,7 +436,7 @@ function cancelActiveTabDrag(): void {
 
 export function installRuntimeTabStrip(): void {
   window.__rionApplyRuntimeTabActivation = (request) => {
-    if (!window.__rionRuntimeTabChromeReady) {
+    if (!window.__rionRuntimeTabChromeReady || !runtimeState.chromeHydrated) {
       window.__rionPendingRuntimeTabActivations ??= [];
       window.__rionPendingRuntimeTabActivations.push(request);
       return;
@@ -420,7 +468,7 @@ export function installRuntimeTabStrip(): void {
   };
 
   window.__rionApplyRuntimeTabChromeMutation = (revision, mutation) => {
-    if (!window.__rionRuntimeTabChromeReady) {
+    if (!window.__rionRuntimeTabChromeReady || !runtimeState.chromeHydrated) {
       window.__rionPendingRuntimeTabChromeMutations ??= [];
       window.__rionPendingRuntimeTabChromeMutations.push({ mutation, revision });
       return;
@@ -431,7 +479,11 @@ export function installRuntimeTabStrip(): void {
     }).catch(() => undefined);
   };
 
-  window.__rionApplyRuntimeTabState = render;
+  window.__rionApplyRuntimeTabState = (state) => {
+    runtimeState.chromeHydrated = true;
+    render(state, true);
+  };
+  window.__rionApplyRuntimeTabChromeProjection = applyChromeProjection;
 
   window.__rionEnsureRuntimeTab = (tab) => {
     const labels = runtimeTabStripLabels(runtimeState.current?.language ?? "en");
@@ -551,34 +603,10 @@ export function installRuntimeTabStrip(): void {
   };
 
   window.__rionRuntimeTabChromeReady = true;
-
-  for (const request of window.__rionPendingRuntimeTabActivations ?? []) {
-    window.__rionApplyRuntimeTabActivation(request);
-  }
-
-  window.__rionPendingRuntimeTabActivations = [];
-
-  for (const pending of window.__rionPendingRuntimeTabChromeMutations ?? []) {
-    window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);
-  }
-
-  window.__rionPendingRuntimeTabChromeMutations = [];
-
-  for (const tab of window.__rionPendingRuntimeTabEnsures ?? []) {
-    window.__rionEnsureRuntimeTab(tab);
-  }
-
-  window.__rionPendingRuntimeTabEnsures = [];
-
-  for (const tab of window.__rionPendingRuntimeTabs ?? []) {
-    window.__rionReserveRuntimeTab(tab);
-  }
-
-  window.__rionPendingRuntimeTabs = [];
-
-  window.__rionReorderRuntimeTabs(window.__rionPendingRuntimeTabOrder ?? []);
-
-  window.__rionPendingRuntimeTabOrder = [];
+  announceChromeReady(
+    runtimeState.rendererInstanceId,
+    window.__rionRuntimeTabChromeIdentity
+  );
 
   document.body.addEventListener("pointerenter", () => {
     if (runtimeState.current?.fullscreen && !runtimeState.current.alwaysShowToolbarInFullScreen) {

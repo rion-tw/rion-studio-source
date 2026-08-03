@@ -682,6 +682,8 @@ pub struct SystemRuntimeExecutor {
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
     tab_activations: Arc<TabActivationCoordinator>,
+    #[cfg(windows)]
+    tab_chrome_projections: Arc<TabChromeProjectionCoordinator>,
     prewarm_state: AtomicU8,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,

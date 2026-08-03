@@ -242,6 +242,8 @@ impl SystemRuntimeExecutor {
         self.sync_native_tab_metadata(&snapshot);
         #[cfg(windows)]
         self.sync_windows_tab_metadata(&snapshot);
+        #[cfg(windows)]
+        self.sync_windows_tab_chrome_projections(&snapshot);
         self.publish_launcher_presence();
         let _ = self
             .app

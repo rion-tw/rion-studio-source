@@ -111,6 +111,57 @@ async fn rion_runtime_tab_action(
             )
         })?;
     #[cfg(windows)]
+    if action.get("type").and_then(Value::as_str) == Some("tabChromeReady") {
+        let ready = action
+            .get("ready")
+            .cloned()
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_CHROME_READY_INVALID",
+                    "The runtime tab chrome ready identity is required.",
+                )
+            })
+            .and_then(|value| {
+                serde_json::from_value::<rion_core::RuntimeTabChromeReadyRecord>(value)
+                    .map_err(|error| {
+                        shell_error("TAURI_RUNTIME_CHROME_READY_INVALID", error.to_string())
+                    })
+            })?;
+        state
+            .runtime
+            .register_tab_chrome_renderer(webview.label(), ready)
+            .map_err(|message| shell_error("TAURI_RUNTIME_CHROME_READY_INVALID", message))?;
+        return Ok(Value::Null);
+    }
+    #[cfg(windows)]
+    if action.get("type").and_then(Value::as_str) == Some("tabChromeProjectionApplied") {
+        let acknowledgement = action
+            .get("acknowledgement")
+            .cloned()
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_CHROME_PROJECTION_ACK_INVALID",
+                    "The runtime tab chrome projection acknowledgement is required.",
+                )
+            })
+            .and_then(|value| {
+                serde_json::from_value::<rion_core::RuntimeTabChromeAcknowledgementRecord>(value)
+                    .map_err(|error| {
+                        shell_error(
+                            "TAURI_RUNTIME_CHROME_PROJECTION_ACK_INVALID",
+                            error.to_string(),
+                        )
+                    })
+            })?;
+        state
+            .runtime
+            .acknowledge_tab_chrome_projection(webview.label(), acknowledgement)
+            .map_err(|message| {
+                shell_error("TAURI_RUNTIME_CHROME_PROJECTION_ACK_INVALID", message)
+            })?;
+        return Ok(Value::Null);
+    }
+    #[cfg(windows)]
     if action.get("type").and_then(Value::as_str) == Some("tabActivationApplied") {
         let acknowledgement = action
             .get("acknowledgement")

@@ -426,6 +426,9 @@ impl SystemRuntimeExecutor {
             let _ = window.close();
             return Err(error);
         }
+        let window_generation = WINDOW_GENERATION_SEQUENCE
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
         #[cfg(target_os = "macos")]
         let tabs_controller = match crate::runtime_tabs_macos::MacRuntimeTabsController::create(
             &self.app,
@@ -443,6 +446,13 @@ impl SystemRuntimeExecutor {
             .set_window_name(saved_name.as_deref())
             .map_err(|message| RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message))?;
         #[cfg(windows)]
+        let tab_initialization_script = windows_runtime_tab_initialization_script(
+            &target.window_id,
+            window_generation,
+            self.lifecycle_epoch(),
+        )
+        .map_err(RuntimeError::tauri)?;
+        #[cfg(windows)]
         let tab_strip = match self.add_child_bounded(
             &window,
             WebviewBuilder::new(
@@ -450,7 +460,7 @@ impl SystemRuntimeExecutor {
                 WebviewUrl::App("runtime-tabs.html".into()),
             )
             .disable_drag_drop_handler()
-            .initialization_script(WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT),
+            .initialization_script(&tab_initialization_script),
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(target.bounds.width.max(1) as f64, WINDOWS_TAB_STRIP_HEIGHT),
             &format!("{}:tab-strip", target.window_id),
@@ -473,9 +483,7 @@ impl SystemRuntimeExecutor {
         state.display_hosts.insert(
             target.window_id.clone(),
             RuntimeDisplayHost {
-                generation: WINDOW_GENERATION_SEQUENCE
-                    .fetch_add(1, Ordering::AcqRel)
-                    .saturating_add(1),
+                generation: window_generation,
                 target: target.clone(),
                 window: window.clone(),
                 zoom_factor: 1.0,

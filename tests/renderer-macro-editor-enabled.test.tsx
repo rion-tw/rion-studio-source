@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -637,8 +638,10 @@ it("stores multiple selected modifiers from the modifier menu in canonical order
     })));
   });
 
-it("uses the full role card as the selector without showing a checkbox", () => {
+it("uses a removable multi-select combobox for assigned roles", async () => {
+    const user = userEvent.setup();
     const selectedMacro = macro();
+    const onSave = vi.fn(async () => selectedMacro);
     const router = createMemoryRouter(
       [
         {
@@ -650,7 +653,7 @@ it("uses the full role card as the selector without showing a checkbox", () => {
               macros={[selectedMacro]}
               roles={[role()]}
               t={t}
-              onSave={vi.fn()}
+              onSave={onSave}
             />
           )
         }
@@ -658,25 +661,50 @@ it("uses the full role card as the selector without showing a checkbox", () => {
       { initialEntries: ["/macros/macro-1/edit"] }
     );
 
-    const { container } = render(
+    render(
       <ConfirmationProvider>
         <RouterProvider router={router} />
       </ConfirmationProvider>
     );
 
-    const rolePicker = container.querySelector("#macro-role");
-    const roleButton = screen.getByRole("button", { name: /Main role/ });
-
-    expect(rolePicker?.className).toContain("p-0.5");
+    const rolePicker = screen.getByRole("combobox", { name: "Roles" });
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(roleButton.getAttribute("aria-pressed")).toBe("true");
-    expect(roleButton.className).toContain("macro-role-card-selected");
-    expect(roleButton.firstElementChild?.className).toContain("rounded-sm");
+    expect(screen.getByRole("button", { name: "Remove Main role" })).toBeTruthy();
 
-    fireEvent.click(roleButton);
+    await user.click(screen.getByRole("button", { name: "Remove Main role" }));
+    expect(screen.queryByRole("button", { name: "Remove Main role" })).toBeNull();
 
-    expect(roleButton.getAttribute("aria-pressed")).toBe("false");
-    expect(roleButton.className).not.toContain("macro-role-card-selected");
+    await user.click(rolePicker);
+    await user.click(await screen.findByRole("option", { name: "Main role" }));
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Remove Main role" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      roleIds: ["role-1"]
+    })));
+  });
+
+it("keeps the create-role prompt when no roles exist", () => {
+    const selectedMacro = macro({ roleIds: [] });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect(screen.getByText("Create roles before assigning macros.")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Roles" })).toBeNull();
   });
 });
 

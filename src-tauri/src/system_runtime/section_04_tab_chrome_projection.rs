@@ -297,6 +297,7 @@ impl TabChromeProjectionCoordinator {
         }
     }
 
+    #[cfg(test)]
     fn last_status(&self, window_id: &str, revision: u64) -> Option<NativeOperationStatus> {
         self.state.lock().ok().and_then(|state| {
             state.deliveries.get(window_id).and_then(|delivery| {

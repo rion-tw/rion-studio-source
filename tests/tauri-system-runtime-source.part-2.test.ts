@@ -159,6 +159,12 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(shell).toContain('"windowLabel": label');
     expect(shell).not.toContain("prune_empty_game_window_records");
     expect(shell).not.toContain("delete_empty_game_window");
+    const createGameWindow = shell.slice(
+      shell.indexOf('"createGameWindow" =>'),
+      shell.indexOf('"showGameWindow" =>')
+    );
+    expect(createGameWindow).toContain("create_game_window_transaction(&state, input)");
+    expect(createGameWindow).not.toContain("CoreCommand::EmbeddedWindowRegister");
     const showGameWindow = shell.slice(
       shell.indexOf('"showGameWindow" =>'),
       shell.indexOf('"updateGameWindow" =>')

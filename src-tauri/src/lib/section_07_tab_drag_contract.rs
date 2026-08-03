@@ -1,6 +1,52 @@
 const FINISHED_TAB_DRAG_LIMIT: usize = 128;
 const TAB_DRAG_SESSION_TIMEOUT: Duration = Duration::from_secs(120);
 
+fn accept_ordered_tab_drag_event(
+    state: &CoreState,
+    session_id: &str,
+    intent_generation: u64,
+    event_sequence: u64,
+) -> Result<bool, CoreErrorPayload> {
+    let mut current = state
+        .tab_drag
+        .lock()
+        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
+    let Some(session) = current.as_mut().filter(|session| session.id == session_id) else {
+        return Ok(true);
+    };
+    if session.intent_generation != intent_generation
+        || event_sequence <= session.last_event_sequence
+    {
+        return Ok(false);
+    }
+    session.last_event_sequence = event_sequence;
+    Ok(true)
+}
+
+fn superseded_tab_drag_terminal_action(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "tabDragDrop" | "tabDragEnd" | "tabDragSourceEnd" | "tabDragCancel"
+    )
+}
+
+fn superseded_tab_drag_response(
+    session_id: &str,
+    event_sequence: u64,
+    intent_generation: u64,
+) -> Value {
+    json!({
+        "eventSequence": event_sequence,
+        "intentGeneration": intent_generation,
+        "sessionId": session_id,
+        "status": "superseded",
+    })
+}
+
+fn tab_drag_defers_native_mutations(is_windows: bool, is_macos: bool) -> bool {
+    is_windows || is_macos
+}
+
 #[derive(Clone)]
 struct CompletedGameWindowTabDrag {
     receipt: SystemRuntimeOperationSummaryRecord,
@@ -78,7 +124,10 @@ fn tab_drag_terminal_record(
 }
 
 fn emit_tab_drag_active(app: &AppHandle, session: &GameWindowTabDragSession) {
-    let _ = app.emit("rion://runtime-tab-drag-session", tab_drag_active_record(session));
+    let _ = app.emit(
+        "rion://runtime-tab-drag-session",
+        tab_drag_active_record(session),
+    );
 }
 
 fn schedule_tab_drag_session_timeout(app: &AppHandle, session_id: &str) {
@@ -184,6 +233,7 @@ fn record_tab_drag_terminal(
     drop(finished);
     let _ = app.emit("rion://runtime-tab-drag-session", terminal_session);
     let _ = app.emit("rion://runtime-tab-drag-receipt", &receipt);
+    state.runtime.complete_tab_drag_intent(&session.id);
     Ok(receipt)
 }
 
@@ -288,6 +338,35 @@ fn finish_failed_tab_drag(
     finish_failed_tab_drag_session(app, state, &mut session, error)
 }
 
+fn finish_superseded_tab_drag(
+    app: &AppHandle,
+    state: &CoreState,
+    session_id: &str,
+) -> Result<Value, CoreErrorPayload> {
+    if let Some(terminal) = tab_drag_terminal(state, session_id)? {
+        return serialize_tab_drag_response(&terminal.receipt);
+    }
+    let Some(session) = take_tab_drag_session(state, session_id)? else {
+        return Ok(superseded_tab_drag_response(session_id, 0, 0));
+    };
+    record_tab_drag_lifecycle(
+        state,
+        &session,
+        "tab.drag-terminal-superseded",
+        "An older drag terminal skipped native cleanup because a newer intent owns the tab.",
+    );
+    let receipt = complete_tab_drag_terminal(
+        app,
+        state,
+        &session,
+        "tabDragSuperseded",
+        RuntimeTabDragTerminalStatus::Superseded,
+        None,
+        0,
+    )?;
+    serialize_tab_drag_response(&receipt)
+}
+
 fn finish_failed_tab_drag_session(
     app: &AppHandle,
     state: &CoreState,
@@ -295,13 +374,31 @@ fn finish_failed_tab_drag_session(
     error: CoreErrorPayload,
 ) -> Result<Value, CoreErrorPayload> {
     session.phase = GameWindowTabDragPhase::Cancelled;
+    if session.intent_generation > 0
+        && !state
+            .runtime
+            .tab_drag_projection_is_latest(&session.id, session.intent_generation)
+    {
+        record_tab_drag_lifecycle(
+            state,
+            session,
+            "tab.drag-cleanup-superseded",
+            "An older drag failure skipped rollback because a newer user intent owns the tab.",
+        );
+        let receipt = complete_tab_drag_terminal(
+            app,
+            state,
+            session,
+            "tabDragSuperseded",
+            RuntimeTabDragTerminalStatus::Superseded,
+            None,
+            0,
+        )?;
+        return serialize_tab_drag_response(&receipt);
+    }
     let rollback = cancel_tab_drag_session(state, session);
     let (status, failure_code, rollback_error_count) = match rollback {
-        Ok(()) => (
-            RuntimeTabDragTerminalStatus::Failed,
-            error.code.clone(),
-            0,
-        ),
+        Ok(()) => (RuntimeTabDragTerminalStatus::Failed, error.code.clone(), 0),
         Err(cleanup) => (
             RuntimeTabDragTerminalStatus::Indeterminate,
             cleanup.error.code,
@@ -353,13 +450,29 @@ fn finish_applied_tab_drag(
     session: &GameWindowTabDragSession,
     outcome: RuntimeTabMutationProjectionOutcome,
 ) -> Result<Value, CoreErrorPayload> {
+    let outcome = if session.intent_generation > 0
+        && !state
+            .runtime
+            .tab_drag_projection_is_latest(&session.id, session.intent_generation)
+    {
+        RuntimeTabMutationProjectionOutcome::Superseded
+    } else {
+        outcome
+    };
+    if outcome == RuntimeTabMutationProjectionOutcome::Superseded {
+        record_tab_drag_lifecycle(
+            state,
+            session,
+            "tab.drag-projection-superseded",
+            "An older drag projection was fenced because a newer user intent exists.",
+        );
+    }
     let (stage, status, failure_code) = match outcome {
         RuntimeTabMutationProjectionOutcome::Applied => (
             "tabDragCommitted",
             RuntimeTabDragTerminalStatus::Applied,
             None,
         ),
-        #[cfg(windows)]
         RuntimeTabMutationProjectionOutcome::Superseded => (
             "tabDragSuperseded",
             RuntimeTabDragTerminalStatus::Superseded,
@@ -371,14 +484,6 @@ fn finish_applied_tab_drag(
             Some("SYSTEM_TAB_DRAG_CLEANUP_DEGRADED"),
         ),
     };
-    let receipt = complete_tab_drag_terminal(
-        app,
-        state,
-        session,
-        stage,
-        status,
-        failure_code,
-        0,
-    )?;
+    let receipt = complete_tab_drag_terminal(app, state, session, stage, status, failure_code, 0)?;
     serialize_tab_drag_response(&receipt)
 }

@@ -337,14 +337,24 @@ use super::*;
     }
 
     #[test]
-    fn windows_tab_drag_defers_native_topology_until_source_drag_ends() {
-        assert!(tab_drag_defers_native_mutations(true));
-        assert!(!tab_drag_defers_native_mutations(false));
+    fn native_tab_drag_defers_topology_on_windows_and_macos() {
+        assert!(tab_drag_defers_native_mutations(true, false));
+        assert!(tab_drag_defers_native_mutations(false, true));
+        assert!(!tab_drag_defers_native_mutations(false, false));
 
-        assert!(!windows_tab_drag_terminal_ready(false, true, false));
-        assert!(windows_tab_drag_terminal_ready(false, true, true));
-        assert!(windows_tab_drag_terminal_ready(false, false, false));
-        assert!(windows_tab_drag_terminal_ready(true, true, false));
+        assert!(!deferred_tab_drag_terminal_ready(false, true, false));
+        assert!(deferred_tab_drag_terminal_ready(false, true, true));
+        assert!(deferred_tab_drag_terminal_ready(false, false, false));
+        assert!(deferred_tab_drag_terminal_ready(true, true, false));
+    }
+
+    #[test]
+    fn only_superseded_terminal_callbacks_may_settle_the_old_session() {
+        assert!(superseded_tab_drag_terminal_action("tabDragDrop"));
+        assert!(superseded_tab_drag_terminal_action("tabDragEnd"));
+        assert!(superseded_tab_drag_terminal_action("tabDragCancel"));
+        assert!(!superseded_tab_drag_terminal_action("tabDragHover"));
+        assert!(!superseded_tab_drag_terminal_action("tabDragMove"));
     }
 
     #[test]

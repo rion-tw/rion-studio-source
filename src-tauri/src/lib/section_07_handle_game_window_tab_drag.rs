@@ -4,7 +4,8 @@ pub(crate) async fn handle_game_window_tab_drag(
     source_window_id: &str,
     action: &Value,
 ) -> Result<Option<Value>, CoreErrorPayload> {
-    let deferred_native_commit = tab_drag_defers_native_mutations(cfg!(windows));
+    let deferred_native_commit =
+        tab_drag_defers_native_mutations(cfg!(windows), cfg!(target_os = "macos"));
     let Some(action_type) = action["type"].as_str() else {
         return Ok(None);
     };
@@ -29,10 +30,11 @@ pub(crate) async fn handle_game_window_tab_drag(
                 "Runtime tab drag session ID is invalid.",
             )
         })?;
+    let event_sequence = action["eventSequence"].as_u64().unwrap_or_default();
+    let intent_generation = action["intentGeneration"].as_u64().unwrap_or_default();
     let action_point = matches!(
         action_type,
-        "tabDragMove" | "tabDragHover" | "tabDragDrop" | "tabDragEnd"
-            | "tabDragSourceEnd"
+        "tabDragMove" | "tabDragHover" | "tabDragDrop" | "tabDragEnd" | "tabDragSourceEnd"
     )
     .then(|| {
         drag_screen_point(
@@ -42,14 +44,66 @@ pub(crate) async fn handle_game_window_tab_drag(
         )
     })
     .transpose()?;
-    if let Some((screen_x, screen_y)) = action_point {
-        record_latest_tab_drag_point(state, session_id, screen_x, screen_y)?;
-    }
     let _lane = state.tab_drag_lane.lock().await;
     if action_type != "tabDragStart"
         && let Some(terminal) = tab_drag_terminal(state, session_id)?
     {
         return serialize_tab_drag_response(&terminal.receipt).map(Some);
+    }
+    if action_type != "tabDragStart"
+        && intent_generation > 0
+        && !state
+            .runtime
+            .tab_drag_intent_is_latest(session_id, intent_generation)
+    {
+        let active_session = state
+            .tab_drag
+            .lock()
+            .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?
+            .as_ref()
+            .filter(|session| session.id == session_id)
+            .cloned();
+        if let Some(active_session) = active_session
+            && superseded_tab_drag_terminal_action(action_type)
+        {
+            let destination = match action_type {
+                "tabDragDrop" => action["windowId"].as_str(),
+                "tabDragEnd" if active_session.single_tab => {
+                    Some(active_session.source_window_id.as_str())
+                }
+                _ => None,
+            };
+            let retains_durable_fallback = destination.is_some_and(|window_id| {
+                state.runtime.newer_tab_drag_intent_started_in(
+                    session_id,
+                    intent_generation,
+                    window_id,
+                )
+            });
+            if !retains_durable_fallback {
+                return finish_superseded_tab_drag(app, state, session_id).map(Some);
+            }
+        } else {
+            return Ok(Some(superseded_tab_drag_response(
+                session_id,
+                event_sequence,
+                intent_generation,
+            )));
+        }
+    }
+    if action_type != "tabDragStart"
+        && event_sequence > 0
+        && !accept_ordered_tab_drag_event(state, session_id, intent_generation, event_sequence)?
+    {
+        return Ok(Some(json!({
+            "eventSequence": event_sequence,
+            "intentGeneration": intent_generation,
+            "sessionId": session_id,
+            "status": "superseded",
+        })));
+    }
+    if let Some((screen_x, screen_y)) = action_point {
+        record_latest_tab_drag_point(state, session_id, screen_x, screen_y)?;
     }
 
     match action_type {
@@ -163,6 +217,8 @@ pub(crate) async fn handle_game_window_tab_drag(
                     grab_ratio_x,
                     grab_ratio_y,
                     id: session_id.to_owned(),
+                    intent_generation,
+                    last_event_sequence: event_sequence,
                     latest_move_revision: 0,
                     latest_screen_x: screen_x,
                     latest_screen_y: screen_y,
@@ -295,7 +351,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                     )
                 })?;
             if deferred_native_commit {
-                let ready = match record_windows_tab_drag_drop_intent(
+                let ready = match record_deferred_tab_drag_drop_intent(
                     state,
                     session_id,
                     target_window_id,
@@ -306,8 +362,8 @@ pub(crate) async fn handle_game_window_tab_drag(
                         return finish_failed_tab_drag(app, state, session_id, error).map(Some);
                     }
                 };
-                if ready {
-                    return finish_windows_tab_drag_session(app, state, session_id)
+                if ready || cfg!(target_os = "macos") {
+                    return finish_deferred_tab_drag_session(app, state, session_id)
                         .await
                         .map(Some);
                 }
@@ -342,14 +398,13 @@ pub(crate) async fn handle_game_window_tab_drag(
         "tabDragEnd" => {
             let cancelled = action["cancelled"].as_bool().unwrap_or(false);
             if deferred_native_commit {
-                record_windows_tab_drag_source_end(state, session_id, cancelled, false)?;
-                return finish_windows_tab_drag_session(app, state, session_id)
+                record_deferred_tab_drag_source_end(state, session_id, cancelled, false)?;
+                return finish_deferred_tab_drag_session(app, state, session_id)
                     .await
                     .map(Some);
             } else {
                 if !cancelled
-                    && let Err(error) =
-                        process_tab_drag_motion(app, state, session_id, None, None)
+                    && let Err(error) = process_tab_drag_motion(app, state, session_id, None, None)
                 {
                     return finish_failed_tab_drag(app, state, session_id, error).map(Some);
                 }
@@ -383,19 +438,18 @@ pub(crate) async fn handle_game_window_tab_drag(
                 ));
             }
             let cancelled = action["cancelled"].as_bool().ok_or_else(|| {
-                shell_error("TAURI_TAB_DRAG_INVALID", "Drag cancellation state is invalid.")
+                shell_error(
+                    "TAURI_TAB_DRAG_INVALID",
+                    "Drag cancellation state is invalid.",
+                )
             })?;
             let drop_accepted = action["dropAccepted"].as_bool().ok_or_else(|| {
                 shell_error("TAURI_TAB_DRAG_INVALID", "Drag drop state is invalid.")
             })?;
-            let ready = record_windows_tab_drag_source_end(
-                state,
-                session_id,
-                cancelled,
-                drop_accepted,
-            )?;
+            let ready =
+                record_deferred_tab_drag_source_end(state, session_id, cancelled, drop_accepted)?;
             if ready {
-                return finish_windows_tab_drag_session(app, state, session_id)
+                return finish_deferred_tab_drag_session(app, state, session_id)
                     .await
                     .map(Some);
             } else {
@@ -411,10 +465,6 @@ pub(crate) async fn handle_game_window_tab_drag(
         _ => unreachable!(),
     }
     active_tab_drag_response(app, state, session_id).map(Some)
-}
-
-fn tab_drag_defers_native_mutations(is_windows: bool) -> bool {
-    is_windows
 }
 
 fn drag_fraction(action: &Value, field: &str) -> Result<f64, CoreErrorPayload> {

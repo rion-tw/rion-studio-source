@@ -427,6 +427,49 @@ impl SystemRuntimeExecutor {
         result
     }
 
+    fn reorder_native_tabs_for_projection(
+        &self,
+        window_id: &str,
+        tab_ids: &[String],
+        parent_operation_id: Option<&str>,
+    ) -> RuntimeResult<()> {
+        if self
+            .tab_drag_intents
+            .projection_is_superseded(parent_operation_id, window_id)
+        {
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        let result = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .display_hosts
+                    .get(window_id)
+                    .map(|host| host.tabs_controller.clone())
+            })
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The AppKit tab controller was not found.",
+                )
+            })?
+            .reorder_fenced(
+                tab_ids,
+                window_id,
+                parent_operation_id,
+                Arc::clone(&self.tab_drag_intents),
+            )
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            });
+        #[cfg(not(target_os = "macos"))]
+        let result = self.reorder_native_tabs(window_id, tab_ids);
+        result
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn replace_native_tab_reservation(
         &self,

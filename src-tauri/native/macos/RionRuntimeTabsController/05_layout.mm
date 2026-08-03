@@ -567,7 +567,8 @@ NS_ASSUME_NONNULL_BEGIN
     width += _tabItems[index].preferredWidth;
     if (index > 0) width += kRionTabSpacing;
   }
-  return width;
+  return RionRuntimeTabsWidthWithExternalGhost(
+      width, _tabItems.count, _externalDragGhostWidth);
 }
 
 - (void)setWindowName:(nullable NSString *)windowName {
@@ -640,6 +641,11 @@ NS_ASSUME_NONNULL_BEGIN
     RionRuntimeTabItemView *item = _tabItems[index];
     RionRuntimeSurfaceView *surface = _tabSurfaces[index];
     CGFloat width = item.preferredWidth;
+    if (_externalDragGhostWidth > 0 &&
+        [_externalDragGhostBeforeIdentifier
+            isEqualToString:item.tabIdentifier]) {
+      x += _externalDragGhostWidth + kRionTabSpacing;
+    }
     BOOL lifted = _dragSurfaceOverlayActive &&
         [_dragPlaceholderTabIdentifier isEqualToString:item.tabIdentifier];
     surface.frame = lifted

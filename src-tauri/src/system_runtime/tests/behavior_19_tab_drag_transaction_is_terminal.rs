@@ -56,3 +56,27 @@ fn tab_drag_registry_replays_the_first_terminal_receipt() {
     assert_eq!(registry.wait(&operation_id).unwrap(), first);
     assert_eq!(first.summary().status, SystemRuntimeOperationStatus::Cancelled);
 }
+
+#[test]
+fn superseded_drag_receipt_is_platform_neutral_and_not_degraded() {
+    for platform in ["macos", "windows"] {
+        let context = NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Drag,
+            "runtime-tab-drag",
+            Duration::from_secs(10),
+            platform,
+        )
+        .with_session_id("old-drag");
+        let summary = NativeOperationReceipt::with_status(
+            context,
+            "tabDragSuperseded",
+            RuntimeTabDragTerminalStatus::Superseded.native_status(),
+            None,
+        )
+        .summary();
+
+        assert_eq!(summary.platform, platform);
+        assert_eq!(summary.status, SystemRuntimeOperationStatus::Superseded);
+        assert_eq!(summary.failure_code, None);
+    }
+}

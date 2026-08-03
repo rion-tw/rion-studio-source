@@ -8,7 +8,6 @@ pub(crate) struct RuntimeTabDragOperation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeTabDragTerminalStatus {
     Applied,
-    #[cfg(windows)]
     Superseded,
     Degraded,
     Cancelled,
@@ -20,7 +19,6 @@ impl RuntimeTabDragTerminalStatus {
     fn native_status(self) -> NativeOperationStatus {
         match self {
             Self::Applied => NativeOperationStatus::Applied,
-            #[cfg(windows)]
             Self::Superseded => NativeOperationStatus::Superseded,
             Self::Degraded => NativeOperationStatus::Degraded,
             Self::Cancelled => NativeOperationStatus::Cancelled,
@@ -69,11 +67,94 @@ impl SystemRuntimeExecutor {
                 "The native tab drag operation registry is full or unavailable.",
             )
         })?;
+        self.tab_drag_intents
+            .bind_operation(session_id, &context.operation_id);
         Ok(RuntimeTabDragOperation {
             accepted_at: context.accepted_at,
             operation_id: context.operation_id,
             window_generation,
         })
+    }
+
+    pub(crate) fn stamp_native_tab_drag_action(
+        &self,
+        action_type: &str,
+        session_id: Option<&str>,
+        tab_id: Option<&str>,
+        source_window_id: Option<&str>,
+        target_window_id: Option<&str>,
+    ) -> NativeTabDragActionStamp {
+        self.tab_drag_intents.stamp_action(
+            action_type,
+            session_id,
+            tab_id,
+            source_window_id,
+            target_window_id,
+        )
+    }
+
+    pub(crate) fn tab_drag_intent_is_latest(&self, session_id: &str, generation: u64) -> bool {
+        self.tab_drag_intents.is_latest(session_id, generation)
+    }
+
+    pub(crate) fn tab_drag_projection_is_latest(&self, session_id: &str, generation: u64) -> bool {
+        self.tab_drag_intents
+            .projection_is_latest(session_id, generation)
+    }
+
+    pub(crate) fn newer_tab_drag_intent_started_in(
+        &self,
+        session_id: &str,
+        generation: u64,
+        window_id: &str,
+    ) -> bool {
+        self.tab_drag_intents
+            .newer_intent_started_in(session_id, generation, window_id)
+    }
+
+    pub(crate) fn complete_tab_drag_intent(&self, session_id: &str) {
+        self.tab_drag_intents.complete(session_id);
+    }
+
+    pub(crate) fn record_tab_drag_projection_mismatch(
+        &self,
+        request: &RuntimeTabMutationRequestRecord,
+    ) {
+        let window_id = request
+            .target_window_id
+            .as_deref()
+            .unwrap_or(&request.source_window_id);
+        let observed = self
+            .presentation
+            .existing(window_id)
+            .and_then(|state| state.lock().ok().map(|state| state.clone()));
+        let context = json!({
+            "expectedActiveTabId": request.expected_active_tab_id,
+            "expectedTabOrder": request.expected_tab_order,
+            "nativeExactReadback": false,
+            "observedActiveTabId": observed.as_ref().and_then(|state| state.selected_tab_id.as_deref()),
+            "observedTabOrder": observed.map(|state| state.tab_ids()).unwrap_or_default(),
+            "operationId": request.operation_id,
+            "presentationRevision": request.presentation_revision,
+            "tabId": request.tab_id,
+            "windowId": window_id,
+        });
+        let core = Arc::clone(&self.core);
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Warn,
+                        source: LogSource::Browser,
+                        event: "tab.drag-projection-degraded".to_owned(),
+                        message: "Native tab topology did not match the frozen drag projection."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
     }
 
     pub(crate) fn mark_tab_drag_native_submitted(&self, operation_id: &str) -> bool {

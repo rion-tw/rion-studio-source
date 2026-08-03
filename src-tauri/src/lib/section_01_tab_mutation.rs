@@ -46,7 +46,6 @@ async fn execute_tab_mutation(
             None,
             0,
         ),
-        #[cfg(windows)]
         Ok(RuntimeTabMutationProjectionOutcome::Superseded) => (
             "tabMutationSuperseded",
             RuntimeTabMutationTerminalStatus::Superseded,

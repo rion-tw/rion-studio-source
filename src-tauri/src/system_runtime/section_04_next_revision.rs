@@ -669,6 +669,7 @@ pub struct SystemRuntimeExecutor {
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
     tab_activations: Arc<TabActivationCoordinator>,
+    tab_drag_intents: Arc<TabDragIntentCoordinator>,
     tab_mutations: Arc<TabMutationCoordinator>,
     #[cfg(windows)]
     tab_chrome_projections: Arc<TabChromeProjectionCoordinator>,

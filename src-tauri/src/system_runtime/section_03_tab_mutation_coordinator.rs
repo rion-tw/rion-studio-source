@@ -4,7 +4,6 @@ const TAB_MUTATION_LANE_CAPACITY: usize = 32;
 pub(crate) enum RuntimeTabMutationProjectionOutcome {
     Applied,
     Degraded,
-    #[cfg(windows)]
     Superseded,
 }
 
@@ -428,6 +427,19 @@ impl SystemRuntimeExecutor {
         request: &RuntimeTabMutationRequestRecord,
         snapshot: &BrowserRuntimeSnapshot,
     ) -> RuntimeTabMutationProjectionOutcome {
+        let stale_projection_outcome = || {
+            if self
+                .tab_drag_intents
+                .operation_is_superseded(&request.operation_id, &request.tab_id)
+            {
+                RuntimeTabMutationProjectionOutcome::Superseded
+            } else {
+                RuntimeTabMutationProjectionOutcome::Degraded
+            }
+        };
+        if stale_projection_outcome() == RuntimeTabMutationProjectionOutcome::Superseded {
+            return RuntimeTabMutationProjectionOutcome::Superseded;
+        }
         let window_id = request
             .target_window_id
             .as_deref()
@@ -459,7 +471,7 @@ impl SystemRuntimeExecutor {
         if visible_order != request.expected_tab_order
             || runtime_active_tab_id != request.expected_active_tab_id.as_deref()
         {
-            return RuntimeTabMutationProjectionOutcome::Degraded;
+            return stale_projection_outcome();
         }
         let presentation = self
             .presentation
@@ -480,10 +492,10 @@ impl SystemRuntimeExecutor {
                 || presentation.selected_tab_id.as_deref()
                     != request.expected_active_tab_id.as_deref()
             {
-                return RuntimeTabMutationProjectionOutcome::Degraded;
+                return stale_projection_outcome();
             }
         } else if !request.expected_tab_order.is_empty() {
-            return RuntimeTabMutationProjectionOutcome::Degraded;
+            return stale_projection_outcome();
         }
 
         #[cfg(target_os = "macos")]
@@ -508,7 +520,7 @@ impl SystemRuntimeExecutor {
             }) {
                 RuntimeTabMutationProjectionOutcome::Applied
             } else {
-                RuntimeTabMutationProjectionOutcome::Degraded
+                stale_projection_outcome()
             }
         }
         #[cfg(windows)]
@@ -521,7 +533,7 @@ impl SystemRuntimeExecutor {
                 return if request.expected_tab_order.is_empty() {
                     RuntimeTabMutationProjectionOutcome::Applied
                 } else {
-                    RuntimeTabMutationProjectionOutcome::Degraded
+                    stale_projection_outcome()
                 };
             }
             match self.tab_chrome_projections.wait_for_projection_status(
@@ -534,7 +546,7 @@ impl SystemRuntimeExecutor {
                 Some(NativeOperationStatus::Superseded) => {
                     RuntimeTabMutationProjectionOutcome::Superseded
                 }
-                _ => RuntimeTabMutationProjectionOutcome::Degraded,
+                _ => stale_projection_outcome(),
             }
         }
         #[cfg(not(any(windows, target_os = "macos")))]

@@ -289,6 +289,8 @@ pub fn run() {
                 tab_drag: Mutex::new(None),
                 tab_drag_finished: Mutex::new(VecDeque::new()),
                 tab_drag_lane: tokio::sync::Mutex::new(()),
+                #[cfg(target_os = "macos")]
+                macos_tab_drag_actions: OnceLock::new(),
                 updates: Arc::clone(&updates),
             });
             if let Some(state) = app.try_state::<CoreState>() {

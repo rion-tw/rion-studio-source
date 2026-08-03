@@ -20,7 +20,7 @@ impl SystemRuntimeExecutor {
         )
         .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
         .with_revision(correlation.presentation_revision);
-        if let Some(parent_operation_id) = correlation.parent_operation_id {
+        if let Some(parent_operation_id) = correlation.parent_operation_id.as_deref() {
             operation = operation.with_parent_operation_id(parent_operation_id);
         }
         if let Some(target) = target.as_ref() {
@@ -35,7 +35,7 @@ impl SystemRuntimeExecutor {
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
-            correlation.presentation_revision,
+            &correlation,
         );
         self.record_native_operation_receipt(receipt_for_runtime_result(
             operation,

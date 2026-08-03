@@ -148,6 +148,8 @@ unsafe extern "C" fn action_callback(
                 tab_width,
                 tab_height,
                 cancelled,
+                event_sequence: 0,
+                intent_generation: 0,
             },
         );
     }));
@@ -215,7 +217,7 @@ fn c_string_from_pointer(value: *const c_char) -> Option<String> {
     })
 }
 
-struct NativeTabAction {
+pub(crate) struct NativeTabAction {
     action_type: String,
     session_id: Option<String>,
     tab_id: Option<String>,
@@ -229,25 +231,41 @@ struct NativeTabAction {
     tab_width: f64,
     tab_height: f64,
     cancelled: bool,
+    event_sequence: u64,
+    intent_generation: u64,
 }
 
-fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction) {
-    tauri::async_runtime::spawn(async move {
-        let NativeTabAction {
-            action_type,
-            session_id,
-            tab_id,
-            source_window_id,
-            target_window_id,
-            before_tab_id,
-            screen_x,
-            screen_y,
-            grab_ratio_x,
-            grab_ratio_y,
-            tab_width,
-            tab_height,
-            cancelled,
-        } = action;
+pub(crate) struct QueuedNativeTabAction {
+    action: NativeTabAction,
+    window_label: String,
+}
+
+fn native_tab_drag_action(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "tabDragStart"
+            | "tabDragMove"
+            | "tabDragHover"
+            | "tabDragDrop"
+            | "tabDragEnd"
+            | "tabDragCancel"
+    )
+}
+
+fn coalesce_native_tab_drag_actions(
+    current_type: &str,
+    current_session_id: Option<&str>,
+    next_type: &str,
+    next_session_id: Option<&str>,
+) -> bool {
+    matches!(current_type, "tabDragMove" | "tabDragHover")
+        && matches!(next_type, "tabDragMove" | "tabDragHover")
+        && current_session_id.is_some()
+        && current_session_id == next_session_id
+}
+
+fn dispatch_action(app: AppHandle, window_label: String, mut action: NativeTabAction) {
+    if native_tab_drag_action(&action.action_type) {
         let Some(state) = app.try_state::<crate::CoreState>() else {
             crate::reveal_shell_error(
                 &app,
@@ -255,167 +273,242 @@ fn dispatch_action(app: AppHandle, window_label: String, action: NativeTabAction
             );
             return;
         };
-        let host_window_id = state.runtime.window_id_for_label(&window_label);
-        if matches!(
-            action_type.as_str(),
-            "tabDragStart"
-                | "tabDragMove"
-                | "tabDragHover"
-                | "tabDragDrop"
-                | "tabDragEnd"
-                | "tabDragCancel"
-        ) {
-            let source_window_id = source_window_id.or_else(|| host_window_id.clone());
-            let Some(source_window_id) = source_window_id else {
-                return;
-            };
-            let mut action = serde_json::json!({
-                "type": action_type,
-                "cancelled": cancelled,
-                "screenX": screen_x,
-                "screenY": screen_y,
-                "grabRatioX": grab_ratio_x,
-                "grabRatioY": grab_ratio_y,
-                "tabWidth": tab_width,
-                "tabHeight": tab_height
+        let stamp = state.runtime.stamp_native_tab_drag_action(
+            &action.action_type,
+            action.session_id.as_deref(),
+            action.tab_id.as_deref(),
+            action.source_window_id.as_deref(),
+            action.target_window_id.as_deref(),
+        );
+        action.event_sequence = stamp.event_sequence;
+        action.intent_generation = stamp.intent_generation;
+        let sender = state.macos_tab_drag_actions.get_or_init(|| {
+            let (sender, mut receiver) =
+                tokio::sync::mpsc::unbounded_channel::<QueuedNativeTabAction>();
+            let worker_app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut carried = None;
+                loop {
+                    let Some(mut queued) = carried.take().or(receiver.recv().await) else {
+                        break;
+                    };
+                    while let Ok(candidate) = receiver.try_recv() {
+                        if coalesce_native_tab_drag_actions(
+                            &queued.action.action_type,
+                            queued.action.session_id.as_deref(),
+                            &candidate.action.action_type,
+                            candidate.action.session_id.as_deref(),
+                        ) {
+                            queued = candidate;
+                        } else {
+                            carried = Some(candidate);
+                            break;
+                        }
+                    }
+                    process_action(worker_app.clone(), queued.window_label, queued.action).await;
+                }
             });
-            if action_type != "tabDragStart"
-                && let Some(value) = action.as_object_mut()
-            {
-                value.remove("grabRatioX");
-                value.remove("grabRatioY");
-            }
-            if action_type != "tabDragStart"
-                && action_type != "tabDragHover"
-                && let Some(value) = action.as_object_mut()
-            {
-                value.remove("tabWidth");
-                value.remove("tabHeight");
-            }
-            if let Some(session_id) = session_id {
-                action["sessionId"] = serde_json::Value::String(session_id);
-            }
-            if let Some(tab_id) = tab_id {
-                action["tabId"] = serde_json::Value::String(tab_id);
-            }
-            if let Some(target_window_id) = target_window_id {
-                action["windowId"] = serde_json::Value::String(target_window_id);
-            }
-            if let Some(before_tab_id) = before_tab_id {
-                action["beforeTabId"] = serde_json::Value::String(before_tab_id);
-            }
-            if let Err(error) =
-                crate::handle_game_window_tab_drag(&app, &state, &source_window_id, &action).await
-            {
-                crate::reveal_shell_error(
-                    &app,
-                    rion_core::CoreErrorPayload {
-                        code: error.code,
-                        message: error.message,
-                    },
-                );
-            }
-            return;
-        }
-        let target_window_id = target_window_id.or(host_window_id);
-        if matches!(
-            action_type.as_str(),
-            "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
-        ) && tab_id.is_none()
+            sender
+        });
+        if sender
+            .send(QueuedNativeTabAction {
+                action,
+                window_label,
+            })
+            .is_err()
         {
             crate::reveal_shell_error(
                 &app,
                 crate::shell_error(
-                    "TAURI_RUNTIME_TAB_MENU_FAILED",
-                    "Runtime tab ID is required.",
+                    "TAURI_TAB_DRAG_FAILED",
+                    "The native tab drag action queue is unavailable.",
                 ),
             );
-            return;
         }
-        if action_type == "activate" {
-            if let Some(tab_id) = tab_id.as_deref()
-                && let Err(message) =
-                    crate::preview_and_commit_native_tab_selection(&app, &state, tab_id)
+        return;
+    }
+    tauri::async_runtime::spawn(process_action(app, window_label, action));
+}
+
+async fn process_action(app: AppHandle, window_label: String, action: NativeTabAction) {
+    let NativeTabAction {
+        action_type,
+        session_id,
+        tab_id,
+        source_window_id,
+        target_window_id,
+        before_tab_id,
+        screen_x,
+        screen_y,
+        grab_ratio_x,
+        grab_ratio_y,
+        tab_width,
+        tab_height,
+        cancelled,
+        event_sequence,
+        intent_generation,
+    } = action;
+    let Some(state) = app.try_state::<crate::CoreState>() else {
+        crate::reveal_shell_error(
+            &app,
+            crate::shell_error("SHELL_STATE_UNAVAILABLE", "App state is unavailable."),
+        );
+        return;
+    };
+    let host_window_id = state.runtime.window_id_for_label(&window_label);
+    if matches!(
+        action_type.as_str(),
+        "tabDragStart"
+            | "tabDragMove"
+            | "tabDragHover"
+            | "tabDragDrop"
+            | "tabDragEnd"
+            | "tabDragCancel"
+    ) {
+        let source_window_id = source_window_id.or_else(|| host_window_id.clone());
+        let Some(source_window_id) = source_window_id else {
+            return;
+        };
+        let mut action = serde_json::json!({
+            "type": action_type,
+            "cancelled": cancelled,
+            "screenX": screen_x,
+            "screenY": screen_y,
+            "grabRatioX": grab_ratio_x,
+            "grabRatioY": grab_ratio_y,
+            "tabWidth": tab_width,
+            "tabHeight": tab_height,
+            "eventSequence": event_sequence,
+            "intentGeneration": intent_generation,
+        });
+        if action_type != "tabDragStart"
+            && let Some(value) = action.as_object_mut()
+        {
+            value.remove("grabRatioX");
+            value.remove("grabRatioY");
+        }
+        if action_type != "tabDragStart"
+            && action_type != "tabDragHover"
+            && let Some(value) = action.as_object_mut()
+        {
+            value.remove("tabWidth");
+            value.remove("tabHeight");
+        }
+        if let Some(session_id) = session_id {
+            action["sessionId"] = serde_json::Value::String(session_id);
+        }
+        if let Some(tab_id) = tab_id {
+            action["tabId"] = serde_json::Value::String(tab_id);
+        }
+        if let Some(target_window_id) = target_window_id {
+            action["windowId"] = serde_json::Value::String(target_window_id);
+        }
+        if let Some(before_tab_id) = before_tab_id {
+            action["beforeTabId"] = serde_json::Value::String(before_tab_id);
+        }
+        if let Err(error) =
+            crate::handle_game_window_tab_drag(&app, &state, &source_window_id, &action).await
+        {
+            crate::reveal_shell_error(
+                &app,
+                rion_core::CoreErrorPayload {
+                    code: error.code,
+                    message: error.message,
+                },
+            );
+        }
+        return;
+    }
+    let target_window_id = target_window_id.or(host_window_id);
+    if matches!(
+        action_type.as_str(),
+        "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
+    ) && tab_id.is_none()
+    {
+        crate::reveal_shell_error(
+            &app,
+            crate::shell_error(
+                "TAURI_RUNTIME_TAB_MENU_FAILED",
+                "Runtime tab ID is required.",
+            ),
+        );
+        return;
+    }
+    if action_type == "activate" {
+        if let Some(tab_id) = tab_id.as_deref()
+            && let Err(message) =
+                crate::preview_and_commit_native_tab_selection(&app, &state, tab_id)
+        {
+            crate::reveal_shell_error(
+                &app,
+                crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
+            );
+        }
+        return;
+    }
+    if matches!(action_type.as_str(), "hide" | "reorder" | "move" | "stop") {
+        let Some(tab_id) = tab_id.as_deref() else {
+            return;
+        };
+        let target = if action_type == "move" {
+            let Some(window_id) = target_window_id.as_deref() else {
+                crate::reveal_shell_error(
+                    &app,
+                    crate::shell_error(
+                        "TAURI_RUNTIME_TAB_MENU_FAILED",
+                        "Target Game Window was not found.",
+                    ),
+                );
+                return;
+            };
+            match crate::launch_target_for_game_window(&app, window_id) {
+                Ok(target) => Some(target),
+                Err(error) => {
+                    crate::reveal_shell_error(&app, error);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let result = if action_type == "stop" {
+            crate::execute_tab_stop(&state, tab_id).await
+        } else {
+            crate::execute_tab_mutation(&state, &action_type, tab_id, target, before_tab_id).await
+        };
+        let result = result.and_then(|receipt| {
+            crate::runtime_operation_receipt_result(receipt)
+                .map_err(|code| crate::shell_error(&code, "Runtime tab mutation did not converge."))
+        });
+        if let Err(error) = result {
+            crate::reveal_shell_error(&app, error);
+        }
+        return;
+    }
+    match action_type.as_str() {
+        "openLauncher" => {
+            if let Some(window_id) = target_window_id.as_deref()
+                && let Err(message) = crate::runtime_tab_menu::open_launcher(&app, window_id)
             {
                 crate::reveal_shell_error(
                     &app,
                     crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
                 );
             }
-            return;
         }
-        if matches!(action_type.as_str(), "hide" | "reorder" | "move" | "stop") {
-            let Some(tab_id) = tab_id.as_deref() else {
-                return;
-            };
-            let target = if action_type == "move" {
-                let Some(window_id) = target_window_id.as_deref() else {
-                    crate::reveal_shell_error(
-                        &app,
-                        crate::shell_error(
-                            "TAURI_RUNTIME_TAB_MENU_FAILED",
-                            "Target Game Window was not found.",
-                        ),
-                    );
-                    return;
-                };
-                match crate::launch_target_for_game_window(&app, window_id) {
-                    Ok(target) => Some(target),
-                    Err(error) => {
-                        crate::reveal_shell_error(&app, error);
-                        return;
-                    }
-                }
-            } else {
-                None
-            };
-            let result = if action_type == "stop" {
-                crate::execute_tab_stop(&state, tab_id).await
-            } else {
-                crate::execute_tab_mutation(
-                    &state,
-                    &action_type,
-                    tab_id,
-                    target,
-                    before_tab_id,
-                )
-                .await
-            };
-            let result = result.and_then(|receipt| {
-                crate::runtime_operation_receipt_result(receipt).map_err(|code| {
-                    crate::shell_error(&code, "Runtime tab mutation did not converge.")
-                })
-            });
-            if let Err(error) = result {
-                crate::reveal_shell_error(&app, error);
+        "openTabMenu" => {
+            if let Some(tab_id) = tab_id.as_deref()
+                && let Err(message) = crate::runtime_tab_menu::open_tab(&app, tab_id)
+            {
+                crate::reveal_shell_error(
+                    &app,
+                    crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
+                );
             }
-            return;
         }
-        match action_type.as_str() {
-            "openLauncher" => {
-                if let Some(window_id) = target_window_id.as_deref()
-                    && let Err(message) = crate::runtime_tab_menu::open_launcher(&app, window_id)
-                {
-                    crate::reveal_shell_error(
-                        &app,
-                        crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
-                    );
-                }
-            }
-            "openTabMenu" => {
-                if let Some(tab_id) = tab_id.as_deref()
-                    && let Err(message) = crate::runtime_tab_menu::open_tab(&app, tab_id)
-                {
-                    crate::reveal_shell_error(
-                        &app,
-                        crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
-                    );
-                }
-            }
-            _ => {}
-        }
-        let _ = source_window_id;
-    });
+        _ => {}
+    }
+    let _ = source_window_id;
 }
 
 pub fn runtime_window_preferences(core: &rion_core::AppCore) -> RuntimeWindowPreferencesRecord {

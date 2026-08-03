@@ -82,9 +82,19 @@ NS_ASSUME_NONNULL_BEGIN
                                                   sessionID:parts[2]
                                                  grabRatioX:grabRatioX
                                              sourceTabWidth:sourceTabWidth];
-    [self.tabsController previewDragTabIdentifier:parts[1]
-                                  beforeIdentifier:identifier];
-    [self.tabsController hideInsertionIndicator];
+    BOOL reorderedLocalTab =
+        [self.tabsController previewDragTabIdentifier:parts[1]
+                                    beforeIdentifier:identifier];
+    if (reorderedLocalTab) {
+      [self.tabsController hideExternalDragGhost];
+      [self.tabsController hideInsertionIndicator];
+    } else {
+      // Cross-window hover is a presentation-only ghost. The dragged tab and
+      // WKWebView remain owned by the source until the matching drop commits.
+      [self.tabsController showExternalDragGhostBeforeIdentifier:identifier
+                                                           width:sourceTabWidth];
+      [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
+    }
     NSPoint screenPoint =
         [self.window convertPointToScreen:sender.draggingLocation];
     [self.tabsController handleHoverWithTabIdentifier:parts[1]
@@ -106,6 +116,7 @@ NS_ASSUME_NONNULL_BEGIN
     [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
   }
   [self.tabsController hideInsertionIndicator];
+  [self.tabsController hideExternalDragGhost];
   NSString *payload = [[sender draggingPasteboard]
       stringForType:RionRuntimeTabPasteboardType];
   NSArray<NSString *> *parts = RionRuntimeTabDragPayloadParts(payload);
@@ -143,6 +154,7 @@ NS_ASSUME_NONNULL_BEGIN
     [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
   }
   [self.tabsController hideInsertionIndicator];
+  [self.tabsController hideExternalDragGhost];
   [self.tabsController setDragPlaceholderIdentifier:nil];
   [self.tabsController resetTabDragInsertionState];
   [self.tabsController stopTabDragEdgeScroll];
@@ -183,6 +195,8 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_dragInsertionSessionIdentifier;
   NSString *_dragInsertionBeforeIdentifier;
   CGFloat _dragInsertionVisualCenterX;
+  NSString *_externalDragGhostBeforeIdentifier;
+  CGFloat _externalDragGhostWidth;
   CGFloat _dragSurfaceCanvasX;
   BOOL _dragSurfaceOverlayActive;
   BOOL _dragSurfaceVisible;

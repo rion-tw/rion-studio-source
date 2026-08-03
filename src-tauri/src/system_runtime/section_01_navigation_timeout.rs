@@ -48,6 +48,7 @@ use rion_core::{
 };
 #[cfg(windows)]
 use rion_core::{
+    DisplayInfoRecord,
     RuntimeTabActivationAcknowledgementRecord, RuntimeTabActivationRequestRecord,
     RuntimeTabChromeItemRecord, RuntimeWindowPreferencesRecord,
 };

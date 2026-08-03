@@ -763,4 +763,34 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     );
     expect(boundedCreate).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
   });
+
+  it("keeps Windows-only tab chrome projection imports reachable", async () => {
+    const [imports, projection] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_01_navigation_timeout.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_04_tab_chrome_projection.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+    const windowsImportStart = imports.indexOf('#[cfg(windows)]\nuse rion_core::{');
+    const windowsImportEnd = imports.indexOf("};", windowsImportStart);
+
+    expect(windowsImportStart).toBeGreaterThan(-1);
+    expect(windowsImportEnd).toBeGreaterThan(windowsImportStart);
+    expect(imports.slice(windowsImportStart, windowsImportEnd)).toContain(
+      "DisplayInfoRecord"
+    );
+    expect(projection).toContain(
+      "fn display_records_for_tab_chrome(&self) -> Vec<DisplayInfoRecord>"
+    );
+  });
 });

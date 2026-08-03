@@ -74,6 +74,16 @@ cargo check -p rion-tauri
 pnpm run verify:system-only
 ```
 
+Linux portable checks do not compile the Tauri shell's Windows-only or macOS-only
+`cfg` paths. Any change to native runtime code, platform imports, or shared
+runtime contracts therefore requires the native platform gate above; do not
+infer Windows reachability from a green Linux job.
+
+CI builds the renderer once in the Linux checks job and shares those assets with
+the macOS and Windows validation jobs. The release workflow still builds native
+installers separately; that packaging matrix is not a replacement for daily
+platform compilation and tests.
+
 `pnpm run build` links the Rust core directly into the application. CI must validate
 both `macos-latest` and `windows-latest` with platform-aware Rust lint, tests, and
 `cargo check -p rion-tauri --all-targets`. After that quality gate succeeds, the
